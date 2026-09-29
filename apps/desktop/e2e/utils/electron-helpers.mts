@@ -22,6 +22,8 @@ export interface ElectronAppContext {
 
 interface LaunchElectronAppOptions {
   readonly disableExternalLocalRuntimeProbes?: boolean;
+  /** Extra environment for this launch, applied BEFORE the harness's own variables so it cannot override them. */
+  readonly env?: Readonly<Record<string, string>>;
   readonly launchMode?: 'built' | 'dev-server' | 'test-built';
   readonly userDataDir?: string;
 }
@@ -35,7 +37,6 @@ const intentionallyClosingApps = new WeakSet<ElectronApplication>();
 const electronOutputBuffers = new WeakMap<ElectronApplication, ElectronOutputBuffer>();
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
 const electronAppCloseTimeoutMs = 10_000;
-const electronWindowCloseTimeoutMs = 5000;
 const ignoredElectronOutputPatterns = [
   'Electron Security Warning (Insecure Content-Security-Policy)',
   'This renderer process has either no Content Security',
@@ -73,6 +74,8 @@ const ignoredElectronOutputPatterns = [
   '"msg":"Database initialized with pgvector extension at:"',
   '"msg":"Database initialized successfully at:',
   '"msg":"Database connection closed"',
+  '"msg":"DB host process started"',
+  '"msg":"DB host init completed"',
   '"msg":"Window startup: dom-ready"',
   '"msg":"Window startup: did-finish-load"',
   '"msg":"Window startup: browser-window-created"',
@@ -105,6 +108,7 @@ const ignoredElectronOutputPatterns = [
   '"msg":"main-process-health"',
   '"msg":"Skipping maximize in desktop E2E mode because Electron shows hidden windows when maximizing"',
   '"msg":"Window startup: did-start-loading"',
+  '"msg":"Window startup: renderer-loaded"',
   '"msg":"powerSaveBlocker started for active embedding host work"',
   '"msg":"powerSaveBlocker stopped for idle embedding host"',
   '"msg":"Failed to resubscribe live query after pause release"',
@@ -113,6 +117,16 @@ const ignoredElectronOutputPatterns = [
   '"msg":"mastra stream started"',
   '"msg":"mastra stream finished"',
   '"msg":"registry cleared"',
+  '"msg":"discovered suspended approvals"',
+  '"msg":"brainstrike-asset protocol registered"',
+  '"msg":"brainstrike-canvas protocol registered"',
+  '"msg":"Browser pane session partition configured"',
+  '"msg":"Browser pane host created"',
+  '"msg":"Startup thread-run reap completed"',
+  '"msg":"Workspace snapshot orphan sweep completed"',
+  '"msg":"Workspace snapshot startup GC completed"',
+  '"msg":"Dimension index maintenance capability probe completed"',
+  '"msg":"Started parcel watcher"',
   '[ERROR:dbus/bus.cc:406] Failed to connect to the bus:',
   '[ERROR:dbus/object_proxy.cc:573] Failed to call method: org.freedesktop.DBus.NameHasOwner:',
   'Debugger ending on ws://',
@@ -206,7 +220,7 @@ function logEnvironmentDiagnostics(userDataDir?: string): void {
 export async function launchElectronApp(
   _debugPort?: number,
   userDataDir?: string,
-  options: Pick<LaunchElectronAppOptions, 'disableExternalLocalRuntimeProbes'> = {}
+  options: Pick<LaunchElectronAppOptions, 'disableExternalLocalRuntimeProbes' | 'env'> = {}
 ): Promise<ElectronAppContext> {
   return await launchElectronAppWithOptions({
     ...options,
@@ -255,7 +269,8 @@ export async function launchElectronAppWithOptions(
       userDataDir,
       launchTimeoutMs,
       launchMode,
-      options.disableExternalLocalRuntimeProbes ?? false
+      options.disableExternalLocalRuntimeProbes ?? false,
+      options.env ?? {}
     );
 
     try {
@@ -334,7 +349,8 @@ function createLaunchOptions(
   userDataDir?: string,
   launchTimeoutMs?: number,
   launchMode: 'built' | 'dev-server' | 'test-built' = 'test-built',
-  disableExternalLocalRuntimeProbes = false
+  disableExternalLocalRuntimeProbes = false,
+  extraEnv: Readonly<Record<string, string>> = {}
 ): Parameters<typeof electron.launch>[0] {
   const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
@@ -345,6 +361,11 @@ function createLaunchOptions(
   const baseArgs = [
     mainPath,
     '--test-mode',
+    '--js-flags=--expose-gc',
+    // Without this flag Chromium quantizes performance.memory.usedJSHeapSize
+    // AND caches it for 20 minutes, so within a single test every heap read
+    // returns the identical value and the memory ceilings can never bind.
+    '--enable-precise-memory-info',
     `--brainstrike-desktop-launch-mode=${launchMode}`,
     '--disable-dialogs',
     // NOTE: Do NOT specify --remote-debugging-port here.
@@ -391,6 +412,8 @@ function createLaunchOptions(
     args: [...baseArgs, ...ciArgs],
     env: {
       ...baseEnv,
+      // Before every harness-owned variable below: a spec's env can add, never override them.
+      ...extraEnv,
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_DISABLE_SANDBOX: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
@@ -404,6 +427,15 @@ function createLaunchOptions(
       // Force console logging and disable file logging to avoid contention/permissions issues
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
+      // BST-1864: `windowFocus` reports the NATIVE window's focus, and this harness
+      // window is `focusable: false` and never shown, so it is never focused —
+      // while Playwright forces the renderer's `document.hasFocus()` true. Left on,
+      // every spec would run with an unfocused app (indexer polling, the unseen
+      // badge); off, each keeps the focused app it has always run with. An explicit
+      // value wins, `''` included, so a spec that tests the bridge opts in with `''`.
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES:
+        baseEnv['BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES'] ?? 'windowFocus',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
@@ -659,39 +691,9 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
 export async function closeElectronApp(appContext: ElectronAppContext): Promise<void> {
   verboseLog('🔒 Closing Electron app...');
   try {
-    const windows = appContext.app.windows();
-    verboseLog(`📋 Closing ${windows.length} window(s)...`);
+    // Application shutdown owns hidden hosts. Closing their windows first removes
+    // the command listeners needed to acknowledge native runtime cleanup.
     intentionallyClosingApps.add(appContext.app);
-    const windowClosePromises: Promise<void>[] = [];
-    for (const window of windows) {
-      if (window.isClosed()) {
-        console.log('ℹ️ Window already closed');
-        continue;
-      }
-
-      windowClosePromises.push(
-        (async () => {
-          const windowClosed = waitForWithTimeout(
-            window.waitForEvent('close').then(() => true),
-            electronWindowCloseTimeoutMs,
-            'Electron window close event'
-          );
-          await waitForWithTimeout(
-            window.close(),
-            electronWindowCloseTimeoutMs,
-            'Electron window close request'
-          );
-          await windowClosed;
-        })()
-      );
-    }
-
-    const windowCloseResults = await Promise.allSettled(windowClosePromises);
-    for (const result of windowCloseResults) {
-      if (result.status === 'rejected') {
-        console.warn('⚠️ Failed to close Electron window gracefully:', result.reason);
-      }
-    }
 
     let didClose: boolean | null = true;
     try {

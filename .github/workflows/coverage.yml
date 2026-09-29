@@ -114,7 +114,12 @@ jobs:
        github.event.action == 'reopened' ||
        github.event.action == 'ready_for_review' ||
        (github.event.action == 'labeled' && github.event.label.name == 'coverage'))
-    runs-on: ubuntu-latest
+    # The same 4-vCPU / 16-GB / 150-GB Ubicloud class as every test.yml lane that
+    # does a full install + build. BST-1882: from 2026-09-29 the full pnpm install
+    # ran ubicloud-standard-2 (75 GB disk) out of space inside `Setup workspace`
+    # ("No space left on device" in the runner's own diag log) on every branch.
+    # Keep the existing concurrency and x64-native coverage behavior unchanged.
+    runs-on: ubicloud-standard-4
     timeout-minutes: 60
     steps:
       # `fetch-depth: 0` is REQUIRED: the affected-only coverage filter below
@@ -133,7 +138,7 @@ jobs:
       - name: Clear coverage directories
         run: |
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
-          rm -rf packages/db/.vitest-reports .nyc_output
+          rm -rf packages/db/.vitest/blob .nyc_output
 
       # See test.yml's Unit job for the rationale. Coverage instrumentation
       # runs tests so it has the same build-dependency requirement.
@@ -157,7 +162,7 @@ jobs:
       # `turbo run test:coverage` over every workspace).
       # DB is deliberately isolated from the recursive package runner. Its
       # PGlite suite is CPU-contention-sensitive (`db#test` is cache:false for
-      # the same reason), and sharing this 2-vCPU host made a type-contract
+      # the same reason), and sharing the former 2-vCPU host made a type-contract
       # test exceed 10s after 24 minutes on run 30704747207. Use the same two
       # native Vitest shards as Unit/nightly, sequentially on this one host,
       # then let Vitest merge its own blobs. No timeout or assertion is relaxed.
@@ -182,13 +187,13 @@ jobs:
               --log-order=grouped \
               --cache-dir=.turbo
           done
-          blob_count=$(find packages/db/.vitest-reports -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
+          blob_count=$(find packages/db/.vitest/blob -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
           if [ "$blob_count" -ne 2 ]; then
             echo "::error::Expected two Vitest DB blob reports; found ${blob_count}."
             exit 1
           fi
           pnpm --filter @brainstrike/db exec vitest \
-            --merge-reports=.vitest-reports \
+            --merge-reports=.vitest/blob \
             --project=unit \
             --coverage \
             --coverage.reportsDirectory=coverage \

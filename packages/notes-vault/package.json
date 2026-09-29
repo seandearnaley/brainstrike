@@ -6,13 +6,11 @@
     "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/ui": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
     "lucide-react": "catalog:",
     "zustand": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",
     "@testing-library/user-event": "catalog:",
     "@types/node": "catalog:",
@@ -26,6 +24,7 @@
     "vitest": "catalog:"
   },
   "exports": {
+    "./styles.css": "./styles.css",
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"

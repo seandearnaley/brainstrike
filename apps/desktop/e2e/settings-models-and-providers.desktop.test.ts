@@ -77,10 +77,10 @@ async function openModelsSettings(
   settingsPage: SettingsPage
 ): Promise<void> {
   await homePage.openSettings();
-  await settingsPage.openCategory(/Models & Providers/i, 'embedding-models');
+  await settingsPage.openCategory(/Model Catalog/i, 'embedding-models');
 }
 
-test.describe('Models & Providers settings (desktop)', () => {
+test.describe('Model Catalog settings (desktop)', () => {
   test('shows a registry load error and recovers on retry', async ({ window, homePage }) => {
     await installSettingsTestOverrides(window, {
       modelRegistry: {
@@ -108,7 +108,8 @@ test.describe('Models & Providers settings (desktop)', () => {
     });
     await window.getByTestId('model-registry-retry').click();
 
-    await expect(window.getByTestId('model-cache-dir-input')).toBeVisible();
+    // The cache directory lives in a header popover since BST-1805.
+    await expect(window.getByTestId('model-cache-dir-trigger')).toBeVisible();
     await expect(window.locator('[data-testid^="model-row-"]').first()).toBeVisible();
   });
 
@@ -126,6 +127,7 @@ test.describe('Models & Providers settings (desktop)', () => {
 
     const settingsPage = new SettingsPage(window);
     await openModelsSettings(homePage, settingsPage);
+    await window.getByTestId('model-cache-dir-trigger').click();
     await window.getByTestId('model-cache-dir-select').click();
 
     await expect(
@@ -147,9 +149,13 @@ test.describe('Models & Providers settings (desktop)', () => {
 
     const settingsPage = new SettingsPage(window);
     await openModelsSettings(homePage, settingsPage);
+    await window.getByTestId('model-cache-dir-trigger').click();
     await window.getByTestId('model-cache-dir-select').click();
 
     await expect(window.getByTestId('model-cache-dir-input')).toHaveValue(
+      '/tmp/brainstrike-model-cache'
+    );
+    await expect(window.getByTestId('model-cache-dir-trigger')).toContainText(
       '/tmp/brainstrike-model-cache'
     );
   });

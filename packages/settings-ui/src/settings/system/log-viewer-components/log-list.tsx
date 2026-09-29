@@ -92,6 +92,7 @@ export function LogList({
   return (
     <div
       className="w-full flex-1 overflow-auto bg-muted/5"
+      data-testid="log-list-scroll-container"
       ref={parentRef}
       style={{ height: '100%', minHeight: '300px' }} // Ensure it takes full height of container
     >

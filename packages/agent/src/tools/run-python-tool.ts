@@ -24,6 +24,7 @@ import { NATIVE_TOOL_RESULT_CHAR_BUDGET } from '../stream/tool-output-limits';
 // constant, or the approval card would state terms the run does not honour.
 import { RUN_PYTHON_DEFAULT_TIMEOUT_MS } from './run-python-approval-context';
 import { RunPythonInputSchema } from './schemas';
+import { resolveGuardedToolSignal } from './tool-guard-deadline';
 
 const logger = createLogger('RunPythonTool');
 
@@ -394,8 +395,9 @@ async function removeScratchDir(scratchDir: string): Promise<RunPythonScratchCle
  *   resuming ANY suspension of an approval-gated tool: Mastra re-checks the
  *   gate on every resume leg and converts a resume without `approved: true`
  *   into its generic denial before execute() runs. The repo's resume
- *   transport attaches it for ask-gated tools (agent-streaming.ts); it is a
- *   statement of fact — the call WAS approved at its pre-execution gate.
+ *   transport attaches it for ask-gated tools (`attempt-legs.ts`,
+ *   `createToolResumeTurnAttempt`); it is a statement of fact — the call WAS
+ *   approved at its pre-execution gate.
  */
 const RunPythonNetworkSuspendSchema = z
   .object({
@@ -655,7 +657,7 @@ export function createRunPythonTool(options: RunPythonToolOptions) {
       const timeoutMs = parsed.timeoutMs ?? RUN_PYTHON_DEFAULT_TIMEOUT_MS;
       // The seam REQUIRES a real AbortSignal so user Stop kills the process
       // tree. A run without one would leave Python executing until timeoutMs.
-      const callerSignal = context?.abortSignal ?? new AbortController().signal;
+      const callerSignal = resolveGuardedToolSignal(context) ?? new AbortController().signal;
       // ONE budget spans resolve + execute. Resolving is slow on a cold first
       // run (hashing and unpacking the bundled CPython), and bounding only the
       // execute half would let a call the model capped at 30s spend far longer

@@ -1,5 +1,7 @@
 import { createLogger } from '@brainstrike/logging';
 import { resetAssistantBudgetPreferencesStoreToDefaults } from './stores/assistant-budget-preferences-store';
+import { resetAssistantSubagentPreferencesStoreToDefaults } from './stores/assistant-subagent-preferences-store';
+import { resetBackgroundIndexingPreferencesStoreToDefaults } from './stores/background-indexing-preferences-store';
 import { resetDiagnosticsRetentionStoreToDefaults } from './stores/diagnostics-retention-store';
 import { resetExperimentAssignmentPreferencesStoreToDefaults } from './stores/experiment-assignment-preferences-store';
 import { resetExplorerColumnSizesStoreToDefault } from './stores/explorer-column-sizes-store';
@@ -12,6 +14,7 @@ import { resetSelfImprovementSignalPreferencesStoreToDefaults } from './stores/s
 import { resetSkillsPreferencesStoreToDefaults } from './stores/skills-preferences-store';
 import { resetSubagentPersonasStoreToDefaults } from './stores/subagent-personas-store';
 import { resetWorkspaceInstructionsPreferencesStoreToDefaults } from './stores/workspace-instructions-preferences-store';
+import { resetWorktreeSetupConsentStoreToDefaults } from './stores/worktree-setup-consent-store';
 
 const logger = createLogger('FactoryReset');
 
@@ -143,7 +146,10 @@ async function clearElectronStorage(): Promise<ClearPersistentUiStateFailure[]> 
   };
   const failures: ClearPersistentUiStateFailure[] = [];
 
-  // Clear renderer storage (electron-storage.json)
+  // Clear renderer-owned records in electron-storage.json. Desktop main's
+  // resetLocal handler owns the full userData wipe, including main-owned root
+  // and vault ledgers; the renderer storage bridge deliberately preserves
+  // those authority keys outside that main-owned reset (BST-1401).
   if (w.electronAPI?.storage?.clear) {
     try {
       await w.electronAPI.storage.clear();
@@ -390,71 +396,75 @@ function resetExperimentAssignmentPreferences(): void {
   }
 }
 
+/**
+ * Runs one live-store reset, logging (never throwing) on failure so one bad
+ * store can never abort the rest of `clearBrowserStorage`'s pass. Extracted
+ * so each new FACTORY RESET CONTRACT entry below is a single call instead of
+ * its own try/catch — the repeated try/catch shape is what previously pushed
+ * `clearBrowserStorage`'s cognitive complexity over the lint ceiling.
+ */
+function resetLiveStoreSafely(description: string, reset: () => void): void {
+  try {
+    reset();
+  } catch (error) {
+    logger.warn(`Failed to reset ${description}`, { error });
+  }
+}
+
 function clearBrowserStorage(): void {
   // The Explorer tree-grid layout AND its ordering are persisted and also live
   // in singleton stores. Web factory reset need not reload, so clear both
   // layers explicitly per the FACTORY RESET CONTRACT.
-  try {
-    resetExplorerColumnSizesStoreToDefault();
-  } catch (error) {
-    logger.warn('Failed to reset Explorer column sizes store', { error });
-  }
-  try {
-    resetExplorerColumnVisibilityStoreToDefault();
-  } catch (error) {
-    logger.warn('Failed to reset Explorer column visibility store', { error });
-  }
-  try {
-    resetExplorerSortStateStoreToDefault();
-  } catch (error) {
-    logger.warn('Failed to reset Explorer sort state store', { error });
-  }
+  resetLiveStoreSafely('Explorer column sizes store', resetExplorerColumnSizesStoreToDefault);
+  resetLiveStoreSafely(
+    'Explorer column visibility store',
+    resetExplorerColumnVisibilityStoreToDefault
+  );
+  resetLiveStoreSafely('Explorer sort state store', resetExplorerSortStateStoreToDefault);
 
   // Reset live in-memory stores that hold session-only state. The blanket
   // localStorage.clear() below wipes persisted slices, but session-lived state
   // (e.g. permission session grants) lives only in the running store instance,
   // so it would survive a reset that does not force a reload (web path). Reset
   // it explicitly per the FACTORY RESET CONTRACT.
-  try {
-    resetPermissionPolicyStoreToDefaults();
-  } catch (error) {
-    logger.warn('Failed to reset permission policy store', { error });
-  }
+  resetLiveStoreSafely('permission policy store', resetPermissionPolicyStoreToDefaults);
 
   // Subagent persona availability (delegation switch + per-persona disables)
   // is a persisted preference; reset it with the other preference stores.
-  try {
-    resetSubagentPersonasStoreToDefaults();
-  } catch (error) {
-    logger.warn('Failed to reset subagent personas store', { error });
-  }
+  resetLiveStoreSafely('subagent personas store', resetSubagentPersonasStoreToDefaults);
 
   // Same rationale as the permission-policy store above: `masterEnabled` is a
   // live in-memory toggle that a reset without a reload (the web path) would
   // otherwise leave on.
-  try {
-    resetNotificationPreferencesStoreToDefaults();
-  } catch (error) {
-    logger.warn('Failed to reset notification preferences store', { error });
-  }
+  resetLiveStoreSafely(
+    'notification preferences store',
+    resetNotificationPreferencesStoreToDefaults
+  );
 
   // Hook-trust approvals are persisted AND security-sensitive: a factory reset
   // must forget every per-root project-hook approval so a re-mounted repo's
   // hooks require fresh review (FACTORY RESET CONTRACT + hooks security spine).
-  try {
-    resetHookTrustStoreToDefaults();
-  } catch (error) {
-    logger.warn('Failed to reset hook trust store', { error });
-  }
+  resetLiveStoreSafely('hook trust store', resetHookTrustStoreToDefaults);
+
+  // Repository-script approvals and denials are security-sensitive local
+  // decisions. A fresh start must require a new choice for every repository.
+  resetLiveStoreSafely('worktree setup consent store', resetWorktreeSetupConsentStoreToDefaults);
 
   // Same rationale as the notification store above: `masterEnabled` and the
   // per-root oversized opt-in map are live in-memory state a reset without a
   // reload (web path) would otherwise leave in place.
-  try {
-    resetWorkspaceInstructionsPreferencesStoreToDefaults();
-  } catch (error) {
-    logger.warn('Failed to reset workspace instructions preferences store', { error });
-  }
+  resetLiveStoreSafely(
+    'workspace instructions preferences store',
+    resetWorkspaceInstructionsPreferencesStoreToDefaults
+  );
+
+  // Same rationale as the workspace instructions store above: the per-root
+  // `worktreeRootIndexingOptInById` opt-in map is live in-memory state a reset
+  // without a reload (web path) would otherwise leave in place.
+  resetLiveStoreSafely(
+    'background indexing preferences store',
+    resetBackgroundIndexingPreferencesStoreToDefaults
+  );
 
   // Self-improvement signal injection is an explicit persisted opt-in. Reset
   // the live store as well as clearing localStorage so it returns to OFF.
@@ -467,29 +477,27 @@ function clearBrowserStorage(): void {
 
   // Budget guardrail caps are persisted preferences; reset the live store too
   // so an in-memory cap never survives a reset without a reload (web path).
-  try {
-    resetAssistantBudgetPreferencesStoreToDefaults();
-  } catch (error) {
-    logger.warn('Failed to reset assistant budget preferences store', { error });
-  }
+  resetLiveStoreSafely(
+    'assistant budget preferences store',
+    resetAssistantBudgetPreferencesStoreToDefaults
+  );
+
+  // Subagent budgets are persisted preferences; reset the live store too so
+  // an in-memory budget never survives a reset without a reload (web path).
+  resetLiveStoreSafely(
+    'assistant subagent preferences store',
+    resetAssistantSubagentPreferencesStoreToDefaults
+  );
 
   // Agent Skills preferences: the master toggle + per-skill disable map are
   // live in-memory state a reset without a reload would otherwise leave in
   // place (FACTORY RESET CONTRACT).
-  try {
-    resetSkillsPreferencesStoreToDefaults();
-  } catch (error) {
-    logger.warn('Failed to reset skills preferences store', { error });
-  }
+  resetLiveStoreSafely('skills preferences store', resetSkillsPreferencesStoreToDefaults);
 
   // Diagnostic-log retention (max age/rows) is a persisted preference; reset
   // the live store too so an in-memory override never survives a reset
   // without a reload (web path).
-  try {
-    resetDiagnosticsRetentionStoreToDefaults();
-  } catch (error) {
-    logger.warn('Failed to reset diagnostics retention store', { error });
-  }
+  resetLiveStoreSafely('diagnostics retention store', resetDiagnosticsRetentionStoreToDefaults);
 
   // Drain externally-registered session-store resetters (see the registry doc
   // above). Each is guarded so one failure cannot abort the rest of the reset.
@@ -592,7 +600,8 @@ async function clearCacheStorage(): Promise<void> {
  * Layers cleared without exceptions:
  * - localStorage: All Zustand stores (embedding prefs, panel layout, etc.)
  * - sessionStorage: Any transient state (future-proofed)
- * - Electron storage: renderer storage adapter (electron-storage.json)
+ * - Electron storage: renderer-owned records in electron-storage.json; desktop
+ *   main's resetLocal handler owns the complete userData wipe
  * - Electron secrets: API keys and provider configurations (brainstrike-secrets.json)
  * - Electron settings: panel layouts, logging preferences (brainstrike-settings.json)
  * - IndexedDB: All databases enumerated and deleted (unless skipIndexedDb=true)

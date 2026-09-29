@@ -3,35 +3,39 @@
  *
  * Watching runs in the MAIN process (@parcel/watcher via
  * `@brainstrike/file-system/electron`, injected by ipc-handlers.ts) and pushes
- * batched `FileSystemChange[]` payloads to the OWNING renderer only — the same
- * ownership/reaper model as the notes-vault watch channels. The renderer never
- * receives Node watcher objects; it holds an opaque `watchId` and a one-way
- * push subscription (see `ElectronRendererFileSystemAdapter.watchDirectory`).
+ * batched `FileSystemChange[]` payloads plus optional bounded filtered-boundary
+ * evidence to the OWNING renderer only — the same ownership / reaper model as
+ * the notes-vault watch channels. The renderer never receives Node watcher
+ * objects; it holds an opaque `watchId` and a one-way push subscription (see
+ * `ElectronRendererFileSystemAdapter.watchDirectory`).
  */
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
-import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type {
   FileSystemChange,
+  FileSystemWatchBatchMetadata,
   WatcherHealthEvent,
   WatcherHealthTransition,
 } from '@brainstrike/types';
 import { ipcMain, type WebContents } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import { fileSystemWatchContract } from './file-system.contract';
 import { isMockFileSystemIpcPath, resolveFileSystemIpcPath } from './file-system-ipc';
 
 const logger = createLogger('FileSystemWatchIpc');
 
 export interface FileSystemWatchEventPayload {
   changes: FileSystemChange[];
+  filteredChangeBoundaries?: readonly string[];
+  filteredChangeBoundariesOverflow?: true;
   watchId: string;
 }
 
 export type StartFileSystemWatch = (
   directoryPath: string,
-  onChanges: (changes: FileSystemChange[]) => void,
+  onChanges: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
   onHealth: (transition: WatcherHealthTransition) => void
 ) => () => void;
 
@@ -214,15 +218,26 @@ function makeHealthSink(
 function makeChangeSink(
   owner: WebContents,
   entry: LiveFileSystemWatcher
-): (changes: FileSystemChange[]) => void {
-  return (changes) => {
+): (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void {
+  return (changes, metadata) => {
     if (owner.isDestroyed()) {
       return;
     }
     telemetry.batches += 1;
     telemetry.events += changes.length;
     for (const watchId of entry.watchIds) {
-      const payload: FileSystemWatchEventPayload = { changes, watchId };
+      const payload: FileSystemWatchEventPayload = {
+        changes,
+        ...(metadata
+          ? {
+              filteredChangeBoundaries: [...metadata.filteredChangeBoundaries],
+              ...(metadata.filteredChangeBoundariesOverflow === true
+                ? { filteredChangeBoundariesOverflow: true as const }
+                : {}),
+            }
+          : {}),
+        watchId,
+      };
       owner.send(DESKTOP_IPC_CHANNELS.files.watchEvent, payload);
     }
   };
@@ -426,10 +441,12 @@ export function registerFileSystemWatchIpcHandlers({
   telemetry.duplicateRegistrations = 0;
   telemetry.setupLatencySamples = 0;
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
-    DESKTOP_IPC_CHANNELS.files.watch,
-    async (event, handle: DirectoryHandle): Promise<FileSystemWatchRegistration> => {
+    fileSystemWatchContract.watchDirectory.channel,
+    { roles: fileSystemWatchContract.watchDirectory.roles },
+    async (event, ...raw): Promise<FileSystemWatchRegistration> => {
+      const [handle] = fileSystemWatchContract.watchDirectory.parseArgs(raw);
       const owner = event.sender;
       const requestedPath = handle?.path;
       if (typeof requestedPath !== 'string' || requestedPath.length === 0) {
@@ -481,11 +498,12 @@ export function registerFileSystemWatchIpcHandlers({
     }
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
-    DESKTOP_IPC_CHANNELS.files.watchRetry,
-    (event, rawWatchId: unknown): FileSystemWatchRetryResult => {
-      const watchId = typeof rawWatchId === 'string' ? rawWatchId : '';
+    fileSystemWatchContract.retryWatch.channel,
+    { roles: fileSystemWatchContract.retryWatch.roles },
+    (event, ...raw): FileSystemWatchRetryResult => {
+      const [watchId] = fileSystemWatchContract.retryWatch.parseArgs(raw);
       const entry = liveWatchersById.get(watchId);
       // Unknown and non-owner produce IDENTICAL results — no ownership oracle.
       if (!entry || entry.ownerId !== event.sender.id) {
@@ -536,16 +554,25 @@ export function registerFileSystemWatchIpcHandlers({
     }
   );
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.watchTelemetry, () => ({
-    activeWatchers: liveWatchersBySubscription.size,
-    ...telemetry,
-  }));
-
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'files',
-    DESKTOP_IPC_CHANNELS.files.unwatch,
-    (event, rawWatchId: unknown): void => {
-      const watchId = typeof rawWatchId === 'string' ? rawWatchId : '';
+    fileSystemWatchContract.getWatcherTelemetry.channel,
+    { roles: fileSystemWatchContract.getWatcherTelemetry.roles },
+    (_event, ...raw) => {
+      fileSystemWatchContract.getWatcherTelemetry.parseArgs(raw);
+      return {
+        activeWatchers: liveWatchersBySubscription.size,
+        ...telemetry,
+      };
+    }
+  );
+
+  registry.registerAuthorizedInvoke(
+    'files',
+    fileSystemWatchContract.unwatchDirectory.channel,
+    { roles: fileSystemWatchContract.unwatchDirectory.roles },
+    (event, ...raw): void => {
+      const [watchId] = fileSystemWatchContract.unwatchDirectory.parseArgs(raw);
       const entry = liveWatchersById.get(watchId);
       if (!entry) {
         // Disposal races with the destroyed-owner reaper are normal; log only.

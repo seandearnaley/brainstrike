@@ -14,6 +14,7 @@ describe('@brainstrike/app-shell package contract', () => {
     expect(Object.keys(manifest.exports).sort()).toEqual(
       [
         '.',
+        './app-reload',
         './browser-pane/availability',
         './browser-pane/browser-pane-content',
         './canvas/canvas-panel',
@@ -22,6 +23,7 @@ describe('@brainstrike/app-shell package contract', () => {
         './connected-prompt-manager-lazy',
         './cost-tracking-settings',
         './diagnostics',
+        './forge/availability',
         './git-panel',
         './git-panel/availability',
         './navigation',
@@ -35,6 +37,9 @@ describe('@brainstrike/app-shell package contract', () => {
         './types',
         './use-document-title',
         './user-commands-bridge',
+        './worktree-map',
+        './worktrees/availability',
+        './workspace-connect/workspace-connect-bridge',
       ].sort()
     );
   });

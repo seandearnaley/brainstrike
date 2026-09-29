@@ -122,11 +122,13 @@ export {
 export {
   type AssistantResilienceConfig,
   DEFAULT_APPROVAL_STALE_MS,
+  DEFAULT_STREAM_FIRST_OUTPUT_MS,
   DEFAULT_STREAM_INACTIVITY_MS,
   DEFAULT_TOOL_CALL_INPUT_MS,
   DEFAULT_TOOL_TIMEOUT_MS,
   resolveApprovalStaleMs,
   resolveAssistantResilienceConfig,
+  resolveStreamFirstOutputMs,
   resolveStreamInactivityMs,
   resolveToolCallInputMs,
   resolveToolTimeoutMs,
@@ -171,20 +173,29 @@ export {
   createMastraAgentRuntime,
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
+  type McpAppAdmissionObserver,
 } from './mastra/agent-runtime';
 export {
-  type DiscoveredSuspendedApproval,
-  type DiscoveredSuspendedPause,
-  type ListSuspendedRunsResult,
-  listSuspendedMastraRuns,
   streamMastraAgent,
+  streamMastraChildFollowup,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
 } from './mastra/agent-streaming';
 export {
+  cancelStoredBackgroundInvocations,
+  cancelStoredBackgroundTasks,
+} from './mastra/background-cancellation';
+export {
   buildPersonaSubAgents,
   type PersonaSubAgentBuildResult,
 } from './mastra/build-persona-subagents';
+export type {
+  ChildContinuationBaseline,
+  ChildContinuationDecision,
+  ChildContinuationHostPort,
+  ChildContinuationScope,
+  ChildContinuationStatus,
+} from './mastra/child-continuation-host-port';
 export {
   buildCompactionOverlayInputProcessor,
   CompactionOverlayProcessor,
@@ -203,6 +214,28 @@ export {
   projectCompactionMessagesForSummarizer,
 } from './mastra/conversation-compaction';
 export {
+  type BackgroundGeneration,
+  createDelegatedConversationBinding,
+  type DelegatedCancellationControl,
+  type DelegatedCancellationTarget,
+  type DelegatedConversationBinding,
+  type DelegatedConversationIdentity,
+  type DelegatedDecisionControl,
+  type DelegatedDecisionRequest,
+  type DelegatedFollowupControl,
+  type DelegatedFollowupInput,
+  type DelegatedFollowupTarget,
+  type DelegatedLiveDecisionRecord,
+  type DelegatedPromptManifestKind,
+  type DelegatedPromptManifestRecord,
+  type DelegatedToolActionScope,
+  type DelegatedWakeupInvocation,
+  type DelegatedWakeupRecord,
+} from './mastra/delegated-conversation-binding';
+export type { DelegatedRunIdentity } from './mastra/delegated-run-publication';
+export type { DelegatedSuspensionResolver } from './mastra/delegated-suspension-discovery';
+export { captureDelegatedSystemContext } from './mastra/delegated-system-context';
+export {
   clipGrepProjectionLine,
   formatGrepContentHeader,
   formatGrepContentRow,
@@ -211,11 +244,25 @@ export {
   normalizeGrepProjectionLine,
 } from './mastra/grep-model-format';
 export {
+  isLiveDecisionUnavailableError,
+  LiveDecisionUnavailableError,
+} from './mastra/live-decision-channel';
+export {
   createMastraAgentError,
   isMastraAgentError,
   MastraAgentError,
   type MastraAgentErrorCode,
 } from './mastra/mastra-agent-error';
+export type {
+  McpAppOrdinaryToolCallOptions,
+  McpAppToolAdmissionCapability,
+  McpAppToolCallTelemetry,
+} from './mastra/mcp-app-tool-call';
+export {
+  createMcpAppOrdinaryToolCallPreparer,
+  McpAppToolNotAdmittedError,
+} from './mastra/mcp-app-tool-call';
+export { readMcpCreatedTaskResult } from './mastra/mcp-task-tool-result';
 export {
   type AssistantPermissionPolicyRequest,
   isAssistantPermissionPolicyRequest,
@@ -223,6 +270,8 @@ export {
 } from './mastra/permission-policy-request';
 export { resolveSelfApprovalDecision } from './mastra/permission-tool-gate';
 export { PERSONA_PIN_KEYLESS_PROVIDERS } from './mastra/persona-pinned-model';
+export { buildModelSettingsOption } from './mastra/runtime-assembly/stream-options';
+export { composeRuntimeToolMap } from './mastra/runtime-assembly/tool-pipeline';
 export {
   SHELL_OUTPUT_STREAM_PART_TYPE,
   type ShellOutputWriter,
@@ -230,10 +279,15 @@ export {
 } from './mastra/shell-output-stream';
 export {
   createDelegationConfig,
-  MAX_CONCURRENT_DELEGATIONS,
-  MAX_DELEGATIONS_PER_RUN,
   shouldEnablePersonas,
 } from './mastra/subagent-delegation';
+export {
+  type DiscoveredSuspendedApproval,
+  type DiscoveredSuspendedPause,
+  type ListSuspendedRunsResult,
+  listSuspendedChildContinuation,
+  listSuspendedMastraRuns,
+} from './mastra/suspended-run-discovery';
 export type { ToolCallTelemetryMetadata } from './mastra/tool-call-telemetry';
 export {
   attachToolCallTelemetryMetadata,
@@ -277,8 +331,27 @@ export {
 } from './mastra/tool-projection-rewrite-processor';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
-export type { McpConfig, McpServer } from './mcp/config';
-export { McpConfigSchema, McpServerSchema, McpTransportEnum, parseMcpConfig } from './mcp/config';
+export type {
+  McpConfig,
+  McpConfigInput,
+  McpProtocol,
+  McpProtocolMigration,
+  McpServer,
+  McpServerInput,
+  ResolvedMcpConfig,
+  ResolvedMcpServer,
+} from './mcp/config';
+export {
+  isInteractiveMcpStdioServer,
+  McpConfigSchema,
+  McpProtocolEnum,
+  McpServerSchema,
+  McpTransportEnum,
+  parseMcpConfig,
+  parseMcpConfigWithMigrations,
+  resolveMcpStartupPolicy,
+  toMcpVersionNegotiation,
+} from './mcp/config';
 export {
   createDefaultToolPreferences,
   deleteToolPreferences,
@@ -286,6 +359,7 @@ export {
   loadToolPreferences,
   saveToolPreferences,
   type ToolPreferences,
+  type ToolPreferencesLoadResult,
 } from './mcp/tool-persistence';
 export {
   type McpToolMetadata,
@@ -333,6 +407,23 @@ export {
   providerRunErrorToEventMetadata,
   readProviderRunError,
 } from './provider-error-metadata';
+// BST-1353: the AWS credential chain is exported from the ROOT (Node)
+// entrypoint only — never from browser-safe/client/provider-metadata — so a
+// renderer import cannot reach `@aws-sdk/credential-providers`.
+export {
+  AWS_CHAIN_NO_CREDENTIALS_HINT,
+  type AwsChainFailure,
+  type AwsChainFailureKind,
+  classifyAwsChainFailure,
+  createAwsCredentialChain,
+  describeAwsChainFailure,
+  resolveAwsCredentialChain,
+  verifyAwsCredentialChain,
+} from './providers/aws-credential-chain';
+export type {
+  AwsCredentialIdentity,
+  AwsCredentialIdentityProvider,
+} from './providers/aws-credential-identity';
 export type {
   LocalLlmConfig,
   LocalLlmGenerationOptions,
@@ -359,6 +450,10 @@ export {
   providerSupportsNativeWebSearch,
   WEB_SEARCH_TOOL_ID,
 } from './providers/native-web-search';
+export {
+  apiKeyAuthInput,
+  type ProviderAuthInput,
+} from './providers/provider-auth-input';
 export {
   type ConcreteLanguageModel,
   createEmbeddingProvider,
@@ -555,6 +650,7 @@ export {
   SAFE_FILE_TREE_ERRORS,
 } from './tools/file-tree-tool';
 export { withFileLock } from './tools/file-write-lock';
+export { guardToolExecution } from './tools/guard-tool-execution';
 export {
   type AgentHookRunner,
   HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
@@ -576,6 +672,7 @@ export {
   SAFE_QUEUE_STATUS_ERRORS,
   type VectorQueueSnapshot,
 } from './tools/queue-status-tool';
+export { readToolExecutionThreadId } from './tools/read-tool-call-id';
 export {
   computeExecutionContextFingerprint,
   resolveRunPythonExecutionContext,
@@ -619,6 +716,8 @@ export {
   ListEmbeddingSetsInputSchema,
   type ListWorkspaceContextInput,
   ListWorkspaceContextInputSchema,
+  type ListWorktreesInput,
+  ListWorktreesInputSchema,
   type LspInspectInput,
   LspInspectInputSchema,
   type ManageCanvasInput,
@@ -627,8 +726,11 @@ export {
   ManageCommandSessionInputSchema,
   type ManageTaskListInput,
   ManageTaskListInputSchema,
+  type ManageWorktreeInput,
+  ManageWorktreeInputSchema,
   NATIVE_TOOL_INPUT_SCHEMAS,
   normalizeManageCanvasInput,
+  normalizeManageWorktreeInput,
   type QueryDiagnosticsInput,
   QueryDiagnosticsInputSchema,
   type QueryEmbeddingSpaceInput,
@@ -677,6 +779,18 @@ export {
   type StringReplaceResult,
 } from './tools/string-replace';
 export { createSubmitPlanTool, SUBMIT_PLAN_TOOL_ID } from './tools/submit-plan-tool';
+export {
+  /**
+   * The guard's REGISTRATION primitive — a mutation on a module-global
+   * registry, exported only so cross-package tests (desktop's native tool
+   * executors) can publish a deadline without reconstructing the guard.
+   * Production callers never register: `guardToolExecution` owns registration
+   * and its paired release. Tools READ the deadline via
+   * {@link resolveGuardedToolSignal}.
+   */
+  registerToolGuardDeadlineSignal,
+  resolveGuardedToolSignal,
+} from './tools/tool-guard-deadline';
 export {
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,

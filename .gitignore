@@ -160,18 +160,19 @@ icons/.generated/
 .codex/
 
 .pnpm-store/
-packages/db/__tests__/__screenshots__/
 apps/desktop/e2e-artifacts/
 apps/desktop/resources/python-runtime/*
 !apps/desktop/resources/python-runtime/manifest.json
 
 # Vitest browser-mode (real Chromium) run artifacts
 **/.vitest-attachments/
-packages/db/.vitest-reports/
-packages/ui/src/**/__screenshots__/
+# Vitest 5 generated reports and attachments; visual baselines remain trackable.
+.vitest/
+packages/mcp-test-lab/artifacts/
 
 .claude
 .impeccable/
 
 # Per-session scratch artifacts (other Claude sessions may hold these)
 .claude-scratch-*
+.claude-scratch/

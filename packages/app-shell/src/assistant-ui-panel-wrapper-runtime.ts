@@ -1,10 +1,14 @@
-import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
   type AnthropicProviderOptions,
+  BEDROCK_BUDGET_TOKENS_BY_EFFORT,
+  BEDROCK_REASONING_EFFORTS,
+  type BedrockProviderOptions,
   DESKTOP_NATIVE_TOOL_IDS,
   type DesktopNativeToolId,
   DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
+  deriveAgentLoopInputTokenLimit,
   deriveEffectiveInputBudget,
+  findLlmModelDefinition,
   type GoogleProviderOptions,
   getLlmModelDefinition,
   type HookTrustRequest,
@@ -20,6 +24,7 @@ import {
   type ProviderKeySource,
   type RuntimeAssistantMemorySettings,
   type RuntimeData,
+  resolveBedrockReasoningDisplay,
   resolveOpenRouterAutoRuntimeProfile,
   resolveOpenRouterCodingMaxOutputTokens,
   resolveOpenRouterOutputWindow,
@@ -27,6 +32,8 @@ import {
   resolveReasoningVisible,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
+import { readChildFollowupRunConfigAction } from '@brainstrike/assistant-contract/child-followup';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
 import {
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
@@ -44,10 +51,13 @@ import {
   type ProviderModelDefinition,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
+import { readToolApprovalRunConfigAction } from '@brainstrike/assistant-contract/tool-approval';
 import {
   getNativeToolDescription,
   getToolSchemaDisplay,
 } from '@brainstrike/assistant-contract/tool-metadata';
+import { readToolResumeRunConfigAction } from '@brainstrike/assistant-contract/tool-suspend';
 import type {
   AssistantThreadMetadata,
   AssistantThreadRepository,
@@ -151,8 +161,9 @@ export function resolveProviderFromComposite(
   return candidate && isSupportedProvider(candidate) ? candidate : null;
 }
 
-function createThreadRunId(): string {
-  return `run-${crypto.randomUUID()}`;
+/** The sole `HostRunId` producer; the assertion is the brand's only construction site. */
+function createThreadRunId(): HostRunId {
+  return `run-${crypto.randomUUID()}` as HostRunId;
 }
 
 function toAssistantThreadRuntimeKind(
@@ -221,8 +232,8 @@ function resolveSemanticRecallDisabledReason(args: {
 
   const providerName = getProviderDefinition(providerId).displayName;
   return args.memorySettings.semanticRecall.enabled
-    ? `Semantic recall requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn semantic recall off.`
-    : `Semantic observation recall requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn vector observation retrieval off.`;
+    ? `Semantic recall requires a configured ${providerName} API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn semantic recall off.`
+    : `Semantic observation recall requires a configured ${providerName} API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn vector observation retrieval off.`;
 }
 
 /** Why an 'auto' observer target could not resolve to a concrete model. */
@@ -369,7 +380,7 @@ function resolveObservationalMemoryDisabledReason(args: {
   }
 
   const providerName = getProviderDefinition(providerId).displayName;
-  return `Observational memory requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local observer, or turn observations off.`;
+  return `Observational memory requires a configured ${providerName} API key. Configure it in Settings → Providers, choose a keyless local observer, or turn observations off.`;
 }
 
 export function resolveAssistantMemoryDisabledReason(args: {
@@ -445,7 +456,31 @@ export function resolveHostedMemoryBackendAvailable(args: {
   return args.selectedProvider === 'local' || args.desktopAssistantBackendAvailable;
 }
 
+/**
+ * The decision a leg answers, in the shape `createThreadRun` derives its
+ * GENERATION from (migration 140, BST-1749): a delegated pause resolves
+ * through its invocation's host leg, a root-own pause through the native run
+ * the host mapped. A child-continuation decision resolves through its own
+ * receipt instead, so it contributes nothing here.
+ */
+function readGenerationDecision(
+  decision: { delegation?: unknown; runId: string; toolCallId: string } | undefined,
+  childContinuation: unknown
+): { decision?: { delegated: boolean; runId: string; toolCallId: string } } {
+  if (!decision || childContinuation) {
+    return {};
+  }
+  return {
+    decision: {
+      delegated: decision.delegation !== undefined,
+      runId: decision.runId,
+      toolCallId: decision.toolCallId,
+    },
+  };
+}
+
 export function createAssistantThreadRunPromise(args: {
+  runConfig?: unknown;
   assistantThreadRepository: AssistantThreadRepository | null;
   memoryResourceId: string | undefined;
   modelSettings: RuntimeData['modelSettings'] | undefined;
@@ -468,6 +503,29 @@ export function createAssistantThreadRunPromise(args: {
     throw new Error('Assistant run records require a selected provider and model.');
   }
 
+  const followup = readChildFollowupRunConfigAction(args.runConfig);
+  const approval = readToolApprovalRunConfigAction(args.runConfig);
+  const resume = readToolResumeRunConfigAction(args.runConfig);
+  if (
+    (followup && 'invalid' in followup) ||
+    (approval && 'invalid' in approval) ||
+    (resume && 'invalid' in resume) ||
+    [followup, approval, resume].filter(Boolean).length > 1
+  ) {
+    throw new Error(
+      'Assistant run preparation received conflicting or invalid child control input.'
+    );
+  }
+  const decision =
+    approval && 'action' in approval
+      ? approval.action
+      : resume && 'action' in resume
+        ? resume.action
+        : undefined;
+  const childContinuation = decision?.continuationId
+    ? { id: decision.continuationId, nativeRunId: decision.runId }
+    : undefined;
+  const turnMessageId = followup && 'action' in followup ? followup.action.id : args.turnMessageId;
   const providerDefinition = getProviderDefinition(args.selectedProvider);
   const runId = createThreadRunId();
   return args.assistantThreadRepository
@@ -478,7 +536,11 @@ export function createAssistantThreadRunPromise(args: {
       resourceId: args.memoryResourceId,
       runtimeKind: toAssistantThreadRuntimeKind(providerDefinition.runtime),
       threadId: args.selectedMemoryThreadId,
-      turnMessageId: args.turnMessageId,
+      turnMessageId,
+      ...(childContinuation ? { childContinuation } : {}),
+      // The decision this leg answers, so the repository can derive the
+      // GENERATION it belongs to from durable state (migration 140).
+      ...readGenerationDecision(decision, childContinuation),
       ...(args.modelSettings ? { modelSettings: { ...args.modelSettings } } : {}),
       ...(args.providerOptions ? { providerOptions: { ...args.providerOptions } } : {}),
     })
@@ -506,16 +568,15 @@ export function buildAssistantRequestData(args: {
   memorySettings: RuntimeAssistantMemorySettings;
   modelSettings: RuntimeData['modelSettings'] | undefined;
   /**
-   * Serializable permission snapshot from the permission-policy store, attached
-   * ONLY when the user has opted into enforcement. When absent (the default),
-   * the server receives no policy and the runtime tool map is unchanged
-   * (passthrough). The caller is responsible for gating this to `enforce:true`.
-   */
-  permissionPolicyRequest: PermissionToolGateSnapshotInput | undefined;
-  /**
-   * Plan mode (opt-in). Attached ONLY when `true` (presence-means-on, like
-   * `permissionPolicyRequest`); the server constrains the tool map and prepends
-   * the plan-mode instructions. Absent → normal run.
+   * Plan mode (opt-in). Attached ONLY when `true` (presence-means-on); the
+   * server constrains the tool map and prepends the plan-mode instructions.
+   * Absent → normal run.
+   *
+   * NOTE: `permissionPolicyRequest` is deliberately NOT built here. Its sole
+   * producer is `prepareRequestData` (hooks/use-assistant-request-lifecycle.ts),
+   * which reads the live permission-policy store at request-composition time
+   * and sets the field unconditionally — a render-time value would always be
+   * overwritten, so building one here would only cost a subscription (BST-1652).
    */
   planMode?: boolean;
   providerOptions: Record<string, unknown> | undefined;
@@ -552,6 +613,12 @@ export function buildAssistantRequestData(args: {
   experimentAssignment?: RuntimeData['experimentAssignment'];
   selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
+  /**
+   * Per-child subagent budgets (Settings → Subagents → Subagent budgets).
+   * REQUIRED and sent on every request: the defaults are a real value, and the host
+   * validates whatever arrives (`parseRuntimeSubagentSettings`).
+   */
+  subagentSettings: RuntimeSubagentSettings;
   /**
    * Opt-in workspace instructions preference; only set on the desktop
    * data-stream transport (web has no injection path). A preference, not a
@@ -630,6 +697,9 @@ export function buildAssistantRequestData(args: {
   if (args.modelSettings) {
     data['modelSettings'] = args.modelSettings;
   }
+  // Always sent: the defaults are a real value, and the host validates
+  // whatever arrives (`parseRuntimeSubagentSettings`) rather than assuming.
+  data['subagentSettings'] = args.subagentSettings;
   if (args.providerOptions) {
     data['providerOptions'] = args.providerOptions;
   }
@@ -640,7 +710,6 @@ export function buildAssistantRequestData(args: {
 interface OptInRequestFields {
   experimentAssignment?: RuntimeData['experimentAssignment'];
   hookTrustRequest?: HookTrustRequest | undefined;
-  permissionPolicyRequest?: PermissionToolGateSnapshotInput | undefined;
   planMode?: boolean;
   requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
   selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
@@ -659,11 +728,6 @@ function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRe
   // when resolved provider options carry a catalog-selected wire effort.
   if (fields.requestedReasoningEffort) {
     data['requestedReasoningEffort'] = fields.requestedReasoningEffort;
-  }
-  // Permission enforcement is OPT-IN: presence means "enforce"; the server
-  // re-checks `enforce` and adds server-owned tool risk classification.
-  if (fields.permissionPolicyRequest) {
-    data['permissionPolicyRequest'] = fields.permissionPolicyRequest;
   }
   // Hook-trust attestation: only on the data-stream transport; server re-hashes disk.
   if (fields.hookTrustRequest) {
@@ -752,7 +816,7 @@ export function toRuntimeWorkspaceContext(
   };
 }
 
-export function resolveAssistantProviderDisabledReason(args: {
+export function resolveAssistantProviderDisabledNotice(args: {
   configuredProviders: readonly SupportedProvider[];
   currentModel: string | null | undefined;
   getProviderLlmModels: (provider: SupportedProvider) => readonly LlmProviderModelDefinition[];
@@ -760,34 +824,36 @@ export function resolveAssistantProviderDisabledReason(args: {
   providerHasEnabledModels: (provider: SupportedProvider) => boolean;
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
   selectedProvider: SupportedProvider | null;
-}): string | undefined {
+}): { kind: 'provider' | 'model-unavailable'; message: string } | undefined {
   const localRuntimeProviderReason = resolveLocalRuntimeProviderDisabledReason(
     args.selectedProvider,
     args.configuredProviders
   );
   if (localRuntimeProviderReason) {
-    return localRuntimeProviderReason;
+    return { kind: 'provider', message: localRuntimeProviderReason };
   }
 
   const builtInLocalReason = resolveBuiltInLocalProviderDisabledReason(args.selectedProvider);
   if (builtInLocalReason) {
-    return builtInLocalReason;
+    return { kind: 'provider', message: builtInLocalReason };
   }
 
   if (args.configuredProviders.length === 0) {
-    const baseReason =
-      'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.';
-    return args.localRuntimeHint ? `${baseReason} ${args.localRuntimeHint}` : baseReason;
+    const baseReason = 'Connect an AI provider in Settings → Providers to enable the assistant.';
+    return {
+      kind: 'provider',
+      message: args.localRuntimeHint ? `${baseReason} ${args.localRuntimeHint}` : baseReason,
+    };
   }
   if (!args.selectedProvider) {
-    return 'Select an AI provider to start chatting.';
+    return { kind: 'provider', message: 'Select an AI provider to start chatting.' };
   }
   const providerReadError = args.providerReadErrors?.[args.selectedProvider];
   if (providerReadError) {
-    return providerReadError;
+    return { kind: 'provider', message: providerReadError };
   }
   if (!args.configuredProviders.includes(args.selectedProvider)) {
-    return 'The selected provider is no longer configured.';
+    return { kind: 'provider', message: 'The selected provider is no longer configured.' };
   }
 
   const providerModelIds = args
@@ -799,17 +865,26 @@ export function resolveAssistantProviderDisabledReason(args: {
     selectedProvider: args.selectedProvider,
   });
   if (unavailableLocalModelReason) {
-    return unavailableLocalModelReason;
+    return { kind: 'model-unavailable', message: unavailableLocalModelReason };
   }
 
   if (!args.providerHasEnabledModels(args.selectedProvider)) {
     const definition = getProviderDefinition(args.selectedProvider);
-    return `Enable at least one model for ${definition.displayName} to continue.`;
+    return {
+      kind: 'provider',
+      message: `Enable at least one model for ${definition.displayName} to continue.`,
+    };
   }
   if (!args.currentModel) {
-    return 'Select a model for the chosen provider to continue.';
+    return { kind: 'provider', message: 'Select a model for the chosen provider to continue.' };
   }
   return;
+}
+
+export function resolveAssistantProviderDisabledReason(
+  args: Parameters<typeof resolveAssistantProviderDisabledNotice>[0]
+): string | undefined {
+  return resolveAssistantProviderDisabledNotice(args)?.message;
 }
 
 export function resolveProviderModelSelection(args: {
@@ -841,29 +916,6 @@ export function hasValidProviderModelSelection(args: {
     return false;
   }
   return args.isModelEnabled(args.currentProvider, currentModelName);
-}
-
-export function resolveLocalRuntimeSelection(args: {
-  currentProvider: SupportedProvider;
-  currentSelectedModel: string | null;
-  isModelEnabled: (providerId: SupportedProvider, modelId: string) => boolean;
-  providerHasEnabledModels: (provider: SupportedProvider) => boolean;
-  selectModelForProvider: (provider: SupportedProvider) => void;
-}): boolean {
-  if (!isLocalRuntimeProvider(args.currentProvider)) {
-    return false;
-  }
-
-  const currentModelName = resolveModelNameFromComposite(args.currentSelectedModel);
-  if (currentModelName && args.isModelEnabled(args.currentProvider, currentModelName)) {
-    return true;
-  }
-
-  if (args.providerHasEnabledModels(args.currentProvider)) {
-    args.selectModelForProvider(args.currentProvider);
-    return true;
-  }
-  return false;
 }
 
 export type LocalRuntimeStatusMap = Record<LocalRuntimeId, LocalRuntimeAvailabilityState>;
@@ -1423,13 +1475,12 @@ export function buildAgentLoopSettings(
   const maxSteps = buildPositiveIntegerSetting(settings?.agentMaxSteps);
   let inputTokenLimit = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);
   if (inputTokenLimit === undefined && selectedModelDef !== undefined) {
-    const outputReservation =
-      providerId === 'openrouter'
-        ? (buildPositiveIntegerSetting(modelSettings?.maxOutputTokens) ??
-          buildPositiveIntegerSetting(settings?.maxOutputTokens) ??
-          resolveOpenRouterCodingMaxOutputTokens(selectedModelDef.maxOutputTokens))
-        : selectedModelDef.maxOutputTokens;
-    inputTokenLimit = deriveEffectiveInputBudget(selectedModelDef.contextWindow, outputReservation);
+    inputTokenLimit = deriveAgentLoopInputTokenLimit(
+      selectedModelDef,
+      providerId,
+      buildPositiveIntegerSetting(modelSettings?.maxOutputTokens) ??
+        buildPositiveIntegerSetting(settings?.maxOutputTokens)
+    );
   }
   if (!(maxSteps || inputTokenLimit)) {
     return;
@@ -1569,31 +1620,145 @@ function buildOpenRouterOptions(
   };
 }
 
+/**
+ * Direct Anthropic reasoning (BST-847).
+ *
+ * The OFFERED ladder is declared per model in the registry, never inferred
+ * from the SDK enum. Persisted provider-wide effort can outlive its model:
+ * an unsupported effort is ABSENT, never coerced to a neighbour, and cannot
+ * manufacture adaptive thinking. No declared ladder means no effort; an
+ * explicit legacy thinking budget remains independently configured.
+ *
+ * BST-1706: `mandatory` (always-on thinking, e.g. Fable) short-circuits both
+ * legacy shapes — a persisted budget from another model is dropped, never
+ * forwarded, and `disabled` is never sent because the vendor rejects it. For
+ * toggleable ladder rows, cleared settings explicitly disable:
+ * `mandatory: false` is the derived license for `disabled`, retiring the old
+ * Opus-5-only id check. It is load-bearing for the rows that think when
+ * options are omitted (Opus 5, Sonnet 5) — omitting would leave them thinking
+ * while the cleared toggle reads off — and equivalent to omitting for the
+ * default-off rows. Rows without a ladder (Haiku, uncatalogued) keep the
+ * legacy omit, whose shape no flag derives.
+ */
+function resolveAnthropicThinkingShape(input: {
+  budgetTokens: number | undefined;
+  effort: AssistantProviderSettings['anthropicEffort'];
+  hasLadder: boolean;
+  mandatory: boolean;
+  showReasoning: boolean;
+}): AnthropicProviderOptions['thinking'] | undefined {
+  if (input.mandatory) {
+    // BST-1804: sent at EVERY effort, Auto included. Anthropic documents that
+    // these rows think with no configuration, that `{type: "adaptive"}` needs
+    // no effort, and that `display` defaults to `omitted` on them — so an
+    // omitted `thinking` hides the show-reasoning preference, and on Opus 5.5
+    // the between-tool-call progress text it returns in thinking blocks.
+    // Auto still sends no effort: the vendor default applies.
+    return {
+      display: input.showReasoning ? 'summarized' : 'omitted',
+      type: 'adaptive',
+    };
+  }
+  if (typeof input.budgetTokens === 'number') {
+    return {
+      budgetTokens: Math.floor(input.budgetTokens),
+      type: 'enabled',
+    };
+  }
+  if (input.effort !== undefined) {
+    return {
+      display: input.showReasoning ? 'summarized' : 'omitted',
+      type: 'adaptive',
+    };
+  }
+  return input.hasLadder ? { type: 'disabled' } : undefined;
+}
+
 function buildAnthropicOptions(
+  modelName: string | undefined,
   settings: AssistantProviderSettings
 ): AnthropicProviderOptions | undefined {
-  const effort = settings.anthropicEffort || undefined;
+  const reasoning = modelName
+    ? findLlmModelDefinition('anthropic', modelName)?.anthropicReasoning
+    : undefined;
+  const requestedEffort = settings.anthropicEffort;
+  const effort =
+    requestedEffort && reasoning?.supportedEfforts.includes(requestedEffort)
+      ? requestedEffort
+      : undefined;
   // An explicit budget pins the legacy `enabled` form (older models); it also
   // carries no `display`, so it is left exactly as configured. Otherwise the
   // modern adaptive form carries `display`, which defaults to `omitted`
-  // provider-side — the reason Claude runs showed no thinking at all. Only
-  // emitted alongside a chosen effort so cleared settings yield no options.
-  const thinking: AnthropicProviderOptions['thinking'] | undefined =
-    typeof settings.anthropicThinkingBudgetTokens === 'number'
-      ? {
-          budgetTokens: Math.floor(settings.anthropicThinkingBudgetTokens),
-          type: 'enabled',
-        }
-      : effort
-        ? {
-            display: resolveReasoningVisible(settings) ? 'summarized' : 'omitted',
-            type: 'adaptive',
-          }
-        : undefined;
+  // provider-side — the reason Claude runs showed no thinking at all. Emitted
+  // alongside a chosen effort, and at Auto for always-on (`mandatory`) rows.
+  //
+  // Thinking-shape rules (mandatory short-circuit, explicit disable on
+  // clear) live on resolveAnthropicThinkingShape above. `hasLadder` is
+  // exactly "the row declares an `anthropicReasoning` catalog block".
+  const thinking = resolveAnthropicThinkingShape({
+    budgetTokens: settings.anthropicThinkingBudgetTokens,
+    effort,
+    hasLadder: reasoning !== undefined,
+    mandatory: reasoning?.mandatory ?? false,
+    showReasoning: resolveReasoningVisible(settings),
+  });
   return buildOptionalOptions<AnthropicProviderOptions>([
     ['effort', effort],
     ['thinking', thinking],
   ]);
+}
+
+/**
+ * Bedrock reasoning (BST-1354).
+ *
+ * The wire shape is chosen by the model's REGISTRY dialect, never by sniffing
+ * the model id: adaptive Claude routes reject the legacy `enabled` form, and
+ * Amazon Nova has no token budget at all. An effort the route does not offer
+ * yields NO options rather than a config the API would reject — persisted
+ * settings outlive model switches, and `bedrockEffort` is provider-wide while
+ * the ladder is per model.
+ */
+function buildBedrockOptions(
+  modelName: string | undefined,
+  settings: AssistantProviderSettings
+): BedrockProviderOptions | undefined {
+  const effort = settings.bedrockEffort;
+  if (!(modelName && effort)) {
+    return;
+  }
+  // Keyed on the UNPREFIXED catalog id, which is all this seam can receive:
+  // both the registry and the DB model catalog (migration 100) store Bedrock
+  // ids unprefixed, and the cross-region routing prefix is applied per request
+  // inside packages/agent. The agent-side capability lookup resolves a routed
+  // id back to its catalog row for the same reason; if a prefixed id ever
+  // reaches HERE, that invariant has already broken upstream.
+  const dialect = findLlmModelDefinition('bedrock', modelName)?.bedrockReasoning;
+  if (!(dialect && BEDROCK_REASONING_EFFORTS[dialect].includes(effort))) {
+    return;
+  }
+  if (dialect === 'adaptive') {
+    return {
+      reasoningConfig: {
+        // The one Bedrock dialect whose `display` the SDK forwards, so it is
+        // the one that carries the shared visibility switch.
+        display: resolveBedrockReasoningDisplay(settings),
+        maxReasoningEffort: effort,
+        type: 'adaptive',
+      },
+    };
+  }
+  if (dialect === 'max-reasoning-effort') {
+    return { reasoningConfig: { maxReasoningEffort: effort, type: 'enabled' } };
+  }
+  // `budget-tokens`: the offered ladder and the budget table are pinned equal
+  // by the dialect contract spec, so this lookup should always hit — but it is
+  // a PARTIAL record, so a miss bails explicitly rather than sending
+  // `budgetTokens: undefined`, which the API would reject.
+  const budgetTokens = BEDROCK_BUDGET_TOKENS_BY_EFFORT[effort];
+  if (budgetTokens === undefined) {
+    return;
+  }
+  return { reasoningConfig: { budgetTokens, type: 'enabled' } };
 }
 
 function buildGoogleOptions(
@@ -1664,8 +1829,12 @@ export function buildProviderOptions(
       return openrouter ? { openrouter } : undefined;
     }
     case 'anthropic': {
-      const anthropic = buildAnthropicOptions(settings);
+      const anthropic = buildAnthropicOptions(modelName, settings);
       return anthropic ? { anthropic } : undefined;
+    }
+    case 'bedrock': {
+      const bedrock = buildBedrockOptions(modelName, settings);
+      return bedrock ? { bedrock } : undefined;
     }
     case 'google': {
       const google = buildGoogleOptions(modelName, settings);
@@ -1711,17 +1880,97 @@ export function buildProviderOptionsWhenReady(
 }
 
 /**
- * Clear provider-wide overrides when the user explicitly switches to an
- * OpenRouter model that cannot honor them. The model's documented defaults
- * then remain visible as "Auto" in the settings controls. This reconciler owns
- * explicit switches only; request validation separately owns stale persisted
- * state.
+ * Bedrock counterpart of the OpenRouter reconciler (BST-1354).
+ *
+ * `bedrockEffort` is provider-wide but the ladder that gives it meaning is
+ * PER MODEL — `max` exists only on the legacy budget-token route, Nova offers
+ * low/medium/high, and several Bedrock routes reason not at all. Carrying a
+ * stale effort across a model switch left the Effort control displaying it
+ * while `buildBedrockOptions` correctly declined to send it: a control lying
+ * about the request. Clearing it restores "Auto", which is what actually runs.
+ *
+ * An UNCATALOGUED model is left alone, mirroring the OpenRouter reconciler:
+ * with no registry row there is no ladder to judge against, and that route
+ * shows no effort control to lie with.
+ */
+function reconcileBedrockSettingsForModel(
+  modelName: string,
+  settings: AssistantProviderSettings
+): AssistantProviderSettings {
+  const effort = settings.bedrockEffort;
+  if (!effort) {
+    return settings;
+  }
+  const definition = findLlmModelDefinition('bedrock', modelName);
+  if (!definition) {
+    return settings;
+  }
+  const dialect = definition.bedrockReasoning;
+  if (dialect && BEDROCK_REASONING_EFFORTS[dialect].includes(effort)) {
+    return settings;
+  }
+  const { bedrockEffort: _unsupportedBedrockEffort, ...compatibleSettings } = settings;
+  return compatibleSettings;
+}
+
+/**
+ * Anthropic counterpart of the Bedrock reconciler (BST-847). Clear a
+ * provider-wide effort the selected model cannot offer so the controls show
+ * what the request builder actually sends. Haiku declares no effort ladder.
+ * An UNCATALOGUED model is left alone: with no registry row there is no ladder
+ * to judge against, and that route shows no effort control.
+ */
+function reconcileAnthropicSettingsForModel(
+  modelName: string,
+  settings: AssistantProviderSettings
+): AssistantProviderSettings {
+  const effort = settings.anthropicEffort;
+  if (!effort) {
+    return settings;
+  }
+  const definition = findLlmModelDefinition('anthropic', modelName);
+  if (!definition) {
+    return settings;
+  }
+  if (definition.anthropicReasoning?.supportedEfforts.includes(effort)) {
+    return settings;
+  }
+  const { anthropicEffort: _unsupportedAnthropicEffort, ...compatibleSettings } = settings;
+  return compatibleSettings;
+}
+
+function reconcileGoogleSettingsForModel(
+  modelName: string,
+  settings: AssistantProviderSettings
+): AssistantProviderSettings {
+  const level = settings.googleThinkingLevel;
+  if (!(level && !getGoogleThinkingLevels(modelName).includes(level))) {
+    return settings;
+  }
+  const { googleThinkingLevel: _unsupportedGoogleThinkingLevel, ...compatibleSettings } = settings;
+  return compatibleSettings;
+}
+
+/**
+ * Clear provider-wide overrides when the user explicitly switches to a model
+ * that cannot honor them. The model's documented defaults then remain visible
+ * as "Auto" in the settings controls. This reconciler owns explicit switches
+ * only; request validation separately owns stale persisted state.
  */
 export function reconcileProviderSettingsForModel(
   providerId: SupportedProvider,
   modelName: string,
   settings: AssistantProviderSettings | undefined
 ): AssistantProviderSettings | undefined {
+  if (providerId === 'anthropic' && settings) {
+    return reconcileAnthropicSettingsForModel(modelName, settings);
+  }
+  if (providerId === 'google' && settings) {
+    return reconcileGoogleSettingsForModel(modelName, settings);
+  }
+  if (providerId === 'bedrock' && settings) {
+    return reconcileBedrockSettingsForModel(modelName, settings);
+  }
   if (!(providerId === 'openrouter' && settings)) {
     return settings;
   }

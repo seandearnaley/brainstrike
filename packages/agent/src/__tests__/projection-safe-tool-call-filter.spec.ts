@@ -780,3 +780,111 @@ describe('ProjectionSafeToolCallFilter', () => {
     );
   });
 });
+
+describe('settled mutation-call argument elision', () => {
+  // Field driver (2026-08-23 run, ctx-explosion investigation H2): a 57 KB
+  // writeWorkspaceFile call carried its full file content in the assistant
+  // message's tool-call input for the remainder of the thread — replayed on
+  // every subsequent step of every subsequent leg. Everything in the
+  // token-efficiency program projects tool RESULTS; nothing touched tool
+  // ARGS. Once a mutation call is SETTLED (successful result, outside the
+  // recent-step window), its oversized args carry no information the file on
+  // disk does not: the prompt-side input collapses to the identifying fields
+  // plus an honest marker, wire-only, durable rows untouched.
+  const WRITE_TOOL = 'brainstrike_writeWorkspaceFile';
+  const MUTATION_NAME_MAP = new Map([
+    [READ_TOOL, 'brainstrike.readWorkspaceFile'],
+    [WRITE_TOOL, 'brainstrike.writeWorkspaceFile'],
+  ]);
+  const bigContent = 'const x = 1;\n'.repeat(400); // > 2000 serialized chars
+
+  function writeMessage(options: { content?: string; id: string; rawResult?: unknown }) {
+    return createToolMessage({
+      args: { content: options.content ?? bigContent, path: 'src/big-file.ts', root: 'main' },
+      id: options.id,
+      rawResult: Object.hasOwn(options, 'rawResult') ? options.rawResult : { ok: true },
+      toolName: WRITE_TOOL,
+    });
+  }
+
+  function newerReadMessage(id: string) {
+    return createToolMessage({
+      id,
+      modelOutput: { type: 'text', value: 'newer read keeps the recent window busy' },
+      rawResult: { body: 'newer read' },
+    });
+  }
+
+  function findWriteCall(prompt: ProcessLLMRequestArgs['prompt'], toolCallId: string) {
+    for (const message of prompt) {
+      if (!Array.isArray(message.content)) {
+        continue;
+      }
+      for (const part of message.content) {
+        if (part.type === 'tool-call' && part.toolCallId === toolCallId) {
+          return part as { input?: unknown };
+        }
+      }
+    }
+    return;
+  }
+
+  it('elides the oversized args of a SETTLED write, wire-only', async () => {
+    const processor = new ProjectionSafeToolCallFilter({ toolNameMap: MUTATION_NAME_MAP });
+    const { output } = await filterMessages(
+      processor,
+      [writeMessage({ id: 'w1' }), newerReadMessage('r1')],
+      'memory'
+    );
+
+    const call = findWriteCall(output, 'call-w1');
+    expect(call).toBeDefined();
+    const serializedInput = JSON.stringify(call?.input);
+    expect(serializedInput).not.toContain('const x = 1;');
+    expect(serializedInput).toContain('src/big-file.ts');
+    expect(serializedInput).toContain('elided');
+    // The RESULT stays verbatim — only the args collapse.
+    const hasResult = output.some(
+      (message) =>
+        Array.isArray(message.content) &&
+        message.content.some((part) => part.type === 'tool-result' && part.toolCallId === 'call-w1')
+    );
+    expect(hasResult).toBe(true);
+  });
+
+  it('keeps the args of the NEWEST mutation step (recent window)', async () => {
+    const processor = new ProjectionSafeToolCallFilter({ toolNameMap: MUTATION_NAME_MAP });
+    const { output } = await filterMessages(
+      processor,
+      [writeMessage({ id: 'w-recent' })],
+      'memory'
+    );
+
+    const call = findWriteCall(output, 'call-w-recent');
+    expect(JSON.stringify(call?.input)).toContain('const x = 1;');
+  });
+
+  it('keeps the args of a FAILED write — they may matter for the retry', async () => {
+    const processor = new ProjectionSafeToolCallFilter({ toolNameMap: MUTATION_NAME_MAP });
+    const { output } = await filterMessages(
+      processor,
+      [writeMessage({ id: 'w-failed', rawResult: { error: 'EACCES' } }), newerReadMessage('r2')],
+      'memory'
+    );
+
+    const call = findWriteCall(output, 'call-w-failed');
+    expect(JSON.stringify(call?.input)).toContain('const x = 1;');
+  });
+
+  it('keeps SMALL mutation args — below the threshold the marker is not worth the context change', async () => {
+    const processor = new ProjectionSafeToolCallFilter({ toolNameMap: MUTATION_NAME_MAP });
+    const { output } = await filterMessages(
+      processor,
+      [writeMessage({ content: 'tiny', id: 'w-small' }), newerReadMessage('r3')],
+      'memory'
+    );
+
+    const call = findWriteCall(output, 'call-w-small');
+    expect(JSON.stringify(call?.input)).toContain('tiny');
+  });
+});

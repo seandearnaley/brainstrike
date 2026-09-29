@@ -127,6 +127,13 @@ describe('file-selection-utils', () => {
     it('should throw error for empty composite key', () => {
       expect(() => decodeFileSelection('')).toThrow('Invalid composite key format');
     });
+
+    it.each(['|@|src/index.ts', 'folder-1|@|'])(
+      'should reject a composite key with an empty required component: %s',
+      (invalidKey) => {
+        expect(() => decodeFileSelection(invalidKey)).toThrow('Invalid composite key format');
+      }
+    );
   });
 
   describe('isPathSelectedInFolder', () => {
@@ -169,14 +176,15 @@ describe('file-selection-utils', () => {
       expect(result).toEqual(new Set());
     });
 
-    it('should skip invalid composite keys', () => {
+    it('should reject invalid composite keys', () => {
       const selectedPaths = new Set([`${folderId}${separator}valid.txt`, 'invalid-key']);
-      const result = getSelectedPathsForFolder(selectedPaths, folderId);
-      expect(result).toEqual(new Set(['valid.txt']));
+      expect(() => getSelectedPathsForFolder(selectedPaths, folderId)).toThrow(
+        'Invalid composite key format'
+      );
     });
 
     it('should handle empty selection set', () => {
-      const selectedPaths = new Set<string>();
+      const selectedPaths: ReadonlySet<string> = new Set<string>();
       const result = getSelectedPathsForFolder(selectedPaths, folderId);
       expect(result).toEqual(new Set());
     });

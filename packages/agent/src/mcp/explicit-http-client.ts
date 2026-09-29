@@ -1,157 +1,117 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import {
+  type Client,
+  type JSONObject,
+  SdkHttpError,
   StreamableHTTPClientTransport,
-  StreamableHTTPError,
-} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+} from '@modelcontextprotocol/client';
+import type { McpClientCapabilityLease } from './client-capabilities';
+import type { McpClientExtensionRequestContract } from './client-extension-registry';
+import { normalizeMcpRequestOptions } from './client-policy';
+import {
+  type ExplicitHttpMcpClientOptions,
+  type NormalizedHttpClientOptions,
+  normalizeExplicitHttpClientOptions,
+} from './explicit-http-client-options';
+import type {
+  ExplicitHttpMcpCallToolParams,
+  ExplicitHttpMcpCallToolResult,
+  ExplicitHttpMcpCompleteParams,
+  ExplicitHttpMcpCompleteResult,
+  ExplicitHttpMcpGetPromptParams,
+  ExplicitHttpMcpGetPromptResult,
+  ExplicitHttpMcpInputRequiredResult,
+  ExplicitHttpMcpListPromptsParams,
+  ExplicitHttpMcpListPromptsResult,
+  ExplicitHttpMcpListRequestOptions,
+  ExplicitHttpMcpListResourcesParams,
+  ExplicitHttpMcpListResourcesResult,
+  ExplicitHttpMcpListResourceTemplatesParams,
+  ExplicitHttpMcpListResourceTemplatesResult,
+  ExplicitHttpMcpListToolsParams,
+  ExplicitHttpMcpListToolsResult,
+  ExplicitHttpMcpManualCallOptions,
+  ExplicitHttpMcpNormalCallOptions,
+  ExplicitHttpMcpReadResourceParams,
+  ExplicitHttpMcpReadResourceResult,
+  ExplicitHttpMcpRequestOptions,
+  ExplicitHttpMcpSubscription,
+  ExplicitHttpMcpSubscriptionFilter,
+  ExplicitHttpMcpTool,
+  NegotiatedProtocolFacts,
+} from './explicit-http-client-types';
+import { createExplicitHttpTransport, type ExplicitHttpTransport } from './explicit-http-transport';
+import { createExplicitMcpSdkClient, type McpCatalogKind } from './explicit-mcp-client-core';
+import { closeOwnedHttpConnection } from './http-connection-cleanup';
+import {
+  type InteractiveOAuthOperation,
+  tryCompleteInteractiveOAuthRequestAuthorization,
+} from './interactive-oauth-completion';
+import {
+  type McpServerFeatureEventHandlers,
+  McpServerFeatureEventRegistry,
+} from './server-feature-events';
+import {
+  listenForMcpTasks,
+  type McpTasksNotificationHandler,
+  type McpTasksNotificationLease,
+  requireMcpTasksRegistry,
+} from './tasks-extension';
+import {
+  diagnoseInvalidatedCloseFailure,
+  notifyUnexpectedClose,
+} from './unexpected-close-observer';
 
-const DEFAULT_CLIENT_VERSION = '0.1.0';
+export type { ExplicitHttpMcpClientOptions } from './explicit-http-client-options';
+// Named rather than `export *`: this keeps the package surface exactly what
+// this module exported before the split. The types module additionally
+// declares list/manual/normal call-option aliases that were module-private
+// here, and they stay internal.
+export type {
+  ExplicitHttpMcpCallToolParams,
+  ExplicitHttpMcpCallToolResult,
+  ExplicitHttpMcpCompleteParams,
+  ExplicitHttpMcpCompleteResult,
+  ExplicitHttpMcpFetch,
+  ExplicitHttpMcpGetPromptParams,
+  ExplicitHttpMcpGetPromptResult,
+  ExplicitHttpMcpInputRequiredResult,
+  ExplicitHttpMcpLifecycle,
+  ExplicitHttpMcpListPromptsParams,
+  ExplicitHttpMcpListPromptsResult,
+  ExplicitHttpMcpListResourcesParams,
+  ExplicitHttpMcpListResourcesResult,
+  ExplicitHttpMcpListResourceTemplatesParams,
+  ExplicitHttpMcpListResourceTemplatesResult,
+  ExplicitHttpMcpListToolsParams,
+  ExplicitHttpMcpListToolsResult,
+  ExplicitHttpMcpReadResourceParams,
+  ExplicitHttpMcpReadResourceResult,
+  ExplicitHttpMcpRequestOptions,
+  ExplicitHttpMcpSubscription,
+  ExplicitHttpMcpSubscriptionFilter,
+  ExplicitHttpMcpTool,
+  ExplicitHttpMcpTransport,
+  ExplicitHttpMcpUnexpectedCloseObserver,
+  NegotiatedProtocolFacts,
+} from './explicit-http-client-types';
+
 const CLOSED_ERROR_MESSAGE = 'Explicit HTTP MCP client is closed';
-// Session termination is advisory. Bound it so a stalled server cannot prevent
-// the owned SDK client from aborting its local fetches and releasing handlers.
-const SESSION_TERMINATION_TIMEOUT_MS = 250;
-const MCP_APPS_EXTENSION_ID = 'io.modelcontextprotocol/ui';
-const PROTOCOL_OWNED_HEADERS = new Set([
-  'accept',
-  'content-type',
-  'last-event-id',
-  'mcp-protocol-version',
-  'mcp-session-id',
-]);
-
-export type ExplicitHttpMcpTransport = 'sse' | 'streamable-http';
-
-export type ExplicitHttpMcpFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
-
-type SdkRequestOptions = NonNullable<Parameters<Client['listTools']>[1]>;
-type SdkTransport = Parameters<Client['connect']>[0];
-
-export type ExplicitHttpMcpRequestOptions = Pick<
-  SdkRequestOptions,
-  'maxTotalTimeout' | 'onprogress' | 'resetTimeoutOnProgress' | 'signal' | 'timeout'
->;
-
-export type ExplicitHttpMcpListToolsResult = Awaited<ReturnType<Client['listTools']>>;
-export type ExplicitHttpMcpTool = ExplicitHttpMcpListToolsResult['tools'][number];
-export type ExplicitHttpMcpCallToolParams = Parameters<Client['callTool']>[0];
-export type ExplicitHttpMcpCallToolResult = Awaited<ReturnType<Client['callTool']>>;
-
-export interface ExplicitHttpMcpClientOptions {
-  clientInfo?: {
-    name: string;
-    version: string;
-  };
-  fetch?: ExplicitHttpMcpFetch;
-  headers?: Readonly<Record<string, string>>;
-  name: string;
-  transport: ExplicitHttpMcpTransport;
-  url: string | URL;
-}
-
-type ExplicitHttpTransport = SSEClientTransport | StreamableHTTPClientTransport;
 
 interface ActiveConnection {
+  capabilityLease: McpClientCapabilityLease;
   client: Client;
+  closePromise?: Promise<void>;
+  disconnected: boolean;
+  generation: number;
   transport: ExplicitHttpTransport;
-}
-
-interface NormalizedClientOptions {
-  clientInfo: {
-    name: string;
-    version: string;
-  };
-  fetch: ExplicitHttpMcpFetch;
-  transport: ExplicitHttpMcpTransport;
-  url: URL;
 }
 
 function closedClientError(): Error {
   return new Error(CLOSED_ERROR_MESSAGE);
 }
 
-function validateNonEmpty(value: string, field: string): string {
-  if (value.trim().length === 0) {
-    throw new Error(`${field} must not be empty`);
-  }
-  return value;
-}
-
-function validateConfiguredHeaders(headers: Readonly<Record<string, string>> | undefined): void {
-  for (const name of Object.keys(headers ?? {})) {
-    if (PROTOCOL_OWNED_HEADERS.has(name.toLowerCase())) {
-      throw new Error(`Configured MCP header "${name}" is protocol-owned`);
-    }
-  }
-}
-
 function isReconnectableSessionError(error: unknown, hadSession: boolean): boolean {
-  return hadSession && error instanceof StreamableHTTPError && error.code === 404;
-}
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<never>((_resolve, reject) => {
-    timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
-  });
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-  }
-}
-
-function createHeaderPreservingFetch(
-  baseFetch: ExplicitHttpMcpFetch,
-  headers: Readonly<Record<string, string>> | undefined
-): ExplicitHttpMcpFetch {
-  validateConfiguredHeaders(headers);
-  const callerHeaders = new Headers(headers);
-  return async (url, init) => {
-    const mergedHeaders = new Headers(callerHeaders);
-    const protocolHeaders = new Headers(init?.headers);
-    protocolHeaders.forEach((value, name) => {
-      const configuredValue = mergedHeaders.get(name);
-      if (configuredValue !== null && configuredValue !== value) {
-        throw new Error(
-          `Configured MCP header "${name}" conflicts with the transport-required value`
-        );
-      }
-      mergedHeaders.set(name, value);
-    });
-    return baseFetch(url, { ...init, headers: mergedHeaders });
-  };
-}
-
-function normalizeOptions(options: ExplicitHttpMcpClientOptions): NormalizedClientOptions {
-  const name = validateNonEmpty(options.name, 'MCP client name');
-  const clientInfo = options.clientInfo ?? {
-    name: `brainstrike-${name}`,
-    version: DEFAULT_CLIENT_VERSION,
-  };
-  validateNonEmpty(clientInfo.name, 'MCP client info name');
-  validateNonEmpty(clientInfo.version, 'MCP client info version');
-
-  const url = new URL(options.url);
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('MCP HTTP URL must use http: or https:');
-  }
-  if (url.username.length > 0 || url.password.length > 0) {
-    throw new Error('MCP HTTP URL must not include credentials');
-  }
-
-  const baseFetch: ExplicitHttpMcpFetch = options.fetch ?? ((input, init) => fetch(input, init));
-  return {
-    clientInfo: { ...clientInfo },
-    fetch: createHeaderPreservingFetch(baseFetch, options.headers),
-    transport: options.transport,
-    url,
-  };
-}
-
-function unsupportedTransport(transport: never): never {
-  throw new Error(`Unsupported explicit HTTP MCP transport: ${String(transport)}`);
+  return hadSession && error instanceof SdkHttpError && error.status === 404;
 }
 
 /**
@@ -160,37 +120,249 @@ function unsupportedTransport(transport: never): never {
  * The selected transport is authoritative: this class never probes, rewrites the
  * URL, or falls back between Streamable HTTP and legacy HTTP+SSE.
  */
-export class ExplicitHttpMcpClient {
+export class ExplicitHttpMcpClient implements NegotiatedProtocolFacts {
   private activeConnection: ActiveConnection | undefined;
   private closePromise: Promise<void> | undefined;
   private closed = false;
   private connectPromise: Promise<ActiveConnection> | undefined;
-  private readonly options: NormalizedClientOptions;
+  private readonly invalidatedConnections = new Set<ActiveConnection>();
+  private readonly featureEvents: McpServerFeatureEventRegistry;
+  private readonly options: NormalizedHttpClientOptions;
   private pendingConnection: ActiveConnection | undefined;
   private recoveryPromise: Promise<ActiveConnection> | undefined;
+  private toolDefinitions = new Map<string, ExplicitHttpMcpTool>();
+  private connectionGeneration = 0;
+  private readonly catalogGenerations = new Map<McpCatalogKind, number>();
 
   constructor(options: ExplicitHttpMcpClientOptions) {
-    this.options = normalizeOptions(options);
+    this.options = normalizeExplicitHttpClientOptions(options);
+    this.featureEvents = new McpServerFeatureEventRegistry(this.options.onServerFeatureEventError);
   }
 
   async connect(options?: ExplicitHttpMcpRequestOptions): Promise<void> {
-    await this.getConnection(options);
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const connect = (operation?: InteractiveOAuthOperation) =>
+      this.getConnection(requestOptions, operation);
+    await (this.options.interactiveOAuth?.runOperation(connect) ?? connect());
+  }
+
+  getNegotiatedProtocolVersion(): ReturnType<Client['getNegotiatedProtocolVersion']> {
+    return this.activeConnection?.client.getNegotiatedProtocolVersion();
+  }
+
+  getProtocolEra(): ReturnType<Client['getProtocolEra']> {
+    return this.activeConnection?.client.getProtocolEra();
+  }
+
+  getServerCapabilities(): ReturnType<Client['getServerCapabilities']> {
+    return this.activeConnection?.client.getServerCapabilities();
+  }
+
+  getServerVersion(): ReturnType<Client['getServerVersion']> {
+    return this.activeConnection?.client.getServerVersion();
+  }
+
+  getConnectionGeneration(): number {
+    return this.connectionGeneration;
   }
 
   async listTools(
-    options?: ExplicitHttpMcpRequestOptions
+    options?: ExplicitHttpMcpRequestOptions,
+    params?: ExplicitHttpMcpListToolsParams
   ): Promise<ExplicitHttpMcpListToolsResult> {
-    return this.runWithSessionRecovery((client) => client.listTools(undefined, options), options);
+    const requestOptions = normalizeMcpRequestOptions(options);
+    let successfulGeneration: number | undefined;
+    const result = await this.runRequest((client, connection) => {
+      successfulGeneration = connection.generation;
+      const catalogOptions = this.resolveCatalogOptions(
+        'tools',
+        connection,
+        params,
+        requestOptions
+      );
+      return client.listTools(params, catalogOptions);
+    }, requestOptions);
+    if (params?.cursor === undefined) {
+      this.catalogGenerations.set('tools', successfulGeneration ?? this.connectionGeneration);
+      const nextToolDefinitions = new Map<string, ExplicitHttpMcpTool>();
+      for (const tool of result.tools) {
+        nextToolDefinitions.set(tool.name, tool);
+      }
+      this.toolDefinitions = nextToolDefinitions;
+      return result;
+    }
+    for (const tool of result.tools) {
+      this.toolDefinitions.set(tool.name, tool);
+    }
+    return result;
+  }
+
+  async listPrompts(
+    options?: ExplicitHttpMcpRequestOptions,
+    params?: ExplicitHttpMcpListPromptsParams
+  ): Promise<ExplicitHttpMcpListPromptsResult> {
+    return this.listCatalog('prompts', options, params, (client, requestParams, requestOptions) =>
+      client.listPrompts(requestParams, requestOptions)
+    );
+  }
+
+  async listResources(
+    options?: ExplicitHttpMcpRequestOptions,
+    params?: ExplicitHttpMcpListResourcesParams
+  ): Promise<ExplicitHttpMcpListResourcesResult> {
+    return this.listCatalog('resources', options, params, (client, requestParams, requestOptions) =>
+      client.listResources(requestParams, requestOptions)
+    );
+  }
+
+  async listResourceTemplates(
+    options?: ExplicitHttpMcpRequestOptions,
+    params?: ExplicitHttpMcpListResourceTemplatesParams
+  ): Promise<ExplicitHttpMcpListResourceTemplatesResult> {
+    return this.listCatalog(
+      'resource-templates',
+      options,
+      params,
+      (client, requestParams, requestOptions) =>
+        client.listResourceTemplates(requestParams, requestOptions)
+    );
+  }
+
+  async readResource(
+    params: ExplicitHttpMcpReadResourceParams,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<ExplicitHttpMcpReadResourceResult> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    return this.runRequest((client) => client.readResource(params, requestOptions), requestOptions);
+  }
+
+  async getPrompt(
+    params: ExplicitHttpMcpGetPromptParams,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<ExplicitHttpMcpGetPromptResult> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    return this.runRequest((client) => client.getPrompt(params, requestOptions), requestOptions);
+  }
+
+  async complete(
+    params: ExplicitHttpMcpCompleteParams,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<ExplicitHttpMcpCompleteResult> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    return this.runRequest((client) => client.complete(params, requestOptions), requestOptions);
+  }
+
+  async subscribeResource(
+    params: ExplicitHttpMcpReadResourceParams,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<void> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    await this.runRequest(
+      (client) => client.subscribeResource(params, requestOptions),
+      requestOptions
+    );
+  }
+
+  async unsubscribeResource(
+    params: ExplicitHttpMcpReadResourceParams,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<void> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    await this.runRequest(
+      (client) => client.unsubscribeResource(params, requestOptions),
+      requestOptions
+    );
+  }
+
+  async listen(
+    filter: ExplicitHttpMcpSubscriptionFilter,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<ExplicitHttpMcpSubscription> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    return this.runRequest((client) => client.listen(filter, requestOptions), requestOptions);
+  }
+
+  async requestExtension<Params extends JSONObject, Result>(
+    contract: McpClientExtensionRequestContract<Params, Result>,
+    params: Params,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<Result> {
+    const registry = this.options.extensionRegistry;
+    if (registry === undefined) {
+      throw new Error(`MCP extension request "${contract.method}" requires an extension registry`);
+    }
+    if (this.options.transport !== 'streamable-http') {
+      throw new Error(
+        `MCP extension request "${contract.method}" requires the streamable-http transport`
+      );
+    }
+    const requestOptions = normalizeMcpRequestOptions(options);
+    return this.runRequest(async (client) => {
+      const prepared = await registry.prepareRequest(
+        contract,
+        params,
+        client.getServerCapabilities()?.extensions,
+        client.getNegotiatedProtocolVersion()
+      );
+      return client.request(
+        { method: prepared.internalMethod, params: prepared.params },
+        prepared.resultSchema,
+        requestOptions
+      );
+    }, requestOptions);
+  }
+
+  async listenTasks(
+    taskIds: readonly string[],
+    handler: McpTasksNotificationHandler,
+    options?: ExplicitHttpMcpRequestOptions
+  ): Promise<McpTasksNotificationLease> {
+    if (this.options.transport !== 'streamable-http') {
+      throw new Error('MCP Tasks notifications require the streamable-http transport');
+    }
+    const registry = requireMcpTasksRegistry(this.options.extensionRegistry, 'notifications');
+    const requestOptions = normalizeMcpRequestOptions(options);
+    const ledger = this.options.extensionDispatchLedger;
+    return this.runRequest(
+      (client) => listenForMcpTasks(client, registry, ledger, taskIds, handler, requestOptions),
+      requestOptions
+    );
+  }
+
+  watchServerFeatures(handlers: McpServerFeatureEventHandlers): () => void {
+    return this.featureEvents.subscribe(handlers);
   }
 
   async callTool(
     params: ExplicitHttpMcpCallToolParams,
-    options?: ExplicitHttpMcpRequestOptions
-  ): Promise<ExplicitHttpMcpCallToolResult> {
-    return this.runWithSessionRecovery(
-      (client) => client.callTool(params, undefined, options),
-      options
-    );
+    options: ExplicitHttpMcpManualCallOptions
+  ): Promise<ExplicitHttpMcpCallToolResult | ExplicitHttpMcpInputRequiredResult>;
+  async callTool(
+    params: ExplicitHttpMcpCallToolParams,
+    options?: ExplicitHttpMcpNormalCallOptions
+  ): Promise<ExplicitHttpMcpCallToolResult>;
+  async callTool(
+    params: ExplicitHttpMcpCallToolParams,
+    options?: ExplicitHttpMcpManualCallOptions | ExplicitHttpMcpNormalCallOptions
+  ): Promise<ExplicitHttpMcpCallToolResult | ExplicitHttpMcpInputRequiredResult> {
+    const normalizedOptions = normalizeMcpRequestOptions(options);
+    return this.runRequest((client) => {
+      const toolDefinition =
+        normalizedOptions.toolDefinition === undefined
+          ? this.toolDefinitions.get(params.name)
+          : undefined;
+      const requestOptions =
+        toolDefinition === undefined ? normalizedOptions : { ...normalizedOptions, toolDefinition };
+      return client.callTool(params, requestOptions);
+    }, normalizedOptions);
+  }
+
+  async sendRootsListChanged(options?: ExplicitHttpMcpRequestOptions): Promise<void> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    await this.runRequest((client) => {
+      requestOptions.signal?.throwIfAborted();
+      return client.sendRootsListChanged();
+    }, requestOptions);
   }
 
   close(): Promise<void> {
@@ -198,6 +370,7 @@ export class ExplicitHttpMcpClient {
       return this.closePromise;
     }
     this.closed = true;
+    this.options.interactiveOAuth?.close();
     this.closePromise = this.closeConnections();
     return this.closePromise;
   }
@@ -210,10 +383,15 @@ export class ExplicitHttpMcpClient {
     if (this.pendingConnection) {
       connections.add(this.pendingConnection);
     }
+    for (const connection of this.invalidatedConnections) {
+      connections.add(connection);
+    }
     this.activeConnection = undefined;
     this.pendingConnection = undefined;
     this.connectPromise = undefined;
     this.recoveryPromise = undefined;
+    this.invalidatedConnections.clear();
+    this.toolDefinitions = new Map();
 
     const errors: unknown[] = [];
     for (const connection of connections) {
@@ -231,7 +409,10 @@ export class ExplicitHttpMcpClient {
     }
   }
 
-  private async getConnection(options?: ExplicitHttpMcpRequestOptions): Promise<ActiveConnection> {
+  private async getConnection(
+    options?: ExplicitHttpMcpRequestOptions,
+    operation?: InteractiveOAuthOperation
+  ): Promise<ActiveConnection> {
     if (this.closed) {
       throw closedClientError();
     }
@@ -245,13 +426,17 @@ export class ExplicitHttpMcpClient {
       return this.connectPromise;
     }
 
-    return this.startConnection(options);
+    return this.startConnection(options, operation);
   }
 
-  private startConnection(options?: ExplicitHttpMcpRequestOptions): Promise<ActiveConnection> {
+  private startConnection(
+    options?: ExplicitHttpMcpRequestOptions,
+    operation?: InteractiveOAuthOperation
+  ): Promise<ActiveConnection> {
+    this.connectionGeneration += 1;
     const connection = this.createConnection();
     this.pendingConnection = connection;
-    const connectPromise = this.openConnection(connection, options);
+    const connectPromise = this.openConnection(connection, options, operation);
     this.connectPromise = connectPromise;
     void connectPromise.then(
       () => {
@@ -259,7 +444,7 @@ export class ExplicitHttpMcpClient {
           return;
         }
         this.pendingConnection = undefined;
-        if (this.closed) {
+        if (this.closed || connection.disconnected) {
           this.connectPromise = undefined;
           return;
         }
@@ -278,96 +463,228 @@ export class ExplicitHttpMcpClient {
 
   private async openConnection(
     connection: ActiveConnection,
-    options?: ExplicitHttpMcpRequestOptions
+    options?: ExplicitHttpMcpRequestOptions,
+    operation?: InteractiveOAuthOperation
   ): Promise<ActiveConnection> {
     const { client, transport } = connection;
     let connected = false;
     try {
-      // SDK 1.29.0's concrete Streamable transport exposes `sessionId` as
-      // `string | undefined`, while its Transport interface models the optional
-      // property as present-only `string` under exactOptionalPropertyTypes.
-      // The shipped class is the intended implementation despite that d.ts gap.
-      await client.connect(transport as unknown as SdkTransport, options);
+      await client.connect(transport, options);
+      await this.options.capabilityRuntime.afterConnect(client, options?.signal);
       connected = true;
       if (this.closed) {
-        await client.close();
+        if (!this.closePromise) {
+          throw new Error('Explicit HTTP MCP terminal close invariant violated');
+        }
+        await this.closePromise;
         throw closedClientError();
+      }
+      if (connection.disconnected) {
+        throw new Error('MCP HTTP connection closed during initialization');
       }
       return connection;
     } catch (error) {
-      if (!connected) {
-        await client.close().catch(() => undefined);
-      }
-      throw error;
+      return this.handleOpenConnectionFailure(connection, options, operation, connected, error);
     }
   }
 
-  private async closeConnection(connection: ActiveConnection): Promise<void> {
-    const errors: unknown[] = [];
-    if (
-      connection.transport instanceof StreamableHTTPClientTransport &&
-      connection.transport.sessionId
-    ) {
-      try {
-        await withTimeout(
-          connection.transport.terminateSession(),
-          SESSION_TERMINATION_TIMEOUT_MS,
-          `MCP session termination timed out after ${SESSION_TERMINATION_TIMEOUT_MS}ms`
+  private async handleOpenConnectionFailure(
+    connection: ActiveConnection,
+    options: ExplicitHttpMcpRequestOptions | undefined,
+    operation: InteractiveOAuthOperation | undefined,
+    connected: boolean,
+    error: unknown
+  ): Promise<ActiveConnection> {
+    if (!connected && this.options.interactiveOAuth) {
+      if (!operation) {
+        throw new Error('Interactive OAuth connection is missing its operation context');
+      }
+      if (!(connection.transport instanceof StreamableHTTPClientTransport)) {
+        throw new AggregateError(
+          [error, new Error('Interactive OAuth requires a Streamable HTTP transport')],
+          'MCP connection failed with an invalid interactive OAuth transport'
         );
-      } catch (error) {
-        errors.push(error);
+      }
+      return this.options.interactiveOAuth.handleOpeningFailure(
+        {
+          cleanup: () => this.closeConnection(connection),
+          closedError: closedClientError,
+          isClosed: () => this.closed,
+          primaryError: error,
+          reconnect: () => this.startConnection(options, operation),
+          ...(options?.signal ? { signal: options.signal } : {}),
+          terminalCleanup: () => this.closePromise,
+          transport: connection.transport,
+        },
+        operation
+      );
+    }
+    if (!connected) {
+      try {
+        await this.closeConnection(connection);
+      } catch (cleanupError) {
+        const primaryError = options?.signal?.aborted ? options.signal.reason : error;
+        throw new AggregateError(
+          [primaryError, cleanupError],
+          'Opening and cleaning up an MCP HTTP connection both failed'
+        );
       }
     }
+    options?.signal?.throwIfAborted();
+    throw error;
+  }
 
-    try {
-      await connection.client.close();
-    } catch (error) {
-      errors.push(error);
-    }
+  private closeConnection(connection: ActiveConnection): Promise<void> {
+    connection.closePromise ??= this.closeConnectionOnce(connection);
+    return connection.closePromise;
+  }
 
-    if (errors.length === 1) {
-      throw errors[0];
-    }
-    if (errors.length > 1) {
-      throw new AggregateError(errors, 'MCP session termination and local close both failed');
-    }
+  private async closeConnectionOnce(connection: ActiveConnection): Promise<void> {
+    await closeOwnedHttpConnection(connection);
   }
 
   private createConnection(): ActiveConnection {
-    const client = new Client(this.options.clientInfo, {
-      capabilities: {
-        extensions: { [MCP_APPS_EXTENSION_ID]: {} },
-      },
-    });
-    return { client, transport: this.createTransport() };
+    const { capabilityLease, client } = createExplicitMcpSdkClient(
+      this.options,
+      this.featureEvents
+    );
+    const connection = {
+      capabilityLease,
+      client,
+      disconnected: false,
+      generation: this.connectionGeneration,
+      transport: createExplicitHttpTransport(this.options, client),
+    };
+    client.onclose = () => this.invalidateConnection(connection);
+    return connection;
   }
 
-  private async runWithSessionRecovery<T>(
-    request: (client: Client) => Promise<T>,
+  private async runRequest<T>(
+    request: (client: Client, connection: ActiveConnection) => Promise<T>,
     options?: ExplicitHttpMcpRequestOptions
   ): Promise<T> {
-    const connection = await this.getConnection(options);
-    try {
-      return await request(connection.client);
-    } catch (error) {
-      if (
-        this.closed ||
-        options?.signal?.aborted ||
-        !(connection.transport instanceof StreamableHTTPClientTransport) ||
-        !isReconnectableSessionError(error, connection.transport.sessionId !== undefined)
-      ) {
-        throw error;
-      }
+    const run = (operation?: InteractiveOAuthOperation) =>
+      this.runRequestWithinAuthorizationOperation(request, options, operation);
+    return this.options.interactiveOAuth?.runOperation(run) ?? run();
+  }
 
-      const recovered = await this.recoverConnection(connection, options);
-      options?.signal?.throwIfAborted();
-      return request(recovered.client);
+  private async runRequestWithinAuthorizationOperation<T>(
+    request: (client: Client, connection: ActiveConnection) => Promise<T>,
+    options?: ExplicitHttpMcpRequestOptions,
+    operation?: InteractiveOAuthOperation
+  ): Promise<T> {
+    const interactiveOAuth = this.options.interactiveOAuth;
+    if (interactiveOAuth && !operation) {
+      throw new Error('Interactive OAuth request is missing its operation context');
     }
+    const connection = await this.getConnection(options, operation);
+    while (true) {
+      const hadSession =
+        connection.transport instanceof StreamableHTTPClientTransport &&
+        connection.transport.sessionId !== undefined;
+      try {
+        return await request(connection.client, connection);
+      } catch (error) {
+        options?.signal?.throwIfAborted();
+        if (this.closed) {
+          throw error;
+        }
+        const authorizationCompleted = await tryCompleteInteractiveOAuthRequestAuthorization({
+          cleanup: () => this.closeConnection(connection),
+          completion: interactiveOAuth,
+          invalidate: () => this.invalidateConnection(connection),
+          operation,
+          primaryError: error,
+          signal: options?.signal,
+          transport: connection.transport,
+        });
+        if (authorizationCompleted) {
+          continue;
+        }
+        return this.handleRequestFailure(
+          connection,
+          error,
+          hadSession,
+          options,
+          request,
+          operation
+        );
+      }
+    }
+  }
+
+  private async handleRequestFailure<T>(
+    connection: ActiveConnection,
+    error: unknown,
+    hadSession: boolean,
+    options: ExplicitHttpMcpRequestOptions | undefined,
+    request: (client: Client, connection: ActiveConnection) => Promise<T>,
+    operation?: InteractiveOAuthOperation
+  ): Promise<T> {
+    if (
+      !(
+        connection.transport instanceof StreamableHTTPClientTransport &&
+        isReconnectableSessionError(error, hadSession)
+      )
+    ) {
+      throw error;
+    }
+    if (this.options.lifecycle === 'host-owned') {
+      if (this.invalidateConnection(connection, true)) {
+        await this.closeInvalidatedConnection(connection);
+      }
+      throw error;
+    }
+    const recovered = await this.recoverConnection(connection, options, operation);
+    options?.signal?.throwIfAborted();
+    return request(recovered.client, recovered);
+  }
+
+  private async listCatalog<Params extends { cursor?: string | undefined }, Result>(
+    kind: Exclude<McpCatalogKind, 'tools'>,
+    options: ExplicitHttpMcpRequestOptions | undefined,
+    params: Params | undefined,
+    request: (
+      client: Client,
+      params: Params | undefined,
+      options: ExplicitHttpMcpListRequestOptions
+    ) => Promise<Result>
+  ): Promise<Result> {
+    const requestOptions = normalizeMcpRequestOptions(options);
+    let successfulGeneration: number | undefined;
+    const result = await this.runRequest((client, connection) => {
+      successfulGeneration = connection.generation;
+      return request(
+        client,
+        params,
+        this.resolveCatalogOptions(kind, connection, params, requestOptions)
+      );
+    }, requestOptions);
+    if (params?.cursor === undefined) {
+      this.catalogGenerations.set(kind, successfulGeneration ?? this.connectionGeneration);
+    }
+    return result;
+  }
+
+  private resolveCatalogOptions(
+    kind: McpCatalogKind,
+    connection: ActiveConnection,
+    params: { cursor?: string | undefined } | undefined,
+    options: ExplicitHttpMcpRequestOptions
+  ): ExplicitHttpMcpListRequestOptions {
+    if (
+      params?.cursor !== undefined ||
+      this.catalogGenerations.get(kind) === connection.generation
+    ) {
+      return options;
+    }
+    return { ...options, cacheMode: 'refresh' };
   }
 
   private recoverConnection(
     failedConnection: ActiveConnection,
-    options?: ExplicitHttpMcpRequestOptions
+    options?: ExplicitHttpMcpRequestOptions,
+    operation?: InteractiveOAuthOperation
   ): Promise<ActiveConnection> {
     if (this.closed) {
       return Promise.reject(closedClientError());
@@ -376,19 +693,17 @@ export class ExplicitHttpMcpClient {
       return this.recoveryPromise;
     }
     if (this.activeConnection !== failedConnection) {
-      return this.getConnection(options);
+      return this.getConnection(options, operation);
     }
 
     this.activeConnection = undefined;
     const recoveryPromise = (async () => {
-      // The server has already invalidated this session. Close only the local
-      // transport; attempting DELETE with the stale ID would delay recovery.
       await failedConnection.client.close();
       if (this.closed) {
         throw closedClientError();
       }
       options?.signal?.throwIfAborted();
-      return this.startConnection(options);
+      return this.startConnection(options, operation);
     })();
     this.recoveryPromise = recoveryPromise;
     void recoveryPromise.then(
@@ -406,16 +721,41 @@ export class ExplicitHttpMcpClient {
     return recoveryPromise;
   }
 
-  private createTransport(): ExplicitHttpTransport {
-    switch (this.options.transport) {
-      case 'sse':
-        return new SSEClientTransport(this.options.url, { fetch: this.options.fetch });
-      case 'streamable-http':
-        return new StreamableHTTPClientTransport(this.options.url, {
-          fetch: this.options.fetch,
-        });
-      default:
-        return unsupportedTransport(this.options.transport);
+  private async closeInvalidatedConnection(connection: ActiveConnection): Promise<void> {
+    try {
+      await connection.client.close();
+      this.invalidatedConnections.delete(connection);
+    } catch (error) {
+      // Keep the failed cleanup in the terminal close set. The host-owned
+      // operation must still surface its original transport failure.
+      diagnoseInvalidatedCloseFailure(error, this.options.transport);
     }
+  }
+
+  private invalidateConnection(
+    connection: ActiveConnection,
+    retainForLocalCleanup = false
+  ): boolean {
+    if (connection.disconnected) {
+      return false;
+    }
+    const unexpected = !this.closed && this.activeConnection === connection;
+    connection.disconnected = true;
+    this.connectionGeneration += 1;
+    this.toolDefinitions = new Map();
+    this.catalogGenerations.clear();
+    if (this.activeConnection === connection) {
+      this.activeConnection = undefined;
+      if (retainForLocalCleanup) {
+        this.invalidatedConnections.add(connection);
+      }
+    }
+    if (this.pendingConnection === connection) {
+      this.pendingConnection = undefined;
+    }
+    if (unexpected) {
+      notifyUnexpectedClose(this.options.onUnexpectedClose, this.options.transport);
+    }
+    return true;
   }
 }

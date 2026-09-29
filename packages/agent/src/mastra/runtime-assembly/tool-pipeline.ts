@@ -12,27 +12,55 @@
  * `prepareHostedToolDiscovery` owns the discovery + model-projection phase and
  * runs after the caller has resolved the language model.
  */
-import { resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
-import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
+
+import type { McpHostPort, NativeToolExecutionBudget } from '@brainstrike/assistant-contract';
+import {
+  NATIVE_TOOL_EXECUTION_BUDGETS,
+  NATIVE_TOOL_ID,
+  resolveToolDiscoveryAdapter,
+} from '@brainstrike/assistant-contract';
+import {
+  findProviderDefinition,
+  resolveTokenMeasurementCapability,
+} from '@brainstrike/assistant-contract/provider-registry';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage, ToolsInput } from '@mastra/core/agent';
+import type { RequestContext } from '@mastra/core/request-context';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import {
   type AssistantResilienceConfig,
   resolveAssistantResilienceConfig,
 } from '../../config/resilience-config';
 import type { McpConfig } from '../../mcp/config';
+import type { McpTaskTrackingCapability } from '../../mcp/task-tracking';
 import { createListingOnlyModel } from '../../providers/listing-only-model';
 import { applyProviderNativeWebSearch } from '../../providers/native-web-search';
+import type { ProviderAuthInput } from '../../providers/provider-auth-input';
 import { createAssistantSkillTools } from '../../skills/skill-tools';
 import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { applyToolGuards } from '../../tools/guard-tool-execution';
 import type { AgentHookRunner } from '../../tools/hook-runner';
 import { applyToolHooks } from '../../tools/hook-tool-wrap';
+import { resolveToolGuardBudget } from '../../tools/resolve-tool-guard-budget';
+import {
+  createToolExecutionDurations,
+  type ToolExecutionDurations,
+} from '../../tools/tool-execution-durations';
+import {
+  applyLiveApprovalGate,
+  createApprovalGate,
+  type RuntimeApprovalGate,
+} from '../approval-gate';
 import { createMastraAgentError } from '../mastra-agent-error';
+import {
+  createMcpAppToolAdmissionCapability,
+  type McpAppToolAdmissionCapability,
+} from '../mcp-app-tool-call';
+import type { McpDiscoverySkip } from '../mcp-discovery-diagnostics';
 import { createMcpRuntimeClient, type McpRuntimeClient } from '../mcp-runtime-client';
 import { collectCombinedTools } from '../mcp-tool-loader';
+import { type PermissionGateSummary, summarizePermissionGate } from '../permission-gate-run-events';
 import {
   filterToolsByPermissionWithMetadata,
   type PermissionAskToolMetadata,
@@ -42,7 +70,8 @@ import { filterToolsForPlanMode, resolveSuspendToolsForRun } from '../plan-mode-
 import { ProjectionSafeToolCallFilter } from '../projection-safe-tool-call-filter';
 import type { ResolvedRuntimeConfiguration } from '../runtime-configuration';
 import { createRunTokenDiagnostics, type RunTokenDiagnostics } from '../token-measurement';
-import { applyToolModelOutputProjections } from '../tool-model-output';
+import type { ModelOutputProjectionObserver } from '../tool-model-output';
+import { applyToolModelOutputProjections, wouldTruncateMcpModelOutput } from '../tool-model-output';
 import {
   applyToolOutputArtifactSettlement,
   type ToolOutputArtifactSettlementStore,
@@ -65,9 +94,10 @@ interface ResolvedAskTools {
  * Reconcile the gate result with whether the run can suspend-then-resume for
  * approval (i.e. whether Mastra workflow storage is configured).
  *
- * The gate already marked each `'ask'` tool with the PER-TOOL `requireApproval`
- * flag (only the ask tool suspends; allowed tools run free). This function only
- * decides whether those ask tools may STAY:
+ * The gate recorded each `'ask'` tool in `askTools`; `applyLiveApprovalGate`
+ * (approval-gate.ts) then clones the ones that stay with the FUNCTION-form
+ * per-tool `requireApproval` (only the ask tool suspends; allowed tools run
+ * free). This function only decides whether those ask tools may STAY:
  * - With storage: keep them (their per-tool flag suspends on call) and carry
  *   `askTools` for the approval-pause risk hint. Logged so the gate is observable.
  * - Without storage: the resume path (`streamMastraToolApprovalAction`) throws,
@@ -109,8 +139,8 @@ function resolveAskToolsForRun(
     return { askTools: new Map(), tools: reducedTools as ToolsInput };
   }
 
-  // Each ask tool carries the per-tool requireApproval flag and will suspend ONLY
-  // when actually called. Logged so the gated tools are observable.
+  // Each ask tool gets the function-form per-tool requireApproval flag and will
+  // suspend ONLY when actually called. Logged so the gated tools are observable.
   logger.info('Permission policy requires per-call approval for ask tools', {
     askToolCount: gateResult.askToolIds.size,
     askTools: Array.from(gateResult.askTools.values()).map((meta) => ({
@@ -127,18 +157,22 @@ interface GatedToolMapParams {
   readonly hookedTools: ToolsInput;
   readonly permissionSnapshot: PermissionToolGateSnapshot | undefined;
   readonly planModeActive: boolean;
+  /** The leg's remembered live grant (`liveDecisions.remembered`), read per call. */
+  readonly remembered: () => PermissionToolGateSnapshot | undefined;
   readonly toolNameMap: Map<string, string>;
 }
 
 /**
  * Assemble the FINAL tool map the Agent receives: plan-mode filter → permission
- * gate → suspend-storage gate. The plan/permission/suspend conditionals live in
- * one cohesive place. Each stage only omits tools; see the inline invariants in
- * `composeRuntimeToolMap`.
+ * gate → suspend-storage gate → live approval gate. The plan/permission/suspend
+ * conditionals live in one cohesive place. Each stage only omits tools (the
+ * live gate clones); see the inline invariants in `composeRuntimeToolMap`.
  */
 function resolveGatedToolMap(params: GatedToolMapParams): {
+  readonly approvalGate: RuntimeApprovalGate;
   readonly gatedTools: ToolsInput;
   readonly askTools: ResolvedAskTools['askTools'];
+  readonly permissionGate: PermissionGateSummary | null;
 } {
   const planFilteredTools = params.planModeActive
     ? filterToolsForPlanMode(
@@ -159,16 +193,38 @@ function resolveGatedToolMap(params: GatedToolMapParams): {
     gateResult,
     params.hasStorage
   );
+  // The live gate (approval-gate.ts): every ask tool that STAYS is cloned with
+  // the function-form per-tool flag, evaluated by Mastra on each call against
+  // this ask set and the leg's remembered grant.
+  const approvalGate = createApprovalGate({
+    askTools,
+    permissionEnforced: params.permissionSnapshot !== undefined,
+    remembered: params.remembered,
+    toolNameMap: params.toolNameMap,
+  });
+  const liveGatedTools = applyLiveApprovalGate(
+    askResolvedTools,
+    new Set(askTools.keys()),
+    approvalGate
+  );
   // Fail-safe: a tool that pauses via suspend() cannot resume without workflow
   // storage, so omit the suspending tools when storage is absent (never run one
   // that would wedge the run — no-silent-fallbacks).
   const gatedTools = resolveSuspendToolsForRun(
-    askResolvedTools,
+    liveGatedTools,
     params.hasStorage,
     params.toolNameMap,
     logger
   );
-  return { askTools, gatedTools };
+  // Debug-pack evidence of the gate this Agent is built with: the KEPT ask set
+  // (what the live gate suspends), denials, and any storage fail-safe omissions.
+  const permissionGate = summarizePermissionGate({
+    deniedTools: gateResult.deniedTools,
+    gatedAskTools: gateResult.askTools,
+    keptAskTools: askTools,
+    snapshot: params.permissionSnapshot,
+  });
+  return { approvalGate, askTools, gatedTools, permissionGate };
 }
 
 /**
@@ -195,6 +251,7 @@ function mergeSkillToolsIntoLocalTools(
 }
 
 function applyRuntimeToolHooks(params: {
+  durations: ToolExecutionDurations;
   guardedTools: ToolsInput;
   hookRunner: AgentHookRunner | undefined;
   toolNameMap: ReadonlyMap<string, string>;
@@ -203,35 +260,63 @@ function applyRuntimeToolHooks(params: {
     return params.guardedTools;
   }
   return applyToolHooks(params.guardedTools, {
+    // A PreToolUse BLOCK returns without reaching the guard, so the hook layer
+    // records that short-circuit itself — otherwise the consumer falls back to
+    // a timestamp gap that includes the approval wait.
+    durations: params.durations,
     hookRunner: params.hookRunner,
     logger,
     toolNameMap: params.toolNameMap,
   });
 }
 
+export function resolveEligibleArtifactReaderName(
+  tools: ToolsInput,
+  toolNameMap: ReadonlyMap<string, string>
+): string {
+  const names = Object.keys(tools).filter(
+    (id) => toolNameMap.get(id) === NATIVE_TOOL_ID.readToolOutputArtifact
+  );
+  const name = names[0];
+  if (names.length !== 1 || !name) {
+    throw new Error('Durable tool output requires one eligible artifact reader.');
+  }
+  return name;
+}
+
 function settleRuntimeToolOutputs(params: {
+  requireExecutionThreadId?: boolean;
   getDelegationToolNames: (() => readonly string[]) | undefined;
   inlineMaxSerializedCharsByToolName: ReadonlyMap<string, number> | undefined;
   store: ToolOutputArtifactSettlementStore | undefined;
   toolNameMap: ReadonlyMap<string, string>;
   tools: ToolsInput;
+  mcpToolNames: ReadonlySet<string>;
+  resolvedToolResultBudget: ScaledToolResultBudget;
 }): ToolsInput {
   if (!params.store) {
     return params.tools;
   }
   return applyToolOutputArtifactSettlement(params.tools, {
+    ...(params.requireExecutionThreadId ? { requireExecutionThreadId: true } : {}),
     ...(params.getDelegationToolNames
       ? { getDelegationToolNames: params.getDelegationToolNames }
       : {}),
     ...(params.inlineMaxSerializedCharsByToolName
       ? { inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName }
       : {}),
+    getReaderToolName: () => resolveEligibleArtifactReaderName(params.tools, params.toolNameMap),
     store: params.store,
     toolNameMap: params.toolNameMap,
+    wouldTruncateModelOutput: (toolName, output) =>
+      params.mcpToolNames.has(toolName) &&
+      wouldTruncateMcpModelOutput(toolName, output, params.resolvedToolResultBudget),
   });
 }
 
-const MASTRA_CATALOG_META_TOOL_IDS = new Set(['search_tools']);
+// `load_tool` is reserved since BST-1667: manual loading exposes Mastra's
+// exact-selection meta-tool on every discovery step.
+const MASTRA_CATALOG_META_TOOL_IDS = new Set(['search_tools', 'load_tool', 'list_available_tools']);
 
 function assertCatalogMetaToolNamesAvailable(params: {
   eligibleTools: ToolsInput;
@@ -255,14 +340,22 @@ function assertCatalogMetaToolNamesAvailable(params: {
 }
 
 function isHostedProviderRuntime(provider: ResolvedRuntimeConfiguration['provider']): boolean {
-  return !['local', 'ollama', 'lmstudio'].includes(provider);
+  // Registry-derived (BST-1349) with FAIL-OPEN polarity (PR #2513 review,
+  // finding 4): only the known local runtimes opt out of the hosted path, so
+  // an unknown id or a future runtime value keeps the pre-BST-1349 hosted
+  // default. Guarded lookup: an out-of-registry id must not TypeError.
+  const runtime = findProviderDefinition(provider)?.runtime;
+  return runtime !== 'local' && runtime !== 'browser';
 }
 
 export async function prepareHostedToolDiscovery(params: {
   eligibleTools: ToolsInput;
   localToolIds: ReadonlySet<string>;
   modelName: string;
-  persistedDiscoveryMessages?: () => Promise<readonly MastraDBMessage[]>;
+  persistedDiscoveryMessages?: (
+    requestContext?: RequestContext
+  ) => Promise<readonly MastraDBMessage[]>;
+  toolOutputObserver?: ModelOutputProjectionObserver;
   provider: ResolvedRuntimeConfiguration['provider'];
   resolvedToolResultBudget: ScaledToolResultBudget;
   toolNameMap: ReadonlyMap<string, string>;
@@ -312,8 +405,10 @@ export async function prepareHostedToolDiscovery(params: {
     resolvedToolResultBudget: params.resolvedToolResultBudget,
     tools: initialTools,
   });
-  const recordModelOutput = (toolId: string, output: unknown): void =>
+  const recordModelOutput = (toolId: string, output: unknown): void => {
     tokenDiagnostics.recordModelOutput(toolId, output);
+    params.toolOutputObserver?.(toolId, output);
+  };
   const modelProjectedTools = applyToolModelOutputProjections(
     initialTools,
     params.toolNameMap,
@@ -373,32 +468,61 @@ export function createToolHistoryFilter(
 }
 
 export interface RuntimeToolMapParams {
-  apiKey: string | undefined;
+  /**
+   * The run's resolved ProviderAuthInput (BST-1352): consumed by the
+   * provider-native web-search swap so its second SDK client is built through
+   * the same auth seam as the chat model (never from a bare key).
+   */
+  auth: ProviderAuthInput | undefined;
   getDelegationToolNames: (() => readonly string[]) | undefined;
   hasStorage: boolean;
   hookRunner: AgentHookRunner | undefined;
   inlineMaxSerializedCharsByToolName: ReadonlyMap<string, number> | undefined;
   localTools: ToolsInput | undefined;
   mcpConfig: McpConfig | undefined;
+  mcpHost: McpHostPort | undefined;
+  /** Host-owned MCP Tasks tracking; absent makes a task result a hard error. */
+  mcpTaskTracking: McpTaskTrackingCapability | undefined;
   mcpTimeoutMs: number | undefined;
   permissionSnapshot: PermissionToolGateSnapshot | undefined;
   planModeActive: boolean;
   preserveExecuteBackedWebSearch: boolean | undefined;
   provider: ResolvedRuntimeConfiguration['provider'];
+  /** The leg's remembered live grant (`liveDecisions.remembered`), read per call. */
+  remembered: () => PermissionToolGateSnapshot | undefined;
   resolvedToolResultBudget: ScaledToolResultBudget;
   toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined;
   workspaceSkills: WorkspaceSkills | undefined;
 }
 
 export interface RuntimeToolMapResult {
+  /** The live approval gate the ask tools' function-form flags forward to. */
+  approvalGate: RuntimeApprovalGate;
   /** Post-settlement tool map — the discovery/projection phase's input. */
   artifactSettledTools: ToolsInput;
   askTools: ReadonlyMap<string, PermissionAskToolMetadata>;
-  /** Pre-permission-gate map; persona subagents re-gate it independently. */
-  guardedTools: ToolsInput;
+  /** Post-lifecycle-hook, pre-permission map; children re-gate it independently. */
+  hookedTools: ToolsInput;
+  /** Apps admission surface captured only after ordinary runtime admission. */
+  mcpAppToolAdmission: McpAppToolAdmissionCapability;
   mcpClient: McpRuntimeClient | undefined;
+  /**
+   * Every MCP server that contributed ZERO tools to this run (BST-1602). Empty
+   * when discovery was healthy. Carried, never swallowed: the run answers with
+   * a materially reduced tool surface and the user is owed that fact.
+   */
+  mcpDiscoverySkips: readonly McpDiscoverySkip[];
+  /**
+   * The resolved permission gate, minted as `permission.gate.resolved` on the
+   * fresh-turn prelude. Null when no policy snapshot gated this run.
+   */
+  permissionGate: PermissionGateSummary | null;
   resilienceConfig: AssistantResilienceConfig;
   sanitizedLocalToolIds: ReadonlySet<string>;
+  /** Apply the same settlement policy to an independently gated child tool map. */
+  settleChildToolOutputs: (tools: ToolsInput, budget: ScaledToolResultBudget) => ToolsInput;
+  /** Real per-call execution time, written by the guard wrapper. */
+  toolExecutionDurations: ToolExecutionDurations;
   toolNameMap: Map<string, string>;
 }
 
@@ -411,8 +535,18 @@ export interface RuntimeToolMapResult {
 export async function composeRuntimeToolMap(
   params: RuntimeToolMapParams
 ): Promise<RuntimeToolMapResult> {
-  const mcpClient = createMcpRuntimeClient({
+  // Resolved first: the MCP task settlement wait is capped under the same
+  // guard ceiling applyToolGuards enforces below.
+  const resilienceConfig = resolveAssistantResilienceConfig();
+  const mcpClient = await createMcpRuntimeClient({
     config: params.mcpConfig,
+    ...(params.mcpHost ? { host: params.mcpHost } : {}),
+    ...(params.mcpTaskTracking
+      ? {
+          mcpTaskTracking: params.mcpTaskTracking,
+          toolTimeoutMs: resilienceConfig.toolTimeoutMs,
+        }
+      : {}),
   });
 
   // Agent Skills (desktop-injected engine): fold Mastra's canonical
@@ -431,21 +565,59 @@ export async function composeRuntimeToolMap(
   const toolNameMap = new Map<string, string>();
   const sanitizedLocalTools = sanitizeTools(localToolsWithSkills, toolNameMap);
   const sanitizedLocalToolIds = new Set(Object.keys(sanitizedLocalTools ?? {}));
-  const combinedTools = await collectCombinedTools({
+  const { mcpDiscoverySkips, tools: combinedTools } = await collectCombinedTools({
     durableArtifactSettlement: Boolean(params.toolOutputArtifactStore),
     mcpClient,
-    mcpConfig: params.mcpConfig,
+    // The injected host snapshot is the sole server/configuration authority.
+    // Legacy serialized config is only meaningful on the no-host path above.
+    mcpConfig: params.mcpHost ? undefined : params.mcpConfig,
     sanitizedLocalTools,
     scaledDefaultTokens: params.resolvedToolResultBudget.transportResultTokens,
     timeoutOverrideMs: params.mcpTimeoutMs,
     toolNameMap,
   });
-  const resilienceConfig = resolveAssistantResilienceConfig();
-  // Intentional global guard: every native and MCP tool execution shares this
-  // ceiling so a single slow tool cannot freeze the assistant stream.
+  // Collection adds only MCP entries to the already-sanitized local registry.
+  // Capture that provenance before provider controls can change the final map.
+  const mcpToolNames = new Set(
+    Object.keys(combinedTools)
+      .filter((id) => !sanitizedLocalToolIds.has(id))
+      .map((id) => {
+        const original = toolNameMap.get(id);
+        if (!original) {
+          throw new Error(`Collected MCP tool ${id} is missing its original name.`);
+        }
+        return original;
+      })
+  );
+  // Intentional guard on every native and MCP tool execution, so a single slow
+  // tool cannot freeze the assistant stream. The budget is PER CALL (BST-1777):
+  // a tool that declares an execution budget is granted what its own contract
+  // promises the model, resolved from that call's input; every other tool —
+  // including every MCP tool — keeps the global default.
+  // Per-runtime, which is per request. The guard is the only layer that sees
+  // real execution time; an approval-gated call's stream timestamps span the
+  // human wait instead (see tool-execution-durations.ts).
+  const budgetFor = (toolId: string): NativeToolExecutionBudget | undefined => {
+    // Declared budgets belong to LOCAL tools only. An MCP tool's original name
+    // is whatever its server chose, so matching it against the native catalog
+    // would let a third-party tool named like a native one inherit a 600s budget.
+    if (!sanitizedLocalToolIds.has(toolId)) {
+      return;
+    }
+    const canonicalId = toolNameMap.get(toolId);
+    return canonicalId === undefined ? undefined : NATIVE_TOOL_EXECUTION_BUDGETS.get(canonicalId);
+  };
+  const toolExecutionDurations = createToolExecutionDurations();
   const guardedTools = applyToolGuards(combinedTools, {
+    declaredMaxMs: (toolId) => budgetFor(toolId)?.maxMs,
+    durations: toolExecutionDurations,
     logger,
-    timeoutMs: resilienceConfig.toolTimeoutMs,
+    timeoutMs: (toolId) => (args) =>
+      resolveToolGuardBudget({
+        budget: budgetFor(toolId),
+        defaultGuardMs: resilienceConfig.toolTimeoutMs,
+        input: args[0],
+      }),
   });
 
   // Tool-lifecycle hooks (desktop): compose OUTSIDE the guard, BEFORE the
@@ -453,6 +625,7 @@ export async function composeRuntimeToolMap(
   // can never widen access — permission runs downstream of `execute`, so a hook
   // only ever sees a tool the policy already allowed (hooks REFINE, never widen).
   const hookedTools = applyRuntimeToolHooks({
+    durations: toolExecutionDurations,
     guardedTools,
     hookRunner: params.hookRunner,
     toolNameMap,
@@ -460,9 +633,10 @@ export async function composeRuntimeToolMap(
 
   // Permission gate: filter the tool map by the user's policy BEFORE the Agent
   // is constructed (the Agent is immutable after `new Agent`). 'deny' omits the
-  // tool from the map the model sees; 'ask' KEEPS a CLONE of the tool carrying
-  // Mastra's PER-TOOL `requireApproval: true` (and records its id in `askTools`)
-  // so Mastra suspends for approval ONLY when that tool is actually called —
+  // tool from the map the model sees; 'ask' records the tool in `askTools` and
+  // the live gate (approval-gate.ts) clones it with the FUNCTION-form per-tool
+  // `requireApproval`, which Mastra evaluates on every call, so it suspends
+  // ONLY when that tool is actually called and no remembered grant allows it —
   // allowed read/mcp tools in the same run still run free. We do NOT force the
   // run-wide requireToolApproval (see permission-tool-gate.ts + streamMastraAgent).
   // When no policy is threaded the map is returned unchanged (production-default)
@@ -473,12 +647,24 @@ export async function composeRuntimeToolMap(
   // askUser) and omit every edit/execute tool, BEFORE the permission gate (a
   // dropped mutation tool is dropped regardless of allow/ask/deny). The risk map
   // is the authoritative static registry classification (never client-supplied).
-  const { gatedTools, askTools } = resolveGatedToolMap({
+  const { approvalGate, gatedTools, askTools, permissionGate } = resolveGatedToolMap({
     hasStorage: params.hasStorage,
     hookedTools,
     permissionSnapshot: params.permissionSnapshot,
     planModeActive: params.planModeActive,
+    remembered: params.remembered,
     toolNameMap,
+  });
+  const mcpAppToolAdmission = createMcpAppToolAdmissionCapability({
+    askTools,
+    ...(params.permissionSnapshot?.defaultRisk
+      ? { defaultRisk: params.permissionSnapshot.defaultRisk }
+      : {}),
+    ...(params.permissionSnapshot?.riskByTool
+      ? { riskByTool: params.permissionSnapshot.riskByTool }
+      : {}),
+    toolNameMap,
+    tools: gatedTools,
   });
 
   // Provider-native web search (v1: anthropic/openai only). Runs AFTER the gate
@@ -488,8 +674,8 @@ export async function composeRuntimeToolMap(
   // and cannot be approval-gated). Guarded to supported providers, so every other
   // caller/path is unchanged (see native-web-search.ts).
   const finalTools = applyProviderNativeWebSearch({
-    apiKey: params.apiKey,
     askTools,
+    auth: params.auth,
     logger,
     preserveExecuteBackedWebSearch: params.preserveExecuteBackedWebSearch,
     provider: params.provider,
@@ -499,18 +685,39 @@ export async function composeRuntimeToolMap(
   const artifactSettledTools = settleRuntimeToolOutputs({
     getDelegationToolNames: params.getDelegationToolNames,
     inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName,
+    mcpToolNames,
+    resolvedToolResultBudget: params.resolvedToolResultBudget,
     store: params.toolOutputArtifactStore,
     toolNameMap,
     tools: finalTools,
   });
 
   return {
+    approvalGate,
     artifactSettledTools,
     askTools,
-    guardedTools,
+    // Children retain the same lifecycle hooks before their independent permission gate.
+    hookedTools,
+    mcpAppToolAdmission,
     mcpClient,
+    mcpDiscoverySkips,
+    permissionGate,
     resilienceConfig,
     sanitizedLocalToolIds,
+    // Children select a strict subset of these sanitized IDs; they never rename
+    // tools. Current personas cannot delegate, so they advertise no delegation hint.
+    settleChildToolOutputs: (tools, budget) =>
+      settleRuntimeToolOutputs({
+        getDelegationToolNames: undefined,
+        inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName,
+        mcpToolNames,
+        requireExecutionThreadId: true,
+        resolvedToolResultBudget: budget,
+        store: params.toolOutputArtifactStore,
+        toolNameMap,
+        tools,
+      }),
+    toolExecutionDurations,
     toolNameMap,
   };
 }

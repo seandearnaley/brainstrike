@@ -3,6 +3,7 @@ import {
   buildNativeToolRiskMap,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   hasRegisteredSuspendResumeUi,
+  listSuspendedChildContinuation,
   listSuspendedMastraRuns,
   type RediscoveredToolApproval,
   type RediscoveredToolSuspend,
@@ -12,7 +13,18 @@ import {
   resolveRunPythonExecutionContext,
   type SuspendedRunsResponse,
 } from '@brainstrike/agent';
+import {
+  type DelegatedToolDecisionState,
+  getToolActionIdentityKey,
+} from '@brainstrike/assistant-contract';
 import { respondJson } from '@brainstrike/assistant-service/http';
+import { getDatabase } from '../db-main';
+import { getProviderAuthEngine } from '../provider-auth/provider-auth-runtime';
+import { createDesktopDelegatedSuspensionResolver } from './delegated-conversation-host';
+import {
+  readDelegatedDecisionStates,
+  readPendingChildContinuations,
+} from './delegated-decision-discovery';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { getDesktopMastraMemory } from './mastra-memory';
 import {
@@ -20,9 +32,43 @@ import {
   requireOpenRouterModelId,
 } from './openrouter-model-metadata';
 import { collectAvailableProviders, resolveProviderApiKeyOrRespond } from './provider-credentials';
+import {
+  createProviderVerificationService,
+  MissingProviderCredentialError,
+  UnknownVerificationProviderError,
+  UnsupportedVerificationCredentialError,
+} from './provider-verification';
+import { respondToSecretReadError } from './secret-error-responses';
 import type { AssistantServerOptions } from './server-options';
 
 const defaultOpenRouterModelMetadataService = createOpenRouterModelMetadataService();
+const defaultProviderVerificationService = createProviderVerificationService({
+  /**
+   * BST-1356: subscription freshness is answered by the SHARED provider-auth
+   * engine's single-flight refresher. Resolved lazily so this module-scope
+   * construction never forces the runtime to exist (it does not in tests or
+   * on web); an uninitialized runtime surfaces as a typed unsupported-probe
+   * failure rather than a crash.
+   */
+  verifySubscriptionSession: async (providerId) => {
+    let engine: ReturnType<typeof getProviderAuthEngine>;
+    try {
+      engine = getProviderAuthEngine();
+    } catch {
+      // Uninitialized runtime (web, tests, any non-desktop host): surface the
+      // TYPED unsupported-probe failure the verification service turns into a
+      // `verification_unsupported` 400, rather than letting a bare Error
+      // escape as a 500 (PR #2527 review, finding 8).
+      throw new UnsupportedVerificationCredentialError(
+        'subscription sign-in can only be verified in the desktop app'
+      );
+    }
+    const result = await engine.getFreshAccessToken(providerId);
+    // The access token itself NEVER leaves the engine (gate constraint 3) —
+    // only the verdict crosses into the verification result.
+    return result.ok ? { ok: true } : { ok: false, status: result.status };
+  },
+});
 
 /**
  * Newest-N bound on rediscovered suspend() pauses per thread open (BST-1084,
@@ -50,12 +96,25 @@ export async function handleAssistantStatus(
   options: AssistantServerOptions
 ): Promise<void> {
   try {
+    // BST-1361: rename warnings for deprecated env names. Desktop MAIN
+    // computed these from its own process env at startup (see
+    // AssistantServerOptions.deprecatedEnvVars); absence and empty both omit
+    // the field so unaffected payloads are unchanged. A rejected env FILE
+    // does not suppress them: the inherited process env can still carry a
+    // deprecated name, and the repair guidance is most useful exactly when
+    // the user is already editing their environment.
+    const deprecatedEnvVars =
+      options.deprecatedEnvVars && options.deprecatedEnvVars.length > 0
+        ? { deprecatedEnvVars: options.deprecatedEnvVars }
+        : {};
+
     if (options.envFileFailures && options.envFileFailures.length > 0) {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store');
       res.statusCode = 200;
       res.end(
         JSON.stringify({
+          ...deprecatedEnvVars,
           enabled: false,
           envFileFailures: options.envFileFailures,
           error: 'assistant_configuration_invalid',
@@ -70,12 +129,14 @@ export async function handleAssistantStatus(
     const enabled = providers.length > 0;
     const payload = enabled
       ? {
+          ...deprecatedEnvVars,
           enabled,
           ...(providerErrors.length > 0 ? { providerErrors } : {}),
           providerKeySources,
           providers,
         }
       : {
+          ...deprecatedEnvVars,
           enabled,
           providers: [] as string[],
           reason: 'no_providers_configured',
@@ -160,6 +221,73 @@ export async function handleOpenRouterModelMetadata(
 }
 
 /**
+ * GET /assistant/verify-provider?provider=<id> (BST-1357): runs the
+ * cheapest-authenticated-call credential probe for one provider and returns
+ * the typed {@link ProviderVerificationSnapshot}. The renderer sends ONLY the
+ * provider id — credentials resolve main-side inside the service via the
+ * typed reader, and the response never carries key material. Probe outcomes
+ * (invalid/unreachable/…) are 200-with-result; 4xx/5xx here mean the REQUEST
+ * itself failed (unknown provider, no credential, unreadable secret store).
+ */
+export async function handleVerifyProviderRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  options: AssistantServerOptions
+): Promise<void> {
+  const providerId = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams
+    .get('provider')
+    ?.trim();
+  if (!providerId) {
+    respondJson(res, 400, {
+      error: 'missing_provider',
+      message: 'Provider verification requires a provider query parameter.',
+    });
+    return;
+  }
+
+  try {
+    const service = options.providerVerificationService ?? defaultProviderVerificationService;
+    const snapshot = await service.verify(providerId);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.statusCode = 200;
+    res.end(JSON.stringify(snapshot));
+  } catch (error) {
+    if (error instanceof UnknownVerificationProviderError) {
+      respondJson(res, 400, { error: 'unknown_provider', message: error.message });
+      return;
+    }
+    if (error instanceof MissingProviderCredentialError) {
+      respondJson(res, 400, { error: 'missing_api_key', message: error.message });
+      return;
+    }
+    if (error instanceof UnsupportedVerificationCredentialError) {
+      respondJson(res, 400, { error: 'verification_unsupported', message: error.message });
+      return;
+    }
+    if (respondToSecretReadError(res, error)) {
+      return;
+    }
+    // Error classes above carry static or provider-id-only messages; anything
+    // else is bounded before it becomes visible.
+    const message =
+      error instanceof Error
+        ? error.message.slice(0, OPENROUTER_METADATA_ERROR_MAX_CHARS)
+        : 'Provider verification failed.';
+    logger.warn('Provider verification request failed', { error, providerId });
+    respondJson(res, 500, { error: 'verify_provider_failed', message });
+  }
+}
+
+function suspendedTime(decision: { suspendedAt: string }): number {
+  const timestamp = Date.parse(decision.suspendedAt);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error('Discovered decision has an invalid suspension timestamp.');
+  }
+  return timestamp;
+}
+
+/**
  * Restart-safe rediscovery of pending tool approvals for a thread. On reload the
  * live-stream approval notice is gone (it was never persisted), but the suspended
  * run snapshot survives in workflow storage — this endpoint surfaces it so the
@@ -172,6 +300,42 @@ export async function handleOpenRouterModelMetadata(
  * `provider: 'ollama'` below is a keyless placeholder that satisfies runtime
  * config; it is never used to construct a model.
  */
+async function includeContinuationPauses(
+  database: Parameters<typeof readPendingChildContinuations>[0],
+  scope: Parameters<typeof readPendingChildContinuations>[1],
+  storage: Parameters<typeof listSuspendedChildContinuation>[1]['storage'],
+  original: Awaited<ReturnType<typeof listSuspendedMastraRuns>>
+): Promise<Awaited<ReturnType<typeof listSuspendedMastraRuns>>> {
+  // Root pauses need the same fail-loud validation even without child receipts.
+  for (const decision of [...original.approvals, ...original.suspends]) {
+    suspendedTime(decision);
+  }
+  const continuations = await readPendingChildContinuations(database, scope);
+  if (continuations.length === 0) {
+    return original;
+  }
+  const result = { approvals: [...original.approvals], suspends: [...original.suspends] };
+  const pendingResults = await Promise.all(
+    continuations.map((continuation) =>
+      listSuspendedChildContinuation(continuation, {
+        resolveInvocation: createDesktopDelegatedSuspensionResolver(database, scope),
+        storage,
+      })
+    )
+  );
+  for (const pending of pendingResults) {
+    // Validate singletons too; Array.sort never invokes their comparator.
+    for (const decision of [...pending.approvals, ...pending.suspends]) {
+      suspendedTime(decision);
+    }
+    result.approvals.push(...pending.approvals);
+    result.suspends.push(...pending.suspends);
+  }
+  result.approvals.sort((a, b) => suspendedTime(a) - suspendedTime(b));
+  result.suspends.sort((a, b) => suspendedTime(a) - suspendedTime(b));
+  return result;
+}
+
 export async function handleSuspendedRunsRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -204,9 +368,15 @@ export async function handleSuspendedRunsRequest(
       return;
     }
 
-    const discovery = await listSuspendedMastraRuns(
+    const rootDiscovery = await listSuspendedMastraRuns(
       { resourceId, threadId },
       {
+        backgroundTaskScope: { resourceId, threadId },
+        delegatedSuspensionDiscovery: async (parent) =>
+          createDesktopDelegatedSuspensionResolver(await getDatabase(), {
+            ownerResourceId: resourceId,
+            rootThreadId: threadId,
+          })(parent),
         memory: memoryResult.memory,
         // Keyless, provider-independent, model-free listing (see the doc comment
         // above). `listSuspendedMastraRuns` injects an inert listing-only model,
@@ -216,44 +386,12 @@ export async function handleSuspendedRunsRequest(
       }
     );
 
-    const riskByTool = buildNativeToolRiskMap();
-    const staleThresholdMs = resolveApprovalStaleMs();
-    const now = Date.now();
-    const approvals: RediscoveredToolApproval[] = discovery.approvals.map((approval) => {
-      // Discovery returns the ORIGINAL dotted tool name (the agent maps the
-      // stored sanitized id back — see listSuspendedMastraRuns), so this lookup
-      // hits for every known native tool.
-      const riskCategory = riskByTool[approval.toolName];
-      if (!riskCategory) {
-        // Honest degradation, surfaced loudly: without a risk category the
-        // rediscovered notice renders no reason line and no grant actions
-        // (never a fabricated category — no-silent-fallbacks).
-        logger.warn('Rediscovered approval has no resolvable risk category', {
-          code: 'assistant_suspended_approval_risk_unresolved',
-          runId: approval.runId,
-          toolName: approval.toolName,
-        });
-      }
-      // BST-1070: the live approval's executionContext is a transient stream
-      // field, so a rediscovered run_python approval RECOMPUTES it from the
-      // durable args — the same helper the live chunk uses, exactly where
-      // riskCategory is recomputed. Unparseable args yield no context, and the
-      // card falls to its fail-safe (no fact rows, grants suppressed).
-      const executionContext =
-        approval.toolName === RUN_PYTHON_TOOL_ID
-          ? resolveRunPythonExecutionContext(approval.args)
-          : undefined;
-      return {
-        runId: approval.runId,
-        stale: now - Date.parse(approval.suspendedAt) > staleThresholdMs,
-        suspendedAt: approval.suspendedAt,
-        toolCallId: approval.toolCallId,
-        toolName: approval.toolName,
-        ...(approval.args === undefined ? {} : { args: approval.args }),
-        ...(riskCategory ? { policyDecision: 'ask' as const, riskCategory } : {}),
-        ...(executionContext === undefined ? {} : { executionContext }),
-      };
-    });
+    const discovery = await includeContinuationPauses(
+      await getDatabase(),
+      { ownerResourceId: resourceId, rootThreadId: threadId },
+      memoryResult.storage,
+      rootDiscovery
+    );
 
     // BST-1084: rediscovered suspend() pauses ride the same response. An
     // UNREGISTERED tool's pause is flagged resumeSupported:false and NEVER
@@ -282,7 +420,69 @@ export async function handleSuspendedRunsRequest(
         threadId,
       });
     }
+    const delegatedPauses = [...discovery.approvals, ...cappedSuspends].filter(
+      (pause) => pause.delegation !== undefined || pause.continuationId !== undefined
+    );
+    // A failed durable-state read must stay visible: an empty map would make
+    // an already-admitted decision appear actionable again.
+    const decisionStates = delegatedPauses.length
+      ? await readDelegatedDecisionStates(
+          await getDatabase(),
+          { ownerResourceId: resourceId, rootThreadId: threadId },
+          delegatedPauses
+        )
+      : new Map<string, DelegatedToolDecisionState>();
+    const riskByTool = buildNativeToolRiskMap();
+    const staleThresholdMs = resolveApprovalStaleMs();
+    const now = Date.now();
+    const approvals: RediscoveredToolApproval[] = discovery.approvals.map((approval) => {
+      const decisionState =
+        approval.delegation || approval.continuationId
+          ? decisionStates.get(getToolActionIdentityKey(approval))
+          : undefined;
+      // Discovery returns the ORIGINAL dotted tool name (the agent maps the
+      // stored sanitized id back — see listSuspendedMastraRuns), so this lookup
+      // hits for every known native tool.
+      const riskCategory = riskByTool[approval.toolName];
+      if (!riskCategory) {
+        // Honest degradation, surfaced loudly: without a risk category the
+        // rediscovered notice renders no reason line and no grant actions
+        // (never a fabricated category — no-silent-fallbacks).
+        logger.warn('Rediscovered approval has no resolvable risk category', {
+          code: 'assistant_suspended_approval_risk_unresolved',
+          runId: approval.runId,
+          toolName: approval.toolName,
+        });
+      }
+      // BST-1070: the live approval's executionContext is a transient stream
+      // field, so a rediscovered run_python approval RECOMPUTES it from the
+      // durable args — the same helper the live chunk uses, exactly where
+      // riskCategory is recomputed. Unparseable args yield no context, and the
+      // card falls to its fail-safe (no fact rows, grants suppressed).
+      const executionContext =
+        approval.toolName === RUN_PYTHON_TOOL_ID
+          ? resolveRunPythonExecutionContext(approval.args)
+          : undefined;
+      return {
+        ...(approval.delegation ? { delegation: approval.delegation } : {}),
+        ...(approval.continuationId ? { continuationId: approval.continuationId } : {}),
+        ...(decisionState === undefined ? {} : { decisionState }),
+        runId: approval.runId,
+        stale: now - Date.parse(approval.suspendedAt) > staleThresholdMs,
+        suspendedAt: approval.suspendedAt,
+        toolCallId: approval.toolCallId,
+        toolName: approval.toolName,
+        ...(approval.args === undefined ? {} : { args: approval.args }),
+        ...(riskCategory ? { policyDecision: 'ask' as const, riskCategory } : {}),
+        ...(executionContext === undefined ? {} : { executionContext }),
+      };
+    });
+
     const suspends: RediscoveredToolSuspend[] = cappedSuspends.map((pause) => {
+      const decisionState =
+        pause.delegation || pause.continuationId
+          ? decisionStates.get(getToolActionIdentityKey(pause))
+          : undefined;
       const resumable = hasRegisteredSuspendResumeUi(pause.toolName);
       if (!resumable) {
         logger.warn('Rediscovered suspend pause has no registered resume UI in this build', {
@@ -292,6 +492,9 @@ export async function handleSuspendedRunsRequest(
         });
       }
       return {
+        ...(pause.delegation ? { delegation: pause.delegation } : {}),
+        ...(pause.continuationId ? { continuationId: pause.continuationId } : {}),
+        ...(decisionState === undefined ? {} : { decisionState }),
         runId: pause.runId,
         stale: now - Date.parse(pause.suspendedAt) > staleThresholdMs,
         suspendedAt: pause.suspendedAt,

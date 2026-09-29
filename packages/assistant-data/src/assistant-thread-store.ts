@@ -2,12 +2,14 @@ import type { RuntimeModelSettings } from '@brainstrike/assistant-contract';
 import type { AssistantProviderSettings } from '@brainstrike/types';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type {
-  AssistantMemoryThread,
-  AssistantThreadMetadata,
-  AssistantThreadRepository,
+import {
+  type AssistantMemoryThread,
+  type AssistantThreadMetadata,
+  type AssistantThreadRepository,
+  assertBulkThreadMetadataPatch,
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
+import { mergeAssistantThreadMetadata } from './assistant-thread-metadata-merge';
 
 type AssistantThreadModelSettings = RuntimeModelSettings;
 
@@ -45,7 +47,9 @@ interface AssistantThreadState {
     repository: AssistantThreadRepository,
     resourceId: string
   ) => Promise<void>;
+  lastViewedAtByThreadId: Record<string, number>;
   loadStateByResourceId: Record<string, AssistantThreadLoadState>;
+  markThreadViewed: (threadId: string, viewedAt?: number) => void;
   openThreadIdsByResourceId: Record<string, string[]>;
   openThreadTab: (resourceId: string, threadId: string) => void;
   refreshResourceThreads: (
@@ -64,6 +68,20 @@ interface AssistantThreadState {
   setThreadDraftRuntime: (threadId: string, config: AssistantThreadDraftRuntime) => void;
   threadIdsByResourceId: Record<string, string[]>;
   threadsByResourceId: Record<string, AssistantMemoryThread[]>;
+  /**
+   * Epoch ms below which NOTHING is unseen — stamped once, when this store
+   * first exists for a user (fresh install) or when their v3 blob is migrated.
+   *
+   * Without it, an empty `lastViewedAtByThreadId` reads as "the user has never
+   * seen anything", so every thread whose latest run ever completed would carry
+   * the done-unseen dot on first launch — a storm on the very signal that is
+   * supposed to mean "this finished while you were away". The v3 blob carries
+   * no thread ids and no run timestamps, so per-thread watermarks cannot be
+   * seeded from it; this one number is the honest floor instead. It is only
+   * ever raised (creation, migrate, reset) — never lowered, and never inferred
+   * from a run.
+   */
+  unseenBaselineAt: number;
   updateThreadMetadata: (
     repository: AssistantThreadRepository,
     resourceId: string,
@@ -87,8 +105,63 @@ export interface AssistantThreadDraftRuntime {
   readonly runtimeKind?: 'browser' | 'gateway' | 'hosted' | 'local';
 }
 
+type PersistedAssistantThreadState = Pick<
+  AssistantThreadState,
+  | 'activeThreadIdByResourceId'
+  | 'draftRuntimeByThreadId'
+  | 'lastViewedAtByThreadId'
+  | 'openThreadIdsByResourceId'
+  | 'selectedThreadByResourceId'
+  | 'unseenBaselineAt'
+>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+/**
+ * Version 4 introduced the per-thread viewed watermark
+ * (`lastViewedAtByThreadId`) and the `unseenBaselineAt` floor beneath it.
+ * This migrate only knows how to bridge a version-3 blob into version 4 by
+ * filling those two keys — every other field is passed through UNVALIDATED
+ * (deliberately: the persisted threads state has never been validated on
+ * load, and starting to repair it here would silently rewrite a user's open
+ * tabs). Any other version — including one older than 3 (an unrecorded shape
+ * this migrate was never written against) or one newer than 4 (a downgrade,
+ * where hydrating would silently accept fields this build doesn't know about)
+ * — is unsupported and must throw rather than be hydrated verbatim.
+ */
+export function migrateAssistantThreadPersistedState(
+  persistedState: unknown,
+  version: number
+): PersistedAssistantThreadState {
+  if (version !== 3) {
+    throw new Error(`Unsupported persisted assistant thread state version: ${version}.`);
+  }
+  if (!isRecord(persistedState)) {
+    throw new Error('Invalid persisted assistant thread state.');
+  }
+  // Deliberately unvalidated below this point: only the top-level shape (a
+  // record) is checked. The inner fields (activeThreadIdByResourceId, etc.)
+  // are passed through as-is, matching the load path, which has never
+  // validated them either.
+  // The upgrade moment IS the baseline: an upgrading user's existing threads
+  // were all "seen" before this build shipped, and only runs completing after
+  // this point can be news to them.
+  const migrated: Record<string, unknown> = {
+    ...persistedState,
+    lastViewedAtByThreadId: {},
+    unseenBaselineAt: Date.now(),
+  };
+  return migrated as PersistedAssistantThreadState;
+}
+
 const resourceThreadLoadPromises = new Map<string, Promise<void>>();
 let resourceThreadLoadGeneration = 0;
+const resourceThreadRefreshStateByResourceId = new Map<
+  string,
+  { applied: number; started: number }
+>();
 
 function serializeThread(thread: AssistantMemoryThread): AssistantMemoryThread {
   return {
@@ -539,6 +612,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
                 }
               : omitRecordKey(state.activeThreadIdByResourceId, resourceId),
             draftRuntimeByThreadId: omitRecordKey(state.draftRuntimeByThreadId, threadId),
+            lastViewedAtByThreadId: omitRecordKey(state.lastViewedAtByThreadId, threadId),
             loadStateByResourceId: {
               ...state.loadStateByResourceId,
               [resourceId]: { status: 'ready' },
@@ -596,6 +670,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
               ? { ...state.activeThreadIdByResourceId, [resourceId]: nextActiveThreadId }
               : omitRecordKey(state.activeThreadIdByResourceId, resourceId),
             draftRuntimeByThreadId: omitRecordKeys(state.draftRuntimeByThreadId, deletedThreadIds),
+            lastViewedAtByThreadId: omitRecordKeys(state.lastViewedAtByThreadId, deletedThreadIds),
             loadStateByResourceId: {
               ...state.loadStateByResourceId,
               [resourceId]: { status: 'ready' },
@@ -702,7 +777,26 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         resourceThreadLoadPromises.set(resourceId, loadPromise);
         return loadPromise;
       },
+      lastViewedAtByThreadId: {},
       loadStateByResourceId: {},
+      markThreadViewed: (threadId: string, viewedAt?: number): void => {
+        if (!threadId.trim()) {
+          throw new Error('Thread id is required.');
+        }
+        const nextViewedAt = viewedAt ?? Date.now();
+        // Idempotent and monotonic: a later read of an older run must never
+        // resurrect an unseen badge the user already cleared.
+        const currentViewedAt = get().lastViewedAtByThreadId[threadId];
+        if (currentViewedAt !== undefined && currentViewedAt >= nextViewedAt) {
+          return;
+        }
+        set((state) => ({
+          lastViewedAtByThreadId: {
+            ...state.lastViewedAtByThreadId,
+            [threadId]: nextViewedAt,
+          },
+        }));
+      },
       openThreadIdsByResourceId: {},
       openThreadTab: (resourceId: string, threadId: string) => {
         set((state) => ({
@@ -729,10 +823,19 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         // observations run) become visible. Only refreshes a resource that has
         // finished its initial load — ensureResourceThreads owns first load and
         // the empty-resource default-thread seed. Selection/open state is keyed
-        // by id, which the merge preserves, so it is untouched here.
+        // by id, which the merge preserves, so it is untouched here. Concurrent
+        // refreshes apply in latest-successful-start order per resource: empty or
+        // failed newer reads do not suppress an older successful read.
         if (get().loadStateByResourceId[resourceId]?.status !== 'ready') {
           return;
         }
+        const refreshState = resourceThreadRefreshStateByResourceId.get(resourceId) ?? {
+          applied: 0,
+          started: 0,
+        };
+        refreshState.started += 1;
+        const refreshGeneration = refreshState.started;
+        resourceThreadRefreshStateByResourceId.set(resourceId, refreshState);
         const metadataSnapshotByThreadId = new Map(
           (get().threadsByResourceId[resourceId] ?? []).map((thread) => [
             thread.id,
@@ -743,6 +846,11 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         if (loaded.length === 0) {
           return;
         }
+        const currentRefreshState = resourceThreadRefreshStateByResourceId.get(resourceId);
+        if (currentRefreshState !== refreshState || refreshGeneration < refreshState.applied) {
+          return;
+        }
+        refreshState.applied = refreshGeneration;
         set((state) => {
           const currentThreadById = new Map(
             (state.threadsByResourceId[resourceId] ?? []).map((thread) => [thread.id, thread])
@@ -818,6 +926,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
       },
       threadIdsByResourceId: {},
       threadsByResourceId: {},
+      unseenBaselineAt: Date.now(),
       updateThreadMetadata: async (
         repository: AssistantThreadRepository,
         resourceId: string,
@@ -832,10 +941,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
               thread.id === threadId
                 ? {
                     ...thread,
-                    metadata: {
-                      ...(thread.metadata ?? {}),
-                      ...metadata,
-                    },
+                    metadata: mergeAssistantThreadMetadata(thread.metadata, metadata),
                   }
                 : thread
             ),
@@ -849,6 +955,10 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         metadata: AssistantThreadMetadata
       ): Promise<void> => {
         requireThreadIdBatch(threadIds);
+        // Fail fast, before the load/repository round-trip: the repository
+        // rejects this too, but attributing it here names the reason (checkout
+        // state is a single-thread, atomic write) without wasting the trip.
+        assertBulkThreadMetadataPatch(metadata);
         const loadedThreads = get().threadsByResourceId[resourceId] ?? [];
         requireLoadedThreads(loadedThreads, threadIds);
         await requireBulkMetadataUpdate(repository)(threadIds, metadata);
@@ -860,10 +970,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
               updatedThreadIds.has(thread.id)
                 ? {
                     ...thread,
-                    metadata: {
-                      ...(thread.metadata ?? {}),
-                      ...metadata,
-                    },
+                    metadata: mergeAssistantThreadMetadata(thread.metadata, metadata),
                   }
                 : thread
             ),
@@ -872,14 +979,17 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
       },
     }),
     {
+      migrate: migrateAssistantThreadPersistedState,
       name: 'brainstrike-assistant-threads-v1',
-      partialize: (state) => ({
+      partialize: (state): PersistedAssistantThreadState => ({
         activeThreadIdByResourceId: state.activeThreadIdByResourceId,
         draftRuntimeByThreadId: state.draftRuntimeByThreadId,
+        lastViewedAtByThreadId: state.lastViewedAtByThreadId,
         openThreadIdsByResourceId: state.openThreadIdsByResourceId,
         selectedThreadByResourceId: state.selectedThreadByResourceId,
+        unseenBaselineAt: state.unseenBaselineAt,
       }),
-      version: 3,
+      version: 4,
     }
   )
 );
@@ -900,13 +1010,18 @@ export function useActiveAssistantThreadId(resourceIdOverride?: string): string 
 export function resetAssistantThreadStore(): void {
   resourceThreadLoadGeneration += 1;
   resourceThreadLoadPromises.clear();
+  resourceThreadRefreshStateByResourceId.clear();
   useAssistantThreadStore.setState({
     activeThreadIdByResourceId: {},
     draftRuntimeByThreadId: {},
+    lastViewedAtByThreadId: {},
     loadStateByResourceId: {},
     openThreadIdsByResourceId: {},
     selectedThreadByResourceId: {},
     threadIdsByResourceId: {},
     threadsByResourceId: {},
+    // Re-stamped, not zeroed: a reset clears every watermark, so a zero floor
+    // would make every surviving run's completion read as news.
+    unseenBaselineAt: Date.now(),
   });
 }

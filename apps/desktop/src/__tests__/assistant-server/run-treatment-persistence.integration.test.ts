@@ -4,9 +4,8 @@
  * NOTHING` preserves the FIRST recorded treatment — a duplicate prompt
  * assembly for the same run must not rewrite the evidence.
  */
-import { MASTRA_MEMORY_SCHEMA_SQL } from '@brainstrike/assistant-contract';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
-import { wasmLoader } from '@brainstrike/db';
+import { migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';
 import {
@@ -18,7 +17,9 @@ describe('recordDesktopRunTreatment against real PGlite', () => {
   it('writes one typed row per run and keeps the first treatment on conflict', async () => {
     const db = await wasmLoader.createPGlite(`memory://run-treatment-real-${Date.now()}`);
     try {
-      await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
+      // Migrations 117/118 own the assistant schema; the repository probes for
+      // it rather than creating it (BST-1651).
+      await migrate(db);
       // The bootstrap DDL for the treatments table lives in the assistant-data
       // repository initialization (mirroring migration 093).
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);

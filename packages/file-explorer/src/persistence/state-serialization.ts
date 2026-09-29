@@ -13,6 +13,7 @@ import {
   DEFAULT_MAX_SELECTION_COUNT,
   LEGACY_DEFAULT_MAX_SELECTION_COUNT,
 } from '@brainstrike/types';
+import { decodeFileSelection } from '../selection.js';
 
 const logger = createLogger('Persistence');
 const MAX_PERSISTED_STRING_ARRAY_LENGTH = 50_000;
@@ -52,6 +53,33 @@ function coerceStringArray(value: unknown): string[] {
     receivedEntries: strings.length,
   });
   return strings.slice(0, MAX_PERSISTED_STRING_ARRAY_LENGTH);
+}
+
+function deserializeSelectionKeys(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid persisted selection key collection');
+  }
+
+  const boundedValue =
+    value.length <= MAX_PERSISTED_STRING_ARRAY_LENGTH
+      ? value
+      : value.slice(0, MAX_PERSISTED_STRING_ARRAY_LENGTH);
+  if (boundedValue.length !== value.length) {
+    logger.warn('Truncating oversized persisted selection key array', {
+      maxEntries: MAX_PERSISTED_STRING_ARRAY_LENGTH,
+      receivedEntries: value.length,
+    });
+  }
+
+  const keys: string[] = [];
+  for (const key of boundedValue) {
+    if (typeof key !== 'string') {
+      throw new Error('Invalid composite key format');
+    }
+    decodeFileSelection(key);
+    keys.push(key);
+  }
+  return keys;
 }
 
 function coerceNumber(value: unknown, fallback: number): number {
@@ -109,7 +137,7 @@ function coerceRootDescriptors(
     if (coerced) {
       result[key] = coerced;
     } else {
-      logger.debug('coerceRootDescriptors: dropping malformed entry', { key });
+      logger.debug('coerceRootDescriptors: dropping malformed entry');
     }
   }
   return result;
@@ -215,7 +243,7 @@ function deserializeSelectionModel(
   const isQueryMode = mode === 'query';
 
   return {
-    explicitPaths: new Set(coerceStringArray(serialized.explicitPaths)),
+    explicitPaths: new Set(deserializeSelectionKeys(serialized.explicitPaths ?? [])),
     materializedAt: isQueryMode ? (serialized.materializedAt ?? null) : null,
     materializedPaths:
       isQueryMode && serialized.materializedPaths
@@ -337,7 +365,7 @@ export function mergeState(
 
   // Parse top-level state first so we can use it for folder state sync
   const topLevelSelectedFilePaths = new Set(
-    coerceStringArray(persistedSerialized.selectedFilePaths)
+    deserializeSelectionKeys(persistedSerialized.selectedFilePaths)
   );
   const topLevelExpandedDirectoryPaths = new Set(
     coerceStringArray(persistedSerialized.expandedDirectoryPaths)
@@ -370,8 +398,8 @@ export function mergeState(
         // the case where the app was closed without switching folders - the top-level
         // state was saved correctly but folderStates[currentFolderId] was stale.
         const isCurrentFolder = key === currentFolderId;
-        const folderHasEmptySelections =
-          coerceStringArray(psFolderState.selectedFilePaths).length === 0;
+        const folderSelectionKeys = deserializeSelectionKeys(psFolderState.selectedFilePaths ?? []);
+        const folderHasEmptySelections = folderSelectionKeys.length === 0;
         const topLevelHasSelections = topLevelSelectedFilePaths.size > 0;
         const topLevelHasCanonicalSelectionModel = topLevelSelectionModel.mode !== 'explicit';
         const shouldUseTopLevelSelections =
@@ -395,7 +423,7 @@ export function mergeState(
               : new Set(coerceStringArray(psFolderState.expandedDirectoryPaths)),
             selectedFilePaths: shouldUseTopLevelSelections
               ? topLevelSelectedFilePaths
-              : new Set(coerceStringArray(psFolderState.selectedFilePaths)),
+              : new Set(folderSelectionKeys),
             selectionModel:
               shouldUseTopLevelSelections && persistedSerialized.selectionModel
                 ? topLevelSelectionModel
@@ -413,6 +441,9 @@ export function mergeState(
       persistedSerialized.isFiltersExpanded,
       current.isFiltersExpanded
     ),
+    // Recovery is an in-memory hydration result, never persisted input. Pin it
+    // to the live store so unknown/stale snapshot keys cannot fabricate a toast.
+    persistenceRecoveryNotice: current.persistenceRecoveryNotice,
     quickFilter: coerceString(persistedSerialized.quickFilter, current.quickFilter),
     selectedFilePaths: topLevelSelectedFilePaths,
     selectionModel: topLevelSelectionModel,
@@ -463,8 +494,8 @@ export function mergeState(
     logger.debug(
       'Merge complete - Total folders:',
       Object.keys(mergedState.folderStates).length,
-      'Current folder ID:',
-      mergedState.currentFolderId
+      'Has current folder:',
+      mergedState.currentFolderId !== null
     );
   }
   return mergedState;

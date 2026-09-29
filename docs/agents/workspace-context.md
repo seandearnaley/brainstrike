@@ -1,987 +1,1070 @@
 # Workspace Context Features: Prompt Workbench, Instructions Injection, Slash Commands, Agent Skills, Edit Checkpoints, Root Identity (Main vs Focused)
 
-> Extracted from AGENTS.md (2026-07-12). Read before changing the prompt library, AGENTS.md/CLAUDE.md injection, user-defined /commands, or the edit-checkpoint journal. Keep updated with the code.
+> Read before changing the prompt library, AGENTS.md/CLAUDE.md injection, user
+> `/commands`, Agent Skills, the edit-checkpoint journal, read-before-write, or
+> Main/Focused root identity. Rules here are true now; the record behind each is in
+> `workspace-context/<topic>.md`.
 
 ## PROMPT WORKBENCH
 
-The prompt library is a working surface inside the agent sidebar, not a standalone route:
-Threads → Database → Prompts. Its source of truth is PGlite; never reintroduce a
-localStorage-backed parallel store.
+- The prompt library is a surface in the agent sidebar (Threads → Database →
+  Prompts), not a route. PGlite is its only store — never a localStorage parallel
+  path — and bootstrap's initial `list()` is authoritative and fatal on failure.
+- Render the loading placeholder while `useDbInitializationStatus()` is
+  `idle`/`initializing`; reserve the "requires an initialized database" alert for a
+  genuine init failure.
+- Prompt vectors live under the dedicated singleton prompt profile; never add prompt
+  records to `embedding_sets`. Saved items embed as documents, live composer context
+  as queries, vector failure surfaces with no lexical fallback, and a profile
+  declaring `l2` or `ip` fails closed.
+- Serialize indexing passes and search-embedder transitions; run no embedding
+  inference and fail WebGPU init/recovery closed while hidden; merge async
+  save/list completions against the latest authoritative snapshot, never the render
+  that started them.
+- Agent actions flow through the thread-keyed in-memory FIFO
+  `assistant-composer-command-store.ts`, acknowledged after application and
+  registered with factory reset. Snippets append, prompts replace, nothing
+  auto-sends, and a synchronous in-flight guard keeps repeat activation from staging
+  twice or duplicating threads.
+- Apply a runnable prompt's model only once it is enabled and its provider
+  available, validating call settings strictly with `maxTokens` normalized to
+  `maxOutputTokens`; unknown settings, conflicting aliases and unavailable targets
+  fail before mutating a thread.
+- Old-provider model settings never leak across a provider switch; on a
+  same-provider change, explicit per-thread settings beat provider defaults and
+  prompt-stored settings beat both. Edits preserve stored ratings and non-editable
+  settings, replacing only the five canonical runtime settings.
+- Validate rendered prompt text as non-whitespace before runtime selection, thread
+  creation, staging or usage writes, and mirror assistant-ui's authoritative composer
+  state, including programmatic clears — never textarea DOM events alone.
+- Create a new-thread action's durable thread with its final title atomically before
+  activation, after any in-flight initial resource load settles.
+- Once persistence or staging succeeds, later indexing, list-refresh or usage-count
+  failures are secondary warnings: surface them, never reject the completed action.
+- Factory reset tolerates only an explicitly missing legacy `prompt_items` relation;
+  any other prompt deletion failure aborts before close/VACUUM and stays visible.
+- `connected-prompt-manager.tsx` owns DB/model/thread/vector wiring,
+  `prompt-workbench-panel.tsx` the interaction layer, `prompt-template.ts` explicit
+  `{{variable}}` resolution; load the manager lazily so that graph stays out of the
+  initial app-shell bundle, and render a stored unavailable model as an explicit
+  disabled selection.
 
-Ownership and flow:
-- Persistence: migration 051 (`prompt_embedding_profiles`, `prompt_items`,
-  `prompt_item_revisions`) + `PromptItemRepository`. Prompt edits use revision CAS and
-  retain the previous revision. PGlite is the only prompt store; there is no localStorage
-  compatibility path. Bootstrap performs the authoritative initial repository `list()`, and
-  that database read remains fatal if it fails. Text filters treat SQL LIKE metacharacters
-  (`%`, `_`, and `\`) as literals.
-  Startup gating discriminates "database not ready yet" from "database failed": while
-  `useDbInitializationStatus()` reports `idle`/`initializing` the connected manager renders the
-  loading placeholder; the terminal "requires an initialized database" alert is reserved for a
-  genuine init failure (status `error` with no handle), never a merely not-yet-ready DB. A
-  successful `list()` that later throws is still fatal per the readiness error path above.
-- Recall: prompt records own vectors under the dedicated singleton prompt profile — they
-  are NOT fake files and MUST NOT be added to `embedding_sets`. Saved items use document
-  embeddings; live composer context uses query embeddings. Vector failures surface in the
-  workbench; there is no lexical fallback. Similarity search currently supports only cosine
-  distance and fails closed when the configured profile declares `l2` or `ip`. The app-specific
-  embedding queue loader MUST resolve before either operation so desktop/web worker URLs are
-  registered explicitly.
-  Indexing passes are serialized; overlapping bootstrap/save passes must never write the
-  same revision concurrently. Connected refreshes remain authoritative and the interaction
-  layer reconciles them into its local working set. Async save/list completions must merge
-  against the latest committed authoritative snapshot, never the render that started them.
-  Contextual query recall is enabled only while both the outer Explorer route and inner
-  Prompts tab are visible; the force-mounted panel preserves UI state but must never run
-  embedding inference while hidden. Search-embedder transitions serialize disposal and
-  distinct-identity initialization (same-identity calls still deduplicate); WebGPU
-  initialization/recovery fails closed while the document is hidden, and a hide event
-  invalidates recovery even when it is awaiting disposal.
-- Agent actions: `assistant-composer-command-store.ts` is a thread-keyed, in-memory FIFO.
-  `AssistantUiPanelWrapper` bridges only that thread's head command into the real
-  assistant-ui composer and acknowledges it after application. The store is registered with
-  factory reset so queued commands and mirrored draft text never survive a live reset.
-  Snippets/fragments append, prompts replace, and nothing auto-sends. Direct actions use a
-  synchronous item/action in-flight guard so repeated activation cannot stage twice or create
-  duplicate threads; prepared template submissions use the same guard and share the in-flight
-  operation. Runnable prompts apply their configured model only after the model is
-  enabled and its provider is available; unavailable targets fail
-  visibly before mutating a thread. Their standard Mastra call settings are strictly validated
-  and applied with `maxTokens` normalized to `maxOutputTokens`; unknown settings or conflicting
-  aliases fail before mutation. On a provider switch, configured target-provider settings fill
-  any missing per-thread target settings and build the target options; entries/options for the old
-  provider remain available, but old-provider model settings must not leak into the new provider.
-  On a same-provider change, explicit per-thread model settings win over provider defaults, and
-  explicit settings stored on the prompt win over both.
-  Workbench edits preserve stored rating and model settings until dedicated controls expose an
-  explicit way to change them; changing the structured model key must not erase legacy settings.
-  Rendered prompt text must be validated as non-whitespace before runtime selection, thread
-  creation, composer staging, or usage writes. Composer context mirrors assistant-ui's authoritative
-  state, including programmatic send/reset clears; never derive it only from textarea DOM events.
-  New-thread actions create the durable thread with its final title atomically before
-  activation/staging and wait for any in-flight initial resource load before creating. A ready
-  thread resource must not be redundantly reloaded during this sequence or a stale `New Thread`
-  snapshot can overwrite the title.
-  Once persistence or composer staging succeeds, later indexing, list-refresh, or usage-count
-  failures are secondary warnings: surface them explicitly, but never reject the completed
-  primary action and invite a duplicate save/stage retry.
-  Factory reset may tolerate only an explicitly missing legacy `prompt_items` relation. Any other
-  prompt deletion failure aborts before close/VACUUM, restores reset retryability, and remains
-  visible to the caller; never report a successful reset while prompt rows may remain.
-- Composition: `connected-prompt-manager.tsx` owns DB/model/thread/vector wiring;
-  `prompt-workbench-panel.tsx` remains the interaction layer; `prompt-template.ts` owns
-  explicit `{{variable}}` resolution. The interaction layer must render a stored unavailable
-  model as an explicit disabled selection (never visually pretend the current-thread model is
-  selected), keep keyboard focus visible, and announce modal async failures locally. Root layout
-  must load the connected manager through `connected-prompt-manager-lazy.tsx`; never pull the
-  prompt/database/vector graph back into the initial app-shell bundle.
-
-When changing this flow, update this section and the paired tests in `packages/db`,
-`packages/app-shell`, `packages/ui`, and `packages/vector-management`.
+Evidence: `workspace-context/prompt-workbench.md`. Paired tests live in
+`packages/db`, `packages/app-shell`, `packages/ui`, `packages/vector-management`.
 
 ---
 
-
 ## WORKSPACE INSTRUCTIONS CONTEXT (AGENTS.md / AGENT.md / CLAUDE.md)
 
-Each mounted workspace root's top-level instructions file is auto-injected into
-the assistant's system context as a PREPENDED `system` message every turn.
-**Desktop-only** (needs fs + the assistant server; web has no injection path —
-capability-gated, no `isElectron()` checks). Sibling to `referenced-files-context.ts`.
+Each mounted root's top-level instructions file is injected as a PREPENDED `system`
+message every turn. Desktop-only, capability-gated — no `isElectron()`.
 
-- **Injection** (`apps/desktop/src/assistant-server/workspace-instructions-context.ts`)
-  wired at the SAME request boundary as `injectReferencedFilesContext`
-  (`packages/assistant-service/src/stream-init.ts` `resolveInitialAgentStream`): referenced-files first,
-  then workspace instructions LAST so the general conventions land FRONTMOST.
-  Per root, first-match-wins over `AGENTS.md` → `AGENT.md` → `CLAUDE.md` at the
-  root's top level, read through `readWorkspaceTextFile`'s existing
-  containment/size/binary guards (NO new raw-fs read path). Headings are
-  qualified by `root.displayName` (two roots that both ship `AGENTS.md` stay
-  distinct). Budgets mirror referenced-files: `MAX_CONTEXT_FILE_CHARS` = 12_000
-  per file, `MAX_CONTEXT_FILES_TOTAL_CHARS` = 48_000 aggregate — a HARD ceiling:
-  a file that would OVERSHOOT the aggregate is counted as omitted (the injected
-  total never exceeds 48_000), with an honest omission note. Truncation of an
-  opted-in oversized file never splits a UTF-16 surrogate pair (a lone surrogate
-  at the cut boundary is dropped). Skipped ENTIRELY for provider `'local'` (the
-  built-in Gemma's whole context budget is 8,192 tokens — mirrors the
-  personas/plan-mode local exclusions).
-  - **Read-failure discrimination (no fabricated absence):** `findRootContextFile`
-    returns a discriminated `{kind:'found'|'none'|'error'}`. Only a GENUINELY
-    absent candidate (ENOENT) advances to the next name; a PRESENT-but-unreadable
-    candidate (binary, over the 2 MB read cap, EACCES/EIO, containment violation,
-    not-a-file) short-circuits to `'error'`. Injection LOGS a warn and omits that
-    root (never a prompt note, never a silent "no file"); the Settings scan maps
-    it to `status:'error'` → an "Unavailable" badge with the detail. A >2 MB
-    `AGENTS.md` therefore shows as Unavailable, not silently dropped.
-  - **Legacy fallback is fail-closed:** oversized opt-in is defined only for
-    DB-backed roots. A DB-less legacy root (synthesized from `workspaceRootPath`,
-    `rootId` = raw path) can never appear in the DB-driven Settings scan, so its
-    opt-in is un-settable and its oversized file stays un-injected.
+- Inject at the same request boundary as `injectReferencedFilesContext`: referenced
+  files first, workspace instructions LAST, so the general conventions land frontmost.
+- Per root, first match wins over `AGENTS.md` → `AGENT.md` → `CLAUDE.md` at the
+  root's top level, read through `readWorkspaceTextFile`'s containment, size and
+  binary guards — add no raw-fs read path — with headings qualified by
+  `root.displayName`.
+- Budgets mirror referenced files (`MAX_CONTEXT_FILE_CHARS`,
+  `MAX_CONTEXT_FILES_TOTAL_CHARS`). The aggregate is a HARD ceiling: a file that
+  would overshoot it counts as omitted with an honest note, and truncation never
+  splits a UTF-16 surrogate pair.
+- Skip injection entirely for provider `'local'`. Why: the built-in Gemma's whole
+  context budget is 8,192 tokens.
+- `findRootContextFile` returns `{kind:'found'|'none'|'error'}`. Only an ENOENT
+  candidate advances to the next name; a present-but-unreadable one short-circuits to
+  `'error'`, which injection logs and omits — never a prompt note, never a fabricated
+  absence — and Settings shows as "Unavailable" with the detail.
+- THRESHOLD-HYBRID policy, never a silent drop: a file inside the per-file budget
+  auto-injects whole with no note; an oversized file injects only under an explicit
+  per-root opt-in, truncated with an honest note, and otherwise appears in Settings
+  as detected-but-not-injected rather than as prompt text. A master toggle
+  (default ON) covers the feature.
+- Oversized opt-in is defined only for DB-backed roots, so a DB-less legacy root's
+  opt-in is un-settable and its oversized file stays un-injected.
+- Key the preference `{ masterEnabled, oversizedOptInByRootId }` by durable DB
+  `roots.id`, store only `true` opt-ins, and reset it through the direct-call seam in
+  `factory-reset-helpers.ts`.
+- `runtimeData.workspaceInstructionsPreference` is a PREFERENCE, not a security
+  boundary: the server reads the renderer snapshot directly, but drops a malformed
+  field with a warn and applies the fail-safe default (master ON, no opt-ins).
+- The Settings scan (`window.contextFiles.scan()`, channel `context-files:scan`)
+  reuses the injection path's `findRootContextFile`, so its status and oversized
+  decisions are byte-identical to injection; a rejected scan renders a distinct,
+  logged error state with Retry, never the empty "no folders" state.
 
-- **THRESHOLD-HYBRID policy** (product ruling — never a silent drop):
-  - A file that FITS the per-file budget → auto-injected WHOLE by default (no note).
-  - An OVERSIZED file (> per-file budget) → NOT injected by default; requires an
-    explicit per-root opt-in. When opted in, injected TRUNCATED at the budget with
-    an honest note. When NOT opted in, it is NOT injected and NO skip-note goes in
-    the prompt — it is surfaced in the Settings UI as "detected but not injected
-    (too large — N KB / ~M tokens)" instead.
-  - A master enable toggle (default ON) covers the whole feature.
-  - Dogfooding reality: this repo's own `AGENTS.md` was ~30KB (OVERSIZED) until
-    the 2026-07-12 modernization split it into `docs/agents/*`; it now fits the
-    per-file budget and auto-injects whole. The opt-in path remains the modal
-    case for other large repos.
-
-- **Preference** (`packages/app-state/src/stores/workspace-instructions-preferences-store.ts`) —
-  persisted `{ masterEnabled: true, oversizedOptInByRootId: Record<rootId, boolean> }`
-  keyed by durable DB `roots.id` (NEVER a raw path); only `true` opt-ins are
-  stored. Reset via the direct-call seam in `factory-reset-helpers.ts` (mirrors
-  `notification-preferences-store`, per the FACTORY RESET CONTRACT). The renderer
-  attaches a plain-JSON snapshot to the request `runtimeData.workspaceInstructionsPreference`
-  (contract type `WorkspaceInstructionsContextRequest`), gated to the desktop
-  data-stream transport like `permissionPolicyRequest` — but this is a
-  PREFERENCE, not a security boundary: the server reads it directly (no
-  server-side re-derivation, unlike the permission gate). It is still parsed
-  strictly — `readWorkspaceInstructionsPreference` DROPS a malformed field (a
-  non-object preference, non-boolean `masterEnabled`, non-object opt-in map) with
-  a warn rather than silently coercing it, then applies the fail-safe default
-  (master ON, no oversized opt-ins).
-
-- **Settings UI** (`packages/settings-ui/src/settings/system/workspace-instructions-settings-{section,category}.tsx`,
-  registered in the DESKTOP page-content only) lists each mounted root's detected
-  file with name, size, ~token estimate (chars/4, consistent with
-  `countTokensHeuristic`), injection status, and the oversized opt-in toggle. It
-  reads a per-root scan from `window.contextFiles.scan()` — IPC
-  (`ipc-context-files{,-handlers}.ts`, channel `context-files:scan`, preload
-  `contextFiles` bridge, capability-gated) whose main-process handler loads roots
-  from the DB (`loadWorkspaceRootsFromDatabase`) and reuses the injection path's
-  `findRootContextFile` (`workspace-instructions-scan.ts`) so status/oversized
-  decisions are byte-identical to injection. A rejected `scan()` (DB unavailable,
-  IPC failure) renders a DISTINCT, logged error state with a Retry button — NEVER
-  the empty "no folders" state (which would falsely claim the workspace is empty).
-
-- **Trust posture (accepted risk — conscious ruling):** injection is
-  default-ON with NO per-root trust gate, unlike the Tool-Lifecycle Hooks
-  feature (SHA-256 per-root approval). A mounted repo's instructions file
-  becomes a high-authority `system` message automatically on mount — accepted
-  because (a) content injection is already ungated here (`referenced-files-context.ts`),
-  so this is not a new class of exposure, only default-on + automatic; and
-  (b) the permission engine defaults mutation tools to `ask`, so injected text
-  cannot silently drive edits/exec. The master toggle (and per-root oversized
-  opt-in) are the user's off-switches. A future per-root acknowledgment of
-  newly-detected files is a possible hardening, not a v1 requirement.
-
-- **Deferred**: web (no workspace-tool bridge); prompt caching. (Mastra skills
-  adoption LANDED as its own feature — see AGENT SKILLS below; the old blocker
-  was resolved by wiring the skill tools through the pipeline rather than the
-  Agent-level auto-add.)
-
-When changing this flow, update this section and the paired tests
-(`packages/app-state` store + factory-reset tests and `packages/settings-ui` settings-section tests;
-`apps/desktop/src/assistant-server/__tests__/workspace-instructions-{context,scan}.test.ts`;
-`apps/desktop/src/__tests__/ipc-context-files-handlers.test.ts`;
-`packages/app-shell` request-builder test).
+Settled: default-ON with no per-root trust gate — an accepted risk, since
+referenced-files injection is already ungated and the permission engine's `ask`
+defaults keep injected text from driving mutations; web is deferred for want of a
+workspace-tool bridge. Evidence: `workspace-context/workspace-instructions.md`.
+Guard: `apps/desktop/src/assistant-server/__tests__/workspace-instructions-context.test.ts`,
+`workspace-instructions-scan.test.ts`,
+`apps/desktop/src/__tests__/ipc-context-files-handlers.test.ts`.
 
 ---
 
 ## SELF-IMPROVEMENT SIGNAL INJECTION (BST-1241)
 
-Desktop can prepend a compact summary of the previous 24 hours' wasteful tool
-behavior to each fresh assistant run. This is an explicit persisted opt-in and
-defaults OFF. The renderer attaches `{ enabled }` as plain JSON; the server
-strictly parses it with malformed input failing safe to OFF.
+Desktop may prepend a compact summary of the previous 24 hours' wasteful tool
+behavior to a fresh run. Persisted opt-in, default OFF, strictly parsed server-side
+and failing safe to OFF.
 
-- **SQL ownership:** injection executes the app-owned
-  `SELF_IMPROVEMENT_SIGNAL_SQL` constant, never a workspace-scanned lens. A
-  mounted repository can shadow `.brainstrike/lenses/self-improvement-signal.sql`;
-  executing that untrusted copy automatically would let repository-authored SQL
-  shape a system message. The parity test parses the shipped repository lens and
-  pins its SQL body byte-equal to the app-owned constant so the reviewed query
-  and injection query cannot drift.
-- **Position and scope:** `resolveInitialAgentStream` applies the injector only
-  on the fresh-generation path, between explicit skill activation and workspace
-  instructions. Because every injector prepends, final context order is
-  workspace instructions → self-improvement signal → activated skills →
-  referenced files → conversation. Approval and resume legs retain their early
-  returns and never re-inject it. Provider `local` is excluded to protect its
-  small context budget.
-- **Untrusted DATA hardening (distinct from SQL ownership):** telemetry
-  `tool_id` is persisted VERBATIM from the original tool name, and MCP servers
-  choose arbitrary strings — so the query's *rows* are an untrusted channel
-  even though its *SQL* is app-owned. Rendering restricts each id to
-  `[A-Za-z0-9_.:-]` (rest → `_`) capped at 40 chars, so a hostile name can
-  neither smuggle newline/instruction-shaped text into the system message nor
-  inflate the prompt. Worst-case whole-block size is structural (id cap ×
-  top-5), pinned < 750 chars by test — there is no runtime truncation path.
-- **Latency + prompt-cache posture:** the 24h window anchors to the top of the
-  hour and the parsed rows are memoized per hour-key in main. One sandboxed
-  query per hour per process (the admit `EXPLAIN` + execute pair stays off the
-  per-run path of the single-connection PGlite, where `statement_timeout` is
-  inert), and the rendered block is byte-stable within the hour, so the
-  provider's cached prompt prefix (BST-587 invariant) is invalidated at most
-  hourly. Failures are NOT memoized — the next run retries; an empty no-waste
-  hour IS memoized so it cannot re-query per run.
-- **Failure posture:** query failure, malformed rows, or an unexpected column
-  contract logs a warning and injects nothing; zero qualifying waste logs at
-  debug. It never injects stale, fabricated, or guessed text, and every no-op
-  preserves the original message-array identity.
-- **Measurement/removal protocol:** compare equivalent before/after windows with
-  both the `run-outcome-tool-correlation` and `self-improvement-signal` lenses,
-  following the comparable-window method in
-  [`docs/tool-token-efficiency-2026-08-07/BASELINE.md`](../tool-token-efficiency-2026-08-07/BASELINE.md).
-  After a meaningful sample, remove the feature if truncation and zero-match
-  rates do not improve.
+- Execute the app-owned `SELF_IMPROVEMENT_SIGNAL_SQL` constant, never a
+  workspace-scanned lens; a parity test pins the shipped repository lens byte-equal
+  to it. Why: a mounted repo can shadow that lens file, and running its copy would
+  let repository-authored SQL shape a system message.
+- Inject only on the fresh-generation path, between explicit skill activation and
+  workspace instructions, with provider `local` excluded and approval/resume legs
+  keeping their early returns. Because every injector prepends, the final order is
+  workspace instructions → self-improvement signal → activated skills → referenced
+  files → conversation.
+- Treat the query's ROWS as untrusted even though its SQL is app-owned: telemetry
+  `tool_id` is persisted verbatim from arbitrary MCP server strings, so restrict each
+  rendered id to `[A-Za-z0-9_.:-]` capped at 40 characters. Worst-case block size is
+  then structural and test-pinned; there is no runtime truncation path.
+- Anchor the 24h window to the top of the hour and memoize parsed rows per hour-key
+  in main, so the cached prompt prefix is invalidated at most hourly. Memoize an
+  empty no-waste hour; never memoize a failure.
+- Query failure, malformed rows or an unexpected column contract logs a warning and
+  injects nothing; zero qualifying waste logs at debug; every no-op preserves the
+  original message-array identity.
+- The companion experiment-enrollment preference rides the same renderer seam: a
+  persisted `{ experimentId, variant }` pair (default null, factory-reset to null)
+  attached only when BOTH fields are set. It is attribution metadata and never
+  changes runtime behavior.
 
-The companion experiment-enrollment preference (BST-1251, phase 2B) rides the
-same renderer seam: a persisted `{ experimentId, variant }` pair (defaults
-null = un-enrolled, factory-reset to null) attached as
-`experimentAssignment` only when BOTH fields are set — the contract requires
-the pair jointly, and the server strictly parses it onto the run's treatment
-row (see `docs/agents/assistant-persistence.md`). Enrollment is attribution
-metadata only; it never changes runtime behavior.
-
-Paired tests: `apps/desktop/src/__tests__/assistant-server/self-improvement-signal-context.test.ts`
-(preference, provider, query/column/row failure posture, exact prompt, size, and
-SQL parity),
-`packages/app-state/src/__tests__/factory-reset-self-improvement-signal-preferences.test.ts`,
-`packages/app-state/src/__tests__/experiment-assignment-preferences-store.test.ts`,
-`packages/app-state/src/__tests__/factory-reset-experiment-assignment.test.ts`,
-`packages/settings-ui/src/__tests__/self-improvement-signal-settings-section.test.tsx`,
-`packages/settings-ui/src/__tests__/experiment-assignment-settings-section.test.tsx`,
-and `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-runtime.test.ts`.
+Settled: remove the feature after a meaningful sample if truncation and zero-match
+rates do not improve over equivalent windows. Evidence:
+`workspace-context/self-improvement-signal.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/self-improvement-signal-context.test.ts`.
 
 ---
 
 ## `.brainstrike/` SCAN CONVENTIONS — the family
 
-Three features scan per-root + `~/.brainstrike/` config directories, and any
-fourth MUST reuse one of these two shapes rather than inventing a third:
+Three features scan per-root plus `~/.brainstrike/` config directories; a fourth
+reuses one of these two shapes rather than inventing a third:
 
 | Feature | Dir | Loader | Shape |
 | --- | --- | --- | --- |
 | /commands | `commands/` (+ `.claude/` compat tiers) | `user-slash-commands-loader.ts` | recursive, `:`-namespaced, invalid dropped w/ log |
 | personas | `agents/` | `user-personas-loader.ts` | flat, `entries` + visible invalid, first-id-wins |
-| lenses (BST-921) | `lenses/` | `lens-loader.ts` | mirrors personas exactly; grammar in `assistant-contract/src/lenses.ts`; surfaced via `querySelf` `listLenses`/`lens` (see `docs/agents/agent-self-query.md` § Lenses) |
+| lenses | `lenses/` | `lens-loader.ts` | mirrors personas exactly; grammar in `assistant-contract/src/lenses.ts`; surfaced via `querySelf` `listLenses`/`lens` (see `docs/agents/agent-self-query.md` § Lenses) |
 
 ### Four rules every flat-scan loader must follow (BST-936)
 
-Learned the hard way: the lens loader mirrored the persona loader faithfully
-and inherited three real defects with it. Both now follow these; a fourth
-loader must too, and `/commands` should adopt them if it ever grows an
-authoring UI.
+1. Reserve the id from the FILENAME, before reading or parsing, through ONE exported
+   contract function shared by loader and parser, so the reserved key and the real id
+   cannot drift. Reserve through the FULL id gate — personas `resolveUserPersonaId`
+   (derivation plus built-in collision), lenses `deriveLensId` — and reserve nothing
+   for a filename that derives no valid id.
+2. Count ENTRIES (valid plus invalid) against the count cap, not accepted items, and
+   REPORT exhaustion per directory. Why: the cap is destructive, so an earlier root
+   can consume the budget before a later tier is read at all.
+3. Derive the `listDir` `maxEntries` bound as `cap * 2 + 1`; it counts every directory
+   entry, so deriving it from the item cap lets junk evict real files. Land every
+   partially-scanned directory in `incompleteDirs` with its reason, rendered AMBER —
+   red is reserved for "you must fix a file".
+4. Render suppressed duplicates as visible `status: 'shadowed'` entries carrying
+   `shadowedBy: { absPath, sourceRootId? }`, naming the file that WON, as
+   `skill-scan.ts` already does. A shadowed file is its own muted state, not an
+   error, and `listLenses` prints a `SHADOWED` line naming the winner.
 
-1. **Reserve the id from the FILENAME, before reading or parsing** — through
-   ONE exported contract function shared by the loader and the parser, so the
-   reserved key and the real id cannot drift. Without pre-parse reservation, a
-   BROKEN project-tier file silently hands its name to a same-named global
-   file carrying different behaviour — the worst failure mode available to a
-   config system.
-   **Reserve through the FULL id gate, not half of it.** Personas use
-   `resolveUserPersonaId` (derivation + built-in collision), NOT bare
-   `deriveUserPersonaId`: a name owned by a built-in can never load in any
-   tier, so it must not reserve — otherwise the second same-named file is
-   mislabelled "shadowed" when the honest answer is "a built-in owns this
-   name", which both files deserve to be told. Lenses use `deriveLensId`
-   (they have no built-in namespace). A filename that derives no valid id
-   reserves nothing.
-2. **The count cap counts ENTRIES (valid + invalid), not accepted items** —
-   otherwise a directory of malformed files extends the scan across every
-   mounted root instead of consuming the bound. Because that makes the cap
-   *destructive* (an earlier root can exhaust the budget before a later tier
-   is read at all), exhausting it is REPORTED per directory, not just logged.
-3. **The directory-listing bound is NOT the item cap.** `listDir`'s
-   `maxEntries` counts every directory entry (READMEs, subdirs, backups), so
-   deriving it from the cap lets junk evict real files from the listing before
-   they are read. Both use `cap * 2 + 1`. Every partially-scanned directory —
-   whether the listing truncated or the cap was exhausted first — lands in
-   `incompleteDirs` with its reason, so "my file is missing" always has a
-   visible cause. In the UI these read as AMBER warnings, never destructive
-   red: red is reserved for "you must fix a file".
-4. **Suppressed duplicates are VISIBLE, as `status: 'shadowed'` ENTRIES**
-   carrying `shadowedBy: { absPath, sourceRootId? }` — naming the file that
-   WON, because "which copy is live?" is the author's actual question. This is
-   `skill-scan.ts`'s existing shape (`packages/agent/src/skills/`), adopted
-   deliberately rather than inventing a third: the skills panel already says
-   *"Shadowed by … in `<absPath>` — this copy is inactive."* and both other
-   panels now match it. A shadowed file is its own state, NOT an error —
-   precedence is not an authoring mistake — so it renders muted, and
-   `listLenses` prints a `SHADOWED` line naming the winner.
+Evidence: `workspace-context/flat-scan-loaders.md`.
 
 ## USER-DEFINED SLASH COMMANDS
 
-Prompt-template `/commands` authored as `*.md` files, projected into the SAME
-composer "/" menu as the built-in app commands (they are a second *kind* of entry
-in the existing `SlashCommand[]` flowing through `unstable_useSlashCommandAdapter`
-— no new autocomplete). **Desktop-only by construction**: discovery reads disk in
-the main process; web has no `window.userCommands` bridge and the hook returns
-`[]` (capability-gated, never `isElectron()`).
+Prompt-template `/commands` authored as `*.md`, projected into the SAME composer "/"
+menu as the built-in app commands — a second kind of entry in the existing
+`SlashCommand[]`, no new autocomplete. Desktop-only by construction: discovery reads
+disk in main and web's hook returns `[]` (capability-gated).
 
-- **Discovery (main):** `apps/desktop/src/ipc-user-commands*.ts` +
-  `assistant-server/user-slash-commands-loader.ts` scan `*.md` in PRIORITY order,
-  first-name-wins: (1) `<root>/.brainstrike/commands/` per mounted root, (2)
-  `~/.brainstrike/commands/`, (3) `<root>/.claude/commands/` (Claude Code compat),
-  (4) `~/.claude/commands/`. Scan HIGHEST priority first (the mastra-code-ui
-  reference inverted this — do not copy that bug). Recursive with directory
-  namespacing (`git/commit.md` → `git:commit`); cross-root collision keeps the
-  first-mounted + warns once (mirrors use-file-mentions.ts's warn-once set). Roots
-  resolve via `loadWorkspaceRootsFromDatabase` (DB `roots.id`, never a raw path);
-  a DB failure still loads GLOBAL commands (logged, not silent). Fs is
-  dependency-injected for unit tests.
-  Command `.md` files are UNTRUSTED repo content, so the scan is BOUNDED
-  (`user-slash-commands-loader.ts`): a per-file cap `MAX_USER_COMMAND_FILE_CHARS`
-  (64K) skips oversized files with a visible warn-once (the real-disk `readFile`
-  also descriptor-gates so main never blocking-reads a giant file), and a
-  `MAX_USER_COMMANDS` (500) count cap ignores the rest with a warn — never a
-  silent truncation or a hard error that kills the whole scan. The real-disk
-  adapter opens the canonical mounted root as a native `SecureRoot` capability
-  (`@brainstrike/secure-fs-native`). POSIX traversal uses component-by-component
-  `openat(..., O_NOFOLLOW)`; Windows uses handle-relative `NtCreateFile` with
-  `RootDirectory`, `OBJ_DONT_REPARSE`, and `FILE_OPEN_REPARSE_POINT`. Directory
-  enumeration and bounded file reads stay relative to that pinned handle, so
-  roots cannot borrow one another's trust or win a parent-path swap race. There
-  is no path-based fallback; missing native support fails closed.
-- **Frontmatter:** hand-rolled `---\nkey: value\n---` parser
-  (`parseUserCommandFile` in packages/assistant-contract — NO YAML dep) for
-  `name`/`description` only; unknown keys ignored, and Claude Code multiline-YAML
-  continuation lines (`- item` list entries, `# comments`) are TOLERATED/ignored
-  (so real `.claude/commands` files with `allowed-tools:` lists load); a leading
-  UTF-8 BOM is stripped before fence detection; other malformed/unterminated
-  frontmatter fails CLOSED (skipped + visible error, never a silent half-parse).
-  No frontmatter = whole file is the template. The id is path-derived
-  (namespaced); `name` becomes the label only; `description` is fuzzy-searched by
-  the popover adapter + shown as the item tooltip.
-- **Composer wiring (renderer):** `packages/app-shell/src/use-user-defined-slash-commands.ts`
-  is merged into `useAssistantSlashCommands(threadId)` via `mergeSlashCommands`
-  (app commands first; a user command whose id COLLIDES with an app command is
-  DROPPED with a warn-once — the pinned adapter's `onExecute` is find-first, so a
-  listed collision would run the app command from the user's row). `execute()`
-  reads the LIVE composer draft (the app-shell mirror
-  `assistant-composer-command-store.draftTextByThreadId`, fed by
-  `onComposerTextChange`), extracts any args, expands, and WRITES the expansion
-  back via `enqueue({ mode:'replace' })` — never auto-sends (the user sees + edits
-  before sending). `removeOnExecute: true`, uniform with app commands. No active
-  thread → a visible toast (not console-only). The list reloads on mount, on
-  mounted-root change, and on window `visibilitychange` (so a file edited while
-  backgrounded appears without a full reload).
-- **Arguments — placeholder-fill (F1, pinned-library constraint):** the pinned
-  `@assistant-ui/react` trigger popover closes at the FIRST whitespace after
-  `/id` (`detectTrigger` returns null), so INLINE `/cmd args` capture is
-  UNREACHABLE in the live flow — the arg string is always empty at selection.
-  `expandUserCommandTemplate` therefore leaves any unfilled `$ARGUMENTS`/`$N`
-  token LITERAL as a VISIBLE placeholder the user fills in the composer before
-  sending (never a silent empty blank). Do NOT re-document inline args as working,
-  and do NOT add send-time expansion (no-silent-expansion is binding).
-- **Expansion (pure, renderer-safe, `expandUserCommandTemplate`):** a SINGLE
-  tokenizing pass (F2) so substituted argument text is NEVER re-scanned — a
-  `$100` or `$1` the user types as an argument survives verbatim. `$ARGUMENTS` =
-  full args (else visible placeholder); `$1..$N` positional (absent → visible
-  placeholder). Template `@path` tokens become `:file[basename]{name=encoded}`
-  directives via `encodeFileMentionId`, so the existing referenced-files pipeline
-  resolves/reads/budgets them for free (NO new file-reading); args INSIDE a
-  template `@…$1` path are substituted BEFORE serialization so a `}` in the arg is
-  percent-encoded and cannot truncate the directive into a different file. Root
-  binding: a root-scoped command binds to its `sourceRootId`; a GLOBAL command
-  binds to the single mounted root, else leaves the token literal for the `@`
-  popover (NO silent guessing). User-supplied `@` argument text stays literal —
-  only template `@paths` convert.
-- **SECURITY HARD LINE:** there is NO shell (!\`command\`) expansion, gated or
-  not, ever — it passes through as inert text (proofs in the contract, loader,
-  and hook specs). Do not add it.
+- Scan `*.md` in PRIORITY order, highest first, first-name-wins:
+  `<root>/.brainstrike/commands/` per mounted root, `~/.brainstrike/commands/`,
+  `<root>/.claude/commands/`, `~/.claude/commands/`. Recurse with directory
+  namespacing (`git/commit.md` → `git:commit`); a cross-root collision keeps the
+  first-mounted root and warns once.
+- Resolve roots via `loadWorkspaceRootsFromDatabase` (durable `roots.id`, never a raw
+  path); a DB failure still loads GLOBAL commands, logged.
+- Treat command files as UNTRUSTED repo content and bound the scan:
+  `MAX_USER_COMMAND_FILE_CHARS` skips an oversized file with a visible warn-once and
+  `MAX_USER_COMMANDS` ignores the rest with a warn — never a silent truncation, never
+  a scan-killing error.
+- Open the canonical mounted root as a native `SecureRoot` and keep enumeration and
+  bounded reads relative to that pinned handle, so roots cannot borrow one another's
+  trust or lose a parent-path swap race. There is no path-based fallback; missing
+  native support fails closed.
+- Parse frontmatter with the hand-rolled `parseUserCommandFile` (no YAML dependency)
+  for `name`/`description` only, tolerating unknown keys and Claude Code
+  multiline-YAML continuation lines and stripping a leading BOM; other malformed or
+  unterminated frontmatter fails CLOSED with a visible error. No frontmatter means
+  the whole file is the template; the id is path-derived and `name` is only a label.
+- Merge via `mergeSlashCommands`, app commands first, DROPPING a colliding user
+  command with a warn-once. Why: the pinned adapter's `onExecute` is find-first, so a
+  listed collision would run the app command from the user's row.
+- `execute()` reads the LIVE composer draft from the app-shell mirror, expands, and
+  writes back with `mode:'replace'` and `removeOnExecute: true` — never auto-sends;
+  no active thread raises a visible toast. Reload the list on mount, on mounted-root
+  change, and on `visibilitychange`.
+- Leave any unfilled `$ARGUMENTS`/`$N` token LITERAL as a visible placeholder the
+  user fills before sending. Why: the pinned popover closes at the first whitespace
+  after `/id`, so inline `/cmd args` capture is unreachable and the arg string is
+  always empty at selection. Do not re-document inline args as working, and do not
+  add send-time expansion.
+- Expand in a SINGLE tokenizing pass, so substituted argument text is never
+  re-scanned and a `$100` or `$1` typed as an argument survives verbatim.
+- Convert template `@path` tokens into `:file[basename]{name=encoded}` directives via
+  `encodeFileMentionId` and let the referenced-files pipeline resolve them;
+  substitute args INSIDE a template `@…$1` path BEFORE serialization, so a `}` in the
+  argument is percent-encoded and cannot truncate the directive.
+- A root-scoped command binds to its `sourceRootId`; a global command binds to the
+  single mounted root, else leaves the token literal. User-supplied `@` argument text
+  stays literal.
+- SECURITY HARD LINE: there is NO shell (!\`command\`) expansion, gated or not, ever
+  — it passes through as inert text. Do not add it.
 
-Paired tests: packages/assistant-contract/src/__tests__/user-slash-commands.test.ts,
-apps/desktop/src/__tests__/assistant-server/user-slash-commands-loader.test.ts +
-ipc-domains/ipc-user-commands-handlers.test.ts,
-packages/app-shell/src/__tests__/use-user-defined-slash-commands.test.tsx +
-use-assistant-slash-commands.test.ts (F4 merge), and the REAL-trigger
-packages/assistant-ui/src/__tests__/slash-commands.behavior.test.tsx
-(F1 placeholder-fill through the actual popover + adapter + write-back).
-Explicitly DEFERRED: shell expansion (never), web (no workspace-tool bridge),
-namespaced/categorized popover grouping. (Mastra skills LANDED — see AGENT
-SKILLS below; user-invocable skills are a THIRD slash-entry kind merged after
-user commands.)
+Settled: shell expansion never; web and namespaced popover grouping deferred.
+Evidence: `workspace-context/user-slash-commands.md`.
+Guard: `packages/assistant-contract/src/__tests__/user-slash-commands.test.ts`,
+`apps/desktop/src/__tests__/assistant-server/user-slash-commands-loader.test.ts`,
+`packages/app-shell/src/__tests__/use-user-defined-slash-commands.test.tsx`,
+`packages/assistant-ui/src/__tests__/slash-commands.behavior.test.tsx`.
 
-When changing this flow, update this section and the paired tests.
+### MCP SERVER PROMPTS — the fourth slash-entry kind (BST-1592)
+
+- Merge prompts published by connected MCP servers LAST into the same
+  `SlashCommand[]`. Desktop-only by construction: `resolveMcpPromptBridge()` needs
+  the visible-UI preload's `window.mcp` members, web returns `[]`, and a PARTIAL
+  bridge is a defect the always-mounted host reports out loud.
+- Ids are `mcp:<configuredServerId>:<promptName>` with `:` and `\` escaped in both
+  components, because a non-injective id would drop a valid prompt; labels carry the
+  raw title and server id, because two servers may expose the same prompt name.
+- An argument-taking prompt opens a modal backed by `completion/complete`
+  (`ref/prompt`); an argument-less prompt stages immediately. `prompts/get` runs only
+  on that explicit action and writes to the composer DRAFT — never auto-sent, never
+  eager model context.
+- Re-check the pending selection and the live draft AFTER the await: a dismissed
+  dialog stages nothing, and a draft edited meanwhile is APPENDED to.
+
+Full contract, failure taxonomy and packaged proof:
+`docs/agents/assistant-providers.md`. Evidence:
+`workspace-context/mcp-server-prompts.md`.
 
 ---
 
 ## AGENT SKILLS (SKILL.md — agentskills.io spec)
 
-Skills teach the assistant specialized workflows via progressive disclosure:
-name+description always in context, full SKILL.md instructions loaded on
-demand, bundled references/scripts/assets read as needed. Built on Mastra's
-canonical skills surface — the exported `WorkspaceSkills` INTERFACE,
-`createSkillTools` (`skill`/`skill_read`/`skill_search`), `SkillsProcessor`,
-and `formatSkillActivation` — over a brainstrike-owned engine, because
-Mastra's own `WorkspaceSkillsImpl`/`LocalSkillSource` are (a) not public
-exports and (b) unbounded plain-fs readers. **Desktop-only by construction**
-(SecureRoot fs + the assistant server); web constructs no bridge/engine
-(capability-gated, never `isElectron()`).
+Skills teach the assistant workflows by progressive disclosure: name and description
+always in context, SKILL.md on demand, bundled references, scripts and assets read as
+needed. Built on Mastra's canonical surface (`WorkspaceSkills`, `createSkillTools`,
+`SkillsProcessor`, `formatSkillActivation`) over a brainstrike-owned engine, because
+Mastra's own implementations are neither public exports nor bounded readers.
+Desktop-only by construction; web builds no bridge or engine.
 
-- **PIPELINE RULING (the old adoption blocker — do not relitigate):** the
-  skill tools are NEVER attached via Mastra's Agent-level `skills:` option —
-  its auto-added tools land AFTER `new Agent` and would bypass
-  guards→hooks→plan-mode→permission. Instead `createMastraAgentRuntime` folds
-  `createAssistantSkillTools(workspaceSkills)` into the LOCAL tool map BEFORE
-  `sanitizeTools` (`mergeSkillToolsIntoLocalTools`, agent-runtime.ts), so they
-  traverse the full pipeline like every native tool. They are registered in
-  the contract registries under Mastra's canonical UNNAMESPACED ids with
-  `riskCategory:'read'` (free under the default policy; kept in plan mode).
-  Bundled skill scripts execute only through the deferred desktop
-  `brainstrike.runSkillScript` tool. Its typed input requires the activated
-  winning skill name, canonical `scripts/...` path, `node|python3|bash`
-  runtime, structured argv, and an explicit mounted root plus root-relative
-  cwd. The trusted scan engine rejects absolute/traversal paths, disabled or
-  shadowed skills, missing/list-unregistered scripts, runtime-extension
-  mismatches, and unmatched Claude `allowed-tools: Bash(...)` rules. A
-  workspace-local skill is pinned to its owning durable root; a global skill
-  may target any explicitly selected mounted root. Execution uses direct argv
-  spawning (never a shell command string), the shared bounded-output/process
-  tree lifecycle, and the normal `execute:ask` approval gate. Activation
-  guidance sends project mutation through native workspace tools and forbids
-  shell heredocs; declining an optional script continues through those native
-  tools rather than retrying the approval.
-  Live-loop proof: packages/agent/src/__tests__/mastra-skills.integration.spec.ts
-  (real Agent: metadata injection, activation, gate-free read execution while
-  an ask tool is present, plan-mode availability, no-skills no-advertisement).
+- PIPELINE RULING (do not relitigate): never attach the skill tools through Mastra's
+  Agent-level `skills:` option. Fold `createAssistantSkillTools(workspaceSkills)`
+  into the LOCAL tool map BEFORE `sanitizeTools`, so they traverse
+  guards → hooks → plan mode → permission like every native tool, registered under
+  Mastra's canonical UNNAMESPACED ids with `riskCategory:'read'`. Why: Agent-level
+  auto-added tools land after `new Agent` and bypass that pipeline.
+- Execute bundled scripts only through the deferred desktop
+  `brainstrike.runSkillScript` tool: activated winning skill name, canonical
+  `scripts/...` path, `node|python3|bash` runtime, structured argv, explicit mounted
+  root and root-relative cwd. The trusted scan engine rejects absolute or traversal
+  paths, disabled or shadowed skills, missing or list-unregistered scripts,
+  runtime-extension mismatches, and unmatched Claude `allowed-tools: Bash(...)` rules.
+- Spawn direct argv, never a shell command string, through the shared
+  bounded-output/process-tree lifecycle and the normal `execute:ask` gate. Pin a
+  workspace-local skill to its owning durable root; a global skill may target any
+  explicitly selected mounted root.
+- Activation guidance routes mutation through native workspace tools, forbids shell
+  heredocs, and carries `runSkillScript`'s own recovery path (`load_tool` by exact
+  name, callable on the next step of the same response). Why: the tool is DEFERRED on
+  hosted discovery runs, and a model checking its visible tools otherwise concludes
+  it does not exist and works around via `executeCommand`.
+- Reserve the guidance's space INSIDE the activation budget
+  (`withBoundedActivationAndGuidance`), so an over-budget SKILL.md cannot have the
+  whole guidance block truncated away.
+- Discovery reads four tiers, highest first, first-NAME-wins:
+  `<root>/.brainstrike/skills/` per mounted root, `~/.brainstrike/skills/`,
+  `<root>/.claude/skills/`, `~/.claude/skills/`. A skill is a directory whose
+  immediate `SKILL.md` carries valid YAML frontmatter; the scan is FLAT and bounded
+  by `MAX_SKILL_FILE_CHARS`, `MAX_SKILLS`, `MAX_SKILL_DIR_ENTRIES`.
+- Every candidate yields a visible entry: `ok` (with spec warnings), `invalid` (exact
+  errors, fail closed) or `shadowed` (names its winner). Skills REQUIRE frontmatter,
+  unlike `/commands`; `skill-validation.ts` MIRRORS @mastra/core's unexported
+  `validateSkillMetadata` byte-for-byte, and oversized instructions are WARNINGS.
+- `createScannedWorkspaceSkills` implements `WorkspaceSkills` over that scan, so ONE
+  parser feeds the Settings panel, the processor, the tools and explicit activations
+  and UI status cannot diverge from live behavior. Its lifetime is one request: lazy
+  initial scan, `maybeRefresh()` a no-op after, no fs watchers.
+- Containment-check and bound every reference, script and asset read, log and return
+  null on oversize, and keep disabled skills invisible in list, get, has, search and
+  reads. `skill_search` is a deterministic per-line term matcher, no embeddings.
+- The `skill` tool's result IS the instruction payload, so
+  `SKILL_ACTIVATION_RESULT_TOKEN_BUDGET` is an explicit per-tool override in
+  `boundToolOutputForModel`, the tool self-bounds to the same ceiling with an honest
+  truncation note, and the generic Mastra `toModelOutput` projection honors the
+  override. `skill_read`/`skill_search` self-bound to the native budget with
+  line-range and narrower-query hints.
+- Compose `SkillsProcessor` into the PER-CALL `inputProcessors` in
+  `buildToolLoopOptions`, FIRST so the TokenLimiter counts the injected
+  `<available_skills>` block; per-call options REPLACE the Agent-config array. Add
+  the skills workflow instruction line only when the `skill` tool survived the gates,
+  and exclude provider `'local'` on both sides.
+- Build the TRUSTED engine server-side per request over `createSecureSkillsFs`
+  (per-call SecureRoot open/close, reads refused outside the candidate containment
+  roots) and set it on `runtimeData.workspaceSkills` — agent-only, never serialized,
+  a client-supplied value STRIPPED.
+- The renderer sends only `skillsPreference` `{masterEnabled, disabledSkillKeys}`,
+  strictly parsed (malformed → warn plus fail-safe default) and reduce-only. Keys are
+  durable (`deriveSkillPreferenceKey`), the `.brainstrike`/`.claude` tiers of one
+  scope share a key on purpose, and the store (only `true` entries) is registered in
+  `factory-reset-helpers.ts`.
+- User-invocable skills (`user-invocable` ≠ false) are a third slash-entry kind,
+  merged after user commands with collision-drop warn-once; execute STAGES a visible
+  `:skill[name]` directive into the composer draft, trigger stripped, draft
+  preserved, never auto-sent.
+- At the request boundary (`skills-activation-context.ts`, between referenced files
+  and workspace instructions, skipped on approval and resume legs) each directive
+  resolves through the SAME engine into one prepended `system` message carrying
+  `formatSkillActivation` output, byte-identical to the tool's payload. Unknown or
+  disabled skills get an explicit in-context note; the per-skill, per-message
+  (`MAX_ACTIVATED_SKILLS_PER_MESSAGE`) and aggregate caps truncate or omit with
+  honest notes; with skills off, directives stay inert text.
+- Settings → Skills runs the SAME scan as the engine (`window.skills.scan()`, channel
+  `skills:scan`) and shows invalid entries with exact errors, shadowed entries with
+  winners, spec warnings and Refresh; a rejected scan renders a distinct error state
+  with Retry, never the empty state.
+- `SkillsBridge`, `SKILLS_BRIDGE_REQUIRED_METHODS` and `resolveSkillsBridge()` live
+  in `@brainstrike/assistant-contract/skills-bridge`, not app-shell, because both
+  app-shell and settings-ui consume them and settings-ui cannot import app-shell.
 
-- **Discovery** (`packages/agent/src/skills/skill-scan.ts`): four tiers,
-  highest priority first, first-NAME-wins: (1) `<root>/.brainstrike/skills/`
-  per mounted root, (2) `~/.brainstrike/skills/`, (3) `<root>/.claude/skills/`
-  (Claude Code compat), (4) `~/.claude/skills/`. A skill = a directory whose
-  immediate `SKILL.md` carries valid YAML frontmatter; the scan is FLAT (spec
-  layout) and BOUNDED (`MAX_SKILL_FILE_CHARS` 64K / 4× byte pre-guard,
-  `MAX_SKILLS` 200, `MAX_SKILL_DIR_ENTRIES` 512). Every candidate yields a
-  visible entry: `ok` (with spec warnings), `invalid` (exact validation
-  errors — fail closed, never a silent half-parse), or `shadowed` (names its
-  winner). Frontmatter parses with the real `yaml` package
-  (`skill-frontmatter.ts`; skills REQUIRE frontmatter, unlike /commands);
-  validation (`skill-validation.ts`) MIRRORS @mastra/core's unexported
-  `validateSkillMetadata` byte-for-byte (name 1–64 `[a-z0-9-]`, no edge/double
-  hyphens, name === dirName, description 1–1024; >500-line/>5k-token
-  instructions are WARNINGS). Fs is dependency-injected (commands-loader
-  shape) so tier/collision logic tests run diskless.
-
-- **Engine** (`packages/agent/src/skills/scanned-workspace-skills.ts`):
-  `createScannedWorkspaceSkills` implements Mastra's `WorkspaceSkills` over
-  the scan — ONE parser feeds the Settings panel, the SkillsProcessor, the
-  tools, AND explicit activations, so UI status and live behavior cannot
-  diverge. Lifetime = one request (lazy initial scan; `maybeRefresh()` no-op
-  after; no fs watchers — mirrors the commands loader's no-polling posture).
-  Reference/script/asset reads are containment-checked (no `..`/absolute/`\\`)
-  and bounded (256K chars text / 1 MB assets, oversized → logged + null);
-  disabled skills are invisible EVERYWHERE (list/get/has/search/reads).
-  `skill_search` is a deterministic per-line term matcher over instructions +
-  references (no embedding dependency).
-
-- **Tool output budgets:** the `skill` tool's result IS the instruction
-  payload, and the spec allows ~5k tokens > the generic 3000-token guard —
-  so `SKILL_ACTIVATION_RESULT_TOKEN_BUDGET` (6000) is an EXPLICIT per-tool
-  override in `boundToolOutputForModel` (tool-output-limits.ts), and the tool
-  SELF-BOUNDS to the same ceiling with an honest truncation note
-  (skill-tools.ts). The generic Mastra `toModelOutput` projection honors the
-  same override, so an activation is never cut to the normal 2000-token model
-  projection. `skill_read`/`skill_search` self-bound to the native budget with
-  line-range / narrower-query hints.
-
-- **Metadata injection:** Mastra's `SkillsProcessor` composed into the
-  PER-CALL `inputProcessors` in `buildToolLoopOptions` (per-call options
-  REPLACE the Agent-config array, so it cannot live there), FIRST so the
-  TokenLimiter counts the injected `<available_skills>` block.
-  `buildDefaultInstructions` adds a skills workflow line only when the `skill`
-  tool survived the gates (effective tool map). EXCLUDED for provider
-  `'local'` on both sides (tools + processor), mirroring personas/plan-mode.
-
-- **Server wiring** (`apps/desktop/src/assistant-server/request-skills.ts` +
-  `skills-fs-deps.ts`): the TRUSTED engine is server-built per request over
-  `createSecureSkillsFs` (per-call SecureRoot open/close; reads refused
-  outside the candidate containment roots) and set on
-  `runtimeData.workspaceSkills` (agent-only, never serialized — mirrors
-  `hookRunner`; a client-supplied value is STRIPPED). The renderer sends only
-  `skillsPreference` `{masterEnabled, disabledSkillKeys}` — strictly parsed
-  (`readSkillsPreference`: malformed → warn + fail-safe default), reduce-only.
-  Keys are durable (`deriveSkillPreferenceKey`: `root:<roots.id>:<name>` /
-  `global:<name>` — the `.brainstrike`/`.claude` tiers of one scope SHARE a
-  key on purpose; never a raw path).
-
-- **Explicit activation (`/skill:<name>` → `:skill[name]`):** user-invocable
-  skills (`user-invocable` ≠ false) are a third slash-entry kind
-  (`use-skill-slash-commands.ts`, merged after user commands, collision-drop
-  warn-once). Execute STAGES a visible `:skill[name]` directive into the
-  composer draft (trigger stripped, draft preserved, NEVER auto-sends — the
-  no-silent-expansion rule is binding). At the request boundary
-  (`skills-activation-context.ts`, wired in `resolveInitialAgentStream`
-  between referenced-files and workspace-instructions; skipped on
-  approval/resume legs) each directive resolves through the SAME engine into
-  one prepended `system` message carrying `formatSkillActivation` output —
-  byte-identical to the `skill` tool's payload. Unknown/disabled skills get an
-  explicit in-context note; the per-skill (24K chars, same as the tool budget)
-  and per-message caps (`MAX_ACTIVATED_SKILLS_PER_MESSAGE` 8, 48K aggregate)
-  truncate/omit with honest notes. With skills off, directives stay inert text.
-
-- **UI:** Settings → Skills (`skills-settings-{section,category}.tsx`,
-  registered in the DESKTOP page-content only): master toggle + per-skill
-  switches grouped by source, invalid entries with exact errors, shadowed
-  entries with winners, spec warnings, Refresh; a rejected scan renders a
-  DISTINCT error state with Retry — never the empty state. Data via
-  `window.skills.scan()` (`ipc-skills{,-handlers}.ts`, channel `skills:scan`,
-  preload capability-gated) which runs the SAME scan as the engine. The
-  `SkillsBridge` interface + `SKILLS_BRIDGE_REQUIRED_METHODS` pin +
-  `resolveSkillsBridge()` live in
-  `@brainstrike/assistant-contract/skills-bridge` — NOT app-shell — because
-  both app-shell (composer "/" menu) and settings-ui consume them and
-  settings-ui cannot import app-shell (package cycle). The desktop
-  preload-runtime contract test pins `window.skills` to that constant (exact
-  set equality).
-
-- **Preference store** (`packages/app-state/src/stores/skills-preferences-store.ts`):
-  `{masterEnabled: true, disabledSkillKeys}` (only `true` entries persist),
-  registered in `factory-reset-helpers.ts` (FACTORY RESET CONTRACT).
-
-- **Trust posture (conscious ruling, mirrors workspace-instructions):**
-  default-ON with NO per-skill trust gate. Skill content is instructions-only
-  (prompt-level influence); the permission engine's `edit/execute:ask`
-  defaults remain the backstop that keeps injected text from silently driving
-  mutations, and all reads are SecureRoot-contained + bounded. The master
-  toggle and per-skill disables are the off-switches.
-
-- **Deferred:** web (no fs bridge; inline `createSkill()` skills would be the
-  route); fs-watch refresh; `SkillSearchProcessor`; a create-skill scaffold
-  action; rendering skill activations as composer chips.
-
-Paired tests: packages/assistant-contract/src/__tests__/{skills,skills-bridge}.test.ts;
-packages/agent/src/__tests__/{skill-scan,scanned-workspace-skills,skill-tools}.spec.ts
-+ mastra-skills.integration.spec.ts + tool-output-limits.spec.ts;
-apps/desktop/src/__tests__/assistant-server/{request-skills,skills-activation-context}.test.ts
-+ ipc-domains/ipc-skills-handlers.test.ts;
-packages/app-state/src/stores/__tests__/skills-preferences-store.test.ts +
-packages/settings-ui/src/__tests__/skills-settings-section.test.tsx;
-packages/app-shell/src/__tests__/use-skill-slash-commands.test.tsx +
-assistant-ui-panel-wrapper-runtime.test.ts (skillsPreference opt-in field).
-
-When changing this flow, update this section and the paired tests.
+Settled: default-ON with no per-skill trust gate — skill content is
+instructions-only, the permission engine's `edit/execute:ask` defaults are the
+backstop, and all reads are SecureRoot-contained and bounded. Deferred: web, fs-watch
+refresh, `SkillSearchProcessor`, a create-skill scaffold, composer chips for
+activations. Evidence: `workspace-context/agent-skills.md`.
+Guard: `packages/agent/src/__tests__/skill-scan.spec.ts`,
+`scanned-workspace-skills.spec.ts`, `skill-tools.spec.ts`,
+`mastra-skills.integration.spec.ts`,
+`apps/desktop/src/__tests__/assistant-server/request-skills.test.ts`,
+`skills-activation-context.test.ts`,
+`packages/assistant-contract/src/__tests__/skills-bridge.test.ts`.
 
 ---
 
 ## EDIT CHECKPOINT LEDGER + SNAPSHOT UNDO (UNDO OF AGENT FILE EDITS)
 
-Every agent file mutation records an ATTRIBUTION row so a per-tool-card
-**Revert** control (and a per-turn **Revert all edits** footer) can restore the
-prior state — from the turn's shadow-git snapshot, not from stored content
-(BST-1164 T4 engine swap). Desktop-only (web local chat has no assistant
-server / thread_runs rows). Capability-gated, not `isElectron()`.
+Every agent file mutation records an ATTRIBUTION row so a per-tool-card Revert
+control and a per-turn footer can restore the prior state from the turn's shadow-git
+snapshot, not from stored content. Desktop-only, capability-gated.
 
-- **Capture point:** INSIDE the existing per-file `withFileLock` in all four
-  `run*WorkspaceFile` functions (`assistant-tools.ts`), so the before-read →
-  mutate → journal write is atomic against concurrent same-file edits.
-  `toolCallId` comes from Mastra's 2nd `execute` arg; identity
-  (runId/threadId/resourceId) from `runtimeData.memory`. Capture is GATED on
-  an active memory context and is NON-FATAL (debug on DB-absent, error on
-  DB-throw) — the tool result contract is never changed.
-- **Storage = IDENTITY ONLY (the T4 demotion):** op, paths, before/after
-  sha256 + size, timestamps, `reverted_at`. `before_content` is NEVER
-  populated (the schema column remains — no destructive migration in v1 —
-  pinned by `edit-checkpoint-journal.integration.test.ts`). The content-era
-  2 MB capture cap and `skipped_binary`/`skipped_too_large` states died with
-  content capture (`captureBeforeState` stream-hashes any present file);
-  those enum values (and `expired`) remain readable for legacy rows only.
-  New rows are always `ok`/`created`/`rename`.
-- **Table** `brainstrike_assistant_edit_checkpoints` (migration 051, registered in
-  BOTH runners + bootstrapped byte-identically in app-shell's
-  `assistant-memory-repository.ts`). NO FK (mirrors run_usage 046). Purged on
-  factory reset (`db-ipc.ts` `OptionalRelationTable`).
-- **Retention** (`edit-checkpoint-journal.ts`, strict-parsed env, no silent
-  fallback): `BRAINSTRIKE_CHECKPOINT_MAX_ROWS` (500) hard-deletes the oldest
-  rows after every insert — the whole policy; the content byte budget died
-  with content capture. (Snapshot-side retention — the 50-turn ring — lives
-  in `snapshot-startup-gc.ts`; see changeset-diff.md.)
-- **LIST = renderer-direct DB (Path A):** `listThreadCheckpoints(threadId)` on
-  the PGlite repository, across ALL runs (revertible after reload).
-- **AVAILABILITY = IPC to main:** `window.assistantCheckpoints.availability(threadId)`
-  → `assistant-checkpoint:availability` → `listCheckpointUndoAvailability`
-  (`checkpoint-snapshot-undo.ts`): per-entry `{restorable} | {restorable:false,
-  reason}` resolved from the snapshot ledger's turn brackets. Pre-engine
-  entries ("predates workspace snapshots"), failed-capture turns, and
-  uncovered roots render VISIBLY DISABLED with the reason — never a
-  click-time surprise, never silent removal. The renderer treats an id
-  MISSING from the map as unavailable (fail-safe, `availabilityForEntry`).
-- **REVERT = IPC to main (Path B):** `window.assistantCheckpoints.revertEntry/revertRun`
-  → `assistant-checkpoint:revert-*` → `undoCheckpointEntry`/`undoCheckpointRun`
-  (`checkpoint-snapshot-undo.ts`). TURN-START SEMANTICS (deliberate change,
-  ruled 2026-08-05): each journaled path is restored to its state at the
-  turn's `turn-start` snapshot via `SnapshotService.restorePathsFromSnapshot`
-  — a multi-edit turn's per-file undo lands on turn start, not
-  just-before-that-edit, and the UI copy says so ("restore to turn start").
-  A `created` path is deleted (empty-ancestor pruning bounded at the root);
-  a rename is undone as restore-source + delete-destination. Resolves the
-  stored `root_id` via the roots table and REFUSES a disconnected root;
-  conflict gate = current disk sha256 vs the newest record's after-state
-  (`force` overrides); reuses the write tools' non-fatal reindex seams
-  (`checkpoint-reindex-deps.ts`, shared with rewind); stamps `reverted_at`
-  (idempotent). Reverts are NOT re-journaled. `revertRun(runId)` restores
-  every touched path exactly once (newest record per path wins the gate;
-  older records of a handled path stamp without re-touching disk) and is
-  HONEST about partial success.
-- **UI = per-entry button + per-turn footer.** The per-tool-card
-  `CheckpointRevertButton` (`tool-fallback.tsx`, keyed by `toolCallId`) undoes one
-  edit; unavailable entries render "Can't restore" with the reason tooltip.
-  The per-turn `CheckpointTurnRevert` footer (`checkpoint-turn-revert.tsx`)
-  mounts on every `AssistantMessage`: it reads the turn's tool-call parts from
-  assistant-ui message state and resolves the true revert scope via
-  `selectTurnRevertScope(ids, entries, availabilityById)` against ALL of the
-  thread's journal entries. Because the default `edit:ask` policy splits ONE
-  run across several live assistant messages while `revertRun(runId)` reverts
-  the WHOLE run, the footer is **run-scoped**: it renders once per run — on
-  the run's LAST leg — and its count is the run's full snapshot-restorable
-  total. A turn whose entries are ALL snapshot-unavailable renders a visible
-  disabled row with the reason (`unavailableReason`), never nothing. It
-  reverts each owned run **sequentially, newest first**, through the SAME
-  `revertRun` bridge. Both controls mirror one UX contract — confirm →
-  restore, on-disk conflict → "Revert anyway" (force), idempotent after
-  success. The turn footer additionally surfaces a **visible failure state**
-  with retry — never left stuck in `reverting`, never a silent return to
-  idle. Pure capability gating: `null` on web, never a disabled stub there.
-- **Revert-derived outcome labels (Task Ledger).** A successful `revertEntry`/
-  `revertRun` additionally derives the run's outcome label from the POST-revert
-  journal in `use-edit-checkpoints.ts` (`labelRunOutcomeFromJournal`): every
-  revertible entry reverted → `verdict:'failed'`, partial → `'mixed'`, recorded
-  via `repository.recordRunOutcome` with `source:'edit_revert'` into
-  `brainstrike_assistant_run_outcomes` (migration 062). Labeling is SECONDARY:
-  a failure is logged and never rejects the completed revert, and a later
-  explicit user verdict upserts over the derived label by design.
-- **Live-turn availability + reconciliation.** The footer must appear for the
-  turn that JUST ran. The journal rows are written in main DURING tool
-  execution — after the thread-open read — so `useEditCheckpoints` exposes a
-  `refetch` the wrapper composes into the run-lifecycle
-  `onRunFinished`/`onRunFailed` seam (no polling); every entries load also
-  fetches the availability map (an availability fetch failure clears the map,
-  which renders every control disabled-with-reason — fail-safe, matching what
-  a click would do); a monotonic generation guard drops a stale refetch. A
-  `revertRun` that unexpectedly rejects refetches BEFORE rethrowing so the
-  controls reconcile.
-- **Key files:** `edit-checkpoint-{journal,capture}.ts`,
-  `checkpoint-snapshot-undo.ts`, `checkpoint-reindex-deps.ts` +
-  `ipc-domains/assistant-checkpoint-*.ts` (desktop),
-  `edit-checkpoint-context.tsx` (context + `selectTurnRevertScope` /
-  `useCheckpointTurnRevert` / `availabilityForEntry`) + `tool-fallback.tsx` +
-  `checkpoint-turn-revert.tsx` (ui), `use-edit-checkpoints.ts` (app-shell) +
-  `assistant-ui-panel-wrapper.tsx`,
-  `packages/assistant-contract/src/edit-checkpoints.ts`. (The journal-content
-  engine — `edit-checkpoint-revert.ts`, `edit-checkpoint-errors.ts`,
-  `changeset-journal-view.ts` — was DELETED in T4.)
+- Capture INSIDE the existing per-file lock in all four `run*WorkspaceFile`
+  functions, so before-read → mutate → journal write is atomic against concurrent
+  same-file edits. `toolCallId` comes from Mastra's second `execute` argument,
+  identity from `runtimeData.memory`.
+- Native delegated calls resolve the child resource and current host-leg run from
+  their execution thread and authorized durable invocation; the tool factory's parent
+  closure never owns a child checkpoint, and read timestamps and paged-read cursors
+  use that same execution-thread scope.
+- Gate capture on an active memory context and keep it NON-FATAL — debug when the DB
+  is absent, error when it throws. The tool result contract never changes.
+- Store IDENTITY ONLY: op, paths, before/after sha256 and size, timestamps,
+  `reverted_at`. Never populate `before_content`; that column and the
+  `skipped_binary`/`skipped_too_large`/`expired` states stay readable for legacy rows
+  only, and new rows are always `ok`/`created`/`rename`.
+- `BRAINSTRIKE_CHECKPOINT_MAX_ROWS` is strict-parsed with no silent fallback and
+  hard-deletes the oldest rows after every insert — the whole retention policy.
+  Snapshot-side retention lives in `docs/agents/changeset-diff.md`.
+- LIST is renderer-direct DB across ALL runs, so entries stay revertible after
+  reload; AVAILABILITY is IPC to main (`assistant-checkpoint:availability`), per entry
+  `{restorable}` or `{restorable:false, reason}` from the snapshot ledger's turn
+  brackets.
+- Render pre-engine entries, failed-capture turns and uncovered roots VISIBLY
+  DISABLED with the reason — never a click-time surprise, never silent removal — and
+  treat an id missing from the availability map as unavailable.
+- REVERT is IPC to main (`assistant-checkpoint:revert-*`) with TURN-START SEMANTICS:
+  restore each journaled path to its state at the turn's `turn-start` snapshot and say
+  so in UI copy. Delete a `created` path, pruning empty ancestors bounded at the root;
+  undo a rename as restore-source plus delete-destination.
+- Resolve the stored `root_id` through the roots table and REFUSE a disconnected
+  root. The conflict gate compares current disk sha256 against the newest record's
+  after-state, with `force` as the override. Reuse the write tools' non-fatal reindex
+  seams, stamp `reverted_at` idempotently, and never re-journal a revert.
+- `revertRun(runId)` restores every touched path exactly once — newest record per path
+  wins the gate, older records stamp without re-touching disk — and is HONEST about
+  partial success.
+- The per-turn footer is RUN-SCOPED: rendered once per run, on the run's LAST leg,
+  counting the run's full snapshot-restorable total and reverting each owned run
+  sequentially, newest first. Why: the default `edit:ask` policy splits one run across
+  several live assistant messages while `revertRun` reverts the whole run.
+- Render a turn whose entries are all snapshot-unavailable as a visible disabled row
+  with the reason. Both controls share one UX contract — confirm → restore, on-disk
+  conflict → "Revert anyway", idempotent after success — and the footer surfaces a
+  visible failure state with retry, never stuck in `reverting`. Pure capability
+  gating: `null` on web, never a disabled stub.
+- A successful revert derives the run's outcome label from the POST-revert journal:
+  all revertible entries reverted → `'failed'`, partial → `'mixed'`, recorded with
+  `source:'edit_revert'`. Labeling is SECONDARY — a failure is logged and never
+  rejects the completed revert — and a later explicit user verdict upserts over it.
+- The footer must appear for the turn that JUST ran, so `useEditCheckpoints` exposes a
+  `refetch` composed into the `onRunFinished`/`onRunFailed` seam rather than polling.
+  Every entries load also fetches the availability map (a failed fetch clears it,
+  disabling every control with a reason), a monotonic generation guard drops a stale
+  refetch, and a `revertRun` that rejects refetches BEFORE rethrowing.
 
-When changing this flow, update this section and the paired tests.
+Key files: `edit-checkpoint-{journal,capture}.ts`, `checkpoint-snapshot-undo.ts`,
+`checkpoint-reindex-deps.ts`, `ipc-domains/assistant-checkpoint-*.ts`,
+`edit-checkpoint-context.tsx`, `tool-fallback-row.tsx`, `checkpoint-turn-revert.tsx`,
+`use-edit-checkpoints.ts`, `packages/assistant-contract/src/edit-checkpoints.ts`.
+Settled: the T4 swap to snapshot restore, with identity-only storage and no
+destructive migration. Evidence: `workspace-context/edit-checkpoints.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/edit-checkpoint-journal.integration.test.ts`.
 
 ---
 
 ## MODEL-FACING WORKSPACE TOOL GUIDANCE
 
-Hosted default instructions are intentionally a compact routing layer, not a
-second copy of every tool description and input schema. Per-tool mechanics live
-in the canonical description and Zod schema registries documented in
-`docs/agents/assistant-providers.md`; the instructions state the cross-tool
-workflow and invariants below once. The authored full-registry fixture remains
-guarded at 7,900 `o200k_base` tokens. The live actual Mastra/OpenRouter core and
-resolved instructions are guarded at 5,000 tokens, materially below the retired
-11,500-token eager boundary. Live hosted requests add `search_tools`; deferred
-tool mechanics arrive with the dynamically loaded definition. The fixture uses
-the real hosted registry, a default-enabled representative workspace skill,
-resolved conditional guidance, and first-turn `SkillsProcessor` metadata; see
-`docs/agents/assistant-providers.md` for the exact measurement boundary.
+Hosted default instructions are a compact routing layer, not a second copy of every
+tool description and schema. Per-tool mechanics live in the canonical description and
+Zod registries documented in `docs/agents/assistant-providers.md`, which also owns
+the prompt-token boundaries and their measurement. Prompt compaction MUST preserve
+these semantics:
 
-Prompt compaction MUST preserve these semantics:
-- **Main vs Focused:** `listWorkspaceContext.workspaceRootPath` is the MAIN
-  operating root. Selected context and the default target for selection
-  write-back belong to the FOCUSED root. Neither identity may be relabelled or
-  silently substituted for the other.
-- **Multi-root qualification:** a workspace-relative path is ambiguous when
-  several roots are open, so path-bearing read/search/edit/shell calls must
-  name the owning root. A rootless search means an intentional all-roots
-  search only where its schema promises that behavior; it never means “guess
-  Main.” Results carry root identity for follow-up calls. Root-resolution
-  errors include only complete, copyable root ids inside an 800-character
-  descriptor budget; overflow guidance points to `listWorkspaceContext` and
-  never emits a leading delimiter when no root description fits.
-- **Tapestry precision:** ranges are 1-based and inclusive. When the user names
-  a symbol, section, or line range, select its exact verified span and report
-  the exact range applied. Never silently fall back to whole-file selection;
-  use a whole file only when the user requests it or the whole file is
-  genuinely required.
-- **Progressive reads:** use the cheapest discovery verb first, then read only
-  the needed ranges. Continue bounded/truncated results with their advertised
-  offset or range, and issue independent reads in parallel where safe.
-- **Create vs edit:** `writeWorkspaceFile` remains initially visible so a
-  direct create-new-file request never depends on the model discovering a
-  deferred primitive. It stays edit-risk and approval-gated. A replace attempt
-  against a missing file returns a trusted input error directing the model to
-  the write tool; replacement is never silently reinterpreted as creation.
-- **Command safety:** `executeCommand` is unsandboxed. Prefer read-only
-  commands, and run destructive commands only when the user explicitly asks
-  for that exact action.
-- **Web privacy:** web search/extraction is for public external information and
-  sends queries or URLs to an external service. Never include secrets or
-  private workspace content, and never use web retrieval as a substitute for
-  local workspace tools.
+- Main vs Focused: `listWorkspaceContext.workspaceRootPath` is the MAIN operating
+  root; selected context and the default selection write-back target belong to the
+  FOCUSED root. Never relabel or substitute one identity for the other.
+- Multi-root qualification: path-bearing read/search/edit/shell calls name the owning
+  root. A rootless search means an intentional all-roots search only where its schema
+  promises that; it never means "guess Main". Results carry root identity, and
+  root-resolution errors include only complete, copyable ids inside their descriptor
+  budget, with no leading delimiter when no description fits.
+- Tapestry precision: ranges are 1-based and inclusive. Select the exact verified span
+  the user named and report the exact range applied; use a whole file only when asked
+  or genuinely required.
+- Progressive reads: cheapest discovery verb first, then only the needed ranges.
+  Continue bounded results with their advertised offset or range, and issue
+  independent reads in parallel where safe.
+- Create vs edit: `writeWorkspaceFile` stays initially visible so a direct
+  create-new-file request never depends on discovering a deferred primitive, and it
+  stays edit-risk and approval-gated. A replace against a missing file returns a
+  trusted input error pointing at the write tool — never silently reinterpreted as
+  creation.
+- Command safety: `executeCommand` is unsandboxed. Prefer read-only commands, and run
+  destructive ones only on an explicit request for that exact action.
+- Web privacy: web search and extraction send queries or URLs to an external service.
+  Never include secrets or private workspace content, and never substitute web
+  retrieval for local workspace tools.
 
-The model-facing workspace projections share only mechanical invariants through
-`workspace-model-projection-helpers.ts`: record and integer guards, Unicode-safe
-end/middle clipping, text-envelope construction, and serialized-envelope budget
-measurement. Domain result types, parsing/coherence rules, pagination, ranking,
-producer constants, and omission guidance remain local to each projection.
-Path policy also remains explicit at each call site: context and retrieval
-escape CR, LF, U+2028, and U+2029 while preserving repeated whitespace needed
-by follow-up file tools (800- and 700-character path ceilings respectively);
-inspection previews collapse whitespace onto one line at an 800-character
-ceiling. Search projections (BST-1185) emit the producer path VERBATIM with
-line breaks escaped and never clip it — a clipped path is an unusable
-selector, so an oversized path overflows the projection budget and its item
-is omitted with an advancing offset instead. Malformed or over-budget output
-continues to fail visibly; the shared helpers must never add coercion or
-fallback.
+`workspace-model-projection-helpers.ts` shares only mechanical invariants — record
+and integer guards, Unicode-safe clipping, text-envelope construction,
+serialized-envelope budget measurement. Domain result types, parsing and coherence
+rules, pagination, ranking, producer constants, omission guidance and path policy
+stay local to each projection. Search projections emit the producer path VERBATIM
+with line breaks escaped and never clip it: an oversized path overflows the
+projection budget and its item is omitted with an advancing offset, because a clipped
+path is an unusable selector. Malformed or over-budget output fails visibly, and the
+shared helpers add no coercion or fallback. Conditional assembly advertises only
+tools that survived runtime gates; recover prompt budget by removing duplicated
+prose, never by weakening these invariants.
 
-Conditional assembly still advertises only tools that survived runtime gates.
-Remove duplicated prose to recover prompt budget; do not remove or weaken the
-invariants above.
+Evidence: `workspace-context/model-facing-guidance.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`.
 
 ---
 
 ## READ-BEFORE-WRITE STALENESS GUARD (LOST-UPDATE PROTECTION)
 
-The compare layer of core 1.51's workspace `requireReadBeforeWrite` contract
-(report R8), adopted **compare-only** — a settled scoping decision, do not
-widen to core's stricter "refuse any overwrite without a prior read" layer
-without revisiting the test surface that legitimately writes unread files.
+The compare layer of core's workspace `requireReadBeforeWrite` contract, adopted
+COMPARE-ONLY.
 
-- **Tracker:** `packages/agent/src/tools/file-read-state.ts` — pure in-memory
-  map of `scope|canonicalAbsolutePath → last observed mtimeMs`, where scope is
-  `runtimeData.memory.threadId` (sentinel `__no-thread__` without one). One
-  thread's observations never vouch for another's. Ephemeral main-process run
-  state (like the sibling `file-write-lock` map), NOT persistence — not a
-  factory-reset surface. Bounded by LRU-on-write eviction
-  (`FILE_READ_STATE_MAX_ENTRIES = 4096`), never unbounded.
-- **Observations recorded:** content-bearing reads (`readWorkspaceFile`), the
-  assistant's own successful `write`/`stringReplace` (post-write stat INSIDE
-  the same lock — consecutive same-thread writes never self-trip), and a
-  rename's destination. `delete`/rename-source FORGET their record so a later
-  re-creation is new, not compared against a ghost. `findWorkspaceSymbol`
-  deliberately does NOT record (snippets ≠ knowing the file).
-- **Compare points (all INSIDE the per-file `withFileLock` critical section):**
-  `write` stats the target before mutating; `stringReplace` compares against
-  its own fresh under-lock read's mtime; `rename` compares the source's lstat.
-  Mismatch → typed actionable refusal ("changed on disk since you last read
-  it… re-read and retry") — same refuse-rather-than-guess posture as the
-  string-replace ambiguity error. The model's recovery is always: re-read
-  (records the fresh mtime), retry.
-- **Exemptions:** files this scope never observed (compare-only contract);
-  brand-new files (nothing recorded); an observed file that VANISHED from disk
-  (recreating it loses nothing — the stale record is dropped and the write
-  proceeds).
-- **Identity + ordering rules (review-hardened):** the read tool's read+record
-  runs INSIDE the same per-file lock as the writes, so a racing read can never
-  clobber a fresh own-write observation back to a stale value. Reads record
-  under the realpath'd TARGET, so rename compares a symlink source via the
-  target's key + stat (a dangling link has nothing to compare); a symlink
-  rename moves only the link, so the target's observation stays valid and no
-  destination record is made.
-- **Accepted residual risks:** mtimeMs equality can miss a sub-timestamp-
-  granularity external edit on coarse-mtime filesystems (FAT/some network
-  mounts — APFS/ext4/NTFS are fine); and a checkpoint REVERT writes outside
-  these tools, so a thread's next edit to a reverted file may hit one refusal
-  (arguably correct — its view IS stale) and recovers with the standard
-  re-read. Both are deliberate: no polling, no fs watchers, one bounded
-  refusal worst-case.
-- **Paired tests:** `packages/agent/src/__tests__/file-read-state.spec.ts`
-  (state semantics) + the `read-before-write staleness guard` describe block in
-  `apps/desktop/src/__tests__/assistant-server/assistant-tools-write.integration.test.ts`
-  (real-fs refuse/recover behavior, `utimes`-forced external edits).
+- `packages/agent/src/tools/file-read-state.ts` holds a pure in-memory map of
+  `scope|canonicalAbsolutePath → last observed mtimeMs`, scoped by
+  `runtimeData.memory.threadId` (sentinel `__no-thread__`), so one thread's
+  observations never vouch for another's. It is ephemeral main-process run state, not
+  persistence and not a factory-reset surface, bounded by LRU-on-write eviction at
+  `FILE_READ_STATE_MAX_ENTRIES`.
+- Record content-bearing reads, the assistant's own successful
+  `write`/`stringReplace` (post-write stat inside the same lock, so consecutive
+  same-thread writes never self-trip), and a rename's destination. `delete` and a
+  rename source FORGET their record, so a later re-creation is new rather than
+  compared against a ghost. `findWorkspaceSymbol` deliberately does not record:
+  snippets are not knowing the file.
+- Compare inside the per-file lock's critical section: `write` stats the target before
+  mutating, `stringReplace` compares its own fresh under-lock read's mtime, `rename`
+  compares the source's lstat. A mismatch returns a typed actionable refusal telling
+  the model to re-read and retry.
+- Exempt files this scope never observed (the compare-only contract), brand-new files,
+  and an observed file that VANISHED from disk — drop the stale record and proceed.
+- Run the read tool's read-and-record inside the same per-file lock as the writes, so
+  a racing read cannot clobber a fresh own-write observation back to a stale value.
+- Record under the realpath'd TARGET: a rename compares a symlink source via the
+  target's key and stat, a dangling link has nothing to compare, and a symlink rename
+  leaves the target's observation valid with no destination record.
 
-When changing this flow, update this section and the paired tests.
+Settled: compare-only scoping — do not widen to core's stricter "refuse any overwrite
+without a prior read" without revisiting the test surface that legitimately writes
+unread files. Accepted residuals: coarse-mtime filesystems can miss a sub-granularity
+external edit, and a checkpoint revert writes outside these tools, so a thread's next
+edit to a reverted file may hit one refusal. Evidence:
+`workspace-context/read-before-write.md`.
+Guard: `packages/agent/src/__tests__/file-read-state.spec.ts`,
+`apps/desktop/src/__tests__/assistant-server/assistant-tools-write-staleness.integration.test.ts`.
 
 ---
 
 ## WORKSPACE ROOT IDENTITY: MAIN vs FOCUSED
 
-Two DISTINCT root concepts exist in a multi-root workspace — never conflate
-them (the pre-split code did, with a false "first root is the primary/focused
-one" comment):
+Two DISTINCT root concepts exist in a multi-root workspace; never conflate them.
 
-- **MAIN root** = the assistant's OPERATING root. Defined as
-  `activeRootIds[0]` in the file-explorer store (insertion-ordered, persisted
-  in file-explorer-storage v5 — persisting the order persists the choice; no
-  extra field, no DB migration). Drives the hooks `primaryCwd` (the stdin
-  `cwd` of UserPromptSubmit/Stop/Session events and the spawn cwd of GLOBAL
-  hooks) and the model-facing "main root path"
-  (`listWorkspaceContext.workspaceRootPath`). Stable: only "Set as main" (a
-  pure store reorder via `setMainRoot`) or disconnecting the main root
-  (which promotes `activeRootIds[1]`) changes it. Re-adding a removed root
-  appends to the END — a re-added ex-main root is demoted (visible +
-  recoverable, by design).
-  - **Restore-order preservation (`setActiveRoots`, `active-root-actions.ts`):**
-    the desktop boot restore (`runMultiRootRestore` in
-    `packages/file-explorer-hooks/src/use-file-system.ts`) rebuilds
-    `activeRootIds`/`rootDescriptors` from a SEPARATE main-process-persisted
-    `rootsList`, owned only by
-    `apps/desktop/src/ipc-domains/workspace-root-registry.ts`, which is plain
-    add-order and has NO notion of Main. IPC and the renderer are projections:
-    add/restore/disconnect complete in that registry before renderer state
-    changes. A rejected disconnect leaves renderer state intact. Unavailable or
-    transiently unmountable entries remain persisted with
-    `permissionState:'unknown'`; they are retried later and excluded from the
-    mounted capability set and DB live-root convergence. The legacy
-    `lastFolderPath` is presentation-only and may reference only an
-    already-persisted mounted root; it never inserts or removes roots.
-    `setActiveRoots` is therefore
-    ORDER-PRESERVING, not a blind overwrite: ids still reported keep their
-    existing relative order from the already-rehydrated store (the Main slot
-    survives), a newly-reported id not previously known appends at the END,
-    and an id no longer reported as granted drops out. This
-    is what makes the storage-v5 "persisting the order persists the choice"
-    claim above actually hold across a restart — without it, `runMultiRootRestore`
-    calling `setActiveRoots(storedDescriptors)` after hydration would silently
-    re-derive `activeRootIds[0]` from the rootsList's add-order and demote the
-    user's declared Main root on every restart.
-- **FOCUSED root** = SELECTION state (`currentFolderId`). Drives terminal
-  cwd, selection scoping, and the selection write-back default
-  (`resolveWriteBackTarget` untouched). It flips on any incidental click
-  (`handleTreeInteraction` in `file-explorer-sidebar.tsx`), so it must NEVER
-  drive hooks/model cwd. Surfaced visually, never described as the
-  assistant's root.
+- **MAIN root** = the assistant's OPERATING root, `activeRootIds[0]` in the
+  file-explorer store (insertion-ordered and persisted, so persisting the order
+  persists the choice). It drives the hooks `primaryCwd` and the model-facing
+  `listWorkspaceContext.workspaceRootPath`. Only `setMainRoot` or disconnecting the
+  main root — which promotes `activeRootIds[1]` — changes it, and a re-added removed
+  root appends at the END, demoting a former Main visibly and recoverably.
+- **FOCUSED root** = SELECTION state (`currentFolderId`). It drives the Terminal
+  panel's default cwd, selection scoping and the selection write-back default, and it
+  flips on any incidental click — so it must NEVER drive hooks or model cwd. Surface
+  it visually, never as the assistant's root.
+- `setActiveRoots` is ORDER-PRESERVING, not a blind overwrite: still-reported ids keep
+  their relative order, a newly reported id appends at the END, and an id no longer
+  granted drops out. Why: boot restore rebuilds `activeRootIds` from a separate
+  main-persisted `rootsList` that is plain add-order with no notion of Main, so
+  without this every restart would demote the declared Main root.
+- The main-owned root registry is the authority and IPC and renderer are projections:
+  add, restore and disconnect complete in the registry before renderer state changes,
+  and a rejected disconnect leaves renderer state intact. Unavailable or transiently
+  unmountable entries stay persisted with `permissionState:'unknown'`, are retried
+  later, and are excluded from the mounted capability set and DB live-root
+  convergence. The legacy `lastFolderPath` is presentation-only.
+- The Terminal's cwd is FOCUSED-by-default, PINNED-when-asked, and the pin is
+  SHELL-ONLY: it carries `{ cwd, rootId }`, survives focus changes on purpose, and is
+  released by the panel's own control or factory reset. Command sessions always take
+  the FOCUSED root, never the pin, so their destructive actions cannot silently
+  retarget onto a pinned checkout.
+- Forge identity follows MAIN, never FOCUSED. Why: a focused selection flips on
+  incidental clicks and would attribute a PR to the wrong repository.
+- The per-request `mainRootId`/`mainRootPath` fields are an ORDERING HINT — not a
+  security boundary, not the durable thread-binding authority. `workspaceRootPath`
+  stays the FOCUSED root.
 
-**Request fields** (`packages/assistant-contract/src/runtime-data.ts`): the
-wrapper attaches `mainRootId` (= adapter `activeRootIds[0]`) and `mainRootPath`
-(the descriptor's absolute path) per request. They are an ORDERING HINT for the
-server — a preference, not a security boundary. The server may use the path to
-match that ordering hint after reconnects; neither field is the durable
-thread-binding authority. `workspaceRootPath` stays the FOCUSED root (selection
-scope) — unchanged.
+**Thread and run binding.** Desktop data-stream threads persist their first request's
+explicit Main root in `mastra_threads.metadata` as `operatingRootId` plus
+display-only name and path; the durable id is the execution authority.
 
-**Thread/run binding:** Desktop data-stream threads persist their first
-request's explicit Main root in `mastra_threads.metadata` as
-`operatingRootId` plus display-only name/path fields. The durable id, not the
-path or label, is the execution authority. At first request preparation,
-app-shell resolves the mounted adapter root path to exactly one live DB
-`roots.id`; it fails visibly rather than persisting an adapter id or guessing.
-Later global Main/Focused changes do not retarget that thread or its composer
-chip. Request preparation reuses the persisted id and emits
-`boundWorkspaceRootId`; approval/resume preparation is pinned by an in-memory
-copy before the metadata-store rerender can land.
-Restored tab ids can become selected before their `mastra_threads` rows have
-loaded. That state keeps the composer disabled and causes root resolution or
-persistence to fail visibly; it must never be treated as missing metadata and
-rebound to the current Main root.
-Desktop validates that id against its server-loaded live DB roots before hooks
-or the initial manifest can use another mounted root, then orders the bound root
-first. An omitted native workspace-tool `root` resolves to the binding. An
-explicit selector for another currently mounted root remains an observable
-cross-root operation. An explicitly
-blank selector is invalid and never broadens an optional search to all roots or
-falls through to the thread binding. Bound-root resolution requires an
-authoritative `workspaceRoots` inventory; if DB enrichment is unavailable, the
-tool fails visibly instead of comparing the durable id with a synthesized
-path-backed root or silently clearing the binding. A missing, stale, or
-disconnected bound id fails visibly as `bound_workspace_root_unavailable` with
-HTTP 409; it never path-falls back or silently adopts the new global Main root.
-The one intentional omission exception is
-`readWorkspaceContext` with no explicit `filePaths`: renderer-selected paths and
-Tapestry ranges are relative to the FOCUSED `workspaceRootPath`, so that
-selection-default read resolves the focused path against the authoritative
-inventory instead of the thread binding. If the inventory is unavailable, the
-selection-default read fails visibly; focused renderer state never authorizes a
-path-backed root. Supplying `filePaths` restores the normal omitted-root binding
-rule. Disconnect transitions also revoke
-already-enriched in-flight runtime snapshots, while a later authoritative live
-root load clears that revocation after reconciliation/reconnect.
+- At first request preparation, resolve the mounted adapter root path to exactly one
+  live DB `roots.id`, failing visibly rather than persisting an adapter id or
+  guessing. Later global Main/Focused changes never retarget that thread or its
+  composer chip. Request preparation reuses the persisted id and emits
+  `boundWorkspaceRootId`; approval and resume preparation are pinned by an in-memory
+  copy before the metadata-store rerender lands.
+- A restored tab selected before its `mastra_threads` row loads keeps the composer
+  disabled and fails root resolution visibly; never treat that as missing metadata and
+  rebind it to the current Main root.
+- Validate the bound id against server-loaded live DB roots before hooks or the initial
+  manifest can use another mounted root, then order the bound root first. An omitted
+  native workspace-tool `root` resolves to the binding; an explicit selector for
+  another mounted root stays an observable cross-root operation; an explicitly blank
+  selector is invalid and never broadens a search or falls through to the binding.
+- Bound-root resolution requires an authoritative `workspaceRoots` inventory: with DB
+  enrichment unavailable the tool fails visibly rather than comparing the durable id
+  against a synthesized path-backed root or clearing the binding. A missing, stale or
+  disconnected bound id fails visibly as `bound_workspace_root_unavailable` with HTTP
+  409 — never a path fallback, never silently adopting the new global Main root.
+- The one omission exception is `readWorkspaceContext` with no `filePaths`: its
+  renderer-selected paths and Tapestry ranges are relative to the FOCUSED
+  `workspaceRootPath`, so that read resolves the focused path against the
+  authoritative inventory and fails visibly when the inventory is unavailable.
+  Supplying `filePaths` restores the normal rule.
+- Disconnect transitions revoke already-enriched in-flight runtime snapshots; a later
+  authoritative live-root load clears that revocation after reconciliation.
 
-**Initial workspace-root manifest** (`packages/agent/src/workspace-root-manifest.ts`):
-every fresh hosted-provider turn receives one `system` message before the
-model's first action. Existing leading system context stays ahead of it, so
-Desktop workspace instructions retain their documented frontmost precedence.
-The bounded JSON data block contains only the
-server-resolved root selector, display name, canonical path, and Main/Focused
-roles — never a tree, file list, selection list, or glob result. It is capped at
-3,000 serialized characters and five roots; Main and Focused are prioritized,
-and any remainder is reported with explicit `shown`/`omitted` counts. Exact
-root selectors are never truncated: an unexpectedly oversized selector is
-omitted and counted rather than becoming an unusable or misleading id. Root
-names/paths are clipped, JSON-escaped, and explicitly described as inert data.
-`listWorkspaceContext` remains the detailed, refreshable source for complete
-root inventory, selections, indexing, ranges, and budgets.
+**Initial workspace-root manifest.** Every fresh hosted-provider turn receives one
+`system` message before the model's first action, injected at the shared
+`toAiSdkStyleStream` boundary — after Desktop enrichment, before Mastra memory
+selects the current turn — so it covers every hosted provider consistently, with
+existing leading system context still ahead of it.
 
-The injection lives at the shared `toAiSdkStyleStream` boundary, after Desktop
-has enriched the runtime but before Mastra memory selects the current turn, so
-it covers OpenAI, Anthropic, OpenRouter, and Hosted Web consistently. Desktop
-with a successful empty DB query emits `state: available, count: 0`; Hosted Web
-or degraded/legacy Desktop state emits `state: unavailable` and never invents
-a client/path-derived selector. The compact built-in local model is excluded to
-preserve its 8,192-token context budget.
+- Its bounded JSON block carries only the server-resolved root selector, display name,
+  canonical path and Main/Focused roles — never a tree, file list, selection list or
+  glob result. It is capped in serialized characters and root count, Main and Focused
+  prioritized, the remainder reported as explicit `shown`/`omitted` counts.
+- Exact root selectors are never truncated: an oversized selector is omitted and
+  counted. Names and paths are clipped, JSON-escaped and described as inert data.
+- Desktop with a successful empty DB query emits `state: available, count: 0`; Hosted
+  Web or degraded Desktop state emits `state: unavailable` and never invents a
+  client- or path-derived selector. The compact built-in local model is excluded, and
+  `listWorkspaceContext` remains the detailed refreshable source.
 
-**Server reorder** (`apps/desktop/src/assistant-server/workspace-roots.ts`):
-`enrichRuntimeDataWithWorkspaceRoots` loads live DB roots (`created_at ASC`)
-then prioritizes an exact `boundWorkspaceRootId` when present; otherwise it
-calls the pure `orderWorkspaceRoots(roots, mainRootId, mainRootPath)` — match by
-rootId first, else by resolved absolute path (covers legacy client ids that
-diverged from DB ids; web enrichment never runs, FSA roots have null paths).
-An unmatched binding stays unmatched so tool execution can fail visibly;
-unmatched/absent Main keeps `created_at` order (the legacy tiebreak) with a
-debug log. `roots[0]` is therefore GENUINELY the thread-bound/Main root — no
-`buildHookManager` change was needed. On a DB load/query failure, RuntimeData
-remains unenriched and workspace-tool authorization fails closed; the renderer's
-FOCUSED `workspaceRootPath` is selection state only and never becomes a
-synthesized root. A successful zero-root query records an explicit
-`workspaceRoots: []`. This is distinct from an unresolved/query-failed root
-inventory and lets `listWorkspaceContext` report the valid empty-workspace state
-without disguising a bridge failure. Enrichment also clears any stale FOCUSED
-`workspaceRootPath` in that zero-root state; otherwise the trusted empty
-inventory and renderer focus would be inconsistent and stream initialization
-would fail before the empty-workspace result could be reported.
-The desktop HTTP boundary strips any client-supplied `workspaceRoots` before
-enrichment. Only the DB result may populate the trusted manifest/tool inventory;
-renderer fields can order or focus roots but can never substitute adapter ids
-for the durable selectors accepted by native tools.
+**Server-side reorder.** `enrichRuntimeDataWithWorkspaceRoots` loads live DB roots
+(`created_at ASC`), prioritizes an exact `boundWorkspaceRootId`, and otherwise calls
+the pure `orderWorkspaceRoots(roots, mainRootId, mainRootPath)`, matching by rootId
+first and else by resolved absolute path.
 
-**Surfaced UI** (all forest-mode/multi-root only; single root shows ZERO new
-chrome):
-- Root section headers (`root-section-header.tsx` + sidebar wiring): "Main"
-  badge on the main root (exactly one; the badge MOVES when main changes —
-  sections never reorder), persistent focused affordance (`data-focused`
-  attr + left accent — app state, NOT `:focus-visible`), full path tooltip.
-- Status bar (`packages/app-shell/src/status-items/workspace-root-status-item.tsx`,
-  left, beside the database item): main root name (+N), popover listing every
-  mounted root (path or "browser folder", Main badge, Focused marker) with a
-  per-row "Set as main" → `setMainRoot`.
-- Composer chip (`packages/assistant-ui/src/operating-root-chip.tsx`):
-  "in {thread root}" at the top of the composer stack — a SIBLING of
-  ThreadContextMeter (never nest it there; the meter is being reworked), fed
-  by the wrapper's `operatingRoot` prop only at 2+ roots. Before a thread's first
-  request it previews the current Main root; after binding it remains stable.
-- DEFERRED (v1 ruling): a root-header right-click context action ("Set as
-  main" / Disconnect / Copy path / Reveal) — root headers have no
-  ContextTarget kind yet; it is a coherent follow-up surface.
+- An unmatched binding stays unmatched so tool execution fails visibly; unmatched or
+  absent Main keeps `created_at` order with a debug log. `roots[0]` is therefore
+  genuinely the thread-bound/Main root.
+- On a DB load or query failure, RuntimeData stays unenriched and workspace-tool
+  authorization fails closed; the renderer's FOCUSED `workspaceRootPath` is selection
+  state and never becomes a synthesized root.
+- A successful zero-root query records an explicit `workspaceRoots: []`, distinct from
+  an unresolved inventory, and clears any stale FOCUSED `workspaceRootPath`.
+- The desktop HTTP boundary strips any client-supplied `workspaceRoots` before
+  enrichment; only the DB result populates the trusted manifest and tool inventory.
+  Roots that leave the mounted set are marked `status = 'disconnected'`, so the
+  trusted inventory tracks reality rather than serving phantom live roots.
 
-**Known issue (out of scope here, filed separately):** nothing ever
-transitions `roots.status` off `'live'` (`reconcileRoots` never UPDATEs), so
-the server can still serve DISCONNECTED folders in `workspaceRoots`; this
-feature only reorders. The client's `activeRootIds` contains only MOUNTED
-roots, which is why the client-declared main avoids the phantom-root problem
-by construction.
+Evidence: `workspace-context/root-identity.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/workspace-roots.test.ts`,
+`packages/agent/src/__tests__/workspace-root-manifest.spec.ts`,
+`packages/file-explorer/src/actions/__tests__/active-root-actions.test.ts`.
 
-**Paired tests:**
-`packages/file-explorer/src/actions/__tests__/active-root-actions.test.ts`
-(setMainRoot semantics + removal promotion + `setActiveRoots` restore-order
-preservation),
-`packages/file-explorer-ui` `root-section-header.test.tsx` +
-`file-explorer-sidebar.test.tsx` (badge/focused/tooltip + forest wiring),
-`packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-runtime.test.ts`
-(mainRootId/mainRootPath wire fields) + `workspace-root-status-item.test.tsx`,
-`packages/agent/src/__tests__/workspace-root-manifest.spec.ts` (bounds,
-zero/unavailable state, exact ids, Main/Focused priority) +
-`mastra-tool-execution.integration.spec.ts` (turn-one qualified read),
-`apps/desktop/src/__tests__/assistant-server/agent-stream-init-and-memory.integration.test.ts`
-(client root inventory replacement),
-`packages/assistant-ui/src/__tests__/operating-root-chip.test.tsx`,
-`apps/desktop/src/__tests__/assistant-server/workspace-roots.test.ts`
-(orderWorkspaceRoots + enrichment reorder), and the
-`hooks primaryCwd follows the declared main root` describe in
-`apps/desktop/src/__tests__/assistant-server/hooks/server-composition.integration.test.ts`.
+**Background indexing readiness (BST-630, BST-1654).**
 
-When changing this flow, update this section and the paired tests.
+- `isAccessLoading`, `rootsReconciliationSettled` and the database and runtime
+  dependencies own restoration readiness. Until they settle sync stays `waiting`;
+  elapsed time never bypasses them and there is no tree-restoration grace timer.
+  `resolveDbRootId` awaits each root's registration before import.
+- The indexer scans through the filesystem adapter, not the rendered tree, so tree
+  loading and expanded-path restoration neither delay indexing nor cancel a pass.
+- Unmount — including the teardown effect re-running on plain `service` identity churn
+  — calls `detach()`: abort the renderer loop, drop the progress subscription, leave
+  the durable run alone, re-attach on the next `sync()` via
+  `selectRecoverableBackgroundBackfill`. A deliberate stop calls `cancel()`, which
+  also kills the host run.
+- Detaching drops tracking, never cancellation authority: `cancel()` and the disabled
+  `sync()` path both enumerate `getBackfillsInFlight()` and cancel every run carrying
+  the `background-indexing-backfill:` request-id prefix, leave unclaimed runs alone,
+  and reject an undeliverable stop rather than reporting success. Both halves are
+  load-bearing — trade one for the other and the user either loses indexing on
+  navigation or cannot stop it.
+- Refresh the active collection's statistics once per successful root import, after
+  chunking and assignment batches finish and before embedding completion.
+
+Evidence: `workspace-context/background-indexing-readiness.md`.
+Guard: `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-provider.test.tsx`,
+`workspace-collection-sync-service.test.ts`.
+
+**Worktree roots and the Mode chip (BST-1390, BST-1392).**
+
+- A root mounted for a managed worktree carries `roots.kind = 'worktree'`, set at
+  INSERT by `reconcileRoots` from the ledger-only `listManagedPaths()` set — a
+  boot-critical read that never builds git inventory or resolves workspace-root joins.
+  Until the first successful ledger read, update existing rows but DEFER new inserts,
+  so a transient bridge failure cannot durably misclassify a worktree. `kind` is never
+  modified on an existing row, and the DB column carries a real CHECK constraint.
+- Background indexing defaults OFF for `kind='worktree'`, surfaced as `Not indexed`
+  with the duplicate-corpus reason and a per-root opt-in keyed by the durable DB root
+  id. Opting one root in never changes another or suppresses eligible non-worktree
+  roots, and if every mounted root is excluded sync stays visibly `waiting` with the
+  same explanation.
+- Defer a mounted root with a durable id but no published kind from the current sync
+  pass; publishing its reactive kind map restarts the pass, so a mid-session Add
+  Folder cannot race the exclusion.
+- Mode chip (Local / Worktree): Worktree means an isolated linked worktree BrainStrike
+  created, recorded in `brainstrike_worktrees`, mounted through the managed-worktree
+  grant and bound as the thread's PRIMARY through the same `operatingRoot*` triple —
+  which is what makes the server's `boundWorkspaceRootId`-first ordering resolve
+  hooks, tools and the terminal into the worktree with no server change. "Cloud" is
+  deliberately omitted, not stubbed.
+- A non-repository primary root gets a DISABLED chip stating "Not a git repository",
+  never an absent one. The chip's worktree list comes from the `window.worktrees`
+  bridge's `list()` (ledger plus a live `git worktree list` merge), refreshed on mount
+  and after every create/select/archive mutation, independently of the Branch chip.
+- The picker lists EVERY worktree the ledger reports, including other tools', labelled
+  by tool, each usable or disabled with its reason and, where remediable, a "Grant
+  access…" button. A creation failure renders IN the create sheet and leaves the
+  thread on Local rather than partially switching it.
+- Write both dialogs inside `ModeChip`'s own JSX rather than hoisting them, so their
+  `<Dialog>` nesting depth stays 1 and their panel paints at `z-[51]`.
+
+Evidence: `workspace-context/worktree-roots.md`.
+Guard: `packages/app-shell/src/__tests__/use-worktree-mode.test.ts`,
+`packages/assistant-ui/src/__tests__/mode-chip.test.tsx`,
+`apps/desktop/e2e/worktree-mode.desktop.test.ts`.
+
+**Picker-less mounts and OS folder-open gestures (BST-1393, BST-1395).**
+
+- `fs:addRootByPath` is the second and last sanctioned picker-less mount. It accepts a
+  path authorized by EITHER the recent-roots ledger OR the managed-worktree
+  authorizer: a live `brainstrike_worktrees` row whose realpath is reachable per
+  adoption's `assertReachable` rule — under the realpath'd managed directory, or
+  inside a granted workspace root per a FORCED-FRESH inventory's containment. One
+  shared `isReachableCheckout` predicate backs both rules so they cannot drift.
+- Force a fresh inventory rather than the cached snapshot: a `roots` write never
+  dirties the cache, so a cached read could honor a just-closed root.
+- An unavailable inventory refuses only the in-root arm, at WARN; the
+  managed-directory arm is inventory-free. An outside-roots row stays refused, and a
+  ledger row alone is never a mount grant. Check the ledger FIRST, so a broken
+  authorizer cannot take the recents path down with it.
+- Never write managed worktrees into `recentRootsList`, at grant time or on relaunch
+  restore: that list is the user's folders, not the app's scratch directories.
+- Five gestures ask the app to connect a folder — File ▸ Open Folder…, File ▸ Open
+  Recent, argv/`second-instance`, macOS `open-file`, and a Finder folder dropped on
+  the workspace bar. All converge on ONE renderer seam, `useConnectFolder`, calling
+  the existing picker-less `fs:addRootByPath`. Add no third authorization door.
+- A path from any gesture is a REQUEST, never a grant: `open-file` and argv are
+  attacker-influencable, so `connectPath` uses the same picker-less path Add Recent
+  uses, renders the same "never granted, use Add folder…" remedy on refusal, and
+  resolves to the mounted handle on success or `null` on every already-toasted failure.
+- Main→renderer traffic uses the dedicated `window.workspace` bridge, not a fourth
+  `window.platform` member whose exact-set pin is duck-typed elsewhere.
+  `workspace-connect-bridge.ts` is canonical for the required-method set, the
+  five-member `WorkspaceOpenOrigin` union (`argv` · `drop` · `menu-recent` ·
+  `open-file` · `second-instance`, compile-time pinned on both sides), and the two
+  exact refusal strings the renderer's remedy matcher shares with main.
+- Strip the `ipcRenderer.invoke` error envelope before matching a refusal, and match
+  ANY `*Error:` name rather than the literal `Error:`. Why: main throws an
+  `AccessError` whose class name survives IPC serialization, and a literal-only
+  stripper silently degraded the remedy to a generic toast.
+- File ▸ Open Folder… opens no dialog in main: the menu item pushes a picker request
+  to the focused window and the renderer runs the SAME `addRootDirectory()` the Folder
+  chip runs, keeping grant recording, recents refresh and the reconciliation nudge on
+  one path. Menu callbacks forward Electron's click-handler window, with
+  `getFocusedWindow()` only as fallback, because it is null whenever the app is not
+  OS-active.
+- File ▸ Open Recent projects main's own ledger, capped at `FILE_MENU_RECENT_LIMIT`,
+  newest first, DISABLED rather than hidden when empty, rebuilt on a coalesced 250 ms
+  schedule whenever the root-grant subscriber fires. There is no "Clear Menu" row:
+  clearing only `app.clearRecentDocuments()` changes nothing visible, and clearing the
+  ledger from a menu item would silently revoke picker-less grants.
+- A recent-menu click sends `workspace:open-path` directly to the focused window;
+  launch-scoped producers go through `createWorkspaceOpenQueue`. `open-file` is
+  registered at MODULE scope (macOS fires it before `whenReady`) and stays registered
+  in E2E mode; launch argv is enqueued once inside `whenReady`; `second-instance` is
+  registered only outside E2E mode.
+- `resolveFolderCandidatesFromArgv` skips the unpackaged app path by IDENTITY
+  (`app.getAppPath()` or the running bundle's entry path), never by argv position.
+  Why: Chromium regroups `second-instance` argv as
+  `[program, ...switches, ...positionals]`, so a fixed `slice(2)` mis-parsed the
+  app-path positional into a folder candidate. Only the FIRST matching positional is
+  skipped — a later duplicate is an explicit `electron . .` request — and an empty app
+  path THROWS. Packaged parsing consults neither.
+- Filter candidates before the IPC channel: loudly skip non-directories and
+  unstat-able paths, and cap at `MAX_PENDING_OPEN_REQUESTS` (oldest dropped with a
+  warn) before the sync stat loop, so a runaway `second-instance` cannot stall main.
+- Gate queue delivery on a TWO-condition per-window handshake: `loadFinished` tracks
+  the symmetric `did-start-loading`/`did-stop-loading` pair — not main-frame-only
+  `did-finish-load`, which strands the queue after a subframe-only load — and
+  `rendererReady` is the renderer's own ready ack, pinged in the SAME effect that
+  subscribes the listener, because a loaded document is not a mounted listener and
+  Electron never replays an unheard `send`. Reset `rendererReady` only on a real
+  main-frame document replacement.
+- Register the ready channel ONCE at module scope and route it per window via a
+  `webContents.id`-keyed callback map, capturing the id AT registration, because the
+  `win.webContents` getter itself throws once `closed` has fired. Detach the queue on
+  `closed` explicitly: `isDestroyed()` still reports `false` while a window is dying.
+- Delivery is not authorization: narrow every delivered payload (malformed dropped
+  with a log, never coerced) and pass the seam's `fs:addRootByPath` gates. Nothing in
+  this machinery records a recent root.
+
+Evidence: `workspace-context/folder-open-gestures.md`.
+Guard: `apps/desktop/src/__tests__/workspace-open-queue.test.ts`,
+`workspace-open-ready-ipc.test.ts`, `main/workspace-open-lifecycle.test.ts`,
+`folder-argv.test.ts`, `application-file-menu.test.ts`,
+`apps/desktop/e2e/add-root-ui.smoke.desktop.test.ts`.
+
+**Surfaced UI.** The composer workspace bar is always visible; every other surface
+here is forest-mode/multi-root only, so a single root shows no extra chrome. Root
+section headers carry the "Main" badge (exactly one; the badge MOVES when main
+changes — sections never reorder), a persistent focused affordance (app state, not
+`:focus-visible`) and a full-path tooltip. The status-bar item lists every mounted
+root with a per-row "Set as main".
+
+**Composer workspace bar.**
+
+- The bar mounts as a SIBLING of ThreadContextMeter — never nested there — and is
+  always visible, single root included, because its job is ORIENTATION, not
+  disambiguation. Zero roots render the "Choose a folder" CTA.
+- Folder chip: this thread's PRIMARY (persisted `operatingRootId`, else the current
+  MAIN root) plus `metadata.secondaryRootIds` as a `+N` badge. The primary's `rootId`
+  is ALWAYS a durable `roots.id`; with no persisted binding the MAIN root's row
+  resolves BY PATH, and an unresolvable path leaves the primary undefined rather than
+  inventing one.
+- "Make primary" re-binds the THREAD through the same three `operatingRoot*` keys
+  `persistThreadRootBinding` writes, in ONE metadata write with the secondary set; it
+  never calls `setMainRoot`. "Remove from thread" only edits `secondaryRootIds` and
+  never disconnects the folder from the workspace.
+- While checkout mode is Worktree, making a secondary primary includes the Local
+  transition in that SAME write, so operating root and checkout record never disagree:
+  the former worktree primary leaves the thread with an explicit success toast, other
+  secondaries stay attached, and a failed write retains the prior folder set and
+  checkout record. The secondary named by `checkoutLocalRootId` keeps its Remove
+  action visibly disabled, keyboard-focusable, with its reason as an accessible
+  description.
+- "Add folder…" adds the folder globally AND records it as a thread secondary,
+  awaiting the roots-reconciliation "root registered" notification instead of polling
+  the database, bounded by `ROOT_ROW_WAIT_TIMEOUT_MS`; exhaustion logs and toasts
+  "Folder added, but not attached to this thread". The seam is EPOCH-based, not a
+  one-shot flag, because re-adding a removed folder is a genuine second registration
+  of the same path.
+- `use-thread-checkout.ts` is the ONLY writer of `metadata.checkout*`. Selecting a
+  worktree first resolves its mounted path to a durable live `roots.id`, then persists
+  the `checkout*` fields, full `operatingRoot*` triple and secondary demotion in ONE
+  metadata write through the bar's serialized folder-write queue;
+  `checkoutLocalRootId` durably records the Local `roots.id` at entry, and a
+  reconciliation failure rejects before enqueueing.
+- Hand-off promotes the tracked Local root when it has a complete roots row; a
+  disconnected tracked root is logged and refused, while legacy partial state with no
+  tracked Local root clears checkout mode, warns that the folder did not follow, and
+  keeps its current primary. Every checkout-mode transition atomically strips
+  `checkoutBranch`; the Local transition also removes both worktree keys and
+  `checkoutLocalRootId`.
+- The Worktree Map tab is capability-gated like Changes/Canvas/Terminal, never an
+  `isElectron()` check. Its handlers publish a ONE-SHOT checkout intent the consumer
+  applies to the selected thread exactly once, calling the SAME callbacks the Mode
+  chip uses: the intent store is a cross-component REQUEST queue, never a second write
+  path, and a failed apply is logged and toasted without retry.
+- Recents come from main's ledger minus folders already mounted. Every flow that may
+  write the ledger increments `recentRootsRevision` and the bar reloads from that
+  canonical signal — an honest superset — so new grant or restore callers need no
+  bar-specific wiring. Recents loads use a monotonic request generation, so an older
+  overlapping response cannot replace a newer snapshot.
+- The bar therefore cannot mount an arbitrary path: a stray or stale path string is
+  rejected, and the ledger is one input to the main-owned mount decision, never a
+  replacement for it. Reject renderer mutation of `rootsList`, `recentRootsList`,
+  their quarantine records, `notesVaultRoots` and `lastFolderPath` through the storage
+  channels; desktop E2E uses a test-mode-only seed channel production never registers.
+- Key ledger paths with a stripped trailing separator, so `/ws/alpha/` and `/ws/alpha`
+  are one slot. Quarantine a CORRUPT ledger to `recentRootsList.corrupt`, log at ERROR
+  and reset it; until the next grant re-populates it, `addRootByPath` rejects with the
+  normal "never granted" remedy. `RECENT_ROOTS_LIMIT` is storage hygiene, far above
+  realistic mount counts so connected roots cannot evict disconnected grants.
+  Desktop-only: web has no ledger and no Add-recent affordance.
+- Finder drop: `extractDroppedFolderPaths` turns `DataTransferItem`s into absolute
+  paths SYNCHRONOUSLY, inside the drop tick, because an item goes invalid the instant
+  the event settles. Tell files and folders apart by ASKING THE DOM
+  (`entry.isDirectory`), never by `size`/`type` and never by forwarding blind to
+  `connectPath`, whose grants-flavored refusal would misdescribe the problem.
+- Count every drop non-outcome in three SEPARATE buckets — skipped files, unreadable
+  items, unresolved folders — so the notice never names the wrong noun, and dedupe in
+  drop order.
+- `WorkspaceBarDropZone` wraps the chips ONLY when a drop handler is supplied — no
+  wrapper, no ring, no listeners on web. Its `'Files'` MIME-type gate, checked BEFORE
+  `preventDefault()`, is byte-identical to the notes-vault panel's copy and is what
+  keeps an internal drag from being consumed: harden one copy, check the other. The
+  drag-leave guard reads `event.relatedTarget`, because a dragleave bubbling off any
+  chip would otherwise flicker the ring.
+- Connect multiple dropped folders ONE AT A TIME: the mount call shares a loading flag
+  and a "most recently mounted becomes focused" outcome, so concurrent firing makes
+  order non-deterministic. Chain the SAME thread-attachment step Add folder…/Add
+  recent… run; a refused connect records nothing and fires no second notice; a fully
+  clean drop toasts NOTHING — the chip appearing IS the feedback.
+- Reveal never hardcodes an OS name: the prop pairs `{ label, onReveal }` so a handler
+  without a label is a type error, fed the platform-aware `revealLabel()`.
+- Branch chip: `window.git.status` supplies branch/detached, ahead/behind and
+  dirty-dot state, with no polling. The dot refetches on BOTH live-refresh signals —
+  every accepted `changes:invalidated` metadata push AND the primary root's git-scope
+  nonce, which is what carries WORKING-TREE edits, since metadata pushes report
+  topology only.
+- The menu reuses the Git workbench's `buildBranchSwitchModel`, and the shared switch
+  gate derives dirty state only from tracked porcelain entries, so an untracked-only
+  checkout stays switchable while the dot still reflects all entries. A branch held by
+  another worktree shows its owner and an explicit disabled reason, and a disabled
+  dirty row offers a new-worktree switch only when that callback is supplied.
+- Switching and creation call the existing bridge paths with no client-side status
+  pre-check — the bridge result is the source of truth, and a failure is logged and
+  surfaced as a destructive toast. Offer Fetch only for a discovered default remote,
+  naming it explicitly. After a successful mutation, refresh the git inventory and
+  advance the hook's own reload nonce.
+- The switcher's own load is keyed on the invalidation and reload nonces, NOT the
+  root's git-scope nonce, so an external edit to a tracked file can leave its
+  tracked-dirty read stale until the next metadata push or successful mutation. It
+  fires its own status read concurrently with the bar's dot, and on a non-repository
+  primary root stops after that probe with no repository read and no warning.
+- There is no empty-list fallback: a failed menu read is logged and leaves the chip
+  non-interactive. The chip is desktop-only, absent for a non-repository root or a
+  failed checkout-status read — logged, NEVER rendered as "clean" — and withheld
+  whenever the primary root is absent.
+- Both live-refresh signals need the main-process git inventory to have ARMED a
+  watcher for that repository, which only happens inside an inventory build, so root
+  registration nudges discovery with `changes.inventory({ maxAgeMs: 0 })` once; the
+  forced option is what beats the TTL cache and in-flight coalescing. See "Discovery
+  refresh on root registration" in `docs/agents/changeset-diff.md` § REFRESH SEAMS.
+
+Evidence: `workspace-context/workspace-bar.md`.
+Guard: `packages/assistant-ui/src/__tests__/workspace-bar.test.tsx`,
+`packages/app-shell/src/__tests__/use-workspace-bar.test.tsx`,
+`use-thread-checkout-status.test.ts`,
+`apps/desktop/e2e/workspace-bar.desktop.test.ts`,
+`apps/web/e2e/workspace-bar.test.ts`.
+
+**Root-header context menu (BST-1393).**
+
+- `packages/context-actions/src/types.ts` carries a `workspace-root` ContextTarget
+  kind (`displayName` · `isMain` · `path | null` · `rootId`); `workspaceRootToTarget`
+  normalizes a web FSA handle's name-as-path to `null`, so path-shaped actions hide by
+  DATA rather than by platform.
+- Both the forest sidebar's root sections and the SINGLE-ROOT layout's header row wrap
+  ONLY their header in `ActionContextMenu` — never the tree pane, which owns its own —
+  so the two menus stay siblings rather than nesting, and both share the
+  claim/reset/local-actions/focus-restoration protocol through
+  `use-root-section-context-menu.ts` rather than two independent copies.
+- Six items, three owners. GLOBAL registry: `workspace-root.copy-path`,
+  `workspace-root.reveal`. SURFACE-LOCAL in `file-explorer-ui`:
+  `workspace-root.set-as-main` and a staged `workspace-root.disconnect`, present only
+  when the surface actually has a way to disconnect. INJECTED by app-shell through
+  `FileExplorerPanel`'s `rootActions` prop (`workspace-root-context-actions.tsx`):
+  `workspace-root.open-in-terminal` — a mounted root IS its own cwd — and
+  `workspace-root.new-thread-here`.
+- Set as Main returns an `ActionOutcome`: check `activeRootIds.includes(rootId)` first
+  and report `{ ok: false }`, because `setMainRoot` warn-and-no-ops for an unrecognized
+  legacy path-identity root and the click would otherwise do nothing.
+- This surface says "Set as Main" and changes the workspace-wide MAIN root; the
+  workspace bar's "Make primary" is a DIFFERENT operation with a different writer. Do
+  not merge the two vocabularies.
+- "New thread here" goes through `useCreateThreadInFolder`, the threads panel's own
+  folder-bound creation extracted so both surfaces keep ONE writer of the
+  `operatingRoot*` triple: one `createThread`, then ONE metadata write.
+- `Disconnect…` stages its dialog from inside `ActionContextMenu`'s
+  `onCloseAutoFocus`, which skips its own focus restoration while the dialog is open.
+  Why: Radix's exit animation means the menu's real unmount fires AFTER the dialog has
+  mounted and autofocused. Escape closes the dialog with the root still connected.
+
+Settled: the context menu shipped; the earlier v1 "deferred" ruling is closed.
+Evidence: `workspace-context/root-header-context-menu.md`.
+Guard: `packages/file-explorer-ui/src/components/__tests__/root-section-header.test.tsx`,
+`packages/file-explorer-ui/src/__tests__/file-explorer-sidebar.test.tsx`.
 
 ---
+
+## DIRECTORY HANDLE `rootId` PROPAGATION (REBUILT CHILD HANDLES)
+
+Distinct from Main/Focused: the durable `RootId` UUID stamped on a `DirectoryHandle`
+when a folder becomes a registered root. It self-identifies the handle for capability
+and mount resolution and gives collision-proof folder-state keys — two same-named web
+roots share a `path` but never a `rootId`.
+
+- The invariant: every function that REBUILDS a child `DirectoryHandle` during
+  recursive traversal, rather than reusing the handle the adapter returned, carries
+  `rootId` forward with parent-anchor fallback (`entryHandle?.rootId ??
+  parent.rootId`, the key omitted entirely when undefined). A self-identifying child —
+  a nested registered root — wins over the parent anchor.
+- Why a fallback and not forwarding alone: on web, adapter child handles are raw
+  FileSystemAccess handles with no `rootId`, so forwarding-only logic silently drops
+  identity at every depth below the root. `platform` uses the same shape at each site.
+- Check this list before adding a rebuild site — the class has recurred four times,
+  and two of the six sites were missed because they ship in no app today yet are
+  public package exports:
+  1. `packages/file-explorer/src/read-full-file-tree.ts` — `createChildDirectoryHandle`
+  2. `packages/file-explorer-ui/src/utils/parallel-directory-walker.ts` — `buildChildHandle`
+  3. `packages/app-shell/src/background-indexing/workspace-collection-sync-scan.ts` — `toDirectoryHandle`
+  4. `packages/file-explorer-ui/src/utils/lazy-tree-loader.ts` — the
+     `fileNodeToDirectoryHandle(parentNode, options.parentRootId)` calls in
+     `loadDirectoryChildren` / `loadDirectoryChildrenStreaming`
+  5. `packages/file-explorer-hooks/src/use-file-tree.ts` — the directory-handle literal
+     in `processSingleEntry`
+  6. `packages/file-explorer-ui/src/utils/process-directory-entry.ts` — `processDirectoryEntry`
+- `WorkspaceRootMountTable.resolveForRead` short-circuits to its own
+  `this.mounted.get(rootId)` before consulting path containment, so with nested mounted
+  roots a read whose `rootId` was inherited from an outer traversal anchor resolves
+  against the OUTER mount. That is intended: reads made during a traversal started from
+  root R are authorized and attributed under R's capability, and a self-identifying
+  nested root still wins.
+- Do not conflate `DirectoryHandle.rootId` with `IFileNode.rootFolderId` — the latter
+  is a folder-state bookkeeping key defaulting to `handle.path`. Threading one where
+  the other belongs re-introduces this bug class under another name.
+
+Evidence: `workspace-context/directory-handle-rootid.md`.
+Guard: `packages/file-explorer-hooks/src/__tests__/use-file-tree-root-id-propagation.test.ts`,
+`apps/desktop/src/__tests__/ipc-domains/workspace-root-registry.test.ts`.
+
+---
+
+### Persona Settings host checks (BST-1727)
+
+The canonical [persona Settings host-check contract](assistant-subagents.md#persona-settings-host-checks-bst-1727) covers validated scan results, model/tool availability, and request-dependent scope.
+
+### Persona edits and admitted child decisions (BST-1727)
+
+- A user persona scan resolves the profile for a FRESH delegation. Once a child is
+  admitted, its effective tool scope, instructions, mode, model pin and clamped step
+  budget are stored with that delegated conversation.
+- Editing, disabling or removing the file affects fresh root turns only: pending child
+  approvals and questions resume with their admitted configuration, including after
+  host reload, while current host permissions and available model credentials still
+  apply.
+- Invalid stored identity or configuration fails visibly rather than selecting a
+  replacement profile. Resolve cross-provider credentials from the host on resume,
+  never into the profile snapshot, and add no new persona store or reset registration.
+
+Implementation and production evidence live in
+`docs/agents/assistant-subagents.md`'s admitted configuration section. Evidence:
+`workspace-context/persona-admitted-children.md`.
+
+### Delegated workspace checkpoint ownership (BST-1726)
+
+- The child input processor awaits its existing host admission, including a turn-start
+  shadow snapshot before first execution. Resume and recovery retain that baseline, and
+  recovery before execution finishes any roots whose capture was interrupted. A legacy
+  child with a run but no baseline remains unrestorable, capture failure records the
+  existing failed-capture sentinel, and no new content journal or persistence store is
+  introduced.
+- The child header identifies the shared workspace and the per-path file-write
+  serialization mode; no isolated worktree or automatic merge is implied. Revert uses
+  the ordinary conflict-checked IPC operation, survives reopening and reload, and
+  restores only the selected journaled paths.
+- Child file-mutation callbacks retain Mastra's per-execution `abortSignal` as well as
+  the host-leg signal and check both immediately before write/replace/delete/rename,
+  after the canonical path lock and before-state read. Stopping one child cannot start
+  its queued mutation when the lock is released, and an operation already started still
+  settles its checkpoint and index attribution: Stop does not roll back completed edits.
+- A child's explicit bound root wins over the currently focused folder, including on
+  non-Git workspaces. Disconnecting that root is a visible error; neither a new folder
+  focus nor unavailable worktree capability authorizes switching roots, and a
+  disconnected bound root displays an explicit unavailable-folder label rather than an
+  opaque id or a replacement workspace.
+- The native executor passes a durable execution thread separately from the read-state
+  scope, and a DB-less scope sentinel never becomes checkpoint ownership. Tool input
+  cannot choose that identity: strict native schemas reject extra identity fields and
+  the common execution reader reads only the host-owned context argument. Already
+  stopped native mutations reject before acquiring a path lock, and the post-lock check
+  remains necessary when cancellation arrives while waiting.
+- Admission does not swallow ledger or database failures: a child must not begin work
+  after its baseline ownership could not be established. Snapshot Git failure records a
+  failed-capture sentinel.
+
+Evidence: `workspace-context/delegated-checkpoint-ownership.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/assistant-tools-write-staleness.integration.test.ts`,
+`delegated-workspace-snapshot.integration.test.ts`,
+`apps/desktop/e2e/delegated-worker-write.desktop.test.ts`.
+
+### Managed opaque workspace effects (BST-1726)
+
+- Finite native shell and skill processes acquire an EXCLUSIVE lease on their canonical
+  declared workspace root until actual process settlement. Queueing and execution share
+  the existing call deadline; an expired waiter never spawns.
+- Native file mutations acquire a SHARED workspace lease around their existing ordered
+  per-file locks, covering staleness, capture, write, checkpoint and index settlement.
+  Overlapping parent/child root paths conflict; disjoint roots and disjoint file
+  mutations without an opaque owner retain concurrency.
+- Queued cancellation refuses execution before any effect. Skill runtime resolution plus
+  lease wait shares its original timeout budget, and expiry names both runtime
+  preparation and workspace ownership. Admission expiry and cancellation produce trusted
+  model-visible no-execution errors; a session conflict preserves the owning session ID
+  and the process-exit requirement through the ordinary tool guard.
+- A long-lived DELEGATED command session retains its exclusive lease until PTY exit. A
+  conflicting managed edit or process fails visibly with the session ID and the
+  requirement to wait for process exit — never queued indefinitely, never silently
+  applied later. Selected child Stop joins the sessions owned by host-observed native
+  child identities before acknowledging completion, through the existing process manager
+  rather than a parallel registry.
+- Lease release follows actual exit: a failed stop cannot release uncertain work, and a
+  disposal timeout retains the exit observer even after inventory removal, so a later
+  actual exit releases ownership without exposing live work. The conflict message names
+  no control that has already retired.
+- Ordinary root and user command sessions keep their existing dev-server/edit flow; this
+  lease does not serialize arbitrary user-owned background servers. Shell cwd checks
+  remain the existing containment rule, not a sandbox: command bodies are unrestricted
+  after permission. Remote MCP servers own their own filesystem scope and cancellation
+  semantics, and arbitrary tool input or metadata never establishes client-side
+  workspace confinement.
+- Native delegated thread IDs may exceed a filesystem or ref component length at three
+  levels of recursion. Snapshot ownership retains the exact native ID in the existing
+  ledger and commit metadata, and the Git lineage key is bounded as documented in
+  `docs/agents/changeset-diff.md`. Never increase root directory validation limits or
+  truncate native identity to make a recursive child snapshot fit.
+
+Evidence: `workspace-context/managed-opaque-leases.md`.

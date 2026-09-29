@@ -1,11 +1,14 @@
 /**
- * Env vars consulted for the Tavily key before the encrypted keychain (env
- * takes priority). Tavily is NOT a `ProviderId` — it is a search service, not a
- * model provider — so these names cannot come from the provider registry and
- * live here instead of being repeated at each call site.
+ * Re-export of the canonical Tavily env names.
  *
- * The env-file allowlist, the secrets IPC source listing, and both web tools
- * MUST read the same list: if they drift, a user can set a name one side reads
- * and another side rejects.
+ * The constant MOVED to `@brainstrike/assistant-contract/tavily-env-keys`
+ * (BST-1363 review) because settings-ui needs the same list and cannot import
+ * from `apps/desktop`; every copy made instead has drifted. This module stays
+ * as the desktop-side import surface so the main-process call sites keep a
+ * short specifier — it must never redeclare the names.
  */
-export const TAVILY_ENV_KEYS = ['BRAINSTRIKE_TAVILY_API_KEY', 'TAVILY_API_KEY'] as const;
+export {
+  TAVILY_ENV_KEYS,
+  TAVILY_OVERRIDE_ENV_KEY,
+  TAVILY_VENDOR_ENV_KEY,
+} from '@brainstrike/assistant-contract/tavily-env-keys';

@@ -108,6 +108,27 @@ describe('selectSlashCommandSource (slash-command projection)', () => {
     expect(ids).toContain('thread.new');
     expect(ids).not.toContain('workspace.factory-reset');
   });
+  it('excludes page commands: a one-shot menu cannot show a follow-up page', () => {
+    const pageCommand: Command = {
+      id: 'tab.go-to',
+      label: 'Go to Tab…',
+      page: () => ({ commands: [], heading: 'Tabs', placeholder: 'Go to tab…' }),
+    };
+    const safeCommand: Command = {
+      id: 'thread.new',
+      label: 'New thread',
+      run: () => Promise.resolve({ ok: true }),
+    };
+    const registry = {
+      available: () => [pageCommand, safeCommand],
+      byId: () => undefined,
+      listAll: () => [pageCommand, safeCommand],
+    };
+    const context = buildAppCommandContext({ parts: webParts(), target: null });
+
+    const ids = selectSlashCommandSource(registry, context).map((command) => command.id);
+    expect(ids).toEqual(['thread.new']);
+  });
 });
 
 describe('mergeSlashCommands (F4: app-vs-user id collision)', () => {

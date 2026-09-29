@@ -74,8 +74,8 @@ export const contextBridge = {
 };
 
 export const clipboard = {
-  readText: () => '',
-  writeText: noop,
+  readText: () => Promise.resolve(''),
+  writeText: (_text: string): Promise<void> => Promise.resolve(),
 };
 
 export const safeStorage = {

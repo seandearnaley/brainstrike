@@ -1,21 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  AssistantMemoryThread,
-  AssistantThreadRepository,
-} from '../assistant-memory-repository';
+import type { AssistantMemoryThread } from '../assistant-memory-repository';
 import { resetAssistantThreadStore, useAssistantThreadStore } from '../assistant-thread-store';
-
-const workspaceId = '/tmp/workspace-a';
-
-function makeThread(id: string, updatedAt: string): AssistantMemoryThread {
-  return {
-    createdAt: new Date('2026-04-22T09:00:00Z'),
-    id,
-    resourceId: workspaceId,
-    title: id,
-    updatedAt: new Date(updatedAt),
-  };
-}
+import {
+  createRepository,
+  makeThread,
+  workspaceId,
+} from './helpers/assistant-thread-store-fixtures';
 
 function makeCuratedThread(): AssistantMemoryThread {
   return {
@@ -30,39 +20,6 @@ function makeCuratedThread(): AssistantMemoryThread {
     resourceId: workspaceId,
     title: 'Curated thread',
     updatedAt: new Date('2026-04-22T10:00:00Z'),
-  };
-}
-
-function createRepository(
-  threads: readonly AssistantMemoryThread[] = [
-    makeThread('thread-a', '2026-04-22T11:00:00Z'),
-    makeThread('thread-b', '2026-04-22T10:00:00Z'),
-  ]
-): AssistantThreadRepository {
-  return {
-    appendThreadRunEvent: vi.fn(),
-    completeThreadRun: vi.fn(),
-    createThread: vi.fn(async (resourceId: string, title = 'New Thread') => ({
-      createdAt: new Date('2026-04-22T12:00:00Z'),
-      id: 'thread-created',
-      resourceId,
-      title,
-      updatedAt: new Date('2026-04-22T12:00:00Z'),
-    })),
-    createThreadRun: vi.fn(),
-    deleteThread: vi.fn(),
-    deleteThreads: vi.fn(),
-    getCrossRootUsage: vi.fn(async () => []),
-    getThreadCumulativeUsage: vi.fn(async () => null),
-    listLatestThreadRuns: vi.fn(async () => []),
-    listMessages: vi.fn(async () => []),
-    listThreadCheckpoints: vi.fn(async () => []),
-    listThreadRunEvents: vi.fn(async () => []),
-    listThreads: vi.fn(async () => threads),
-    recordRunUsage: vi.fn(),
-    renameThread: vi.fn(),
-    updateThreadMetadata: vi.fn(),
-    updateThreadsMetadata: vi.fn(),
   };
 }
 
@@ -223,6 +180,141 @@ describe('useAssistantThreadStore tab sessions', () => {
     ).toBe('Paris Weather Chat');
     // Selection/open state is keyed by id and must be untouched by the refresh.
     expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-b');
+  });
+
+  it('does not let an older thread-list refresh restore New Thread after a generated title refresh', async () => {
+    const defaultThread = {
+      ...makeThread('thread-a', '2026-04-22T10:00:00Z'),
+      title: 'New Thread',
+    };
+    const repository = createRepository([defaultThread]);
+    const staleRefresh = Promise.withResolvers<readonly AssistantMemoryThread[]>();
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    vi.mocked(repository.listThreads)
+      .mockReturnValueOnce(staleRefresh.promise)
+      .mockResolvedValueOnce([
+        {
+          ...defaultThread,
+          title: 'Paris Weather Chat',
+          updatedAt: new Date('2026-04-22T10:00:02Z'),
+        },
+      ]);
+
+    const olderRefresh = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(repository, workspaceId);
+    await useAssistantThreadStore.getState().refreshResourceThreads(repository, workspaceId);
+
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'Paris Weather Chat'
+    );
+
+    staleRefresh.resolve([defaultThread]);
+    await olderRefresh;
+
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'Paris Weather Chat'
+    );
+  });
+
+  it('applies an older successful refresh when a newer refresh returns no threads', async () => {
+    const defaultThread = {
+      ...makeThread('thread-a', '2026-04-22T10:00:00Z'),
+      title: 'New Thread',
+    };
+    const generatedThread = {
+      ...defaultThread,
+      title: 'Paris Weather Chat',
+      updatedAt: new Date('2026-04-22T10:00:02Z'),
+    };
+    const repository = createRepository([defaultThread]);
+    const olderRefreshResult = Promise.withResolvers<readonly AssistantMemoryThread[]>();
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    vi.mocked(repository.listThreads)
+      .mockReturnValueOnce(olderRefreshResult.promise)
+      .mockResolvedValueOnce([]);
+
+    const olderRefresh = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(repository, workspaceId);
+    await useAssistantThreadStore.getState().refreshResourceThreads(repository, workspaceId);
+    olderRefreshResult.resolve([generatedThread]);
+    await olderRefresh;
+
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'Paris Weather Chat'
+    );
+  });
+
+  it('applies an older successful refresh when a newer refresh rejects', async () => {
+    const defaultThread = {
+      ...makeThread('thread-a', '2026-04-22T10:00:00Z'),
+      title: 'New Thread',
+    };
+    const generatedThread = {
+      ...defaultThread,
+      title: 'Paris Weather Chat',
+      updatedAt: new Date('2026-04-22T10:00:02Z'),
+    };
+    const repository = createRepository([defaultThread]);
+    const olderRefreshResult = Promise.withResolvers<readonly AssistantMemoryThread[]>();
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    vi.mocked(repository.listThreads)
+      .mockReturnValueOnce(olderRefreshResult.promise)
+      .mockRejectedValueOnce(new Error('list failed'));
+
+    const olderRefresh = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(repository, workspaceId);
+    await expect(
+      useAssistantThreadStore.getState().refreshResourceThreads(repository, workspaceId)
+    ).rejects.toThrow('list failed');
+    olderRefreshResult.resolve([generatedThread]);
+    await olderRefresh;
+
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'Paris Weather Chat'
+    );
+  });
+
+  it('does not apply a pre-reset refresh after a new refresh reuses its generation', async () => {
+    const beforeResetThread = {
+      ...makeThread('thread-a', '2026-04-22T10:00:00Z'),
+      title: 'Before reset',
+    };
+    const afterResetThread = {
+      ...makeThread('thread-a', '2026-04-22T10:00:01Z'),
+      title: 'After reset',
+    };
+    const staleRefreshResult = Promise.withResolvers<readonly AssistantMemoryThread[]>();
+    const staleRepository = createRepository([beforeResetThread]);
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(staleRepository, workspaceId);
+    vi.mocked(staleRepository.listThreads).mockReturnValueOnce(staleRefreshResult.promise);
+    const staleRefresh = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(staleRepository, workspaceId);
+
+    resetAssistantThreadStore();
+    const currentRepository = createRepository([afterResetThread]);
+    await useAssistantThreadStore.getState().ensureResourceThreads(currentRepository, workspaceId);
+    vi.mocked(currentRepository.listThreads).mockResolvedValueOnce([]);
+    await useAssistantThreadStore.getState().refreshResourceThreads(currentRepository, workspaceId);
+
+    staleRefreshResult.resolve([
+      {
+        ...beforeResetThread,
+        title: 'Stale pre-reset title',
+      },
+    ]);
+    await staleRefresh;
+
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'After reset'
+    );
   });
 
   it('preserves a metadata write that completes while an older title refresh is in flight', async () => {
@@ -715,6 +807,76 @@ describe('useAssistantThreadStore tab sessions', () => {
     ).toEqual(new Date('2026-04-22T10:00:00Z'));
   });
 
+  it('removes checkout-only keys from loaded state on a Local transition', async () => {
+    const thread = makeCuratedThread();
+    const repository = createRepository([
+      {
+        ...thread,
+        metadata: {
+          ...thread.metadata,
+          checkoutBranch: 'bs/bright-fox',
+          checkoutLocalRootId: 'r-local',
+          checkoutMode: 'worktree',
+          checkoutWorktreeId: 'w-1',
+          checkoutWorktreePath: '/managed/bright-fox',
+        },
+      },
+    ]);
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+
+    await useAssistantThreadStore
+      .getState()
+      .updateThreadMetadata(repository, workspaceId, 'thread-curated', { checkoutMode: 'local' });
+
+    const metadata =
+      useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.metadata;
+    expect(metadata).toMatchObject({
+      checkoutMode: 'local',
+      color: 'blue',
+      icon: 'message',
+      model: 'gpt-5.2',
+      provider: 'openai',
+    });
+    expect(metadata?.checkoutBranch).toBeUndefined();
+    expect(metadata?.checkoutLocalRootId).toBeUndefined();
+    expect(metadata?.checkoutWorktreeId).toBeUndefined();
+    expect(metadata?.checkoutWorktreePath).toBeUndefined();
+  });
+
+  it('removes checkout-only keys from loaded metadata after a Local transition persists', async () => {
+    const thread = {
+      ...makeCuratedThread(),
+      metadata: {
+        checkoutBranch: 'bs/bright-fox',
+        checkoutLocalRootId: 'r-local',
+        checkoutMode: 'worktree' as const,
+        checkoutWorktreeId: 'w-1',
+        checkoutWorktreePath: '/managed/bright-fox',
+        operatingRootId: 'r-worktree',
+      },
+    };
+    const repository = createRepository([thread]);
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    await useAssistantThreadStore
+      .getState()
+      .updateThreadMetadata(repository, workspaceId, thread.id, {
+        checkoutMode: 'local',
+        operatingRootId: 'r-local',
+      });
+
+    expect(repository.updateThreadMetadata).toHaveBeenCalledWith(thread.id, {
+      checkoutMode: 'local',
+      operatingRootId: 'r-local',
+    });
+    expect(
+      useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.metadata
+    ).toEqual({
+      checkoutMode: 'local',
+      operatingRootId: 'r-local',
+    });
+  });
+
   it('updates many thread colors in one repository call and one recency-preserving transition', async () => {
     const threadA = makeThread('thread-a', '2026-04-22T11:00:00Z');
     const threadB = makeThread('thread-b', '2026-04-22T10:00:00Z');
@@ -742,6 +904,27 @@ describe('useAssistantThreadStore tab sessions', () => {
     expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]).toEqual([
       { ...threadA, metadata: { color: 'violet' } },
       { ...threadB, metadata: { color: 'violet' } },
+    ]);
+  });
+
+  it('rejects checkout metadata from bulk updates before persistence', async () => {
+    const threadA = makeThread('thread-a', '2026-04-22T11:00:00Z');
+    const threadB = makeThread('thread-b', '2026-04-22T10:00:00Z');
+    const repository = createRepository([threadA, threadB]);
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+
+    await expect(
+      useAssistantThreadStore
+        .getState()
+        .updateThreadsMetadata(repository, workspaceId, ['thread-a', 'thread-b'], {
+          checkoutMode: 'local',
+        })
+    ).rejects.toThrow('Bulk assistant thread metadata updates cannot change checkout state.');
+
+    expect(repository.updateThreadsMetadata).not.toHaveBeenCalled();
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]).toEqual([
+      threadA,
+      threadB,
     ]);
   });
 

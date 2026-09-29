@@ -8,19 +8,22 @@
  *
  * Posture mirrors user-slash-commands.ts: hand-rolled frontmatter (NO YAML
  * dep), fail-closed on malformed input (a broken file is skipped with a
- * visible error, never half-parsed), and the read-only invariant is enforced
- * here at build time — a user persona can never name a mutation tool.
+ * visible error, never half-parsed). Absent mode preserves read-only behavior;
+ * explicit worker mode selects an eligible host scope without granting authority.
  */
 
 import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
 import {
   type AssistantPersonaDefinition,
+  type AssistantPersonaMode,
   type AssistantPersonaModelPin,
-  assertReadOnlyPersona,
+  assertPersonaToolScope,
   BUILT_IN_PERSONAS,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from './personas.js';
 import { isSupportedProvider } from './provider-metadata.js';
+import { SUBAGENT_SETTINGS_LIMITS } from './subagent-settings.js';
+import { getNativeToolDefaults } from './tool-categories.js';
 
 /** Directory (under `.brainstrike/`) scanned for persona `.md` files. */
 export const USER_PERSONA_DIRNAME = 'agents';
@@ -31,25 +34,28 @@ export const MAX_USER_PERSONA_FILE_CHARS = 64 * 1024;
 /** Total persona count cap per scan; the rest are ignored with a visible warn. */
 export const MAX_USER_PERSONAS = 50;
 
-/** Hard ceiling a user persona's maxSteps may declare (built-ins use 8). */
-export const MAX_USER_PERSONA_MAX_STEPS = 16;
+/**
+ * Hard ceiling a user persona's maxSteps may declare: the host's
+ * `maxChildSteps` ceiling, which is also what every built-in declares, so a
+ * user persona can replicate any built-in. The user's `maxChildSteps` setting
+ * governs the budget (`effectiveChildStepBudget`); a persona only LOWERS it.
+ */
+export const MAX_USER_PERSONA_MAX_STEPS = SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max;
 
-/** maxSteps applied when the frontmatter omits it. */
-export const DEFAULT_USER_PERSONA_MAX_STEPS = 8;
+/** maxSteps applied when the frontmatter omits it: no persona cap, the setting governs. */
+export const DEFAULT_USER_PERSONA_MAX_STEPS = MAX_USER_PERSONA_MAX_STEPS;
 
 /**
  * Toolset applied when the frontmatter omits `tools:` — the curated read-only
  * exploration set. Deliberately EXCLUDES `webSearch` (external egress must be
  * an explicit author choice) and the read-risk-but-interactive tools
- * (`askUser`, `submitPlan`, `manageTaskList`), which make no sense inside a
- * delegated child.
+ * (`askUser`, `submitPlan`), which require explicit declaration and durable
+ * child control. `manageTaskList` belongs to the parent.
  *
  * `querySelf` is ALSO deliberately excluded, and this is not an oversight.
  * `assertReadOnlyPersona` would accept it (its risk category is `read`, earned
  * by a genuine sandbox), but a delegated child composing arbitrary SQL is a
- * materially wider surface than the curated exploration set, and children
- * cannot prompt for approval — every `'ask'` tool is stripped from a child's
- * map. Revisit once the tool has real supervisor-level usage; until then a
+ * materially wider surface than the curated exploration set. A
  * persona author must opt in explicitly via `tools:`. Pinned by
  * `user-personas.test.ts`.
  */
@@ -60,6 +66,7 @@ export const DEFAULT_USER_PERSONA_TOOL_IDS: readonly string[] = [
   NATIVE_TOOL_ID.findWorkspaceSymbol,
   NATIVE_TOOL_ID.readWorkspaceFile,
   NATIVE_TOOL_ID.readWorkspaceDirectory,
+  NATIVE_TOOL_ID.readToolOutputArtifact,
 ];
 
 const NATIVE_TOOL_ID_PREFIX = 'brainstrike.';
@@ -75,18 +82,9 @@ const PROVIDER_TOOL_NAME_MAX_CHARS = 64;
 export const MAX_USER_PERSONA_ID_LENGTH =
   PROVIDER_TOOL_NAME_MAX_CHARS - SUBAGENT_DELEGATION_TOOL_PREFIX.length;
 
-/**
- * Read-risk tools a user persona must NOT allowlist: `askUser`/`submitPlan`
- * SUSPEND the run (child tool maps are built from the parent's guarded map
- * BEFORE the suspend-storage fail-safe, so a no-storage run could expose a
- * child suspend tool nothing can resume — a wedge), and `manageTaskList` is
- * parent-scoped. The default toolset already excludes them; this blocks the
- * explicit-allowlist path too.
- */
+/** Task-list state belongs to the parent; interactive tools are capability-gated at runtime. */
 const USER_PERSONA_DISALLOWED_TOOL_IDS: ReadonlySet<string> = new Set([
-  NATIVE_TOOL_ID.askUser,
   NATIVE_TOOL_ID.manageTaskList,
-  NATIVE_TOOL_ID.submitPlan,
 ]);
 
 const MODEL_PIN_SEPARATOR = '::';
@@ -101,6 +99,7 @@ export type ParsedUserPersonaFile =
       readonly description?: string;
       readonly instructions: string;
       readonly maxSteps?: number;
+      readonly mode?: AssistantPersonaMode;
       readonly model?: string;
       readonly name?: string;
       readonly ok: true;
@@ -111,6 +110,7 @@ export type ParsedUserPersonaFile =
 interface FrontmatterAccumulator {
   description?: string;
   maxSteps?: number;
+  mode?: AssistantPersonaMode;
   model?: string;
   name?: string;
   /**
@@ -155,6 +155,13 @@ function consumeKeyValueLine(state: FrontmatterAccumulator, line: string): strin
     }
     case 'description': {
       state.description = value;
+      return null;
+    }
+    case 'mode': {
+      if (value !== 'worker' && value !== 'read-only') {
+        return 'mode must be read-only or worker';
+      }
+      state.mode = value;
       return null;
     }
     case 'model': {
@@ -238,6 +245,7 @@ export function parseUserPersonaFile(content: string): ParsedUserPersonaFile {
     ...(state.name ? { name: state.name } : {}),
     ...(state.description ? { description: state.description } : {}),
     ...(state.model ? { model: state.model } : {}),
+    ...(state.mode ? { mode: state.mode } : {}),
     ...(state.maxSteps === undefined ? {} : { maxSteps: state.maxSteps }),
     ...(state.tools === undefined ? {} : { tools: state.tools }),
   };
@@ -302,6 +310,25 @@ export function parsePersonaModelPin(value: string): ParsePersonaModelPinResult 
   return { ok: true, pin: { modelId, provider } };
 }
 
+export interface AssistantPersonaAvailabilityIssue {
+  readonly code:
+    | 'credential-missing'
+    | 'credential-unreadable'
+    | 'model-not-listed'
+    | 'model-unsupported'
+    | 'worker-model-unsupported'
+    | 'tool-not-discovered'
+    | 'tool-disabled';
+  readonly message: string;
+  readonly toolId?: string;
+}
+
+/** Static host facts only; the selected model, capabilities and permissions are checked per run. */
+export interface AssistantPersonaAvailability {
+  readonly issues: readonly AssistantPersonaAvailabilityIssue[];
+  readonly status: 'blocked' | 'needs-attention' | 'request-dependent';
+}
+
 /**
  * One persona row as the discovery IPC reports it to the settings panel:
  * built-ins and user personas in one list, INCLUDING invalid user files (with
@@ -311,11 +338,22 @@ export function parsePersonaModelPin(value: string): ParsePersonaModelPinResult 
 export interface AssistantPersonaListItem {
   /** Absolute file path (user personas only). */
   readonly absPath?: string;
+  /**
+   * Declared capability set for a loadable persona (status 'ok'): exact tool
+   * ids, or the sole `'*'` meaning every tool the host permits. Taken from
+   * the definition the host builds the child from (`personaScope`).
+   */
+  readonly allowedToolIds?: readonly string[];
+  readonly availability?: AssistantPersonaAvailability;
   readonly description: string;
   /** Why the file failed to load (user personas with status 'invalid'). */
   readonly error?: string;
   readonly id: string;
   readonly label: string;
+  /** Declared step budget (status 'ok'); Settings shows the host-capped value. */
+  readonly maxSteps?: number;
+  /** Effective mode (status 'ok'): a persona without an explicit mode is read-only. */
+  readonly mode?: AssistantPersonaMode;
   /** Serialized `provider::modelId` pin, for display. */
   readonly modelPin?: string;
   /** The file that KEPT this id, for status 'shadowed'. Shaped like
@@ -364,8 +402,13 @@ export type BuildUserPersonaResult =
 
 const BUILT_IN_PERSONA_IDS = new Set<string>(BUILT_IN_PERSONAS.map((persona) => persona.id));
 
-function normalizeToolId(toolId: string): string {
-  return toolId.includes('.') ? toolId : `${NATIVE_TOOL_ID_PREFIX}${toolId}`;
+function normalizeToolId(toolId: string, mode: AssistantPersonaMode): string {
+  if (toolId.includes('.')) {
+    return toolId;
+  }
+  const nativeId = `${NATIVE_TOOL_ID_PREFIX}${toolId}`;
+  // Native short names are normalized; a worker's opaque MCP id remains exact.
+  return mode === 'read-only' || getNativeToolDefaults(nativeId) ? nativeId : toolId;
 }
 
 /**
@@ -431,19 +474,22 @@ function resolvePersonaModelPin(
 }
 
 function resolvePersonaTools(
-  declared: readonly string[] | undefined
+  declared: readonly string[] | undefined,
+  mode: AssistantPersonaMode
 ): PersonaFieldResult<readonly string[]> {
   const allowedToolIds =
-    declared === undefined ? DEFAULT_USER_PERSONA_TOOL_IDS : declared.map(normalizeToolId);
+    declared === undefined
+      ? mode === 'worker'
+        ? ['*']
+        : DEFAULT_USER_PERSONA_TOOL_IDS
+      : declared.map((id) => normalizeToolId(id, mode));
   if (allowedToolIds.length === 0) {
     return { error: 'persona tools list must not be empty', ok: false };
   }
   const disallowed = allowedToolIds.find((toolId) => USER_PERSONA_DISALLOWED_TOOL_IDS.has(toolId));
   if (disallowed) {
     return {
-      error:
-        `tool '${disallowed}' is not available to subagent personas (suspending/interactive ` +
-        'tools cannot run inside a delegated child)',
+      error: `tool '${disallowed}' is not available to subagent personas: task-list state belongs to the parent`,
       ok: false,
     };
   }
@@ -483,7 +529,7 @@ export function buildUserPersona(input: BuildUserPersonaInput): BuildUserPersona
   if (!model.ok) {
     return { error: model.error, ok: false };
   }
-  const tools = resolvePersonaTools(parsed.tools);
+  const tools = resolvePersonaTools(parsed.tools, parsed.mode ?? 'read-only');
   if (!tools.ok) {
     return { error: tools.error, ok: false };
   }
@@ -496,11 +542,12 @@ export function buildUserPersona(input: BuildUserPersonaInput): BuildUserPersona
     label: parsed.name && parsed.name.length > 0 ? parsed.name : id.value,
     maxSteps: maxSteps.value,
     source: 'user',
+    ...(parsed.mode ? { mode: parsed.mode } : {}),
     ...(model.value ? { model: model.value } : {}),
   };
 
   try {
-    assertReadOnlyPersona(persona);
+    assertPersonaToolScope(persona);
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : 'persona failed the read-only check',

@@ -53,6 +53,9 @@ beforeEach(() => {
   // other queries override this.
   mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
   resetDesktopMastraMemoryCacheForTests();
+  mockSecretsService.getCredential
+    .mockReset()
+    .mockResolvedValue({ key: 'test-api-key', type: 'api_key' });
   mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
   mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
   Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });
@@ -218,6 +221,74 @@ describe('desktop Mastra memory cache', () => {
 
     expect(firstMemory).toBe(secondMemory);
     expect(createPgliteMastraMemory).toHaveBeenCalledTimes(1);
+  });
+
+  it('constructs fresh memory when factory reset replaces the database owner', async () => {
+    const { getDatabase } = await import('../../db-main');
+    const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+    const databaseGetter = vi.mocked(getDatabase);
+    const originalDatabase = await databaseGetter();
+    await getDesktopMastraMemoryForTests(undefined);
+    const replacementDatabase = { ...originalDatabase };
+    databaseGetter.mockResolvedValue(replacementDatabase);
+    try {
+      await getDesktopMastraMemoryForTests(undefined);
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(2);
+      expect(createPgliteMastraMemory).toHaveBeenLastCalledWith(
+        expect.objectContaining({ database: replacementDatabase })
+      );
+      await getDesktopMastraMemoryForTests(undefined);
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(2);
+    } finally {
+      databaseGetter.mockResolvedValue(originalDatabase);
+    }
+  });
+
+  it('keeps an old pending credential resolution out of the replacement database cache', async () => {
+    const { getDatabase } = await import('../../db-main');
+    const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+    const originalDatabase = await getDatabase();
+    const replacementDatabase = { ...originalDatabase };
+    const credential = Promise.withResolvers<{ key: string; type: 'api_key' }>();
+    mockSecretsService.getCredential.mockImplementationOnce(() => credential.promise);
+    const settings = {
+      observationalMemory: {
+        enabled: true,
+        messageTokens: 10_000,
+        modelTarget: 'openai/gpt-5.2',
+        observationTokens: 20_000,
+        retrievalMode: 'off',
+        scope: 'thread',
+      },
+      semanticRecall: {
+        embeddingModelTarget: 'openai/text-embedding-3-small',
+        enabled: false,
+        messageRange: 1,
+        scope: 'resource',
+        topK: 3,
+      },
+    } satisfies RuntimeAssistantMemorySettings;
+    const oldRequest = getDesktopMastraMemoryForTests(settings);
+    await vi.waitFor(() => expect(mockSecretsService.getCredential).toHaveBeenCalledTimes(1));
+    vi.mocked(getDatabase).mockResolvedValue(replacementDatabase);
+    try {
+      const replacement = await getDesktopMastraMemoryForTests(settings);
+      expect(createPgliteMastraMemory).toHaveBeenLastCalledWith(
+        expect.objectContaining({ database: replacementDatabase })
+      );
+      credential.resolve({ key: 'test-api-key', type: 'api_key' });
+      const old = await oldRequest;
+      expect(old).not.toBe(replacement);
+      expect(createPgliteMastraMemory).toHaveBeenLastCalledWith(
+        expect.objectContaining({ database: originalDatabase })
+      );
+      await expect(getDesktopMastraMemoryForTests(settings)).resolves.toBe(replacement);
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(2);
+    } finally {
+      credential.resolve({ key: 'test-api-key', type: 'api_key' });
+      await oldRequest;
+      vi.mocked(getDatabase).mockResolvedValue(originalDatabase);
+    }
   });
 
   it('evicts the oldest desktop Mastra memory cache entries', async () => {

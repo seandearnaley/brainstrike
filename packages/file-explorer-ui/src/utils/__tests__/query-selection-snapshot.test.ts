@@ -5,6 +5,7 @@ import {
   createQuerySelectionSnapshot,
   loadQuerySelectionSnapshot,
   primeSerializedSnapshotWriteLockForTests,
+  SNAPSHOT_READ_TIMEOUT_MS,
   withSerializedSnapshotWrite,
 } from '../query-selection-snapshot';
 
@@ -264,6 +265,20 @@ describe('query-selection-snapshot', () => {
     await Promise.resolve();
 
     await expect(withSerializedSnapshotWrite(db, async () => 'second')).resolves.toBe('second');
+  });
+
+  it('times out a snapshot read that never settles', async () => {
+    vi.useFakeTimers();
+    const db = createMockDb([() => new Promise(() => undefined)]);
+
+    const handledRead = loadQuerySelectionSnapshot(db, 'snapshot-1').catch(
+      (error: unknown) => error
+    );
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_READ_TIMEOUT_MS);
+
+    await expect(handledRead).resolves.toMatchObject({
+      message: 'Selection snapshot read timed out',
+    });
   });
 
   it('loads only non-expired snapshot rows', async () => {

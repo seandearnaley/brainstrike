@@ -53,6 +53,41 @@ jobs:
           TEST_TIMEOUT_MULTIPLIER: "2"
         run: pnpm --filter @brainstrike/db test:pg-textsearch-durability
 
+  # BST-1875: the durability gate above closes cleanly, so it can never see
+  # crash-recovery damage. This job SIGKILLs a writer 200 times per platform
+  # mid-transaction against the real migrated schema, then runs desktop's
+  # production recovery and verifies every index access method. A PR run of the
+  # same file (10 iterations) gates every db change inside required `Unit`;
+  # this is the 200-iteration qualification a PGlite/pg_textsearch bump needs.
+  # 200 iterations took 665 s on a laptop (macOS arm64), the only measurement so
+  # far. The ceilings assume a runner 3-5x slower, Windows especially; tighten
+  # them once the first Linux and Windows durations are recorded in
+  # docs/agents/database/pg-textsearch-qualification.md.
+  sigkill-crash-gate:
+    name: SIGKILL crash gate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Run SIGKILL crash gate
+        timeout-minutes: 115
+        env:
+          NODE_ENV: test
+          TEST_TIMEOUT_MULTIPLIER: "2"
+          CRASH_GATE_ITERATIONS: "200"
+        run: pnpm --filter @brainstrike/db test:crash-gate
+
   package-coverage:
     name: Coverage packages (${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -166,7 +201,7 @@ jobs:
       - name: Clear coverage directories
         run: |
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
-          rm -rf packages/db/.vitest-reports .nyc_output
+          rm -rf packages/db/.vitest/blob .nyc_output
 
       - name: Run DB coverage shard
         timeout-minutes: 25
@@ -186,7 +221,7 @@ jobs:
 
       - name: Verify DB blob report
         run: |
-          blob_count=$(find packages/db/.vitest-reports -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
+          blob_count=$(find packages/db/.vitest/blob -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
           if [ "$blob_count" -ne 1 ]; then
             echo "::error::Expected one Vitest blob from ${{ matrix.shard }}; found ${blob_count}."
             exit 1
@@ -197,7 +232,7 @@ jobs:
         with:
           include-hidden-files: true
           name: db-vitest-blob-${{ matrix.shard }}
-          path: packages/db/.vitest-reports/blob-*.json
+          path: packages/db/.vitest/blob/blob-*.json
           retention-days: 7
           if-no-files-found: error
 
@@ -219,18 +254,18 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           pattern: db-vitest-blob-*
-          path: packages/db/.vitest-reports
+          path: packages/db/.vitest/blob
           merge-multiple: true
 
       - name: Merge DB coverage with Vitest
         run: |
-          blob_count=$(find packages/db/.vitest-reports -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
+          blob_count=$(find packages/db/.vitest/blob -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
           if [ "$blob_count" -ne 2 ]; then
             echo "::error::Expected two Vitest DB blob reports; found ${blob_count}."
             exit 1
           fi
           pnpm --filter @brainstrike/db exec vitest \
-            --merge-reports=.vitest-reports \
+            --merge-reports=.vitest/blob \
             --project=unit \
             --coverage \
             --coverage.reportsDirectory=coverage \
@@ -344,13 +379,17 @@ jobs:
       - db-coverage-shard
       - db-coverage
       - coverage
+      - pg-textsearch-durability
+      - sigkill-crash-gate
     if: >-
       always() &&
       github.event_name == 'schedule' &&
       (needs.package-coverage.result != 'success' ||
        needs.db-coverage-shard.result != 'success' ||
        needs.db-coverage.result != 'success' ||
-       needs.coverage.result != 'success')
+       needs.coverage.result != 'success' ||
+       needs.pg-textsearch-durability.result != 'success' ||
+       needs.sigkill-crash-gate.result != 'success')
     runs-on: ubuntu-latest
     # gh issue create / comment are sub-second under normal conditions; cap at
     # 5 min so a GitHub API hang can't burn the GHA default 6-hour wall clock.
@@ -364,11 +403,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          gh label create "nightly-coverage-failure" \
+          set -euo pipefail
+          if ! gh label create "nightly-coverage-failure" \
             --repo "$REPO" \
+            --force \
             --color d93f0b \
-            --description "Auto-opened by nightly-coverage.yml when the scheduled coverage run fails" \
-            2>/dev/null || true
+            --description "Auto-opened by nightly-coverage.yml when the scheduled coverage run fails"; then
+            echo "::error::Could not ensure the 'nightly-coverage-failure' label exists, so the tracking issue can be neither filed nor de-duplicated."
+            exit 1
+          fi
 
       - name: Open or update tracking issue
         env:

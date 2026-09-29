@@ -1,3 +1,11 @@
+import {
+  ASSISTANT_TOOL_ACTION_ID_MAX_CHARS,
+  type DelegatedToolActionIdentity,
+  type DelegatedToolDecisionState,
+  hasValidDelegatedDecisionState,
+  hasValidDelegatedToolActionTarget,
+  isDelegatedToolActionIdentity,
+} from './delegated-tool-actions.js';
 import type { ToolRiskCategory } from './tool-risk.js';
 
 export const TOOL_APPROVAL_DATA_NAME = 'brainstrike.tool-approval';
@@ -9,7 +17,7 @@ export const TOOL_APPROVAL_RUN_CONFIG_KEY = 'brainstrikeToolApproval';
  * validate without importing the agent package back into this browser-safe
  * contract.
  */
-export const ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS = 512;
+export const ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS = ASSISTANT_TOOL_ACTION_ID_MAX_CHARS;
 
 /**
  * Approval actions carry a display-only tool identity. Bound it to the same
@@ -134,11 +142,23 @@ export function isCodeExecutionApprovalContext(
 
 export interface AssistantToolApprovalRequest {
   args?: unknown;
+  continuationId?: string;
+  delegation?: DelegatedToolActionIdentity;
   /**
    * Present only for code-execution tools (today: `brainstrike.runPython`);
    * absent everywhere else. See {@link CodeExecutionApprovalContext}.
    */
   executionContext?: CodeExecutionApprovalContext;
+  /**
+   * The DURABLE host leg (`brainstrike_assistant_thread_runs.id`) that streamed
+   * this pause, stamped by the host at the same seam that stamps run events.
+   * The notice copies it into its action echo, where the history topology
+   * adapter resolves the suspended message's parent through the leg's
+   * `turn_message_id` (BST-1163). Absent on a REDISCOVERED pause (its leg ended
+   * at the restart) and on a pause whose turn belongs to a child continuation,
+   * whose turn link is the continuation id rather than a root message.
+   */
+  hostRunId?: string;
   /**
    * The permission decision that caused the pause. Only `'ask'` is meaningful
    * here (an approval pause is, by definition, an `'ask'`); present so the UI can
@@ -154,6 +174,12 @@ export interface AssistantToolApprovalRequest {
    */
   riskCategory?: ToolRiskCategory;
   runId: string;
+  /**
+   * Display owner of this surface's approval event. Root and delegated child
+   * timelines have different host-leg IDs; hostRunId above still owns the
+   * decision echo. Not an action target or authorization identity.
+   */
+  timelineRunId?: string;
   toolCallId: string;
   toolName: string;
 }
@@ -166,6 +192,8 @@ export interface AssistantToolApprovalRequest {
  * staleness flag (see D5: surface, never auto-decline).
  */
 export interface RediscoveredToolApproval extends AssistantToolApprovalRequest {
+  /** Present when the host has already admitted this exact delegated leaf decision. */
+  readonly decisionState?: DelegatedToolDecisionState;
   /** True when older than BRAINSTRIKE_APPROVAL_STALE_MS (advisory only). */
   readonly stale: boolean;
   /** ISO-8601 instant the run suspended (AgentRun.suspendedAt). */
@@ -186,7 +214,9 @@ export function isRediscoveredToolApproval(value: unknown): value is Rediscovere
     typeof value['toolName'] === 'string' &&
     value['toolName'].trim().length > 0 &&
     typeof value['suspendedAt'] === 'string' &&
-    typeof value['stale'] === 'boolean'
+    typeof value['stale'] === 'boolean' &&
+    hasValidDelegatedDecisionState(value) &&
+    hasValidDelegatedToolActionTarget(value)
   );
 }
 
@@ -205,6 +235,8 @@ export function isRediscoveredToolApproval(value: unknown): value is Rediscovere
  * the tool card in `@brainstrike/assistant-ui`.
  */
 export const DECLINED_TOOL_RESULT_KIND = 'declined';
+export const TOOL_CALL_DECLINED_MESSAGE =
+  'The user declined this tool call, so it was not executed.';
 
 export interface DeclinedToolCallResult {
   readonly kind: typeof DECLINED_TOOL_RESULT_KIND;
@@ -215,6 +247,15 @@ export interface DeclinedToolCallResult {
   readonly message: string;
   /** The user's own explanation, present only when they supplied one. */
   readonly reason?: string;
+}
+
+/** The same visible decision for live denial chunks and native persisted denials. */
+export function createDeclinedToolCallResult(reason?: string): DeclinedToolCallResult {
+  return {
+    kind: DECLINED_TOOL_RESULT_KIND,
+    message: TOOL_CALL_DECLINED_MESSAGE,
+    ...(reason ? { reason } : {}),
+  };
 }
 
 /**
@@ -234,8 +275,71 @@ export function isDeclinedToolCallResult(value: unknown): value is DeclinedToolC
 
 export type AssistantToolApprovalDecision = 'approve' | 'decline';
 
+export const TOOL_APPROVAL_ANSWERED_DATA_NAME = 'brainstrike.tool-approval-answered';
+
+/**
+ * A parked approval the HOST answered on the user's behalf, streamed on the
+ * leg that answered it (BST-1723, settled 2026-09-14). Today the only reason
+ * is a session grant: when the user allows a risk category for the session
+ * while approving one call, every sibling background child parked on a tool
+ * that category now allows is resumed in the same leg, and the notice for each
+ * locks as "Allowed by session grant". Keyed like the notice it answers
+ * (`getToolActionIdentityKey`), so the card finds it by scanning the thread.
+ */
+/**
+ * Why the host answered a card without a user message on the thread:
+ * `'session-grant'` — a lasting grant on a sibling's card answered it by
+ * policy; `'user'` — the user's own decision was delivered into the running
+ * leg (POST /assistant/decide), so no action message follows it.
+ */
+export type AssistantToolApprovalAnsweredReason = 'session-grant' | 'user';
+
+export interface AssistantToolApprovalAnswered {
+  readonly continuationId?: string;
+  readonly decision: AssistantToolApprovalDecision;
+  readonly delegation?: DelegatedToolActionIdentity;
+  readonly reason: AssistantToolApprovalAnsweredReason;
+  readonly runId: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+}
+
+export function isAssistantToolApprovalAnswered(
+  value: unknown
+): value is AssistantToolApprovalAnswered {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    (candidate['continuationId'] === undefined ||
+      (typeof candidate['continuationId'] === 'string' &&
+        candidate['continuationId'].length > 0)) &&
+    (candidate['decision'] === 'approve' || candidate['decision'] === 'decline') &&
+    (candidate['reason'] === 'session-grant' || candidate['reason'] === 'user') &&
+    typeof candidate['runId'] === 'string' &&
+    typeof candidate['toolCallId'] === 'string' &&
+    typeof candidate['toolName'] === 'string' &&
+    (candidate['delegation'] === undefined ||
+      isDelegatedToolActionIdentity(candidate['delegation']))
+  );
+}
+
 export interface AssistantToolApprovalAction {
   action: AssistantToolApprovalDecision;
+  continuationId?: string;
+  delegation?: DelegatedToolActionIdentity;
+  /**
+   * The DURABLE host leg (`brainstrike_assistant_thread_runs.id`) whose turn
+   * surfaced this pause, copied from the pause notice. Distinct from `runId`,
+   * which is the NATIVE Mastra run the resume routes address: one host leg can
+   * hold several native runs (a background wake-up mints another), and Mastra
+   * mints its own ids, so the native id never matches a thread-run row. The
+   * history topology adapter resolves the suspended message's durable parent
+   * through this id's `turn_message_id` (BST-1163). Absent on a rediscovered
+   * pause, whose host leg ended before the restart.
+   */
+  hostRunId?: string;
   runId: string;
   toolCallId: string;
   toolName?: string;
@@ -246,7 +350,10 @@ export type ToolApprovalRunConfigActionReadResult =
   | { readonly invalid: true };
 
 const TOOL_APPROVAL_ACTION_OWN_KEYS = new Set<PropertyKey>([
+  'continuationId',
+  'delegation',
   'action',
+  'hostRunId',
   'runId',
   'toolCallId',
   'toolName',
@@ -266,12 +373,18 @@ export function isAssistantToolApprovalAction(
   return (
     isRecord(value) &&
     Reflect.ownKeys(value).every((key) => TOOL_APPROVAL_ACTION_OWN_KEYS.has(key)) &&
+    hasValidDelegatedToolActionTarget(value) &&
     Object.hasOwn(value, 'action') &&
     Object.hasOwn(value, 'runId') &&
     Object.hasOwn(value, 'toolCallId') &&
     (value['action'] === 'approve' || value['action'] === 'decline') &&
     isBoundedIdentifier(value['runId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
     isBoundedIdentifier(value['toolCallId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
+    // Same own-and-bounded discipline as `toolName`: an inherited or blank host
+    // leg would resolve the wrong turn anchor instead of failing visibly.
+    (!('hostRunId' in value) ||
+      (Object.hasOwn(value, 'hostRunId') &&
+        isBoundedIdentifier(value['hostRunId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS))) &&
     (!('toolName' in value) ||
       (Object.hasOwn(value, 'toolName') &&
         isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS)))

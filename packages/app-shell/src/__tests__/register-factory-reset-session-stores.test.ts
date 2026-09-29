@@ -10,10 +10,23 @@ import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-sele
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
+import type { BrowserTab } from '../browser-pane/browser-bridge';
+import { useBrowserTabsStore } from '../browser-pane/browser-tabs-store';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import { useChangesStore } from '../changes/changes-store';
 import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
 import { useDiagnosticsSeenStore } from '../diagnostics/diagnostics-seen-store';
+import {
+  awaitRootRegistration,
+  notifyRootRegistered,
+  resetRootRegistrationEventsForTests,
+  rootRegistrationSeq,
+} from '../roots/root-registration-events';
+import { useCommandPaletteStore } from '../stores/command-palette-store';
+import { useOnScreenThreadStore } from '../stores/on-screen-thread-store';
+import { useQuickOpenStore } from '../stores/quick-open-store';
+import { useTerminalTargetStore } from '../stores/terminal-target-store';
+import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 
 // The real notes-vault store's default services require indexedDB (handle
 // persistence), which this vitest environment does not provide. The reset
@@ -34,6 +47,8 @@ describe('register-factory-reset-session-stores', () => {
     useWorkspaceContextCurationStore.getState().reset();
     useAssistantComposerCommandStore.getState().reset();
     useAssistantThreadGroupsStore.getState().reset();
+    useBrowserTabsStore.getState().reset();
+    resetRootRegistrationEventsForTests();
     vi.mocked(resetNotesVaultSessionState).mockClear();
   });
 
@@ -95,6 +110,26 @@ describe('register-factory-reset-session-stores', () => {
       },
     });
     useAssistantThreadGroupsStore.getState().toggleGroupCollapsed('group-1');
+    useTerminalTargetStore.getState().openTerminalAt({ cwd: '/wt', rootId: 'r-1' });
+    useCommandPaletteStore.getState().open({ tabScope: 'assistant-threads' });
+    useQuickOpenStore.getState().open();
+    useOnScreenThreadStore.getState().setOnScreenThreadId('thread-1');
+    useWorktreeCheckoutIntentStore.getState().publish({
+      branch: 'codex/reset-me',
+      path: '/wt',
+      threadId: 'thread-1',
+      worktreeId: 'worktree-1',
+    });
+    const browserTab: BrowserTab = {
+      active: true,
+      canGoBack: false,
+      canGoForward: false,
+      isLoading: false,
+      tabId: 'browser-tab-1',
+      title: 'Before reset',
+      url: 'https://example.com',
+    };
+    useBrowserTabsStore.getState().setTabs([browserTab]);
 
     expect(useWorkspaceSearchStore.getState().query).toBe('find me');
     expect(useChunkSelectionStore.getState().selectionsByKey['root|@|src/a.ts']).toBeDefined();
@@ -124,6 +159,41 @@ describe('register-factory-reset-session-stores', () => {
     expect(useAssistantThreadGroupsStore.getState().collapsedGroupIds).toEqual({});
     expect(useAssistantThreadGroupsStore.getState().flatSortBy).toBe('recency');
     expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('recency');
+    expect(useTerminalTargetStore.getState().target).toBeNull();
+    expect(useCommandPaletteStore.getState()).toMatchObject({
+      isOpen: false,
+      openTarget: null,
+      tabScope: null,
+    });
+    expect(useQuickOpenStore.getState().isOpen).toBe(false);
+    expect(useOnScreenThreadStore.getState().onScreenThreadId).toBeNull();
+    expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
+    expect(useBrowserTabsStore.getState().tabs).toEqual([]);
+  });
+
+  it('keeps later app-shell resets isolated when one registered store throws', async () => {
+    const originalClose = useCommandPaletteStore.getState().close;
+    useCommandPaletteStore.setState({
+      close: () => {
+        throw new Error('command palette reset failed');
+      },
+    });
+    useQuickOpenStore.getState().open();
+    useWorktreeCheckoutIntentStore.getState().publish({
+      branch: 'codex/reset-after-failure',
+      path: '/wt',
+      threadId: 'thread-1',
+      worktreeId: 'worktree-1',
+    });
+
+    try {
+      const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+      expect(result.success).toBe(true);
+      expect(useQuickOpenStore.getState().isOpen).toBe(false);
+      expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
+    } finally {
+      useCommandPaletteStore.setState({ close: originalClose });
+    }
   });
 
   // The two diagnostics session stores get their own case rather than riding
@@ -170,5 +240,47 @@ describe('register-factory-reset-session-stores', () => {
     expect(useChangesStore.getState().selectedFileKeys).toEqual(new Set());
     expect(useChangesStore.getState().hasExplicitSelection).toBe(false);
     expect(useChangesStore.getState().expandedIds).toEqual(new Set());
+  });
+
+  // BST-1400 (review Important #1/#2): `root-registration-events.ts` is
+  // DELIBERATELY not registered above — see its module docblock and
+  // `docs/agents/platform-contracts.md` § FACTORY RESET CONTRACT for why
+  // wiring one would introduce a mid-session regression. This is the pin an
+  // auditor of that contract needs: it drives the REAL reset pipeline (not
+  // the test-only `resetRootRegistrationEventsForTests` helper, which is a
+  // cross-test isolation seam, not a stand-in for what a reset actually
+  // does) and proves the module's counters survive it untouched, and that a
+  // wait captured with the surviving (stale) generation still correctly
+  // requires a NEW registration rather than treating the pre-reset fact as
+  // sufficient.
+  it('leaves root-registration-events untouched — it is deliberately NOT wired into factory reset', async () => {
+    notifyRootRegistered(['/ws/docs']);
+    const preResetSeq = rootRegistrationSeq('/ws/docs');
+    expect(preResetSeq).toBe(1);
+
+    const result = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+    expect(result.success).toBe(true);
+
+    // The real reset pipeline ran every registered resetter above and left
+    // this counter exactly as it was — proving by construction (not by
+    // reading the docblock's claim) that this module sits outside it.
+    expect(rootRegistrationSeq('/ws/docs')).toBe(preResetSeq);
+
+    // And the surviving (stale) generation is still honestly stale: a waiter
+    // that captures it as `since` AFTER the reset must not resolve off the
+    // pre-reset registration — only a genuinely new one satisfies it.
+    vi.useFakeTimers();
+    const waiter = awaitRootRegistration('/ws/docs', { since: preResetSeq, timeoutMs: 5000 });
+    let settled = false;
+    void waiter.then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+
+    notifyRootRegistered(['/ws/docs']); // the post-reset re-add's registration
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(true);
+    vi.useRealTimers();
   });
 });

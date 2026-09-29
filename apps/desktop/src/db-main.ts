@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import {
   cpSync,
   existsSync,
-  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -15,17 +14,31 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import type { BrainstrikePglite, createBrainstrikePglite } from '@brainstrike/db/pglite-factory';
 import { createLogger } from '@brainstrike/logging';
 import type {
+  DatabaseCrashRecoveryIndexRebuildResult,
   DatabaseDiagnosticsSnapshot,
   DatabaseInitFailureCategory,
   DatabaseInitFailureSnapshot,
   DatabaseInitStage,
+  DatabasePreviousShutdown,
 } from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
-import { app } from 'electron';
+import { isCorruptionError } from './database-corruption-classifier';
+import { joinProfileDirectory } from './database-location';
+import {
+  hasCleanShutdownMarker,
+  removeCleanShutdownMarker,
+  writeCleanShutdownMarker,
+} from './db-clean-shutdown-marker';
 import type { RemoteDbClient } from './db-host-manager';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
+import {
+  isIsolatedDesktopTestRun,
+  resetDesktopDatabaseLocationForTests,
+  resolveDesktopDatabaseLocation,
+} from './desktop-database-location';
 import {
   BUNDLED_PG_MAJOR,
   ENGINE_UPGRADE_BACKUP_RETENTION_MS,
@@ -53,39 +66,6 @@ interface ErrorDetails {
   message: string;
   name?: string;
   stack?: string;
-}
-
-interface ExtensionModuleShape {
-  default?: unknown;
-  live?: unknown;
-  pg_textsearch?: unknown;
-  pg_trgm?: unknown;
-  vector?: unknown;
-}
-
-interface GitProfileContext {
-  branch: string | null;
-  workspaceSeed: string;
-}
-
-function extractExtensionExport(
-  module: unknown,
-  field: 'vector' | 'live' | 'pg_trgm' | 'pg_textsearch'
-): unknown {
-  if (module && typeof module === 'object') {
-    const record = module as ExtensionModuleShape;
-    if (record[field]) {
-      return record[field];
-    }
-    try {
-      if (record.default) {
-        return record.default;
-      }
-    } catch {
-      // Ignore missing default export for mocked modules that only expose named exports
-    }
-  }
-  return module;
 }
 
 function withOptionalErrorCode(message: string, code: string | undefined): ErrorDetails {
@@ -127,7 +107,14 @@ function stringifyDiagnosticValue(value: unknown): string | null {
 function getErrorOwnPropertyPayload(error: Error): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
   for (const property of Object.getOwnPropertyNames(error)) {
-    if (property === 'message' || property === 'name' || property === 'stack') {
+    // `cause` is followed by the corruption classifier; serializing it here would copy the
+    // wrapped Postgres error's detail/where fields (row data) into user-visible text and logs.
+    if (
+      property === 'message' ||
+      property === 'name' ||
+      property === 'stack' ||
+      property === 'cause'
+    ) {
       continue;
     }
     payload[property] = (error as unknown as Record<string, unknown>)[property];
@@ -196,131 +183,50 @@ function getErrorDetails(error: unknown): ErrorDetails {
   return withOptionalErrorCode(String(error), code);
 }
 
-async function loadPgVectorExtension(): Promise<unknown> {
-  try {
-    const vectorModule = await import('@electric-sql/pglite-pgvector');
-    const vector = extractExtensionExport(vectorModule, 'vector');
-    if (!vector) {
-      throw new Error('vector export missing from module');
-    }
-    logger.debug('pgvector extension loaded successfully (ESM)');
-    return vector;
-  } catch (error) {
-    const details = getErrorDetails(error);
-    logger.error('pgvector extension failed to load.', {
-      attempts: [
-        {
-          source: 'ESM',
-          ...details,
-        },
-      ],
-    });
-    throw new Error(
-      `pgvector extension is required and failed to load via ESM import. (${details.message})`
-    );
-  }
-}
-
-async function loadPgLiveExtension(): Promise<unknown> {
-  try {
-    const liveModule = await import('@electric-sql/pglite/live');
-    const live = extractExtensionExport(liveModule, 'live');
-    if (!live) {
-      throw new Error('live export missing from module');
-    }
-    logger.debug('pglite live query extension loaded successfully (ESM)');
-    return live;
-  } catch (error) {
-    const details = getErrorDetails(error);
-    logger.error('pglite live query extension failed to load.', details);
-    throw new Error(
-      `live query extension is required and failed to load via ESM import. (${details.message})`
-    );
-  }
-}
-
-async function loadPgTrgmExtension(): Promise<unknown> {
-  try {
-    const trgmModule = await import('@electric-sql/pglite/contrib/pg_trgm');
-    const pgTrgm = extractExtensionExport(trgmModule, 'pg_trgm');
-    if (!pgTrgm) {
-      throw new Error('pg_trgm export missing from module');
-    }
-    logger.debug('pg_trgm extension loaded successfully (ESM)');
-    return pgTrgm;
-  } catch (error) {
-    const details = getErrorDetails(error);
-    logger.error('pg_trgm extension failed to load.', details);
-    throw new Error(
-      `pg_trgm extension is required and failed to load via ESM import. (${details.message})`
-    );
-  }
-}
-
-async function loadPgTextsearchExtension(): Promise<unknown> {
-  try {
-    const textsearchModule = await import('@electric-sql/pglite-pg_textsearch');
-    const pgTextsearch = extractExtensionExport(textsearchModule, 'pg_textsearch');
-    if (!pgTextsearch) {
-      throw new Error('pg_textsearch export missing from module');
-    }
-    logger.debug('pg_textsearch extension loaded successfully (ESM)');
-    return pgTextsearch;
-  } catch (error) {
-    const details = getErrorDetails(error);
-    logger.error('pg_textsearch extension failed to load.', details);
-    throw new Error(
-      `pg_textsearch extension is required and failed to load via ESM import. (${details.message})`
-    );
-  }
-}
-
-// Dynamic imports for ESM packages
+// This subpath imports only PGlite and its extensions, safe in the Node DB host.
 const getPGlite = async () => {
-  const { PGlite } = await import('@electric-sql/pglite');
-  const { migrate } = await import('@brainstrike/db');
-  const vector = await loadPgVectorExtension();
-  const live = await loadPgLiveExtension();
-  const pgTrgm = await loadPgTrgmExtension();
-  const pgTextsearch = await loadPgTextsearchExtension();
-  return { live, migrate, PGlite, pgTextsearch, pgTrgm, vector };
+  const [{ createBrainstrikePglite }, { migrate, rebuildCrashSensitiveIndexes }] =
+    await Promise.all([import('@brainstrike/db/pglite-factory'), import('@brainstrike/db')]);
+  return { createBrainstrikePglite, migrate, rebuildCrashSensitiveIndexes };
 };
 
 // Database instance for main process
 // These runtime handles intentionally live outside mutableState because they carry
 // live process resources (local PGlite or remote client) + single-flight Promise,
 // while mutableState is focused on diagnostic/profile metadata snapshots.
-// biome-ignore lint/suspicious/noExplicitAny: local PGlite instance is constructed via dynamic import
-let db: any = null;
+// The existing role-dependent facade returns RemoteDbClient in main and raw
+// PGlite in the utility host. Keep that boundary unknown here; the constructor
+// and its post-create checks below use the concrete BrainstrikePglite type.
+let db: unknown = null;
+// A handle that is still being validated. Only the failed-open cleanup reads it, so no caller can
+// receive a half-open database; `db` is assigned once validation has passed.
+let openingHandle: unknown = null;
 // Single-flight guard for startup/runtime callers that hit getDatabase() concurrently.
 // Without this we can spawn multiple PGlite initializations at once, which causes
 // nondeterministic wasm aborts and noisy pgvector initialization failures.
 let dbInitializationPromise: Promise<DesktopDatabase> | null = null;
 interface DatabaseMutableState {
-  cachedDatabaseProfile: string | null;
-  // `undefined` means "not resolved yet"; `null` means "resolved but git metadata unavailable".
-  cachedGitProfileContext: GitProfileContext | null | undefined;
+  // Set when a live handle could not be closed; it may still own the data directory, so nothing
+  // reopens, resets or reports a close until the process exits. No API clears it.
+  closeFailure: DatabaseCloseError | null;
+  crashRecoveryIndexRebuild: DatabaseCrashRecoveryIndexRebuildResult | null;
   dbProcessLockPath: string | null;
   initializationAttemptCount: number;
   lastInitializationFailure: DatabaseInitFailureSnapshot | null;
   lastInitializationStartedAt: string | null;
   lastInitializationSucceededAt: string | null;
-  lastRuntimeCorruptionAt: string | null;
-  lastRuntimeCorruptionContext: string | null;
-  runtimeCorruptionRecoveryCount: number;
+  previousShutdown: DatabasePreviousShutdown | null;
 }
 
 const mutableState: DatabaseMutableState = {
-  cachedDatabaseProfile: null,
-  cachedGitProfileContext: undefined,
+  closeFailure: null,
+  crashRecoveryIndexRebuild: null,
   dbProcessLockPath: null,
   initializationAttemptCount: 0,
   lastInitializationFailure: null,
   lastInitializationStartedAt: null,
   lastInitializationSucceededAt: null,
-  lastRuntimeCorruptionAt: null,
-  lastRuntimeCorruptionContext: null,
-  runtimeCorruptionRecoveryCount: 0,
+  previousShutdown: null,
 };
 
 function isUtilityProcessRuntime(): boolean {
@@ -342,7 +248,6 @@ async function closeRemoteDbHostManager(): Promise<void> {
   await closeDbHostManager();
 }
 
-const PROFILES_DIRECTORY_NAME = 'profiles' as const;
 const PROFILE_BACKUPS_DIRECTORY_NAME = 'backups' as const;
 const PROFILE_BACKUPS_RETENTION_COUNT = 5 as const;
 const DB_LOCK_FILENAME = '.db-process.lock' as const;
@@ -350,8 +255,6 @@ const PGLITE_INITIALIZATION_LOCK_FILENAME_PREFIX = 'brainstrike-pglite-initializ
 const PGLITE_INITIALIZATION_LOCK_HASH_LENGTH = 16 as const;
 const PGLITE_INITIALIZATION_LOCK_TIMEOUT_MS = 60_000 as const;
 const PGLITE_INITIALIZATION_LOCK_POLL_MS = 100 as const;
-const WORKTREE_PROFILE_HASH_LENGTH = 8 as const;
-const WORKTREE_PROFILE_BRANCH_MAX = 40 as const;
 
 interface PGliteInstanceShape {
   close?: () => Promise<void> | void;
@@ -360,7 +263,39 @@ interface PGliteInstanceShape {
   syncToFs?: () => Promise<void>;
 }
 
-async function trySyncToFs(instance: PGliteInstanceShape, context: string): Promise<void> {
+/** The database could not be flushed (`sync`) or shut down (`close`) cleanly. */
+export class DatabaseCloseError extends Error {
+  readonly stage: 'sync' | 'close';
+
+  constructor(
+    stage: 'sync' | 'close',
+    cause: unknown,
+    message = `Database ${stage} failed: ${getErrorDetails(cause).message}`
+  ) {
+    super(message, { cause });
+    this.name = 'DatabaseCloseError';
+    this.stage = stage;
+  }
+}
+
+/** Rejects while an earlier failed close means a previous handle may still own the data directory. */
+function assertNoFailedClose(): void {
+  const failure = mutableState.closeFailure;
+  if (failure) {
+    // A failed sync still closed the handle; only a failed close may leave it owning the directory.
+    const consequence =
+      failure.stage === 'close'
+        ? 'its handle may still own the data directory'
+        : 'its last writes may not be on disk';
+    throw new DatabaseCloseError(
+      failure.stage,
+      failure,
+      `A previous database ${failure.stage} failed and ${consequence}; restart BrainStrike. (${failure.message})`
+    );
+  }
+}
+
+async function syncDatabaseToFs(instance: PGliteInstanceShape, context: string): Promise<void> {
   if (typeof instance.syncToFs !== 'function') {
     return;
   }
@@ -368,7 +303,7 @@ async function trySyncToFs(instance: PGliteInstanceShape, context: string): Prom
   try {
     await instance.syncToFs();
   } catch (error) {
-    logger.warn('Failed to sync database files to disk', {
+    logger.error('Failed to sync database files to disk', {
       context,
       error: getErrorDetails(error),
     });
@@ -376,7 +311,7 @@ async function trySyncToFs(instance: PGliteInstanceShape, context: string): Prom
   }
 }
 
-async function tryCloseDatabaseInstance(
+async function closeDatabaseInstance(
   instance: PGliteInstanceShape,
   context: string
 ): Promise<void> {
@@ -387,240 +322,68 @@ async function tryCloseDatabaseInstance(
   try {
     await instance.close();
   } catch (error) {
-    logger.warn('Failed to close database instance cleanly', {
+    logger.error('Failed to close database instance cleanly', {
       context,
       error: getErrorDetails(error),
     });
+    throw error;
   }
 }
 
 // Helper to create and validate a PGlite instance with pgvector
 async function createVectorDatabase(
-  PGliteCtor: unknown,
-  dataDir: string,
-  vector: unknown,
-  live: unknown,
-  pgTrgm: unknown,
-  pgTextsearch: unknown
-) {
-  // biome-ignore lint/suspicious/noExplicitAny: PGlite ctor type not available at compile time
-  const Ctor: any = PGliteCtor as any;
-  // biome-ignore lint/suspicious/noExplicitAny: PGlite instance type not available at compile time
-  const instance: any = new Ctor({
-    dataDir,
-    // pg_trgm / pg_textsearch have no runtime pg_extension check below (unlike
-    // vector): their CREATE EXTENSION migrations fail loudly if the module isn't
-    // loaded here. The vector check predates the migration-based approach.
-    extensions: {
-      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
-      live: live as any,
-      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
-      pg_textsearch: pgTextsearch as any,
-      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
-      pg_trgm: pgTrgm as any,
-      // biome-ignore lint/suspicious/noExplicitAny: PGlite extension types not available at compile time
-      vector: vector as any,
-    },
-  });
+  createDatabase: typeof createBrainstrikePglite,
+  dataDir: string
+): Promise<BrainstrikePglite> {
+  const instance = await createDatabase({ dataDir });
+  // Owned from creation, so a failed validation below is closed (or its close failure kept
+  // visible with the lock) by closeAfterFailedInitialization(), never dropped; but not yet
+  // `db`: no caller may receive the handle before it has validated.
+  openingHandle = instance;
 
-  try {
-    await instance.query('SELECT 1');
-    await instance.exec('CREATE EXTENSION IF NOT EXISTS vector');
-    const res = await instance.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
-    if (!res.rows.length) {
-      throw new Error('pgvector extension not registered in database');
-    }
-    // Force an initial sync barrier so startup writes are persisted before continuing.
-    await trySyncToFs(instance as PGliteInstanceShape, 'initialization');
-    return instance;
-  } catch (error) {
-    await tryCloseDatabaseInstance(instance as PGliteInstanceShape, 'initialization-failure');
-    throw error;
+  await instance.query('SELECT 1');
+  await instance.exec('CREATE EXTENSION IF NOT EXISTS vector');
+  const res = await instance.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
+  if (!res.rows.length) {
+    throw new Error('pgvector extension not registered in database');
   }
+  // Force an initial sync barrier so startup writes are persisted before continuing.
+  await syncDatabaseToFs(instance as PGliteInstanceShape, 'initialization');
+  return instance;
 }
 
-function sanitizeProfileSegment(raw: string): string {
-  const sanitized = raw
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  if (!sanitized) {
-    return 'default';
+// The DB host never derives its own location: main resolves it once
+// (`desktop-database-location.ts`) and hands both fields over via the
+// environment, so a host respawned mid-session cannot disagree with main's
+// reset path about which profile is open.
+function readHostDatabaseLocationEnv(
+  name: typeof DB_ROOT_PATH_ENV | typeof DB_PROFILE_ENV
+): string {
+  const value = process.env[name]?.trim();
+  if (!value || value.toLowerCase() === 'undefined') {
+    throw new Error(
+      `${name} must be set in utility process runtime: main resolves the desktop database location once and the DB host never derives its own.`
+    );
   }
-  return sanitized.slice(0, 64);
-}
-
-function hashProfileSeed(seed: string): string {
-  return createHash('sha1').update(seed).digest('hex').slice(0, WORKTREE_PROFILE_HASH_LENGTH);
-}
-
-function createWorktreeScopedProfile(branch: string, workspaceSeed: string): string {
-  const branchSegment = sanitizeProfileSegment(branch).slice(0, WORKTREE_PROFILE_BRANCH_MAX);
-  return sanitizeProfileSegment(`branch-${branchSegment}-wt-${hashProfileSeed(workspaceSeed)}`);
-}
-
-function parseGitHeadToBranch(headContent: string): string | null {
-  const trimmed = headContent.trim();
-  if (!trimmed.length) {
-    return null;
-  }
-
-  if (trimmed.startsWith('ref:')) {
-    const ref = trimmed.slice(4).trim();
-    if (ref.startsWith('refs/heads/')) {
-      return ref.slice('refs/heads/'.length);
-    }
-    return ref;
-  }
-
-  return `detached-${trimmed.slice(0, 12)}`;
-}
-
-function tryReadGitBranchFromGitDir(gitDirPath: string): string | null {
-  const headPath = path.join(gitDirPath, 'HEAD');
-  if (!existsSync(headPath)) {
-    return null;
-  }
-  return parseGitHeadToBranch(readFileSync(headPath, 'utf8'));
-}
-
-function tryResolveGitDirFromPointer(currentDir: string, gitPointerPath: string): string | null {
-  const gitPointer = readFileSync(gitPointerPath, 'utf8').trim();
-  const gitDirMatch = /^gitdir:\s*(.+)$/i.exec(gitPointer);
-  if (!gitDirMatch?.[1]) {
-    return null;
-  }
-  return path.resolve(currentDir, gitDirMatch[1].trim());
-}
-
-function tryReadGitContextAtDirectory(currentDir: string): GitProfileContext | null {
-  const gitPath = path.join(currentDir, '.git');
-  if (!existsSync(gitPath)) {
-    return null;
-  }
-
-  try {
-    const stats = lstatSync(gitPath);
-
-    if (stats.isDirectory()) {
-      return {
-        branch: tryReadGitBranchFromGitDir(gitPath),
-        workspaceSeed: path.resolve(currentDir),
-      };
-    }
-
-    if (stats.isFile()) {
-      const resolvedGitDir = tryResolveGitDirFromPointer(currentDir, gitPath);
-      if (resolvedGitDir) {
-        return {
-          branch: tryReadGitBranchFromGitDir(resolvedGitDir),
-          workspaceSeed: path.resolve(currentDir),
-        };
-      }
-    }
-  } catch {
-    // Ignore git metadata parsing errors and fall back to default profile.
-  }
-
-  return null;
-}
-
-function resolveGitContextFromDirectory(startDir: string): GitProfileContext | null {
-  let currentDir = path.resolve(startDir);
-
-  while (true) {
-    const contextAtCurrentDir = tryReadGitContextAtDirectory(currentDir);
-    if (contextAtCurrentDir) {
-      return contextAtCurrentDir;
-    }
-
-    const parentDir = path.dirname(currentDir);
-    if (parentDir === currentDir) {
-      return null;
-    }
-    currentDir = parentDir;
-  }
-}
-
-function getGitProfileContext(): GitProfileContext | null {
-  if (mutableState.cachedGitProfileContext !== undefined) {
-    return mutableState.cachedGitProfileContext;
-  }
-
-  mutableState.cachedGitProfileContext = resolveGitContextFromDirectory(process.cwd());
-  return mutableState.cachedGitProfileContext;
-}
-
-function isIsolatedDesktopTestRun(): boolean {
-  return process.env['NODE_ENV'] === 'test' || process.argv.includes('--test-mode');
+  return value;
 }
 
 function getDatabaseProfile(): string {
-  if (mutableState.cachedDatabaseProfile !== null) {
-    return mutableState.cachedDatabaseProfile;
+  if (isUtilityProcessRuntime()) {
+    return readHostDatabaseLocationEnv(DB_PROFILE_ENV);
   }
-
-  if (isIsolatedDesktopTestRun()) {
-    mutableState.cachedDatabaseProfile = 'test';
-    return mutableState.cachedDatabaseProfile;
-  }
-
-  const explicitProfile = process.env[DB_PROFILE_ENV];
-  const normalizedExplicitProfile = explicitProfile?.trim();
-  if (
-    normalizedExplicitProfile &&
-    normalizedExplicitProfile.length > 0 &&
-    normalizedExplicitProfile.toLowerCase() !== 'undefined'
-  ) {
-    mutableState.cachedDatabaseProfile = sanitizeProfileSegment(normalizedExplicitProfile);
-    return mutableState.cachedDatabaseProfile;
-  }
-
-  if (process.env['NODE_ENV'] === 'production') {
-    mutableState.cachedDatabaseProfile = 'default';
-    return mutableState.cachedDatabaseProfile;
-  }
-
-  const gitContext = getGitProfileContext();
-  if (gitContext?.branch) {
-    mutableState.cachedDatabaseProfile = createWorktreeScopedProfile(
-      gitContext.branch,
-      gitContext.workspaceSeed
-    );
-    return mutableState.cachedDatabaseProfile;
-  }
-
-  mutableState.cachedDatabaseProfile = 'dev-default';
-  return mutableState.cachedDatabaseProfile;
+  return resolveDesktopDatabaseLocation().profile;
 }
 
 function getDatabaseRootPath(): string {
-  const configuredRootPath = process.env[DB_ROOT_PATH_ENV]?.trim();
-  if (configuredRootPath && configuredRootPath.toLowerCase() !== 'undefined') {
-    return configuredRootPath;
+  if (isUtilityProcessRuntime()) {
+    return readHostDatabaseLocationEnv(DB_ROOT_PATH_ENV);
   }
-
-  if (!app || typeof app.getPath !== 'function') {
-    throw new Error(
-      `Desktop database root path is unavailable. ${DB_ROOT_PATH_ENV} must be set in utility process runtime.`
-    );
-  }
-
-  if (isIsolatedDesktopTestRun()) {
-    return app.getPath('userData');
-  }
-
-  const isProduction = process.env['NODE_ENV'] === 'production';
-  const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
-  return path.join(app.getPath('documents'), dbDirName);
+  return resolveDesktopDatabaseLocation().rootPath;
 }
 
 function getAppDataPath(): string {
-  if (isIsolatedDesktopTestRun()) {
-    return path.join(getDatabaseRootPath(), PROFILES_DIRECTORY_NAME, getDatabaseProfile());
-  }
-  return path.join(getDatabaseRootPath(), PROFILES_DIRECTORY_NAME, getDatabaseProfile());
+  return joinProfileDirectory(getDatabaseRootPath(), getDatabaseProfile());
 }
 
 function getDatabasePath(): string {
@@ -647,7 +410,7 @@ function createResetBackup(appDataDir: string): string | null {
     //
     // CONSEQUENCE: because the `.bak` is excluded here AND the reset then
     // `rmSync`s the whole appDataDir (see resetLocalDatabaseInternal), an
-    // engine-upgrade `.bak` does NOT survive a reset — a corruption-recovery reset
+    // engine-upgrade `.bak` does NOT survive a reset — a user-confirmed reset
     // landing inside the 14-day retention window destroys the moved-aside old DB
     // with no surviving copy. This is intentional: a reset is an explicit nuke of
     // the profile, and the old dir is unopenable anyway; the retention guarantee is
@@ -894,60 +657,12 @@ function releaseDatabaseProcessLock(): void {
   }
 }
 
-/**
- * Known PostgreSQL error codes that indicate index/data corruption requiring full reset.
- *
- * NOTE: We intentionally exclude XX000 (internal_error) as it's too broad and used for
- * many non-corruption failures (e.g., internal bugs, unsupported features). Including it
- * would cause false positives that wipe user data unnecessarily.
- *
- * We rely on specific error codes and message pattern matching to identify true corruption.
- */
-const CORRUPTION_ERROR_CODES = [
-  'XX002', // Index corruption (e.g., "right sibling's left-link doesn't match")
-  // XX000 deliberately excluded - too generic, causes false positives
-  // XX001 (data_corrupted) is rare but specific enough to include
-  'XX001', // Data corruption
-] as const;
-
-/**
- * Error messages that indicate corruption even without error codes
- */
-const CORRUPTION_ERROR_PATTERNS = [
-  "right sibling's left-link doesn't match",
-  'could not locate a valid checkpoint record',
-  'invalid resource manager ID',
-  'database system was interrupted',
-  'invalid page in block',
-  'page verification failed',
-] as const;
-
 const WASM_ABORT_ERROR_PATTERNS = [
   'aborted(). build with -sassertions for more info.',
   'aborted()',
   'runtimeerror: unreachable',
   'wasm trap',
 ] as const;
-
-/**
- * Check if an error indicates database corruption that requires a full reset
- */
-export function isCorruptionError(error: unknown): boolean {
-  if (!error) {
-    return false;
-  }
-
-  const errorObj = error as { code?: string; message?: string };
-  const code = errorObj.code;
-  const message = errorObj.message ?? String(error);
-
-  if (code && CORRUPTION_ERROR_CODES.includes(code as (typeof CORRUPTION_ERROR_CODES)[number])) {
-    return true;
-  }
-
-  const lowerMessage = message.toLowerCase();
-  return CORRUPTION_ERROR_PATTERNS.some((pattern) => lowerMessage.includes(pattern.toLowerCase()));
-}
 
 export function isWasmAbortError(error: unknown): boolean {
   if (!error) {
@@ -959,7 +674,9 @@ export function isWasmAbortError(error: unknown): boolean {
   return WASM_ABORT_ERROR_PATTERNS.some((pattern) => lowerMessage.includes(pattern));
 }
 
-const FILESYSTEM_ERROR_CODES = ['EACCES', 'EPERM', 'ENOENT', 'EIO', 'ENOTDIR'] as const;
+// EISDIR: Linux reports it where macOS reports EPERM, e.g. unlinking a directory that sits where a
+// file belongs (a directory at the clean-shutdown marker path).
+const FILESYSTEM_ERROR_CODES = ['EACCES', 'EPERM', 'ENOENT', 'EIO', 'ENOTDIR', 'EISDIR'] as const;
 
 function classifyInitializationFailure(
   stage: DatabaseInitStage,
@@ -1002,6 +719,14 @@ function classifyInitializationFailure(
     return 'filesystem';
   }
 
+  // An index that cannot be rebuilt after a crash is an integrity failure, whatever its
+  // SQLSTATE, unless the rebuild ran out of disk: a full disk is not damage.
+  if (stage === 'index-rebuild') {
+    return details.code === 'ENOSPC' || message.includes('no space left on device')
+      ? 'filesystem'
+      : 'corruption';
+  }
+
   if (stage === 'migration' || message.includes('migrations failed')) {
     return 'migration';
   }
@@ -1040,12 +765,34 @@ function formatOpenDatabaseFailureMessage(
   if (category === 'filesystem') {
     return `Desktop database filesystem access failed while opening database: ${details}.`;
   }
+  if (category === 'corruption') {
+    return `The desktop database reported an integrity error while opening: ${details}. BrainStrike did not delete or replace it.`;
+  }
   return `Desktop database failed to initialize via PGlite: ${details}.`;
+}
+
+function formatIndexRebuildFailureMessage(details: string): string {
+  const detail = details.replace(/\.+$/u, '');
+  return `The desktop database could not rebuild its search index after an unexpected shutdown: ${detail}. BrainStrike did not delete or replace it.`;
+}
+
+function formatMigrationFailureMessage(
+  category: DatabaseInitFailureCategory | undefined,
+  details: string
+): string {
+  if (category === 'corruption') {
+    return `Database migrations failed with an integrity error: ${details}. BrainStrike did not delete or replace the database.`;
+  }
+  return `Database migrations failed with pgvector: ${details}`;
 }
 
 export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
   return {
     appDataDir: getAppDataPath(),
+    closeFailure: mutableState.closeFailure
+      ? { message: mutableState.closeFailure.message, stage: mutableState.closeFailure.stage }
+      : null,
+    crashRecoveryIndexRebuild: mutableState.crashRecoveryIndexRebuild,
     databaseLockHeld: mutableState.dbProcessLockPath !== null,
     databaseLockPath: mutableState.dbProcessLockPath,
     databaseProfile: getDatabaseProfile(),
@@ -1058,10 +805,8 @@ export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
       : null,
     lastInitializationStartedAt: mutableState.lastInitializationStartedAt,
     lastInitializationSucceededAt: mutableState.lastInitializationSucceededAt,
-    lastRuntimeCorruptionAt: mutableState.lastRuntimeCorruptionAt,
-    lastRuntimeCorruptionContext: mutableState.lastRuntimeCorruptionContext,
     nodeEnv: process.env['NODE_ENV'] ?? null,
-    runtimeCorruptionRecoveryCount: mutableState.runtimeCorruptionRecoveryCount,
+    previousShutdown: mutableState.previousShutdown,
   };
 }
 
@@ -1071,78 +816,50 @@ export function __resetDatabaseModuleStateForTests(): void {
   }
 
   db = null;
+  openingHandle = null;
   dbInitializationPromise = null;
   releaseDatabaseProcessLock();
+  mutableState.closeFailure = null;
   mutableState.initializationAttemptCount = 0;
   mutableState.lastInitializationStartedAt = null;
   mutableState.lastInitializationSucceededAt = null;
   mutableState.lastInitializationFailure = null;
-  mutableState.runtimeCorruptionRecoveryCount = 0;
-  mutableState.lastRuntimeCorruptionAt = null;
-  mutableState.lastRuntimeCorruptionContext = null;
-  mutableState.cachedDatabaseProfile = null;
-  mutableState.cachedGitProfileContext = undefined;
+  mutableState.previousShutdown = null;
+  mutableState.crashRecoveryIndexRebuild = null;
+  resetDesktopDatabaseLocationForTests();
 }
 
 /**
- * Safely close the database connection, ignoring errors
+ * Close a partial or un-migrated handle after a failed initialization and, when that close
+ * succeeded (or there was nothing to close), release the process lock. A close that FAILS keeps
+ * the lock — the handle may still own the data directory — and is logged, not thrown: the
+ * initialization error stays primary. Never deletes or replaces anything: a failed open must
+ * leave the data directory untouched and the next initialization free to retry.
  */
-async function safeCloseDatabase(): Promise<void> {
-  try {
-    if (db) {
-      await tryCloseDatabaseInstance(db as PGliteInstanceShape, 'safe-close');
+async function closeAfterFailedInitialization(): Promise<void> {
+  const failedHandle = (db ?? openingHandle) as PGliteInstanceShape | null;
+  db = null;
+  openingHandle = null;
+  if (failedHandle) {
+    try {
+      await closeDatabaseInstance(failedHandle, 'initialization-failure');
+    } catch (error) {
+      // Sticky: the handle may still own the data directory, so no later open may start over it.
+      mutableState.closeFailure ??= new DatabaseCloseError('close', error);
+      logger.error('Failed to close the database after a failed initialization', {
+        error: getErrorDetails(error),
+      });
     }
-  } catch {
-    // ignore close errors
-  } finally {
-    db = null;
-    releaseDatabaseProcessLock();
   }
-}
-
-/**
- * Attempt corruption recovery by resetting and reinitializing the database.
- * Throws if recovery fails.
- */
-async function attemptCorruptionRecovery(context: string): Promise<void> {
-  logger.warn(
-    `Recoverable database corruption detected during ${context}. Attempting auto-recovery...`
-  );
-  await safeCloseDatabase();
-  await resetLocalDatabaseInternal();
-  logger.info('Database reset complete. Retrying initialization...');
-}
-
-/**
- * Handle corruption error with optional auto-recovery.
- * Returns reinitalized db if recovery succeeds, otherwise throws.
- */
-async function handleCorruptionError(
-  err: unknown,
-  context: string,
-  retryAfterCorruption: boolean
-): Promise<DesktopDatabase | null> {
-  await safeCloseDatabase();
-
-  const hasCorruptionSignal = isCorruptionError(err);
-  if (!(retryAfterCorruption && hasCorruptionSignal)) {
-    return null; // Signal that we didn't handle it
-  }
-
-  try {
-    await attemptCorruptionRecovery(context);
-    return await initializeMainDatabaseInternal(false);
-  } catch (resetErr) {
-    recordInitializationFailure('runtime-corruption-recovery', resetErr);
-    logger.error('Auto-recovery failed', {
-      context,
-      error: getErrorDetails(resetErr),
-      originalError: getErrorDetails(err),
+  // The lock goes only if no close has ever failed: a handle that could not be closed, this one
+  // or an earlier one, may still own the directory.
+  if (mutableState.closeFailure) {
+    logger.error('A database close has failed; keeping the lock after the failed initialization', {
+      lockPath: mutableState.dbProcessLockPath,
     });
-    throw new Error(
-      `Database initialization failed during ${context} and auto-recovery failed. Please manually delete the BrainStrike data folder and restart the app.`
-    );
+    return;
   }
+  releaseDatabaseProcessLock();
 }
 
 /**
@@ -1285,13 +1002,35 @@ function setIncompatibleDataDirAside(
 }
 
 /**
+ * How the previous session ended, read from the clean-shutdown marker, and then the marker is
+ * removed BEFORE the database opens: a crash anywhere later must read as unclean, so removing
+ * first is the conservative order. A removal failure fails the open (filesystem category). The
+ * marker is consumed by the open ATTEMPT, so an open that then fails leaves none behind and the
+ * next open reports `unclean`, whatever the session before it did: conservative by design.
+ */
+function consumePreviousShutdown(appDataDir: string, dataDir: string): DatabasePreviousShutdown {
+  const hadMarker = hasCleanShutdownMarker(appDataDir);
+  removeCleanShutdownMarker(appDataDir);
+  if (!existsSync(path.join(dataDir, 'PG_VERSION'))) {
+    return 'new-database';
+  }
+  if (hadMarker) {
+    return 'clean';
+  }
+  logger.warn('Previous database session did not close cleanly', { appDataDir });
+  return 'unclean';
+}
+
+/**
  * Initialize the database with NodeFS
  * Creates the directory if it doesn't exist and runs migrations.
- * If corruption is detected, automatically resets and retries once.
+ * A failure of any kind — an integrity error included — closes the partial handle, records the
+ * failure and rejects; the data directory is never reset or replaced here.
  */
-async function initializeMainDatabaseInternal(
-  retryAfterCorruption = true
-): Promise<DesktopDatabase> {
+async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
+  // Before anything else, and before the process lock (which is re-entrant for this process and
+  // would let a second PGlite open over a handle that could not be closed).
+  assertNoFailedClose();
   if (db) {
     return db as DesktopDatabase;
   }
@@ -1331,6 +1070,7 @@ async function initializeMainDatabaseInternal(
       throw err instanceof Error ? err : new Error(getErrorDetails(err).message);
     }
 
+    let readyDatabase: BrainstrikePglite;
     // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension.
     try {
       acquireDatabaseProcessLock(appDataDir);
@@ -1338,15 +1078,12 @@ async function initializeMainDatabaseInternal(
       // Greenfield engine-upgrade guard. Runs only after the exclusive process
       // lock is held, so we never touch a data dir another process is using.
       const movedAsideBackup = reconcileIncompatiblePgDataDir(dataDir);
+      mutableState.previousShutdown = consumePreviousShutdown(appDataDir, dataDir);
+      mutableState.crashRecoveryIndexRebuild = null;
 
-      db = await createVectorDatabase(
-        loadedPGlite.PGlite,
-        dataDir,
-        loadedPGlite.vector,
-        loadedPGlite.live,
-        loadedPGlite.pgTrgm,
-        loadedPGlite.pgTextsearch
-      );
+      readyDatabase = await createVectorDatabase(loadedPGlite.createBrainstrikePglite, dataDir);
+      db = readyDatabase;
+      openingHandle = null;
       logger.debug('Database initialized with pgvector extension at:', dataDir);
 
       // Reclaim any engine-upgrade backups past their retention window now that
@@ -1373,10 +1110,7 @@ async function initializeMainDatabaseInternal(
     } catch (err) {
       recordInitializationFailure('open-database', err);
       releaseInitializationLockOnce();
-      const recovered = await handleCorruptionError(err, 'initialization', retryAfterCorruption);
-      if (recovered) {
-        return recovered;
-      }
+      await closeAfterFailedInitialization();
 
       const msg = getErrorDetails(err).message;
       logger.error('Failed to initialize database with pgvector', {
@@ -1389,18 +1123,44 @@ async function initializeMainDatabaseInternal(
       );
     }
 
+    // WAL crash recovery does not restore some index access methods (BM25), so the first open
+    // after an unclean shutdown rebuilds them. Before migrations, so a migration that writes to
+    // an indexed table never allocates from stale index state. A failure fails the open and
+    // resets nothing: no marker is written, so the next open reads as unclean and retries.
+    if (mutableState.previousShutdown === 'unclean') {
+      let rebuild: DatabaseCrashRecoveryIndexRebuildResult;
+      try {
+        rebuild = await loadedPGlite.rebuildCrashSensitiveIndexes(readyDatabase);
+      } catch (err) {
+        recordInitializationFailure('index-rebuild', err);
+        releaseInitializationLockOnce();
+        await closeAfterFailedInitialization();
+
+        const msg = getErrorDetails(err).message;
+        logger.error('Failed to rebuild crash-sensitive indexes after an unclean shutdown', {
+          appDataDir,
+          dataDir,
+          failure: mutableState.lastInitializationFailure,
+        });
+        throw new Error(formatIndexRebuildFailureMessage(msg), { cause: err });
+      }
+      mutableState.crashRecoveryIndexRebuild = rebuild;
+      logger.warn('Rebuilt crash-sensitive indexes after an unclean shutdown', {
+        rebuilt: rebuild.rebuilt,
+        totalDurationMs: rebuild.totalDurationMs,
+      });
+    }
+
     // Run migrations while the serialized CI bootstrap lock is still held. PGlite's
     // extension/module startup can otherwise overlap with another Electron worker
     // before the database is actually ready to serve renderer IPC queries.
     try {
-      await loadedPGlite.migrate(db);
+      await loadedPGlite.migrate(readyDatabase);
     } catch (err) {
       recordInitializationFailure('migration', err);
       releaseInitializationLockOnce();
-      const recovered = await handleCorruptionError(err, 'migration', retryAfterCorruption);
-      if (recovered) {
-        return recovered;
-      }
+      // The un-migrated handle is already assigned to `db`; drop it so the next caller re-opens.
+      await closeAfterFailedInitialization();
 
       const msg = getErrorDetails(err).message;
       logger.error('Database migrations failed', {
@@ -1408,7 +1168,9 @@ async function initializeMainDatabaseInternal(
         dataDir,
         failure: mutableState.lastInitializationFailure,
       });
-      throw new Error(`Database migrations failed with pgvector: ${msg}`);
+      throw new Error(
+        formatMigrationFailureMessage(mutableState.lastInitializationFailure?.category, msg)
+      );
     }
   } finally {
     releaseInitializationLockOnce();
@@ -1423,7 +1185,7 @@ async function initializeMainDatabaseInternal(
  * Initialize the database once per process lifecycle event loop.
  * Concurrent callers share a single in-flight initialization.
  */
-async function initializeLocalMainDatabase(retryAfterCorruption = true): Promise<DesktopDatabase> {
+async function initializeLocalMainDatabase(): Promise<DesktopDatabase> {
   if (db) {
     return db as DesktopDatabase;
   }
@@ -1432,7 +1194,7 @@ async function initializeLocalMainDatabase(retryAfterCorruption = true): Promise
     return await dbInitializationPromise;
   }
 
-  dbInitializationPromise = initializeMainDatabaseInternal(retryAfterCorruption);
+  dbInitializationPromise = initializeMainDatabaseInternal();
 
   try {
     return await dbInitializationPromise;
@@ -1450,29 +1212,73 @@ async function getLocalDatabase(): Promise<DesktopDatabase> {
     logger.debug('Lazy-loading database (triggered by IPC usage)');
     await initializeLocalMainDatabase();
   }
-  // Local PGlite is constructed via dynamic import; it structurally satisfies
-  // DesktopDatabase / RemoteDbClient for query/transaction/live/maintenance.
+  if (!db) {
+    throw new Error('Local database initialization completed without a database');
+  }
   return db as DesktopDatabase;
 }
 
 /**
- * Close the database connection
+ * Never close, reset or replace the database while an open is in flight: wait for it to settle so
+ * its handle (or its cleanup) is the one being closed. The open's own failure is already recorded
+ * and reported to its callers, and its cleanup has closed the handle or set `closeFailure`.
+ */
+async function settleInFlightOpen(): Promise<void> {
+  try {
+    await dbInitializationPromise;
+  } catch {
+    // Reported to the open's callers; the caller here only needs it to be over.
+  }
+}
+
+/**
+ * Close the database connection. Fail-closed: a sync or close failure throws
+ * `DatabaseCloseError` and KEEPS the process lock (the handle may still own the data
+ * directory); only a fully clean close writes the clean-shutdown marker and releases it.
  */
 async function closeLocalDatabase(): Promise<void> {
+  await settleInFlightOpen();
+  // With the handle gone after a failed close, "nothing to close" is not a success.
+  assertNoFailedClose();
+  const currentDatabase = db as PGliteInstanceShape | null;
+  if (!currentDatabase) {
+    return;
+  }
+  let failure: DatabaseCloseError | null = null;
   try {
-    if (db) {
-      const currentDatabase = db as PGliteInstanceShape;
-      try {
-        await trySyncToFs(currentDatabase, 'closeDatabase');
-      } catch {
-        // trySyncToFs already logs sync failures; still close the handle to avoid leaks.
-      }
-      await tryCloseDatabaseInstance(currentDatabase, 'closeDatabase');
-      logger.debug('Database connection closed');
-    }
-  } finally {
-    db = null;
-    releaseDatabaseProcessLock();
+    await syncDatabaseToFs(currentDatabase, 'closeDatabase');
+  } catch (error) {
+    failure = new DatabaseCloseError('sync', error);
+  }
+  // Even after a failed sync: close runs PGlite's shutdown checkpoint and frees the handle.
+  try {
+    await closeDatabaseInstance(currentDatabase, 'closeDatabase');
+  } catch (error) {
+    failure = new DatabaseCloseError('close', error);
+  }
+  db = null;
+  if (failure) {
+    mutableState.closeFailure = failure;
+    throw failure;
+  }
+  writeMarkerBeforeReleasingLock();
+  releaseDatabaseProcessLock();
+  logger.debug('Database connection closed');
+}
+
+// The marker goes down while the lock is still held, so no other process can open in between.
+// A failed write costs only conservatism: the next open treats this session as unclean.
+function writeMarkerBeforeReleasingLock(): void {
+  try {
+    writeCleanShutdownMarker(getAppDataPath(), {
+      closedAt: new Date().toISOString(),
+      pid: process.pid,
+    });
+  } catch (error) {
+    logger.error(
+      'Failed to write the clean-shutdown marker; the next open will treat this session as unclean',
+      { error: getErrorDetails(error) }
+    );
   }
 }
 
@@ -1486,21 +1292,7 @@ export async function reinitializeDatabase(): Promise<DesktopDatabase> {
   return await initializeLocalMainDatabase();
 }
 
-/**
- * Handle runtime corruption detected during query execution.
- * Resets the database and reinitializes, returning the new database instance.
- * This is meant to be called from IPC handlers when they catch corruption errors.
- */
-async function handleLocalRuntimeCorruption(context: string): Promise<DesktopDatabase> {
-  mutableState.runtimeCorruptionRecoveryCount += 1;
-  mutableState.lastRuntimeCorruptionAt = new Date().toISOString();
-  mutableState.lastRuntimeCorruptionContext = context;
-  logger.warn(`Runtime corruption detected during ${context}. Resetting database...`);
-  await safeCloseDatabase();
-  await resetLocalDatabaseInternal();
-  logger.info('Database reset complete after runtime corruption. Reinitializing...');
-  return await initializeLocalMainDatabase(false);
-}
+const RESET_QUIESCE_MAX_CLOSES = 3;
 
 /**
  * Reset local database by removing the active profile directory and closing any open connection.
@@ -1508,12 +1300,21 @@ async function handleLocalRuntimeCorruption(context: string): Promise<DesktopDat
  * Next access will lazily recreate and migrate from scratch.
  */
 async function resetLocalDatabaseInternal(): Promise<void> {
-  // Ensure any existing handle is closed
-  try {
+  // A close failure aborts the reset before anything is backed up or deleted. An open that starts
+  // after the close would open a directory about to be removed, so settle it too; the code after
+  // this loop is synchronous, so nothing can start an open between the check and the deletes.
+  // Bounded: a caller that reopens the database on every lock release would otherwise livelock
+  // the reset. Giving up deletes nothing.
+  let closes = 0;
+  do {
+    if (closes === RESET_QUIESCE_MAX_CLOSES) {
+      throw new Error(
+        `Database reset stopped: the database was reopened after each of ${RESET_QUIESCE_MAX_CLOSES} closes; nothing was deleted.`
+      );
+    }
+    closes += 1;
     await closeLocalDatabase();
-  } catch {
-    // ignore
-  }
+  } while (dbInitializationPromise !== null || db !== null);
 
   const appDataDir = getAppDataPath();
   const dataDir = getDatabasePath();
@@ -1551,11 +1352,9 @@ async function resetLocalDatabaseInternal(): Promise<void> {
   }
 }
 
-export async function initializeMainDatabase(
-  retryAfterCorruption = true
-): Promise<DesktopDatabase> {
+export async function initializeMainDatabase(): Promise<DesktopDatabase> {
   if (isUtilityProcessRuntime()) {
-    return await initializeLocalMainDatabase(retryAfterCorruption);
+    return await initializeLocalMainDatabase();
   }
   const manager = await getRemoteDbHostManager();
   return await manager.getDatabase();
@@ -1575,24 +1374,6 @@ export async function closeDatabase(): Promise<void> {
     return;
   }
   await closeRemoteDbHostManager();
-}
-
-export async function handleRuntimeCorruption(context: string): Promise<DesktopDatabase> {
-  if (isUtilityProcessRuntime()) {
-    return await handleLocalRuntimeCorruption(context);
-  }
-  mutableState.runtimeCorruptionRecoveryCount += 1;
-  mutableState.lastRuntimeCorruptionAt = new Date().toISOString();
-  mutableState.lastRuntimeCorruptionContext = context;
-  logger.warn(
-    `Runtime corruption detected during ${context}. Terminating the DB host and replacing its database...`
-  );
-  // Closing the utility process rejects every queued request and invalidates
-  // every live-query client. An in-process reset would leave requests queued
-  // behind the reset free to execute against the empty replacement database.
-  await resetLocalDatabase();
-  logger.info('DB host replacement complete after runtime corruption. Reinitializing...');
-  return await getDatabase();
 }
 
 export async function resetLocalDatabase(): Promise<void> {

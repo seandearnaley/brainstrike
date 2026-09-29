@@ -26,9 +26,62 @@ export interface RuntimeAssistantMemorySettings {
 
 export const DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES = 40;
 
+/**
+ * The working-memory scratchpad Brainstrike hands the model.
+ *
+ * `template` is NOT optional in practice. Omitting it does not mean "no
+ * template" — `@mastra/memory` substitutes its own
+ * `defaultWorkingMemoryTemplate`, a personal-assistant contact card
+ * (First Name / Last Name / Location / Occupation / Interests / Goals /
+ * Events / Facts / Projects). That shipped verbatim in a coding IDE, and the
+ * template is not inert: Mastra's tool instruction tells the model
+ * "Do not remove empty sections", so eight empty PII fields rode in the
+ * system prompt of every turn, and the model — having no coding-shaped slot
+ * to write into — invented its own headings and filled them with a multi-KB
+ * architecture dump.
+ *
+ * The fields below are chosen to be SELF-LIMITING. Each one names something
+ * that is small, current, and would genuinely be lost on a context reset.
+ * There is deliberately no "Facts" or "Notes" bucket: an open-ended section
+ * is what turned the stock template into a transcript.
+ *
+ * `scope: 'thread'`, NOT `'resource'`. Resource scope persists one
+ * conversation's scratchpad into the prompt of EVERY other thread for that
+ * user, so bloat accumulates permanently and never decays — a thread that
+ * researched an unrelated subsystem keeps billing every later conversation.
+ *
+ * BE HONEST ABOUT THE TRADE: on a default profile this leaves NO automatic
+ * cross-thread memory at all. {@link DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS}
+ * ships observational memory with `retrievalMode: 'off'` and `scope: 'thread'`,
+ * and semantic recall `enabled: false`, so neither picks up what resource-scoped
+ * working memory used to carry. That is a deliberate reduction, not a handoff:
+ * the thing being removed was an unbounded, unprompted transcript prepended to
+ * every conversation, and the way back is a user turning on semantic recall
+ * (which IS resource-scoped) or observational retrieval — mechanisms that fetch
+ * on relevance instead of prepending unconditionally.
+ *
+ * EXISTING DATA IS ORPHANED, NOT MIGRATED. Anything already written under
+ * resource scope lives in `mastra_resources."workingMemory"`; thread scope
+ * reads and writes thread metadata instead, so those rows simply stop being
+ * read. They are not deleted here — dropping user data is not a side effect a
+ * default change may have — and factory reset already covers the table.
+ */
 export const DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY = {
   enabled: true,
-  scope: 'resource',
+  scope: 'thread',
+  template: `# Session
+- **Active task**:
+- **Workspace / roots**:
+
+# Decisions
+- (settled choices and why)
+
+# Open questions
+- (unresolved, needs the user)
+
+# Key paths
+- (files central to this task)
+`,
 } as const;
 
 /**

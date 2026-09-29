@@ -43,8 +43,9 @@
  *   (pre-engine turns, or a turn whose end was never recorded).
  * - `changeset-snapshot-capture-failed:` — a capture was attempted and
  *   FAILED (durable sentinel row / registry failed outcome).
- * - `runs-unavailable:` / `run-anchor-missing:` — reused verbatim from the
- *   journal engine for the same facts (runs table absent / unknown run id).
+ * - `run-anchor-missing:` — reused verbatim from the journal engine for the
+ *   same fact (unknown run id). BST-1651 retired the sibling
+ *   `runs-unavailable:` prefix along with the last probe that produced it.
  */
 import type {
   ChangedFileEntry,
@@ -132,24 +133,22 @@ const MEMO_KEY_SEPARATOR = String.fromCharCode(0);
 
 /**
  * Default runs-table anchor read (COLD PATH ONLY — never the live refresh).
- * `to_regclass` probe, never a caught 42P01 (the aborted-transaction house
- * gotcha); `::text` timestamps so the microsecond fraction survives for the
+ * `::text` timestamps so the microsecond fraction survives for the
  * lexicographic bracket comparison (`snapshot-turn-ledger.ts`).
+ *
+ * NO RELATION PROBE (BST-1651). Migration 118 owns
+ * `brainstrike_assistant_thread_runs`, and `getDatabase()` cannot resolve a
+ * handle before `migrate()` has run, so the `to_regclass` probe that used to
+ * open this function guarded a state main cannot reach — and answered it with
+ * a `runs-unavailable:` envelope claiming "no assistant run has been recorded
+ * on this profile", which was false for every migrated profile. An unmigrated
+ * database raises 42P01 as itself.
  */
 export async function readThreadRunAnchor(
   db: EditCheckpointDatabase,
   threadId: string,
   runId: string
 ): Promise<GitResult<SnapshotRunAnchor | null>> {
-  const probe = await db.query<{ present: boolean }>(
-    `SELECT to_regclass('${RUNS_TABLE}') IS NOT NULL AS present`
-  );
-  if (probe.rows[0]?.present !== true) {
-    return {
-      error: `runs-unavailable: "${RUNS_TABLE}" does not exist yet (no assistant run has been recorded on this profile).`,
-      ok: false,
-    };
-  }
   const result = await db.query<{ completedAt: string | null; startedAt: string }>(
     `SELECT started_at::text AS "startedAt", completed_at::text AS "completedAt"
      FROM ${RUNS_TABLE}

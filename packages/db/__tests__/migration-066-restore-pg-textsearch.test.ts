@@ -97,13 +97,13 @@ describe('migration 066: restore qualified pg_textsearch', () => {
   it('pins one peer-compatible PGlite extension family across every consumer', async () => {
     for (const manifestPath of PGLITE_CONSUMER_MANIFESTS) {
       const manifest = await readPackageManifest(manifestPath);
-      expect(dependencyVersion(manifest, '@electric-sql/pglite'), manifestPath).toBe('0.5.5');
+      expect(dependencyVersion(manifest, '@electric-sql/pglite'), manifestPath).toBe('0.5.8');
     }
 
     for (const manifestPath of ['apps/desktop/package.json', 'packages/db/package.json'] as const) {
       const manifest = await readPackageManifest(manifestPath);
       expect(dependencyVersion(manifest, '@electric-sql/pglite-pg_textsearch'), manifestPath).toBe(
-        '0.0.7'
+        '0.0.10'
       );
     }
 
@@ -115,7 +115,7 @@ describe('migration 066: restore qualified pg_textsearch', () => {
     ] as const) {
       const manifest = await readPackageManifest(manifestPath);
       expect(dependencyVersion(manifest, '@electric-sql/pglite-pgvector'), manifestPath).toBe(
-        '0.0.6'
+        '0.0.9'
       );
     }
   });

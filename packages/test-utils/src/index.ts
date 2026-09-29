@@ -1,7 +1,6 @@
 export * from './async.js';
 export * from './console-error-probe.js';
 export * from './electron.js';
-export * from './factories/file-node.js';
 export * from './render-with-providers.js';
 export * from './test-timeouts.js';
 export * from './test-utils.js';

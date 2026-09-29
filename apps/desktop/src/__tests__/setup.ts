@@ -2,6 +2,19 @@ import '@testing-library/jest-dom';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { vi } from 'vitest';
+import { configureDesktopRendererTarget } from '../desktop-renderer-target';
+import type { VisibleDesktopElectronApi } from '../types/desktop-electron-api';
+import { TEST_DESKTOP_RENDERER_TARGET } from './helpers/desktop-ipc-sender-frame-test-allowlist';
+
+type WatchHealthCallback = Parameters<VisibleDesktopElectronApi['fileSystem']['onWatchHealth']>[0];
+
+// Install the renderer target the loaders and the sender-frame allowlist
+// (`registerAuthorizedInvoke`'s second factor, BST-1641) resolve. Production
+// configures it from `main.ts` once the launch mode is known; the unit lane
+// pins a deterministic built-renderer target so every authorized-channel test
+// dispatches through the real second factor. Build a trusted event with
+// `createTrustedInvokeEvent` from the same helper.
+configureDesktopRendererTarget(TEST_DESKTOP_RENDERER_TARGET);
 
 // Mock Electron for tests that transitively import main-process modules. The
 // harness layers observable IPC and WebContents controls over the inert default
@@ -39,6 +52,19 @@ const mockElectronAPI = {
       persisted: true,
       rootId: 'mock-root-id',
     }),
+    addRootByPath: vi.fn().mockResolvedValue({
+      displayName: 'mock-directory',
+      handle: {
+        kind: 'directory',
+        name: 'mock-directory',
+        path: '/mock/path',
+        platform: 'electron',
+      },
+      kind: 'path',
+      permissionState: 'granted',
+      persisted: true,
+      rootId: 'mock-root-id',
+    }),
     exists: vi.fn().mockResolvedValue(true),
     getWatcherTelemetry: vi.fn().mockResolvedValue({
       activeWatchers: 0,
@@ -53,11 +79,14 @@ const mockElectronAPI = {
       retries: 0,
       setupLatencySamples: 0,
     }),
+    listRecentRoots: vi.fn().mockResolvedValue([]),
     onWatchEvent: vi.fn(() => () => {}),
-    onWatchHealth: vi.fn((_callback: (event: unknown) => void) => () => {}),
+    onWatchHealth: vi.fn((_callback: WatchHealthCallback) => () => {}),
     readDirectory: vi.fn().mockResolvedValue([]),
     readFile: vi.fn().mockResolvedValue('mock file content'),
+    readFileByAbsolutePath: vi.fn().mockResolvedValue('mock file content by absolute path'),
     readFileByPath: vi.fn().mockResolvedValue('mock file content by path'),
+    removeRoot: vi.fn().mockResolvedValue(undefined),
     requestDirectoryAccess: vi.fn().mockResolvedValue({
       kind: 'directory',
       name: 'mock-directory',
@@ -79,7 +108,7 @@ const mockElectronAPI = {
     removeItem: vi.fn().mockResolvedValue(undefined),
     setItem: vi.fn().mockResolvedValue(undefined),
   },
-};
+} satisfies Pick<VisibleDesktopElectronApi, 'fileSystem' | 'getUserDataPath' | 'storage'>;
 
 // Guard: this file's `Object.defineProperty(window, ...)` calls below are
 // jsdom-only bootstrapping. `window` is always defined under this package's
@@ -150,7 +179,8 @@ const mockProviderDefinitions = [
   {
     capabilities: { embeddings: true, llm: true, streaming: true },
     displayName: 'OpenAI',
-    envKeys: ['BRAINSTRIKE_OPENAI_API_KEY'],
+    // Mirrors the registry's canonical two-name scheme (BST-1361 review 10c).
+    envKeys: ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'],
     id: 'openai',
     models: [
       { default: true, id: 'gpt-5.2', supportsStreaming: true, type: 'llm' as const },
@@ -167,7 +197,7 @@ const mockProviderDefinitions = [
   {
     capabilities: { embeddings: false, llm: true, streaming: true },
     displayName: 'Anthropic',
-    envKeys: ['ANTHROPIC_API_KEY'],
+    envKeys: ['BRAINSTRIKE_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'],
     id: 'anthropic',
     models: [{ default: true, id: 'claude-sonnet-4-6', type: 'llm' as const }],
     runtime: 'hosted',
@@ -175,7 +205,7 @@ const mockProviderDefinitions = [
   {
     capabilities: { embeddings: true, llm: true, streaming: true },
     displayName: 'Google AI Studio',
-    envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY'],
+    envKeys: ['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
     id: 'google',
     models: [
       { default: true, id: 'gemini-3.5-flash', type: 'llm' as const },

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const EXPECTED_REACT_DOCTOR_VERSION = '0.9.11';
+const EXPECTED_REACT_DOCTOR_VERSION = '0.9.13';
 const MINIMUM_RENAME_AWARE_VERSION = [0, 8, 2];
 
 function parseStableVersion(version) {
@@ -59,6 +59,20 @@ function collectViolations({ actionCount, actionVersion, dependencyVersion }) {
   return violations;
 }
 
+function collectLocalCommandViolations(command) {
+  const violations = [];
+  if (!/^react-doctor\s+\.(?:\s|$)/u.test(command)) {
+    violations.push(`root react-doctor script must scan '.', found '${command}'`);
+  }
+  if (!/(?:^|\s)--scope(?:=|\s+)full(?:\s|$)/u.test(command)) {
+    violations.push('root react-doctor script must pass --scope full');
+  }
+  if (/(?:^|\s)--no-lint(?:\s|$)/u.test(command)) {
+    violations.push('root react-doctor script must keep lint enabled for complete JSON coverage');
+  }
+  return violations;
+}
+
 function loadActualState() {
   const manifest = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
   const workflow = parseYaml(
@@ -71,11 +85,28 @@ function loadActualState() {
     actionCount: actionSteps?.length ?? 0,
     actionVersion: String(actionSteps?.[0]?.with?.version ?? ''),
     dependencyVersion: String(manifest.devDependencies?.['react-doctor'] ?? ''),
+    localCommand: String(manifest.scripts?.['react-doctor'] ?? ''),
   };
 }
 
 test('React Doctor local and CI pins use the reviewed rename-aware release', () => {
   assert.deepEqual(collectViolations(loadActualState()), []);
+});
+
+test('React Doctor local command runs a lint-enabled full scan', () => {
+  assert.deepEqual(collectLocalCommandViolations(loadActualState().localCommand), []);
+});
+
+test('money control: omitting full scope fails visibly', () => {
+  assert.deepEqual(collectLocalCommandViolations('react-doctor .'), [
+    'root react-doctor script must pass --scope full',
+  ]);
+});
+
+test('money control: disabling lint makes incomplete JSON coverage fail visibly', () => {
+  assert.deepEqual(collectLocalCommandViolations('react-doctor . --scope full --no-lint'), [
+    'root react-doctor script must keep lint enabled for complete JSON coverage',
+  ]);
 });
 
 test('money control: a downgrade to the rename-broken baseline implementation fails visibly', () => {
@@ -94,4 +125,18 @@ test('money control: local/CI version skew fails visibly', () => {
     dependencyVersion: '0.8.2',
   });
   assert.match(violations.join('\n'), /local\/CI version skew/u);
+});
+
+test('React Doctor explicitly uses the qualified repository Node runtime', () => {
+  const workflow = parseYaml(
+    readFileSync(path.join(repoRoot, '.github/workflows/react-doctor.yml'), 'utf8')
+  );
+  const action = workflow.jobs['react-doctor'].steps.find(
+    (step) => step.uses === 'millionco/react-doctor@v2'
+  );
+  assert.equal(
+    action.with['node-version'],
+    readFileSync(path.join(repoRoot, '.nvmrc'), 'utf8').trim(),
+    'The action default can differ from devEngines.runtime and make npm refuse to scan'
+  );
 });

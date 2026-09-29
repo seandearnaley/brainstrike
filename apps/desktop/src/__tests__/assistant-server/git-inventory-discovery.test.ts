@@ -277,6 +277,46 @@ describe('walkForGitEntries', () => {
     expect(maxInFlight).toBeGreaterThan(0);
   });
 
+  it('drops readdirs still waiting for a permit once the walk is aborted, without recording errors', async () => {
+    const fs = new FakeFs();
+    const names = Array.from({ length: 10 }, (_, index) => `d${index}`);
+    fs.addDir('/root', names);
+    for (const name of names) {
+      fs.addDir(`/root/${name}`, []);
+    }
+    const controller = new AbortController();
+    const started: string[] = [];
+    const { promise: childHolding, resolve: markChildHolding } = Promise.withResolvers<void>();
+    const { promise: childReleased, resolve: releaseChild } = Promise.withResolvers<void>();
+    const originalReaddir = fs.readdir.bind(fs);
+    fs.readdir = async (dirPath: string) => {
+      started.push(dirPath);
+      if (dirPath !== '/root') {
+        // The first child holds the only permit until the walk is aborted.
+        markChildHolding();
+        await childReleased;
+      }
+      return await originalReaddir(dirPath);
+    };
+
+    const walking = walkForGitEntries({
+      fs,
+      maxConcurrency: 1,
+      rootLabel: 'root-1',
+      rootPath: '/root',
+      signal: controller.signal,
+    });
+    await childHolding;
+    controller.abort();
+    releaseChild();
+    const result = await walking;
+
+    // The nine siblings queued behind the held permit never issue a readdir,
+    // and an abort is not reported as a directory failure.
+    expect(started).toEqual(['/root', '/root/d0']);
+    expect(result.errors).toEqual([]);
+  });
+
   it('contains a per-entry readdir failure to that entry — sibling directories are still walked', async () => {
     const fs = new FakeFs();
     fs.addDir('/root', ['broken', 'ok']);

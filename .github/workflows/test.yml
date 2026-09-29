@@ -8,7 +8,6 @@ on:
       - opened
       - synchronize
       - reopened
-      - ready_for_review
   push:
     branches:
       - main
@@ -176,6 +175,9 @@ jobs:
           TURBO_CONCURRENCY: 4
         run: pnpm run type-check
 
+      - name: MCP representative verification
+        run: pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json
+
   unit-shard:
     name: Unit (${{ matrix.shard }})
     if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
@@ -189,87 +191,61 @@ jobs:
     # required `Unit` fan-in below. `.turbo` cache keys include `runner.arch`,
     # so this cannot cross-restore an incompatible ARM cache layer.
     runs-on: ubicloud-standard-4
-    # Foundational PRs (e.g. changes to @brainstrike/utils or lint presets)
-    # pull in many dependent packages via pnpm's `...[ref]` filter. Keep Unit
-    # aligned with Coverage so broad but valid changes do not time out mid-run.
-    timeout-minutes: 60
-    # SHARDING (2026-07-20, wall-clock audit in
-    # docs/test-wall-clock-optimization-2026-07-20.md): on whole-repo-selection
-    # PRs the single Unit job was the entire workflow critical path (measured
-    # run 29718029263-era worst case 29718226412: Unit 42m, every other job done
-    # by ~9m), and `db#test` alone accounted for ~30m of it. HISTORICAL DETAIL,
-    # kept because it explains the ~30m figure: at audit time `db#test` was
-    # five sequential per-lane Vitest boots. PR #1807 replaced that with one
-    # `vitest run --project unit` over a migrate-once PGlite snapshot, so
-    # db#test became one invocation whose files parallelize across forks.
-    # BST-1046 now splits that one invocation with Vitest's native `--shard`
-    # inside this single package; no cross-package sharding or custom file map
-    # is involved. RE-MEASURED on the first db-touching PR after
-    # that rewrite (run 30681934145), per turbo phase:
-    #     turbo `test`             db 6m24s (1 pkg) | heavy 3m54s (3 pkgs) | rest 1m26s (11 pkgs)
-    #     turbo `test:integration` db 0 tasks/0.2s  | heavy 3m18s (3 pkgs) | —
-    #     job wall-clock           db 439s          | heavy 486s           | rest 327s
-    # Read those together, because either row alone misleads. `db#test` IS
-    # still the longest single test task by a wide margin (6m24s for ONE
-    # package vs 3m54s across three) — that is what earns the dedicated shard.
-    # But the db SHARD is no longer the workflow's long pole: heavy's JOB runs
-    # longer because it also carries an integration phase db has none of (db
-    # keeps its env-sensitive specs inside the unit project under a whole-task
-    # `cache: false`, so it has no separate integration lane). Shrinking db
-    # therefore buys no workflow wall-clock until heavy shrinks first.
-    # TWO TRAPS when re-measuring, both of which produced a wrong answer here
-    # before the logs were read:
-    #   - job durations alone rank heavy above db and invite the conclusion
-    #     that db is no longer the biggest suite. It is; the phases differ.
-    #   - a shard whose `...[ref]` filter selects nothing no-ops in seconds and
-    #     is INDISTINGUISHABLE from a fast one. Take numbers only from a PR
-    #     that actually changes that shard's packages (a #2173-era db shard
-    #     reads as 1m purely because the PR touched only packages/agent).
-    # The matrix splits the package graph across four runners so the heavy
-    # suites stop queuing behind each other:
-    #   db-1/db-2 — @brainstrike/db only (whole-task-uncached, two native
-    #               Vitest file shards of the same unit project).
-    #   heavy — the four biggest remaining suites by measured vitest duration
-    #           (desktop, ui, file-explorer-ui, app-shell).
-    #   rest  — affected-set minus the five packages above (negation filters).
-    # Filter grammar verified via `--dry=json`: `pkg...[ref]` selects pkg only
-    # when pkg-or-its-dependency-closure changed in the range (empty selection
-    # otherwise → the shard no-ops in seconds), multiple `--filter` flags
-    # union, and `!pkg` negations subtract from the selection (a negation-only
-    # filter set = everything minus). Shard membership and the two-phase
-    # split below must stay consistent — a package must never appear in two
-    # shards' positive filters, and every package named in a positive filter
-    # here must be listed as a negation in `rest` (and vice-versa: a package
-    # negated out of `rest` but given no positive shard would silently stop
-    # being tested while the fan-in check still passes). This is not a
-    # comment-only invariant: scripts/__tests__/unit-shard-partition.test.mjs
-    # parses this matrix and fails `pnpm test:scripts` (the Static job) on any
-    # such drift.
-    # The required-check name "Unit" is preserved by the `unit` fan-in job
-    # below — branch protection keeps pointing at "Unit", not at the shards.
+    # Desktop is a separate package partition: its serial unit + integration
+    # execution dominated recent runs (8m + 12m). Three native Vitest shards
+    # preserve every file and one worker per VM without making PGlite suites
+    # compete on the same host. The remaining UI packages keep their own row.
+    # DB and Agent retain two native shards each. Rest owns every other
+    # affected package.
+    # scripts/__tests__/unit-shard-partition.test.mjs verifies complete,
+    # disjoint coverage; Unit below remains the required fan-in.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
           - shard: db-1
             partition: db
-            pr_filters: --filter="@brainstrike/db...[origin/$BASE_REF]"
+            pr_filters: --filter="@brainstrike/db"
             push_filters: --filter="@brainstrike/db"
             vitest_shard: 1/2
           - shard: db-2
             partition: db
-            pr_filters: --filter="@brainstrike/db...[origin/$BASE_REF]"
+            pr_filters: --filter="@brainstrike/db"
             push_filters: --filter="@brainstrike/db"
             vitest_shard: 2/2
+          - shard: agent-1
+            partition: agent
+            pr_filters: --filter="@brainstrike/agent"
+            push_filters: --filter="@brainstrike/agent"
+            vitest_shard: 1/2
+          - shard: agent-2
+            partition: agent
+            pr_filters: --filter="@brainstrike/agent"
+            push_filters: --filter="@brainstrike/agent"
+            vitest_shard: 2/2
+          - shard: desktop-1
+            partition: desktop
+            pr_filters: --filter="@brainstrike/desktop"
+            push_filters: --filter="@brainstrike/desktop"
+            vitest_shard: 1/3
+          - shard: desktop-2
+            partition: desktop
+            pr_filters: --filter="@brainstrike/desktop"
+            push_filters: --filter="@brainstrike/desktop"
+            vitest_shard: 2/3
+          - shard: desktop-3
+            partition: desktop
+            pr_filters: --filter="@brainstrike/desktop"
+            push_filters: --filter="@brainstrike/desktop"
+            vitest_shard: 3/3
           - shard: heavy
             partition: heavy
             pr_filters: >-
-              --filter="@brainstrike/desktop...[origin/$BASE_REF]"
-              --filter="@brainstrike/ui...[origin/$BASE_REF]"
-              --filter="@brainstrike/file-explorer-ui...[origin/$BASE_REF]"
-              --filter="@brainstrike/app-shell...[origin/$BASE_REF]"
+              --filter="@brainstrike/ui"
+              --filter="@brainstrike/file-explorer-ui"
+              --filter="@brainstrike/app-shell"
             push_filters: >-
-              --filter="@brainstrike/desktop"
               --filter="@brainstrike/ui"
               --filter="@brainstrike/file-explorer-ui"
               --filter="@brainstrike/app-shell"
@@ -277,8 +253,8 @@ jobs:
           - shard: rest
             partition: rest
             pr_filters: >-
-              --filter="...[origin/$BASE_REF]"
               --filter="!@brainstrike/db"
+              --filter="!@brainstrike/agent"
               --filter="!@brainstrike/desktop"
               --filter="!@brainstrike/ui"
               --filter="!@brainstrike/file-explorer-ui"
@@ -286,6 +262,7 @@ jobs:
             vitest_shard: ''
             push_filters: >-
               --filter="!@brainstrike/db"
+              --filter="!@brainstrike/agent"
               --filter="!@brainstrike/desktop"
               --filter="!@brainstrike/ui"
               --filter="!@brainstrike/file-explorer-ui"
@@ -297,8 +274,8 @@ jobs:
           echo "::error::Quiet-head admission failed; refusing to skip the required Unit check."
           exit 1
 
-      # `fetch-depth: 0` is REQUIRED here: the turbo filter below diffs against
-      # `origin/$BASE_REF`, which needs full history. Checkout stays in the
+      # `fetch-depth: 0` is REQUIRED here: task-aware affected selection needs
+      # the exact PR base and tested checkout commits, including stacked bases. Checkout stays in the
       # caller (not the composite) — see setup-workspace/action.yml's header.
       - name: Checkout
         uses: actions/checkout@v6
@@ -348,6 +325,14 @@ jobs:
       # packages/agent: shard membership is a filter list two screens up, and a
       # dependency that silently stops being installed when a package moves
       # shards is the exact failure this step exists to end.
+
+      # BST-1715: an unused third-party apt source (Google Chrome, added by the
+      # runner image) serving an inconsistent index makes the apt-get update
+      # below exit non-zero and kills this step. Drop the source rather than
+      # relaxing apt's exit status.
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
       - name: Install the Linux OS-fence dependencies
         run: |
           set -euo pipefail
@@ -376,38 +361,22 @@ jobs:
       # no-build `topo` transit node instead of `^build` (turbo.jsonc). The few
       # lanes that genuinely consume built artifacts (packages/utils' own-dist
       # test, packages/db's nested-tsc test) declare exact `#build` edges in
-      # their own turbo.json, and `turbo run test` SELF-BUILDS exactly those
-      # (verified: the whole-repo test+test:integration graph contains 3 build
-      # tasks — utils + its dep closure — and a full clean-state no-dist run is
-      # green; see the B4 PR). The predecessor step's #1066/#1207 rationale
+      # their own turbo.json, and Turbo SELF-BUILDS exactly those. Desktop's
+      # native restart verifier additionally declares agent/assistant-data builds:
+      # its child Node processes resolve public exports outside Vitest aliases.
+      # The predecessor step's #1066/#1207 rationale
       # ("exports maps pointing at dist fail to resolve at test time") is
       # retired by source resolution, and unlike that incident a regression
       # here fails LOUDLY on the always-clean CI runner instead of passing
       # against stale dist. The Build job below still exercises the full build.
 
-      # PR-affected unit tests routed THROUGH turbo so the remote cache
-      # (TURBO_TOKEN/TURBO_TEAM, set at the workflow `env:` block above and
-      # inherited by this step) covers test execution — the only expensive,
-      # previously-uncached CI step.
-      #
-      # `--filter="...[origin/$BASE_REF]"` is turbo's EXPLICIT git-range filter:
-      # `...[ref]` = packages changed since `ref` + their dependents. It is
-      # deliberately NOT `--affected`: turbo's `--affected` derives its own
-      # base/head and over-selects on merge commits, the exact reason the prior
-      # pnpm-filter approach spelled the range out. Turbo's task graph skips
-      # packages with no `test` script (no `--if-present` needed) and never runs
-      # the workspace-root task under a plain `turbo run` (so the old pnpm-only
-      # `!./` root exclusion is unnecessary — verified via `--dry=json`).
-      #
-      # SELECTION vs the retired `pnpm --filter "...[ref]"`: measured across four
-      # real historical ranges (HEAD~1, origin/main~10/~20/~30 — see the PR body
-      # for the exact package lists), turbo's selection is a strict SUPERSET of
-      # pnpm's. It NEVER under-selects — every package the old pnpm path would
-      # have tested is always selected, so a changed package can never be
-      # silently skipped/under-tested. On ranges whose diff touches root/global
-      # files (lockfile, pnpm-workspace.yaml) turbo may additionally pull in a
-      # few leaf config packages pnpm did not; that is safe over-selection
-      # (marginal CI time, usually a cache hit — never missed coverage).
+      # Native task-aware affected selection intersects each package partition
+      # with the exact base/checkout pair. Explicit SCM refs avoid Turbo's
+      # inferred main~1 range, including on stacked PRs and merge commits.
+      # Cross-package inputs select their actual readers without making every
+      # document a global cache dependency. ci-input-locality.test.mjs proves
+      # doc-only selection, upstream-source propagation, and partition filters.
+      # Push/manual and local checks continue to execute the complete suite.
       #
       # TURBO_TEST_MODE=unit and TEST_TIMEOUT_MULTIPLIER=2 are set EXPLICITLY
       # here so the `test` task cache key (both are in turbo.jsonc `test.env`)
@@ -438,7 +407,7 @@ jobs:
       # named steps (not one `&&` step) give clearer failure attribution in the
       # UI; turbo re-resolves quickly on the second invocation. turbo.jsonc's
       # `test:integration` has `dependsOn: ["topo"]` (the B4 no-build transit
-      # node), so phase 2's graph builds nothing and is cheap. turbo skips each
+      # node), plus explicit package-local built-artifact edges. turbo skips each
       # task for packages that do not define it (no `--if-present` needed).
       # COVERAGE="false" (2026-07-20): the PR path previously omitted this,
       # and per-package vitest configs enable V8 coverage whenever CI==='true'
@@ -451,17 +420,23 @@ jobs:
       - name: Pull request affected unit tests
         if: github.event_name == 'pull_request'
         env:
-          BASE_REF: ${{ github.base_ref }}
+          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
+          TURBO_SCM_HEAD: ${{ github.sha }}
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
+          DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
+          DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
-          DB_TEST_SHARD: ${{ matrix.vitest_shard }}
+          DB_TEST_SHARD: ${{ matrix.partition == 'db' && matrix.vitest_shard || '' }}
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test ${{ matrix.pr_filters }} --concurrency=4
+        run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.pr_filters }} --affected --concurrency=4
 
       - name: Pull request affected integration tests
         if: github.event_name == 'pull_request'
         env:
-          BASE_REF: ${{ github.base_ref }}
+          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
+          TURBO_SCM_HEAD: ${{ github.sha }}
           # This lane installed bubblewrap/socat/ripgrep above, so the
           # real-fence suites must RUN here. Set, a missing dependency is a
           # lane defect that fails collection instead of a host quirk the
@@ -469,10 +444,14 @@ jobs:
           # fence-host-gate.ts. Deliberately NOT set in the coverage lanes,
           # which install nothing and keep the loud-skip behaviour.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
+          DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
+          DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test:integration ${{ matrix.pr_filters }} --concurrency=2
+        run: node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
 
       # Push (main) + workflow_dispatch: full non-affected suite routed through
       # turbo so the remote cache (TURBO_TOKEN/TURBO_TEAM inherited from the
@@ -495,21 +474,29 @@ jobs:
       - name: Push and manual unit tests
         if: github.event_name != 'pull_request'
         env:
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
+          DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
+          DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
-          DB_TEST_SHARD: ${{ matrix.vitest_shard }}
+          DB_TEST_SHARD: ${{ matrix.partition == 'db' && matrix.vitest_shard || '' }}
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
+        run: node scripts/run-test-command.mjs -- pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
 
       - name: Push and manual integration tests
         if: github.event_name != 'pull_request'
         env:
           # See the pull-request integration step above.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
+          AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+          AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
+          DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
+          DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
-        run: pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
+        run: node scripts/run-test-command.mjs -- pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
 
   # Fan-in job preserving the required-check name "Unit": branch protection
   # points at this single check, not at the per-shard matrix jobs, so shard
@@ -527,7 +514,10 @@ jobs:
     name: Unit
     if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission, unit-shard]
-    runs-on: ubuntu-24.04-arm
+    # This fan-in only checks one dependency result and completes in ~3s. Use
+    # GitHub's 1-core slim runner so per-job minute rounding does not charge the
+    # ARM compute rate for a job that performs no build or test work.
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
       - name: Require successful admission
@@ -639,17 +629,94 @@ jobs:
     if: needs.admission.outputs.admitted == 'true'
     needs: [admission]
     runs-on: windows-latest
-    timeout-minutes: 20
+    # BST-1712: 20 -> 30. A retry the job timeout guillotines is not a retry.
+    # The observed abort wasted 240s of dead wait before node-gyp gave up, and
+    # the failing run had already spent 9m of its 20 by then; two such attempts
+    # plus a good one plus build/test does not fit under 20. 30 is this repo's
+    # standard failure ceiling (docs/agents/ci-quality.md), not a latency target
+    # — the healthy path is unchanged and still finishes well inside 20.
+    timeout-minutes: 30
+    env:
+      # BST-1375: pin node-gyp's dev dir (default `%LOCALAPPDATA%\node-gyp\Cache`)
+      # to a path the cache steps below can name. node-gyp reads this the same
+      # way it reads any npm config, and it survives pnpm's script runner, so
+      # the lifecycle-invoked `node-gyp rebuild` of both native packages honours
+      # it. This is NOT about path length — see the comment on the restore step.
+      npm_config_devdir: ${{ github.workspace }}\.node-gyp
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      # BST-1375: the Node HEADER TARBALL, cached so it is not downloaded here.
+      #
+      # This job installs TWO packages that build native addons, and neither has
+      # the headers: `secure-fs-native` (implicit `node-gyp rebuild`, from
+      # `gypfile: true`) and `windows-job-native` (an explicit install script
+      # that shells out to node-gyp on win32). pnpm runs workspace install
+      # scripts CONCURRENTLY — measured locally: two projects' install scripts
+      # start within 1ms of each other — so both processes GET the same ~30MB
+      # `node-vX-headers.tar.gz` from nodejs.org at the same moment. Twice in
+      # 290 Native Windows attempts one of those two streams returned 200 and
+      # was then aborted mid-body ~80s later (`TypeError: terminated`, undici
+      # `Fetch.onAborted`), failing the whole `Setup workspace` step. The
+      # `TAR_ENTRY_ERROR ENOENT` lines that dominate the log are downstream
+      # noise: node-gyp's rollback deletes the temp dir while tar is still
+      # writing into it. The paths involved are ~133 characters, so MAX_PATH and
+      # long-path settings have nothing to do with it, and node-gyp extracts to
+      # `os.tmpdir()` rather than the dev dir, so a shorter devdir would not
+      # have moved that path either.
+      #
+      # A restored dev dir removes the download outright: node-gyp's `--ensure`
+      # stats it, reads `installVersion`, re-checks `<arch>/node.lib` on Windows
+      # and reports "version is good" without issuing a single HTTP request
+      # (verified against the pinned node-gyp 13.0.1). No download, nothing to
+      # abort. A cold cache still downloads twice and keeps today's exposure —
+      # this narrows the window rather than making the fetch itself robust.
+      #
+      # BST-1712 closed that remaining window: a cold cache is now a RETRIED
+      # install (see the Setup workspace step). Cache is the fast path, retry is
+      # the backstop; neither replaces the other, because a cold cache is not
+      # rare — key misses happen on every Node patch bump and on LRU eviction,
+      # and run 34353973428 was exactly a `Cache not found for input keys` run.
+      #
+      # Restore is prefix-only: the save key is this `.nvmrc`-hash prefix plus
+      # the version setup-node resolves inside the composite below, which is
+      # not known yet here. `.nvmrc` pins an exact version, not a major, so a
+      # Node bump changes the prefix itself and can never hit a stale entry.
+      - name: Restore node-gyp headers
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ github.workspace }}\.node-gyp
+          key: ${{ runner.os }}-${{ runner.arch }}-node-gyp-${{ hashFiles('.nvmrc') }}-
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node-gyp-${{ hashFiles('.nvmrc') }}-
 
       # No turbo-cache: this job doesn't route through turbo. `shell: bash` in
       # the composite's install step works on windows-latest via the runner's
       # bundled Git Bash, same as every other step in this composite already
       # running fine cross-platform.
+      #
+      # BST-1712: the cold-cache path is retried. The comment above already
+      # predicted this gap ("a cold cache still downloads twice and keeps
+      # today's exposure"), and run 34353973428 walked straight into it:
+      # `Cache not found for input keys`, both packages GET the tarball ~0.9s
+      # apart, both get 200, and 240s later one stream aborts in undici's
+      # `client-h2.js` — two concurrent ~30MB bodies multiplexed over one HTTP/2
+      # connection to nodejs.org, one of which the server dropped mid-body.
+      #
+      # node-gyp's own undici `RetryHandler` is IN that stack, so "node-gyp
+      # already retries" is not an answer: undici's retry covers connect/idle
+      # errors, not a 200 whose body is aborted part-way. The attempt has to be
+      # restarted from outside node-gyp, which means restarting the install.
+      #
+      # 3 attempts, and the retries are cheap: node_modules is already
+      # materialised after attempt 1, so a repeat pass re-runs only the failed
+      # lifecycle scripts (see the composite's comment for the measurement).
       - name: Setup workspace
+        id: setup
         uses: ./.github/actions/setup-workspace
+        with:
+          install-attempts: '3'
 
       # Explicit build first: the package's `test` script deliberately does NOT
       # build inline anymore (an inline `pnpm build &&` raced turbo's own
@@ -666,6 +733,32 @@ jobs:
           pnpm --filter @brainstrike/windows-job-native build
           pnpm --filter @brainstrike/windows-job-native test
 
+      # `always()`: the headers are valid whether or not the C++ compiled, and a
+      # test failure is exactly when the next run should not re-download them.
+      #
+      # The version guard is not politeness. If `Setup workspace` failed before
+      # setup-node resolved a version, this key would collapse onto the restore
+      # step's prefix — and an entry saved under the bare prefix EXACT-matches
+      # future restores, shadowing the good version-keyed entry that
+      # `restore-keys` would otherwise have found. Refusing to write a key that
+      # would be wrong beats writing one that silently outranks the right one.
+      #
+      # The outcome guard covers the OTHER failure window: the header download
+      # runs inside the composite's install step, AFTER setup-node — and a
+      # composite exposes its outputs even when a later embedded step fails. A
+      # failed download rolls back only the NEW version's dev dir, so on a
+      # patch bump a cross-version restore survives in the devdir; without this
+      # guard `always()` would archive that older tree under the new exact key,
+      # which is immutable and preferred by restore-keys (newest) from then on.
+      # A test/build failure leaves the setup outcome `success`, so the
+      # keep-the-cache-warm intent of `always()` is unaffected.
+      - name: Save node-gyp headers
+        if: always() && steps.setup.outcome == 'success' && steps.setup.outputs.node-version != ''
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ github.workspace }}\.node-gyp
+          key: ${{ runner.os }}-${{ runner.arch }}-node-gyp-${{ hashFiles('.nvmrc') }}-${{ steps.setup.outputs.node-version }}
+
   native-electron:
     name: Native Electron Package
     if: needs.admission.outputs.admitted == 'true'
@@ -679,14 +772,63 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
 
+      # BST-1715: an unused third-party apt source (Google Chrome, added by the
+      # runner image) serving an inconsistent index makes the apt-get update
+      # below exit non-zero and kills this step. Drop the source rather than
+      # relaxing apt's exit status.
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
+      - name: Provision Linux desktop services
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes dbus-x11 gnome-keyring xdg-utils
+
+      # Both the native smoke (`electron`) and electron-builder need the same
+      # Electron release archive. Provision it once with bounded transfers and
+      # retries, extract it for the smoke, then pass the verified zip to
+      # electron-builder so this job has one visible download boundary instead
+      # of two implicit fetches.
+      - name: Provision Electron binary
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --connect-timeout 20 --max-time 180 --retry 3 --retry-delay 5 --retry-all-errors -o "$ELECTRON_ZIP" "$URL"
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
+          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p,fs.constants.X_OK);if(fs.statSync(p).size===0){throw new Error('empty Electron binary at '+p)}console.log('Electron binary present at '+p)"
+          echo "ELECTRON_DIST=$ELECTRON_ZIP" >> "$GITHUB_ENV"
+
       - name: Build desktop dependency graph
-        run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
+        run: pnpm turbo run build --filter=@brainstrike/desktop... --filter=@brainstrike/mcp-test-lab --filter=@brainstrike/mcp-app-host --concurrency=4
 
       - name: Load the native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:electron
 
       - name: Package the desktop application
-        run: pnpm --filter @brainstrike/desktop run pack
+        env:
+          # Bakes the E2E-only MCP Tasks harness chunk into THIS package for the
+          # packaged Tasks verifier below; release packaging never sets it.
+          VITE_MCP_TASK_HARNESS: '1'
+        run: |
+          set -euo pipefail
+          test -n "${ELECTRON_DIST:-}"
+          pnpm --filter @brainstrike/desktop run pack -- --config.electronDist="$ELECTRON_DIST"
+
+      - name: Verify packaged MCP Apps bridge
+        run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-apps-bridge
+      - name: Verify packaged MCP Tasks lifecycle
+        run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-tasks
+
+      - name: Verify packaged MCP Apps lifecycle
+        run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-apps
 
       - name: Load the packaged native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:packaged
@@ -694,34 +836,55 @@ jobs:
       - name: Load the packaged @parcel/watcher binding in Electron (BST-568)
         run: pnpm --filter @brainstrike/file-system test:packaged
 
+      - name: Verify packaged MCP core lifecycle
+        run: |
+          set -euo pipefail
+          dbus-run-session -- bash -euo pipefail -c '
+            export XDG_CONFIG_HOME="$(mktemp -d)"
+            export XDG_DATA_HOME="$(mktemp -d)"
+            export XDG_CURRENT_DESKTOP=GNOME
+            eval "$(gnome-keyring-daemon --unlock --components=secrets <<< "")"
+            pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-core
+          '
+
+      - name: Upload packaged MCP test diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcp-packaged-core-${{ github.sha }}
+          path: apps/desktop/blob-report
+          if-no-files-found: warn
+
   browser-tests:
     name: Browser tests
     # Vitest 4 browser-mode suites (real Chromium): packages/db PGlite WASM
     # semantics (BST-64/BST-994 — unskipped after eight months), packages/ui,
-    # packages/assistant-ui assistant browser suites, packages/storage web adapter. Before this job
+    # packages/assistant-ui assistant browser suites, packages/storage web adapter,
+    # and embedding-worker cache concurrency in real Chromium. Before this job
     # existed, `test:browser` ran NOWHERE in CI — only in the local `pnpm
     # check` gate — while turbo.jsonc's task comment claimed otherwise.
     # Not (yet) a required check: branch protection is Sean's call; this lane
     # must first prove itself deterministic.
     if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission]
-    # GitHub-hosted on purpose: the Ubicloud pool is contractually limited to
-    # the five measured jobs (scripts/__tests__/ubicloud-runner-contract.
-    # test.mjs) and a new unproven lane should not expand the paid-runner
-    # contract. Move only with a wall-clock measurement and a contract update.
-    runs-on: ubuntu-latest
+    # Cost-first runner migration (2026-08-28): this lane used 1,928 rounded
+    # GitHub Linux minutes in the 7.76-day audit. The same pinned Playwright
+    # container contract is already green in the Ubicloud Web E2E job, and the
+    # explicit 4-vCPU shape matches TURBO_CONCURRENCY below. There is no
+    # provider fallback: allocation must queue or fail visibly.
+    runs-on: ubicloud-standard-4
     # Same official Playwright image + pin as Web E2E — browsers baked in, no
     # cdn.playwright.dev download at job time. KEEP IN SYNC: the image tag MUST
     # equal @playwright/test's version (scripts/verify-playwright-pin-sync.mjs
     # is the drift check; bump together with the pins in test.yml/web-e2e.yml/
     # performance.yml).
     container:
-      image: mcr.microsoft.com/playwright:v1.62.1-noble
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
       options: --user 1001
     timeout-minutes: 20
     env:
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      # Three Chromium-driving suites on a 4-core hosted runner: cap turbo the
+      # Five browser-test packages on a 4-core hosted runner: cap turbo the
       # same way the static job does, so the in-job builds and the browser
       # suites don't oversubscribe the runner.
       TURBO_CONCURRENCY: "4"
@@ -744,8 +907,9 @@ jobs:
           node-version-file: .nvmrc
           cache: 'pnpm'
 
-      # `test:browser` dependsOn build, so the pure-TS db/ui/assistant-ui/storage closure
-      # builds in-job. The remote Turbo cache carries most of it; this local
+      # `test:browser` dependsOn build, so the pure-TS db/ui/assistant-ui/storage/
+      # embedding-worker closure builds in-job. The remote Turbo cache carries
+      # most of it; this local
       # .turbo layer is the same outage hedge the setup-workspace composite
       # provides (same key scheme — the composite itself can't be used here
       # because its fixed full `pnpm install` would hit node-gyp in this
@@ -760,7 +924,8 @@ jobs:
 
       - name: Install dependencies
         # Same exclusions as Web E2E: this pwuser container has no C toolchain
-        # or sudo; the browser-test packages (db, ui, assistant-ui, storage) and their
+        # or sudo; the browser-test packages (db, ui, assistant-ui, storage,
+        # embedding-worker) and their
         # dependency closures are pure TS, so the two desktop-only native
         # projects are excluded from install.
         run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native'
@@ -770,27 +935,32 @@ jobs:
         # `pnpm test:browser` puts all 47 workspace packages in turbo scope and
         # builds both desktop native addons, which this toolchain-less pwuser
         # container cannot compile (proven by this lane's first run). The
-        # filtered scope is the four packages + their pure-TS closure.
+        # filtered scope is the five packages + their pure-TS closure.
         # KEEP IN SYNC with packages defining a test:browser script —
         # scripts/__tests__/browser-lane-filter-contract.test.mjs fails
         # `pnpm test:scripts` (Static job) if a package gains test:browser
         # without being added here.
-        run: pnpm test:browser --filter=@brainstrike/assistant-ui --filter=@brainstrike/db --filter=@brainstrike/storage --filter=@brainstrike/ui
+        run: pnpm test:browser --filter=@brainstrike/assistant-ui --filter=@brainstrike/db --filter=@brainstrike/embedding-worker --filter=@brainstrike/mcp-app-host --filter=@brainstrike/storage --filter=@brainstrike/ui
 
       - name: Upload browser test artifacts
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: browser-test-results
+          include-hidden-files: true
           path: |
             packages/db/test-results/
             packages/assistant-ui/test-results/
+            packages/embedding-worker/test-results/
             packages/ui/test-results/
             packages/storage/test-results/
-            packages/db/**/__screenshots__/
-            packages/assistant-ui/**/__screenshots__/
-            packages/ui/**/__screenshots__/
-            packages/storage/**/__screenshots__/
+            packages/mcp-app-host/test-results/
+            packages/db/.vitest/attachments/failure-screenshots/
+            packages/assistant-ui/.vitest/attachments/failure-screenshots/
+            packages/embedding-worker/.vitest/attachments/failure-screenshots/
+            packages/ui/.vitest/attachments/failure-screenshots/
+            packages/storage/.vitest/attachments/failure-screenshots/
+            packages/mcp-app-host/.vitest/attachments/failure-screenshots/
           retention-days: 1
           if-no-files-found: ignore
 
@@ -826,7 +996,7 @@ jobs:
     # composite's install command for this one caller is the documented trap;
     # this job's setup stays bespoke literal YAML on purpose.
     container:
-      image: mcr.microsoft.com/playwright:v1.62.1-noble
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
       # `--user 1001` (pwuser) is the configuration shown in Playwright's
       # official GitHub Actions container example. The browsers under
       # /ms-playwright are owned by this user; it is the documented, tested path.
@@ -896,8 +1066,17 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
 
-  desktop-e2e:
-    name: Desktop E2E
+  # BST-1762: desktop smoke runs as two lanes on separate runners. One serial
+  # lane of 47 passing cases took 722-871 s of its 900 s Playwright ceiling
+  # across 24 green runs (2026-09-12..15) and timed out at 898 s in run
+  # 34988958978. Per-case CI means summed to 466 s for the delegated specs and
+  # 337 s for every other spec, so each lane gets its own runner and 900 s
+  # ceiling. The required `Desktop E2E` check is the fan-in after them, so the
+  # ruleset is unchanged.
+  # Lane spec lists and this job graph are pinned by
+  # scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs.
+  desktop-e2e-smoke:
+    name: Desktop E2E (smoke)
     if: >-
       always() &&
       (
@@ -920,7 +1099,7 @@ jobs:
       - name: Require successful admission
         if: needs.admission.result != 'success'
         run: |
-          echo "::error::Quiet-head admission failed; refusing to skip the required Desktop E2E check."
+          echo "::error::Quiet-head admission failed; refusing to skip the desktop smoke lane."
           exit 1
 
       - name: Checkout
@@ -941,6 +1120,14 @@ jobs:
       # only need the Chromium system libraries (apt), not the browser binary
       # download from cdn.playwright.dev (which was stalling and hanging the
       # job). `install-deps` is apt-only and does not touch the browser CDN.
+
+      # BST-1715: an unused third-party apt source (Google Chrome, added by the
+      # runner image) serving an inconsistent index makes the apt-get update
+      # below exit non-zero and kills this step. Drop the source rather than
+      # relaxing apt's exit status.
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
       - name: Install Chromium system dependencies
         run: pnpm exec playwright install-deps chromium
 
@@ -981,9 +1168,122 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: desktop-smoke-main-test-results
-          path: apps/desktop/test-results/
+          path: apps/desktop/blob-report/
           retention-days: 1
-          if-no-files-found: ignore
+          if-no-files-found: warn
+
+  # Same provisioning as desktop-e2e-smoke; its step comments explain each step.
+  desktop-e2e-delegated:
+    name: Desktop E2E (delegated smoke)
+    if: >-
+      always() &&
+      (
+        needs.admission.result != 'success' ||
+        (
+          github.event_name != 'workflow_dispatch' &&
+          needs.admission.outputs.admitted == 'true' &&
+          needs.build.result == 'success'
+        )
+      )
+    needs: [admission, build]
+    runs-on: ubicloud-standard-4
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      CI: "true"
+      ELECTRON_ENABLE_STACK_DUMPING: "false"
+      ELECTRON_DISABLE_GPU: "1"
+    steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the desktop delegated smoke lane."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
+      - name: Install Chromium system dependencies
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Provision Electron binary
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
+          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
+
+      - name: Run desktop delegated smoke
+        working-directory: apps/desktop
+        run: dbus-run-session -- pnpm run test:e2e:lane:smoke-delegated
+
+      - name: Upload desktop delegated smoke traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-smoke-delegated-test-results
+          path: apps/desktop/blob-report/
+          retention-days: 1
+          if-no-files-found: warn
+
+  # Fan-in job preserving the required-check name "Desktop E2E" over both smoke
+  # lanes, like `unit` over `unit-shard`. It carries the lanes' exact condition,
+  # so it skips exactly when they skip (not admitted, failed build, manual
+  # dispatch) and fails when admission failed or any lane did not succeed.
+  desktop-e2e:
+    name: Desktop E2E
+    if: >-
+      always() &&
+      (
+        needs.admission.result != 'success' ||
+        (
+          github.event_name != 'workflow_dispatch' &&
+          needs.admission.outputs.admitted == 'true' &&
+          needs.build.result == 'success'
+        )
+      )
+    needs: [admission, build, desktop-e2e-smoke, desktop-e2e-delegated]
+    # Reads two dependency results and completes in seconds, so it uses the
+    # same slim runner as the Unit fan-in.
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the required Desktop E2E check."
+          exit 1
+
+      - name: Check lane results
+        env:
+          LANE_RESULTS: ${{ needs.desktop-e2e-smoke.result }} ${{ needs.desktop-e2e-delegated.result }}
+        run: |
+          echo "Desktop smoke lane results: $LANE_RESULTS"
+          if [ "$LANE_RESULTS" != "success success" ]; then
+            echo "::error::Desktop smoke lanes did not all succeed: $LANE_RESULTS"
+            exit 1
+          fi
 
   # BST-1301: make a red `main` announce itself.
   #
@@ -1018,12 +1318,12 @@ jobs:
   # Persistent E2E breakage is still caught within 24h by the scheduled
   # notifiers in web-e2e.yml / desktop-e2e.yml.
   #
-  # `browser-tests`, `native-windows` and `native-electron` also run on pushes
-  # to `main` and are also NOT notified — not on flakiness grounds, but because
-  # none of them is a required check. A red one of those does not block anyone
-  # else's branch, so it is not this job's class of problem. (`browser-tests`
-  # additionally "must first prove itself deterministic" per its own header
-  # before it could ever be a candidate.)
+  # `browser-tests`, `native-windows`, and `native-electron` also run
+  # on pushes to `main` and are also NOT notified — not on flakiness grounds,
+  # but because none of them is a required check. A red one of those does not
+  # block anyone else's branch, so it is not this job's class of problem.
+  # (`browser-tests` additionally "must first prove itself deterministic" per
+  # its own header before it could ever be a candidate.)
   #
   # WHY `!cancelled()` AND NOT `always()` — this is load-bearing, do not
   # "simplify" it back. `== 'failure'` alone does NOT mean "the code failed",
@@ -1083,7 +1383,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # NO `2>/dev/null || true` HERE, unlike the four sibling notifiers.
+          # No notifier (this one or its four siblings) uses `2>/dev/null || true`.
           # That idiom swallows the expected "label already exists" AND a real
           # failure (token not elevated, API 5xx, org label restrictions)
           # indistinguishably. The label does not exist until the first red

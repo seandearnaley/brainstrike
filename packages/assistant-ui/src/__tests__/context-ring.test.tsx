@@ -35,7 +35,9 @@ describe('ContextRing', () => {
     );
     rerender(<ContextRing percentage={80} state="warning" />);
     expect(screen.getByTestId('context-ring')).toHaveAttribute('data-state', 'warning');
-    expect(screen.getByTestId('context-ring-progress').getAttribute('class')).toContain('amber');
+    expect(screen.getByTestId('context-ring-progress').getAttribute('class')).toContain(
+      'text-warning'
+    );
     rerender(<ContextRing percentage={95} state="critical" />);
     expect(screen.getByTestId('context-ring')).toHaveAttribute('data-state', 'critical');
     expect(screen.getByTestId('context-ring-progress').getAttribute('class')).toContain(

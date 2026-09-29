@@ -36,7 +36,8 @@ export type DirectoryLoadState = 'unloaded' | 'loading' | 'loaded' | 'error';
 export interface IFileNode {
   children?: IFileNode[];
   depth: number;
-  handle: FileSystemFileHandle | FileSystemDirectoryHandle;
+  /** Browser capabilities or canonical descriptors consumed by the platform adapter. */
+  handle: FileSystemFileHandle | FileSystemDirectoryHandle | FileHandle | DirectoryHandle;
   isDepthTruncated?: boolean;
   isSymbolicLink?: boolean;
   isVisible?: boolean;
@@ -176,6 +177,22 @@ export interface RootDescriptor {
   readonly rootId: RootId;
 }
 
+/**
+ * One entry in the DESKTOP main-process ledger of folders the user has already
+ * granted this app (picker grants and successful restores). It is a grant
+ * record, not a mount: an entry may be currently connected, disconnected, or
+ * temporarily unavailable. It is the sole authorization source for the
+ * picker-less `FileSystemAdapter.addRootByPath`.
+ */
+export interface RecentRootEntry {
+  /** Folder basename, for display only — never an identity. */
+  readonly displayName: string;
+  /** Epoch ms of the most recent grant of this path. */
+  readonly lastGrantedAt: number;
+  /** Absolute, normalized folder path. */
+  readonly path: string;
+}
+
 export interface FileHandle {
   _internal?: unknown;
   kind: 'file';
@@ -242,6 +259,42 @@ export interface FileSystemChange {
 }
 
 /**
+ * A batched watcher push stamped with the watch id returned by the desktop
+ * file-system capability. The payload remains platform-neutral; bridge method
+ * ownership stays with the desktop application.
+ */
+export interface FileSystemWatchEvent {
+  changes: FileSystemChange[];
+  /** Bounded root-relative default-filter boundaries omitted from `changes`. */
+  filteredChangeBoundaries?: readonly string[];
+  /** More distinct boundaries existed than the typed protocol cap. */
+  filteredChangeBoundariesOverflow?: true;
+  watchId: string;
+}
+
+/** Maximum distinct filtered boundaries retained in one watcher batch. */
+export const FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT = 64;
+
+/**
+ * Metadata for one filtered watcher callback.
+ *
+ * `filteredChangeBoundaries` contains root-relative, forward-slash paths to
+ * default-filter boundaries whose detailed records were withheld. The finite
+ * list lets Git consumers invalidate only intersecting registered worktrees;
+ * Explorer/indexing consumers continue using only the detailed changes.
+ *
+ * `filteredChangeBoundariesOverflow:true` is explicit evidence that more than
+ * {@link FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT} distinct boundaries were
+ * observed in this batch. Git consumers fail open within the named durable
+ * root. This is not watcher health/record loss and must never trigger a full
+ * filesystem scan.
+ */
+export interface FileSystemWatchBatchMetadata {
+  readonly filteredChangeBoundaries: readonly string[];
+  readonly filteredChangeBoundariesOverflow?: true;
+}
+
+/**
  * Typed watcher health protocol (BST-568 slice 3).
  *
  * Engines emit `WatcherHealthTransition`s exactly once per state change; the
@@ -305,7 +358,20 @@ export interface FileSystemAdapter {
    * RootId. requestDirectoryAccess() is the legacy single-root shim over this.
    */
   addRoot?(): Promise<RootDescriptor>;
+  /**
+   * Desktop-only: re-mount a PREVIOUSLY GRANTED folder by absolute path, with
+   * no OS picker. Main's recent-roots ledger is the authorization — an unknown
+   * path rejects visibly. Absent on adapters without that ledger (web); the
+   * capability check IS the platform gate (never `isElectron()`).
+   */
+  addRootByPath?(path: string): Promise<RootDescriptor>;
   exists(path: string): Promise<boolean>;
+  /**
+   * Desktop-only: newest-first ledger of previously granted folders (capped in
+   * main). Nothing is filtered out — currently-mounted roots are still recents,
+   * and the caller owns the "already open" presentation decision.
+   */
+  listRecentRoots?(): Promise<readonly RecentRootEntry[]>;
   /**
    * Watcher health capability (BST-568 slice 3, desktop only today).
    * Subscribe to per-root health transitions; the adapter replays the latest
@@ -348,18 +414,33 @@ export interface FileSystemAdapter {
   ): Promise<void>;
   readFile(handle: FileHandle): Promise<string>;
   /**
-   * Read a file by absolute path within an adapter-authorized root.
+   * Explicit capability for reading an absolute native path without a
+   * materialized file-tree handle.
    *
-   * This method is available on platforms with direct file system access (Electron)
-   * This does not require a file-tree handle, but implementations must still
-   * authorize the path against a persisted/mounted root. Useful for restoring
-   * persisted file tabs before the tree is loaded.
+   * Consumers MUST pass non-empty, fully qualified absolute paths for both the
+   * authoritative mounted root and requested file plus the durable RootId that
+   * owns that mount, and confine the file to the root before invoking this
+   * method. Registry-backed implementations must bind the RootId and claimed
+   * path to the SAME live mount before reading. Implementations must reject
+   * malformed arguments and independently enforce their mounted-root authority. The
+   * method's presence is the capability gate;
+   * `readFileByPath` alone is not evidence of absolute-path authority because
+   * web adapters use it for root-relative handle resolution.
    *
    * @param absolutePath - The absolute path to the file
+   * @param rootPath - The mounted absolute root containing the file
+   * @param rootId - Durable identity of the mounted root
    * @returns The file contents as a string
    * @throws Error if the file doesn't exist or cannot be read
    */
-  readFileByPath?(absolutePath: string): Promise<string>;
+  readFileByAbsolutePath?(absolutePath: string, rootPath: string, rootId: RootId): Promise<string>;
+  /**
+   * Read a file by an adapter-defined path. Web implementations may accept a
+   * RootId-relative path and resolve a cached browser handle; desktop
+   * implementations retain this method for existing IPC/import consumers.
+   * Never use this method's presence as an absolute-path capability gate.
+   */
+  readFileByPath?(path: string): Promise<string>;
   /**
    * Multi-root: disconnect an authoritative persisted root by its RootId.
    *
@@ -423,6 +504,12 @@ export interface FileSystemAdapter {
   /**
    * Watch a directory for changes.
    *
+   * The callback's optional metadata stays on this SAME change channel.
+   * `filteredChangeBoundaries` names the bounded root-relative default-filter
+   * boundaries whose detailed records were withheld. Explicit boundary
+   * overflow permits a Git consumer to invalidate the named root, but is not
+   * watcher health and does not authorize a full filesystem scan.
+   *
    * `onSignal` is the out-of-band health channel for conditions that have no
    * per-path `FileSystemChange` representation:
    * - `overflow`: the watcher may have MISSED events (WICG observer 'unknown'
@@ -441,7 +528,7 @@ export interface FileSystemAdapter {
    */
   watchDirectory?(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void,
+    callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
     onSignal?: (signal: FileSystemWatchSignal) => void
   ): () => void;
 }

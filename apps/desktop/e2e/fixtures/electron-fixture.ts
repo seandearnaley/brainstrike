@@ -12,6 +12,11 @@ import { HomePage } from '../page-objects/home-page';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
 import { ElectronHarness } from './electron-harness';
 
+interface ElectronTestOptions {
+  /** Extra environment for every launch of the app in a spec (`test.use({ electronEnv: { LOG_LEVEL: 'info' } })`). */
+  electronEnv: Readonly<Record<string, string>>;
+}
+
 interface ElectronTestFixtures {
   electron: ElectronHarness;
   electronApp: ElectronAppContext;
@@ -22,8 +27,8 @@ interface ElectronTestFixtures {
   window: Page;
 }
 
-export const test = base.extend<ElectronTestFixtures>({
-  electron: async ({}, use, testInfo) => {
+export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
+  electron: async ({ electronEnv }, use, testInfo) => {
     const shardIndex = testInfo.config.shard?.current ?? 0;
     const workerIndex = testInfo.workerIndex;
     const runSalt = getRunSalt();
@@ -35,7 +40,7 @@ export const test = base.extend<ElectronTestFixtures>({
       testInfo.retry
     );
 
-    const harness = new ElectronHarness(testInfo, undefined, userDataDir);
+    const harness = new ElectronHarness(testInfo, undefined, userDataDir, electronEnv);
     try {
       await use(harness);
     } finally {
@@ -51,6 +56,7 @@ export const test = base.extend<ElectronTestFixtures>({
     const context = await electron.ensureContext();
     await use(context);
   },
+  electronEnv: [{}, { option: true }],
 
   electronHarness: async ({ electron }, use) => {
     await use(electron);

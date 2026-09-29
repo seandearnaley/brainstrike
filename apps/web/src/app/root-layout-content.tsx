@@ -17,6 +17,7 @@ import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { getEmbeddingQueue, registerWebEmbeddingRuntimeConfig } from '../create-embedding-queue';
+import { loadLocalLlmBackend } from '../load-local-llm-backend';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import SettingsPageContent from './settings/page-content';
 
@@ -67,10 +68,6 @@ export default function RootLayoutContent() {
     return items;
   }, [notesAvailable]);
   const loadEmbeddingQueue = useCallback(async () => getEmbeddingQueue(), []);
-  const loadLocalLlmBackend = useCallback(async () => {
-    const { LocalLlmBackend } = await import('@brainstrike/agent/local-llm');
-    return new LocalLlmBackend();
-  }, []);
 
   useEffect(() => {
     let errorTimer: ReturnType<typeof setTimeout> | null = null;

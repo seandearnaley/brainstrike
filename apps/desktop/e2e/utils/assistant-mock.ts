@@ -2,8 +2,12 @@ import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
 } from '@brainstrike/assistant-contract/assistant-stream-session';
+import type { SecretsWriteResult } from '@brainstrike/assistant-contract/secrets-bridge';
 import { TOOL_SUSPEND_DATA_NAME } from '@brainstrike/assistant-contract/tool-suspend';
 import type { Page } from '@playwright/test';
+
+/** Replaced at serve time with the requesting leg's durable host run id. */
+const HOST_RUN_ID_PLACEHOLDER = '__BRAINSTRIKE_HOST_RUN_ID__';
 
 const DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-6',
@@ -29,8 +33,16 @@ export interface AssistantMockOptions {
     | 'network-suspend';
 }
 
+export interface AssistantProviderOptions {
+  readonly apiKey?: string;
+  readonly compositeModelKey?: string;
+  readonly provider?: string;
+}
+
 interface AssistantMockInstallPayload {
   readonly assistantMessageId: string;
+  /** Page-injected code carries no module scope: the placeholder travels here. */
+  readonly hostRunIdPlaceholder: string;
   readonly models: Record<string, string>;
   readonly provider: string;
   readonly resumeStreamChunks?: Array<{ delayMs: number; payload: string }>;
@@ -40,43 +52,14 @@ interface AssistantMockInstallPayload {
 }
 
 function installAssistantMockInPage(payload: AssistantMockInstallPayload): void {
-  const assistantAvailabilityOverrideEvent = 'brainstrike:assistant-availability-override-changed';
   const globals = globalThis as unknown as Window & {
     __assistantMockApplied?: boolean;
     __assistantMockConfig?: AssistantMockInstallPayload;
     __assistantMockRequests?: unknown[];
-    __assistantAvailabilityOverride?: { state: 'enabled' };
     fetch: typeof fetch;
-    localStorage?: Storage;
-    secrets?: {
-      list?: () => Promise<string[]>;
-      [key: string]: unknown;
-    };
   };
 
   globals.__assistantMockConfig = payload;
-
-  try {
-    globals.localStorage?.setItem(
-      'assistant-preferences.v1',
-      JSON.stringify({
-        state: {
-          modelsByProvider: payload.models,
-          selectedProvider: payload.provider,
-        },
-        version: 1,
-      })
-    );
-  } catch {
-    // ignore storage errors in constrained environments
-  }
-
-  globals.__assistantAvailabilityOverride = { state: 'enabled' };
-  globals.dispatchEvent(new Event(assistantAvailabilityOverrideEvent));
-  globals.secrets = {
-    ...globals.secrets,
-    list: async () => [payload.provider],
-  };
 
   if (globals.__assistantMockApplied) {
     return;
@@ -89,16 +72,30 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
 
   function createMockResponse(
     signal: AbortSignal | undefined,
-    configuredChunks?: Array<{ delayMs: number; payload: string }>
+    configuredChunks?: Array<{ delayMs: number; payload: string }>,
+    hostRunId?: string
   ): Response {
     const activeConfig = globals.__assistantMockConfig;
     if (!activeConfig) {
       throw new Error('Assistant mock config is unavailable.');
     }
 
-    const streamChunks = (configuredChunks ?? activeConfig.streamChunks).map((chunk) => ({
-      ...chunk,
-    }));
+    const streamChunks = (configuredChunks ?? activeConfig.streamChunks).map((chunk) => {
+      if (!chunk.payload.includes(payload.hostRunIdPlaceholder)) {
+        return { ...chunk };
+      }
+      if (!hostRunId) {
+        throw new Error('Assistant mock cannot stamp a pause: the request named no host run.');
+      }
+      // The placeholder sits inside a JSON string, so the id is escaped the way
+      // JSON would have written it (a `"` or `\` in an id would corrupt the
+      // frame otherwise).
+      const encodedHostRunId = JSON.stringify(hostRunId).slice(1, -1);
+      return {
+        ...chunk,
+        payload: chunk.payload.split(payload.hostRunIdPlaceholder).join(encodedHostRunId),
+      };
+    });
     const chunkQueue = streamChunks.map((chunk) => ({ ...chunk }));
     let chunkIndex = 0;
     let aborted = false;
@@ -171,17 +168,44 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
   async function recordAssistantRequestBody(
     input: Parameters<typeof fetch>[0],
     init: Parameters<typeof fetch>[1]
-  ): Promise<void> {
+  ): Promise<unknown> {
     const rawBody =
       typeof init?.body === 'string'
         ? init.body
         : input instanceof Request
           ? await input.clone().text()
           : undefined;
-    if (rawBody) {
-      globals.__assistantMockRequests = globals.__assistantMockRequests ?? [];
-      globals.__assistantMockRequests.push(JSON.parse(rawBody));
+    if (!rawBody) {
+      return;
     }
+    const body: unknown = JSON.parse(rawBody);
+    globals.__assistantMockRequests = globals.__assistantMockRequests ?? [];
+    globals.__assistantMockRequests.push(body);
+    return body;
+  }
+
+  /**
+   * The DURABLE host leg of THIS request (`data.memory.runId`, minted by
+   * `prepareRequestData` -> `createThreadRun` before the POST). The real host
+   * stamps it on every pause it streams; a mock that served a fixed id would
+   * hand the history topology adapter a leg that never existed.
+   */
+  function readRequestHostRunId(body: unknown): string | undefined {
+    const isRecord = (value: unknown): value is Record<string, unknown> =>
+      typeof value === 'object' && value !== null && !Array.isArray(value);
+    if (!isRecord(body)) {
+      return;
+    }
+    const data = body['data'];
+    if (!isRecord(data)) {
+      return;
+    }
+    const memory = data['memory'];
+    if (!isRecord(memory)) {
+      return;
+    }
+    const runId = memory['runId'];
+    return typeof runId === 'string' && runId.length > 0 ? runId : undefined;
   }
 
   function selectConfiguredStreamChunks(): Array<{ delayMs: number; payload: string }> | undefined {
@@ -208,8 +232,12 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
       (url.includes('/assistant') || url.includes('/api/assistant')) &&
       (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase() === 'POST'
     ) {
-      await recordAssistantRequestBody(input, init);
-      return createMockResponse(init?.signal ?? undefined, selectConfiguredStreamChunks());
+      const body = await recordAssistantRequestBody(input, init);
+      return createMockResponse(
+        init?.signal ?? undefined,
+        selectConfiguredStreamChunks(),
+        readRequestHostRunId(body)
+      );
     }
 
     return originalFetch(input, init);
@@ -225,6 +253,147 @@ const defaultOptions: Required<AssistantMockOptions> = {
   provider: 'openai',
   variant: 'simple',
 };
+
+interface AssistantProviderInstallPayload {
+  readonly apiKey: string;
+  readonly compositeModelKey: string;
+  readonly ignoreStorageErrors: boolean;
+  readonly models: Record<string, string>;
+  readonly provider: string;
+}
+
+function configureAssistantProviderInPage(payload: AssistantProviderInstallPayload): void {
+  const assistantAvailabilityOverrideEvent = 'brainstrike:assistant-availability-override-changed';
+  const globals = globalThis as unknown as Window & {
+    __assistantAvailabilityOverride?: { state: 'enabled' };
+    __brainstrikeAssistantRuntimeTestHooks__?: {
+      setCurrentThreadModel: (compositeKey: string) => void;
+    };
+    __brainstrikeTestHooks__?: {
+      notifySecretsChanged: () => void;
+      setAssistantModel: (compositeKey: string) => void;
+    };
+    localStorage?: Storage;
+  };
+  // Scoped separately from the Window cast: this page-injected configuration
+  // feeds a deliberately simplified string[] `list` result, which must not
+  // intersect with the real SecretsBridge typing on Window['secrets'].
+  const secretsGlobals = globalThis as unknown as {
+    secrets?: {
+      list?: () => Promise<string[]>;
+      [key: string]: unknown;
+    };
+  };
+
+  try {
+    globals.localStorage?.setItem(
+      'assistant-preferences.v1',
+      JSON.stringify({
+        state: {
+          modelsByProvider: payload.models,
+          selectedProvider: payload.provider,
+        },
+        version: 1,
+      })
+    );
+  } catch (error) {
+    if (!payload.ignoreStorageErrors) {
+      throw error;
+    }
+    // Preserve setupAssistantMock's existing tolerance for constrained storage.
+  }
+  globals.__assistantAvailabilityOverride = { state: 'enabled' };
+  globals.dispatchEvent(new Event(assistantAvailabilityOverrideEvent));
+  secretsGlobals.secrets = {
+    ...secretsGlobals.secrets,
+    list: async () => [payload.provider],
+  };
+
+  const hooks = globals.__brainstrikeTestHooks__;
+  if (!hooks) {
+    throw new Error('Brainstrike desktop test hooks are unavailable.');
+  }
+  hooks.notifySecretsChanged();
+  hooks.setAssistantModel(payload.compositeModelKey);
+  globals.__brainstrikeAssistantRuntimeTestHooks__?.setCurrentThreadModel(
+    payload.compositeModelKey
+  );
+}
+
+async function configureAssistantProviderWithModels(
+  page: Page,
+  payload: AssistantProviderInstallPayload
+): Promise<void> {
+  // Electron 43's V8 inspector weakly owns awaited evaluation results. Keep
+  // the actual write reachable through a remote object until it settles;
+  // retaining only an async wrapper does not retain its awaited promise.
+  const pendingWrite = await page.evaluateHandle(
+    ({ apiKey, provider }) => {
+      const secrets = (
+        globalThis as unknown as {
+          secrets?: { saveKey?: (provider: string, key: string) => Promise<SecretsWriteResult> };
+        }
+      ).secrets;
+      if (typeof secrets?.saveKey !== 'function') {
+        throw new Error('Desktop secrets.saveKey is unavailable.');
+      }
+      const write = secrets.saveKey(provider, apiKey);
+      // Observe rejection in the same turn as invocation. Waiting until the
+      // next CDP command would briefly leave an immediate rejection unhandled.
+      const completion = write.then(
+        (value) => ({ ok: true, value }) as const,
+        (error: unknown) => ({ error, ok: false }) as const
+      );
+      // A derived completion promise alone does not keep its source alive.
+      return { completion, write };
+    },
+    { apiKey: payload.apiKey, provider: payload.provider }
+  );
+  try {
+    await pendingWrite.evaluate(async ({ completion }) => {
+      const result = await completion;
+      if (!result.ok) {
+        throw result.error;
+      }
+      if (result.value !== true) {
+        throw new Error(`Assistant provider key save failed: ${result.value.error}`);
+      }
+    });
+  } finally {
+    await pendingWrite.dispose();
+  }
+  await page.evaluate(configureAssistantProviderInPage, payload);
+}
+
+/**
+ * Configures the real assistant provider/key/model seams without replacing
+ * the app's internal `/assistant` endpoint. Use this when an E2E needs the
+ * real server-side Mastra loop and native-tool execution.
+ */
+export async function configureAssistantProvider(
+  page: Page,
+  options: AssistantProviderOptions = {}
+): Promise<void> {
+  const provider = options.provider ?? defaultOptions.provider;
+  const defaultModel = DEFAULT_MODELS[provider];
+  const compositeModelKey =
+    options.compositeModelKey ??
+    (provider === defaultOptions.provider
+      ? defaultOptions.compositeModelKey
+      : defaultModel
+        ? `${provider}::${defaultModel}`
+        : undefined);
+  if (!compositeModelKey) {
+    throw new Error(`No default assistant model is configured for provider "${provider}".`);
+  }
+  await configureAssistantProviderWithModels(page, {
+    apiKey: options.apiKey ?? defaultOptions.apiKey,
+    compositeModelKey,
+    ignoreStorageErrors: false,
+    models: DEFAULT_MODELS,
+    provider,
+  });
+}
 
 function buildAssistantStreamChunks(
   options: Required<AssistantMockOptions>,
@@ -281,6 +450,9 @@ function buildAssistantStreamChunks(
     case 'network-suspend':
       enqueueChunk('aui-data', {
         data: {
+          // Substituted per request with that leg's durable host run id, the
+          // way the desktop host stamps a live pause.
+          hostRunId: HOST_RUN_ID_PLACEHOLDER,
           runId: 'run-network-e2e',
           suspendPayload: {
             allowedDomains: ['pypi.org', '*.githubusercontent.com'],
@@ -364,18 +536,17 @@ export async function setupAssistantMock(
   const merged = { ...defaultOptions, ...options };
   const assistantMessageId = `msg-${Date.now()}`;
 
-  await page.evaluate(
-    async ({ provider, apiKey }) => {
-      const globals = globalThis as unknown as {
-        secrets?: { saveKey?: (p: string, key: string) => Promise<unknown> };
-      };
-      await globals.secrets?.saveKey?.(provider, apiKey);
-    },
-    { apiKey: merged.apiKey, provider: merged.provider }
-  );
+  await configureAssistantProviderWithModels(page, {
+    apiKey: merged.apiKey,
+    compositeModelKey: merged.compositeModelKey,
+    ignoreStorageErrors: true,
+    models: merged.models,
+    provider: merged.provider,
+  });
 
   const installPayload: AssistantMockInstallPayload = {
     assistantMessageId,
+    hostRunIdPlaceholder: HOST_RUN_ID_PLACEHOLDER,
     models: merged.models,
     provider: merged.provider,
     ...(merged.variant === 'network-suspend'
@@ -387,28 +558,6 @@ export async function setupAssistantMock(
   };
 
   await page.evaluate(installAssistantMockInPage, installPayload);
-
-  await page.evaluate((compositeModelKey: string) => {
-    const testWindow = window as Window & {
-      __brainstrikeAssistantRuntimeTestHooks__?: {
-        setCurrentThreadModel: (compositeKey: string) => void;
-      };
-      __brainstrikeTestHooks__?: {
-        notifySecretsChanged: () => void;
-        setAssistantModel: (compositeKey: string) => void;
-      };
-    };
-    const hooks = testWindow.__brainstrikeTestHooks__;
-    const runtimeHooks = testWindow.__brainstrikeAssistantRuntimeTestHooks__;
-
-    if (!hooks) {
-      throw new Error('Brainstrike desktop test hooks are unavailable.');
-    }
-
-    hooks.notifySecretsChanged();
-    hooks.setAssistantModel(compositeModelKey);
-    runtimeHooks?.setCurrentThreadModel(compositeModelKey);
-  }, merged.compositeModelKey);
 }
 
 /**

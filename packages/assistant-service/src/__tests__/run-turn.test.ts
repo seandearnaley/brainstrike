@@ -71,6 +71,74 @@ beforeEach(() => {
 });
 
 describe('runAssistantTurn', () => {
+  it('registers exact replay discovery metadata with the host-owned session', async () => {
+    const discovery = {
+      inputMessage: { id: 'user-1', parts: [{ text: 'Hi', type: 'text' }], role: 'user' },
+      inputParentMessageId: 'assistant-before',
+      parentMessageId: 'user-1',
+      resourceId: 'workspace',
+      threadId: 'thread-1',
+    } as const;
+    const { params, sessions } = baseParams({ discovery });
+
+    const result = await runAssistantTurn(params as never);
+
+    expect(result.ok).toBe(true);
+    expect(sessions.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ discovery: { ...discovery, runId: 'run-1' } })
+    );
+  });
+
+  it('rejects an unresolved action prefix before native initialization and releases ownership', async () => {
+    const initializeStream = vi.fn(
+      async (): Promise<AgentStreamResult> => ({
+        ok: true,
+        stream: emptyStream(),
+      })
+    );
+    const scope = { resourceId: 'workspace', threadId: 'thread-1' };
+    const { params } = baseParams({
+      initializeStream,
+      resolveDiscovery: async () => {
+        throw new Error('Approval action paused assistant has no durable parent edge.');
+      },
+      runtimeData: { memory: scope, provider: 'openai' },
+    });
+    await expect(runAssistantTurn(params as never)).rejects.toThrow('no durable parent edge');
+    expect(initializeStream).not.toHaveBeenCalled();
+    const next = baseParams({ runtimeData: { memory: scope, provider: 'openai' } });
+    const result = await runAssistantTurn(next.params as never);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      await result.completion();
+    }
+  });
+
+  it('threads the auth input to the stream initializer as a DIRECT parameter (BST-1352)', async () => {
+    // Never via RuntimeData: RequestContext.toJSON drops functions, so a
+    // custom_fetch closure riding runtimeData would vanish silently.
+    const authInput = {
+      apiKey: 'dummy',
+      fetch: (() => Promise.reject(new Error('unused'))) as typeof globalThis.fetch,
+      kind: 'custom_fetch' as const,
+    };
+    const initializeStream = vi.fn(
+      async (_params: { runtimeData: Record<string, unknown> }): Promise<AgentStreamResult> => ({
+        ok: true,
+        stream: emptyStream(),
+      })
+    );
+    const { params } = baseParams({ authInput, initializeStream });
+
+    const result = await runAssistantTurn(params as never);
+
+    expect(result.ok).toBe(true);
+    expect(initializeStream).toHaveBeenCalledWith(expect.objectContaining({ authInput }));
+    const initArgs = initializeStream.mock.calls[0]?.[0];
+    expect(initArgs?.runtimeData['authInput']).toBeUndefined();
+  });
+
   it('records a failed run row and passes the failure through verbatim when init fails with a runId', async () => {
     const failure: AgentStreamResult = {
       ok: false,
@@ -82,6 +150,34 @@ describe('runAssistantTurn', () => {
     const result = await runAssistantTurn(params as never);
 
     expect(recordThreadRunStatus).toHaveBeenCalledWith('run-1', 'failed', 'nope');
+    expect(result).toEqual({ ok: false, payload: failure.payload, status: 502 });
+  });
+
+  it('records cancellation when an in-flight initializer returns a structured failure after abort', async () => {
+    const controller = new AbortController();
+    const initialization = Promise.withResolvers<AgentStreamResult>();
+    const failure: AgentStreamResult = {
+      ok: false,
+      payload: { error: 'initialization_failed', message: 'Provider setup failed' },
+      status: 502,
+    };
+    const { params, sessions } = baseParams({
+      executionSignal: controller.signal,
+      initializeStream: vi.fn(() => initialization.promise),
+    });
+    const pendingTurn = runAssistantTurn(params as never);
+    expect(recordThreadRunStatus).not.toHaveBeenCalled();
+
+    controller.abort(new Error('Assistant run canceled by user.'));
+    initialization.resolve(failure);
+    const result = await pendingTurn;
+
+    expect(recordThreadRunStatus).toHaveBeenCalledExactlyOnceWith(
+      'run-1',
+      'cancelled',
+      'Assistant run canceled by user.'
+    );
+    expect(sessions.create).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: false, payload: failure.payload, status: 502 });
   });
 
@@ -241,4 +337,100 @@ describe('runAssistantTurn', () => {
 
     expect(recordThreadRunStatus).not.toHaveBeenCalled();
   });
+});
+
+it('queues the same root until its actual session and terminal write finish, while other roots proceed', async () => {
+  const firstClosed = Promise.withResolvers<void>();
+  const firstWritten = Promise.withResolvers<void>();
+  const writeEntered = Promise.withResolvers<void>();
+  const first = baseParams({
+    runtimeData: { memory: { resourceId: 'owner', threadId: 'queued-root' }, provider: 'openai' },
+  });
+  first.sessions.session.whenClosed.mockReturnValue(firstClosed.promise);
+  recordThreadRunStatus.mockImplementation(async (runId) => {
+    if (runId !== 'run-1') {
+      return;
+    }
+    writeEntered.resolve();
+    await firstWritten.promise;
+  });
+  const firstTurn = await runAssistantTurn(first.params as never);
+  if (!firstTurn.ok) {
+    throw new Error('First root failed');
+  }
+  const second = baseParams({ runId: 'second', runtimeData: first.params.runtimeData });
+  const queued = runAssistantTurn(second.params as never);
+  const other = baseParams({
+    runId: 'other',
+    runtimeData: {
+      memory: { resourceId: 'owner', threadId: 'independent-root' },
+      provider: 'openai',
+    },
+  });
+  try {
+    const independent = await runAssistantTurn(other.params as never);
+    if (!independent.ok) {
+      throw new Error('Independent root failed');
+    }
+    expect(second.params.initializeStream).not.toHaveBeenCalled();
+    firstClosed.resolve();
+    await writeEntered.promise;
+    expect(second.params.initializeStream).not.toHaveBeenCalled();
+    firstWritten.resolve();
+    await firstTurn.completion();
+    const secondTurn = await queued;
+    expect(second.params.initializeStream).toHaveBeenCalledTimes(1);
+    if (!secondTurn.ok) {
+      throw new Error('Queued root failed');
+    }
+    await Promise.all([secondTurn.completion(), independent.completion()]);
+  } finally {
+    firstClosed.resolve();
+    firstWritten.resolve();
+    await firstTurn.completion();
+    const remaining = await queued;
+    if (remaining.ok) {
+      await remaining.completion();
+    }
+  }
+});
+
+it('cancels a queued request without releasing its predecessor or blocking its successor', async () => {
+  const closed = Promise.withResolvers<void>();
+  const scope = { resourceId: 'owner', threadId: 'cancel-queued-root' };
+  const first = baseParams({ runtimeData: { memory: scope, provider: 'openai' } });
+  first.sessions.session.whenClosed.mockReturnValue(closed.promise);
+  const firstTurn = await runAssistantTurn(first.params as never);
+  if (!firstTurn.ok) {
+    throw new Error('First root failed');
+  }
+  const controller = new AbortController();
+  const second = baseParams({
+    executionSignal: controller.signal,
+    runtimeData: first.params.runtimeData,
+  });
+  const queued = runAssistantTurn(second.params as never);
+  const third = baseParams({ runId: 'third', runtimeData: first.params.runtimeData });
+  const following = runAssistantTurn(third.params as never);
+  try {
+    controller.abort(new Error('Cancel queued follow-up'));
+    await expect(queued).rejects.toThrow('Cancel queued follow-up');
+    expect(second.params.initializeStream).not.toHaveBeenCalled();
+    expect(third.params.initializeStream).not.toHaveBeenCalled();
+    closed.resolve();
+    await firstTurn.completion();
+    const lastTurn = await following;
+    if (!lastTurn.ok) {
+      throw new Error('Following root failed');
+    }
+    expect(third.params.initializeStream).toHaveBeenCalledTimes(1);
+    await lastTurn.completion();
+  } finally {
+    closed.resolve();
+    await firstTurn.completion();
+    const remaining = await following;
+    if (remaining.ok) {
+      await remaining.completion();
+    }
+  }
 });

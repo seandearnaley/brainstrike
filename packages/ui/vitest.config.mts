@@ -1,6 +1,8 @@
 import { resolve } from 'node:path';
 import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 import { createBrowserProject } from '../config/src/vitest-browser.ts';
 
@@ -126,6 +128,10 @@ export default defineConfig({
             'react-dom/client',
           ],
         },
+        // Real Tailwind for browser suites that import a `*.browser.css` entry,
+        // so painted geometry is asserted against the classes the app emits.
+        // Browser project only: happy-dom unit suites never need it.
+        plugins: [tailwindcss()],
         resolve: {
           alias: workspaceAliases,
           dedupe: ['react', 'react-dom'],
@@ -139,5 +145,6 @@ export default defineConfig({
         },
       },
     ],
+    reporters: ['default', new LostTestFileReporter()],
   },
 });

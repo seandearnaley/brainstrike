@@ -13,6 +13,7 @@ export const migration005SafeIndices: Migration = {
     DROP INDEX IF EXISTS idx_file_chunks_type;
     DROP INDEX IF EXISTS idx_file_chunks_file_type;
   `,
+  ledgerKey: 'custom-005-safe-indices',
   name: 'safe_indices',
   up: `
     -- Add uniqueness constraint on file_record_id and chunk_index

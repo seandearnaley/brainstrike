@@ -18,9 +18,13 @@ const { startParcelWatchMock } = vi.hoisted(() => ({
     return Promise.resolve(() => undefined);
   }),
 }));
-vi.mock('../adapters/parcel-watchers', () => ({
-  startParcelWatch: startParcelWatchMock,
-}));
+vi.mock('../adapters/parcel-watchers', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../adapters/parcel-watchers.js')>();
+  return {
+    ...actual,
+    startParcelWatch: startParcelWatchMock,
+  };
+});
 
 import { ElectronFileSystemAdapter, resolveWatcherBackend } from '../adapters/electron-adapter.js';
 
@@ -112,6 +116,52 @@ describe('watchDirectory backend routing', () => {
     });
     expect(onSignal).toHaveBeenCalledWith({ message: 'boom', type: 'errored' });
     stop();
+  });
+
+  it('forwards the concrete filtered-change reporting option to the Parcel owner', async () => {
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
+    const adapter = new ElectronFileSystemAdapter();
+    const stop = adapter.watchDirectory(makeHandle(), vi.fn(), undefined, {
+      reportDefaultFilteredChanges: true,
+    });
+    await vi.waitFor(() => {
+      expect(startParcelWatchMock).toHaveBeenCalledTimes(1);
+    });
+    expect(startParcelWatchMock.mock.calls[0]?.[2]).toEqual(
+      expect.objectContaining({ reportDefaultFilteredChanges: true })
+    );
+    stop();
+  });
+
+  it('keeps explicit git-metadata ignores marker-free by default', async () => {
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
+    const adapter = new ElectronFileSystemAdapter();
+    const stop = adapter.watchDirectory(makeHandle(), vi.fn(), undefined, { ignorePatterns: [] });
+    await vi.waitFor(() => {
+      expect(startParcelWatchMock).toHaveBeenCalledTimes(1);
+    });
+    expect(startParcelWatchMock.mock.calls[0]?.[2]).toEqual(
+      expect.objectContaining({
+        ignorePatterns: [],
+        reportDefaultFilteredChanges: false,
+      })
+    );
+    stop();
+  });
+
+  it('rejects an ambiguous filtered-reporting override before starting Parcel', () => {
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
+    const adapter = new ElectronFileSystemAdapter();
+
+    expect(() =>
+      adapter.watchDirectory(makeHandle(), vi.fn(), undefined, {
+        ignorePatterns: [],
+        reportDefaultFilteredChanges: true,
+      })
+    ).toThrow(
+      /reportDefaultFilteredChanges.*ignorePatterns|ignorePatterns.*reportDefaultFilteredChanges/u
+    );
+    expect(startParcelWatchMock).not.toHaveBeenCalled();
   });
 
   it('dispose before async engine start still stops the engine on arrival', async () => {

@@ -1,8 +1,9 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const hostedOutputs = [
@@ -10,6 +11,10 @@ const hostedOutputs = [
   'dist/hosted-web.mjs',
   'dist/request-boundary.js',
   'dist/request-boundary.mjs',
+];
+const mcpFreeOutputs = [
+  ...hostedOutputs,
+  ...['browser-safe', 'index'].flatMap((entry) => [`dist/${entry}.js`, `dist/${entry}.mjs`]),
 ];
 const forbiddenRuntimeImports = [
   {
@@ -44,24 +49,6 @@ const forbiddenBundledSymbols = [
   },
   { label: 'tool-schema display table body', pattern: /\bNATIVE_TOOL_SCHEMAS\b/u },
 ];
-
-/**
- * Workspace packages the CJS hosted bundles already `require()` even though
- * they are ESM-only. Each one throws ERR_REQUIRE_ESM under a loader with
- * `require(ESM)` genuinely disabled, so this list is PRE-EXISTING DEBT that is
- * recorded here to make it visible — not a set of approved exceptions. It works
- * today only because Node enables `require(ESM)` by default (>= 22.12). Shrink
- * it by adding the package to the hosted `noExternal` in `tsup.config.ts`;
- * never grow it. A new entry means a freshly broken deploy path, which is
- * exactly what this check exists to stop (BST-1310 review, PR #2476: the
- * `@brainstrike/types` re-export landed here and nothing caught it).
- */
-const KNOWN_ESM_ONLY_CJS_REQUIRES = new Set([
-  '@brainstrike/local-runtime',
-  '@brainstrike/logging',
-  '@brainstrike/tokenization',
-  '@brainstrike/utils',
-]);
 
 const requireFromAgent = createRequire(path.join(packageRoot, 'package.json'));
 
@@ -112,10 +99,10 @@ function isRequireable(specifier) {
 }
 
 /**
- * The CJS outputs must not `require()` an ESM-only package. tsup emits a bare
- * `require("<pkg>")` for anything left external, and the Hosted Web functions
- * are built as CommonJS — so an ESM-only external fails at LOAD time, before a
- * single request is handled, with a green build and a green type-check.
+ * The compatibility CJS outputs must not require ESM-only workspace packages.
+ * Hosted functions select native ESM, checked by the actual load probe below;
+ * retaining unsafe workspace requires in the compatibility output would hide
+ * module-boundary regressions from consumers with stricter loaders.
  */
 function collectEsmOnlyRequires(source) {
   // Reduced to the package name: `require("@brainstrike/utils/string-utils")`
@@ -126,15 +113,25 @@ function collectEsmOnlyRequires(source) {
       match.groups.specifier.split('/').slice(0, 2).join('/')
     )
   );
-  return [...packageNames]
-    .filter((packageName) => !isRequireable(packageName))
-    .filter((packageName) => !KNOWN_ESM_ONLY_CJS_REQUIRES.has(packageName))
-    .sort();
+  return [...packageNames].filter((packageName) => !isRequireable(packageName)).sort();
 }
 
 for (const relativePath of hostedOutputs) {
   const outputPath = path.join(packageRoot, relativePath);
   const source = await readFile(outputPath, 'utf8');
+  if (relativePath.endsWith('.mjs')) {
+    // Hosted functions use ESM and must load without require(ESM) support.
+    execFileSync(
+      process.execPath,
+      [
+        '--no-experimental-require-module',
+        '--input-type=module',
+        '-e',
+        `await import(${JSON.stringify(pathToFileURL(outputPath).href)})`,
+      ],
+      { encoding: 'utf8', killSignal: 'SIGKILL', timeout: 30_000 }
+    );
+  }
   if (relativePath.endsWith('.js')) {
     const esmOnlyRequires = collectEsmOnlyRequires(source);
     if (esmOnlyRequires.length > 0) {
@@ -154,6 +151,15 @@ for (const relativePath of hostedOutputs) {
         `${relativePath} bundles a forbidden ${forbidden.label} — a contract ROOT-barrel import has likely returned (import the precise subpath instead).`
       );
     }
+  }
+}
+
+for (const relativePath of mcpFreeOutputs) {
+  const source = await readFile(path.join(packageRoot, relativePath), 'utf8');
+  if (/@modelcontextprotocol\//u.test(source) || /\bStdioClientTransport\b/u.test(source)) {
+    throw new Error(
+      `${relativePath} contains the Node-only MCP SDK client; only the dedicated mcp-client entry may own that runtime.`
+    );
   }
 }
 

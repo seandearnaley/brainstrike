@@ -5,6 +5,9 @@
   "version": "1.0.0",
   "author": "",
   "dependencies": {
+    "@atlaskit/pragmatic-drag-and-drop": "^3.1.0",
+    "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.2.0",
+    "@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.2.0",
     "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/logging": "workspace:*",
@@ -14,8 +17,8 @@
     "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.2",
     "@codemirror/merge": "^6.12.2",
-    "@codemirror/state": "^6.7.1",
-    "@codemirror/view": "^6.43.8",
+    "@codemirror/state": "catalog:",
+    "@codemirror/view": "^6.43.11",
     "@radix-ui/react-accordion": "catalog:",
     "@radix-ui/react-checkbox": "catalog:",
     "@radix-ui/react-context-menu": "^2.3.7",
@@ -52,8 +55,10 @@
     "yaml": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
+    "@tailwindcss/vite": "catalog:",
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",
     "@testing-library/user-event": "catalog:",
@@ -61,6 +66,7 @@
     "@types/react": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "axe-core": "^4.13.0",
     "jsdom": "catalog:",
     "react-router-dom": "catalog:",
     "tailwindcss": "catalog:",
@@ -74,6 +80,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./use-toast": {
+      "types": "./dist/use-toast.d.ts",
+      "import": "./dist/use-toast.js"
     },
     "./code-block": {
       "types": "./dist/code-block/index.d.ts",

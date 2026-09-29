@@ -24,6 +24,7 @@
       "!**/*.db",
       "!**/*.json",
       "!**/*.jsonc",
+      "packages/assistant-contract/src/provider-catalog.json",
       "!**/*.css",
       "!**/*.md",
       "!**/*.html",
@@ -131,7 +132,8 @@
       "afterAll",
       "vi",
       "jest",
-      "Electron"
+      "Electron",
+      "__BRAINSTRIKE_BUILD_ID__"
     ]
   },
   "overrides": [
@@ -343,16 +345,6 @@
       }
     },
     {
-      "includes": ["**/tailwind.config.js", "**/tailwind.config.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "useNamingConvention": "off"
-          }
-        }
-      }
-    },
-    {
       "includes": ["**/vitest.setup.ts", "**/vitest.setup.tsx"],
       "linter": {
         "rules": {
@@ -472,22 +464,19 @@
         "packages/app-shell/src/threads-panel.tsx",
         "packages/app-state/src/__tests__/assistant-preferences-store.test.ts",
         "packages/app-state/src/stores/assistant-preferences-store.ts",
-        "packages/assistant-contract/src/provider-registry.ts",
         "packages/db-explorer/src/__tests__/database-demo-panel.test.tsx",
         "packages/db-explorer/src/__tests__/use-database-demo-data.test.ts",
         "packages/db-explorer/src/hooks/__tests__/use-semantic-search-executor.test.ts",
         "packages/db-explorer/src/use-database-demo-data.ts",
-        "packages/db/__tests__/drizzle-file-chunk-repository.test.ts",
         "packages/db/__tests__/file-chunk-repository.test.ts",
         "packages/db/__tests__/managed-cache-batch.test.ts",
         "packages/db/src/database-work-scheduler.ts",
-        "packages/db/src/db-provider.tsx",
         "packages/db/src/queue/job-queue.ts",
         "packages/embedding-worker/src/embedding.worker.ts",
         "packages/embedding-worker/test/embedding.worker.runtime.spec.ts",
         "packages/embeddings/src/__tests__/embedding-worker-batch-optimization.integration.test.ts",
         "packages/embeddings/src/worker/embedding-worker.ts",
-        "packages/file-explorer-hooks/src/__tests__/use-file-system.test.ts",
+        "packages/file-explorer-hooks/src/__tests__/use-file-system.test.tsx",
         "packages/file-explorer-ui/src/__tests__/file-explorer-panel.test.tsx",
         "packages/file-explorer-ui/src/__tests__/file-explorer-sidebar.test.tsx",
         "packages/file-explorer-ui/src/__tests__/optimized-file-tree-selection.test.tsx",

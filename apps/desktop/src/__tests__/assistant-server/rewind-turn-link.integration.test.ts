@@ -40,13 +40,10 @@ afterEach(async () => {
 
 async function seedLinkedResumedTurnThread(databaseName: string): Promise<RewindFixture> {
   const rootPath = await makeTempDir();
+  // `createRewindFixture` seeds THREAD_ID's `mastra_threads` row — every run
+  // needs that parent, so the shared fixture owns it rather than each suite.
   const fixture = await createRewindFixture({ 'root-1': rootPath }, databaseName);
   const { db } = fixture;
-  await db.query(
-    `INSERT INTO mastra_threads (id, "resourceId", title, "createdAt", "updatedAt")
-     VALUES ($1, 'workspace-rewind', 'rewind thread', NOW(), NOW())`,
-    [THREAD_ID]
-  );
   await insertRun(db, {
     completedAt: '2026-01-01T00:01:20Z',
     id: 'run-a1',
@@ -150,36 +147,17 @@ describe('resolveRewindMessageForRun — the stored link (BST-1163)', () => {
   });
 });
 
-describe('pre-1163 runs table — the COLUMN probe, not just the table probe (PR #2291 review)', () => {
-  /** A genuine pre-link install: the table exists, the column does not. The
-   * renderer bootstrap is the ONLY thing that adds it, and main-process
-   * rewind reads (Changes surface) can land first. */
-  async function seedLegacyRunsTable(databaseName: string): Promise<RewindFixture> {
-    const fixture = await seedLinkedResumedTurnThread(databaseName);
-    // Rebuild the timeline's rows without the column rather than dropping it
-    // mid-flight: DROP loses the links, which is exactly the point.
-    await fixture.db.exec(
-      'ALTER TABLE brainstrike_assistant_thread_runs DROP COLUMN turn_message_id'
-    );
-    return fixture;
-  }
-
-  it('resolveRewindRunRange answers via the completed_at rule without raising 42703', async () => {
-    const { db } = await seedLegacyRunsTable('turn-link-legacy-range');
-    const handle = db as unknown as EditCheckpointDatabase;
-
-    const toC = await resolveRewindRunRange(handle, await targetFor(handle, 'msg-c'));
-    // The pre-link rule: runs not yet finished when msg-c was sent.
-    expect(toC).toEqual({ fromRunId: 'run-b1', kind: 'runs', runIds: ['run-b1'] });
-  });
-
-  it('resolveRewindMessageForRun answers via the timestamp rule without raising 42703', async () => {
-    const { db } = await seedLegacyRunsTable('turn-link-legacy-inverse');
-    const handle = db as unknown as EditCheckpointDatabase;
-
-    await expect(resolveRewindMessageForRun(handle, THREAD_ID, 'run-a2')).resolves.toBe('msg-c');
-  });
-});
+/*
+ * The `pre-1163 runs table — the COLUMN probe, not just the table probe`
+ * block lived here until BST-1651. It ALTERed `turn_message_id` away to prove
+ * the information_schema column probe kept a legacy install off 42703. That
+ * premise is retired: migration 118 carries
+ * `ALTER TABLE ... ADD COLUMN IF NOT EXISTS turn_message_id`, so the column
+ * reaches every upgraded install through the chain before any main-process
+ * read can land, and the probe it guarded is gone. NULL-link rows are still
+ * covered — by the two `legacy run keeps the ... fallback` cases above and
+ * below, which is the case that actually survives.
+ */
 
 describe('resolveRewindRunRange — linked runs group by TURN (BST-1163)', () => {
   it('rewinding to a turn boundary includes the whole later turn and excludes the whole earlier one', async () => {

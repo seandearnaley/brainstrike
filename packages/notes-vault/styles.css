@@ -1,0 +1,6 @@
+/*
+ * Notes Vault source directive
+ * This file ensures Tailwind CSS scans this package's components for utility classes.
+ */
+
+@source "./src";

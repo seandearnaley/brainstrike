@@ -1,11 +1,25 @@
 import http from 'node:http';
-import { assistantDataStreamSessions, type RuntimeData } from '@brainstrike/agent';
+import {
+  type AgentMessage,
+  type AwsCredentialIdentityProvider,
+  assistantDataStreamSessions,
+  createAwsCredentialChain,
+  type ParsedAssistantRequestEnvelope,
+  type RuntimeData,
+  resolveAwsCredentialChain,
+} from '@brainstrike/agent';
 import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
+import type { AssistantActiveRunInputMessage } from '@brainstrike/assistant-contract/assistant-stream-session';
+import {
+  createPgliteAssistantThreadRepository,
+  readPausedActionReplayPrefix,
+} from '@brainstrike/assistant-data/assistant-memory-repository';
 import {
   respondAssistantRejection,
   respondJson,
   respondNotFound,
 } from '@brainstrike/assistant-service/http';
+import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
 import { prepareAssistantPostRequest } from '@brainstrike/assistant-service/request';
 import { runAssistantTurn } from '@brainstrike/assistant-service/run-turn';
 import {
@@ -17,12 +31,18 @@ import {
   initializeAgentStream,
 } from '@brainstrike/assistant-service/stream-init';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
+import {
+  handleActiveRunDiscoveryRequest,
+  registerInitializingAssistantRun,
+} from './assistant-server/active-run-discovery';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import {
   type AssistantServerAuth,
   isAuthorizedAssistantToken,
   mintAssistantServerAuthToken,
 } from './assistant-server/auth';
+import { handleDelegatedCancelRequest } from './assistant-server/cancel-delegated-conversation';
+import { closeHttpServerForShutdown } from './assistant-server/close-http-server';
 import { createCompactionRangeLookup } from './assistant-server/compaction-range-repository';
 import { handleCancelRequest, handleSteerRequest } from './assistant-server/control-endpoints';
 import {
@@ -35,6 +55,7 @@ import {
   isAssistantCorsPreflight,
   respondForbiddenOrigin,
 } from './assistant-server/cors';
+import { handleDecideRequest } from './assistant-server/decide-endpoint';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import type { HookRunVerdict } from './assistant-server/hooks/run-verdict';
 import {
@@ -49,14 +70,19 @@ import {
   readRequestBody,
   streamResponse,
 } from './assistant-server/http';
+import { createLiveDecisionLog } from './assistant-server/live-decision-log';
 import { desktopAssistantServerLogger } from './assistant-server/logger';
 import {
   DesktopMemoryCredentialMissingError,
   getDesktopMastraMemory,
 } from './assistant-server/mastra-memory';
 import { createNodeFsScanDeps } from './assistant-server/node-fs-scan-deps';
-import { resolveProviderApiKey } from './assistant-server/provider-credentials';
+import {
+  resolveProviderApiKey,
+  resolveProviderCredential,
+} from './assistant-server/provider-credentials';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
+import { handleRefreshAgentColorsRequest } from './assistant-server/refresh-agent-colors-endpoint';
 import { registerRequestAbort } from './assistant-server/request-abort';
 import { resolveRequestPersonas } from './assistant-server/request-personas';
 import { prepareRequestSkills } from './assistant-server/request-skills';
@@ -69,9 +95,16 @@ import {
   recordDesktopAssistantHookRunOutcome,
   recordDesktopAssistantThreadRunStatus,
 } from './assistant-server/run-persistence';
+import { handleRunStatusRequest } from './assistant-server/run-status-endpoint';
 import { recordDesktopContinuationRunTreatment } from './assistant-server/run-treatment-persistence';
+import { respondToSecretReadError } from './assistant-server/secret-error-responses';
 import { injectSelfImprovementSignalContext } from './assistant-server/self-improvement-signal-context';
+import { handleDelegatedFollowupRequest } from './assistant-server/send-delegated-followup';
 import type { AssistantServerOptions } from './assistant-server/server-options';
+import {
+  createShellCorrelation,
+  type ShellCorrelationCapability,
+} from './assistant-server/shell-worktree-correlation';
 import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
 import { createSecureSkillsFs } from './assistant-server/skills-fs-deps';
 import {
@@ -84,6 +117,7 @@ import {
   handleAssistantStatus,
   handleOpenRouterModelMetadata,
   handleSuspendedRunsRequest,
+  handleVerifyProviderRequest,
 } from './assistant-server/status-endpoints';
 import {
   handleAssistantResumeRequest,
@@ -100,14 +134,19 @@ import {
   getWorkspaceRoots,
 } from './assistant-server/workspace-roots';
 import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
+import type { WorktreeToolCapability } from './assistant-server/worktree-tools';
 import { type DesktopDatabase, getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
-import { loadMcpConfig } from './mcp-loader';
+import { getMcpDesktopAppHost } from './mcp/apps-authority';
+import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
+import { getSubscriptionFetchFactory } from './provider-auth/provider-auth-runtime';
 import { resolveDesktopPythonExecutable } from './python-runtime';
 
 const logger = desktopAssistantServerLogger;
 const compactionOverlayLookup = createCompactionRangeLookup(getDatabase);
 const toolProjectionRewriteLookup = createToolProjectionRewriteLookup(getDatabase);
+/** The /assistant/decide outcomes the running leg cannot see (swarm diagnostics). */
+const liveDecisionLog = createLiveDecisionLog(getDatabase);
 
 /**
  * Desktop's instantiation of the service's opaque capability kinds
@@ -281,13 +320,14 @@ export function startAssistantServer(portHint?: number, options: AssistantServer
       const url = `http://${host}:${actualPort}`;
       resolve({
         ...(authToken === undefined ? {} : { authToken }),
-        stop: async () => await new Promise<void>((r) => server.close(() => r())),
+        stop: () => closeHttpServerForShutdown(server),
         url,
       });
     });
   });
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Explicit route dispatch keeps request handling and auth in one place.
 export async function handleAssistantRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -330,6 +370,10 @@ export async function handleAssistantRequest(
   }
 
   const route = resolveAssistantRoute(req);
+  if (route === 'active-run') {
+    handleActiveRunDiscoveryRequest(req, res);
+    return;
+  }
   if (route === 'status') {
     await handleAssistantStatus(res, options);
     return;
@@ -340,8 +384,23 @@ export async function handleAssistantRequest(
     return;
   }
 
+  if (route === 'verify-provider') {
+    await handleVerifyProviderRequest(req, res, options);
+    return;
+  }
+
   if (route === 'suspended-runs') {
     await handleSuspendedRunsRequest(req, res, options);
+    return;
+  }
+
+  if (route === 'run-status') {
+    await handleRunStatusRequest(req, res, getDatabase);
+    return;
+  }
+
+  if (route === 'refresh-agent-colors') {
+    await handleRefreshAgentColorsRequest(req, res);
     return;
   }
 
@@ -350,8 +409,31 @@ export async function handleAssistantRequest(
     return;
   }
 
+  if (route === 'child-input') {
+    await handleDelegatedFollowupRequest(req, res);
+    return;
+  }
+
+  if (route === 'decide') {
+    await handleDecideRequest(req, res, { recordLiveDecision: liveDecisionLog });
+    return;
+  }
+
+  if (route === 'cancel-child') {
+    await handleDelegatedCancelRequest(req, res);
+    return;
+  }
   if (route === 'cancel') {
-    await handleCancelRequest(req, res);
+    await handleCancelRequest(
+      req,
+      res,
+      options.snapshots
+        ? createTurnBoundaryController({
+            resolveDatabase: resolveEditCheckpointDatabase,
+            snapshots: options.snapshots,
+          })
+        : undefined
+    );
     return;
   }
 
@@ -387,15 +469,286 @@ async function resolveSnapshotWorkspaceRoots(
   return getWorkspaceRoots(enriched).map((root) => ({ path: root.path, rootId: root.rootId }));
 }
 
+/**
+ * BST-1352: the factory auth input derives from the TYPED credential the
+ * request resolved and travels as a direct parameter (runAssistantTurn →
+ * initializeAgentStream → stream options) — never on runtimeData /
+ * RequestContext (toJSON drops functions). Preparation GUARANTEES the
+ * provider string on prepared runtime data (withTrustedAssistantMessageId
+ * stamps it), so its absence is a wiring bug asserted loudly — never coerced
+ * to an empty provider name.
+ */
+async function deriveAssistantTurnAuthInput(
+  runtimeData: RuntimeData,
+  credential: Parameters<typeof providerAuthInputFromCredential>[1]
+): Promise<ReturnType<typeof providerAuthInputFromCredential>> {
+  const provider = runtimeData.provider;
+  if (typeof provider !== 'string' || provider.length === 0) {
+    throw new Error(
+      'Prepared assistant runtime data is missing its provider; request preparation must stamp it.'
+    );
+  }
+  // BST-1353 + PR #2525 finding 2: the chain is RESOLVED HERE, before the
+  // provider reaches the AI SDK, because the SDK replaces any rejection from
+  // `credentialProvider` with a plain Error — a lazily-throwing chain would
+  // lose its typed code and awsAuthMode context on the way to the run-error
+  // envelope. Resolving in this async scope keeps the typed error intact.
+  //
+  // Still per-request: this runs once per turn, so a mid-session
+  // `aws sso login` is picked up on the next message.
+  const awsCredentialChain =
+    credential?.type === 'aws' && credential.mode === 'profile_chain'
+      ? await preresolveAwsChain(credential.profile)
+      : createAwsCredentialChain;
+
+  // The closure is desktop-main-only: it never crosses IPC and is never
+  // serialized (RequestContext.toJSON drops functions).
+  //
+  // BST-1356: the subscription-fetch capability is the interactive-only gate
+  // for `oauth_subscription` providers (legal gate BST-1351, constraint 4).
+  // It is `undefined` in any process that never initialized the provider-auth
+  // runtime, and the projection's oauth arm REJECTS the credential when it is
+  // absent — so headless/web fail closed rather than degrade.
+  const oauthSubscriptionFetch = getSubscriptionFetchFactory();
+  return providerAuthInputFromCredential(provider, credential, {
+    awsCredentialChain,
+    ...(oauthSubscriptionFetch === undefined ? {} : { oauthSubscriptionFetch }),
+  });
+}
+
+/**
+ * Resolve the chain once and present it as the projection's sync capability.
+ * A failure throws the TYPED chain error out of this async scope — which is
+ * the entire point (see finding 2 above).
+ */
+async function preresolveAwsChain(
+  profile: string | undefined
+): Promise<() => AwsCredentialIdentityProvider> {
+  const resolved = await resolveAwsCredentialChain(profile);
+  return () => resolved;
+}
+
+/**
+ * Derivation runs inside the handled scope (BST-1352 review finding 8): an
+ * UnsupportedCredentialTypeError is SecretReadError-shaped, so it maps to the
+ * same classified api_key_unreadable 400 as every other secret failure
+ * instead of escaping as an unhandled throw. `ok: false` means the response
+ * was already written.
+ */
+async function deriveAuthInputOrRespond(
+  res: http.ServerResponse,
+  runtimeData: RuntimeData,
+  credential: Parameters<typeof providerAuthInputFromCredential>[1]
+): Promise<
+  { ok: true; authInput: Awaited<ReturnType<typeof deriveAssistantTurnAuthInput>> } | { ok: false }
+> {
+  try {
+    return { authInput: await deriveAssistantTurnAuthInput(runtimeData, credential), ok: true };
+  } catch (error) {
+    if (respondToSecretReadError(res, error)) {
+      return { ok: false };
+    }
+    // A typed chain failure (mastra_agent_runtime_init_failed) is NOT
+    // secret-read-shaped, so it deliberately falls through to the caller's
+    // run-error handling with its code and actionable detail intact.
+    throw error;
+  }
+}
+
+/** W7 T2 gate extracted for the cognitive-complexity budget: a controller
+ * exists only for a persisted run (runId + threadId) with snapshot deps. */
+function resolveTurnBoundariesForRun(
+  options: AssistantServerOptions,
+  runId: string | undefined,
+  threadId: string | undefined
+): ReturnType<typeof createTurnBoundaryController> | null {
+  if (!(options.snapshots && runId && threadId)) {
+    return null;
+  }
+  return createTurnBoundaryController({
+    resolveDatabase: resolveEditCheckpointDatabase,
+    snapshots: options.snapshots,
+  });
+}
+
+function isRejectedBeforeStreamInitialization(
+  enteredStreamInitialization: boolean,
+  isToolDecisionLeg: boolean
+): boolean {
+  return !enteredStreamInitialization && isToolDecisionLeg;
+}
+
+/**
+ * `createdBy: 'agent'` and the run/thread ids are bound HERE, never taken from
+ * tool input: provenance the model can set is provenance the model can forge.
+ */
+function buildDesktopToolDependencies(
+  options: AssistantServerOptions,
+  // `runId` matches StreamInitializer's actual param shape (ports.ts): a
+  // REQUIRED key whose value may be undefined, not an optional key — under
+  // exactOptionalPropertyTypes the two are not interchangeable, and the real
+  // `core` passed at the call site always carries the key.
+  core: { readonly runId: string | undefined; readonly runtimeData?: RuntimeData }
+): { shellCorrelation?: ShellCorrelationCapability; worktreeTools?: WorktreeToolCapability } {
+  const service = options.resolveWorktreeService?.() ?? null;
+  const forge = options.resolveForgeService?.() ?? null;
+  const runId = core.runId;
+  const threadId = core.runtimeData?.memory?.threadId;
+  const worktreeTools: WorktreeToolCapability | undefined = service
+    ? {
+        archive: (params) => service.archive({ ...params, ...(runId ? { runId } : {}) }),
+        create: (params) =>
+          service.create({
+            ...params,
+            branch: { name: params.branch },
+            createdBy: 'agent',
+            ...(runId ? { runId } : {}),
+            ...(threadId ? { threadId } : {}),
+          }),
+        list: () => service.list(),
+      }
+    : undefined;
+  const shellCorrelation: ShellCorrelationCapability | undefined =
+    service || forge
+      ? createShellCorrelation({
+          forgeRefresh: (rootId) => {
+            // `refresh` returns a Promise; `void`-ing the call alone let its
+            // rejection go unhandled. `.catch` per the same shape
+            // `onRepositoryInvalidated` already uses (forge-service.ts:626).
+            forge?.refresh(rootId, 'shell').catch((error: unknown) => {
+              logger.error('shell forge refresh threw', { error, rootId });
+            });
+          },
+          reconcile: async (rootId, precedingWorktreePaths) => {
+            if (!service) {
+              return { error: 'Worktrees are unavailable in this session.', ok: false };
+            }
+            const context = await service.repositoryContextForRoot(rootId);
+            if (!context.ok) {
+              return context;
+            }
+            return await service.reconcileFromShell({
+              precedingWorktreePaths,
+              repoCommonDir: context.value.commonDir,
+              ...(runId ? { runId } : {}),
+              ...(threadId ? { threadId } : {}),
+            });
+          },
+        })
+      : undefined;
+  return {
+    ...(shellCorrelation ? { shellCorrelation } : {}),
+    ...(worktreeTools ? { worktreeTools } : {}),
+  };
+}
+
+function discoveredInputMessage(message: AgentMessage): AssistantActiveRunInputMessage {
+  if (
+    message.role !== 'user' ||
+    message.parts.some((part) => part.type !== 'text' && part.type !== 'file')
+  ) {
+    throw new Error('Only a validated user input can be discovered for assistant replay.');
+  }
+  return {
+    id: message.id,
+    parts: message.parts.map((part) => {
+      if (part.type === 'text') {
+        return { text: part.text, type: 'text' as const };
+      }
+      if (part.type === 'file') {
+        return {
+          data: part.data,
+          mediaType: part.mediaType,
+          type: 'file' as const,
+          ...(part.filename ? { filename: part.filename } : {}),
+        };
+      }
+      throw new Error('Assistant replay input contains an unsupported part.');
+    }),
+    role: 'user',
+  };
+}
+
+export function discoveryForRequest(input: {
+  readonly runId: string | undefined;
+  readonly threadId: string | undefined;
+  readonly resourceId: string | undefined;
+  readonly finalInputMessage: AgentMessage | undefined;
+  readonly inputParentMessageId: string | null | undefined;
+  readonly isToolDecisionLeg: boolean;
+}): NonNullable<Parameters<typeof runAssistantTurn>[0]['discovery']> | undefined {
+  const {
+    runId,
+    threadId,
+    resourceId,
+    finalInputMessage,
+    inputParentMessageId,
+    isToolDecisionLeg,
+  } = input;
+  const hasUserInput = !isToolDecisionLeg && finalInputMessage?.role === 'user';
+  if (!(runId && threadId && resourceId) || (hasUserInput && inputParentMessageId === undefined)) {
+    return;
+  }
+  return {
+    resourceId,
+    threadId,
+    ...(isToolDecisionLeg || !finalInputMessage ? {} : { parentMessageId: finalInputMessage.id }),
+    inputMessage:
+      hasUserInput && finalInputMessage ? discoveredInputMessage(finalInputMessage) : null,
+    inputParentMessageId: hasUserInput ? (inputParentMessageId ?? null) : null,
+  };
+}
+
 async function handleAssistantPost(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   options: AssistantServerOptions
 ): Promise<void> {
+  let releaseInitializing = (): void => {};
+  const registerParsedRequest = (
+    payload: ParsedAssistantRequestEnvelope
+  ): ParsedAssistantRequestEnvelope => {
+    const memory = payload.data?.memory;
+    if (
+      typeof memory?.resourceId === 'string' &&
+      memory.resourceId.trim() &&
+      memory.resourceId.length <= 512 &&
+      typeof memory.threadId === 'string' &&
+      memory.threadId.trim() &&
+      memory.threadId.length <= 512 &&
+      typeof memory.runId === 'string' &&
+      memory.runId.trim()
+    ) {
+      releaseInitializing = registerInitializingAssistantRun(memory.resourceId, memory.threadId);
+    }
+    return payload;
+  };
+  try {
+    await handleAssistantPostOwned(req, res, options, registerParsedRequest, () =>
+      releaseInitializing()
+    );
+  } finally {
+    releaseInitializing();
+  }
+}
+
+async function handleAssistantPostOwned(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  options: AssistantServerOptions,
+  registerParsedRequest: (
+    payload: ParsedAssistantRequestEnvelope
+  ) => ParsedAssistantRequestEnvelope,
+  releaseInitializing: () => void
+): Promise<void> {
   const prepared = await prepareAssistantPostRequest({
+    // BST-1353: desktop main is the ONLY host that can resolve local AWS
+    // profiles, so it is the only one that supplies the chain builder.
+    awsCredentialChain: createAwsCredentialChain,
+    filterPayload: registerParsedRequest,
     logger,
     readBody: () => readRequestBody(req, { maxBodyBytes: assistantRequestBodyLimitBytes }),
-    resolveProviderApiKey,
+    resolveProviderCredential,
   });
   if (!prepared.ok) {
     respondAssistantRejection(res, prepared.rejection);
@@ -403,12 +756,22 @@ async function handleAssistantPost(
   }
   const {
     assistantMessageId,
+    credential,
+    finalInputMessage,
+    inputParentMessageId,
+    pausedMessageId,
     messages,
     runtimeData,
     apiKey,
+    childFollowupAction,
     toolApprovalAction,
     toolResumeAction,
   } = prepared.request;
+  const derivedAuthInput = await deriveAuthInputOrRespond(res, runtimeData, credential);
+  if (!derivedAuthInput.ok) {
+    return;
+  }
+  const { authInput } = derivedAuthInput;
 
   const lastEventId = readLastEventId(req);
   if (await resumeStreamIfAvailable(res, lastEventId)) {
@@ -418,40 +781,45 @@ async function handleAssistantPost(
   const executionAbortController = new AbortController();
   const runId = runtimeData.memory?.runId;
   const threadId = runtimeData.memory?.threadId;
+  const isToolDecisionLeg = Boolean(toolApprovalAction ?? toolResumeAction);
+  const discovery = discoveryForRequest({
+    finalInputMessage,
+    inputParentMessageId,
+    isToolDecisionLeg,
+    resourceId: runtimeData.memory?.resourceId,
+    runId,
+    threadId,
+  });
 
   // W7 T2 (BST-1164): shadow-git turn boundaries on the run-persistence seam.
   // Only a persisted run (runId + threadId) with the snapshot deps wired
   // participates; snapshot bookkeeping NEVER blocks or fails the run.
-  const turnBoundaries =
-    options.snapshots && runId && threadId
-      ? createTurnBoundaryController({
-          resolveDatabase: resolveEditCheckpointDatabase,
-          snapshots: options.snapshots,
-        })
-      : null;
+  const turnBoundaries = resolveTurnBoundariesForRun(options, runId, threadId);
   const legPause: LegPauseState = { paused: false };
-  if (turnBoundaries && runId && threadId) {
-    try {
-      await turnBoundaries.beginLeg({
-        // TURN ANCHOR: the triggering user message, never the run row (a turn
-        // is not a run — approval/suspend resumes mint additional run rows).
-        anchorMessageId: resolveTurnAnchorMessageId(messages),
-        isResume: toolApprovalAction !== undefined || toolResumeAction !== undefined,
-        roots: await resolveSnapshotWorkspaceRoots(runtimeData),
-        runId,
-        threadId,
-      });
-    } catch (error) {
-      // beginLeg itself never throws; this guards the roots resolution. A run
-      // is never blocked by snapshot bookkeeping — the turn simply has no
-      // recorded start and its changeset resolves to the typed honest error.
-      logger.error('Turn-start snapshot bookkeeping failed; the run proceeds', {
-        error,
-        runId,
-        threadId,
-      });
+  const beginOwnedTurnLeg = async (): Promise<void> => {
+    if (turnBoundaries && runId && threadId) {
+      try {
+        await turnBoundaries.beginLeg({
+          // TURN ANCHOR: the triggering user message, never the run row (a turn
+          // is not a run — approval/suspend resumes mint additional run rows).
+          anchorMessageId: resolveTurnAnchorMessageId(messages),
+          isResume: toolApprovalAction !== undefined || toolResumeAction !== undefined,
+          roots: await resolveSnapshotWorkspaceRoots(runtimeData),
+          runId,
+          threadId,
+        });
+      } catch (error) {
+        // beginLeg itself never throws; this guards the roots resolution. A run
+        // is never blocked by snapshot bookkeeping — the turn simply has no
+        // recorded start and its changeset resolves to the typed honest error.
+        logger.error('Turn-start snapshot bookkeeping failed; the run proceeds', {
+          error,
+          runId,
+          threadId,
+        });
+      }
     }
-  }
+  };
   // Turn-end snapshots complete BEFORE the terminal thread_runs status write
   // (plan global constraint 5): the port wrapper runs completeLeg first, so
   // by the time the run reads terminal the turn-end ledger rows exist.
@@ -478,6 +846,7 @@ async function handleAssistantPost(
   // leg, and unregistering it would make a genuinely active run un-steerable
   // (spurious 404). Review finding, BST-588.
   let registeredSteerableRun = false;
+  let enteredStreamInitialization = false;
   try {
     // Steering control (BST-588): in-memory only, injected AFTER request
     // validation exactly like `signal`. Every streaming leg with a runId is
@@ -495,15 +864,82 @@ async function handleAssistantPost(
     const turn = await runAssistantTurn({
       apiKey,
       assistantMessageId,
+      authInput,
+      ...(childFollowupAction ? { childFollowupAction } : {}),
       executionSignal: executionAbortController.signal,
+      ...(discovery ? { discovery } : {}),
+      ...(discovery && (toolApprovalAction || toolResumeAction)
+        ? {
+            resolveDiscovery: async () => {
+              const action = toolApprovalAction ?? toolResumeAction;
+              // Child continuations restore their own transcript from the durable
+              // continuation receipt. The root replay prefix cannot own that call.
+              if (!action || action.continuationId) {
+                return discovery;
+              }
+              const actionReplay = await readPausedActionReplayPrefix({
+                hostRunId: action.hostRunId,
+                nativeRunId: action.runId,
+                pauseKind: toolApprovalAction ? 'approval' : 'suspend',
+                repository: createPgliteAssistantThreadRepository(await getDatabase()),
+                resourceId: discovery.resourceId,
+                threadId: discovery.threadId,
+                toolCallId: action.toolCallId,
+                ...(action.delegation ? { delegation: action.delegation } : {}),
+                ...(pausedMessageId ? { pausedMessageId } : {}),
+              });
+              return { ...discovery, actionReplay };
+            },
+          }
+        : {}),
       initializeStream: async (core) => {
+        // Pre-admission rejection releases the renderer's prepared lease. Keep
+        // durable admission and native execution after this boundary.
+        enteredStreamInitialization = true;
+        // runAssistantTurn admits this root only after its previous owner settles.
+        await beginOwnedTurnLeg();
+        // Apps admission is keyed by the OWNING THREAD (review finding on
+        // BST-1572): an app mounted in thread A must never execute under a
+        // later run of thread B that knows the same server. A run without a
+        // persisted thread publishes no admission (no key to correlate on).
+        const admissionRun =
+          core.runId && core.runtimeData?.memory?.threadId
+            ? { runId: core.runId, threadId: core.runtimeData.memory.threadId }
+            : undefined;
         const result = await initializeAgentStream({
           apiKey: core.apiKey,
-          capabilities: desktopAgentStreamCapabilities,
+          authInput: core.authInput,
+          // Initial, approval and suspension-resume requests all enter this
+          // initializer; background work and active input retain its memory.
+          capabilities: {
+            ...desktopAgentStreamCapabilities,
+            memory: {
+              ...desktopAgentStreamCapabilities.memory,
+              create: (settings, memoryRunId, sink, data, dependencies) =>
+                getDesktopMastraMemory(settings, memoryRunId, sink, data, {
+                  ...dependencies,
+                  snapshots: options.snapshots ?? undefined,
+                }),
+            },
+          },
           compactionOverlayLookup,
           getDatabase,
           logger,
-          mcpConfig: (await loadMcpConfig()).config,
+          mcpConfig: undefined,
+          ...(admissionRun
+            ? {
+                mcpAppAdmission: {
+                  register: (admission) => {
+                    const appHost = getMcpDesktopAppHost();
+                    appHost.registerAdmission(admissionRun, admission);
+                    return () => appHost.invalidateAdmission(admissionRun);
+                  },
+                },
+              }
+            : {}),
+          childFollowupAction: core.childFollowupAction,
+          mcpHost: getDesktopMcpHostRuntime().host,
+          mcpTaskTracking: getDesktopMcpHostRuntime().taskHost,
           messages: core.messages,
           resolveProviderApiKey,
           runId: core.runId,
@@ -513,6 +949,7 @@ async function handleAssistantPost(
           toolDependencies: {
             embeddingHostManager: options.embeddingHostManager,
             llmHostManager: options.llmHostManager,
+            ...buildDesktopToolDependencies(options, core),
           },
           toolProjectionRewriteLookup,
           toolResumeAction: core.toolResumeAction,
@@ -533,6 +970,7 @@ async function handleAssistantPost(
       toolApprovalAction,
       toolResumeAction,
     });
+    releaseInitializing();
     if (!turn.ok) {
       respondJson(res, turn.status, turn.payload);
       return;
@@ -552,11 +990,16 @@ async function handleAssistantPost(
               })
           : null,
       error,
+      preAdmissionRejected: isRejectedBeforeStreamInitialization(
+        enteredStreamInitialization,
+        isToolDecisionLeg
+      ),
       res,
       runId,
       signal: executionAbortController.signal,
     });
   } finally {
+    releaseInitializing();
     if (runId && registeredSteerableRun) {
       unregisterSteerableRun(runId);
     }
@@ -570,6 +1013,7 @@ async function handleAssistantPostStreamError({
   runId,
   signal,
   error,
+  preAdmissionRejected,
 }: {
   /** W7 T2: turn-end snapshot hook, run BEFORE the terminal status write. */
   readonly completeTurnLeg:
@@ -579,6 +1023,7 @@ async function handleAssistantPostStreamError({
   readonly runId: string | undefined;
   readonly signal: AbortSignal;
   readonly error: unknown;
+  readonly preAdmissionRejected: boolean;
 }): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
   if (runId) {
@@ -596,7 +1041,7 @@ async function handleAssistantPostStreamError({
     return;
   }
   respondJson(res, 500, {
-    error: 'assistant_stream_failed',
+    error: preAdmissionRejected ? 'assistant_admission_rejected' : 'assistant_stream_failed',
     message: 'Assistant stream failed.',
   });
 }

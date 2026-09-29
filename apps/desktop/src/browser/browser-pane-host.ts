@@ -153,6 +153,7 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
       addChildView: (view) => hostWindow.contentView.addChildView(resolveNativeView(view)),
       removeChildView: (view) => hostWindow.contentView.removeChildView(resolveNativeView(view)),
     },
+    isDestroyed: () => hostWindow.isDestroyed(),
   };
 
   const createView = (partition: string): BrowserPaneView => {
@@ -210,12 +211,9 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
   // clears open tabs, not just the renderer mirror + session storage. The
   // fresh renderer re-seeds from an empty list.
   const onHostNavigation = (
-    _event: Electron.Event,
-    _url: string,
-    isInPlace: boolean,
-    isMainFrame: boolean
+    details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>
   ) => {
-    if (isMainFrame && !isInPlace) {
+    if (details.isMainFrame && !details.isSameDocument) {
       manager.dispose();
     }
   };

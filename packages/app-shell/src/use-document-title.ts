@@ -1,6 +1,5 @@
 import {
   type PanelTab,
-  selectVisibleSurface,
   usePanelLayoutStore,
 } from '@brainstrike/app-state/stores/panel-layout-store';
 import { useEffect } from 'react';
@@ -68,16 +67,14 @@ function resolveDescriptionMeta(): HTMLMetaElement {
  * the active route does, and it is pinned by
  * `apps/web/src/app/__tests__/document-title.test.tsx`.
  *
- * Settings is an overlay dialog rather than a route swap, so an open dialog
- * wins over the tab underneath it — the same precedence the old markup got
- * from mounting the settings `<Helmet>` on top of the explorer one. That rule
- * is NOT restated here: `selectVisibleSurface` owns it, and `RootLayoutContent`
- * drives the settings dialog from the same selector, so the title cannot
- * describe a surface other than the one on screen.
+ * Settings is a shell route like every other tab (BST-1668), so `activeTab`
+ * alone names the surface on screen — the same value `RootLayoutContent`
+ * shows and hides the routes from, so the title cannot describe a surface
+ * other than the one the user is looking at.
  */
 export function useDocumentTitle(): void {
-  const visibleSurface = usePanelLayoutStore(selectVisibleSurface);
-  const { description, title } = DOCUMENT_META[visibleSurface];
+  const activeTab = usePanelLayoutStore((state) => state.activeTab);
+  const { description, title } = DOCUMENT_META[activeTab];
 
   useEffect(() => {
     document.title = title;

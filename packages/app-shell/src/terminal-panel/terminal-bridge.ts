@@ -2,10 +2,10 @@
  * Structural typing + capability resolution for the desktop `window.terminal`
  * bridge (a PTY backend).
  *
- * app-shell cannot import `apps/desktop` types, so the bridge shape is mirrored
- * here as the minimal contract the Terminal panel consumes. It MUST stay in sync
- * with the desktop bridge declared in `apps/desktop/src/types/electron.d.ts` (and
- * the handlers in `apps/desktop/src/terminal-ipc-handlers.ts`).
+ * app-shell cannot import `apps/desktop` types, so this is the package-owned
+ * bridge shape the Terminal panel consumes. The desktop contract proves exact
+ * compatibility with this interface and derives its preload and Window types
+ * from that contract.
  *
  * Capability gating (CLAUDE.md CONTEXT ACTION SYSTEM): the panel is desktop-only
  * because it is constructed only when `resolveTerminalBridge()` returns a
@@ -45,6 +45,12 @@ export interface TerminalExitEvent {
 export interface TerminalBridge {
   create: (params: {
     rootId: string;
+    /**
+     * Absolute path inside the root to pin the shell to; omitted ⇒ the root
+     * itself. Mirrors `TerminalCreateParams` in
+     * `apps/desktop/src/terminal-ipc-handlers.ts`.
+     */
+    cwd?: string;
     cols?: number;
     rows?: number;
   }) => Promise<TerminalResult<TerminalCreateResult>>;

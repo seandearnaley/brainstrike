@@ -53,6 +53,9 @@
       "@brainstrike/hooks": [
         "./packages/hooks/src"
       ],
+      "@brainstrike/effect-kit": [
+        "./packages/effect-kit/src"
+      ],
       "@brainstrike/logging": [
         "./packages/logging/src"
       ],
@@ -92,6 +95,9 @@
       "@brainstrike/file-explorer-ui/*": [
         "./packages/file-explorer-ui/src/*"
       ],
+      "@brainstrike/file-tree-test-fixtures": [
+        "./packages/file-tree-test-fixtures/src"
+      ],
       "@brainstrike/storage": [
         "./packages/storage/src"
       ],
@@ -118,6 +124,15 @@
       ],
       "@brainstrike/agent": [
         "./packages/agent/dist/index.d.ts"
+      ],
+      "@brainstrike/mcp-app-host": [
+        "./packages/mcp-app-host/src/index.ts"
+      ],
+      "@brainstrike/mcp-app-host-ui": [
+        "./packages/mcp-app-host-ui/src/index.ts"
+      ],
+      "@brainstrike/mcp-tasks-extension": [
+        "./packages/mcp-tasks-extension/src/index.ts"
       ],
       "@brainstrike/embeddings": [
         "./packages/embeddings/src"
@@ -246,6 +261,9 @@
       "path": "./packages/tokenization"
     },
     {
+      "path": "./packages/effect-kit"
+    },
+    {
       "path": "./packages/logging"
     },
     {
@@ -268,6 +286,9 @@
     },
     {
       "path": "./packages/file-explorer-ui"
+    },
+    {
+      "path": "./packages/file-tree-test-fixtures"
     },
     {
       "path": "./packages/storage"

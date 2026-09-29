@@ -30,22 +30,9 @@ vi.mock('@brainstrike/agent/client', () => ({
   },
 }));
 
-// Mock native tool executor
-vi.mock('../../native-tool-executor', () => ({
-  executeNativeTool: vi.fn(),
-  isExecutableNativeTool: vi.fn(),
-}));
-
-// Mock MCP callTool
-vi.mock('../../mcp', () => ({
-  callTool: vi.fn(),
-}));
-
 import { isNativeTool } from '@brainstrike/agent/client';
 import { ipcMain } from 'electron';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
-import { callTool } from '../../mcp';
-import { executeNativeTool, isExecutableNativeTool } from '../../native-tool-executor';
 
 vi.mock('../../assistant-server/assistant-tools', () => ({
   buildDesktopAssistantTools: vi.fn(),
@@ -86,29 +73,6 @@ describe('ipc-tools', () => {
   const mockEvent = {} as IpcMainInvokeEvent;
 
   describe('tools:execute', () => {
-    it('executes native tools via executeNativeTool', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(true);
-      vi.mocked(executeNativeTool).mockResolvedValue({
-        durationMs: 10,
-        result: { data: 'test' },
-        success: true,
-      });
-
-      const result = await toolsExecuteHandler(mockEvent, 'brainstrike.readWorkspaceFile', {
-        path: '/README.md',
-      });
-
-      expect(isExecutableNativeTool).toHaveBeenCalledWith('brainstrike.readWorkspaceFile');
-      expect(executeNativeTool).toHaveBeenCalledWith('brainstrike.readWorkspaceFile', {
-        path: '/README.md',
-      });
-      expect(result).toEqual({
-        durationMs: 10,
-        result: { data: 'test' },
-        success: true,
-      });
-    });
-
     it('rejects invalid tool IDs', async () => {
       const result = await toolsExecuteHandler(mockEvent, '   ', {});
 
@@ -119,14 +83,18 @@ describe('ipc-tools', () => {
     });
 
     it('rejects non-object inputs for native tools', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(true);
+      vi.mocked(isNativeTool).mockReturnValue(true);
+      const execute = vi.fn();
+      vi.mocked(buildDesktopAssistantTools).mockReturnValue({
+        'brainstrike.readWorkspaceFile': { execute },
+      } as never);
 
       const result = await toolsExecuteHandler(mockEvent, 'brainstrike.readWorkspaceFile', [
         'not',
         'object',
       ]);
 
-      expect(executeNativeTool).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
       expect(result).toMatchObject({
         error: 'Tool input must be a JSON object.',
         success: false,
@@ -134,7 +102,11 @@ describe('ipc-tools', () => {
     });
 
     it('rejects overly deep native tool inputs', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(true);
+      vi.mocked(isNativeTool).mockReturnValue(true);
+      const execute = vi.fn();
+      vi.mocked(buildDesktopAssistantTools).mockReturnValue({
+        'brainstrike.readWorkspaceDirectory': { execute },
+      } as never);
 
       const deepInput: { child?: unknown } = {};
       let cursor: { child?: unknown } = deepInput;
@@ -150,30 +122,25 @@ describe('ipc-tools', () => {
         deepInput
       );
 
-      expect(executeNativeTool).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
       expect(result).toMatchObject({
         error: expect.stringContaining('JSON-serializable'),
         success: false,
       });
     });
 
-    it('executes MCP tools via callTool', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+    it('rejects non-native tools instead of exposing an MCP execution bypass', async () => {
       vi.mocked(isNativeTool).mockReturnValue(false);
-      vi.mocked(callTool).mockResolvedValue({ mcpResult: 'success' });
 
       const result = await toolsExecuteHandler(mockEvent, 'mcp__server__tool', { param: 'value' });
 
-      expect(isExecutableNativeTool).toHaveBeenCalledWith('mcp__server__tool');
-      expect(callTool).toHaveBeenCalledWith('mcp__server__tool', { param: 'value' });
       expect(result).toMatchObject({
-        result: { mcpResult: 'success' },
-        success: true,
+        error: expect.stringContaining('not available in the native Tool Playground harness'),
+        success: false,
       });
     });
 
     it('executes assistant runtime native tools when runtime context is provided', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(true);
       vi.mocked(buildDesktopAssistantTools).mockReturnValue({
         'brainstrike.readWorkspaceFile': {
@@ -206,7 +173,6 @@ describe('ipc-tools', () => {
         },
         { embeddingHostManager: undefined }
       );
-      expect(callTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
         result: { content: 'hello' },
         success: true,
@@ -214,7 +180,6 @@ describe('ipc-tools', () => {
     });
 
     it('passes only structurally valid workspace context metadata to assistant runtime tools (flag-less payload)', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(true);
       vi.mocked(buildDesktopAssistantTools).mockReturnValue({
         'brainstrike.readWorkspaceContext': {
@@ -288,7 +253,6 @@ describe('ipc-tools', () => {
     });
 
     it('passes through file root identity (Phase 6) and drops malformed values', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(true);
       vi.mocked(buildDesktopAssistantTools).mockReturnValue({
         'brainstrike.readWorkspaceContext': {
@@ -339,7 +303,6 @@ describe('ipc-tools', () => {
     });
 
     it('omits invalid workspace indexing mode values before assistant runtime tool execution', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(true);
       vi.mocked(buildDesktopAssistantTools).mockReturnValue({
         'brainstrike.listEmbeddingSpaces': {
@@ -376,7 +339,6 @@ describe('ipc-tools', () => {
     });
 
     it('omits invalid workspace context metadata before assistant runtime tool execution', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(true);
       vi.mocked(buildDesktopAssistantTools).mockReturnValue({
         'brainstrike.readWorkspaceContext': {
@@ -416,7 +378,6 @@ describe('ipc-tools', () => {
     });
 
     it('passes enabled native tools and agent loop metadata to assistant runtime tools', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(true);
       vi.mocked(buildDesktopAssistantTools).mockReturnValue({
         'brainstrike.readWorkspaceContext': {
@@ -463,7 +424,6 @@ describe('ipc-tools', () => {
     });
 
     it('preserves an empty enabled native tool list for assistant runtime tools', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(true);
       vi.mocked(buildDesktopAssistantTools).mockReturnValue({
         'brainstrike.readWorkspaceContext': {
@@ -491,39 +451,21 @@ describe('ipc-tools', () => {
     });
 
     it('returns friendly error for native tools requiring database access', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(true);
 
       const result = await toolsExecuteHandler(mockEvent, 'brainstrike.readWorkspaceFile', {
         path: '/README.md',
       });
 
-      expect(isExecutableNativeTool).toHaveBeenCalledWith('brainstrike.readWorkspaceFile');
       expect(isNativeTool).toHaveBeenCalledWith('brainstrike.readWorkspaceFile');
-      expect(callTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
         error: expect.stringContaining('requires database access'),
         success: false,
       });
     });
 
-    it('handles MCP tool execution errors', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
-      vi.mocked(isNativeTool).mockReturnValue(false);
-      vi.mocked(callTool).mockRejectedValue(new Error('MCP server disconnected'));
-
-      const result = await toolsExecuteHandler(mockEvent, 'mcp__server__tool', {});
-
-      expect(result).toMatchObject({
-        error: 'MCP server disconnected',
-        success: false,
-      });
-    });
-
     it('includes durationMs in all responses', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(false);
-      vi.mocked(callTool).mockResolvedValue({ data: 'test' });
 
       const result = (await toolsExecuteHandler(mockEvent, 'mcp__tool', {})) as {
         durationMs: number;
@@ -534,8 +476,12 @@ describe('ipc-tools', () => {
     });
 
     it('handles native tool execution errors gracefully', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(true);
-      vi.mocked(executeNativeTool).mockRejectedValue(new Error('Native tool crashed'));
+      vi.mocked(isNativeTool).mockReturnValue(true);
+      vi.mocked(buildDesktopAssistantTools).mockReturnValue({
+        'brainstrike.readWorkspaceFile': {
+          execute: vi.fn().mockRejectedValue(new Error('Native tool crashed')),
+        },
+      } as never);
 
       const result = await toolsExecuteHandler(mockEvent, 'brainstrike.readWorkspaceFile', {
         path: '/README.md',
@@ -548,75 +494,19 @@ describe('ipc-tools', () => {
     });
 
     it('handles non-Error thrown values', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
-      vi.mocked(isNativeTool).mockReturnValue(false);
-      vi.mocked(callTool).mockRejectedValue('string error');
+      vi.mocked(isNativeTool).mockReturnValue(true);
+      vi.mocked(buildDesktopAssistantTools).mockReturnValue({
+        'brainstrike.readWorkspaceFile': {
+          execute: vi.fn().mockRejectedValue('string error'),
+        },
+      } as never);
 
-      const result = await toolsExecuteHandler(mockEvent, 'mcp__tool', {});
+      const result = await toolsExecuteHandler(mockEvent, 'brainstrike.readWorkspaceFile', {});
 
       expect(result).toMatchObject({
         error: 'Tool execution failed',
         success: false,
       });
-    });
-
-    it('rejects non-object MCP inputs before calling tool', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
-      vi.mocked(isNativeTool).mockReturnValue(false);
-
-      const result = await toolsExecuteHandler(mockEvent, 'mcp__tool', ['not', 'object']);
-
-      expect(callTool).not.toHaveBeenCalled();
-      expect(result).toMatchObject({
-        error: 'Tool input must be a JSON object.',
-        success: false,
-      });
-    });
-
-    it('rejects non-serializable MCP inputs', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
-      vi.mocked(isNativeTool).mockReturnValue(false);
-
-      const result = await toolsExecuteHandler(mockEvent, 'mcp__tool', {
-        value: () => {},
-      });
-
-      expect(callTool).not.toHaveBeenCalled();
-      expect(result).toMatchObject({
-        error: expect.stringContaining('JSON-serializable'),
-        success: false,
-      });
-    });
-
-    it('rejects oversized MCP inputs before calling tool', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
-      vi.mocked(isNativeTool).mockReturnValue(false);
-
-      const result = await toolsExecuteHandler(mockEvent, 'mcp__tool', {
-        payload: 'x'.repeat(1_000_001),
-      });
-
-      expect(callTool).not.toHaveBeenCalled();
-      expect(result).toMatchObject({
-        error: expect.stringContaining('exceeds'),
-        success: false,
-      });
-    });
-
-    it('passes input as-is to MCP callTool', async () => {
-      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
-      vi.mocked(isNativeTool).mockReturnValue(false);
-      vi.mocked(callTool).mockResolvedValue({});
-
-      const complexInput = {
-        array: [1, 2, 3],
-        nested: { value: 123 },
-        string: 'test',
-      };
-
-      await toolsExecuteHandler(mockEvent, 'mcp__server__tool', complexInput);
-
-      expect(callTool).toHaveBeenCalledWith('mcp__server__tool', complexInput);
     });
   });
 
@@ -633,7 +523,7 @@ describe('ipc-tools', () => {
     });
 
     it('registers channels through the typed desktop IPC registry', () => {
-      const source = readFileSync(path.resolve(process.cwd(), 'src/ipc-tools.ts'), 'utf8');
+      const source = readFileSync(path.resolve(import.meta.dirname, '../../ipc-tools.ts'), 'utf8');
 
       expect(source).toContain('createDesktopIpcRegistry');
       expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);

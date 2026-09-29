@@ -4,7 +4,6 @@ import type {
   FileChunk,
   FileChunkInsert,
   FileChunkUpdate,
-  FTSQueryMode,
   FTSSearchOptions,
   FTSSearchResult,
 } from '../models/file-chunk';
@@ -16,6 +15,7 @@ import {
 import {
   appendColumn,
   appendColumnIfDefined,
+  assertFuzzyThreshold,
   bm25RankExpression,
   computeOverfetchLimit,
   createUpdateBuilder,
@@ -28,10 +28,21 @@ import {
   type Queryable,
   resolveEmbeddingDimensions,
   resolveFilteredVectorSearchRoute,
+  shouldUseFuzzyFallback,
   type UpdateBuilder,
   validateEmbeddingDimensions,
 } from './_shared.js';
+import {
+  buildChunkDistanceExpressions,
+  buildRawFullTextScopePlan,
+  buildRawVectorScopePlan,
+  mapFullTextSearchRows,
+  mapVectorSearchRows,
+  normalizeChunkSearchScope,
+  tsqueryFunctionForMode,
+} from './file-chunk-search-policy.js';
 import { runFindGrepCandidatesQuery, runInsertManyWithTx } from './file-chunk-shared-queries.js';
+import type { IFileChunkRepository } from './interfaces.js';
 
 export interface FileChunkQueryTx {
   query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
@@ -98,7 +109,7 @@ interface FileChunkStatsRow {
   type_count: string;
 }
 
-export class FileChunkRepository {
+export class FileChunkRepository implements IFileChunkRepository {
   constructor(private readonly db: FileChunkDatabase) {}
 
   async findById(id: string): Promise<FileChunk | null> {
@@ -219,15 +230,18 @@ export class FileChunkRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.db.query('DELETE FROM file_chunks WHERE id = $1', [id]);
-    return (result as unknown as { rowCount: number }).rowCount > 0;
+    // Count RETURNING rows: the desktop DB host surfaces only `rows`, never a
+    // row count, so a `rowCount` read here was `undefined` over IPC.
+    const result = await this.db.query('DELETE FROM file_chunks WHERE id = $1 RETURNING id', [id]);
+    return result.rows.length > 0;
   }
 
   async deleteByFileRecordId(fileRecordId: string): Promise<number> {
-    const result = await this.db.query('DELETE FROM file_chunks WHERE file_record_id = $1', [
-      fileRecordId,
-    ]);
-    return (result as unknown as { rowCount: number }).rowCount;
+    const result = await this.db.query(
+      'DELETE FROM file_chunks WHERE file_record_id = $1 RETURNING id',
+      [fileRecordId]
+    );
+    return result.rows.length;
   }
 
   async searchSimilar(
@@ -262,14 +276,14 @@ export class FileChunkRepository {
       );
     }
 
-    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    const { filePaths: normalizedFilePaths, selectionSnapshotId: normalizedSnapshotId } =
+      normalizeChunkSearchScope({ filePaths, selectionSnapshotId });
     if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
       throw new Error(
         `searchSimilar filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
           'Use selectionSnapshotId for large selections.'
       );
     }
-    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
     // Resolve distance config and get dimension for index matching
     const { distance, dimension } = await this.resolveDistanceConfig(
@@ -303,7 +317,7 @@ export class FileChunkRepository {
       }
     }
 
-    const { similarityExpr, orderExpr } = this.buildDistanceExpressions(
+    const { similarityExpr, orderExpr } = buildChunkDistanceExpressions(
       distance,
       dimension,
       route === 'exact' ? 'exact' : 'halfvec'
@@ -349,21 +363,12 @@ export class FileChunkRepository {
         ? await this.db.query<Record<string, unknown>>(searchSql, searchParams)
         : await this.runVectorSearchInTransaction(searchSql, searchParams, efSearch);
 
-    const mapped = result.rows.map((row) => {
-      const searchRow = row as unknown as FileChunkSearchRow;
-      const sim = Number.parseFloat(searchRow.similarity);
-      return {
-        chunk: this.mapRowToChunk(searchRow),
-        rank: Number.parseInt(searchRow.rank, 10),
-        similarity: sim,
-      } as ChunkSearchResult;
-    });
-
-    // Apply threshold in JS and cut to requested limit
-    const filtered = mapped.filter(
-      (r) => Number.isFinite(r.similarity) && r.similarity >= threshold
+    return mapVectorSearchRows(
+      result.rows as unknown as FileChunkSearchRow[],
+      (row) => this.mapRowToChunk(row),
+      threshold,
+      limit
     );
-    return filtered.slice(0, limit);
   }
 
   /**
@@ -433,6 +438,8 @@ export class FileChunkRepository {
       fileRecordId,
       chunkType,
       filePaths,
+      fuzzyFallback = true,
+      fuzzyThreshold = 0.6,
       rootIds,
       selectionSnapshotId,
       queryMode = 'websearch',
@@ -446,106 +453,103 @@ export class FileChunkRepository {
     if (!trimmedQuery) {
       return [];
     }
+    assertFuzzyThreshold(fuzzyThreshold);
 
-    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    const { filePaths: normalizedFilePaths, selectionSnapshotId: normalizedSnapshotId } =
+      normalizeChunkSearchScope({ filePaths, selectionSnapshotId });
     if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
       throw new Error(
         `fullTextSearch filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
           'Use selectionSnapshotId for large selections.'
       );
     }
-    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
     // Build tsquery using the appropriate function based on query mode
-    const tsqueryFunc = this.getTsqueryFunction(queryMode);
-    const params: unknown[] = [language, trimmedQuery];
-    let paramIndex = 3;
-
-    // Build WHERE clause
-    const whereParts = [
-      'content_tsvector IS NOT NULL',
-      `content_tsvector @@ ${tsqueryFunc}($1::regconfig, $2)`,
-    ];
-
-    paramIndex = this.appendFilterClause(
-      whereParts,
-      params,
-      paramIndex,
+    const tsqueryFunc = tsqueryFunctionForMode(queryMode);
+    const scopePlan = buildRawFullTextScopePlan(3, {
+      chunkType,
+      embeddingSetId,
+      filePaths: normalizedFilePaths,
       fileRecordId,
-      'file_record_id'
-    );
-    paramIndex = this.appendFilterClause(whereParts, params, paramIndex, chunkType, 'chunk_type');
-    // Embedding-set scope with coverage-identity semantics (getCoverageForSet):
-    // the chunk's own set matches, OR the chunk is pending embedding (NULL set)
-    // and its file record carries the set. Match (tsquery) semantics unchanged.
-    if (embeddingSetId !== undefined) {
-      whereParts.push(
-        `(embedding_set_id = $${paramIndex} OR (embedding_set_id IS NULL AND file_record_id IN (SELECT id FROM file_records WHERE embedding_set_id = $${paramIndex})))`
-      );
-      params.push(embeddingSetId);
-      paramIndex += 1;
-    }
-    paramIndex = this.appendSelectionFilters(
-      whereParts,
-      params,
-      paramIndex,
-      normalizedFilePaths,
-      normalizedSnapshotId
-    );
-    if (rootIds !== undefined) {
-      whereParts.push(
-        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
-      );
-      params.push(Array.from(rootIds));
-      paramIndex += 1;
-    }
+      rootIds,
+      selectionSnapshotId: normalizedSnapshotId,
+    });
+    const params: unknown[] = [trimmedQuery, language, ...scopePlan.values];
+    const scopeWhereParts = scopePlan.clauses;
+    const paramIndex = params.length + 1;
 
     // Execute search query ranked by BM25 (pg_textsearch, migration 066):
     // matching stays tsvector-based above, so query-mode semantics are
     // unchanged; only the ORDERING comes from BM25. The `, id` tiebreaks keep
     // ordering deterministic — BM25 produces exact score ties for rows with
     // identical term statistics.
-    const result = await this.db.query(
+    const exactWhereParts = [
+      'content_tsvector IS NOT NULL',
+      `content_tsvector @@ ${tsqueryFunc}($2::regconfig, $1)`,
+      ...scopeWhereParts,
+    ];
+    const exactResult = await this.db.query(
       `SELECT
         ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
-        ${bm25RankExpression('$2')} as fts_rank,
+        ${bm25RankExpression('$1')} as fts_rank,
         ${
           includeHeadline
-            ? `ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
+            ? `ts_headline($2::regconfig, content, ${tsqueryFunc}($2::regconfig, $1),
           'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,`
             : ''
         }
-        ROW_NUMBER() OVER (ORDER BY ${bm25RankExpression('$2')} DESC, id) as position
+        ROW_NUMBER() OVER (ORDER BY ${bm25RankExpression('$1')} DESC, id) as position
       FROM file_chunks
-      WHERE ${whereParts.join(' AND ')}
+      WHERE ${exactWhereParts.join(' AND ')}
       ORDER BY fts_rank DESC, id
       LIMIT $${paramIndex}`,
       [...params, limit]
     );
 
-    // Map results to FTSSearchResult
-    const results: FTSSearchResult[] = [];
-    for (const row of result.rows) {
-      const ftsRow = row as FileChunkRow & { fts_rank: string; headline: string; position: string };
-      const rank = Number.parseFloat(ftsRow.fts_rank);
-
-      // Apply threshold filter
-      if (threshold > 0 && rank < threshold) {
-        continue;
-      }
-
-      const ftsResult: FTSSearchResult = {
-        chunk: this.mapRowToChunk(ftsRow),
-        position: Number.parseInt(ftsRow.position, 10),
-        rank,
-      };
-      if (ftsRow.headline) {
-        ftsResult.headline = ftsRow.headline;
-      }
-      results.push(ftsResult);
+    // Preserve exact query-mode semantics. Raw-text trigram recovery is honest
+    // only for `plain`, which has no phrase/negation/operator syntax to lose.
+    const useFuzzyFallback = shouldUseFuzzyFallback({
+      exactResultCount: exactResult.rows.length,
+      fuzzyFallback,
+      language,
+      queryMode,
+    });
+    let rows = exactResult.rows;
+    let matchKind: FTSSearchResult['matchKind'] = 'exact';
+    if (useFuzzyFallback) {
+      const fuzzyThresholdIndex = paramIndex;
+      const fuzzyResult = await this.db.transaction(async (transaction) => {
+        await transaction.query(
+          "SELECT set_config('pg_trgm.word_similarity_threshold', $1, true)",
+          [String(fuzzyThreshold)]
+        );
+        return transaction.query(
+          `SELECT
+          ${includeEmbedding ? FILE_CHUNK_SELECT_COLUMNS : FILE_CHUNK_SELECT_COLUMNS_DIMS_ONLY},
+          word_similarity($1, content)::float8 as fts_rank,
+          ROW_NUMBER() OVER (ORDER BY word_similarity($1, content) DESC, id) as position
+        FROM file_chunks
+        WHERE $1 <% content
+          AND word_similarity($1, content) >= $${fuzzyThresholdIndex}::float8
+          AND ${tsqueryFunc}($2::regconfig, $1)::text <> ''${
+            scopeWhereParts.length > 0 ? ` AND ${scopeWhereParts.join(' AND ')}` : ''
+          }
+        ORDER BY fts_rank DESC, id
+        LIMIT $${fuzzyThresholdIndex + 1}`,
+          [...params, fuzzyThreshold, limit]
+        );
+      });
+      rows = fuzzyResult.rows;
+      matchKind = 'fuzzy';
     }
 
-    return results;
+    // Map results to FTSSearchResult
+    return mapFullTextSearchRows(
+      rows as Array<FileChunkRow & { fts_rank: string; headline?: string; position: string }>,
+      (row) => this.mapRowToChunk(row),
+      matchKind,
+      threshold
+    );
   }
 
   /**
@@ -561,21 +565,6 @@ export class FileChunkRepository {
    */
   async findGrepCandidates(options: GrepCandidateOptions): Promise<GrepCandidate[]> {
     return runFindGrepCandidatesQuery((sql, params) => this.db.query(sql, params), options);
-  }
-
-  /**
-   * Get the PostgreSQL tsquery function for the given query mode
-   */
-  private getTsqueryFunction(mode: FTSQueryMode): string {
-    switch (mode) {
-      case 'plain':
-        return 'plainto_tsquery';
-      case 'phrase':
-        return 'phraseto_tsquery';
-      default:
-        // 'websearch' is the default query mode
-        return 'websearch_to_tsquery';
-    }
   }
 
   async findAll(): Promise<FileChunk[]> {
@@ -767,32 +756,6 @@ export class FileChunkRepository {
     return totalCount;
   }
 
-  private appendFilterClause(
-    whereParts: string[],
-    params: unknown[],
-    paramIndex: number,
-    value: string | undefined,
-    column: string
-  ): number {
-    if (value === undefined) {
-      return paramIndex;
-    }
-    whereParts.push(`${column} = $${paramIndex}`);
-    params.push(value);
-    return paramIndex + 1;
-  }
-
-  private normalizeFilePaths(filePaths?: readonly string[]): string[] | undefined {
-    if (!filePaths || filePaths.length === 0) {
-      return;
-    }
-    const trimmed = filePaths.map((path) => path.trim()).filter((path) => path.length > 0);
-    if (trimmed.length === 0) {
-      return;
-    }
-    return Array.from(new Set(trimmed));
-  }
-
   /**
    * Materialize a search's scoping filters starting at `startIndex` ($1 is the
    * query vector in the search SQL, so it passes 2; the selectivity counts have
@@ -804,50 +767,7 @@ export class FileChunkRepository {
     startIndex: number,
     scope: SearchScope
   ): { clauses: string[]; narrowed: boolean; values: unknown[] } {
-    const clauses: string[] = [];
-    const values: unknown[] = [];
-    let paramIndex = startIndex;
-    paramIndex = this.appendFilterClause(
-      clauses,
-      values,
-      paramIndex,
-      scope.fileRecordId,
-      'file_record_id'
-    );
-    paramIndex = this.appendFilterClause(
-      clauses,
-      values,
-      paramIndex,
-      scope.chunkType,
-      'chunk_type'
-    );
-    paramIndex = this.appendSelectionFilters(
-      clauses,
-      values,
-      paramIndex,
-      scope.filePaths,
-      scope.selectionSnapshotId
-    );
-    // Scope to workspace roots via a subquery (not a JOIN) so the main
-    // file_chunks predicate still matches the partial HNSW index.
-    if (scope.rootId !== undefined) {
-      clauses.push(
-        `file_record_id IN (SELECT id FROM file_records WHERE root_id = $${paramIndex})`
-      );
-      values.push(scope.rootId);
-      paramIndex += 1;
-    }
-    if (scope.rootIds !== undefined) {
-      clauses.push(
-        `file_record_id IN (SELECT id FROM file_records WHERE root_id = ANY($${paramIndex}::text[]))`
-      );
-      values.push(Array.from(scope.rootIds));
-      paramIndex += 1;
-    }
-    const narrowed = clauses.length > 0;
-    clauses.push(`embedding_set_id = $${paramIndex}`);
-    values.push(scope.embeddingSetId);
-    return { clauses, narrowed, values };
+    return buildRawVectorScopePlan(startIndex, scope);
   }
 
   /**
@@ -891,33 +811,6 @@ export class FileChunkRepository {
     return Number(result.rows[0]?.c ?? 0);
   }
 
-  private appendSelectionFilters(
-    whereParts: string[],
-    params: unknown[],
-    paramIndex: number,
-    filePaths: readonly string[] | undefined,
-    selectionSnapshotId: string | undefined
-  ): number {
-    let nextIndex = paramIndex;
-    if (selectionSnapshotId) {
-      whereParts.push(
-        `EXISTS (\n          SELECT 1\n          FROM selection_snapshot_files ssf\n          JOIN selection_snapshots ss ON ss.id = ssf.snapshot_id\n          JOIN file_records fr ON fr.path = ssf.file_path\n          WHERE ssf.snapshot_id = $${nextIndex}\n            AND (ss.expires_at IS NULL OR ss.expires_at > NOW())\n            AND fr.id = file_chunks.file_record_id\n        )`
-      );
-      params.push(selectionSnapshotId);
-      nextIndex += 1;
-    }
-
-    if (filePaths && filePaths.length > 0) {
-      whereParts.push(
-        `file_record_id IN (\n          SELECT id FROM file_records\n          WHERE path = ANY($${nextIndex}::text[])\n        )`
-      );
-      params.push(filePaths);
-      nextIndex += 1;
-    }
-
-    return nextIndex;
-  }
-
   private async resolveDistanceConfig(
     embeddingSetId: string,
     queryEmbedding: number[]
@@ -946,61 +839,6 @@ export class FileChunkRepository {
 
     const distance = (setRow.distance || 'cosine') as 'cosine' | 'l2' | 'ip';
     return { dimension: expectedDimension, distance };
-  }
-
-  /**
-   * Build distance expressions for similarity search.
-   * CRITICAL ('halfvec' precision, the ANN route): the embedding column is cast
-   * to halfvec(dimension) to match the half-precision partial HNSW index
-   * expression `(embedding::halfvec(N))`. Without this cast, the query planner
-   * cannot use the dimension-specific indexes.
-   * 'exact' precision (the selective-filter route) is the mirror-image
-   * guarantee: full-precision `embedding <=> $1::vector(N)` CANNOT match that
-   * index expression, so the planner must exact-scan the filtered subset —
-   * 100% recall by construction, with fp32 similarity scores.
-   * NOTE: similarity scores are fp32 on the exact route vs fp16 on the
-   * halfvec/ANN route, so scores near the threshold can differ across routes —
-   * callers must not assume one scale.
-   */
-  private buildDistanceExpressions(
-    distance: 'cosine' | 'l2' | 'ip',
-    dimension: number,
-    precision: 'exact' | 'halfvec' = 'halfvec'
-  ): {
-    similarityExpr: string;
-    orderExpr: string;
-  } {
-    // halfvec: cast embedding (and the query param) to fixed-dimension halfvec so
-    // the ORDER BY matches the half-precision HNSW partial index built by the
-    // dimension-index-helpers. The full-precision vector stays in the COLUMN, but
-    // BOTH the ANN ranking (orderExpr) AND the returned similarity score
-    // (similarityExpr, also used for the `>= threshold` filter) are computed in fp16
-    // here. Intentional: keeping the score on the same halfvec cast as the rank keeps
-    // the returned score monotonic with the result order. Computing similarityExpr on
-    // full-precision `vector` would give exact scores but could desync them from the
-    // halfvec rank; the fp16 quantization error (~3 sig digits) is negligible for
-    // thresholding/display.
-    const embeddingCast =
-      precision === 'exact' ? 'embedding' : `(embedding::halfvec(${dimension}))`;
-    const paramCast =
-      precision === 'exact' ? `$1::vector(${dimension})` : `$1::halfvec(${dimension})`;
-
-    if (distance === 'l2') {
-      return {
-        orderExpr: `${embeddingCast} <-> ${paramCast}`,
-        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
-      };
-    }
-    if (distance === 'ip') {
-      return {
-        orderExpr: `${embeddingCast} <#> ${paramCast}`,
-        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
-      };
-    }
-    return {
-      orderExpr: `${embeddingCast} <=> ${paramCast}`,
-      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
-    };
   }
 
   private async resolveExistingChunkForUpdate(chunk: FileChunkUpdate): Promise<FileChunk | null> {

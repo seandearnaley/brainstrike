@@ -1,13 +1,61 @@
-import { afterEach, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BACKGROUND_INDEXING_POLICY_OPTIONS,
   createBackgroundIndexingEntryPolicy,
   DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE,
+  FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENT_NAMES,
+  isUnconditionalExcludedNativePath,
+  UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES,
+  UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
 } from '../background-indexing-policy.js';
 
 describe('background-indexing-policy', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // BST-1342/BST-1390: the watcher must drop managed-worktree events with the SAME
+  // exclusion the index policy already applies — but watcher event paths are
+  // NATIVE (absolute, either separator), unlike the root-relative
+  // `/`-separated contract of isExcludedBackgroundIndexingPath.
+  describe('isUnconditionalExcludedNativePath (BST-1342)', () => {
+    it('matches the excluded tree at any depth with posix separators', () => {
+      expect(
+        isUnconditionalExcludedNativePath('/Users/x/repo/.claude/worktrees/agent-1/src/a.ts')
+      ).toBe(true);
+      expect(isUnconditionalExcludedNativePath('/repo/.claude/worktrees')).toBe(true);
+      expect(isUnconditionalExcludedNativePath('.claude/worktrees/file')).toBe(true);
+      expect(isUnconditionalExcludedNativePath('/repo/.brainstrike/worktrees/app/a.ts')).toBe(true);
+    });
+
+    it('matches windows separators and mixed case', () => {
+      expect(isUnconditionalExcludedNativePath('C:\\repo\\.claude\\worktrees\\agent-1\\a.ts')).toBe(
+        true
+      );
+      expect(isUnconditionalExcludedNativePath('C:\\repo\\.CLAUDE\\Worktrees\\a.ts')).toBe(true);
+    });
+
+    it('stays segment-anchored: near-miss names never match', () => {
+      expect(isUnconditionalExcludedNativePath('/repo/.claude/worktrees-backup/a.ts')).toBe(false);
+      expect(isUnconditionalExcludedNativePath('/repo/x.claude/worktrees/a.ts')).toBe(false);
+      expect(isUnconditionalExcludedNativePath('/repo/.claude/other/worktrees/a.ts')).toBe(false);
+      expect(isUnconditionalExcludedNativePath('/repo/src/index.ts')).toBe(false);
+    });
+  });
+
+  describe('UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS (BST-1342)', () => {
+    it('exposes the excluded trees as native-watcher ignore globs', () => {
+      expect(UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS).toEqual([
+        '**/.claude/worktrees',
+        '**/.claude/worktrees/**',
+        '**/.brainstrike/worktrees',
+        '**/.brainstrike/worktrees/**',
+      ]);
+    });
+  });
+
+  it('keeps BrainStrike managed worktrees in the unconditional exclusion floor', () => {
+    expect(UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES).toContain('.brainstrike/worktrees');
   });
 
   it('defaults to the balanced preset metadata', () => {
@@ -70,6 +118,12 @@ describe('background-indexing-policy', () => {
       policy.shouldTraverseDirectory({
         directoryName: 'coverage',
         relativePath: 'coverage',
+      })
+    ).toBe(false);
+    expect(
+      policy.shouldTraverseDirectory({
+        directoryName: 'worktrees',
+        relativePath: '.brainstrike/worktrees',
       })
     ).toBe(false);
     expect(
@@ -332,5 +386,42 @@ describe('background-indexing-policy', () => {
         relativePath: 'docs/large.md',
       })
     ).toBe(false);
+  });
+});
+
+describe('preset exclusion coherence', () => {
+  // `full-root` is the MORE permissive preset — it deliberately indexes things
+  // balanced skips (Python virtualenvs, generated output). So anything it still
+  // excludes is there as a SAFETY exclusion, and balanced excluding less than
+  // that is incoherent by construction.
+  //
+  // This is not hypothetical: `.pnpm-store` sat in the full-root safety list and
+  // not in balanced. A pnpm content-addressable store inside a repo is ~82k
+  // files, which is 1.6x the workspace walk's 50,000-file cap on its own — so
+  // the walk exhausted its budget inside the store and never reached `apps/`,
+  // `docs/` or `packages/`. Every workspace glob returned 0 matches for
+  // patterns that plainly match, and the Explorer subagent burned its whole
+  // step budget shelling out instead (BST-1410 field report, 2026-08-22).
+  const balanced = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
+  const fullRoot = createBackgroundIndexingEntryPolicy({ preset: 'full-root' });
+
+  const traverses = (
+    policy: ReturnType<typeof createBackgroundIndexingEntryPolicy>,
+    name: string
+  ): boolean => policy.shouldTraverseDirectory({ directoryName: name, relativePath: name });
+
+  it('never traverses a directory in balanced that full-root excludes for safety', () => {
+    const leakage = FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENT_NAMES.filter(
+      (name) => traverses(balanced, name) && !traverses(fullRoot, name)
+    );
+    expect(leakage).toEqual([]);
+  });
+
+  it('excludes the pnpm content-addressable store in BOTH presets', () => {
+    // Named explicitly as well as covered by the invariant above: a store this
+    // large silently blinds every workspace tool, and the failure looks like
+    // "0 matches" rather than an error.
+    expect(traverses(balanced, '.pnpm-store')).toBe(false);
+    expect(traverses(fullRoot, '.pnpm-store')).toBe(false);
   });
 });

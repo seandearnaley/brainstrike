@@ -33,6 +33,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 });
 
 import {
+  __getPooledLifecycleForTest,
   __getPooledPidsForTest,
   countPooledLspServers,
   disposeLspServers,
@@ -110,23 +111,59 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
 
   it('keeps the bundled TS6 server clean on the TS7-checked WebGPU surface', async () => {
     // BST-1011 deliberately keeps the LSP on the classic TS6 server while CI
-    // type-checks with native TS7. This real-workspace control prevents the
-    // device-detection WebGPU declarations from becoming LSP-only false
-    // positives that the native checker cannot see.
+    // type-checks with native TS7. Use the exact source and package compiler
+    // options, but make this a one-file project: loading all of embeddings'
+    // project references can outlast two edit deadlines on a busy CI runner.
     const repoRoot = path.resolve(import.meta.dirname, '../../../../..');
-    const absolutePath = path.join(repoRoot, 'packages/embeddings/src/device-detection.ts');
-    const content = await fsPromises.readFile(absolutePath, 'utf8');
+    const embeddingsRoot = path.join(repoRoot, 'packages/embeddings');
+    const sourcePath = path.join(embeddingsRoot, 'src/device-detection.ts');
+    const content = await fsPromises.readFile(sourcePath, 'utf8');
+    const fixtureRoot = await fsPromises.mkdtemp(path.join(embeddingsRoot, '.lsp-webgpu-'));
+    try {
+      const absolutePath = path.join(fixtureRoot, 'device-detection.ts');
+      await fsPromises.writeFile(absolutePath, content, 'utf8');
+      await fsPromises.writeFile(
+        path.join(fixtureRoot, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            outDir: './dist',
+            rootDir: '.',
+            tsBuildInfoFile: './.tsbuildinfo',
+          },
+          extends: '../tsconfig.json',
+          files: ['device-detection.ts'],
+          include: [],
+        }),
+        'utf8'
+      );
+      const args = {
+        absolutePath,
+        content,
+        rootId: 'brainstrike-webgpu-compat',
+        rootPath: fixtureRoot,
+      };
 
-    const result = await getEditDiagnostics({
-      absolutePath,
-      content,
-      rootId: 'brainstrike-webgpu-compat',
-      rootPath: repoRoot,
-    });
+      const clean = await getEditDiagnostics(args);
+      expect(clean.available, clean.message ?? clean.reason).toBe(true);
+      expect(clean.diagnostics ?? []).toEqual([]);
 
-    expect(result.available).toBe(true);
-    expect(result.diagnostics ?? []).toEqual([]);
-  }, 30_000);
+      const conflictingContent = `${content}\ndeclare global { interface GPUAdapter { readonly isFallbackAdapter?: string; } }\n`;
+      const conflict = await getEditDiagnostics({ ...args, content: conflictingContent });
+      expect(conflict.available, conflict.message ?? conflict.reason).toBe(true);
+      expect(
+        conflict.diagnostics?.some(
+          (diagnostic) =>
+            diagnostic.severity === 'error' && /isFallbackAdapter/u.test(diagnostic.message)
+        )
+      ).toBe(true);
+
+      const restored = await getEditDiagnostics(args);
+      expect(restored.available, restored.message ?? restored.reason).toBe(true);
+      expect(restored.diagnostics ?? []).toEqual([]);
+    } finally {
+      await fsPromises.rm(fixtureRoot, { force: true, recursive: true });
+    }
+  }, 45_000);
 
   it('omits diagnostics for an unsupported language (no note spam)', async () => {
     const root = await makeRoot();
@@ -235,9 +272,80 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       const disposed = await disposeLspServers();
       expect(disposed).toBeGreaterThanOrEqual(1);
       expect(countPooledLspServers()).toBe(0);
-      // Give the OS a beat to reap.
-      await new Promise((resolve) => setTimeout(resolve, 300));
       expect(isProcessAlive(pid)).toBe(false);
+    } finally {
+      await fsPromises.rm(root, { force: true, recursive: true });
+    }
+  }, 30_000);
+
+  it('does not treat a post-spawn child error as process exit', async () => {
+    const root = await makeRoot();
+    try {
+      const filePath = path.join(root, 'runtime-error.ts');
+      const content = 'export const value = 1;\n';
+      await fsPromises.writeFile(filePath, content, 'utf8');
+      await getEditDiagnostics({
+        absolutePath: filePath,
+        content,
+        rootId: 'runtime-error-root',
+        rootPath: root,
+      });
+      const pid = (await __getPooledPidsForTest())[0] ?? -1;
+      const lifecycle = await __getPooledLifecycleForTest('runtime-error-root');
+
+      lifecycle.emitChildError(new Error('synthetic post-spawn runtime error'));
+      await lifecycle.dispose();
+
+      expect(isProcessAlive(pid)).toBe(false);
+    } finally {
+      await fsPromises.rm(root, { force: true, recursive: true });
+    }
+  }, 30_000);
+
+  it('shares child settlement across re-entrant dispose callers', async () => {
+    const root = await makeRoot();
+    try {
+      const filePath = path.join(root, 'reentrant-dispose.ts');
+      const content = 'export const value = 1;\n';
+      await fsPromises.writeFile(filePath, content, 'utf8');
+      await getEditDiagnostics({
+        absolutePath: filePath,
+        content,
+        rootId: 'reentrant-root',
+        rootPath: root,
+      });
+      const lifecycle = await __getPooledLifecycleForTest('reentrant-root');
+
+      const first = lifecycle.dispose();
+      const second = lifecycle.dispose();
+
+      expect(second).toBe(first);
+      await first;
+    } finally {
+      await fsPromises.rm(root, { force: true, recursive: true });
+    }
+  }, 30_000);
+
+  it('surfaces a failed authoritative kill after attempting global disposal', async () => {
+    const root = await makeRoot();
+    try {
+      const filePath = path.join(root, 'kill-failure.ts');
+      const content = 'export const value = 1;\n';
+      await fsPromises.writeFile(filePath, content, 'utf8');
+      await getEditDiagnostics({
+        absolutePath: filePath,
+        content,
+        rootId: 'kill-failure-root',
+        rootPath: root,
+      });
+      const lifecycle = await __getPooledLifecycleForTest('kill-failure-root');
+      lifecycle.rejectNextKill();
+
+      try {
+        await expect(disposeLspServers()).rejects.toThrow(/failed to terminate LSP subprocess/i);
+      } finally {
+        await lifecycle.forceKill();
+      }
     } finally {
       await fsPromises.rm(root, { force: true, recursive: true });
     }

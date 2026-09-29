@@ -1,6 +1,20 @@
+import type { ProviderKeySource } from '@brainstrike/assistant-contract';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { ThemeSettings } from '@brainstrike/ui';
-import { Bot, Cpu, Palette, Search, Settings, ShieldCheck, Sigma, Webhook } from 'lucide-react';
-import { ModelSelectionPage } from './settings/models/model-selection-page';
+import {
+  Bot,
+  BrainCircuit,
+  Cpu,
+  FolderTree,
+  Palette,
+  Search,
+  Settings,
+  ShieldCheck,
+  Sigma,
+  Webhook,
+} from 'lucide-react';
+import { AssistantMemorySettingsSection } from './settings/models/assistant-memory-settings-section';
+import { SubagentSettingsSection } from './settings/models/subagent-settings-section';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
 import {
@@ -11,6 +25,11 @@ import { PermissionSettingsSection } from './settings/system/permission-settings
 import { SearchIndexingSettingsSection } from './settings/system/search-indexing-settings-section';
 import { SubagentPersonasSettingsSection } from './settings/system/subagent-personas-settings-section';
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
+import {
+  WorktreeSettingsSection,
+  type WorktreeSettingsSectionProps,
+} from './settings/system/worktree-settings-section';
+import { WorktreeSetupConsentSettingsSection } from './settings/system/worktree-setup-consent-settings-section';
 import type { SettingsCategory } from './settings-page-content';
 
 export function createAppearanceSettingsCategory(): SettingsCategory {
@@ -75,29 +94,41 @@ export function createFactoryResetSettingsCategory(
   };
 }
 
-export function createModelRegistrySettingsCategory(options: {
-  assistantMemoryBackendAvailable: boolean;
-}): SettingsCategory {
+export interface CreateWorkspaceSettingsCategoryOptions {
+  readonly onSave: WorktreeSettingsSectionProps['onSave'];
+  readonly settings: WorktreeSettingsSectionProps['settings'];
+  readonly status: WorktreeSettingsSectionProps['status'];
+}
+
+export function createWorkspaceSettingsCategory(
+  options: CreateWorkspaceSettingsCategoryOptions
+): SettingsCategory {
   return {
     content: (
-      <ModelSelectionPage
-        assistantMemoryBackendAvailable={options.assistantMemoryBackendAvailable}
-      />
+      <div className="space-y-6">
+        <WorktreeSettingsSection
+          onSave={options.onSave}
+          settings={options.settings}
+          status={options.status}
+        />
+        <WorktreeSetupConsentSettingsSection />
+      </div>
     ),
-    description: 'Choose chat and embedding models, manage downloads, and configure providers.',
-    icon: Settings,
-    id: 'models',
+    description:
+      'Choose where BrainStrike creates managed worktrees, set an optional per-worktree setup command, and review repository setup-script consent.',
+    icon: FolderTree,
+    id: 'workspace',
     keywords: [
-      'models',
-      'providers',
-      'llm',
-      'embedding',
-      'openai',
-      'anthropic',
-      'google',
-      'download',
+      'worktree',
+      'worktrees',
+      'managed directory',
+      'workspace',
+      'git',
+      'setup command',
+      'consent',
+      'revoke',
     ],
-    title: 'Models & Providers',
+    title: 'Workspace',
   };
 }
 
@@ -135,10 +166,40 @@ export function createPermissionSettingsCategory(): SettingsCategory {
   };
 }
 
+export interface CreateAssistantMemorySettingsCategoryOptions {
+  readonly assistantMemoryBackendAvailable: boolean;
+  readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
+}
+
+export function createAssistantMemorySettingsCategory({
+  assistantMemoryBackendAvailable,
+  providerKeySources,
+}: CreateAssistantMemorySettingsCategoryOptions): SettingsCategory {
+  return {
+    content: (
+      <AssistantMemorySettingsSection
+        assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
+        {...(providerKeySources ? { providerKeySources } : {})}
+      />
+    ),
+    description: 'Configure the assistant’s observational memory and semantic recall.',
+    icon: BrainCircuit,
+    id: 'assistant-memory',
+    keywords: ['memory', 'observations', 'semantic recall', 'mastra', 'embedding'],
+    title: 'Assistant Memory',
+  };
+}
+
 export function createSubagentPersonasSettingsCategory(): SettingsCategory {
   return {
-    content: <SubagentPersonasSettingsSection />,
-    description: 'Control which subagent personas the assistant may delegate to.',
+    content: (
+      <div className="space-y-6">
+        <SubagentPersonasSettingsSection />
+        <SubagentSettingsSection />
+      </div>
+    ),
+    description:
+      'Control which subagent personas the assistant may delegate to, and the budgets every subagent runs under.',
     icon: Bot,
     id: 'subagents',
     keywords: [
@@ -151,6 +212,10 @@ export function createSubagentPersonasSettingsCategory(): SettingsCategory {
       'agents',
       'explorer',
       'analyst',
+      'budgets',
+      'steps',
+      'output tokens',
+      'summary',
     ],
     title: 'Subagents',
   };

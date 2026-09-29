@@ -1,47 +1,56 @@
 import { randomUUID } from 'node:crypto';
-import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
-import { app, type UtilityProcess, utilityProcess } from 'electron';
-import type {
-  DbHostDiagnosticsResult,
-  DbHostInitResult,
-  DbHostLiveStartResult,
-  DbHostQueryResult,
-  DbHostRequest,
-  DbHostRequestEnvelope,
-  DbHostResponseEnvelope,
-  DbHostRowMode,
-  DbHostSerializedError,
-  DbHostToMainMessage,
-  DbHostTransactionStartResult,
+import { utilityProcess } from 'electron';
+import { resolveBundledSiblingPath } from './bundled-sibling-path';
+import { cleanShutdownMarkerNamesPid } from './db-clean-shutdown-marker';
+import {
+  DB_HOST_CLOSE_ACK_TIMEOUT_MS,
+  DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS,
+} from './db-host-close-budget';
+import { DbHostCloseError, DbHostUnavailableError } from './db-host-lifecycle-errors';
+import { closeDbHostProcess, DbHostProcess, killWedgedHost } from './db-host-process';
+import {
+  type DbHostDiagnosticsResult,
+  type DbHostInitResult,
+  type DbHostLiveQueryDiagnostics,
+  type DbHostLiveStartResult,
+  type DbHostManagerDiagnosticsResult,
+  type DbHostQueryResult,
+  type DbHostRequest,
+  type DbHostRequestEnvelope,
+  type DbHostResponseEnvelope,
+  type DbHostRowMode,
+  type DbHostTransactionStartResult,
+  isDbHostToMainMessage,
+  toError,
 } from './db-host-protocol';
+import {
+  createLiveQueryDiagnostics,
+  createRequestTimeoutDiagnostics,
+  type RequestTimeoutDiagnostics,
+} from './db-host-request-diagnostics';
+import { DbHostRequestTimeoutError } from './db-host-timeout-error';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
+import {
+  resolveDesktopDatabaseLocation,
+  resolveDesktopDatabaseProfileDirectory,
+} from './desktop-database-location';
+import { isDesktopShuttingDown } from './desktop-shutdown-state';
+import {
+  createHostRequestChannel,
+  type HostRequestChannel,
+  type HostRequestTimeoutContext,
+  type HostRequestTimeoutDecision,
+} from './platform/host-request-channel';
+
+export { DbHostRequestTimeoutError } from './db-host-timeout-error';
 
 const logger = createLogger('DbHostManager');
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_INITIALIZATION_TIMEOUT_MS = 90_000;
-const DEFAULT_CLOSE_TIMEOUT_MS = 2000;
-
-function createLiveQueryDiagnostics(payload: {
-  readonly mode: 'query' | 'incremental';
-  readonly params?: readonly unknown[] | null;
-  readonly query: string;
-}): {
-  readonly mode: 'query' | 'incremental';
-  readonly paramsCount: number;
-  readonly queryPreview: string;
-  readonly unescapedPercentRuns: number;
-} {
-  const queryPreview = payload.query.replace(/\s+/g, ' ').slice(0, 240);
-  const percentRuns = payload.query.match(/%+/g) ?? [];
-  return {
-    mode: payload.mode,
-    paramsCount: payload.params?.length ?? 0,
-    queryPreview,
-    unescapedPercentRuns: percentRuns.filter((run) => run.length % 2 === 1).length,
-  };
-}
+const PREVIOUS_HOST_ALIVE_MESSAGE =
+  'DB host is unavailable: the previous host has not exited and may still own the database.';
 
 export interface RemoteDbTransaction {
   readonly exec: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
@@ -107,7 +116,8 @@ export interface DbHostManager {
   readonly applyManagedCacheBatch: (payload: unknown) => Promise<void>;
   readonly close: () => Promise<void>;
   readonly getDatabase: () => Promise<RemoteDbClient>;
-  readonly getDiagnostics: () => Promise<DbHostDiagnosticsResult>;
+  readonly getDiagnostics: () => Promise<DbHostManagerDiagnosticsResult>;
+  readonly getLiveQueryDiagnosticsForTests: () => Promise<DbHostLiveQueryDiagnostics>;
   readonly insertChunksAndEnqueueEmbeddingJobs: (payload: unknown) => Promise<void>;
   readonly invalidateManagedCacheEntriesByIdentity: (payload: unknown) => Promise<unknown>;
   readonly reset: () => Promise<void>;
@@ -119,36 +129,6 @@ export interface DbHostManagerOptions {
   readonly initializationTimeoutMs?: number;
   readonly maintenanceRequestTimeoutMs?: number;
   readonly requestTimeoutMs?: number;
-}
-
-interface PendingRequest {
-  readonly reject: (reason: unknown) => void;
-  readonly requestKind: DbHostRequest['kind'];
-  readonly resolve: (value: unknown) => void;
-  readonly startedAt: number;
-  readonly timeoutMs: number;
-  readonly timer: ReturnType<typeof setTimeout>;
-}
-
-interface RequestTimeoutDiagnostics {
-  readonly liveId?: string;
-  readonly paramsCount?: number;
-  readonly payloadQueryPreview?: string;
-  readonly requestKind: DbHostRequest['kind'];
-  readonly sqlPreview?: string;
-  readonly transactionId?: string;
-}
-
-function toError(error: DbHostSerializedError): Error {
-  const normalized = new Error(error.message);
-  normalized.name = error.name ?? 'DbHostError';
-  if (error.stack) {
-    normalized.stack = error.stack;
-  }
-  if (error.code) {
-    (normalized as Error & { code?: string }).code = error.code;
-  }
-  return normalized;
 }
 
 function createRequestId(): string {
@@ -169,88 +149,8 @@ function requiresHostTerminationOnTimeout(request: DbHostRequest): boolean {
   );
 }
 
-function createQueryPreview(query: string): string {
-  return query.replace(/\s+/g, ' ').slice(0, 240);
-}
-
-function getParamsCount(params: readonly unknown[] | undefined): number | undefined {
-  return params === undefined ? undefined : params.length;
-}
-
-function createParamsCountDiagnostic(params: readonly unknown[] | undefined): {
-  readonly paramsCount?: number;
-} {
-  const paramsCount = getParamsCount(params);
-  return paramsCount === undefined ? {} : { paramsCount };
-}
-
-function createRequestTimeoutDiagnostics(request: DbHostRequest): RequestTimeoutDiagnostics {
-  switch (request.kind) {
-    case 'query':
-    case 'exec':
-    case 'maintenance:exec':
-      return {
-        requestKind: request.kind,
-        sqlPreview: createQueryPreview(request.sql),
-        ...createParamsCountDiagnostic(request.params),
-      };
-    case 'transaction:query':
-    case 'transaction:exec':
-      return {
-        requestKind: request.kind,
-        sqlPreview: createQueryPreview(request.sql),
-        transactionId: request.transactionId,
-        ...createParamsCountDiagnostic(request.params),
-      };
-    case 'transaction:commit':
-    case 'transaction:rollback':
-    case 'transaction:start':
-      return {
-        requestKind: request.kind,
-        transactionId: request.transactionId,
-      };
-    case 'live:start':
-      return {
-        payloadQueryPreview: createQueryPreview(request.payload.query),
-        requestKind: request.kind,
-        ...createParamsCountDiagnostic(request.payload.params),
-      };
-    case 'live:refresh':
-    case 'live:stop':
-      return {
-        liveId: request.liveId,
-        requestKind: request.kind,
-      };
-    default:
-      return { requestKind: request.kind };
-  }
-}
-
-function resolveDefaultEntryPath(): string {
-  const currentModuleFilename =
-    typeof module.filename === 'string' && module.filename.length > 0
-      ? module.filename
-      : path.join(process.cwd(), 'db-host-manager.js');
-  return path.join(path.dirname(currentModuleFilename), 'db-host-entry.js');
-}
-
-function resolveDatabaseRootPathForHost(): string {
-  const configuredRootPath = process.env[DB_ROOT_PATH_ENV]?.trim();
-  // Dev shells can leak literal "undefined" environment strings; the host manager itself
-  // always passes a concrete resolved path through createDbHostEnvironment().
-  if (configuredRootPath && configuredRootPath.toLowerCase() !== 'undefined') {
-    return configuredRootPath;
-  }
-  if (!app || typeof app.getPath !== 'function') {
-    throw new Error(
-      `Cannot start DB host because Electron app path resolution is unavailable and ${DB_ROOT_PATH_ENV} is not set.`
-    );
-  }
-  if (process.env['NODE_ENV'] === 'test' || process.argv.includes('--test-mode')) {
-    return app.getPath('userData');
-  }
-  const dbDirName = process.env['NODE_ENV'] === 'production' ? 'BrainStrike' : 'BrainStrike-dev';
-  return path.join(app.getPath('documents'), dbDirName);
+export function resolveDbHostEntryPath(currentModuleFilename?: string): string {
+  return resolveBundledSiblingPath('DB host entry', 'db-host-entry.js', currentModuleFilename);
 }
 
 function createDbHostEnvironment(): Record<string, string> {
@@ -266,21 +166,13 @@ function createDbHostEnvironment(): Record<string, string> {
   if (serializePGliteInit !== undefined) {
     environment[SERIALIZE_PGLITE_INIT_ENV] = serializePGliteInit;
   }
-  const databaseProfile = process.env[DB_PROFILE_ENV];
-  if (databaseProfile !== undefined) {
-    environment[DB_PROFILE_ENV] = databaseProfile;
-  }
-  environment[DB_ROOT_PATH_ENV] = resolveDatabaseRootPathForHost();
+  // Main resolves the database location once. The host reads these two
+  // variables and derives nothing itself, so a host respawned after a git
+  // branch switch still opens the profile main's reset path will delete.
+  const location = resolveDesktopDatabaseLocation();
+  environment[DB_PROFILE_ENV] = location.profile;
+  environment[DB_ROOT_PATH_ENV] = location.rootPath;
   return environment;
-}
-
-function isDbHostToMainMessage(value: unknown): value is DbHostToMainMessage {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    'kind' in value &&
-    typeof (value as { kind?: unknown }).kind === 'string'
-  );
 }
 
 class RemoteLiveQuery<TRecord = unknown> implements RemoteDbLiveQuery<TRecord> {
@@ -366,6 +258,7 @@ class RemoteLiveQuery<TRecord = unknown> implements RemoteDbLiveQuery<TRecord> {
 interface AbandonedRequest {
   readonly requestKind: string;
   readonly startedAt: number;
+  readonly timedOutAt: number;
   readonly timeoutMs: number;
 }
 
@@ -378,28 +271,54 @@ const MAX_ABANDONED_REQUESTS = 64;
 class DefaultDbHostManager implements DbHostManager {
   readonly #entryPath: string;
   readonly #liveQueries = new Map<string, RemoteLiveQuery<unknown>>();
-  readonly #pending = new Map<string, PendingRequest>();
+  readonly #requests: HostRequestChannel<DbHostRequestEnvelope, DbHostResponseEnvelope>;
   readonly #abandoned = new Map<string, AbandonedRequest>();
   readonly #closeTimeoutMs: number;
   readonly #initializationTimeoutMs: number;
   readonly #maintenanceRequestTimeoutMs: number;
   readonly #requestTimeoutMs: number;
+  // Why no request may fork a host: retired, or its host closed itself on a signal aimed at it.
+  #unavailable: Error | null = null;
   #client: RemoteDbClient | null = null;
-  #host: UtilityProcess | null = null;
+  #closing: Promise<void> | null = null;
+  #host: DbHostProcess | null = null;
   #initialization: Promise<RemoteDbClient> | null = null;
+  // A detached host stays here until its own `exit` is observed: an exit is the only proof it
+  // no longer owns the database, so no request forks a replacement (or reports a close) meanwhile.
+  #departingHost: DbHostProcess | null = null;
 
   constructor(options: DbHostManagerOptions = {}) {
-    this.#entryPath = options.entryPath ?? resolveDefaultEntryPath();
-    this.#closeTimeoutMs = options.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS;
+    this.#entryPath = options.entryPath ?? resolveDbHostEntryPath();
+    this.#closeTimeoutMs = options.closeTimeoutMs ?? DB_HOST_CLOSE_ACK_TIMEOUT_MS;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.#maintenanceRequestTimeoutMs =
       options.maintenanceRequestTimeoutMs ?? Math.max(10 * 60_000, this.#requestTimeoutMs);
     this.#initializationTimeoutMs =
       options.initializationTimeoutMs ??
       Math.max(DEFAULT_INITIALIZATION_TIMEOUT_MS, this.#requestTimeoutMs);
+    this.#requests = createHostRequestChannel<DbHostRequestEnvelope, DbHostResponseEnvelope>({
+      // The DB host owns its own late-response ledger; the channel's default
+      // warn would report an id this manager can describe far better.
+      onLateResponse: (requestId, response) => {
+        this.#logLateResponse(requestId, response);
+      },
+      onTimeout: (envelope, context) => this.#decideRequestTimeout(envelope, context),
+      requestId: (envelope) => envelope.id,
+      responseId: (response) => response.id,
+      role: 'DB host',
+      // `send()` has already forked the host on the statement immediately
+      // before this runs, so this resolves to that same process; it can only
+      // fork when the host died in between, which is the behaviour a request
+      // arriving after an exit already had.
+      send: (envelope) => {
+        this.#ensureHost().handle.postMessage(envelope);
+      },
+      timeoutMs: (envelope) => this.#getRequestTimeoutMs(envelope.request),
+    });
   }
 
   async getDatabase(): Promise<RemoteDbClient> {
+    this.#assertActive();
     if (this.#client) {
       return this.#client;
     }
@@ -416,11 +335,30 @@ class DefaultDbHostManager implements DbHostManager {
     }
   }
 
-  async getDiagnostics(): Promise<DbHostDiagnosticsResult> {
+  async getDiagnostics(): Promise<DbHostManagerDiagnosticsResult> {
+    const result = await this.send<DbHostDiagnosticsResult>({ kind: 'diagnostics' });
+    const { activeLiveQueryCount, ...databaseDiagnostics } = result;
+    void activeLiveQueryCount;
+    return {
+      ...databaseDiagnostics,
+      hostPid: this.#host?.handle.pid ?? null,
+    };
+  }
+
+  async getLiveQueryDiagnosticsForTests(): Promise<DbHostLiveQueryDiagnostics> {
+    if (
+      !(
+        process.argv.includes('--test-mode') ||
+        process.env['ELECTRON_IS_E2E_TEST'] === 'true' ||
+        process.env['NODE_ENV'] === 'test'
+      )
+    ) {
+      throw new Error('DB host live-query diagnostics are available only in test mode.');
+    }
     const result = await this.send<DbHostDiagnosticsResult>({ kind: 'diagnostics' });
     return {
-      ...result,
-      hostPid: this.#host?.pid ?? null,
+      hostLiveQueryCount: result.activeLiveQueryCount,
+      managerLiveQueryCount: this.#liveQueries.size,
     };
   }
 
@@ -429,37 +367,86 @@ class DefaultDbHostManager implements DbHostManager {
     this.#client = null;
   }
 
-  async close(): Promise<void> {
-    if (!this.#host) {
-      return;
-    }
-    try {
-      await this.#closeHostWithinTimeout();
-    } finally {
-      this.#rejectAll(new Error('DB host closed.'));
-      this.#host.kill();
-      this.#host = null;
-      this.#client = null;
-      this.#failAllLiveQueries(new Error('DB host closed.'));
+  // Default-manager replacement is permanent; explicit close() remains reusable
+  // for reinitializeDatabase(). Retained clients must never fork another owner.
+  async retire(): Promise<void> {
+    this.#unavailable = new Error('DB host manager is retired.');
+    await this.close();
+  }
+
+  #assertActive(): void {
+    if (this.#unavailable) {
+      throw this.#unavailable;
     }
   }
 
-  async #closeHostWithinTimeout(): Promise<void> {
-    const closeRequest = this.send({ kind: 'close' });
-    void closeRequest.catch(() => undefined);
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const timeout = new Promise<'timeout'>((resolve) => {
-      timeoutId = setTimeout(() => resolve('timeout'), this.#closeTimeoutMs);
-    });
-    const result = await Promise.race([closeRequest, timeout]);
-    if (timeoutId) {
-      clearTimeout(timeoutId);
+  /** True until the host this manager detached has been observed to exit. */
+  hasDepartingHost(): boolean {
+    return this.#departingHost !== null;
+  }
+
+  /**
+   * Resolves only when the database is closed AND the host has exited; else `DbHostCloseError`.
+   *
+   * With no live host it resolves once any earlier host has been observed to exit, however that
+   * host went: after a failed close (or kill) whose exit is later observed, a repeated close
+   * RESOLVES. Nothing owns the directory any more, and the absent clean-shutdown marker records
+   * that session as unclean, so the next open reports `unclean`. Guarded by the `afterExit` case of
+   * "never reports a repeated close as success while the host may still be alive".
+   * Either way `#closing` is set for the whole close, so a request waiting on a departing host
+   * re-checks, sees it, and rejects instead of forking a host as the close reports closed.
+   */
+  async close(): Promise<void> {
+    if (this.#closing) {
+      return await this.#closing;
     }
-    if (result === 'timeout') {
-      logger.warn('Timed out waiting for DB host close acknowledgement; terminating host', {
-        timeoutMs: this.#closeTimeoutMs,
+    const host = this.#host;
+    if (!(host || this.#departingHost)) {
+      return; // nothing to close and nothing that could still be alive
+    }
+    const closing = (
+      host
+        ? closeDbHostProcess(host, {
+            acknowledge: async () => await this.send({ kind: 'close' }),
+            ackTimeoutMs: this.#closeTimeoutMs,
+            confirmCleanExit: (pid) =>
+              cleanShutdownMarkerNamesPid(resolveDesktopDatabaseProfileDirectory(), pid),
+            detach: () => this.#detachHost(new Error('DB host closed.')),
+          })
+        : this.#assertDepartingHostExited()
+    ).finally(() => {
+      // Cleared before close() settles, so a caller resuming from it forks at once.
+      this.#closing = null;
+    });
+    this.#closing = closing;
+    return await closing;
+  }
+
+  /** A close with no host to close is a success only if no earlier host may still be alive. */
+  async #assertDepartingHostExited(): Promise<void> {
+    const departing = this.#departingHost;
+    if (departing && !(await departing.waitForExit(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS))) {
+      throw new DbHostCloseError(
+        'exit-timeout',
+        'DB host has not exited after an earlier close or kill; it may still own the database.'
+      );
+    }
+  }
+
+  #detachHost(error: Error): void {
+    const host = this.#host;
+    this.#host = null;
+    this.#client = null;
+    if (host && host.exitCode === undefined) {
+      this.#departingHost = host;
+      void host.exited.then(() => {
+        if (this.#departingHost === host) {
+          this.#departingHost = null;
+        }
       });
     }
+    this.#rejectAll(error);
+    this.#failAllLiveQueries(error);
   }
 
   async applyManagedCacheBatch(payload: unknown): Promise<void> {
@@ -475,56 +462,124 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   async send<TResult = unknown>(request: DbHostRequest): Promise<TResult> {
-    const host = this.#ensureHost();
-    const id = createRequestId();
-    const envelope: DbHostRequestEnvelope = { id, kind: 'request', request };
-    return await new Promise<TResult>((resolve, reject) => {
-      const timeoutMs = this.#getRequestTimeoutMs(request);
-      const startedAt = Date.now();
-      const timeoutDiagnostics = createRequestTimeoutDiagnostics(request);
-      const timer = setTimeout(() => {
-        const error = new Error(`DB host request timed out: ${request.kind}`);
-        logger.warn(
-          {
-            ...timeoutDiagnostics,
-            elapsedMs: Math.max(0, Date.now() - startedAt),
-            pendingByKind: this.#getPendingRequestCountsByKind(),
-            pendingCount: this.#pending.size,
-            requestId: id,
-            timeoutMs,
-            willTerminateHost: requiresHostTerminationOnTimeout(request),
-          },
-          'DB host request timed out'
-        );
-        this.#pending.delete(id);
-        this.#recordAbandonedRequest(id, {
-          requestKind: request.kind,
-          startedAt,
-          timeoutMs,
-        });
-        reject(error);
-        if (requiresHostTerminationOnTimeout(request)) {
-          this.#terminateHost(error);
-        }
-      }, timeoutMs);
-      this.#pending.set(id, {
-        reject,
-        requestKind: request.kind,
-        resolve: resolve as (value: unknown) => void,
-        startedAt,
-        timeoutMs,
-        timer,
-      });
-      host.postMessage(envelope);
+    if (request.kind !== 'close') {
+      // Synchronous unless a host is departing, so a request issued before `close()` is still
+      // posted before the close envelope. `#initialize()` is gated here too (its `init` request).
+      const admission = this.#admit();
+      if (admission) {
+        await admission;
+      }
+    }
+    this.#ensureHost();
+    const envelope: DbHostRequestEnvelope = {
+      id: createRequestId(),
+      kind: 'request',
+      request,
+    };
+    const response = await this.#requests.request(envelope);
+    if (!response.ok) {
+      throw toError(response.error);
+    }
+    return response.result as TResult;
+  }
+
+  /**
+   * The gate every request passes before it may fork a host. Rejects while the manager is retired
+   * or closing. While a departing host has not exited it waits at most one post-SIGKILL budget for
+   * that exit, then rejects: never a fork, never an unbounded wait. Everything is re-checked after
+   * each wait, so a request that was waiting cannot fork after a retire or a close began.
+   */
+  #admit(): Promise<void> | undefined {
+    this.#assertActive();
+    if (this.#closing) {
+      throw new DbHostUnavailableError('DB host is unavailable: the database is closing.');
+    }
+    const departing = this.#departingHost;
+    if (!departing) {
+      return undefined;
+    }
+    return departing.waitForExit(DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS).then(async (exited) => {
+      if (!exited) {
+        throw new DbHostUnavailableError(PREVIOUS_HOST_ALIVE_MESSAGE);
+      }
+      await this.#admit();
     });
+  }
+
+  /**
+   * A timed-out request is NOT cancelled: the host runs one statement at a
+   * time and an IPC deadline cannot reach into it, so the request joins the
+   * abandoned ledger and its eventual late response is logged. Transaction
+   * requests are the exception — their connection state cannot survive an
+   * abandoned statement, so the host is terminated.
+   */
+  #decideRequestTimeout(
+    envelope: DbHostRequestEnvelope,
+    context: HostRequestTimeoutContext
+  ): HostRequestTimeoutDecision {
+    const { request } = envelope;
+    const willTerminateHost = requiresHostTerminationOnTimeout(request);
+    const abandonedState = this.#getAbandonedRequestState(context.timedOutAt);
+    const error = new DbHostRequestTimeoutError({
+      ...abandonedState,
+      pendingCount: context.pendingCount,
+      requestKind: request.kind,
+      timeoutMs: context.timeoutMs,
+      willTerminateHost,
+    });
+    logger.warn(
+      {
+        ...createRequestTimeoutDiagnostics(request),
+        elapsedMs: Math.max(0, Date.now() - context.startedAt),
+        ...abandonedState,
+        pendingByKind: this.#getPendingRequestCountsByKind(),
+        pendingCount: context.pendingCount,
+        requestId: envelope.id,
+        timeoutMs: context.timeoutMs,
+        willTerminateHost,
+      },
+      'DB host request timed out'
+    );
+    this.#recordAbandonedRequest(envelope.id, {
+      requestKind: request.kind,
+      startedAt: context.startedAt,
+      timedOutAt: context.timedOutAt,
+      timeoutMs: context.timeoutMs,
+    });
+    if (!willTerminateHost) {
+      return { error, policy: 'abandon' };
+    }
+    return {
+      error,
+      policy: 'terminate',
+      terminate: (terminationError) => {
+        this.#terminateHost(terminationError, createRequestTimeoutDiagnostics(request));
+      },
+    };
   }
 
   #getPendingRequestCountsByKind(): Record<string, number> {
     const counts: Record<string, number> = {};
-    for (const pending of this.#pending.values()) {
-      counts[pending.requestKind] = (counts[pending.requestKind] ?? 0) + 1;
+    for (const envelope of this.#requests.inFlight()) {
+      counts[envelope.request.kind] = (counts[envelope.request.kind] ?? 0) + 1;
     }
     return counts;
+  }
+
+  #getAbandonedRequestState(now: number): {
+    readonly hasStaleAbandonedRequest: boolean;
+    readonly recentAbandonedCount: number;
+  } {
+    let hasStaleAbandonedRequest = false;
+    let recentAbandonedCount = 0;
+    for (const request of this.#abandoned.values()) {
+      if (now - request.timedOutAt < request.timeoutMs) {
+        recentAbandonedCount += 1;
+      } else {
+        hasStaleAbandonedRequest = true;
+      }
+    }
+    return { hasStaleAbandonedRequest, recentAbandonedCount };
   }
 
   #getRequestTimeoutMs(request: DbHostRequest): number {
@@ -545,25 +600,35 @@ class DefaultDbHostManager implements DbHostManager {
     this.#liveQueries.delete(liveId);
   }
 
-  #ensureHost(): UtilityProcess {
+  #ensureHost(): DbHostProcess {
     if (this.#host) {
       return this.#host;
     }
-    const host = utilityProcess.fork(this.#entryPath, [], {
-      env: createDbHostEnvironment(),
-      serviceName: 'brainstrike-db-host',
-    });
-    host.on('message', (message: unknown) => {
+    // Defense in depth: `#admit()` already waited for, or rejected on, a departing host.
+    if (this.#departingHost) {
+      throw new DbHostUnavailableError(PREVIOUS_HOST_ALIVE_MESSAGE);
+    }
+    // Only an existing host may serve shutdown-time work; a fork now would re-open a closed database.
+    if (isDesktopShuttingDown()) {
+      throw new DbHostUnavailableError('DB host is unavailable: the application is shutting down.');
+    }
+    const host = new DbHostProcess(
+      utilityProcess.fork(this.#entryPath, [], {
+        env: createDbHostEnvironment(),
+        serviceName: 'brainstrike-db-host',
+      })
+    );
+    host.handle.on('message', (message: unknown) => {
       this.#acceptMessage(message);
     });
-    host.on('exit', (code) => {
-      const error = new Error(`DB host exited with code ${code}.`);
-      this.#host = null;
-      this.#client = null;
-      this.#failAllLiveQueries(error);
-      this.#rejectAll(error);
+    host.handle.on('exit', (code) => {
+      if (this.#host !== host) {
+        return; // detached: its requests and live queries are already failed
+      }
+      this.#unavailable ??= host.unavailableAfterOwnExit();
+      this.#detachHost(new Error(`DB host exited with code ${code}.`));
     });
-    host.on('error', (type, location) => {
+    host.handle.on('error', (type, location) => {
       logger.error('DB host process error', { location, type });
     });
     this.#host = host;
@@ -574,9 +639,15 @@ class DefaultDbHostManager implements DbHostManager {
     try {
       await this.send<DbHostInitResult>({ kind: 'init' });
     } catch (error) {
-      this.#terminateHost(error instanceof Error ? error : new Error(String(error)));
+      // Only a timeout can mean a wedged host. Any other rejection is a real initialization
+      // failure the host has already recorded; killing it would discard that record, and the
+      // next `db:diagnostics` would fork a fresh host that reports no failure at all.
+      if (error instanceof DbHostRequestTimeoutError) {
+        this.#terminateHost(error, { requestKind: 'init' });
+      }
       throw error;
     }
+    this.#assertActive();
     this.#client = this.#createClient();
     return this.#client;
   }
@@ -752,7 +823,9 @@ class DefaultDbHostManager implements DbHostManager {
       this.#liveQueries.get(message.liveId)?.acceptUpdate(message.results);
       return;
     }
-    this.#acceptResponse(message);
+    if (message.kind === 'response') {
+      this.#acceptResponse(message);
+    }
   }
 
   #recordAbandonedRequest(id: string, request: AbandonedRequest): void {
@@ -797,41 +870,43 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   #acceptResponse(message: DbHostResponseEnvelope): void {
-    const pending = this.#pending.get(message.id);
-    if (!pending) {
-      const abandoned = this.#abandoned.get(message.id);
-      if (abandoned) {
-        this.#abandoned.delete(message.id);
-        // The statement outlived its IPC timeout and kept the single-threaded
-        // host busy the whole time — surface how long it actually ran.
-        logger.warn(
-          {
-            elapsedMs: Math.max(0, Date.now() - abandoned.startedAt),
-            ok: message.ok,
-            requestId: message.id,
-            requestKind: abandoned.requestKind,
-            timeoutMs: abandoned.timeoutMs,
-          },
-          'DB host request completed after timeout'
-        );
+    // The ledger sweep runs AFTER the channel has routed the response, so a
+    // late response still finds its own abandoned entry even when that entry
+    // has already outlived its window.
+    this.#requests.accept(message);
+    this.#clearStaleAbandonedRequests(Date.now());
+  }
+
+  #logLateResponse(requestId: string, message: DbHostResponseEnvelope): void {
+    const abandoned = this.#abandoned.get(requestId);
+    if (!abandoned) {
+      return;
+    }
+    this.#abandoned.delete(requestId);
+    // The statement outlived its IPC timeout and kept the single-threaded
+    // host busy the whole time — surface how long it actually ran.
+    logger.warn(
+      {
+        elapsedMs: Math.max(0, Date.now() - abandoned.startedAt),
+        ok: message.ok,
+        requestId,
+        requestKind: abandoned.requestKind,
+        timeoutMs: abandoned.timeoutMs,
+      },
+      'DB host request completed after timeout'
+    );
+  }
+
+  #clearStaleAbandonedRequests(now: number): void {
+    for (const [id, request] of this.#abandoned) {
+      if (now - request.timedOutAt >= request.timeoutMs) {
+        this.#abandoned.delete(id);
       }
-      return;
     }
-    this.#pending.delete(message.id);
-    clearTimeout(pending.timer);
-    if (message.ok) {
-      pending.resolve(message.result);
-      return;
-    }
-    pending.reject(toError(message.error));
   }
 
   #rejectAll(error: Error): void {
-    for (const [id, pending] of this.#pending) {
-      clearTimeout(pending.timer);
-      pending.reject(error);
-      this.#pending.delete(id);
-    }
+    this.#requests.rejectAll(error);
     // A dead host can never deliver the late responses we were watching for.
     this.#abandoned.clear();
   }
@@ -843,21 +918,25 @@ class DefaultDbHostManager implements DbHostManager {
     this.#liveQueries.clear();
   }
 
-  #terminateHost(error: Error): void {
+  // The only way out of a statement that never returns: SIGKILL, and no replacement host
+  // forks until the exit is observed. A close in flight owns the host's lifecycle instead.
+  #terminateHost(error: Error, diagnostics: RequestTimeoutDiagnostics): void {
     const host = this.#host;
-    if (!host) {
+    // While closing, the request-timeout `rejectAll` also fails the close request itself, which
+    // drives the close ladder's own SIGKILL; a second kill here would race it.
+    if (!host || this.#closing) {
       return;
     }
-    this.#host = null;
-    this.#client = null;
-    this.#failAllLiveQueries(error);
-    this.#rejectAll(error);
-    host.kill();
+    this.#detachHost(error);
+    void killWedgedHost(host, { ...diagnostics, reason: 'request-timeout' });
   }
 }
 
-let defaultManager: DbHostManager | null = null;
+let defaultManager: DefaultDbHostManager | null = null;
 let closingDefaultManager: Promise<void> | null = null;
+// A default manager whose close FAILED while its host may still be alive. It outlives its
+// replacement slot so the barrier does too: nothing forks from any manager until that host exits.
+let unexitedDefaultManager: DefaultDbHostManager | null = null;
 
 export function createDbHostManager(options?: DbHostManagerOptions): DbHostManager {
   return new DefaultDbHostManager(options);
@@ -867,8 +946,12 @@ export function getDbHostManager(): DbHostManager {
   if (closingDefaultManager) {
     throw new Error('DB host manager is closing; wait for closeDbHostManager() to complete.');
   }
+  if (unexitedDefaultManager?.hasDepartingHost()) {
+    throw new DbHostUnavailableError(PREVIOUS_HOST_ALIVE_MESSAGE);
+  }
+  unexitedDefaultManager = null; // its host has exited (or there never was one)
   if (!defaultManager) {
-    defaultManager = createDbHostManager();
+    defaultManager = new DefaultDbHostManager();
   }
   return defaultManager;
 }
@@ -880,18 +963,33 @@ export async function closeDbHostManager(): Promise<void> {
   }
   const manager = defaultManager;
   if (!manager) {
+    // Same rule as a repeated close of one manager: no success while a host may be alive.
+    const unexited = unexitedDefaultManager;
+    if (unexited) {
+      await unexited.close();
+      if (unexitedDefaultManager === unexited) {
+        unexitedDefaultManager = null;
+      }
+    }
     return;
   }
-  closingDefaultManager = manager.close().finally(() => {
-    if (defaultManager === manager) {
-      defaultManager = null;
-    }
-    closingDefaultManager = null;
-  });
+  closingDefaultManager = manager
+    .retire()
+    .catch((error: unknown) => {
+      unexitedDefaultManager = manager;
+      throw error;
+    })
+    .finally(() => {
+      if (defaultManager === manager) {
+        defaultManager = null;
+      }
+      closingDefaultManager = null;
+    });
   await closingDefaultManager;
 }
 
 export function resetDbHostManagerForTests(): void {
   defaultManager = null;
   closingDefaultManager = null;
+  unexitedDefaultManager = null;
 }

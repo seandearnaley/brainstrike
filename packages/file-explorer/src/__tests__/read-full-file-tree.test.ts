@@ -38,7 +38,10 @@ const mockDirectory = (
 class BrowserHandleTestAdapter implements FileSystemAdapter {
   private readonly pathByHandle = new WeakMap<object, string>();
 
-  constructor(private readonly root: MockDirectoryHandle) {
+  constructor(
+    private readonly root: MockDirectoryHandle,
+    private readonly wrapDirectoryDescriptors = false
+  ) {
     this.pathByHandle.set(root, '');
   }
 
@@ -64,7 +67,10 @@ class BrowserHandleTestAdapter implements FileSystemAdapter {
       this.pathByHandle.set(childHandle, path);
       nodes.push({
         depth: 0,
-        handle: childHandle as unknown as FileSystemDirectoryHandle | FileSystemFileHandle,
+        handle:
+          this.wrapDirectoryDescriptors && childHandle.kind === 'directory'
+            ? { _internal: childHandle, kind: 'directory', name, path, platform: 'web' }
+            : (childHandle as unknown as FileSystemDirectoryHandle | FileSystemFileHandle),
         name,
         path,
         rootFolderId: this.root.name,
@@ -96,6 +102,18 @@ async function readBrowserFixture(
 // --- End Mocking Strategy ---
 
 describe('readFullFileTree', () => {
+  it('traverses canonical web directory descriptors without wrapping their raw capability again', async () => {
+    const adapter = new BrowserHandleTestAdapter(
+      mockDirectory('root', [
+        ['child', mockDirectory('child', [['file.txt', mockFile('file.txt')]])],
+      ]),
+      true
+    );
+    const tree = await readFullFileTree(adapter, await adapter.requestDirectoryAccess());
+
+    expect(tree[0]?.children?.[0]).toMatchObject({ name: 'file.txt', path: '/child/file.txt' });
+  });
+
   // Test Scenario 1: Basic Valid Tree
   it('should process a basic valid tree structure', async () => {
     const _rootHandle = mockDirectory('root', [
@@ -134,6 +152,48 @@ describe('readFullFileTree', () => {
       rootFolderId: 'root',
       type: 'file',
     });
+  });
+
+  it('preserves a durable rootId stamped on a child handle during recursive traversal', async () => {
+    const stampedChildHandle = Object.assign(mockDirectory('child'), {
+      rootId: 'stamped-child-root-id',
+    });
+    const adapter = new BrowserHandleTestAdapter(
+      mockDirectory('root', [['child', stampedChildHandle]])
+    );
+    const readDirectory = vi.spyOn(adapter, 'readDirectory');
+    const rootHandle = await adapter.requestDirectoryAccess();
+
+    await readFullFileTree(adapter, rootHandle);
+
+    expect(readDirectory).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        path: '/child',
+        rootId: 'stamped-child-root-id',
+      })
+    );
+  });
+
+  it('inherits the durable rootId when a web child handle is unstamped', async () => {
+    const adapter = new BrowserHandleTestAdapter(
+      mockDirectory('root', [['child', mockDirectory('child')]])
+    );
+    const readDirectory = vi.spyOn(adapter, 'readDirectory');
+    const rootHandle: DirectoryHandle = {
+      ...(await adapter.requestDirectoryAccess()),
+      rootId: 'outer-root-id',
+    };
+
+    await readFullFileTree(adapter, rootHandle);
+
+    expect(readDirectory).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        path: '/child',
+        rootId: 'outer-root-id',
+      })
+    );
   });
 
   // Test Scenario 2: Circular Reference (Symbolic Link)

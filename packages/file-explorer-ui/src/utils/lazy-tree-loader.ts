@@ -7,6 +7,7 @@
  * Generic tree operations are imported from @brainstrike/utils.
  */
 
+import { fileNodeToDirectoryHandle } from '@brainstrike/file-system/file-node-handles';
 import {
   findNodeByPath as findNodeByPathGeneric,
   isLoading as isLoadingGeneric,
@@ -28,6 +29,8 @@ export interface LazyLoadOptions {
   abortSignal?: AbortSignal;
   /** Whether to include file metadata (size, lastModified) */
   includeMetadata?: boolean;
+  /** Durable root identity inherited when a raw child handle is unstamped. */
+  parentRootId?: DirectoryHandle['rootId'];
   /**
    * Override the rootFolderId stamped on loaded nodes.
    * Since storage v5 this is the durable RootId UUID; when absent the
@@ -44,35 +47,6 @@ export interface LazyLoadOptions {
  */
 function defaultSortFileNodes(nodes: IFileNode[]): IFileNode[] {
   return sortTreeNodes(nodes);
-}
-
-/**
- * Detect platform from a native handle
- */
-function detectPlatform(handle: unknown): 'web' | 'electron' {
-  // Check if it's already a DirectoryHandle with platform info
-  if (handle && typeof handle === 'object' && 'platform' in handle) {
-    return (handle as { platform: string }).platform === 'electron' ? 'electron' : 'web';
-  }
-  // Check for web FileSystemDirectoryHandle (has entries() method)
-  if (handle && typeof handle === 'object' && 'entries' in handle) {
-    return 'web';
-  }
-  // Assume electron otherwise
-  return 'electron';
-}
-
-/**
- * Build a DirectoryHandle from an IFileNode
- */
-function buildDirectoryHandle(node: IFileNode): DirectoryHandle {
-  return {
-    _internal: node.handle,
-    kind: 'directory',
-    name: node.name,
-    path: node.path,
-    platform: detectPlatform(node.handle),
-  };
 }
 
 /**
@@ -172,7 +146,7 @@ export async function loadDirectoryChildren(
   abortSignal?.throwIfAborted();
 
   // Build DirectoryHandle from the node
-  const handle = buildDirectoryHandle(parentNode);
+  const handle = fileNodeToDirectoryHandle(parentNode, options.parentRootId);
 
   // Read immediate children only
   let children: IFileNode[];
@@ -332,7 +306,7 @@ export async function loadDirectoryChildrenStreaming(
 
   abortSignal?.throwIfAborted();
 
-  const handle = buildDirectoryHandle(parentNode);
+  const handle = fileNodeToDirectoryHandle(parentNode, options.parentRootId);
   const depth = parentNode.depth + 1;
   const rootFolderId = parentNode.rootFolderId;
 

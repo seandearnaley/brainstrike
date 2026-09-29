@@ -481,7 +481,9 @@ describe('DrizzleFileRecordRepository', () => {
         { content: 'const c = 3;', name: 'file3.ts', path: '/src/file3.ts', size: 300 },
       ];
 
+      const before = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
       const results = await repository.bulkImport(requests);
+      expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(before + 1);
 
       expect(results).toHaveLength(3);
       expect(results.every((r) => r.imported)).toBe(true);
@@ -543,7 +545,11 @@ describe('DrizzleFileRecordRepository', () => {
         updatedAt: now,
       });
 
+      const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
       const cleared = await repository.clearAll();
+      expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+        telemetryBefore + 1
+      );
       expect(cleared).toBe(2);
       expect(await repository.count()).toBe(0);
     });

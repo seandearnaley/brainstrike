@@ -1,9 +1,34 @@
 import path from 'node:path';
+import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
-import { getAdjustedTimeout } from '../../packages/test-utils/src/test-timeouts';
+
+// Native file sharding keeps each integration runner serialized. Local runs
+// omit the shard and still execute the complete suite.
+export function resolveDesktopTestShard(
+  environment: NodeJS.ProcessEnv = process.env
+): string | undefined {
+  const shard = environment['DESKTOP_TEST_SHARD'];
+  if (!shard) {
+    if (environment['DESKTOP_TEST_SHARD_REQUIRED'] === 'true') {
+      throw new Error('DESKTOP_TEST_SHARD is required for the desktop native-shard task');
+    }
+    return;
+  }
+  const match = /^(?<index>[1-9]\d*)\/(?<count>[1-9]\d*)$/u.exec(shard);
+  if (!match?.groups) {
+    throw new Error(`DESKTOP_TEST_SHARD must use Vitest's i/N form; received "${shard}"`);
+  }
+  const index = Number(match.groups['index']);
+  const count = Number(match.groups['count']);
+  if (!(Number.isSafeInteger(index) && Number.isSafeInteger(count)) || index > count) {
+    throw new Error(`DESKTOP_TEST_SHARD index must not exceed its count; received "${shard}"`);
+  }
+  return shard;
+}
 
 const coverageEnabled =
   process.env['COVERAGE'] !== 'false' &&
@@ -216,6 +241,7 @@ export default defineConfig({
     // that CI and `pnpm test` run is FORKS, not threads. This default only
     // applies when vitest is invoked directly without that flag.
     pool: 'threads',
+    reporters: ['default', new LostTestFileReporter()],
     server: {
       deps: {
         // Force `electron` through Vite's transform pipeline so the
@@ -227,7 +253,12 @@ export default defineConfig({
         inline: ['electron'],
       },
     },
-    setupFiles: ['@brainstrike/test-utils/vitest.setup', './src/__tests__/setup.ts'],
+    setupFiles: [
+      '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
+      '@brainstrike/test-utils/vitest.setup',
+      './src/__tests__/setup.ts',
+    ],
+    shard: resolveDesktopTestShard(),
     testTimeout: getAdjustedTimeout('uiComponent'),
   },
 });

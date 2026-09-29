@@ -44,6 +44,12 @@ describe('isAssistantRunEvent', () => {
     expect(isAssistantRunEvent({ ...validEvent, status: 'exploded' })).toBe(false);
   });
 
+  it('rejects retired context event kinds that never had production emitters', () => {
+    for (const kind of ['context.budget', 'context.prepared', 'context.selection']) {
+      expect(isAssistantRunEvent({ ...validEvent, kind })).toBe(false);
+    }
+  });
+
   it('rejects mistyped optionals, including non-finite numbers', () => {
     expect(isAssistantRunEvent({ ...validEvent, detail: 7 })).toBe(false);
     expect(isAssistantRunEvent({ ...validEvent, runId: {} })).toBe(false);
@@ -76,12 +82,16 @@ describe('isAssistantRunEvent', () => {
 
   it('round-trip: whatever the outbound sanitizer emits passes the inbound guard', () => {
     const pathological: Record<string, unknown> = {
+      absent: undefined,
       deep: { a: { b: { c: { d: { e: { f: { g: { h: { i: 'way past the cap' } } } } } } } } },
       fn: () => 'stripped',
       nan: Number.NaN,
       ok: ['fine', { nested: true }],
     };
     const sanitized = sanitizeAssistantRunEventMetadata(pathological);
+    // Both the publication host and storage boundary sanitize independently.
+    expect(sanitizeAssistantRunEventMetadata(sanitized)).toStrictEqual(sanitized);
+    expect(JSON.parse(JSON.stringify(sanitized))).toStrictEqual(sanitized);
     expect(isAssistantRunEvent({ ...validEvent, metadata: sanitized })).toBe(true);
   });
 });

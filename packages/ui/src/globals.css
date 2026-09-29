@@ -78,13 +78,26 @@
   /* Semantic Status Colors */
   --bs-success: 152 55% 41%; /* #2F9E6E - Green */
   --bs-success-foreground: 0 0% 100%; /* White */
-  --bs-warning: 38 92% 50%; /* #F59E0B - Amber */
-  --bs-warning-foreground: 25 20% 14%; /* Dark text for contrast */
+  --bs-warning: 30 90% 34%; /* Deep amber; 4.66:1 against the light muted surface */
+  --bs-warning-foreground: 0 0% 100%; /* White text on deep amber */
   --bs-info: 215 50% 50%; /* #4080B3 - Muted blue */
   --bs-info-foreground: 0 0% 100%; /* White */
 
   /* Radius - Slightly larger for modern feel */
   --bs-radius: 0.5rem;
+
+  /* Delegation identity rails (swarm-aware approval cards/rows). Eight
+     curated hues picked by a stable hash of the delegation call id
+     (`packages/assistant-ui/src/delegation-colour.ts`). Never the only
+     signal: the persona label always accompanies the rail. */
+  --bs-delegation-1: 215 70% 46%; /* blue */
+  --bs-delegation-2: 172 60% 34%; /* teal */
+  --bs-delegation-3: 268 55% 52%; /* violet */
+  --bs-delegation-4: 32 90% 44%; /* amber */
+  --bs-delegation-5: 342 65% 48%; /* rose */
+  --bs-delegation-6: 140 50% 36%; /* green */
+  --bs-delegation-7: 238 55% 58%; /* indigo */
+  --bs-delegation-8: 18 60% 42%; /* ochre */
 
   --background: var(--bs-background);
   --foreground: var(--bs-foreground);
@@ -102,6 +115,8 @@
   --accent-foreground: var(--bs-accent-foreground);
   --destructive: var(--bs-destructive);
   --destructive-foreground: var(--bs-destructive-foreground);
+  --warning: var(--bs-warning);
+  --warning-foreground: var(--bs-warning-foreground);
   --border: var(--bs-border);
   --panel-divider: var(--bs-panel-divider);
   --panel-surface: var(--bs-panel-surface);
@@ -197,6 +212,16 @@
 
   --bs-radius: 0.5rem;
 
+  /* Delegation rails, lifted for dark surfaces (same hue order as light). */
+  --bs-delegation-1: 215 75% 66%;
+  --bs-delegation-2: 172 55% 52%;
+  --bs-delegation-3: 268 65% 72%;
+  --bs-delegation-4: 36 90% 62%;
+  --bs-delegation-5: 342 75% 68%;
+  --bs-delegation-6: 140 50% 56%;
+  --bs-delegation-7: 238 70% 76%;
+  --bs-delegation-8: 22 70% 62%;
+
   --background: var(--bs-background);
   --foreground: var(--bs-foreground);
   --card: var(--bs-card);
@@ -213,6 +238,8 @@
   --accent-foreground: var(--bs-accent-foreground);
   --destructive: var(--bs-destructive);
   --destructive-foreground: var(--bs-destructive-foreground);
+  --warning: var(--bs-warning);
+  --warning-foreground: var(--bs-warning-foreground);
   --border: var(--bs-border);
   --panel-divider: var(--bs-panel-divider);
   --panel-surface: var(--bs-panel-surface);
@@ -402,8 +429,46 @@
     cursor: pointer;
   }
 
-  /* Subtle press effect for specifically marked kinetic elements */
-  .kinetic-depress:not(:disabled):not([aria-disabled="true"]):not(.no-depress):active {
+  /*
+   * Subtle press effect for specifically marked kinetic elements.
+   *
+   * The `[data-state="open"]` exclusion is load bearing, not cosmetic. Radix
+   * opens a Select, Popover, DropdownMenu or ContextMenu on POINTERDOWN —
+   * while the button is still held, so still
+   * `:active`, so still scaled by this rule. Floating UI positions the popup
+   * from `getBoundingClientRect()` on that trigger, which INCLUDES transforms,
+   * and publishes the result as `--radix-popper-anchor-width/height`. It never
+   * corrects itself when the press releases: `ResizeObserver` does not fire for
+   * transforms, and Radix's default `updatePositionStrategy` is `optimized`
+   * (no per-frame re-measure). The popup therefore stays sized and placed from
+   * a 0.97-scaled phantom of its trigger for as long as it is open.
+   *
+   * Measured on a 718x40 Select trigger in the Settings modal: the anchor was
+   * published as 696.46x38.80 (718 x 0.97, 40 x 0.97) and the listbox landed
+   * 11px inside the field's left edge and 21.5px too narrow. With the press
+   * effect suppressed the same listbox measures 718px wide with 0.00px delta
+   * on both edges. See `__tests__/kinetic-depress-popup-anchors.test.ts`.
+   *
+   * Suppressing only while OPEN keeps the press feedback on every ordinary
+   * button, and on the click that DISMISSES a popup — the state has already
+   * flipped back to closed by then, and a dismiss measures nothing.
+   *
+   * `data-state` is the whole condition, deliberately: every Radix floating
+   * trigger sets it, and the repo has no non-Radix floating anchors (zero
+   * direct `@floating-ui` / `useFloating` call sites). An earlier revision also
+   * excluded `[aria-expanded="true"]`, which added nothing here and cost real
+   * affordance — `Button` defaults to `depress`, so it silently killed the
+   * press effect on plain disclosure toggles across ~14 call sites, including
+   * the expand chevron on every expanded tree row
+   * (`tree-table/tree-table-row.tsx`) and `layout/ide-layout.tsx`'s hide-panel
+   * buttons, which render only while expanded and were therefore dead outright.
+   * If a non-Radix combobox ever needs cover, scope it to popup anchors
+   * (`:not([role="combobox"][aria-expanded="true"])`), never to everything that
+   * can expand.
+   */
+  .kinetic-depress:not(:disabled):not([aria-disabled="true"]):not(.no-depress):not(
+      [data-state="open"]
+    ):active {
     transform: scale(0.97);
   }
 
@@ -521,4 +586,43 @@
     font-weight: var(--shiki-dark-font-weight) !important;
     text-decoration: var(--shiki-dark-text-decoration) !important;
   }
+}
+
+/* The small solid mark carries identity; the surrounding surface stays quiet. */
+.bs-agent-family {
+  --agent-accent: var(--agent-accent-light);
+}
+.dark .bs-agent-family {
+  --agent-accent: var(--agent-accent-dark);
+}
+.bs-agent-family-idle {
+  background: color-mix(in oklab, var(--agent-accent) 5%, hsl(var(--background)));
+}
+.bs-agent-family-idle:hover {
+  background: color-mix(in oklab, var(--agent-accent) 9%, hsl(var(--background)));
+}
+.bs-agent-family-selected {
+  background: color-mix(in oklab, var(--agent-accent) 9%, hsl(var(--background)));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--agent-accent) 32%, hsl(var(--border)));
+}
+.bs-agent-solid-mark {
+  border-color: transparent;
+  box-shadow: 0 0 0 1px color-mix(in oklab, currentColor 14%, transparent);
+}
+.bs-agent-family-mark {
+  color: var(--agent-ink-light);
+  background: var(--agent-accent-light);
+}
+.dark .bs-agent-family-mark {
+  color: var(--agent-ink-dark);
+  background: var(--agent-accent-dark);
+}
+.bs-agent-parent-cue {
+  background: var(--agent-accent-light);
+}
+.dark .bs-agent-parent-cue {
+  background: var(--agent-accent-dark);
+}
+.bs-agent-family-accent {
+  background: var(--agent-accent);
 }

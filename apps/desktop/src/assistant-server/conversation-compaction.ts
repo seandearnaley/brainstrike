@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   AgenticCompactionSummarySchemaError,
   type AgentMessage,
+  buildModelSettingsOption,
   type CompactionMessage,
   type CompactionRangeEntry,
   estimateCompactionMessageTokens,
@@ -20,7 +21,7 @@ import {
   COMPACTION_SUMMARY_METADATA_KEY,
   type CompactionSummaryPayload,
 } from '@brainstrike/assistant-contract/compaction-summary';
-import { deriveEffectiveInputBudget } from '@brainstrike/assistant-contract/context-budget';
+import { deriveAgentLoopInputTokenLimit } from '@brainstrike/assistant-contract/context-budget';
 import {
   ASSISTANT_MESSAGE_PARENTS_TABLE,
   TOKEN_ESTIMATE_CALIBRATION_TABLE,
@@ -243,21 +244,59 @@ function requireThreadContext(runtimeData: RuntimeData):
   return { resourceId, threadId };
 }
 
+/**
+ * BST-1707: the run's OWN resolved input limit wins whenever the request
+ * carries one. `agentLoop.inputTokenLimit` is what the turn actually enforces
+ * (Mastra's TokenLimiter budget, the context meter's denominator and the
+ * instruction budget note all read that same number — see the ONE-DERIVATION
+ * invariant in docs/agents/assistant-persistence.md), and it is threaded from
+ * the renderer's `buildAgentLoopSettings` through the request body into
+ * `RuntimeData` unmodified on the desktop path.
+ *
+ * A run with NO `agentLoop` (a raw client, or a request built before the
+ * settings exist) gets the number that SAME derivation would have produced:
+ * `deriveAgentLoopInputTokenLimit`, the function `buildAgentLoopSettings`
+ * itself calls, fed the output reservation this run actually sends
+ * (`buildModelSettingsOption` — the explicit `modelSettings`, else OpenRouter's
+ * reasoning-aware output window). BST-1804: the fallback used to be its own
+ * formula reserving the catalog's HARD `maxOutputTokens`, which OpenRouter
+ * never sends (it caps at OPENROUTER_CODING_MAX_OUTPUT_TOKENS or the vendor
+ * window). Once the catalog carried top-provider maxima that meant 25-52K
+ * budgets on 0.5-1M windows (x-ai/grok-4.7, moonshotai/kimi-k3) and a THROW
+ * for minimax/minimax-m3 — which the pre-request caller catches, so the turn
+ * ran uncompacted with only its `compaction.failed` breadcrumb to show for it.
+ *
+ * A PRESENT-but-unusable `inputTokenLimit` throws rather than quietly falling
+ * back to a different number: the desktop assistant HTTP path does not
+ * sanitize `agentLoop` (only the IPC tool path does), so silently substituting
+ * the derived value would hide a malformed request behind a plausible budget.
+ */
 export function resolveCompactionInputBudget(runtimeData: RuntimeData): number {
   const provider = runtimeData.provider?.trim();
   const model = runtimeData.model?.trim() || (provider ? getDefaultModel(provider) : '');
   if (!(provider && model)) {
     throw new Error('Conversation compaction requires the run provider and model.');
   }
+  const resolvedBudget = runtimeData.agentLoop?.inputTokenLimit;
+  if (resolvedBudget !== undefined) {
+    if (!(Number.isSafeInteger(resolvedBudget) && resolvedBudget > 0)) {
+      throw new Error(
+        `Conversation compaction received an invalid agentLoop.inputTokenLimit (${resolvedBudget}) for ${provider}/${model}.`
+      );
+    }
+    return resolvedBudget;
+  }
   const definition = findLlmModelDefinition(provider as ProviderId, model);
   if (!definition) {
-    const explicitBudget = runtimeData.agentLoop?.inputTokenLimit;
-    if (Number.isSafeInteger(explicitBudget) && (explicitBudget ?? 0) > 0) {
-      return explicitBudget as number;
-    }
     throw new Error(`Unknown compaction input budget for ${provider}/${model}.`);
   }
-  return deriveEffectiveInputBudget(definition.contextWindow, definition.maxOutputTokens);
+  // Only OpenRouter reserves the request's output; a direct provider reserves
+  // the catalog maximum, so it never runs the stream-option builder.
+  const requestMaxOutputTokens =
+    provider === 'openrouter'
+      ? buildModelSettingsOption(runtimeData).modelSettings?.maxOutputTokens
+      : undefined;
+  return deriveAgentLoopInputTokenLimit(definition, provider, requestMaxOutputTokens);
 }
 
 function isAtTrigger(

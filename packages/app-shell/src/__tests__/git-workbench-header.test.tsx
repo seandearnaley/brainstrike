@@ -22,7 +22,7 @@ import {
 import type { GitInventory, WorktreeDescriptor } from '@brainstrike/types';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import type { UseGitInventoryResult } from '../changes/use-git-inventory';
 import type { GitRepository, GitStatus, GitWorktreeSummary } from '../git-panel/git-bridge';
@@ -159,6 +159,26 @@ async function openWorktreeMenu(): Promise<ReturnType<typeof userEvent.setup>> {
   await user.click(screen.getByRole('button', { name: /Current worktree/ }));
   return user;
 }
+
+async function closeWorkbenchMenu(): Promise<void> {
+  const menu = screen.queryByRole('menu');
+  if (!menu) {
+    return;
+  }
+  const triggerId = menu.getAttribute('aria-labelledby');
+  const trigger = triggerId ? document.getElementById(triggerId) : null;
+  if (!trigger) {
+    throw new Error('The open workbench menu must identify its focus-return trigger.');
+  }
+  await userEvent.setup().keyboard('{Escape}');
+  // Radix restores focus in its deferred onCloseAutoFocus callback. Await
+  // that observable completion while this fixture's document still owns it.
+  await waitFor(() => expect(trigger).toHaveFocus());
+}
+
+// Vitest's stack ordering runs this file hook before RTL/shared cleanup.
+// The final nested suite below observes focus restoration through this hook.
+afterEach(closeWorkbenchMenu);
 
 describe('GitWorkbenchHeader worktree dropdown', () => {
   beforeEach(() => {
@@ -503,5 +523,129 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
 
     expect(switchBranch).toHaveBeenCalledWith('feature/search');
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+  });
+
+  // ── Branch-switch dirty gate (BST-1447 review: Major 1 + Major 2 + Minor 3) ─
+
+  it('disables branch rows and shows the visible dirty reason for a tracked change, never calling switchBranch', async () => {
+    const switchBranch = vi.fn(async () => undefined);
+    render(
+      <GitWorkbenchHeader
+        fetchRemote={NOOP_ASYNC}
+        isLoading={false}
+        isSyncing={false}
+        refreshStatus={vi.fn()}
+        repository={makeRepository({
+          branches: [
+            {
+              current: true,
+              head: '0'.repeat(40),
+              name: 'main',
+              upstream: null,
+              worktreePath: null,
+            },
+            {
+              current: false,
+              head: '1'.repeat(40),
+              name: 'feature/search',
+              upstream: null,
+              worktreePath: null,
+            },
+          ],
+        })}
+        status={makeStatus({
+          clean: false,
+          files: [
+            { path: 'tracked.txt', staged: false, status: 'M', unstaged: true, untracked: false },
+          ],
+        })}
+        switchBranch={switchBranch}
+      />
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /Current branch/ }));
+
+    // Visible, not just a title tooltip on a disabled item (Major 1).
+    expect(screen.getByTestId('git-workbench-branch-dirty-reason')).toHaveTextContent(
+      'Working tree has uncommitted changes — commit or stash first.'
+    );
+    const row = screen.getByRole('menuitem', { name: 'feature/search' });
+    expect(row).toHaveAttribute('aria-disabled', 'true');
+
+    await user.click(row);
+    expect(switchBranch).not.toHaveBeenCalled();
+  });
+
+  it('does NOT disable branch rows for an untracked-only tree (Major 2 ruling)', async () => {
+    render(
+      <GitWorkbenchHeader
+        fetchRemote={NOOP_ASYNC}
+        isLoading={false}
+        isSyncing={false}
+        refreshStatus={vi.fn()}
+        repository={makeRepository({
+          branches: [
+            {
+              current: true,
+              head: '0'.repeat(40),
+              name: 'main',
+              upstream: null,
+              worktreePath: null,
+            },
+            {
+              current: false,
+              head: '1'.repeat(40),
+              name: 'feature/search',
+              upstream: null,
+              worktreePath: null,
+            },
+          ],
+        })}
+        status={makeStatus({
+          clean: false,
+          files: [
+            { path: 'new-file.txt', staged: false, status: '?', unstaged: false, untracked: true },
+          ],
+        })}
+        switchBranch={NOOP_ASYNC}
+      />
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /Current branch/ }));
+
+    expect(screen.queryByTestId('git-workbench-branch-dirty-reason')).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'feature/search' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+  });
+});
+
+describe('workbench menu fixture lifetime', () => {
+  let restoredFocus = false;
+
+  afterAll(() => {
+    // This runs after the actual afterEach chain, not a direct helper call.
+    // Removing/reordering the close hook must fail even when RTL removed DOM.
+    expect(restoredFocus).toBe(true);
+  });
+
+  it('finishes focus restoration when a test leaves its menu open', async () => {
+    setInventoryResult({ inventory: makeInventory([makeWorktreeDescriptor()]) });
+    renderHeader(makeRepository());
+    const trigger = screen.getByRole('button', { name: /Current worktree/ });
+    await openWorktreeMenu();
+    expect(trigger).not.toHaveFocus();
+    trigger.addEventListener(
+      'focus',
+      () => {
+        restoredFocus = true;
+      },
+      { once: true }
+    );
+    // Leave the real Radix menu open. Only the registered teardown may close it.
+    expect(screen.getByRole('menu')).toBeVisible();
   });
 });

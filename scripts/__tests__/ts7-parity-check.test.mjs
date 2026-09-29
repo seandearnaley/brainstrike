@@ -129,6 +129,16 @@ describe('classifyCommand', () => {
     });
   });
 
+  it('unwraps the test-tsconfig verifier into its noEmit project', () => {
+    const command =
+      'node ../../scripts/verify-test-tsconfig-program.mjs --project tsconfig.test.json --min-test-files 400';
+    assert.deepEqual(classifyCommand(command), {
+      command,
+      kind: 'noEmit',
+      project: 'tsconfig.test.json',
+    });
+  });
+
   it('tags build and non-tsc commands instead of comparing them', () => {
     assert.equal(classifyCommand('tsc --build --force').kind, 'build');
     assert.equal(classifyCommand('tsc -b').kind, 'build');
@@ -235,7 +245,7 @@ describe('canClaimParity — the single gate (absence of evidence is not agreeme
   });
 
   it('an UNCOMPARED tsc invocation blocks parity even with zero mismatches', () => {
-    // The apps/web `tsc --build --force` shape: everything compared matched,
+    // The apps/web `tsc --build` shape: everything compared matched,
     // but a tsc invocation went unverified. A mismatch COUNTER would say 0 and
     // print PARITY HOLDS; the outcome gate refuses.
     const results = [{ outcome: OUTCOME.MATCHED }, { outcome: OUTCOME.NOT_COMPARED }];

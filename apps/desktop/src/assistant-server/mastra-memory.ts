@@ -1,7 +1,7 @@
 /**
  * Desktop Mastra memory construction (BST-975 slice 5).
  *
- * ORDER-SENSITIVE ATOM: the two cache Maps, DESKTOP_MEMORY_CACHE_LIMIT, their
+ * ORDER-SENSITIVE ATOM: each database owner's two cache Maps, DESKTOP_MEMORY_CACHE_LIMIT, their
  * insertion-order (FIFO) evictors, and resetDesktopMastraMemoryCacheForTests
  * moved here together — splitting the maps from the evictors or the reset
  * silently breaks eviction pairing and cross-test isolation (BST-975 seam map).
@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import {
   type AssistantRunEvent,
   CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  createDelegatedConversationBinding,
   createEmbeddingProvider,
   createLanguageModelProvider,
   createLocalHostEmbeddingModel,
@@ -18,6 +19,11 @@ import {
   type RuntimeData,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
+import type { BackgroundTaskOwnership } from '@brainstrike/agent/pglite-mastra-memory';
+import {
+  parseRuntimeSubagentSettings,
+  resolveChildTaskTimeoutMs,
+} from '@brainstrike/assistant-contract/subagent-settings';
 import {
   type DesktopMemoryModelTargetDescriptor,
   type DesktopMemoryModelTargetResolution,
@@ -26,15 +32,24 @@ import {
   parseObservationalMemoryModelTarget,
   parseSemanticRecallEmbeddingModelTarget,
   type RuntimeMemoryOptions,
-  resolveRequestedProvider,
 } from '@brainstrike/assistant-service/memory-model-targets';
 import type { DesktopMemoryFeature } from '@brainstrike/assistant-service/types';
-import { getDatabase } from '../db-main';
+import { type DesktopDatabase, getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
+import {
+  registerDesktopDelegatedCancellation,
+  registerDesktopDelegatedDecision,
+} from './delegated-execution-controls';
+import { registerDesktopDelegatedFollowup } from './delegated-followup-controls';
+import { createDesktopDelegatedInputContext } from './delegated-input-context';
+import { captureDelegatedWorkspaceStart } from './delegated-workspace-snapshot';
 import { resolveProviderApiKey } from './provider-credentials';
+import { createRunCriticalDatabase } from './run-critical-database';
+import type { TurnBoundarySnapshotDeps } from './snapshot-turn-boundaries';
 
 export type DesktopMastraMemoryResult =
-  import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult;
+  import('@brainstrike/assistant-service/stream-init').AgentStreamMemoryResult;
 type DesktopMastraMemoryPromise = Promise<DesktopMastraMemoryResult>;
 
 const DESKTOP_MEMORY_CACHE_LIMIT = 16;
@@ -42,8 +57,24 @@ const DESKTOP_MEMORY_CACHE_LIMIT = 16;
 // keys. Pending keychain resolutions are keyed by unresolved descriptors so
 // concurrent desktop requests dedupe before the concrete cache key exists.
 // Each map is independently bounded to the same small desktop cache limit.
-const desktopMastraMemoryPromises = new Map<string, DesktopMastraMemoryPromise>();
-const desktopMastraMemoryResolutionPromises = new Map<string, DesktopMastraMemoryPromise>();
+interface DesktopMastraMemoryCache {
+  readonly memories: Map<string, DesktopMastraMemoryPromise>;
+  readonly resolutions: Map<string, DesktopMastraMemoryPromise>;
+}
+
+// Reset/reinitialization replaces the database owner. Pending resolutions stay
+// attached to that owner and cannot repopulate the replacement owner's cache.
+let desktopMastraMemoryCaches = new WeakMap<DesktopDatabase, DesktopMastraMemoryCache>();
+
+function getDesktopMastraMemoryCache(database: DesktopDatabase): DesktopMastraMemoryCache {
+  const existing = desktopMastraMemoryCaches.get(database);
+  if (existing) {
+    return existing;
+  }
+  const cache: DesktopMastraMemoryCache = { memories: new Map(), resolutions: new Map() };
+  desktopMastraMemoryCaches.set(database, cache);
+  return cache;
+}
 
 interface DesktopMastraMemoryCacheState {
   readonly cachedPromise?: DesktopMastraMemoryPromise | undefined;
@@ -70,6 +101,7 @@ export class DesktopMemoryCredentialMissingError extends Error {
 /** Host services memory construction can use (injected from the server options). */
 interface DesktopMemoryDependencies {
   readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  readonly snapshots?: TurnBoundarySnapshotDeps | undefined;
 }
 
 export async function getDesktopMastraMemory(
@@ -79,12 +111,14 @@ export async function getDesktopMastraMemory(
   runtimeData?: RuntimeData | undefined,
   memoryDependencies?: DesktopMemoryDependencies | undefined
 ): Promise<DesktopMastraMemoryResult> {
+  const database = await getDatabase();
+  const cache = getDesktopMastraMemoryCache(database);
   const memoryOptions = runtimeData?.memory?.memoryOptions;
   const cacheState = createDesktopMastraMemoryCacheState({
+    cache,
     memoryOptions,
     memorySettings,
     runId,
-    runtimeData,
   });
   if (cacheState.cachedPromise) {
     return cacheState.cachedPromise;
@@ -101,12 +135,14 @@ export async function getDesktopMastraMemory(
         cacheState.semanticRecallEmbeddingResolution
       ),
     });
-    const pendingResolution = desktopMastraMemoryResolutionPromises.get(resolutionKey);
+    const pendingResolution = cache.resolutions.get(resolutionKey);
     if (pendingResolution) {
       return pendingResolution;
     }
     const pendingMemory = createDesktopMastraMemoryFromCacheState({
+      cache,
       cacheState,
+      database,
       eventSink,
       memoryDependencies,
       memoryOptions,
@@ -114,17 +150,19 @@ export async function getDesktopMastraMemory(
       runId,
       runtimeData,
     });
-    evictOldestDesktopMastraMemoryResolutionPromise();
-    desktopMastraMemoryResolutionPromises.set(resolutionKey, pendingMemory);
+    evictOldestDesktopMastraMemoryResolutionPromise(cache);
+    cache.resolutions.set(resolutionKey, pendingMemory);
     void pendingMemory.then(
-      () => cleanupDesktopMastraMemoryResolutionPromise(resolutionKey, pendingMemory),
-      () => cleanupDesktopMastraMemoryResolutionPromise(resolutionKey, pendingMemory)
+      () => cleanupDesktopMastraMemoryResolutionPromise(cache, resolutionKey, pendingMemory),
+      () => cleanupDesktopMastraMemoryResolutionPromise(cache, resolutionKey, pendingMemory)
     );
     return pendingMemory;
   }
 
   return createDesktopMastraMemoryFromCacheState({
+    cache,
     cacheState,
+    database,
     eventSink,
     memoryDependencies,
     memoryOptions,
@@ -135,27 +173,25 @@ export async function getDesktopMastraMemory(
 }
 
 function createDesktopMastraMemoryCacheState({
+  cache,
   memoryOptions,
   memorySettings,
   runId,
-  runtimeData,
 }: {
+  readonly cache: DesktopMastraMemoryCache;
   readonly memoryOptions: RuntimeMemoryOptions | undefined;
   readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
   readonly runId: string | undefined;
-  readonly runtimeData: RuntimeData | undefined;
 }): DesktopMastraMemoryCacheState {
   const observationalMemoryDescriptor =
     resolveDesktopObservationalMemoryModelTargetDescriptor(memorySettings);
   const semanticRecallEmbeddingDescriptor =
     resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(memorySettings);
   const observationalMemoryResolution = resolveRuntimeMemoryModelTarget(
-    observationalMemoryDescriptor,
-    runtimeData
+    observationalMemoryDescriptor
   );
   const semanticRecallEmbeddingResolution = resolveRuntimeMemoryModelTarget(
-    semanticRecallEmbeddingDescriptor,
-    runtimeData
+    semanticRecallEmbeddingDescriptor
   );
   if (
     runId ||
@@ -177,7 +213,7 @@ function createDesktopMastraMemoryCacheState({
     ),
   });
   return {
-    cachedPromise: desktopMastraMemoryPromises.get(cacheKey),
+    cachedPromise: cache.memories.get(cacheKey),
     observationalMemoryResolution,
     semanticRecallEmbeddingResolution,
   };
@@ -191,6 +227,8 @@ function needsAsyncDesktopMemoryResolution(cacheState: DesktopMastraMemoryCacheS
 }
 
 async function createDesktopMastraMemoryFromCacheState({
+  cache,
+  database,
   cacheState,
   eventSink,
   memoryDependencies,
@@ -199,6 +237,8 @@ async function createDesktopMastraMemoryFromCacheState({
   runId,
   runtimeData,
 }: {
+  readonly cache: DesktopMastraMemoryCache;
+  readonly database: DesktopDatabase;
   readonly cacheState: DesktopMastraMemoryCacheState;
   readonly eventSink: ((event: AssistantRunEvent) => void) | undefined;
   readonly memoryDependencies: DesktopMemoryDependencies | undefined;
@@ -223,11 +263,23 @@ async function createDesktopMastraMemoryFromCacheState({
     semanticRecallEmbeddingTarget,
   });
   if (runId) {
-    const database = await getDatabase();
+    // Absent → defaults; malformed → throws before any child can be admitted.
+    const subagentSettings = parseRuntimeSubagentSettings(runtimeData?.subagentSettings);
+    const runDatabase = createRunCriticalDatabase(database, { eventSink, runId });
     // Run-scoped memory instances intentionally bypass the shared cache so the
     // per-run event sink cannot leak observability events across concurrent runs.
-    return createPgliteMastraMemory({
-      database,
+    const backgroundTasks: BackgroundTaskOwnership = runtimeData?.memory
+      ? {
+          backgroundTaskScope: {
+            resourceId: runtimeData.memory.resourceId,
+            threadId: runtimeData.memory.threadId,
+          },
+          backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(subagentSettings),
+        }
+      : {};
+    const memory = await createPgliteMastraMemory({
+      ...backgroundTasks,
+      database: runDatabase,
       ...(embedder ? { embedder } : {}),
       ...(eventSink ? { eventSink } : {}),
       ...(memoryOptions ? { memoryOptions } : {}),
@@ -235,6 +287,52 @@ async function createDesktopMastraMemoryFromCacheState({
       ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
       runId,
     });
+    // Run-time host queries (scope, budget, claims, events) take the same
+    // run-critical foreground lane as the memory above. On the owner handle they
+    // bypassed the serial work scheduler and timed out behind a maintenance
+    // statement (live run 22, 2026-09-15). Workspace snapshot capture below
+    // keeps the owner handle.
+    const host = createDesktopDelegatedConversationHost(
+      runDatabase,
+      runId,
+      createDesktopDelegatedInputContext(runtimeData),
+      async (threadId) =>
+        captureDelegatedWorkspaceStart(
+          database,
+          threadId,
+          runtimeData,
+          memoryDependencies?.snapshots
+        ),
+      subagentSettings
+    );
+    return {
+      ...memory,
+      conversationBinding: {
+        ...createDelegatedConversationBinding(host.persist),
+        bindRun: host.bindRun,
+        budget: host.budget,
+        claimToolAction: host.claimToolAction,
+        continuation: host.continuation,
+        finishToolActions: host.finishToolActions,
+        prepareToolAction: host.prepareToolAction,
+        readBackgroundGeneration: host.readBackgroundGeneration,
+        readUnanswerableToolActionLeaves: host.readUnanswerableToolActionLeaves,
+        recordLiveDecision: host.recordLiveDecision,
+        recordNativeRootRun: host.recordNativeRootRun,
+        recordPromptManifest: host.recordPromptManifest,
+        recordToolActionAnswers: host.recordToolActionAnswers,
+        recordWakeup: host.recordWakeup,
+        registerCancellation: (control) => registerDesktopDelegatedCancellation(runId, control),
+        registerDecisionControl: (control) => registerDesktopDelegatedDecision(runId, control),
+        registerFollowup: (control) =>
+          registerDesktopDelegatedFollowup(runId, (scope, threadId, input) =>
+            host.sendFollowup(scope, threadId, input, control)
+          ),
+        releaseUnexecutedToolAction: host.releaseUnexecutedToolAction,
+        resolveParkedInvocation: host.resolveParkedInvocation,
+        resolveToolAction: host.resolveToolAction,
+      },
+    };
   }
   const cacheKey = buildDesktopMastraMemoryCacheKey({
     memoryOptions,
@@ -242,25 +340,22 @@ async function createDesktopMastraMemoryFromCacheState({
     observationalMemoryTarget,
     semanticRecallEmbeddingTarget,
   });
-  const cachedPromise = desktopMastraMemoryPromises.get(cacheKey);
+  const cachedPromise = cache.memories.get(cacheKey);
   if (cachedPromise) {
     return cachedPromise;
   }
-  const memoryPromise = (async () => {
-    const database = await getDatabase();
-    return createPgliteMastraMemory({
-      database,
-      ...(embedder ? { embedder } : {}),
-      ...(memoryOptions ? { memoryOptions } : {}),
-      ...(memorySettings ? { memorySettings } : {}),
-      ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
-    });
-  })();
-  evictOldestDesktopMastraMemoryPromise();
-  desktopMastraMemoryPromises.set(cacheKey, memoryPromise);
+  const memoryPromise = createPgliteMastraMemory({
+    database,
+    ...(embedder ? { embedder } : {}),
+    ...(memoryOptions ? { memoryOptions } : {}),
+    ...(memorySettings ? { memorySettings } : {}),
+    ...(observationalMemoryModel ? { observationalMemoryModel } : {}),
+  });
+  evictOldestDesktopMastraMemoryPromise(cache);
+  cache.memories.set(cacheKey, memoryPromise);
   memoryPromise.catch(() => {
-    if (desktopMastraMemoryPromises.get(cacheKey) === memoryPromise) {
-      desktopMastraMemoryPromises.delete(cacheKey);
+    if (cache.memories.get(cacheKey) === memoryPromise) {
+      cache.memories.delete(cacheKey);
     }
   });
   return memoryPromise;
@@ -385,8 +480,7 @@ async function resolveDesktopMemoryModelTargetResolution<
 }
 
 function resolveRuntimeMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
-  target: T | undefined,
-  runtimeData: RuntimeData | undefined
+  target: T | undefined
 ): DesktopMemoryModelTargetResolution<T> {
   if (!target) {
     return { kind: 'disabled' };
@@ -397,24 +491,15 @@ function resolveRuntimeMemoryModelTarget<T extends DesktopMemoryModelTargetDescr
       target: resolveLocalMemoryModelTarget(target),
     };
   }
-  const runtimeProvider = resolveRequestedProvider(runtimeData);
-  const apiKey =
-    runtimeProvider === target.provider && runtimeData?.apiKey?.trim()
-      ? runtimeData.apiKey.trim()
-      : undefined;
-  if (!apiKey) {
-    return {
-      descriptor: target,
-      kind: 'needs_async_resolution',
-    };
-  }
+  // BST-1352 review: RuntimeData no longer carries the request's bearer key
+  // (credentials travel only as the direct authInput parameter and never enter
+  // RequestContext serialization), so the old same-provider request-key reuse
+  // is structurally gone. Every hosted target resolves through the SAME
+  // env/keychain chain the request used (`resolveProviderApiKey`), so the
+  // resolved VALUE is identical; the memory cache absorbs the extra read.
   return {
-    kind: 'resolved',
-    target: {
-      ...target,
-      apiKey,
-      cacheKey: `${target.provider}/${target.model}:${hashSecretForCacheKey(apiKey)}`,
-    },
+    descriptor: target,
+    kind: 'needs_async_resolution',
   };
 }
 
@@ -548,31 +633,32 @@ function buildDesktopMastraMemoryResolutionKey({
 }
 
 function cleanupDesktopMastraMemoryResolutionPromise(
+  cache: DesktopMastraMemoryCache,
   resolutionKey: string,
   pendingMemory: DesktopMastraMemoryPromise
 ): void {
-  if (desktopMastraMemoryResolutionPromises.get(resolutionKey) === pendingMemory) {
-    desktopMastraMemoryResolutionPromises.delete(resolutionKey);
+  if (cache.resolutions.get(resolutionKey) === pendingMemory) {
+    cache.resolutions.delete(resolutionKey);
   }
 }
 
-function evictOldestDesktopMastraMemoryPromise(): void {
-  if (desktopMastraMemoryPromises.size < DESKTOP_MEMORY_CACHE_LIMIT) {
+function evictOldestDesktopMastraMemoryPromise(cache: DesktopMastraMemoryCache): void {
+  if (cache.memories.size < DESKTOP_MEMORY_CACHE_LIMIT) {
     return;
   }
-  const oldestKey = desktopMastraMemoryPromises.keys().next().value;
+  const oldestKey = cache.memories.keys().next().value;
   if (typeof oldestKey === 'string') {
-    desktopMastraMemoryPromises.delete(oldestKey);
+    cache.memories.delete(oldestKey);
   }
 }
 
-function evictOldestDesktopMastraMemoryResolutionPromise(): void {
-  if (desktopMastraMemoryResolutionPromises.size < DESKTOP_MEMORY_CACHE_LIMIT) {
+function evictOldestDesktopMastraMemoryResolutionPromise(cache: DesktopMastraMemoryCache): void {
+  if (cache.resolutions.size < DESKTOP_MEMORY_CACHE_LIMIT) {
     return;
   }
-  const oldestKey = desktopMastraMemoryResolutionPromises.keys().next().value;
+  const oldestKey = cache.resolutions.keys().next().value;
   if (typeof oldestKey === 'string') {
-    desktopMastraMemoryResolutionPromises.delete(oldestKey);
+    cache.resolutions.delete(oldestKey);
   }
 }
 
@@ -601,8 +687,7 @@ function sortJsonValue(value: unknown): unknown {
 }
 
 export function resetDesktopMastraMemoryCacheForTests(): void {
-  desktopMastraMemoryPromises.clear();
-  desktopMastraMemoryResolutionPromises.clear();
+  desktopMastraMemoryCaches = new WeakMap();
 }
 
 export async function getDesktopMastraMemoryForTests(

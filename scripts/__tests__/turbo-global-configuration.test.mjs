@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { glob } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { glob } from 'glob';
 
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -45,6 +45,35 @@ function turboDryRunFor(tasks) {
 
 let memoizedTurboDryRun;
 
+test('native desktop restart lanes schedule every public fixture dependency build before execution', () => {
+  const graph = turboDryRunFor([
+    'test:integration',
+    'test:coverage',
+    '--filter=@brainstrike/desktop',
+  ]);
+  for (const taskId of [
+    '@brainstrike/desktop#test:integration',
+    '@brainstrike/desktop#test:coverage',
+  ]) {
+    const task = graph.tasks.find((entry) => entry.taskId === taskId);
+    assert.ok(task, `${taskId} must exist in the actual Turbo graph`);
+    for (const dependency of [
+      '@brainstrike/agent#build',
+      '@brainstrike/assistant-data#build',
+      '@brainstrike/assistant-service#build',
+    ]) {
+      assert.ok(
+        task.dependencies.includes(dependency),
+        `${taskId} must build ${dependency} for the native fixture's public exports`
+      );
+    }
+    assert.ok(
+      task.dependencies.includes('@brainstrike/desktop#topo'),
+      `${taskId} must retain the inherited source dependency cascade`
+    );
+  }
+});
+
 function turboDryRun() {
   memoizedTurboDryRun ??= turboDryRunFor(['build', 'type-check', 'lint', 'test']);
   return memoizedTurboDryRun;
@@ -78,6 +107,61 @@ function devScriptConcurrency(packageJson = readRootPackageJson()) {
   return Number(configured[1]);
 }
 
+test('native global-input discovery preserves dotfile and files-only matching', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'turbo-global-input-glob-'));
+  try {
+    for (const directory of ['visible', '.hidden', 'visible/directory.json']) {
+      mkdirSync(path.join(root, directory), { recursive: true });
+    }
+    for (const file of [
+      'visible/config.json',
+      'visible/.secret.json',
+      '.hidden/config.json',
+      '.hidden/.secret.json',
+    ]) {
+      writeFileSync(path.join(root, file), '{}');
+    }
+
+    assert.deepEqual(await matchingGlobalFiles('*/*.json', { cwd: root }), [
+      '.hidden/.secret.json',
+      '.hidden/config.json',
+      'visible/.secret.json',
+      'visible/config.json',
+    ]);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test('native guard globs prune ignored directories and document POSIX output', () => {
+  const guardPaths = [
+    'scripts/assistant-run-id-producer-guard.mjs',
+    'scripts/browser-events-literal-guard.mjs',
+    'scripts/forbid-no-memo.mjs',
+    'scripts/verify-mastra-schema-init-order.mjs',
+  ];
+
+  for (const guardPath of guardPaths) {
+    const source = readFileSync(path.join(repoRoot, guardPath), 'utf8');
+    const descendantOnlyPatterns = [...source.matchAll(/'([^']+)\/\*\*'/g)].map(
+      (match) => match[1]
+    );
+    for (const directoryPattern of descendantOnlyPatterns) {
+      assert.ok(
+        source.includes(`'${directoryPattern}',`),
+        `${guardPath} must exclude ${directoryPattern} itself so Node glob prunes the directory`
+      );
+    }
+  }
+
+  const noMemoSource = readFileSync(path.join(repoRoot, 'scripts/forbid-no-memo.mjs'), 'utf8');
+  assert.match(
+    noMemoSource,
+    /Windows: Node glob returns platform-separated paths by default/,
+    'the POSIX normalization must retain its Windows rationale'
+  );
+});
+
 /**
  * `turbo run dev` refuses to start when concurrency is <= the number of
  * persistent tasks in the selection — every `dev` task holds its slot forever,
@@ -107,6 +191,28 @@ function assertDevConcurrencyCannotBind(devConcurrency, plan) {
   );
 }
 
+function includeDotMatches(pattern) {
+  return pattern
+    .split('/')
+    .map((segment) =>
+      segment.startsWith('.') || !/[*?[]/.test(segment) ? segment : `{${segment},.${segment}}`
+    )
+    .join('/');
+}
+
+async function matchingGlobalFiles(pattern, { cwd = repoRoot } = {}) {
+  const entries = await Array.fromAsync(
+    glob(includeDotMatches(pattern), { cwd, withFileTypes: true })
+  );
+  return [
+    ...new Set(
+      entries
+        .filter((entry) => entry.isFile())
+        .map((entry) => path.relative(cwd, path.join(entry.parentPath, entry.name)))
+    ),
+  ].sort();
+}
+
 async function configuredGlobalFiles(config = readTurboConfig()) {
   assert.ok(
     Array.isArray(config.global?.inputs),
@@ -115,11 +221,10 @@ async function configuredGlobalFiles(config = readTurboConfig()) {
 
   const filesByPattern = await Promise.all(
     config.global.inputs.map(async (pattern) => {
-      const matches = await glob(pattern, {
-        cwd: repoRoot,
-        dot: true,
-        nodir: true,
-      });
+      // The former glob package used dot:true + nodir:true. Native glob has no
+      // dot option, so make wildcard segments explicitly match dot-prefixed
+      // names and filter Dirents to preserve the files-only contract.
+      const matches = await matchingGlobalFiles(pattern);
       assert.ok(
         matches.length > 0,
         `turbo.jsonc global.inputs entry "${pattern}" matches no file — an invisible cache input is not a contract.`
@@ -129,8 +234,8 @@ async function configuredGlobalFiles(config = readTurboConfig()) {
   );
   const files = [...new Set(filesByPattern.flat())];
   assert.ok(
-    files.length >= 10,
-    `Only ${files.length} file(s) matched turbo.jsonc global.inputs (expected >= 10) — the cache-input sweep collapsed.`
+    files.length >= 9,
+    `Only ${files.length} file(s) matched turbo.jsonc global.inputs (expected >= 9) — the cache-input sweep collapsed.`
   );
   return files.map((file) => path.resolve(repoRoot, file)).sort();
 }

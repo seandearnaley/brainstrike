@@ -275,6 +275,17 @@ export class ElectronStorageAdapter implements StorageAdapter {
     }, true);
   }
 
+  async clearExcept(keysToPreserve: readonly string[]): Promise<void> {
+    const preservedKeys = new Set(keysToPreserve);
+    return this.mutate((stagedCache) => {
+      for (const key of Object.keys(stagedCache)) {
+        if (!preservedKeys.has(key)) {
+          delete stagedCache[key];
+        }
+      }
+    });
+  }
+
   async getAllKeys(): Promise<string[]> {
     await this.ready;
     return Object.keys(this.cache);

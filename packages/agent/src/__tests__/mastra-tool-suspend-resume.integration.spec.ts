@@ -63,12 +63,9 @@ vi.mock('../mastra/subagent-delegation', async (importActual) => {
   };
 });
 
-const {
-  listSuspendedMastraRuns,
-  streamMastraAgent,
-  streamMastraToolApprovalAction,
-  streamMastraToolResumeAction,
-} = await import('../mastra/agent-streaming');
+const { streamMastraAgent, streamMastraToolApprovalAction, streamMastraToolResumeAction } =
+  await import('../mastra/agent-streaming');
+const { listSuspendedMastraRuns } = await import('../mastra/suspended-run-discovery');
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
 const { createSubmitPlanTool } = await import('../tools/submit-plan-tool');
 const { createAskUserTool } = await import('../tools/ask-user-tool');
@@ -106,6 +103,7 @@ function createTurnCountedToolCallModel(args: {
   toolCallId: string;
   input: string;
   finalText: string;
+  stallAfterToolResultText?: string;
 }): LanguageModelV2 {
   let turn = 0;
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
@@ -136,6 +134,22 @@ function createTurnCountedToolCallModel(args: {
           ]),
         });
       }
+      const stallAfterToolResultText = args.stallAfterToolResultText;
+      if (stallAfterToolResultText) {
+        return Promise.resolve({
+          stream: new ReadableStream<LanguageModelV2StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] });
+              controller.enqueue({ id: 'text-incomplete', type: 'text-start' });
+              controller.enqueue({
+                delta: stallAfterToolResultText,
+                id: 'text-incomplete',
+                type: 'text-delta',
+              });
+            },
+          }),
+        });
+      }
       const id = 'text-final';
       return Promise.resolve({
         stream: enqueue([
@@ -156,8 +170,8 @@ function createTurnCountedToolCallModel(args: {
 
 /**
  * Discovery-then-tool scripted model (the approval spec's idiom): turn 1 loads
- * the deferred tool via `search_tools`, turn 2 calls it, turn 3 emits final
- * text. Needed for any tool in a DEFERRED discovery namespace (run_python's
+ * the deferred tool by exact name via `load_tool`, turn 2 calls it, turn 3
+ * emits final text. Needed for any tool in a DEFERRED discovery namespace (run_python's
  * `execution`): calling one without loading it first is ToolNotFoundError by
  * design.
  */
@@ -166,7 +180,6 @@ function createDiscoveryThenSuspendModel(args: {
   deferredToolCallId: string;
   deferredToolName: string;
   finalText: string;
-  searchQuery: string;
 }): LanguageModelV2 {
   let turn = 0;
   const enqueue = (parts: LanguageModelV2StreamPart[]) =>
@@ -188,9 +201,9 @@ function createDiscoveryThenSuspendModel(args: {
           stream: enqueue([
             { type: 'stream-start', warnings: [] },
             {
-              input: JSON.stringify({ query: args.searchQuery }),
-              toolCallId: 'call-search-before-suspend',
-              toolName: 'search_tools',
+              input: JSON.stringify({ toolName: args.deferredToolName }),
+              toolCallId: 'call-load-before-suspend',
+              toolName: 'load_tool',
               type: 'tool-call',
             },
             { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
@@ -302,10 +315,14 @@ function finalText(chunks: StreamChunk[]): string {
     .join('');
 }
 
-async function drainYielding(iterator: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
+async function drainYielding(
+  iterator: AsyncIterable<StreamChunk>,
+  onChunk?: (chunk: StreamChunk) => void
+): Promise<StreamChunk[]> {
   const chunks: StreamChunk[] = [];
   for await (const chunk of iterator) {
     chunks.push(chunk);
+    onChunk?.(chunk);
     await new Promise((resolve) => {
       setImmediate(resolve);
     });
@@ -394,6 +411,89 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     expect(toolSuccessOutputs(resumeChunks)).toContain('approved');
     expect(finalText(resumeChunks)).toContain('Proceeding with the approved plan.');
     expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+
+    await database.close();
+  }, 120_000);
+
+  it('persists completed tool work when a user cancels a suspended-tool resume stream', async () => {
+    const abortController = new AbortController();
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const thread = {
+      resourceId: 'resource-tool-resume-cancel',
+      threadId: 'thread-tool-resume-cancel',
+    };
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'unused',
+      input: SUBMIT_PLAN_INPUT,
+      stallAfterToolResultText: 'This incomplete suspended-resume answer must not be remembered.',
+      toolCallId: 'call-tool-resume-cancel',
+      toolName: 'brainstrike_submitPlan',
+    });
+
+    const suspend = findSuspendChunk(
+      await drainYielding(
+        await streamMastraAgent(
+          [
+            {
+              id: 'user-tool-resume-cancel',
+              parts: [{ text: 'make a plan', type: 'text' }],
+              role: 'user',
+            },
+          ],
+          {
+            memory,
+            runtime: {
+              apiKey: 'test-key',
+              memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+              provider: 'openai',
+            },
+            storage,
+            tools: { 'brainstrike.submitPlan': createSubmitPlanTool() },
+          }
+        )
+      )
+    );
+    expect(suspend).toBeDefined();
+
+    await drainYielding(
+      await streamMastraToolResumeAction(
+        {
+          resumeData: { action: 'approved' },
+          runId: suspend?.runId ?? '',
+          toolCallId: suspend?.toolCallId ?? '',
+          toolName: 'brainstrike.submitPlan',
+        },
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            provider: 'openai',
+            signal: abortController.signal,
+          },
+          storage,
+          tools: { 'brainstrike.submitPlan': createSubmitPlanTool() },
+        }
+      ),
+      (chunk) => {
+        if (chunk.type === 'tool-event' && chunk.status === 'success') {
+          abortController.abort(new Error('user stopped suspended-tool resume'));
+        }
+      }
+    );
+
+    const persisted = await database.query<{ content: unknown }>(
+      'SELECT content FROM mastra_messages WHERE thread_id = $1 ORDER BY "createdAt" ASC',
+      [thread.threadId]
+    );
+    const persistedRecord = JSON.stringify(persisted.rows);
+    expect(persistedRecord).toContain('approved');
+    expect(persistedRecord.toLowerCase()).toContain('aborted before completion');
+    expect(persistedRecord).not.toContain(
+      'This incomplete suspended-resume answer must not be remembered.'
+    );
 
     await database.close();
   }, 120_000);
@@ -765,7 +865,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     // EXECUTOR stubbed through the tool's own resolveHost seam so the policy
     // that reaches the sandbox is captured verbatim. run_python lives in the
     // DEFERRED `execution` discovery namespace, so the scripted model mirrors
-    // production: it loads the tool through `search_tools` first (the same
+    // production: it loads the tool by exact name through `load_tool` first (the same
     // idiom as the approval spec's deferred-rehydration proof — a model that
     // skips discovery gets ToolNotFoundError, which is the discovery surface
     // working, not a suspension bug). The security property under test: no
@@ -813,7 +913,6 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
       deferredToolCallId: 'call-gateb-deny-1',
       deferredToolName: 'brainstrike_runPython',
       finalText: 'Understood, staying offline.',
-      searchQuery: 'run python code',
     });
     const denySuspend = findSuspendChunk(
       await drainYielding(
@@ -875,7 +974,6 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
       deferredToolCallId: 'call-gateb-allow-1',
       deferredToolName: 'brainstrike_runPython',
       finalText: 'Fetched.',
-      searchQuery: 'run python code',
     });
     const allowSuspend = findSuspendChunk(
       await drainYielding(
@@ -956,7 +1054,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
         },
       }),
     };
-    // read stays 'allow' so the deferred-discovery search_tools turn runs free;
+    // read stays 'allow' so the deferred-discovery load_tool turn runs free;
     // execute:'ask' is what arms Gate A for run_python (the live posture).
     const policy = {
       policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
@@ -985,7 +1083,6 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
       deferredToolCallId: 'call-bst1097-1',
       deferredToolName: 'brainstrike_runPython',
       finalText: 'Fetched.',
-      searchQuery: 'run python code',
     });
 
     // ── Phase 1: Gate A — the approval pause fires, no suspension yet, and
@@ -1107,7 +1204,6 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
       deferredToolCallId: 'call-bst1097-d1',
       deferredToolName: 'brainstrike_runPython',
       finalText: 'Understood.',
-      searchQuery: 'run python code',
     });
 
     const phase1 = await drainYielding(

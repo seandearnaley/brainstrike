@@ -1,0 +1,64 @@
+{
+  "name": "@brainstrike/mcp-app-host-ui",
+  "description": "Accessible renderer surface for the Brainstrike MCP Apps host",
+  "version": "0.1.0",
+  "dependencies": {
+    "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/assistant-ui": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
+    "@brainstrike/mcp-app-host": "workspace:*",
+    "@brainstrike/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "happy-dom": "catalog:",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.20.0 <25 || >=26.8.2 <27"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./styles.css": "./styles.css"
+  },
+  "files": [
+    "dist",
+    "styles.css"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "private": true,
+  "scripts": {
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
+    "lint": "pnpm -w lint",
+    "test": "vitest run",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+  },
+  "sideEffects": false,
+  "turbo": {
+    "outputs": [
+      "dist/**"
+    ]
+  },
+  "type": "module",
+  "types": "dist/index.d.ts"
+}

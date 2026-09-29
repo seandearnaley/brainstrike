@@ -10,11 +10,11 @@ import type {
   RuntimeResultEnvelope,
 } from '@brainstrike/worker-runtime';
 import {
-  assertRuntimeObjectPayloadEnvelope,
   createBackgroundRuntimeDescriptor,
   createRequestId,
   serializeRuntimeError,
 } from '@brainstrike/worker-runtime';
+import { assertRuntimeObjectPayloadEnvelope } from '@brainstrike/worker-runtime/validation';
 
 export const EMBEDDING_HOST_RUNTIME = createBackgroundRuntimeDescriptor('embedding-host');
 export const EMBEDDING_HOST_LIFECYCLE_CHANNELS = EMBEDDING_HOST_RUNTIME.lifecycleChannels;
@@ -101,6 +101,7 @@ export interface EmbeddingHostRuntimeMetadata {
   readonly telemetry: EmbeddingTelemetrySnapshot;
 }
 export type EmbeddingHostStatus = BackgroundRuntimeStatus<'embedding-host'> & {
+  readonly commandId?: string;
   readonly embeddingRuntime?: EmbeddingHostRuntimeMetadata;
 };
 export type EmbeddingHostStatusReport = EmbeddingHostStatus;
@@ -258,9 +259,14 @@ export function assertEmbeddingHostStatus(value: unknown): EmbeddingHostStatusRe
   if (!(value && typeof value === 'object' && !Array.isArray(value))) {
     return baseStatus;
   }
+  const commandId = (value as Record<string, unknown>)['commandId'];
+  if (commandId !== undefined && (typeof commandId !== 'string' || commandId.trim().length === 0)) {
+    throw new Error('Embedding host command acknowledgement must have a non-empty commandId.');
+  }
   const embeddingRuntime = (value as Record<string, unknown>)['embeddingRuntime'];
   return {
     ...baseStatus,
+    ...(commandId === undefined ? {} : { commandId }),
     ...(embeddingRuntime === undefined
       ? {}
       : { embeddingRuntime: assertEmbeddingHostRuntimeMetadata(embeddingRuntime) }),

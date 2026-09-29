@@ -33,6 +33,8 @@ export interface ToolOutputArtifactDatabase {
 
 export interface StoreToolOutputArtifactInput {
   readonly content: string;
+  /** Native execution identity; omitted for legacy root-only callers. Never read authority. */
+  readonly executionThreadId?: string;
   readonly format: ToolOutputArtifactFormat;
   readonly resourceId: string;
   readonly runId: string;
@@ -197,6 +199,8 @@ export class ToolOutputArtifactRepository {
     requireOwnerId(input.threadId, 'threadId');
     requireOwnerId(input.runId, 'runId');
     requireOwnerId(input.toolCallId, 'toolCallId');
+    const executionThreadId = input.executionThreadId ?? input.threadId;
+    requireOwnerId(executionThreadId, 'executionThreadId');
     if (input.format !== 'json' && input.format !== 'text') {
       throw new TypeError('Tool output artifact format must be json or text.');
     }
@@ -214,9 +218,9 @@ export class ToolOutputArtifactRepository {
       const result = await this.db.query(
         `INSERT INTO ${TABLE} (
            resource_id, thread_id, run_id, tool_call_id, format,
-           content, byte_length, created_at, expires_at
-         ) VALUES ($1, $2, $3, $4, $5, decode($6, 'hex'), $7, $8, $9)
-         ON CONFLICT (resource_id, thread_id, run_id, tool_call_id)
+           content, byte_length, created_at, expires_at, execution_thread_id
+         ) VALUES ($1, $2, $3, $4, $5, decode($6, 'hex'), $7, $8, $9, $10)
+         ON CONFLICT (resource_id, thread_id, run_id, execution_thread_id, tool_call_id)
          DO UPDATE SET tool_call_id = EXCLUDED.tool_call_id
          WHERE ${TABLE}.format = EXCLUDED.format
            AND ${TABLE}.content = EXCLUDED.content
@@ -235,6 +239,7 @@ export class ToolOutputArtifactRepository {
           content.byteLength,
           createdAt.toISOString(),
           expiresAt.toISOString(),
+          executionThreadId,
         ]
       );
       const row = result.rows[0];

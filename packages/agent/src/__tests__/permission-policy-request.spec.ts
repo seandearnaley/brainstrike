@@ -27,7 +27,7 @@ import {
   type AssistantPermissionPolicyRequest,
   resolveRequestPermissionPolicy,
 } from '../mastra/permission-policy-request';
-import type { StreamChunk } from '../types';
+import type { RuntimeData, StreamChunk } from '../types';
 
 const { modelHolder } = vi.hoisted(() => ({
   modelHolder: { current: undefined as LanguageModelV2 | undefined },
@@ -223,6 +223,57 @@ describe('resolveRequestPermissionPolicy', () => {
     }
     expect('sessionGrants' in snapshot).toBe(false);
     expect('perToolOverrides' in snapshot).toBe(false);
+  });
+});
+
+/**
+ * Wire-shape contract for `RuntimeData['permissionPolicyRequest']` — the
+ * RESOLVER half. Full rationale lives on the field declaration in `../types.ts`;
+ * the PRODUCER half is pinned by "leaves the opt-in keys PRESENT with undefined
+ * values" in
+ * `packages/app-shell/src/__tests__/use-assistant-request-lifecycle.test.ts`.
+ *
+ * In short: the producer always writes the key, so consumers must read the
+ * VALUE. These cases pin that the resolver cannot tell an absent key from an
+ * explicit `undefined`, and that an opted-in snapshot survives serialization.
+ */
+describe('permissionPolicyRequest wire-shape contract (absent key vs explicit undefined)', () => {
+  // Value type tracks `RuntimeData`, so a contract change breaks this test. The
+  // indexed access already reads as `AssistantPermissionPolicyRequest |
+  // undefined`, which is what lets this accept the producer's explicit
+  // `undefined` under `exactOptionalPropertyTypes`.
+  interface RuntimeDataFieldReader {
+    permissionPolicyRequest?: RuntimeData['permissionPolicyRequest'];
+  }
+
+  const enforcing: AssistantPermissionPolicyRequest = {
+    enforce: true,
+    policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
+  };
+
+  const absentKey: RuntimeDataFieldReader = {};
+  const explicitUndefined: RuntimeDataFieldReader = { permissionPolicyRequest: undefined };
+
+  it('resolves the two opted-out shapes identically (passthrough)', () => {
+    expect(resolveRequestPermissionPolicy(absentKey.permissionPolicyRequest)).toBeUndefined();
+    expect(
+      resolveRequestPermissionPolicy(explicitUndefined.permissionPolicyRequest)
+    ).toBeUndefined();
+  });
+
+  it('still carries an opted-in snapshot across the JSON boundary', () => {
+    // `JSON.parse(JSON.stringify(...))` models the renderer → server transport.
+    // `structuredClone` is NOT a substitute anywhere in this contract: it
+    // preserves undefined-valued keys, which is the very thing under test.
+    const serialized = JSON.parse(
+      JSON.stringify({ permissionPolicyRequest: enforcing } satisfies RuntimeDataFieldReader)
+    ) as RuntimeDataFieldReader;
+
+    const snapshot = resolveRequestPermissionPolicy(serialized.permissionPolicyRequest);
+
+    // Round-trip fidelity only — `defaultRisk` and the rest of the resolver's
+    // output are covered by the `resolveRequestPermissionPolicy` suite above.
+    expect(snapshot?.policies).toEqual(enforcing.policies);
   });
 });
 

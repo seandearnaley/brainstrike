@@ -4,10 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { createLogger } from '@brainstrike/logging';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { codecovVitePlugin } from '@codecov/vite-plugin';
-import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';
 /// <reference types="vitest" />
-import react, { reactCompilerPreset } from '@vitejs/plugin-react';
+import react from '@vitejs/plugin-react';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
@@ -21,16 +20,27 @@ const require = createRequire(import.meta.url);
 const pinoBrowserPath = require.resolve('pino/browser.js');
 const viteLogger = createLogger('WebViteConfig');
 
-// React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
+// React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles.
+// BST-1659: run by `oxc-transform-react` (Rust) through @vitejs/plugin-react, not Babel.
 const ReactCompilerConfig = { compilationMode: 'infer' } as const;
+
+/**
+ * `@vitejs/plugin-react` defaults to excluding `/node_modules/` alone, but `cacheDir` below
+ * puts the dep-optimizer output in `apps/web/.vite`, OUTSIDE node_modules. Without the second
+ * pattern the compiler and the Fast Refresh transform would run over pre-bundled dependency
+ * chunks. This restores the exclusions the removed `@rolldown/plugin-babel` pass carried.
+ */
+const reactTransformExclude = [/[\\/]node_modules[\\/]/, /[\\/]\.vite[\\/]/];
 
 // Keep config concise; avoid noisy debug printing in dev
 
-// The Tailwind CSS content paths are now managed by `tailwind.config.js`.
-// The @tailwindcss/vite plugin will automatically pick it up.
+// Tailwind CSS v4 is configured CSS-first in the stylesheets; there is no
+// tailwind.config.js (removed in BST-1734).
 
 const {
+  buildIdPlugin,
   createCspQualifiedEvalWarningFilter,
+  envBuildIdSource,
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
@@ -40,12 +50,13 @@ const {
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
+  gitHeadBuildIdSource,
   isBrowserEventsModule,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
   isZustandModule,
+  preserveWorkerEntryPlugin,
 } = await import('@brainstrike/build-utils');
-const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
 const wasmPath = findPGliteWasm(__dirname);
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
 
@@ -178,19 +189,25 @@ export default defineConfig({
     },
   },
   plugins: [
+    // __BRAINSTRIKE_BUILD_ID__: a redeploy must yield a new id, so the deployment id
+    // leads; a plain `vite build` falls back to the commit it was built from.
+    buildIdPlugin([
+      envBuildIdSource('VERCEL_DEPLOYMENT_ID'),
+      envBuildIdSource('VERCEL_GIT_COMMIT_SHA'),
+      envBuildIdSource('GITHUB_SHA'),
+      gitHeadBuildIdSource(__dirname),
+    ]),
     canvasFrameShellPlugin(),
     fullReloadOnCompilerHotspots(),
     wasm(),
     topLevelAwait(),
     react({
+      compiler: ReactCompilerConfig,
+      exclude: reactTransformExclude,
       // Ensure consistent development transforms for React Compiler
       jsxRuntime: 'automatic',
     }),
-    babel({
-      exclude: [/[\\/]\.vite[\\/]/, /[\\/]node_modules[\\/]/],
-      presets: [reactCompilerBabelPreset],
-    }),
-    tailwindcss(), // Automatically finds and uses the root tailwind.config.js
+    tailwindcss(),
     viteStaticCopy({
       targets: [
         // PGlite WASM (existing). Conditionally included via spread so the
@@ -383,7 +400,7 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
-    plugins: () => [browserWorkerProcessExitCodePlugin()],
+    plugins: () => [preserveWorkerEntryPlugin(), browserWorkerProcessExitCodePlugin()],
   },
 });
 

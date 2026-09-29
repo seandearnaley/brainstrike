@@ -3,15 +3,26 @@ import type {
   SharedV2ProviderOptions,
   SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
-import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
+import type {
+  AssistantChildAttachment,
+  RuntimeData as ContractRuntimeData,
+} from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
+import type {
+  DelegatedConversationBaseline,
+  DelegatedRunIdentity,
+} from '@brainstrike/assistant-contract/delegated-conversation-stream';
 import type { HookTrustRequest } from '@brainstrike/assistant-contract/hook-trust-request';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
-import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
+import type {
+  AssistantToolApprovalAnswered,
+  AssistantToolApprovalRequest,
+} from '@brainstrike/assistant-contract/tool-approval';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
 import {
+  type BedrockReasoningEffort,
   type GoogleThinkingLevel,
   OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
@@ -203,9 +214,10 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * When present, the runtime gates the agent's tool map by the policy BEFORE
    * the immutable Mastra `Agent` is built (`filterToolsByPermissionWithMetadata`):
    * `'allow'` keeps a tool, `'deny'` omits it, and `'ask'` keeps a CLONE carrying
-   * Mastra's PER-TOOL `requireApproval: true` so the run SUSPENDS for approval
-   * only when that tool is called (allowed tools run free; the run-wide
-   * `requireToolApproval` is NOT forced). Never silently run; when no storage
+   * the FUNCTION form of Mastra's PER-TOOL `requireApproval` (the runtime's live
+   * gate, `mastra/approval-gate.ts`) so the run SUSPENDS for approval only when
+   * that tool is called and no remembered session grant allows it (allowed
+   * tools run free; the run-wide `requireToolApproval` is NOT forced). Never silently run; when no storage
    * exists to resume, `'ask'` falls back to a fail-safe omit. OPTIONAL — when
    * absent, the tool map is unchanged (production-default). Agent-only. See
    * `mastra/permission-tool-gate.ts`.
@@ -224,6 +236,31 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * server leaves `permissionPolicy` unset (passthrough). It carries NO
    * `riskByTool` — tool risk classification is server-owned, never client-
    * supplied. Cleared from the runtime before the agent is built. Agent-only.
+   *
+   * WIRE SHAPE (canonical note — neighbours point here) — read the VALUE, never
+   * key presence. The sole producer (`prepareRequestData` in
+   * `use-assistant-request-lifecycle.ts`) writes this key UNCONDITIONALLY: the
+   * snapshot when the transport is permission-enforceable and `enforce` is set,
+   * otherwise an explicit `undefined`. The shape therefore DIVERGES by vantage
+   * point — PRESENT-and-undefined on the producer's object, absent on the wire
+   * once `JSON.stringify` drops it. That is not the presence-means-on
+   * convention some neighbours (e.g. `subagentPersonasRequest`) use, where the
+   * key is genuinely omitted.
+   *
+   * Being precise about where that bites: a server consumer reading the
+   * DESERIALIZED request would get the right answer from a
+   * `'permissionPolicyRequest' in runtimeData` check today — but only because
+   * serialization happens to erase the difference. The same check is already
+   * wrong for anything reading the producer's object before it is serialized,
+   * and would silently turn enforcement on for an opted-out user the moment a
+   * non-serializing or in-process transport appears. Pass the value to
+   * `resolveRequestPermissionPolicy`, which treats absent and `undefined`
+   * identically, and the distinction never matters.
+   *
+   * `tsc` cannot catch drift here: `exactOptionalPropertyTypes` (on repo-wide)
+   * would REJECT that explicit `undefined` against this `?:` declaration, and
+   * the producer only escapes it because `prepareRequestData` is typed
+   * `Promise<Record<string, unknown>>`.
    */
   permissionPolicyRequest?: AssistantPermissionPolicyRequest;
   /**
@@ -280,6 +317,7 @@ export interface RuntimeMemoryContext {
  * would drop a selected value on the floor with nothing to catch it.
  */
 export {
+  type BedrockReasoningEffort,
   type GoogleThinkingLevel,
   OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
@@ -299,13 +337,18 @@ export interface OpenRouterProviderOptions extends JSONObject {
   };
 }
 
-/** Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.39). */
+/** Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.49). */
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * Mirrors the `thinking` discriminated union of the installed
- * `@ai-sdk/anthropic` (4.0.39). `display` governs whether reasoning is
+ * `@ai-sdk/anthropic` (4.0.49). `display` governs whether reasoning is
  * RETURNED and defaults to `omitted` provider-side, so it must be asked for.
+ * `updates` — thinking returned BETWEEN tool calls — is new in this provider
+ * range; the provider adds the `thinking-display-updates-2026-08-18` beta
+ * header for it. It is mirrored because the wire accepts it, not because the
+ * app emits it yet: the producer in `assistant-ui-panel-wrapper-runtime` still
+ * projects `resolveReasoningVisible` onto `summarized`/`omitted` only.
  * Kept in step with the identical declaration in
  * `@brainstrike/assistant-contract` — this package is what actually hands
  * `providerOptions` to the SDK, so a narrower type here would silently fail
@@ -314,13 +357,35 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
  * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`.
  */
 export type AnthropicThinkingOptions =
-  | { type: 'adaptive'; display?: 'omitted' | 'summarized' }
+  | { type: 'adaptive'; display?: 'omitted' | 'summarized' | 'updates' }
   | { type: 'enabled'; budgetTokens: number }
   | { type: 'disabled' };
 
 export interface AnthropicProviderOptions extends JSONObject {
   effort?: AnthropicEffort;
   thinking?: AnthropicThinkingOptions;
+}
+
+/**
+ * Mirrors `reasoningConfig` of the installed `@ai-sdk/amazon-bedrock` (5.0.57).
+ * Kept in step with the identical declaration in
+ * `@brainstrike/assistant-contract` — this package is what actually hands
+ * `providerOptions` to the SDK, so a narrower type here would silently fail to
+ * represent what the app sends. Not a discriminated union on purpose:
+ * `type: 'enabled'` takes `budgetTokens` on Claude routes and
+ * `maxReasoningEffort` on Amazon Nova, and which one applies is a registry
+ * fact (`LlmModelDefinition.bedrockReasoning`), not a property of this shape.
+ */
+// biome-ignore lint/style/useConsistentTypeDefinitions: must stay a type ALIAS. `BedrockProviderOptions` extends `JSONObject`, whose string index signature an interface member does not satisfy (TS2411); a type alias gets the implicit index signature. Same reason `AnthropicThinkingOptions` is an alias.
+export type BedrockReasoningConfig = {
+  budgetTokens?: number;
+  display?: 'omitted' | 'summarized';
+  maxReasoningEffort?: BedrockReasoningEffort;
+  type: 'adaptive' | 'disabled' | 'enabled';
+};
+
+export interface BedrockProviderOptions extends JSONObject {
+  reasoningConfig?: BedrockReasoningConfig;
 }
 
 export interface GoogleProviderOptions extends JSONObject {
@@ -354,6 +419,7 @@ export interface LocalRuntimeProviderOptions extends JSONObject {
 export type RuntimeProviderOptions = (SharedV2ProviderOptions | SharedV3ProviderOptions) & {
   openai?: OpenAiProviderOptions & JSONObject;
   anthropic?: AnthropicProviderOptions & JSONObject;
+  bedrock?: BedrockProviderOptions & JSONObject;
   google?: GoogleProviderOptions & JSONObject;
   local?: LocalProviderOptions & JSONObject;
   ollama?: LocalRuntimeProviderOptions & JSONObject;
@@ -472,6 +538,10 @@ export interface StreamChunkTokenEstimateCalibration {
 export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
   type: 'tool-approval-required';
 }
+/** A parked sibling approval the host answered under a session grant. */
+export interface StreamChunkToolApprovalAnswered extends AssistantToolApprovalAnswered {
+  type: 'tool-approval-answered';
+}
 export interface StreamChunkToolSuspendRequired extends AssistantToolSuspendRequest {
   /**
    * `false` when this build has no registered resume UI for the tool
@@ -518,7 +588,16 @@ export interface StreamChunkMessageFinish {
     cacheReadInputTokens?: number;
   };
 }
-export type StreamChunk =
+export interface StreamChunkChildUserMessage {
+  readonly attachments?: readonly AssistantChildAttachment[];
+  readonly createdAt: string;
+  readonly id: string;
+  readonly text: string;
+  readonly type: 'child-user-message';
+}
+
+export type ConversationStreamChunk =
+  | StreamChunkChildUserMessage
   | StreamChunkChildRunUsage
   | StreamChunkContextBreakdown
   | StreamChunkReasoning
@@ -529,8 +608,33 @@ export type StreamChunk =
   | StreamChunkToolCallTelemetry
   | StreamChunkTool
   | StreamChunkToolApprovalRequired
+  | StreamChunkToolApprovalAnswered
   | StreamChunkToolSuspendRequired
   | StreamChunkFinish
   | StreamChunkMessageFinish;
+
+export interface StreamChunkDelegatedConversation {
+  readonly baseline?: DelegatedConversationBaseline;
+  readonly chunk: ConversationStreamChunk;
+  readonly continuationId?: string;
+  readonly identity: DelegatedRunIdentity;
+  readonly messageId: string;
+  readonly partId?: string;
+  readonly type: 'delegated-conversation-chunk';
+}
+
+export interface StreamChunkChildContinuation {
+  readonly baseline?: DelegatedConversationBaseline;
+  readonly chunk: ConversationStreamChunk;
+  readonly continuationId: string;
+  readonly messageId: string;
+  readonly nativeRunId: string;
+  readonly threadId: string;
+  readonly type: 'child-continuation-chunk';
+}
+export type StreamChunk =
+  | ConversationStreamChunk
+  | StreamChunkDelegatedConversation
+  | StreamChunkChildContinuation;
 
 export type StreamIterator = AsyncIterable<StreamChunk>;

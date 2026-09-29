@@ -9,6 +9,7 @@ import type {
 import type { ChunkingStrategy, EmbeddingSet } from '@brainstrike/db';
 import type { EnhancedImportProgress } from '@brainstrike/file-import';
 import { dispatchQueueDrained } from '@brainstrike/utils/browser-events';
+import type { PreparedChangesSummary } from './workspace-collection-sync-import';
 
 const SCANNING_STATUS_THROTTLE_MS = 100;
 
@@ -433,4 +434,20 @@ export function buildBatchImportErrors(
       }
     );
   });
+}
+
+/** Pure projection of a prepared change set into the status bar's scan summary. */
+export function createScanSummary(
+  prepared: Pick<
+    PreparedChangesSummary,
+    'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
+  >
+): WorkspaceCollectionSyncScanSummary {
+  return {
+    changedFiles: prepared.changes.length,
+    discoveredFiles: prepared.totalFiles,
+    excludedEntries: prepared.excludedEntries,
+    truncatedDirectories: prepared.truncatedDirectoryPaths.length,
+    unchangedFiles: prepared.unchangedCount,
+  };
 }

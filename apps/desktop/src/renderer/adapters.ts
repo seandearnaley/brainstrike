@@ -1,26 +1,54 @@
-import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import {
+  type DirectoryHandle,
+  type FileHandle,
+  type FileSystemAdapter,
+  isDurableRootId,
+  isFullyQualifiedFileSystemPath,
+} from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type {
-  ElectronAPI,
   FileSystemChange,
+  FileSystemWatchBatchMetadata,
   FileSystemWatchEvent,
   FileSystemWatchSignal,
   IFileNode,
+  RecentRootEntry,
   RootDescriptor,
   WatcherHealthEvent,
   WatcherRetryOutcome,
   WatcherRootHealthEvent,
 } from '@brainstrike/types';
+import type { DesktopFileSystemBridge, DesktopStorageBridge } from '../types/desktop-electron-api';
 
 const logger = createLogger('ElectronRendererAdapters');
 
-function requireElectronAPI(): ElectronAPI {
-  const api = window.electronAPI;
-  if (!api) {
-    throw new Error('Electron API is not available in the renderer process');
+function assertExplicitAbsoluteReadPath(value: unknown, label: string): asserts value is string {
+  if (isFullyQualifiedFileSystemPath(value)) {
+    return;
   }
-  return api;
+  throw new Error(`${label} must be a non-empty absolute path`);
+}
+
+function getFileSystemBridge(): DesktopFileSystemBridge | undefined {
+  const api = window.electronAPI;
+  return api && 'fileSystem' in api ? api.fileSystem : undefined;
+}
+
+function requireFileSystemBridge(): DesktopFileSystemBridge {
+  const fileSystem = getFileSystemBridge();
+  if (!fileSystem) {
+    throw new Error('The desktop file-system capability is not available in this renderer role');
+  }
+  return fileSystem;
+}
+
+function requireStorageBridge(): DesktopStorageBridge {
+  const api = window.electronAPI;
+  if (!(api && 'storage' in api)) {
+    throw new Error('The desktop storage capability is not available in this renderer role');
+  }
+  return api.storage;
 }
 
 /**
@@ -32,7 +60,10 @@ function requireElectronAPI(): ElectronAPI {
  * every push O(roots) to filter. The shared subscription is created lazily on
  * the first registration and torn down when the last watch unregisters.
  */
-const watchCallbacksById = new Map<string, (changes: FileSystemChange[]) => void>();
+const watchCallbacksById = new Map<
+  string,
+  (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void
+>();
 let sharedWatchUnsubscribe: (() => void) | null = null;
 
 function ensureSharedWatchSubscription(
@@ -43,7 +74,17 @@ function ensureSharedWatchSubscription(
   }
   sharedWatchUnsubscribe = onWatchEvent((event) => {
     const callback = watchCallbacksById.get(event.watchId);
-    if (callback && event.changes.length > 0) {
+    if (!callback) {
+      return;
+    }
+    if (event.filteredChangeBoundaries && event.filteredChangeBoundaries.length > 0) {
+      callback(event.changes, {
+        filteredChangeBoundaries: event.filteredChangeBoundaries,
+        ...(event.filteredChangeBoundariesOverflow === true
+          ? { filteredChangeBoundariesOverflow: true }
+          : {}),
+      });
+    } else if (event.changes.length > 0) {
       callback(event.changes);
     }
   });
@@ -52,7 +93,7 @@ function ensureSharedWatchSubscription(
 function registerWatchCallback(
   onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void,
   watchId: string,
-  callback: (changes: FileSystemChange[]) => void
+  callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void
 ): void {
   ensureSharedWatchSubscription(onWatchEvent);
   watchCallbacksById.set(watchId, callback);
@@ -167,15 +208,28 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     // Main owns the last-folder preference: fs:requestDirectoryAccess routes
     // through the registry's addRoot, which persists it on success.
-    return requireElectronAPI().fileSystem.requestDirectoryAccess();
+    return requireFileSystemBridge().requestDirectoryAccess();
   }
 
   async addRoot(): Promise<RootDescriptor> {
-    return requireElectronAPI().fileSystem.addRoot();
+    return requireFileSystemBridge().addRoot();
+  }
+
+  /**
+   * Desktop-only capability (web omits it rather than stubbing): re-mount a
+   * folder main's recent-roots ledger already records as granted. Main rejects
+   * anything else — this is not a general open-any-path door.
+   */
+  async addRootByPath(rootPath: string): Promise<RootDescriptor> {
+    return requireFileSystemBridge().addRootByPath(rootPath);
+  }
+
+  async listRecentRoots(): Promise<readonly RecentRootEntry[]> {
+    return requireFileSystemBridge().listRecentRoots();
   }
 
   async restoreRoots(): Promise<RootDescriptor[]> {
-    return requireElectronAPI().fileSystem.restoreRoots();
+    return requireFileSystemBridge().restoreRoots();
   }
 
   /**
@@ -184,15 +238,15 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
    * retained so re-adding the folder resumes without re-indexing.
    */
   async removeRoot(rootId: string): Promise<void> {
-    return requireElectronAPI().fileSystem.removeRoot(rootId);
+    return requireFileSystemBridge().removeRoot(rootId);
   }
 
   async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
-    return requireElectronAPI().fileSystem.readDirectory(handle);
+    return requireFileSystemBridge().readDirectory(handle);
   }
 
   async readFile(handle: FileHandle): Promise<string> {
-    return requireElectronAPI().fileSystem.readFile(handle);
+    return requireFileSystemBridge().readFile(handle);
   }
 
   /**
@@ -201,15 +255,33 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
    * access.
    */
   async readFileByPath(absolutePath: string): Promise<string> {
-    return requireElectronAPI().fileSystem.readFileByPath(absolutePath);
+    return requireFileSystemBridge().readFileByPath(absolutePath);
+  }
+
+  /**
+   * Explicit absolute-path capability. The renderer confines the path to
+   * `rootPath`; main exact-binds `rootId` and that path against the mounted
+   * registry before authorizing the file.
+   */
+  async readFileByAbsolutePath(
+    absolutePath: string,
+    rootPath: string,
+    rootId: string
+  ): Promise<string> {
+    assertExplicitAbsoluteReadPath(rootPath, 'Mounted root path');
+    assertExplicitAbsoluteReadPath(absolutePath, 'Requested file path');
+    if (!isDurableRootId(rootId)) {
+      throw new Error('Mounted root identity must be a durable rootId');
+    }
+    return requireFileSystemBridge().readFileByAbsolutePath(absolutePath, rootPath, rootId);
   }
 
   async exists(path: string): Promise<boolean> {
-    return requireElectronAPI().fileSystem.exists(path);
+    return requireFileSystemBridge().exists(path);
   }
 
   async restoreLastFolder(): Promise<DirectoryHandle | null> {
-    return requireElectronAPI().fileSystem.restoreLastFolder();
+    return requireFileSystemBridge().restoreLastFolder();
   }
 
   /**
@@ -227,10 +299,10 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
    */
   watchDirectory(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void,
+    callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
     onSignal?: (signal: FileSystemWatchSignal) => void
   ): () => void {
-    const api = window.electronAPI?.fileSystem;
+    const api = getFileSystemBridge();
     if (
       !api ||
       typeof api.watchDirectory !== 'function' ||
@@ -351,7 +423,7 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
 
   /** Deliberate manual retry of a failed watcher for a watched root path. */
   async retryWatcher(rootPath: string): Promise<WatcherRetryOutcome> {
-    const api = window.electronAPI?.fileSystem;
+    const api = getFileSystemBridge();
     if (!api || typeof api.retryWatch !== 'function') {
       return { reason: 'unsupported', retried: false };
     }
@@ -371,22 +443,22 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
 
 export class ElectronRendererStorageAdapter implements StorageAdapter {
   async getItem(key: string): Promise<string | null> {
-    return requireElectronAPI().storage.getItem(key);
+    return requireStorageBridge().getItem(key);
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    return requireElectronAPI().storage.setItem(key, value);
+    return requireStorageBridge().setItem(key, value);
   }
 
   async removeItem(key: string): Promise<void> {
-    return requireElectronAPI().storage.removeItem(key);
+    return requireStorageBridge().removeItem(key);
   }
 
   async clear(): Promise<void> {
-    return requireElectronAPI().storage.clear();
+    return requireStorageBridge().clear();
   }
 
   async getAllKeys(): Promise<string[]> {
-    return requireElectronAPI().storage.getAllKeys();
+    return requireStorageBridge().getAllKeys();
   }
 }

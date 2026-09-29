@@ -16,7 +16,7 @@
  * actually shows.
  */
 
-import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
+import { createDirectoryNode, createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import { buildFileHandleMap } from '../indexing/background-token-indexer-handles';

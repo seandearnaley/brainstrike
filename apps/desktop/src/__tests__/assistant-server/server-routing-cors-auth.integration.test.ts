@@ -10,7 +10,11 @@
 import type http from 'node:http';
 import { app } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { handleAssistantRequest, startAssistantServer } from '../../assistant-server';
+import {
+  discoveryForRequest,
+  handleAssistantRequest,
+  startAssistantServer,
+} from '../../assistant-server';
 import { DESKTOP_DEV_RENDERER_URL } from '../../desktop-renderer-url';
 import { createRunRequest, MockRequest, MockResponse } from './_harness';
 
@@ -18,6 +22,8 @@ const desktopRendererOrigin = new URL(DESKTOP_DEV_RENDERER_URL).origin;
 
 const mockSecretsService = vi.hoisted(() => ({
   deleteKey: vi.fn(),
+  // BST-1352: the assistant POST path reads the TYPED credential.
+  getCredential: vi.fn(),
   getKey: vi.fn(),
   listProviders: vi.fn(),
   saveKey: vi.fn(),
@@ -41,6 +47,40 @@ vi.mock('../../agent-client-loader', async (importOriginal) => {
 
 const runRequest = createRunRequest(handleAssistantRequest);
 
+it('retains exact child-followup user echo and branch parent for reload discovery', () => {
+  const discovery = discoveryForRequest({
+    finalInputMessage: {
+      id: 'child-echo',
+      parts: [{ text: 'Continue child', type: 'text' }],
+      role: 'user',
+    },
+    inputParentMessageId: 'durable-root-assistant',
+    isToolDecisionLeg: false,
+    resourceId: 'owner',
+    runId: 'host-leg',
+    threadId: 'root-thread',
+  });
+  expect(discovery).toMatchObject({
+    inputMessage: { id: 'child-echo', role: 'user' },
+    inputParentMessageId: 'durable-root-assistant',
+    parentMessageId: 'child-echo',
+  });
+  expect(
+    discoveryForRequest({
+      finalInputMessage: {
+        id: 'first-child-echo',
+        parts: [{ text: 'Continue', type: 'text' }],
+        role: 'user',
+      },
+      inputParentMessageId: null,
+      isToolDecisionLeg: false,
+      resourceId: 'owner',
+      runId: 'first-leg',
+      threadId: 'root-thread',
+    })
+  ).toMatchObject({ inputMessage: { id: 'first-child-echo' }, inputParentMessageId: null });
+});
+
 let server: { url: string; stop: () => Promise<void>; authToken?: string } | undefined;
 
 // Defaults install BEFORE each test (review finding on this PR): the pre-split
@@ -49,6 +89,9 @@ let server: { url: string; stop: () => Promise<void>; authToken?: string } | und
 // expected 200 became a 500. beforeEach makes every test independently
 // runnable.
 beforeEach(() => {
+  mockSecretsService.getCredential
+    .mockReset()
+    .mockResolvedValue({ key: 'test-api-key', type: 'api_key' });
   mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
   mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
   Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });
@@ -203,6 +246,29 @@ describe('auth token gate', () => {
     expect(data.error).toBe('unauthorized');
   });
 
+  it('authenticates active-run discovery before exposing a thread session', async () => {
+    const url = '/assistant/active-run?resourceId=workspace&threadId=thread-1';
+    const rejected = await runRequest(
+      { headers: { origin: desktopRendererOrigin }, method: 'GET', url },
+      withToken
+    );
+    expect(rejected.status).toBe(401);
+
+    const accepted = await runRequest(
+      {
+        headers: {
+          origin: desktopRendererOrigin,
+          'x-brainstrike-assistant-token': AUTH_TOKEN,
+        },
+        method: 'GET',
+        url,
+      },
+      withToken
+    );
+    expect(accepted.status).toBe(200);
+    expect(JSON.parse(accepted.body)).toEqual({ activeRun: null });
+  });
+
   it('rejects requests with a wrong token with 401', async () => {
     const response = await runRequest(
       {
@@ -307,6 +373,36 @@ describe('auth token gate', () => {
     server = await startAssistantServer(undefined, { auth: 'disabled', listen: false });
     expect(server.authToken).toBeUndefined();
   });
+});
+
+it('publishes and releases initializing discovery across slow credential preparation', async () => {
+  const credential = Promise.withResolvers<{
+    access: string;
+    expires: number;
+    refresh: string;
+    type: 'oauth';
+  }>();
+  mockSecretsService.getCredential.mockReset().mockReturnValue(credential.promise);
+  const scopeUrl = '/assistant/active-run?resourceId=workspace&threadId=thread-slow-prep';
+  const pending = runRequest({
+    body: JSON.stringify({
+      data: {
+        memory: { resourceId: 'workspace', runId: 'run-slow-prep', threadId: 'thread-slow-prep' },
+        provider: 'openai',
+      },
+      messages: [{ id: 'user-slow-prep', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+    }),
+    method: 'POST',
+    url: '/assistant',
+  });
+  await vi.waitFor(() => expect(mockSecretsService.getCredential).toHaveBeenCalled());
+  const during = await runRequest({ method: 'GET', url: scopeUrl });
+  expect(JSON.parse(during.body)).toEqual({ activeRun: null, initializing: true });
+  credential.resolve({ access: 'access', expires: 1, refresh: 'refresh', type: 'oauth' });
+  const rejected = await pending;
+  expect(rejected.status).toBe(400);
+  const after = await runRequest({ method: 'GET', url: scopeUrl });
+  expect(JSON.parse(after.body)).toEqual({ activeRun: null });
 });
 
 describe('origin enforcement', () => {

@@ -1,9 +1,12 @@
-import { PGlite } from '@electric-sql/pglite';
+import { createEnginePglite } from '@brainstrike/db/pglite-factory';
+import type { PGlite } from '@electric-sql/pglite';
 import type { MastraMessageContentV2 } from '@mastra/core/agent';
 import type { MastraDBMessage } from '@mastra/core/memory';
 import type { ObservationalMemoryRecord } from '@mastra/core/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createAgentMemoryTestDb } from '../../__tests__/helpers/migrated-agent-test-db';
 import { PgliteMemoryStore } from '../memory-store';
+import { attachThreadTitleSaveAbortSignal } from '../thread-title-save-cancellation';
 import type { PgliteDatabase } from '../types';
 
 function createDeferred<T>(): {
@@ -40,7 +43,7 @@ describe('PgliteMemoryStore', () => {
   let store: PgliteMemoryStore;
 
   beforeEach(async () => {
-    db = new PGlite();
+    db = await createAgentMemoryTestDb();
     database = db as unknown as PgliteDatabase;
     store = new PgliteMemoryStore({ database });
     await store.initialize();
@@ -51,28 +54,41 @@ describe('PgliteMemoryStore', () => {
   });
 
   it('creates Mastra memory tables idempotently', async () => {
-    await store.initialize();
+    const coldDb = await createEnginePglite();
+    const coldStore = new PgliteMemoryStore({
+      database: coldDb as unknown as PgliteDatabase,
+    });
+    try {
+      await coldStore.initialize();
+      await coldStore.initialize();
+      const reloadedColdStore = new PgliteMemoryStore({
+        database: coldDb as unknown as PgliteDatabase,
+      });
+      await reloadedColdStore.initialize();
 
-    const result = await db.query<{ tablename: string }>(
-      "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'mastra_%' ORDER BY tablename"
-    );
+      const result = await coldDb.query<{ tablename: string }>(
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'mastra_%' ORDER BY tablename"
+      );
 
-    expect(result.rows.map((row) => row.tablename)).toEqual(
-      expect.arrayContaining([
-        'mastra_messages',
-        'mastra_observational_memory',
-        'mastra_resources',
-        'mastra_threads',
-      ])
-    );
+      expect(result.rows.map((row) => row.tablename)).toEqual(
+        expect.arrayContaining([
+          'mastra_messages',
+          'mastra_observational_memory',
+          'mastra_resources',
+          'mastra_threads',
+        ])
+      );
 
-    const configColumn = await db.query<{ data_type: string }>(
-      `SELECT data_type
-       FROM information_schema.columns
-       WHERE table_name = 'mastra_observational_memory'
-         AND column_name = 'config'`
-    );
-    expect(configColumn.rows[0]?.data_type).toBe('jsonb');
+      const configColumn = await coldDb.query<{ data_type: string }>(
+        `SELECT data_type
+         FROM information_schema.columns
+         WHERE table_name = 'mastra_observational_memory'
+           AND column_name = 'config'`
+      );
+      expect(configColumn.rows[0]?.data_type).toBe('jsonb');
+    } finally {
+      await coldDb.close();
+    }
   });
 
   it('retries schema initialization after a transient bootstrap failure', async () => {
@@ -239,6 +255,62 @@ describe('PgliteMemoryStore', () => {
     expect(lateGenerated.title).toBe('My Paris Trip');
     expect(lateGenerated.metadata).not.toHaveProperty('titleSource');
     expect(lateGenerated.updatedAt).toEqual(new Date('2026-04-22T10:00:02Z'));
+  });
+
+  it('rolls back a generated-title save aborted after its write starts', async () => {
+    const createdAt = new Date('2026-04-22T10:00:00Z');
+    await store.saveThread({
+      thread: {
+        createdAt,
+        id: 'thread-aborted-generated-title',
+        resourceId: 'workspace-a',
+        title: 'New Thread',
+        updatedAt: createdAt,
+      },
+    });
+    const insertCompleted = Promise.withResolvers<void>();
+    const releaseInsert = Promise.withResolvers<void>();
+    const gatedDatabase: PgliteDatabase = {
+      exec: db.exec.bind(db),
+      query: db.query.bind(db) as PgliteDatabase['query'],
+      transaction: (operation) =>
+        db.transaction((tx) =>
+          operation({
+            exec: tx.exec.bind(tx),
+            query: (async (sql: string, values?: readonly unknown[]) => {
+              const result = await tx.query(sql, values);
+              if (sql.includes('INSERT INTO mastra_threads')) {
+                insertCompleted.resolve();
+                await releaseInsert.promise;
+              }
+              return result;
+            }) as PgliteDatabase['query'],
+          })
+        ),
+    };
+    const gatedStore = new PgliteMemoryStore({ database: gatedDatabase });
+    const controller = new AbortController();
+    const save = gatedStore.saveThread({
+      thread: attachThreadTitleSaveAbortSignal(
+        {
+          createdAt,
+          id: 'thread-aborted-generated-title',
+          resourceId: 'workspace-a',
+          title: 'Too late',
+          updatedAt: new Date('2026-04-22T10:00:01Z'),
+        },
+        controller.signal
+      ),
+    });
+
+    await insertCompleted.promise;
+    controller.abort(new Error('title save deadline expired'));
+    releaseInsert.resolve();
+
+    await expect(save).rejects.toThrow('title save deadline expired');
+    await expect(
+      store.getThreadById({ threadId: 'thread-aborted-generated-title' })
+    ).resolves.toMatchObject({ title: 'New Thread' });
   });
 
   it('lets an automated title rename a thread whose title carries the OM marker', async () => {

@@ -1,25 +1,30 @@
 import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { getResetTables } from '@brainstrike/db';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 import {
   applyManagedCacheBatchMock,
   browserWindowMock,
   closeDatabaseMock,
+  createAuthorizedDbEvent,
+  createCorruptionError,
+  createFakeLiveQueryOwner,
+  createLiveHandleMock,
   createWindowWithWebContents,
+  currentIntegrityState,
   embeddingHostIsHostWindowMock,
   getDatabaseDiagnosticsMock,
   getDatabaseMock,
   getDbHostManagerMock,
-  handleRuntimeCorruptionMock,
   handlers,
   invalidateManagedCacheEntriesByIdentityMock,
-  isCorruptionErrorMock,
   loggerDebug,
   loggerWarn,
   mockDb,
   resetDatabaseIpcHandlerMocks,
   resetDesktopApplicationDataMock,
   resetLocalDatabaseMock,
+  storageClearMock,
 } from './ipc-handlers-db-test-fixture';
 
 function setBrowserWindows(...senders: unknown[]): void {
@@ -31,6 +36,17 @@ function setBrowserWindows(...senders: unknown[]): void {
   browserWindowMock.getAllWindows.mockReturnValue(
     windows as unknown as ReturnType<typeof browserWindowMock.getAllWindows>
   );
+}
+
+/** The three owner-teardown shapes the live-query reaper must cover. */
+const LIVE_QUERY_TEARDOWN_EVENTS = ['destroyed', 'render-process-gone', 'did-navigate'] as const;
+
+async function flushAsyncOwnerCleanup(): Promise<void> {
+  // The reap schedules owner cleanup (Promise.allSettled over unsubscribes);
+  // drain a few microtask turns so its effects are observable.
+  for (let turn = 0; turn < 5; turn += 1) {
+    await Promise.resolve();
+  }
 }
 
 describe('database IPC handlers', () => {
@@ -132,65 +148,11 @@ describe('database IPC handlers', () => {
     const rows = { rows: [{ id: 1 }] };
     mockDb.query.mockResolvedValue(rows);
 
-    const result = await handler?.({} as unknown, 'SELECT 1', [1]);
+    const result = await handler?.(createAuthorizedDbEvent(), 'SELECT 1', [1]);
 
     expect(getDatabaseMock).toHaveBeenCalled();
     expect(mockDb.query).toHaveBeenCalledWith('SELECT 1', [1]);
     expect(result).toBe(rows);
-  });
-
-  it('resets on corruption without running queued stale work against the replacement database', async () => {
-    const handler = handlers.get('db:query');
-    const corruption = Object.assign(new Error('invalid page in block 42'), { code: 'XX001' });
-    const reloadIgnoringCache = vi.fn();
-    let rejectCorruptingQuery: ((error: Error) => void) | null = null;
-    let markCorruptingQueryStarted: (() => void) | null = null;
-    const corruptingQueryStarted = new Promise<void>((resolve) => {
-      markCorruptingQueryStarted = resolve;
-    });
-    browserWindowMock.getAllWindows.mockReturnValue([
-      {
-        id: 42,
-        isDestroyed: () => false,
-        webContents: { reloadIgnoringCache, send: vi.fn() },
-      },
-    ] as never);
-    mockDb.query.mockImplementationOnce(
-      () =>
-        new Promise<never>((_resolve, reject) => {
-          rejectCorruptingQuery = reject;
-          markCorruptingQueryStarted?.();
-        })
-    );
-    isCorruptionErrorMock.mockReturnValueOnce(true);
-
-    const corruptingQuery = handler?.({} as unknown, 'SELECT * FROM file_chunks');
-    await corruptingQueryStarted;
-    const staleQueuedQuery = handler?.({} as unknown, 'SELECT * FROM stale_renderer_state');
-    const staleQueuedQueryAssertion = expect(staleQueuedQuery).rejects.toThrow(
-      'Database work was canceled because runtime corruption recovery is replacing the active local database.'
-    );
-    if (!rejectCorruptingQuery) {
-      throw new Error('Corrupting query did not expose its rejection callback.');
-    }
-    const rejectQuery: unknown = rejectCorruptingQuery;
-    if (typeof rejectQuery !== 'function') {
-      throw new Error('Expected corrupting query rejection callback.');
-    }
-    rejectQuery(corruption);
-
-    await expect(corruptingQuery).rejects.toThrow(
-      'Database corruption was recovered by resetting local index data. Brainstrike is reloading.'
-    );
-    await staleQueuedQueryAssertion;
-
-    expect(mockDb.query).toHaveBeenCalledTimes(1);
-    expect(handleRuntimeCorruptionMock).toHaveBeenCalledWith('db:query');
-    expect(browserWindowMock.getAllWindows).toHaveBeenCalled();
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 0);
-    });
-    expect(reloadIgnoringCache).toHaveBeenCalledTimes(1);
   });
 
   it('db:query accepts database work options as the second argument when params are omitted', async () => {
@@ -198,7 +160,7 @@ describe('database IPC handlers', () => {
     const rows = { rows: [{ id: 1 }] };
     mockDb.query.mockResolvedValue(rows);
 
-    const result = await handler?.({} as unknown, 'SELECT 1', {
+    const result = await handler?.(createAuthorizedDbEvent(), 'SELECT 1', {
       label: 'collection page',
       priority: 'foreground',
     });
@@ -210,7 +172,7 @@ describe('database IPC handlers', () => {
   it('db:query rejects empty object params instead of treating them as work options', async () => {
     const handler = handlers.get('db:query');
 
-    await expect(handler?.({} as unknown, 'SELECT $1', {})).rejects.toThrow(
+    await expect(handler?.(createAuthorizedDbEvent(), 'SELECT $1', {})).rejects.toThrow(
       'db:query parameters must be an array when provided.'
     );
 
@@ -221,7 +183,7 @@ describe('database IPC handlers', () => {
     const handler = handlers.get('db:query');
 
     await expect(
-      handler?.({} as unknown, 'SELECT $1', { value: 'not-array-params' })
+      handler?.(createAuthorizedDbEvent(), 'SELECT $1', { value: 'not-array-params' })
     ).rejects.toThrow('db:query parameters must be an array when provided.');
 
     expect(mockDb.query).not.toHaveBeenCalled();
@@ -230,7 +192,7 @@ describe('database IPC handlers', () => {
   it('db:query rejects destructive renderer schema SQL before it reaches PGlite', async () => {
     const handler = handlers.get('db:query');
 
-    await expect(handler?.({} as unknown, 'DROP TABLE file_records')).rejects.toThrow(
+    await expect(handler?.(createAuthorizedDbEvent(), 'DROP TABLE file_records')).rejects.toThrow(
       'db:query does not permit destructive schema SQL from the renderer.'
     );
 
@@ -240,9 +202,9 @@ describe('database IPC handlers', () => {
   it('db:query rejects broad destructive DROP statements before they reach PGlite', async () => {
     const handler = handlers.get('db:query');
 
-    await expect(handler?.({} as unknown, 'DROP SEQUENCE file_record_seq')).rejects.toThrow(
-      'db:query does not permit destructive schema SQL from the renderer.'
-    );
+    await expect(
+      handler?.(createAuthorizedDbEvent(), 'DROP SEQUENCE file_record_seq')
+    ).rejects.toThrow('db:query does not permit destructive schema SQL from the renderer.');
 
     expect(mockDb.query).not.toHaveBeenCalled();
   });
@@ -252,7 +214,11 @@ describe('database IPC handlers', () => {
     const rows = { rows: [{ id: 1 }] };
     mockDb.query.mockResolvedValue(rows);
 
-    const result = await handler?.({} as unknown, 'DELETE FROM job_queue WHERE id = $1', ['job-1']);
+    const result = await handler?.(
+      createAuthorizedDbEvent(),
+      'DELETE FROM job_queue WHERE id = $1',
+      ['job-1']
+    );
 
     expect(mockDb.query).toHaveBeenCalledWith('DELETE FROM job_queue WHERE id = $1', ['job-1']);
     expect(result).toBe(rows);
@@ -262,7 +228,7 @@ describe('database IPC handlers', () => {
     const handler = handlers.get('db:exec');
 
     const result = await handler?.(
-      {} as unknown,
+      createTrustedInvokeEvent(),
       "ALTER TABLE file_records ADD COLUMN label TEXT DEFAULT 'drop'"
     );
 
@@ -275,7 +241,7 @@ describe('database IPC handlers', () => {
   it('db:exec rejects destructive renderer schema SQL before it reaches PGlite', async () => {
     const handler = handlers.get('db:exec');
 
-    await expect(handler?.({} as unknown, 'DROP TABLE file_records')).rejects.toThrow(
+    await expect(handler?.(createTrustedInvokeEvent(), 'DROP TABLE file_records')).rejects.toThrow(
       'db:exec does not permit destructive schema SQL from the renderer.'
     );
 
@@ -287,7 +253,7 @@ describe('database IPC handlers', () => {
     const err = new Error('fail');
     mockDb.query.mockRejectedValue(err);
 
-    await expect(handler?.({} as unknown, 'SELECT bad')).rejects.toThrow(err);
+    await expect(handler?.(createAuthorizedDbEvent(), 'SELECT bad')).rejects.toThrow(err);
   });
 
   it('schedules foreground db:query before queued background work during the quiet window', async () => {
@@ -303,10 +269,10 @@ describe('database IPC handlers', () => {
         return { rows: [] };
       });
 
-      await handler?.({} as unknown, 'SELECT warmup', []);
+      await handler?.(createAuthorizedDbEvent(), 'SELECT warmup', []);
       order.length = 0;
 
-      const background = handler?.({} as unknown, 'SELECT background', [], {
+      const background = handler?.(createAuthorizedDbEvent(), 'SELECT background', [], {
         label: 'background claim',
         priority: 'background',
       });
@@ -314,7 +280,7 @@ describe('database IPC handlers', () => {
       expect(order).toEqual([]);
 
       now += 1;
-      const foreground = handler?.({} as unknown, 'SELECT foreground', [], {
+      const foreground = handler?.(createAuthorizedDbEvent(), 'SELECT foreground', [], {
         label: 'collection page',
       });
       await foreground;
@@ -346,16 +312,16 @@ describe('database IPC handlers', () => {
         getOwnerBrowserWindow: vi.fn(() => createWindowWithWebContents({ send: vi.fn() })),
       };
 
-      await handler?.({} as unknown, 'SELECT warmup', []);
+      await handler?.(createAuthorizedDbEvent(), 'SELECT warmup', []);
       order.length = 0;
       embeddingHostIsHostWindowMock.mockReturnValueOnce(true);
 
-      const background = handler?.({ sender: hiddenSender } as unknown, 'SELECT hidden_host', []);
+      const background = handler?.(createAuthorizedDbEvent(hiddenSender), 'SELECT hidden_host', []);
       await Promise.resolve();
       expect(order).toEqual([]);
 
       now += 1;
-      const foreground = handler?.({} as unknown, 'SELECT visible_renderer', []);
+      const foreground = handler?.(createAuthorizedDbEvent(), 'SELECT visible_renderer', []);
       await foreground;
       expect(order).toEqual(['SELECT visible_renderer']);
 
@@ -374,7 +340,7 @@ describe('database IPC handlers', () => {
     const ret = { done: true };
     mockDb.exec.mockResolvedValue(ret);
 
-    const result = await handler?.({} as unknown, 'CREATE TABLE');
+    const result = await handler?.(createTrustedInvokeEvent(), 'CREATE TABLE');
 
     expect(getDatabaseMock).toHaveBeenCalled();
     expect(mockDb.exec).toHaveBeenCalledWith('CREATE TABLE');
@@ -386,7 +352,7 @@ describe('database IPC handlers', () => {
     const err = new Error('exec fail');
     mockDb.exec.mockRejectedValue(err);
 
-    await expect(handler?.({} as unknown, 'SELECT bad')).rejects.toThrow(err);
+    await expect(handler?.(createTrustedInvokeEvent(), 'SELECT bad')).rejects.toThrow(err);
   });
 
   it('db:managed-cache:apply-batch validates payload and delegates to the DB host', async () => {
@@ -412,7 +378,7 @@ describe('database IPC handlers', () => {
       embeddingSetId: 'set-1',
     };
 
-    await handler?.({} as unknown, payload);
+    await handler?.(createTrustedInvokeEvent(), payload);
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).toHaveBeenCalled();
@@ -437,10 +403,10 @@ describe('database IPC handlers', () => {
       });
       const payload = { changes: [], embeddingSetId: 'set-1' };
 
-      await queryHandler?.({} as unknown, 'SELECT warmup', []);
+      await queryHandler?.(createAuthorizedDbEvent(), 'SELECT warmup', []);
       order.length = 0;
 
-      const background = batchHandler?.({} as unknown, payload, {
+      const background = batchHandler?.(createTrustedInvokeEvent(), payload, {
         label: 'managed cache batch',
         priority: 'background',
       });
@@ -448,7 +414,7 @@ describe('database IPC handlers', () => {
       expect(order).toEqual([]);
 
       now += 1;
-      await queryHandler?.({} as unknown, 'SELECT foreground_query', []);
+      await queryHandler?.(createAuthorizedDbEvent(), 'SELECT foreground_query', []);
       expect(order).toEqual(['query']);
 
       now += 50;
@@ -464,10 +430,9 @@ describe('database IPC handlers', () => {
 
   it('db:managed-cache:apply-batch rejects invalid payloads before touching the database', async () => {
     const handler = handlers.get('db:managed-cache:apply-batch');
-    isCorruptionErrorMock.mockReturnValueOnce(true);
 
     await expect(
-      handler?.({} as unknown, {
+      handler?.(createTrustedInvokeEvent(), {
         changes: 'invalid',
         embeddingSetId: '',
       })
@@ -476,8 +441,7 @@ describe('database IPC handlers', () => {
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).not.toHaveBeenCalled();
     expect(applyManagedCacheBatchMock).not.toHaveBeenCalled();
-    expect(isCorruptionErrorMock).not.toHaveBeenCalled();
-    expect(handleRuntimeCorruptionMock).not.toHaveBeenCalled();
+    expect(currentIntegrityState()).toEqual({ kind: 'healthy' });
   });
 
   it('db:managed-cache:apply-batch accepts empty change arrays as a no-op payload', async () => {
@@ -487,7 +451,7 @@ describe('database IPC handlers', () => {
       embeddingSetId: 'set-1',
     };
 
-    await handler?.({} as unknown, payload);
+    await handler?.(createTrustedInvokeEvent(), payload);
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).toHaveBeenCalled();
@@ -512,7 +476,7 @@ describe('database IPC handlers', () => {
       ],
     };
 
-    await handler?.({} as unknown, payload);
+    await handler?.(createTrustedInvokeEvent(), payload);
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).toHaveBeenCalled();
@@ -542,10 +506,10 @@ describe('database IPC handlers', () => {
       });
       const payload = { embeddingSetId: 'set-1', targets: [] };
 
-      await queryHandler?.({} as unknown, 'SELECT warmup', []);
+      await queryHandler?.(createAuthorizedDbEvent(), 'SELECT warmup', []);
       order.length = 0;
 
-      const background = invalidationHandler?.({} as unknown, payload, {
+      const background = invalidationHandler?.(createTrustedInvokeEvent(), payload, {
         label: 'managed cache invalidation',
         priority: 'background',
       });
@@ -553,7 +517,7 @@ describe('database IPC handlers', () => {
       expect(order).toEqual([]);
 
       now += 1;
-      await queryHandler?.({} as unknown, 'SELECT foreground_query', []);
+      await queryHandler?.(createAuthorizedDbEvent(), 'SELECT foreground_query', []);
       expect(order).toEqual(['query']);
 
       now += 50;
@@ -571,7 +535,7 @@ describe('database IPC handlers', () => {
     const handler = handlers.get('db:managed-cache:invalidate-by-identity');
 
     await expect(
-      handler?.({} as unknown, {
+      handler?.(createTrustedInvokeEvent(), {
         embeddingSetId: '',
         targets: 'invalid',
       })
@@ -580,8 +544,7 @@ describe('database IPC handlers', () => {
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(getDbHostManagerMock).not.toHaveBeenCalled();
     expect(invalidateManagedCacheEntriesByIdentityMock).not.toHaveBeenCalled();
-    expect(isCorruptionErrorMock).not.toHaveBeenCalled();
-    expect(handleRuntimeCorruptionMock).not.toHaveBeenCalled();
+    expect(currentIntegrityState()).toEqual({ kind: 'healthy' });
   });
 
   it('db:live-query:start subscribes and forwards updates', async () => {
@@ -604,11 +567,15 @@ describe('database IPC handlers', () => {
     const sender = {
       id: 22,
       isDestroyed: vi.fn(() => false),
-      once: vi.fn((_event: string, _cb: () => void) => {}),
+      on: vi.fn(),
+      removeListener: vi.fn(),
       send: vi.fn(),
     };
 
-    const result = (await handler({ sender } as unknown, { params: [1], query: 'select 1' })) as {
+    const result = (await handler(createAuthorizedDbEvent(sender), {
+      params: [1],
+      query: 'select 1',
+    })) as {
       id: number;
       initialResults: unknown;
     };
@@ -636,7 +603,7 @@ describe('database IPC handlers', () => {
     });
 
     const stopHandler = handlers.get('db:live-query:stop');
-    await stopHandler?.({} as unknown, result.id);
+    await stopHandler?.(createAuthorizedDbEvent(), result.id);
     expect(liveHandle.unsubscribe).toHaveBeenCalled();
   });
 
@@ -655,7 +622,13 @@ describe('database IPC handlers', () => {
     mockDb.live.query.mockResolvedValue(liveHandle);
 
     await handler(
-      { sender: { id: 23, isDestroyed: () => false, once: vi.fn(), send: vi.fn() } } as unknown,
+      createAuthorizedDbEvent({
+        id: 23,
+        isDestroyed: () => false,
+        on: vi.fn(),
+        removeListener: vi.fn(),
+        send: vi.fn(),
+      }),
       {
         params: ['needle'],
         query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
@@ -670,38 +643,203 @@ describe('database IPC handlers', () => {
     });
   });
 
-  it('db:live-query:start registers a single destroyed listener per webContents', async () => {
+  it('db:live-query:start attaches one owner reaper per webContents covering all three teardown events', async () => {
     const handler = handlers.get('db:live-query:start');
     if (!handler) {
       throw new Error('handler not registered');
     }
 
-    const firstHandle = {
-      initialResults: { rows: [] },
-      refresh: vi.fn(),
-      subscribe: vi.fn(),
-      unsubscribe: vi.fn(),
-    };
-    const secondHandle = {
-      initialResults: { rows: [] },
-      refresh: vi.fn(),
-      subscribe: vi.fn(),
-      unsubscribe: vi.fn(),
-    };
-    mockDb.live.query.mockResolvedValueOnce(firstHandle).mockResolvedValueOnce(secondHandle);
+    mockDb.live.query
+      .mockResolvedValueOnce(createLiveHandleMock())
+      .mockResolvedValueOnce(createLiveHandleMock());
+    const owner = createFakeLiveQueryOwner(101);
 
-    const sender = {
-      id: 101,
-      isDestroyed: vi.fn(() => false),
-      once: vi.fn(),
-      send: vi.fn(),
-    };
+    await handler(createAuthorizedDbEvent(owner), { query: 'select 1' });
+    await handler(createAuthorizedDbEvent(owner), { query: 'select 2' });
 
-    await handler({ sender } as unknown, { query: 'select 1' });
-    await handler({ sender } as unknown, { query: 'select 2' });
+    for (const teardownEvent of LIVE_QUERY_TEARDOWN_EVENTS) {
+      expect(owner.listenerCount(teardownEvent)).toBe(1);
+    }
+  });
 
-    expect(sender.once).toHaveBeenCalledTimes(1);
-    expect(sender.once).toHaveBeenCalledWith('destroyed', expect.any(Function));
+  // Reload (Cmd+R / crash-recovery reload) preserves the WebContents, so a
+  // 'destroyed'-only hook leaks every old-page subscription: each orphan
+  // update keeps being computed by PGlite, serialized over IPC, and dropped by
+  // the new page's id filter — unbounded growth until window close. The reaper
+  // must cover all three teardown shapes, and because 'did-navigate' and
+  // 'render-process-gone' leave the WebContents ALIVE, a fired reap must
+  // remove its sibling listeners so re-registration cannot pile them up.
+  it.each(LIVE_QUERY_TEARDOWN_EVENTS)(
+    "db:live-query:start reaps every owner subscription on '%s'",
+    async (teardownEvent) => {
+      const startHandler = handlers.get('db:live-query:start');
+      const refreshHandler = handlers.get('db:live-query:refresh');
+      if (!(startHandler && refreshHandler)) {
+        throw new Error('handler not registered');
+      }
+
+      const firstHandle = createLiveHandleMock();
+      const secondHandle = createLiveHandleMock();
+      mockDb.live.query.mockResolvedValueOnce(firstHandle).mockResolvedValueOnce(secondHandle);
+      const owner = createFakeLiveQueryOwner(110);
+
+      const first = (await startHandler(createAuthorizedDbEvent(owner), {
+        query: 'select 1',
+      })) as { id: number };
+      const second = (await startHandler(createAuthorizedDbEvent(owner), {
+        query: 'select 2',
+      })) as { id: number };
+
+      owner.emit(teardownEvent);
+      await flushAsyncOwnerCleanup();
+
+      expect(firstHandle.unsubscribe).toHaveBeenCalledTimes(1);
+      expect(secondHandle.unsubscribe).toHaveBeenCalledTimes(1);
+      await expect(refreshHandler(createAuthorizedDbEvent(), { id: first.id })).resolves.toEqual({
+        message: 'Subscription not found',
+        success: false,
+      });
+      await expect(refreshHandler(createAuthorizedDbEvent(), { id: second.id })).resolves.toEqual({
+        message: 'Subscription not found',
+        success: false,
+      });
+      // A fired reap must remove ALL teardown listeners, not only its own.
+      for (const remaining of LIVE_QUERY_TEARDOWN_EVENTS) {
+        expect(owner.listenerCount(remaining)).toBe(0);
+      }
+    }
+  );
+
+  it('db:live-query:start re-attaches the owner reaper after a did-navigate reap', async () => {
+    const handler = handlers.get('db:live-query:start');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    mockDb.live.query
+      .mockResolvedValueOnce(createLiveHandleMock())
+      .mockResolvedValueOnce(createLiveHandleMock());
+    const owner = createFakeLiveQueryOwner(111);
+
+    await handler(createAuthorizedDbEvent(owner), { query: 'select 1' });
+    owner.emit('did-navigate');
+    await flushAsyncOwnerCleanup();
+
+    await handler(createAuthorizedDbEvent(owner), { query: 'select 2' });
+
+    for (const teardownEvent of LIVE_QUERY_TEARDOWN_EVENTS) {
+      expect(owner.listenerCount(teardownEvent)).toBe(1);
+    }
+  });
+
+  // The mid-setup race: a reload landing while createLiveQueryHandle is being
+  // awaited would otherwise register a fresh subscription already owned by the
+  // dead page — a permanent orphan the reap (which already ran) cannot see.
+  it('db:live-query:start discards a handle created for a renderer context reaped mid-setup', async () => {
+    const startHandler = handlers.get('db:live-query:start');
+    if (!startHandler) {
+      throw new Error('handler not registered');
+    }
+
+    let resolveHandle: ((handle: unknown) => void) | null = null;
+    mockDb.live.query.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHandle = resolve;
+        })
+    );
+    const owner = createFakeLiveQueryOwner(112);
+
+    const pendingStart = startHandler(createAuthorizedDbEvent(owner), { query: 'select 1' });
+    await vi.waitFor(() => {
+      expect(mockDb.live.query).toHaveBeenCalledTimes(1);
+    });
+    const releaseHandle: unknown = resolveHandle;
+    if (typeof releaseHandle !== 'function') {
+      throw new Error('expected pending live-query handle creation');
+    }
+
+    // Reload lands while the handle creation is still in flight.
+    owner.emit('did-navigate');
+    const racedHandle = createLiveHandleMock();
+    releaseHandle(racedHandle);
+
+    await expect(pendingStart).rejects.toThrow(
+      'db:live-query:start: the requesting renderer context changed during setup.'
+    );
+    expect(racedHandle.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(racedHandle.subscribe).not.toHaveBeenCalled();
+  });
+
+  // The raced-handle teardown is the one unsubscribe in this file that does
+  // not go through cleanupLiveSubscription's error tolerance. A rejection
+  // there must neither replace the context-changed error nor — via
+  // runWithIntegrityContainment — let a benign reload race contain the database.
+  // It must still be VISIBLE (logged), never swallowed silently.
+  it('db:live-query:start surfaces the context-changed error even when the raced handle teardown rejects', async () => {
+    const startHandler = handlers.get('db:live-query:start');
+    if (!startHandler) {
+      throw new Error('handler not registered');
+    }
+
+    let resolveHandle: ((handle: unknown) => void) | null = null;
+    mockDb.live.query.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHandle = resolve;
+        })
+    );
+    const owner = createFakeLiveQueryOwner(113);
+
+    const pendingStart = startHandler(createAuthorizedDbEvent(owner), { query: 'select 1' });
+    await vi.waitFor(() => {
+      expect(mockDb.live.query).toHaveBeenCalledTimes(1);
+    });
+    const releaseHandle: unknown = resolveHandle;
+    if (typeof releaseHandle !== 'function') {
+      throw new Error('expected pending live-query handle creation');
+    }
+
+    owner.emit('did-navigate');
+    const racedHandle = createLiveHandleMock();
+    // Even a corruption-shaped teardown failure must not contain the database.
+    const teardownFailure = createCorruptionError('invalid page in block 7');
+    racedHandle.unsubscribe.mockRejectedValueOnce(teardownFailure);
+    releaseHandle(racedHandle);
+
+    await expect(pendingStart).rejects.toThrow(
+      'db:live-query:start: the requesting renderer context changed during setup.'
+    );
+    expect(currentIntegrityState()).toEqual({ kind: 'healthy' });
+    expect(loggerWarn).toHaveBeenCalledWith(
+      'Failed to tear down a live-query handle reaped mid-setup',
+      {
+        error: teardownFailure,
+      }
+    );
+  });
+
+  // Mirrors fs-watch's pre-attach guard: a start processed after the sender is
+  // already destroyed would attach a reaper to an emitter whose teardown
+  // events have already fired — no reap would ever arrive, permanently
+  // registering the subscription and retaining the dead WebContents through
+  // the update-listener closure.
+  it('db:live-query:start rejects a sender that is already destroyed before touching the database', async () => {
+    const startHandler = handlers.get('db:live-query:start');
+    if (!startHandler) {
+      throw new Error('handler not registered');
+    }
+
+    const owner = createFakeLiveQueryOwner(114);
+    owner.isDestroyed.mockReturnValue(true);
+
+    await expect(
+      startHandler(createAuthorizedDbEvent(owner), { query: 'select 1' })
+    ).rejects.toThrow('db:live-query:start: the requesting renderer is already destroyed.');
+    expect(mockDb.live.query).not.toHaveBeenCalled();
+    for (const teardownEvent of LIVE_QUERY_TEARDOWN_EVENTS) {
+      expect(owner.listenerCount(teardownEvent)).toBe(0);
+    }
   });
 
   it('db:live-query:start supports incremental mode with key', async () => {
@@ -719,7 +857,13 @@ describe('database IPC handlers', () => {
     mockDb.live.incrementalQuery.mockResolvedValue(liveHandle);
 
     await handler(
-      { sender: { id: 1, isDestroyed: () => false, once: vi.fn(), send: vi.fn() } } as unknown,
+      createAuthorizedDbEvent({
+        id: 1,
+        isDestroyed: () => false,
+        on: vi.fn(),
+        removeListener: vi.fn(),
+        send: vi.fn(),
+      }),
       { key: 'id', limit: 5, mode: 'incremental', offset: 2, query: 'select *' }
     );
 
@@ -740,7 +884,13 @@ describe('database IPC handlers', () => {
 
     await expect(
       handler(
-        { sender: { id: 1, isDestroyed: () => false, once: vi.fn(), send: vi.fn() } } as unknown,
+        createAuthorizedDbEvent({
+          id: 1,
+          isDestroyed: () => false,
+          on: vi.fn(),
+          removeListener: vi.fn(),
+          send: vi.fn(),
+        }),
         { mode: 'incremental', query: 'select *' }
       )
     ).rejects.toThrow('Live incremental queries require a key column');
@@ -749,47 +899,9 @@ describe('database IPC handlers', () => {
   it('db:live-query:refresh returns not found when subscription missing', async () => {
     const handler = handlers.get('db:live-query:refresh');
 
-    const result = await handler?.({} as unknown, { id: 999 });
+    const result = await handler?.(createAuthorizedDbEvent(), { id: 999 });
 
     expect(result).toEqual({ message: 'Subscription not found', success: false });
-  });
-
-  it('db:live-query:refresh handles corruption errors', async () => {
-    const startHandler = handlers.get('db:live-query:start');
-    const refreshHandler = handlers.get('db:live-query:refresh');
-    if (!(startHandler && refreshHandler)) {
-      throw new Error('handler not registered');
-    }
-
-    const liveHandle = {
-      initialResults: { rows: [] },
-      refresh: vi.fn(),
-      subscribe: vi.fn(),
-      unsubscribe: vi.fn(),
-    };
-    mockDb.live.query.mockResolvedValue(liveHandle);
-
-    const sender = {
-      id: 77,
-      isDestroyed: vi.fn(() => false),
-      once: vi.fn((_event: string, _cb: () => void) => {}),
-      send: vi.fn(),
-    };
-
-    const result = (await startHandler({ sender } as unknown, { query: 'select 1' })) as {
-      id: number;
-    };
-
-    const error = new Error('corrupted');
-    liveHandle.refresh.mockRejectedValue(error);
-    isCorruptionErrorMock.mockReturnValueOnce(true);
-
-    await expect(refreshHandler({} as unknown, { id: result.id })).rejects.toThrow(
-      'Database corruption was recovered by resetting local index data. Brainstrike is reloading.'
-    );
-
-    expect(handleRuntimeCorruptionMock).toHaveBeenCalledWith('db:live-query:refresh');
-    expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it('db:live-query:refresh returns error message for non-corruption errors', async () => {
@@ -810,23 +922,27 @@ describe('database IPC handlers', () => {
     const sender = {
       id: 55,
       isDestroyed: vi.fn(() => false),
-      once: vi.fn((_event: string, _cb: () => void) => {}),
+      on: vi.fn(),
+      removeListener: vi.fn(),
       send: vi.fn(),
     };
 
-    const result = (await startHandler({ sender } as unknown, { query: 'select 1' })) as {
+    const result = (await startHandler(createAuthorizedDbEvent(sender), { query: 'select 1' })) as {
       id: number;
     };
 
     liveHandle.refresh.mockRejectedValue(new Error('refresh failed'));
-    isCorruptionErrorMock.mockReturnValueOnce(false);
 
-    const refreshResult = await refreshHandler({} as unknown, { id: result.id, offset: 1 });
+    const refreshResult = await refreshHandler(createAuthorizedDbEvent(), {
+      id: result.id,
+      offset: 1,
+    });
 
     expect(refreshResult).toEqual({
       message: 'refresh failed',
       success: false,
     });
+    expect(currentIntegrityState()).toEqual({ kind: 'healthy' });
   });
 
   it('db:resetLocal delegates desktop application data reset and returns errors', async () => {
@@ -840,7 +956,8 @@ describe('database IPC handlers', () => {
       pendingDeletionPaths: [],
       preservedPaths: [],
     });
-    await expect(handler({} as unknown)).resolves.toEqual({ success: true });
+    await expect(handler(createAuthorizedDbEvent())).resolves.toEqual({ success: true });
+    expect(storageClearMock).toHaveBeenCalledOnce();
     expect(resetDesktopApplicationDataMock).toHaveBeenCalledWith(
       expect.objectContaining({
         resetDatabaseProfile: expect.any(Function),
@@ -886,7 +1003,7 @@ describe('database IPC handlers', () => {
     expect(closeDatabaseMock).not.toHaveBeenCalled();
 
     resetDesktopApplicationDataMock.mockRejectedValueOnce(new Error('fail reset'));
-    await expect(handler({} as unknown)).resolves.toEqual({
+    await expect(handler(createAuthorizedDbEvent())).resolves.toEqual({
       message: 'fail reset',
       success: false,
     });
@@ -901,11 +1018,11 @@ describe('database IPC handlers', () => {
     const originalEnv = process.env['NODE_ENV'];
 
     process.env['NODE_ENV'] = 'test';
-    const testPath = await handler({} as unknown);
+    const testPath = await handler(createAuthorizedDbEvent());
     expect(String(testPath)).toContain('pgdata');
 
     process.env['NODE_ENV'] = 'production';
-    const prodPath = await handler({} as unknown);
+    const prodPath = await handler(createAuthorizedDbEvent());
     expect(String(prodPath)).toContain('BrainStrike');
 
     process.env['NODE_ENV'] = originalEnv;
@@ -917,7 +1034,7 @@ describe('database IPC handlers', () => {
       throw new Error('handler not registered');
     }
 
-    const result = await handler({} as unknown);
+    const result = await handler(createTrustedInvokeEvent());
 
     expect(getDbHostManagerMock).toHaveBeenCalledTimes(1);
     expect(getDatabaseDiagnosticsMock).toHaveBeenCalledTimes(1);
@@ -933,10 +1050,7 @@ describe('database IPC handlers', () => {
       lastInitializationFailure: null,
       lastInitializationStartedAt: '2026-02-15T00:00:00.000Z',
       lastInitializationSucceededAt: '2026-02-15T00:00:01.000Z',
-      lastRuntimeCorruptionAt: null,
-      lastRuntimeCorruptionContext: null,
       nodeEnv: 'test',
-      runtimeCorruptionRecoveryCount: 0,
     });
   });
 
@@ -945,7 +1059,7 @@ describe('database IPC handlers', () => {
     const row = { test: 1, timestamp: 'now' };
     mockDb.query.mockResolvedValue({ rows: [row] });
 
-    const result = await handler?.({} as unknown);
+    const result = await handler?.(createTrustedInvokeEvent());
 
     expect(mockDb.query).toHaveBeenCalledWith('SELECT 1');
     expect(result).toEqual({
@@ -959,13 +1073,14 @@ describe('database IPC handlers', () => {
     const handler = handlers.get('db:test');
     mockDb.query.mockRejectedValue(new Error('oops'));
 
-    const result = await handler?.({} as unknown);
+    const result = await handler?.(createTrustedInvokeEvent());
 
     expect(result).toEqual({
       dbLocation: 'DB Host',
       message: 'Database connection failed: oops',
       success: false,
     });
+    expect(currentIntegrityState()).toEqual({ kind: 'healthy' });
   });
 
   describe('db:clearAll handler', () => {
@@ -1023,7 +1138,7 @@ describe('database IPC handlers', () => {
     it('requires confirmation token', async () => {
       const handler = handlers.get('db:clearAll');
 
-      const result = await handler?.({} as unknown);
+      const result = await handler?.(createAuthorizedDbEvent());
 
       expect(result).toEqual({
         deletedChunks: 0,
@@ -1037,7 +1152,7 @@ describe('database IPC handlers', () => {
     it('rejects invalid confirmation token', async () => {
       const handler = handlers.get('db:clearAll');
 
-      const result = await handler?.({} as unknown, 'invalid_token');
+      const result = await handler?.(createAuthorizedDbEvent(), 'invalid_token');
 
       expect(result).toEqual({
         deletedChunks: 0,
@@ -1067,7 +1182,7 @@ describe('database IPC handlers', () => {
         return await callback(mockTx);
       });
 
-      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+      const result = await handler?.(createAuthorizedDbEvent(), 'CONFIRM_CLEAR_DATABASE');
 
       expect(getDatabaseMock).toHaveBeenCalled();
       expect(mockDb.transaction).toHaveBeenCalled();
@@ -1104,7 +1219,7 @@ describe('database IPC handlers', () => {
         return await callback({ query });
       });
 
-      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+      const result = await handler?.(createAuthorizedDbEvent(), 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toMatchObject({ success: true });
       expect([...cleared].sort()).toEqual([...getResetTables()].sort());
@@ -1132,7 +1247,7 @@ describe('database IPC handlers', () => {
         });
       });
 
-      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+      const result = await handler?.(createAuthorizedDbEvent(), 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toMatchObject({ success: true });
       expect(queryMock).toHaveBeenCalledWith(`DELETE FROM ${MASTRA_WORKFLOW_TABLE}`);
@@ -1162,7 +1277,7 @@ describe('database IPC handlers', () => {
         return await callback({ query });
       });
 
-      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+      const result = await handler?.(createAuthorizedDbEvent(), 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toMatchObject({ success: true });
       expect(query).not.toHaveBeenCalledWith(`DELETE FROM ${MASTRA_WORKFLOW_TABLE}`);
@@ -1184,7 +1299,7 @@ describe('database IPC handlers', () => {
 
       mockDb.transaction.mockRejectedValue(new Error('Database connection failed'));
 
-      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+      const result = await handler?.(createAuthorizedDbEvent(), 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toEqual({
         deletedChunks: 0,
@@ -1192,6 +1307,7 @@ describe('database IPC handlers', () => {
         message: 'Database clear failed: Database connection failed',
         success: false,
       });
+      expect(currentIntegrityState()).toEqual({ kind: 'healthy' });
     });
 
     it('handles transaction callback errors', async () => {
@@ -1204,7 +1320,7 @@ describe('database IPC handlers', () => {
         return await callback(mockTx);
       });
 
-      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+      const result = await handler?.(createAuthorizedDbEvent(), 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toEqual({
         deletedChunks: 0,
@@ -1223,7 +1339,7 @@ describe('database IPC handlers', () => {
       const query = createClearTxQuery({ absent: ['selection_snapshot_files'] });
       mockDb.transaction.mockImplementation(async (callback) => await callback({ query }));
 
-      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+      const result = await handler?.(createAuthorizedDbEvent(), 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toEqual({
         deletedChunks: 0,
@@ -1242,7 +1358,7 @@ describe('database IPC handlers', () => {
       const query = createClearTxQuery({ absent: ['collection_indexing_stats'] });
       mockDb.transaction.mockImplementation(async (callback) => await callback({ query }));
 
-      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+      const result = await handler?.(createAuthorizedDbEvent(), 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toEqual({
         deletedChunks: 0,
@@ -1274,7 +1390,7 @@ describe('database IPC handlers', () => {
         return value;
       });
 
-      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+      const result = await handler?.(createAuthorizedDbEvent(), 'CONFIRM_CLEAR_DATABASE');
 
       expect(transactionCommitted).toBe(false);
       expect(result).toEqual({
@@ -1312,7 +1428,7 @@ describe('database IPC handlers', () => {
         return value;
       });
 
-      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+      const result = await handler?.(createAuthorizedDbEvent(), 'CONFIRM_CLEAR_DATABASE');
 
       expect(transactionCommitted).toBe(false);
       expect(result).toEqual({
@@ -1335,7 +1451,7 @@ describe('database IPC handlers', () => {
       });
       mockDb.transaction.mockImplementation(async (callback) => await callback({ query }));
 
-      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+      const result = await handler?.(createAuthorizedDbEvent(), 'CONFIRM_CLEAR_DATABASE');
 
       expect(result).toEqual({
         deletedChunks: 0,
@@ -1355,13 +1471,15 @@ describe('database IPC handlers', () => {
     function createLiveQuerySender(id: number): {
       id: number;
       isDestroyed: ReturnType<typeof vi.fn>;
+      on: ReturnType<typeof vi.fn>;
+      removeListener: ReturnType<typeof vi.fn>;
       send: ReturnType<typeof vi.fn>;
-      once: ReturnType<typeof vi.fn>;
     } {
       return {
         id,
         isDestroyed: vi.fn(() => false),
-        once: vi.fn(),
+        on: vi.fn(),
+        removeListener: vi.fn(),
         send: vi.fn(),
       };
     }
@@ -1383,7 +1501,7 @@ describe('database IPC handlers', () => {
       };
       mockDb.live.query.mockResolvedValue(liveHandle);
 
-      const result = (await handler({ sender } as unknown, {
+      const result = (await handler(createAuthorizedDbEvent(sender), {
         query: 'SELECT 1',
       })) as { id: number };
       const subscribedListener: unknown = listener;
@@ -1570,43 +1688,28 @@ describe('database IPC handlers', () => {
       });
     });
 
-    it('keeps owner destroy-listener registration when disposed-frame cleanup runs before webContents destruction', async () => {
+    it('keeps the owner reaper attached when disposed-frame cleanup runs before webContents teardown', async () => {
       const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
       const handler = handlers.get('db:live-query:start');
       if (!handler) {
         throw new Error('handler not registered');
       }
 
-      const firstLiveHandle = {
-        initialResults: { rows: [] },
-        refresh: vi.fn(),
-        subscribe: vi.fn(),
-        unsubscribe: vi.fn(),
-      };
-      const secondLiveHandle = {
-        initialResults: { rows: [] },
-        refresh: vi.fn(),
-        subscribe: vi.fn(),
-        unsubscribe: vi.fn(),
-      };
+      const firstLiveHandle = createLiveHandleMock();
+      const secondLiveHandle = createLiveHandleMock();
       mockDb.live.query
         .mockResolvedValueOnce(firstLiveHandle)
         .mockResolvedValueOnce(secondLiveHandle);
 
-      const sender = {
-        id: 51,
-        isDestroyed: vi.fn(() => false),
-        once: vi.fn(),
-        send: vi
-          .fn()
-          .mockImplementationOnce(() => {
-            throw new Error('Render frame was disposed before WebFrameMain could be accessed');
-          })
-          .mockImplementation(() => undefined),
-      };
+      const sender = createFakeLiveQueryOwner(51);
+      sender.send
+        .mockImplementationOnce(() => {
+          throw new Error('Render frame was disposed before WebFrameMain could be accessed');
+        })
+        .mockImplementation(() => undefined);
       setBrowserWindows(sender);
 
-      const firstResult = (await handler({ sender } as unknown, {
+      const firstResult = (await handler(createAuthorizedDbEvent(sender), {
         query: 'SELECT 1',
       })) as { id: number };
       const firstListener = firstLiveHandle.subscribe.mock.calls[0]?.[0] as
@@ -1622,15 +1725,21 @@ describe('database IPC handlers', () => {
       await Promise.resolve();
 
       expect(firstLiveHandle.unsubscribe).toHaveBeenCalled();
-      expect(sender.once).toHaveBeenCalledTimes(1);
+      for (const teardownEvent of LIVE_QUERY_TEARDOWN_EVENTS) {
+        expect(sender.listenerCount(teardownEvent)).toBe(1);
+      }
 
-      const secondResult = (await handler({ sender } as unknown, {
+      const secondResult = (await handler(createAuthorizedDbEvent(sender), {
         query: 'SELECT 2',
       })) as { id: number };
 
       expect(secondResult.id).not.toBe(firstResult.id);
       expect(secondLiveHandle.subscribe).toHaveBeenCalledTimes(1);
-      expect(sender.once).toHaveBeenCalledTimes(1);
+      // Disposed-frame cleanup does not detach the reaper, so a later start
+      // must not attach a duplicate set of teardown listeners.
+      for (const teardownEvent of LIVE_QUERY_TEARDOWN_EVENTS) {
+        expect(sender.listenerCount(teardownEvent)).toBe(1);
+      }
     });
 
     it('resets live-query module state during shutdown cleanup', async () => {

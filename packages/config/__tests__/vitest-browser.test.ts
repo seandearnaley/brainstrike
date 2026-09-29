@@ -9,6 +9,7 @@ import {
   createPlaywrightOptions,
   MAX_TRACE_CHUNK_NAME_BYTES,
   playwright,
+  resolveVisualBaselinePath,
   type TraceChunkCommand,
 } from '../src/vitest-browser';
 
@@ -110,12 +111,30 @@ describe('createBrowserProject', () => {
 
     expect(project.test.name).toBe('browser');
     expect(project.test.include).toEqual(['**/*.browser.test.{ts,tsx}']);
-    expect(project.test.outputDir).toBe('test-results');
     expect(project.test.browser.enabled).toBe(true);
     expect(project.test.browser.headless).toBe(true);
     expect(project.test.browser.trace).toBe('off');
     expect(project.test.browser.instances).toEqual([{ browser: 'chromium' }]);
     expect(project.test.browser.screenshotFailures).toBe(true);
+    expect(project.test.browser.expect.toMatchScreenshot.resolveScreenshotPath).toBe(
+      resolveVisualBaselinePath
+    );
+  });
+
+  it('keeps visual baselines outside the ignored failure-screenshot directory', () => {
+    expect(
+      resolveVisualBaselinePath({
+        arg: 'renders-the-panel-1',
+        browserName: 'chromium',
+        ext: '.png',
+        platform: 'darwin',
+        root: '/repo/packages/assistant-ui',
+        testFileDirectory: 'src/__tests__',
+        testFileName: 'assistant-panel.browser.test.tsx',
+      })
+    ).toBe(
+      '/repo/packages/assistant-ui/src/__tests__/__image_snapshots__/assistant-panel.browser.test.tsx/renders-the-panel-1-chromium-darwin.png'
+    );
   });
 
   it('respects explicit browser project overrides', () => {
@@ -131,9 +150,11 @@ describe('createBrowserProject', () => {
     });
 
     expect(project.test.include).toEqual(['src/**/*.browser.test.ts']);
-    expect(project.test.outputDir).toBe('.trace-output');
     expect(project.test.browser.headless).toBe(false);
-    expect(project.test.browser.trace).toBe('on-first-retry');
+    expect(project.test.browser.trace).toEqual({
+      mode: 'on-first-retry',
+      tracesDir: '.trace-output',
+    });
     expect(project.test.browser.provider).toBeDefined();
   });
 
@@ -143,7 +164,10 @@ describe('createBrowserProject', () => {
       isCI: true,
       setupFiles: SETUP_FILES,
     });
-    expect(project.test.browser.trace).toBe('retain-on-failure');
+    expect(project.test.browser.trace).toEqual({
+      mode: 'retain-on-failure',
+      tracesDir: 'test-results',
+    });
   });
 
   it('uses CI defaults when inferred from environment', () => {
@@ -151,7 +175,10 @@ describe('createBrowserProject', () => {
     process.env['GITHUB_ACTIONS'] = 'true';
 
     const project = createBrowserProject({ asyncUtilTimeout: 1000, setupFiles: SETUP_FILES });
-    expect(project.test.browser.trace).toBe('retain-on-failure');
+    expect(project.test.browser.trace).toEqual({
+      mode: 'retain-on-failure',
+      tracesDir: 'test-results',
+    });
   });
 
   it('re-exports playwright provider', () => {

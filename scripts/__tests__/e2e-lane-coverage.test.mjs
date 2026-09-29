@@ -22,8 +22,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 
 import { analyzeE2eLaneCoverage, main } from '../e2e-lane-coverage.mjs';
+import { listPlaywrightTitleEntries } from '../e2e-playwright-title-tags.mjs';
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -606,6 +608,112 @@ test('REAL REPO: every E2E TEST is reachable from a CI-invoked lane', async () =
       .map((violation) => `  [${violation.kind}] ${violation.app}: ${violation.detail}`)
       .join('\n')}`
   );
+});
+
+test('REAL REPO: packaged MCP core has one isolated packaged-artifact CI lane', () => {
+  const desktopPackage = JSON.parse(
+    readFileSync(path.join(REPO_ROOT, 'apps/desktop/package.json'), 'utf8')
+  );
+  const packagedSpecPath = path.join(
+    REPO_ROOT,
+    'apps/desktop/e2e/mcp-packaged-core.desktop.test.ts'
+  );
+  const entries = listPlaywrightTitleEntries(
+    readFileSync(packagedSpecPath, 'utf8'),
+    packagedSpecPath
+  ).filter(({ kind }) => kind === 'test');
+  assert.ok(entries.length > 0, 'packaged MCP core spec has no Playwright test');
+  for (const entry of entries) {
+    assert.match(entry.titlePath, /(?:^|\s)@packaged(?:\s|$)/u);
+    assert.match(entry.titlePath, /(?:^|\s)@destructive(?:\s|$)/u);
+  }
+
+  const scripts = desktopPackage.scripts;
+  assert.equal(
+    desktopPackage.build?.linux?.executableName,
+    'brainstrike-desktop',
+    'Linux packaging must expose the executable name used by the packaged verifier'
+  );
+  const laneName = 'test:e2e:lane:packaged-mcp-core';
+  const lane = scripts[laneName];
+  assert.equal(typeof lane, 'string', `${laneName} must exist`);
+  assert.match(lane, /e2e\/mcp-packaged-core\.desktop\.test\.ts/u);
+  assert.doesNotMatch(lane, /(?:^|\s)(?:pnpm\s+(?:run\s+)?pack|electron-builder)(?:\s|$)/u);
+  assert.match(scripts['test:e2e:lane:full-regression'], /--grep-invert=["'][^"']*@packaged/u);
+  assert.match(scripts['test:e2e:mcp-packaged'], /pnpm run test:e2e:lane:packaged-mcp-core/u);
+
+  const packagedLauncher = readFileSync(
+    path.join(REPO_ROOT, 'apps/desktop/e2e/utils/packaged-electron.ts'),
+    'utf8'
+  );
+  const stdioFixture = readFileSync(
+    path.join(REPO_ROOT, 'packages/mcp-test-lab/fixtures/stdio-reference-server.mjs'),
+    'utf8'
+  );
+  const oauthBrowserFixture = readFileSync(
+    path.join(REPO_ROOT, 'packages/mcp-test-lab/fixtures/oauth-browser-client.mjs'),
+    'utf8'
+  );
+  assert.doesNotMatch(packagedLauncher, /Object\.entries\(process\.env\)/u);
+  assert.match(packagedLauncher, /PACKAGED_DESKTOP_INHERITED_ENV_KEYS/u);
+  assert.match(packagedLauncher, /DBUS_SESSION_BUS_ADDRESS/u);
+  assert.match(packagedLauncher, /GNOME_KEYRING_CONTROL/u);
+  assert.match(packagedLauncher, /--password-store=gnome-libsecret/u);
+  assert.match(packagedLauncher, /XDG_CONFIG_HOME/u);
+  assert.match(packagedLauncher, /XDG_CURRENT_DESKTOP/u);
+  assert.match(packagedLauncher, /XDG_DATA_HOME/u);
+  assert.match(readFileSync(packagedSpecPath, 'utf8'), /oauth-browser-client\.mjs/u);
+  assert.match(readFileSync(packagedSpecPath, 'utf8'), /BRAINSTRIKE_MCP_OAUTH_BROWSER_STATE_FILE/u);
+  assert.match(readFileSync(packagedSpecPath, 'utf8'), /xdg-mime/u);
+  assert.match(readFileSync(packagedSpecPath, 'utf8'), /x-scheme-handler\/http/u);
+  assert.match(readFileSync(packagedSpecPath, 'utf8'), /X-Generic/u);
+  assert.match(oauthBrowserFixture, /redirect: 'manual'/u);
+  assert.match(oauthBrowserFixture, /hostname !== '127\.0\.0\.1'/u);
+  assert.doesNotMatch(stdioFixture, /--brainstrike-production-env/u);
+  assert.match(stdioFixture, /--brainstrike-expected-inherited-env=/u);
+
+  const workflow = parseYaml(
+    readFileSync(path.join(REPO_ROOT, '.github/workflows/test.yml'), 'utf8')
+  );
+  const steps = workflow.jobs?.['native-electron']?.steps;
+  assert.ok(Array.isArray(steps), 'test.yml has no native-electron steps');
+  const dependencyBuild = steps.find(({ name }) => name === 'Build desktop dependency graph');
+  assert.match(
+    String(dependencyBuild?.run),
+    /--filter=@brainstrike\/mcp-test-lab/u,
+    'native-electron must build the packaged verifier fixtures before packaging'
+  );
+  const desktopServices = steps.find(({ name }) => name === 'Provision Linux desktop services');
+  assert.match(String(desktopServices?.run), /dbus-x11/u);
+  assert.match(String(desktopServices?.run), /gnome-keyring/u);
+  assert.match(String(desktopServices?.run), /xdg-utils/u);
+  const watcherIndex = steps.findIndex(
+    ({ name }) => name === 'Load the packaged @parcel/watcher binding in Electron (BST-568)'
+  );
+  const laneIndex = steps.findIndex(({ run }) =>
+    String(run).includes('pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-core')
+  );
+  assert.ok(watcherIndex > -1, 'native-electron has no packaged watcher check');
+  assert.equal(
+    laneIndex,
+    watcherIndex + 1,
+    'packaged MCP core must run immediately after the packaged native checks'
+  );
+  assert.match(
+    String(steps[laneIndex]?.run),
+    /test:e2e:lane:packaged-mcp-core/u,
+    'native-electron must invoke the canonical package lane'
+  );
+  assert.match(String(steps[laneIndex]?.run), /dbus-run-session/u);
+  assert.match(String(steps[laneIndex]?.run), /gnome-keyring-daemon --unlock/u);
+  assert.match(String(steps[laneIndex]?.run), /XDG_CONFIG_HOME=.*mktemp -d/u);
+  assert.match(String(steps[laneIndex]?.run), /XDG_CURRENT_DESKTOP=GNOME/u);
+  assert.match(String(steps[laneIndex]?.run), /XDG_DATA_HOME=.*mktemp -d/u);
+  const uploadStep = steps[laneIndex + 1];
+  assert.equal(uploadStep?.name, 'Upload packaged MCP test diagnostics');
+  assert.equal(uploadStep?.uses, 'actions/upload-artifact@v7');
+  assert.equal(uploadStep?.with?.path, 'apps/desktop/blob-report');
+  assert.match(String(uploadStep?.if), /failure\(\)/u);
 });
 
 test('REAL REPO: the two BST-1010 orphans are fail-late full-regression lanes', async () => {

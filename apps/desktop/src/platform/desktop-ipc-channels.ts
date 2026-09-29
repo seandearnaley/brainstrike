@@ -42,6 +42,23 @@ export const DESKTOP_IPC_CHANNELS = {
     resolveView: 'changes:resolveView',
     rewindPreview: 'changes:rewindPreview',
   },
+  // Hidden chunking host (renderer-only inference, docs/agents/local-inference.md).
+  // `request`/`progress`/`status` are one-way main→host pushes; `report*` are
+  // host→main sends. Pinned equal to the @brainstrike/worker-runtime
+  // descriptor in chunking-host-shared.ts by desktop-ipc-channel-contract.test.ts.
+  chunkingHost: {
+    chunkBatch: 'chunking-host:chunk-batch',
+    chunkFile: 'chunking-host:chunk-file',
+    ensureStarted: 'chunking-host:ensure-started',
+    getStatus: 'chunking-host:get-status',
+    progress: 'chunking-host:progress',
+    reportResponse: 'chunking-host:report-response',
+    reportStatus: 'chunking-host:report-status',
+    request: 'chunking-host:request',
+    reset: 'chunking-host:reset',
+    status: 'chunking-host:status',
+    stop: 'chunking-host:stop',
+  },
   clipboard: {
     writeText: 'clipboard:write-text',
   },
@@ -67,6 +84,8 @@ export const DESKTOP_IPC_CHANNELS = {
     exec: 'db:exec',
     getUserDataPath: 'db:getUserDataPath',
     insertChunksAndEnqueueEmbeddingJobs: 'db:chunks:insert-and-enqueue-embedding-jobs',
+    integrityChanged: 'db:integrity:changed',
+    integrityState: 'db:integrity:state',
     invalidateManagedCacheEntriesByIdentity: 'db:managed-cache:invalidate-by-identity',
     liveQueryRefresh: 'db:live-query:refresh',
     liveQueryStart: 'db:live-query:start',
@@ -81,16 +100,39 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',
+    readMainLogWindow: 'desktop-diagnostics:read-main-log-window',
+    readProcessCounters: 'desktop-diagnostics:read-process-counters',
+  },
+  // Hidden embedding host; same pinning as chunkingHost (embedding-host-shared.ts).
+  embeddingHost: {
+    backfillProgress: 'embedding-host:backfill-progress',
+    cancelAllBackfills: 'embedding-host:cancel-all-backfills',
+    cancelBackfill: 'embedding-host:cancel-backfill',
+    command: 'embedding-host:command',
+    enqueueBackfill: 'embedding-host:enqueue-backfill',
+    ensureStarted: 'embedding-host:ensure-started',
+    getBackfillsInFlight: 'embedding-host:get-backfills-in-flight',
+    getStatus: 'embedding-host:get-status',
+    queryEmbedding: 'embedding-host:query-embedding',
+    queryEmbeddingRequest: 'embedding-host:query-embedding-request',
+    reportQueryEmbeddingResponse: 'embedding-host:report-query-embedding-response',
+    reportStatus: 'embedding-host:report-status',
+    reset: 'embedding-host:reset',
+    status: 'embedding-host:status',
+    stop: 'embedding-host:stop',
   },
   fileExports: {
     saveToDownloads: 'file-exports:save-to-downloads',
   },
   files: {
     addRoot: 'fs:addRoot',
+    addRootByPath: 'fs:addRootByPath',
     exists: 'fs:exists',
+    listRecentRoots: 'fs:listRecentRoots',
     parserHostParse: 'parser-host:parse',
     readDirectory: 'fs:readDirectory',
     readFile: 'fs:readFile',
+    readFileByAbsolutePath: 'fs:readFileByAbsolutePath',
     readFileByPath: 'fs:readFileByPath',
     removeRoot: 'fs:removeRoot',
     requestDirectoryAccess: 'fs:requestDirectoryAccess',
@@ -104,10 +146,20 @@ export const DESKTOP_IPC_CHANNELS = {
     watchRetry: 'fs:watch-retry',
     watchTelemetry: 'fs:watch-telemetry',
   },
+  forge: {
+    identity: 'forge:identity',
+    prStatus: 'forge:prStatus',
+    // One-way main→renderer push (BST-1391): a forge observation changed for a
+    // (repository, branch). NOT an ipcMain.handle channel — never registered
+    // on the invoke registry, exactly like changes.invalidated.
+    prUpdated: 'forge:prUpdated',
+    refresh: 'forge:refresh',
+  },
   git: {
     aheadBehind: 'git:aheadBehind',
     commit: 'git:commit',
     commitFiles: 'git:commitFiles',
+    createBranch: 'git:createBranch',
     diff: 'git:diff',
     fetch: 'git:fetch',
     history: 'git:history',
@@ -124,7 +176,41 @@ export const DESKTOP_IPC_CHANNELS = {
     getProjectHooksForReview: 'hooks:get-project-hooks-for-review',
     resolveTrustedRootIds: 'hooks:resolve-trusted-root-ids',
   },
+  // Hidden local-LLM host; same pinning as chunkingHost (llm-host-shared.ts).
+  llmHost: {
+    cancel: 'llm-host:cancel',
+    ensureStarted: 'llm-host:ensure-started',
+    generate: 'llm-host:generate',
+    getStatus: 'llm-host:get-status',
+    progress: 'llm-host:progress',
+    reportProgress: 'llm-host:report-progress',
+    reportResponse: 'llm-host:report-response',
+    reportStatus: 'llm-host:report-status',
+    request: 'llm-host:request',
+    reset: 'llm-host:reset',
+    status: 'llm-host:status',
+    stop: 'llm-host:stop',
+    warmup: 'llm-host:warmup',
+  },
+  // Logging settings/ingest surface; `platform/logging-api-contract.ts`
+  // re-exports this group as LOGGING_API_CHANNELS (its validators need
+  // @brainstrike/logging, which a preload cannot require).
+  logging: {
+    durableRecord: 'logging:durable-record',
+    getBufferedLogs: 'logging:get-buffered-logs',
+    getPreferences: 'logging:get-preferences',
+    ingestBufferedRecord: 'logging:ingest-buffered-record',
+    openDestination: 'logging:open-destination',
+    preferencesUpdated: 'logging:preferences-updated',
+    selectDestination: 'logging:select-destination',
+    setPreferences: 'logging:set-preferences',
+  },
   mcp: {
+    appsExecute: 'mcp:apps:execute',
+    appsPrepare: 'mcp:apps:prepare',
+    appsPrepareShell: 'mcp:apps:prepareShell',
+    appsRelease: 'mcp:apps:release',
+    appsReleaseShell: 'mcp:apps:releaseShell',
     configCreateSample: 'mcp:config:createSample',
     configGet: 'mcp:config:get',
     configGetPath: 'mcp:config:getPath',
@@ -135,6 +221,21 @@ export const DESKTOP_IPC_CHANNELS = {
     configUpdated: 'mcp:config:updated',
     configWatch: 'mcp:config:watch',
     configWriteText: 'mcp:config:writeText',
+    contentComplete: 'mcp:content:complete',
+    contentGetPrompt: 'mcp:content:getPrompt',
+    contentReadResource: 'mcp:content:readResource',
+    elicitationRequested: 'mcp:elicitation:requested',
+    elicitationRetired: 'mcp:elicitation:retired',
+    elicitationSettle: 'mcp:elicitation:settle',
+    extensionsGet: 'mcp:extensions:get',
+    extensionsSet: 'mcp:extensions:set',
+    extensionsUpdated: 'mcp:extensions:updated',
+    lifecycleControl: 'mcp:lifecycle:control',
+    statusGet: 'mcp:status:get',
+    statusUpdated: 'mcp:status:updated',
+    taskAct: 'mcp:task:act',
+    taskList: 'mcp:task:list',
+    taskStatusChanged: 'mcp:task:status-changed',
     toolsDisable: 'mcp:tools:disable',
     toolsDisableServer: 'mcp:tools:disableServer',
     toolsEnable: 'mcp:tools:enable',
@@ -167,6 +268,15 @@ export const DESKTOP_IPC_CHANNELS = {
     layoutSave: 'layout:save',
     settingsClearAll: 'settings:clearAll',
   },
+  // Provider OAuth engine (BST-1355). Renderer-visible surface is STATUS
+  // ONLY — token material never crosses these channels (legal gate BST-1351
+  // constraint 3; pinned by provider-auth-ipc tests).
+  providerAuth: {
+    cancel: 'provider-auth:cancel',
+    disconnect: 'provider-auth:disconnect',
+    start: 'provider-auth:start',
+    status: 'provider-auth:status',
+  },
   quickOpen: {
     // One-way main→renderer push: the app menu's Cmd+P accelerator triggers
     // this on the FOCUSED window so the renderer opens the ⌘P quick-open finder.
@@ -184,10 +294,18 @@ export const DESKTOP_IPC_CHANNELS = {
   secrets: {
     clearAll: 'secrets:clearAll',
     delete: 'secrets:delete',
+    // Read-only env bootstrap projection (BST-1363). Reports which .env files
+    // loaded, how many variables applied, line-precise parse failures, and the
+    // NAMES of allow-listed variables currently set — never a value.
+    envBootstrap: 'secrets:envBootstrap',
     get: 'secrets:get',
+    // Typed credential channels (BST-1348): separate channels rather than
+    // versioned payloads on save/get.
+    getCredential: 'secrets:getCredential',
     list: 'secrets:list',
     listStored: 'secrets:listStored',
     save: 'secrets:save',
+    saveCredential: 'secrets:saveCredential',
   },
   shell: {
     openExternal: 'shell:open-external',
@@ -199,9 +317,11 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   storage: {
     clear: 'storage:clear',
+    clearAllForE2e: 'storage:clearAllForE2e',
     getAllKeys: 'storage:getAllKeys',
     getItem: 'storage:getItem',
     removeItem: 'storage:removeItem',
+    seedMainOwnedForE2e: 'storage:seedMainOwnedForE2e',
     setItem: 'storage:setItem',
   },
   terminal: {
@@ -219,6 +339,66 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   userPersonas: {
     list: 'user-personas:list',
+  },
+  /**
+   * Scoped read/write for the single canonical vector-preferences record
+   * (BST-1380). Hidden inference hosts must observe the SAME device preference
+   * the visible UI writes, but must not receive the unrestricted `storage`
+   * bridge. These channels accept no key — main pins the record server-side —
+   * so they can neither enumerate nor address any other persisted store.
+   */
+  vectorPreferences: {
+    clear: 'vector-preferences:clear',
+    read: 'vector-preferences:read',
+    write: 'vector-preferences:write',
+  },
+  // Native focus of the host BrowserWindow (BST-1864). `isFocused` is the ONLY
+  // invoke: the value for the asking window, served on request so a renderer
+  // that (re)loads after a focus change still reads the truth. `changed` is a
+  // one-way main→renderer push (`focus`/`blur` of that window) — NOT an
+  // ipcMain.handle channel, never registered on the invoke registry.
+  windowFocus: {
+    changed: 'window-focus:changed',
+    isFocused: 'window-focus:is-focused',
+  },
+  workspace: {
+    // One-way main→replacement-renderer challenge. Main publishes a fresh
+    // reset generation only after the new main-frame navigation reaches
+    // `dom-ready`; preload captures it and the mounted renderer echoes it in
+    // `openPathReady`. This is deliberately explicit because Electron may
+    // preserve RenderFrameHost identity across reloads.
+    factoryResetGeneration: 'workspace:factory-reset-generation',
+    // One-way main→renderer push: File ▸ Open Folder… asks the FOCUSED window
+    // to run its ordinary picker flow, so the grant, the recents recording and
+    // the mount bookkeeping all stay on one path. NOT an `ipcMain.handle`
+    // channel.
+    openFolderPicker: 'workspace:open-folder-picker',
+    // One-way main→renderer push: argv / open-file / second-instance / File ▸
+    // Open Recent ask the FOCUSED window to CONNECT a path. A request, never a
+    // grant — the renderer routes it through `fs:addRootByPath`, whose gates
+    // decide. NOT an `ipcMain.handle` channel.
+    openPath: 'workspace:open-path',
+    // The ONLY channel in this domain that runs renderer→main. Sent by
+    // `WorkspaceConnectHost` the instant it subscribes to `openPath` above —
+    // main gates delivery on BOTH the window having finished loading AND this
+    // ping, because `did-finish-load`/`did-stop-loading` only prove the
+    // DOCUMENT loaded, not that React has mounted the host and its
+    // `ipcRenderer.on` listener exists yet. NOT an `ipcMain.handle` channel.
+    openPathReady: 'workspace:open-path-ready',
+  },
+  worktrees: {
+    adopt: 'worktrees:adopt',
+    archive: 'worktrees:archive',
+    checkoutStatus: 'worktrees:checkoutStatus',
+    create: 'worktrees:create',
+    createBranchHere: 'worktrees:createBranchHere',
+    createContext: 'worktrees:createContext',
+    getSettings: 'worktrees:getSettings',
+    inspectArchive: 'worktrees:inspectArchive',
+    list: 'worktrees:list',
+    managedPaths: 'worktrees:managedPaths',
+    restore: 'worktrees:restore',
+    setSettings: 'worktrees:setSettings',
   },
 } as const;
 

@@ -5,11 +5,15 @@
  * workspace root via a pseudo-terminal (node-pty). This module owns the
  * security-critical seam and the process lifecycle:
  *
- * 1. cwd is PINNED + VALIDATED. `terminal:create` takes a renderer-supplied
- *    `rootId` that is resolved + containment-checked against the DB-backed
- *    workspace roots (the SAME source the git / read / search tools use), then
- *    canonicalized via `realpath`. An unknown/escaping/web (FSA, non-absolute)
- *    root is REJECTED before any pty is spawned. The SPAWN itself is fixed
+ * 1. cwd is PINNED + VALIDATED.
+ *    `terminal:create` takes a renderer-supplied `rootId` that is resolved +
+ *    containment-checked against the DB-backed workspace roots (the SAME source
+ *    the git / read / search tools use), then canonicalized via `realpath`. An
+ *    optional `cwd` narrows the spawn to a SUBDIRECTORY of that root — also
+ *    realpath'd, also containment-checked (separator-anchored, so a
+ *    sibling-prefix path cannot pass), and required to be an existing directory.
+ *    An unknown/escaping/web (FSA, non-absolute) root — or a cwd outside it — is
+ *    REJECTED before any pty is spawned. The SPAWN itself is fixed
  *    (shell with NO args + a fixed `xterm-256color` term), so there is no
  *    shell-string injection in spawning — the bytes a user later WRITES to the
  *    pty are raw terminal input (that is the whole point of a terminal), but the
@@ -45,9 +49,14 @@ import { ipcMain } from 'electron';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 import treeKill from 'tree-kill';
+import { terminalContract } from './ipc-domains/terminal.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
-import { resolveRootCwd, type WorkspaceRootResolver } from './workspace-root-cwd';
+import {
+  resolveContainedCwd,
+  resolveRootCwd,
+  type WorkspaceRootResolver,
+} from './workspace-root-cwd';
 
 const logger = createLogger('TerminalIpc');
 
@@ -93,6 +102,13 @@ export type TerminalResult<T = void> =
 
 export interface TerminalCreateParams {
   readonly cols?: number;
+  /**
+   * Absolute path INSIDE the resolved root to pin the shell to. Omitted ⇒ the
+   * root itself (the original, unchanged behavior). Supplied by the Worktree
+   * Map / workspace-bar "Open in Terminal" surfaces so a worktree NESTED under
+   * an open root gets a shell at its OWN path rather than the parent repo's.
+   */
+  readonly cwd?: string;
   readonly rootId: string;
   readonly rows?: number;
 }
@@ -303,7 +319,11 @@ export function createTerminalIpcHandlers({
     owner: WebContents,
     params: TerminalCreateParams
   ): Promise<TerminalResult<TerminalCreateResult>> {
-    const cwd = await resolveRootCwd(resolver, params?.rootId, 'terminal', logger);
+    const root = await resolveRootCwd(resolver, params?.rootId, 'terminal', logger);
+    if (!root.ok) {
+      return root;
+    }
+    const cwd = await resolveContainedCwd(root.value, params?.cwd, 'terminal');
     if (!cwd.ok) {
       return cwd;
     }
@@ -507,29 +527,33 @@ export function liveTerminalCountForTest(): number {
 export function registerTerminalIpcHandlers(handlers: TerminalIpcHandlers): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'terminal',
-    DESKTOP_IPC_CHANNELS.terminal.create,
-    (event: IpcMainInvokeEvent, params: TerminalCreateParams) =>
-      handlers.create(event.sender, params)
+    terminalContract.create.channel,
+    { roles: terminalContract.create.roles },
+    (event: IpcMainInvokeEvent, ...raw: readonly unknown[]) =>
+      handlers.create(event.sender, ...terminalContract.create.parseArgs(raw))
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'terminal',
-    DESKTOP_IPC_CHANNELS.terminal.write,
-    (event: IpcMainInvokeEvent, params: TerminalWriteParams) =>
-      handlers.write(params, event.sender.id)
+    terminalContract.write.channel,
+    { roles: terminalContract.write.roles },
+    (event: IpcMainInvokeEvent, ...raw: readonly unknown[]) =>
+      handlers.write(...terminalContract.write.parseArgs(raw), event.sender.id)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'terminal',
-    DESKTOP_IPC_CHANNELS.terminal.resize,
-    (event: IpcMainInvokeEvent, params: TerminalResizeParams) =>
-      handlers.resize(params, event.sender.id)
+    terminalContract.resize.channel,
+    { roles: terminalContract.resize.roles },
+    (event: IpcMainInvokeEvent, ...raw: readonly unknown[]) =>
+      handlers.resize(...terminalContract.resize.parseArgs(raw), event.sender.id)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'terminal',
-    DESKTOP_IPC_CHANNELS.terminal.destroy,
-    (event: IpcMainInvokeEvent, params: TerminalDestroyParams) =>
-      handlers.destroy(params, event.sender.id)
+    terminalContract.destroy.channel,
+    { roles: terminalContract.destroy.roles },
+    (event: IpcMainInvokeEvent, ...raw: readonly unknown[]) =>
+      handlers.destroy(...terminalContract.destroy.parseArgs(raw), event.sender.id)
   );
 
   return () => {

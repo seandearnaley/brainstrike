@@ -7,11 +7,12 @@ import {
   // See __tests__/fast-refresh-hook-aliasing.test.ts.
   unstable_useThreadMessageIds as useThreadMessageIds,
 } from '@assistant-ui/react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { observeElementOffset, useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
 import { ArrowDownIcon } from 'lucide-react';
 import {
   type ComponentProps,
   type ReactNode,
+  type RefObject,
   useCallback,
   useLayoutEffect,
   useRef,
@@ -19,6 +20,7 @@ import {
 } from 'react';
 import { AssistantThreadStateProvider } from './assistant-thread-state-context';
 import { useThreadFollowIsAtBottom, useThreadScrollFollow } from './thread-scroll-follow';
+import { useThreadMessageNavigation } from './use-thread-message-navigation';
 
 /**
  * TWO-TIER THREAD RENDERER (BST-897)
@@ -74,8 +76,10 @@ export const THREAD_MESSAGE_ESTIMATED_HEIGHT_PX = 120;
 /**
  * How close to the end still counts as "pinned". Wider than the library's
  * 1px default so sub-pixel layout does not silently disengage auto-follow.
+ * Exported so the browser contract can prove its scrolled-up setup is outside
+ * the same end-anchor window without duplicating this value.
  */
-const THREAD_END_THRESHOLD_PX = 24;
+export const THREAD_END_THRESHOLD_PX = 24;
 
 /** Rows kept mounted beyond the visible range on each side. */
 const THREAD_VIRTUAL_OVERSCAN = 6;
@@ -227,6 +231,20 @@ export interface ThreadMessagesRegionProps {
   readonly threadKey?: string | undefined;
 }
 
+/** Measure the notice above the virtual list only when its content or tier changes. */
+const useThreadListScrollMargin = (
+  listRef: RefObject<HTMLDivElement | null>,
+  disabledReason: ReactNode,
+  tier: ThreadRenderTier
+): number => {
+  const [scrollMargin, setScrollMargin] = useState(0);
+  useLayoutEffect(() => {
+    const next = listRef.current?.offsetTop ?? 0;
+    setScrollMargin((current) => (current === next ? current : next));
+  }, [disabledReason, listRef, tier]);
+  return scrollMargin;
+};
+
 /**
  * The thread's scroll region: the scroller, the message list for the active
  * tier, and the floating jump-to-latest button as a sibling of the scroller.
@@ -243,6 +261,22 @@ export const ThreadMessagesRegion = ({
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const [virtualAtEnd, setVirtualAtEnd] = useState(true);
+  // The vendor only notifies React when its range or isScrolling changes.
+  // Pinnedness can change inside one range during the same scroll gesture.
+  // Wrap its public observer so it remains the sole listener/scroll owner,
+  // then publish the end predicate after it has consumed every offset.
+  const observeVirtualOffset = useCallback(
+    (
+      instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
+      callback: (offset: number, isScrolling: boolean) => void
+    ) =>
+      observeElementOffset(instance, (offset, isScrolling) => {
+        callback(offset, isScrolling);
+        setVirtualAtEnd(instance.isAtEnd());
+      }),
+    []
+  );
   // Pinnedness as the FOLLOW ENGINE sees it. The DOM cannot answer this at
   // swap time (see the anchor effect), so the static tier's own signal is
   // recorded while it is still the truth.
@@ -280,14 +314,7 @@ export const ThreadMessagesRegion = ({
     }
   }, [follow, threadKey, tier]);
 
-  // Anything rendered ABOVE the virtual list inside the scroller (the disabled
-  // notice) offsets every item; `scrollMargin` is how the virtualizer accounts
-  // for it. Measured only when that content changes, never per scroll frame.
-  const [scrollMargin, setScrollMargin] = useState(0);
-  useLayoutEffect(() => {
-    const next = listRef.current?.offsetTop ?? 0;
-    setScrollMargin((current) => (current === next ? current : next));
-  }, [disabledReason, tier]);
+  const scrollMargin = useThreadListScrollMargin(listRef, disabledReason, tier);
 
   /**
    * The React Compiler skips memoizing this component because `useVirtualizer`
@@ -316,6 +343,7 @@ export const ThreadMessagesRegion = ({
     // keep the visual position, and appends follow only while already pinned.
     anchorTo: 'end',
     count: tier === 'virtual' ? messageCount : 0,
+    directDomUpdates: true,
     enabled: tier === 'virtual',
     estimateSize: () => THREAD_MESSAGE_ESTIMATED_HEIGHT_PX,
     followOnAppend: 'instant',
@@ -326,17 +354,29 @@ export const ThreadMessagesRegion = ({
     // rendered, and it matches the library's own default extractor.
     getItemKey: (index) => messageIds[index] ?? index,
     getScrollElement: () => viewportRef.current,
+    observeElementOffset: observeVirtualOffset,
+    // Size changes also change pinnedness, even without a new scroll offset.
+    onChange: (instance) => setVirtualAtEnd(instance.isAtEnd()),
     overscan: THREAD_VIRTUAL_OVERSCAN,
     scrollEndThreshold: THREAD_END_THRESHOLD_PX,
     scrollMargin,
+    // A delayed scroll-reset timer replays its last event's offset, which can
+    // precede synchronous row-resize compensation. Native scrollend reads the
+    // current offset and preserves the pin while lazy message rows hydrate.
+    useScrollendEvent: true,
   });
   /* eslint-enable react-hooks/incompatible-library */
 
-  // Read in the component that owns the virtualizer, matching TreeTable's
-  // long-standing shape: these move on every scroll frame while the instance
-  // itself never changes identity.
+  // Read the mounted range in the component that owns the virtualizer. Its
+  // instance is stable; offset-only end-state changes are published separately.
   const virtualItems = virtualizer.getVirtualItems();
-  const totalSize = virtualizer.getTotalSize();
+  const setVirtualList = useCallback(
+    (element: HTMLDivElement | null): void => {
+      listRef.current = element;
+      virtualizer.containerRef(element);
+    },
+    [virtualizer]
+  );
 
   /**
    * Tier-2 equivalent of the persistence contract's opening position.
@@ -392,6 +432,18 @@ export const ThreadMessagesRegion = ({
     }
   }, [isAtBottom, messageCount, threadKey, tier, virtualizer]);
 
+  const scrollToMatch = useCallback(
+    (index: number, element?: HTMLElement) => {
+      if (tier === 'virtual') {
+        virtualizer.scrollToIndex(index, { align: 'center', behavior: 'instant' });
+      } else if (element) {
+        follow.scrollToMessage(element);
+      }
+    },
+    [follow, tier, virtualizer]
+  );
+  useThreadMessageNavigation({ isVirtual: tier === 'virtual', scrollToMatch, viewportRef });
+
   return (
     /**
      * SCROLL REGION: the wrapper is the viewport's positioning context. It
@@ -423,6 +475,7 @@ export const ThreadMessagesRegion = ({
         // stylesheet and overrides.css keep applying unchanged.
         className="aui-thread-viewport"
         data-testid="assistant-ui-viewport"
+        data-thread-message-count={messageCount}
         data-thread-render-tier={tier}
         ref={scrollerRef}
       >
@@ -443,19 +496,16 @@ export const ThreadMessagesRegion = ({
              */
             <div
               className="bs-virtual-thread"
-              ref={listRef}
-              style={{ height: totalSize, position: 'relative' }}
+              ref={setVirtualList}
+              style={{ position: 'relative' }}
             >
               {virtualItems.map((item) => (
                 <div
                   className="bs-virtual-message"
                   data-index={item.index}
-                  // The trailing gap below the newest message lives INSIDE this
-                  // row's measured box (see overrides.css), never as virtualizer
-                  // padding: padding outside the measured rows only reaches the
-                  // DOM on the next React commit, so a scroll correction fired
-                  // during streaming growth is clamped by exactly that much and
-                  // the thread rests a few pixels above the true bottom.
+                  // Spacing stays inside the measured row (see overrides.css).
+                  // The vendor owns the container size and row transform as one
+                  // update; React must not also write those layout properties.
                   data-last-message={item.index === messageCount - 1 ? '' : undefined}
                   key={item.key}
                   ref={virtualizer.measureElement}
@@ -463,7 +513,6 @@ export const ThreadMessagesRegion = ({
                     left: 0,
                     position: 'absolute',
                     top: 0,
-                    transform: `translateY(${item.start - scrollMargin}px)`,
                     width: '100%',
                   }}
                 >
@@ -483,7 +532,7 @@ export const ThreadMessagesRegion = ({
         virtualScroll={
           tier === 'virtual'
             ? {
-                atEnd: virtualizer.isAtEnd(),
+                atEnd: virtualAtEnd,
                 jumpToEnd: () =>
                   virtualizer.scrollToEnd({
                     behavior: prefersReducedMotion() ? 'instant' : 'smooth',

@@ -248,7 +248,7 @@ describe('AssistantMemorySettingsSection', () => {
 
     expect(screen.getByRole('switch', { name: 'Enable observational memory' })).toBeDisabled();
     expect(screen.getByRole('status')).toHaveTextContent(
-      'Configure its API key in Settings → LLM Provider Keys'
+      'Configure its API key in Settings → Providers'
     );
   });
 
@@ -355,5 +355,68 @@ describe('AssistantMemorySettingsSection', () => {
     await user.click(screen.getByRole('switch', { name: /enable semantic recall/i }));
 
     expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.enabled).toBe(false);
+  });
+
+  describe('manual observer egress disclosure', () => {
+    const chooseObserver = (target: string) => {
+      useAssistantMemoryPreferencesStore.setState((state) => ({
+        observationalMemory: { ...state.observationalMemory, modelTarget: target },
+      }));
+    };
+
+    it('states that a MANUAL target is not tied to the chat provider', () => {
+      // Auto carries an enforced guarantee in its own copy — "the conversation
+      // never reaches a provider that is not already receiving it" (BST-940).
+      // A manual target has no such constraint and said nothing about egress,
+      // so a reader of the auto note would assume it still held. Observed live
+      // across two debug bundles: chat on openrouter, observer on
+      // openai/gpt-5.6-luna.
+      chooseObserver('openai/gpt-5.4-mini');
+      renderMemorySettings();
+
+      const note = screen.getByTestId('assistant-memory-manual-observer-note');
+      expect(note).toHaveTextContent(/not tied to your chat provider/i);
+      expect(note).toHaveTextContent(/reaches the observer's provider/i);
+    });
+
+    it('does NOT claim it on Auto, which cannot cross by construction', () => {
+      chooseObserver('auto');
+      renderMemorySettings();
+
+      expect(screen.queryByTestId('assistant-memory-manual-observer-note')).toBeNull();
+      expect(screen.getByTestId('assistant-memory-auto-observer-note')).toHaveTextContent(
+        /never reaches a provider that is not already receiving it/i
+      );
+    });
+
+    it('states it unconditionally, not per active thread', () => {
+      // The observer target is GLOBAL; the chat provider is per-thread
+      // (`draftRuntimeByThreadId` wins over the global `selectedModel` in
+      // assistant-ui-panel-wrapper). A disclosure keyed to whichever thread
+      // happened to be active would go silent for every OTHER thread — wrong
+      // in the direction that matters, since the setting governs all of them.
+      // So it describes the setting, and does not read any provider at all.
+      chooseObserver('anthropic/claude-haiku-4-5');
+      renderMemorySettings();
+
+      expect(screen.getByTestId('assistant-memory-manual-observer-note')).toHaveTextContent(
+        /not tied to your chat provider/i
+      );
+    });
+
+    it('exempts an on-device observer instead of pushing the user off it', () => {
+      // `local` is a first-class manual target (OBSERVATIONAL_MEMORY_PROVIDER_IDS)
+      // that runs in the hidden host with no API key and no egress. Copy that
+      // lumped it in with hosted providers would describe a local observer as
+      // sending the conversation somewhere, and nudge a privacy-conscious user
+      // OFF the on-device option onto a hosted one — recommending more egress
+      // in the name of less.
+      chooseObserver('local/onnx-community/gemma-4');
+      renderMemorySettings();
+
+      const note = screen.getByTestId('assistant-memory-manual-observer-note');
+      expect(note).toHaveTextContent(/local/i);
+      expect(note).toHaveTextContent(/runs on this device and sends nothing/i);
+    });
   });
 });

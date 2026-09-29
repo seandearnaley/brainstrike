@@ -1,28 +1,59 @@
+import {
+  type McpHostPort,
+  parseConfiguredMcpServerId,
+  parseMcpHostOperation,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
 import { createTool, type MCPToolProperties, type ToolExecutionContext } from '@mastra/core/tools';
-import { type McpConfig, McpConfigSchema, type McpServer } from '../mcp/config';
-import {
-  type ExplicitHttpMcpCallToolParams,
-  type ExplicitHttpMcpCallToolResult,
-  ExplicitHttpMcpClient,
-  type ExplicitHttpMcpClientOptions,
-  type ExplicitHttpMcpListToolsResult,
-  type ExplicitHttpMcpRequestOptions,
-  type ExplicitHttpMcpTool,
+import { type McpConfigInput, parseMcpConfigValue } from '../mcp/config';
+import type {
+  ExplicitHttpMcpCallToolParams,
+  ExplicitHttpMcpCallToolResult,
+  ExplicitHttpMcpListToolsResult,
+  ExplicitHttpMcpRequestOptions,
+  ExplicitHttpMcpTool,
 } from '../mcp/explicit-http-client';
-import {
-  ExplicitStdioMcpClient,
-  type ExplicitStdioMcpClientOptions,
-} from '../mcp/explicit-stdio-client';
+import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
+import { resolveGuardedToolSignal } from '../tools/tool-guard-deadline';
 import type { StreamChunk } from '../types';
+import {
+  createMcpAppToolResult,
+  hasMcpAppToolMeta,
+  projectMcpAppOrTaskToolModelOutput,
+  readMcpAppToolResourceUri,
+} from './mcp-app-tool-result';
 import { readMcpMultimodalOutput } from './mcp-multimodal-output';
+import {
+  createMcpTaskToolTracking,
+  type McpTaskToolTracking,
+  readMcpCreatedTaskResult,
+  settleMcpTaskToolResult,
+} from './mcp-task-tool-result';
 
 const logger = createLogger('MastraAgentMcpRuntimeClient');
+const rawCallToolResultSignals = new WeakSet<AbortSignal>();
 
 export const MCP_PROGRESS_STREAM_PART_TYPE = 'brainstrike.mcp-progress.chunk';
+
+/**
+ * Mark one authority-owned execution signal as requiring the complete
+ * successful MCP CallToolResult. The in-memory identity marker cannot be
+ * forged by model input and survives Mastra's execution-context reconstruction
+ * without adding a parallel transport callback.
+ */
+export function retainRawMcpCallToolResult(signal: AbortSignal): AbortSignal {
+  rawCallToolResultSignals.add(signal);
+  return signal;
+}
+
+export function shouldRetainRawMcpCallToolResult(signal: unknown): boolean {
+  return Boolean(
+    signal && typeof signal === 'object' && rawCallToolResultSignals.has(signal as AbortSignal)
+  );
+}
 
 export interface McpToolsetsWithErrors {
   errors: Record<string, string>;
@@ -31,6 +62,7 @@ export interface McpToolsetsWithErrors {
 
 /** The only MCP lifecycle surface the agent runtime's discovery pipeline needs. */
 export interface McpRuntimeClient {
+  readonly configuredServers: readonly { enabledTools?: string[]; name: string }[];
   disconnect: () => Promise<void>;
   listToolsetsWithErrors: () => Promise<McpToolsetsWithErrors>;
 }
@@ -44,72 +76,167 @@ interface OfficialSdkMcpClientLike {
   listTools: (options?: ExplicitHttpMcpRequestOptions) => Promise<ExplicitHttpMcpListToolsResult>;
 }
 
-export interface McpRuntimeClientDependencies {
-  createExplicitHttpClient: (options: ExplicitHttpMcpClientOptions) => OfficialSdkMcpClientLike;
-  createExplicitStdioClient: (options: ExplicitStdioMcpClientOptions) => OfficialSdkMcpClientLike;
-}
-
 export interface CreateMcpRuntimeClientOptions {
-  config: McpConfig | undefined;
-  dependencies?: McpRuntimeClientDependencies;
+  config: McpConfigInput | undefined;
+  host?: McpHostPort;
+  /**
+   * Host-owned MCP Tasks tracking (BST-1566). Absent keeps every tool call
+   * synchronous and makes a task-creating result a hard error — never a
+   * silently unpersisted task.
+   */
+  mcpTaskTracking?: McpTaskTrackingCapability;
+  /**
+   * The tool guard ceiling the settlement wait is capped under. Required
+   * whenever `mcpTaskTracking` is present so the wait can never outlive the
+   * guard that would otherwise time the whole call out.
+   */
+  toolTimeoutMs?: number;
 }
 
 interface TransportOwnedServerClient {
   client: OfficialSdkMcpClientLike;
-  server: McpServer;
+  server: { enabledTools?: string[]; name: string };
+  taskTracking: McpTaskToolTracking | undefined;
 }
 
-const defaultDependencies: McpRuntimeClientDependencies = {
-  createExplicitHttpClient: (options) => new ExplicitHttpMcpClient(options),
-  createExplicitStdioClient: (options) => new ExplicitStdioMcpClient(options),
-};
+function createHostClient(
+  host: McpHostPort,
+  serverName: string,
+  generation: number
+): OfficialSdkMcpClientLike {
+  const configuredServerId = parseConfiguredMcpServerId(serverName);
+  const lease = new AbortController();
+  const retireIfChanged = () => {
+    const current = host
+      .snapshot()
+      .servers.find((server) => server.configuredServerId === configuredServerId);
+    if (current?.generation !== generation) {
+      lease.abort(new Error('MCP host authority generation retired'));
+    }
+  };
+  const unwatch = host.watch({ configuredServerIds: [configuredServerId] }, retireIfChanged);
+  retireIfChanged();
+  if (lease.signal.aborted) {
+    unwatch();
+    throw lease.signal.reason;
+  }
+  let closed = false;
+  const requestOptions = (options?: ExplicitHttpMcpRequestOptions) => ({
+    ...(options?.onprogress ? { onProgress: options.onprogress } : {}),
+    signal: options?.signal ? AbortSignal.any([lease.signal, options.signal]) : lease.signal,
+  });
+  return {
+    async callTool(params, options) {
+      const operation = parseMcpHostOperation({
+        configuredServerId,
+        ...(params._meta ? { _meta: params._meta } : {}),
+        ...(params.arguments ? { arguments: params.arguments } : {}),
+        ...(params.task ? { task: params.task } : {}),
+        toolName: params.name,
+        type: 'tools/call',
+      });
+      const response = await host.invoke(operation, requestOptions(options));
+      if (response.type !== 'tools/call') {
+        throw new Error('MCP host returned the wrong operation result');
+      }
+      // McpHostPort's owning host validates the SDK result envelope before it
+      // crosses this boundary. BrowserSafe preserves that JSON shape but erases
+      // the SDK declaration identity, so restore the already-validated view.
+      return response.result as ExplicitHttpMcpCallToolResult;
+    },
+    async close() {
+      if (!closed) {
+        closed = true;
+        try {
+          unwatch();
+        } finally {
+          lease.abort(new Error('MCP runtime adapter released'));
+        }
+      }
+    },
+    async listTools(options) {
+      const response = await host.invoke(
+        { configuredServerId, type: 'tools/list' },
+        requestOptions(options)
+      );
+      if (response.type !== 'tools/list') {
+        throw new Error('MCP host returned the wrong operation result');
+      }
+      // See callTool: the host is the validation authority for this SDK shape.
+      return response.result as ExplicitHttpMcpListToolsResult;
+    },
+  };
+}
 
 /**
- * Build one structural runtime client while keeping transport ownership explicit:
- * the official MCP SDK owns every selected transport without probing, path
- * inference, response-shape collapse, or fallback.
+ * Build one runtime-scoped adapter over the host's singleton MCP authority.
+ * The adapter owns only its watch/lease; it never constructs or closes an SDK client.
  */
-export function createMcpRuntimeClient(
+export async function createMcpRuntimeClient(
   options: CreateMcpRuntimeClientOptions
-): McpRuntimeClient | undefined {
-  if (!options.config) {
+): Promise<McpRuntimeClient | undefined> {
+  if (options.host && options.config?.servers.length) {
+    parseMcpConfigValue(options.config);
+    throw new Error('Legacy runtime MCP config cannot compete with MCP host authority');
+  }
+  if (
+    !options.host &&
+    Array.isArray(options.config?.servers) &&
+    options.config.servers.length === 0
+  ) {
     return;
   }
-  if (Array.isArray(options.config.servers) && options.config.servers.length === 0) {
-    return;
-  }
-  const { servers } = McpConfigSchema.parse(options.config);
-
-  const dependencies = options.dependencies ?? defaultDependencies;
-  const serverClients = servers.map((server): TransportOwnedServerClient => {
-    if (server.transport === 'stdio') {
-      const clientOptions: ExplicitStdioMcpClientOptions = {
-        command: server.command,
-        name: server.name,
-        ...(server.args ? { args: server.args } : {}),
-        ...(server.env ? { env: server.env } : {}),
-      };
-      return {
-        client: dependencies.createExplicitStdioClient(clientOptions),
-        server,
-      };
+  const config =
+    options.config && !options.host ? parseMcpConfigValue(options.config).config : undefined;
+  if (!options.host) {
+    if (config && config.servers.length > 0) {
+      throw new Error('Legacy runtime MCP config requires an MCP host capability');
     }
-    const clientOptions: ExplicitHttpMcpClientOptions = {
-      name: server.name,
-      transport: server.transport,
-      url: server.url,
-      ...(server.headers ? { headers: server.headers } : {}),
-    };
-    return {
-      client: dependencies.createExplicitHttpClient(clientOptions),
-      server,
-    };
-  });
-  return new CompositeMcpRuntimeClient(serverClients);
+    return;
+  }
+  const authority = options.host.snapshot();
+  const servers = authority.servers.map(({ configuredServerId, enabledTools, generation }) => ({
+    ...(enabledTools ? { enabledTools: [...enabledTools] } : {}),
+    generation,
+    name: configuredServerId,
+  }));
+  if (servers.length === 0) {
+    return;
+  }
+  const taskTracking = resolveTaskTracking(options);
+  const serverClients: TransportOwnedServerClient[] = [];
+  try {
+    for (const { generation, ...server } of servers) {
+      serverClients.push({
+        client: createHostClient(options.host, server.name, generation),
+        server,
+        taskTracking,
+      });
+    }
+    return new CompositeMcpRuntimeClient(serverClients);
+  } catch (error) {
+    await Promise.allSettled(serverClients.map(({ client }) => client.close()));
+    throw error;
+  }
+}
+
+function resolveTaskTracking(
+  options: CreateMcpRuntimeClientOptions
+): McpTaskToolTracking | undefined {
+  if (!options.mcpTaskTracking) {
+    return;
+  }
+  if (options.toolTimeoutMs === undefined) {
+    throw new Error('MCP task tracking requires the tool guard timeout to bound settlement');
+  }
+  return createMcpTaskToolTracking(options.mcpTaskTracking, options.toolTimeoutMs);
 }
 
 class CompositeMcpRuntimeClient implements McpRuntimeClient {
-  constructor(private readonly serverClients: readonly TransportOwnedServerClient[]) {}
+  readonly configuredServers: readonly { enabledTools?: string[]; name: string }[];
+  constructor(private readonly serverClients: readonly TransportOwnedServerClient[]) {
+    this.configuredServers = serverClients.map(({ server }) => structuredClone(server));
+  }
 
   async listToolsetsWithErrors(): Promise<McpToolsetsWithErrors> {
     const toolsets: Record<string, ToolsInput> = {};
@@ -121,19 +248,16 @@ class CompositeMcpRuntimeClient implements McpRuntimeClient {
   }
 
   async disconnect(): Promise<void> {
-    const operations = this.serverClients.map(({ client, server }) => ({
-      close: () => client.close(),
-      serverName: server.name,
-    }));
-    const results = await Promise.allSettled(operations.map(({ close }) => close()));
+    const results = await Promise.allSettled(
+      this.serverClients.map(({ client }) => client.close())
+    );
     for (const [index, result] of results.entries()) {
-      if (result.status !== 'rejected') {
-        continue;
+      if (result.status === 'rejected') {
+        logger.warn('MCP adapter release failed', {
+          error: result.reason,
+          serverName: this.serverClients[index]?.server.name ?? 'unknown',
+        });
       }
-      logger.warn('MCP client disconnect failed', {
-        error: result.reason,
-        serverName: operations[index]?.serverName ?? 'unknown',
-      });
     }
   }
 
@@ -163,7 +287,7 @@ function convertMcpTools(
 }
 
 function createMcpTool(
-  { client, server }: TransportOwnedServerClient,
+  { client, server, taskTracking }: TransportOwnedServerClient,
   tool: ExplicitHttpMcpTool
 ): ToolsInput[string] {
   const toolMeta = stampServerIdInMeta(tool._meta, server.name);
@@ -176,19 +300,40 @@ function createMcpTool(
         }
       : undefined;
   const strict = readStrictMeta(toolMeta);
+  const hasAppMeta = hasMcpAppToolMeta(tool._meta);
 
   return createTool({
     description: tool.description ?? '',
     id: `${server.name}_${tool.name}`,
-    inputSchema: tool.inputSchema,
+    // Mastra's JSON-schema standard adapter delegates validation to its JSON
+    // Schema engine. Keeping the schema raw preserves 2020-12 composition
+    // (`$defs`/`$ref`/`oneOf`/conditionals) instead of narrowing it through
+    // zod's intentionally smaller fromJSONSchema converter.
+    inputSchema: toStandardSchema(tool.inputSchema as Parameters<typeof toStandardSchema>[0]),
     ...(tool.outputSchema
       ? { outputSchema: createDocumentationOnlyMcpOutputSchema(tool.outputSchema) }
       : {}),
     ...(mcp ? { mcp } : {}),
-    ...(strict === undefined ? {} : { strict }),
+    // Preserve the server's optional-input semantics. OpenAI Responses may
+    // normalize an omitted strict flag by requiring every property, forcing
+    // the model to invent filters such as Linear priority=0. Runtime JSON
+    // Schema validation still runs; a server's explicit strict opt-in wins.
+    strict: strict ?? false,
+    // Tasks and Apps share one projector: Tasks get their bounded status view,
+    // while Apps project the inner ordinary result. Definitions carrying
+    // neither contract keep the generic pipeline path without a custom seam.
+    ...(taskTracking || hasAppMeta ? { toModelOutput: projectMcpAppOrTaskToolModelOutput } : {}),
     execute: async (input, context) =>
-      executeMcpTool(client, server.name, tool.name, requireToolArguments(input), context),
-    mcpMetadata: { serverName: server.name },
+      executeMcpTool(
+        { client, server, taskTracking },
+        tool.name,
+        requireToolArguments(input),
+        tool._meta,
+        context
+      ),
+    // `appCapable` is the same marker predicate as the Apps projector above:
+    // the Apps admission gate registers a run only when at least one is present.
+    mcpMetadata: { serverName: server.name, ...(hasAppMeta ? { appCapable: true } : {}) },
   });
 }
 
@@ -230,19 +375,33 @@ type McpExecuteContext = Pick<ToolExecutionContext, 'agent' | 'writer' | 'abortS
 };
 
 async function executeMcpTool(
-  client: OfficialSdkMcpClientLike,
-  serverName: string,
+  { client, server, taskTracking }: TransportOwnedServerClient,
   toolName: string,
   input: Record<string, unknown>,
+  definitionMeta: Record<string, unknown> | undefined,
   context: McpExecuteContext
 ): Promise<unknown> {
+  const serverName = server.name;
+  const appResourceUri = readMcpAppToolResourceUri(definitionMeta);
+  const appOrigin = appResourceUri
+    ? { resourceUri: appResourceUri, serverId: serverName, toolName }
+    : undefined;
   let progressWrites = Promise.resolve();
   let progressDeliveryError: unknown;
+  let lastProgress = Number.NEGATIVE_INFINITY;
   const toolCallId = context?.agent?.toolCallId;
   const writer = context?.writer;
   const onprogress: NonNullable<ExplicitHttpMcpRequestOptions['onprogress']> | undefined =
     toolCallId && writer
       ? (progress): void => {
+          if (
+            typeof progress.progress !== 'number' ||
+            !Number.isFinite(progress.progress) ||
+            progress.progress < lastProgress
+          ) {
+            return;
+          }
+          lastProgress = progress.progress;
           progressWrites = progressWrites
             .then(() =>
               writer.custom({
@@ -274,6 +433,13 @@ async function executeMcpTool(
 
   let result: ExplicitHttpMcpCallToolResult;
   const requestMeta = readToolCallMeta(context);
+  // The tool guard's deadline is folded in HERE rather than replacing
+  // `context.abortSignal`: the execution signal's identity carries meaning
+  // (`retainRawMcpCallToolResult`), and the host request is the thing that has
+  // to stop when the guard gives up. Without it the SDK's
+  // `resetTimeoutOnProgress` lets a progress-emitting server hold the request
+  // for the full `maxTotalTimeout` after the run walked away (BST-1594).
+  const callSignal = resolveGuardedToolSignal(context);
   try {
     result = await client.callTool(
       {
@@ -282,7 +448,7 @@ async function executeMcpTool(
         ...(requestMeta ? { _meta: requestMeta } : {}),
       },
       {
-        ...(context?.abortSignal ? { signal: context.abortSignal } : {}),
+        ...(callSignal ? { signal: callSignal } : {}),
         ...(onprogress ? { onprogress } : {}),
       }
     );
@@ -292,16 +458,48 @@ async function executeMcpTool(
   }
   await finishProgressDelivery();
 
-  if (result.isError) {
+  // A created task is never a CallToolResult: it has no content to retain, no
+  // isError, and no structuredContent. It is handed to the host's task
+  // authorities and the tool settles on the bounded presentation instead.
+  const createdTask = readMcpCreatedTaskResult(result);
+  let ordinaryResult: unknown;
+  if (createdTask && shouldRetainRawMcpCallToolResult(context.abortSignal)) {
+    // App-originated call: the MCP App client expects the canonical
+    // CreateTaskResult (its frame bridge bounds inbound requests at 10 s, far
+    // under the settlement wait). The host still takes ownership of the task
+    // through `track`; nothing awaits settlement here.
+    if (!taskTracking) {
+      throw new Error(
+        `MCP tool "${serverName}.${toolName}" returned a task but this host has no task tracking capability`
+      );
+    }
+    await taskTracking.capability.track(
+      { configuredServerId: serverName, result: createdTask, toolName },
+      context.abortSignal
+    );
+    return createdTask;
+  }
+  if (createdTask) {
+    ordinaryResult = await settleMcpTaskToolResult({
+      // `server.name` IS the configured server id: the host authority snapshot
+      // exposes `configuredServerId` and createMcpRuntimeClient maps it to
+      // `name` verbatim, so this matches McpTaskHandle.serverId on the host.
+      configuredServerId: serverName,
+      result: createdTask,
+      ...(context.abortSignal ? { signal: context.abortSignal } : {}),
+      toolName,
+      tracking: taskTracking,
+    });
+  } else if (shouldRetainRawMcpCallToolResult(context.abortSignal)) {
+    return result;
+  } else if (result.isError) {
     throw new Error(extractMcpToolError(result));
+  } else if (result.structuredContent === undefined || readMcpMultimodalOutput(result)) {
+    ordinaryResult = result;
+  } else {
+    ordinaryResult = result.structuredContent;
   }
-  if (result.structuredContent === undefined) {
-    return result;
-  }
-  if (readMcpMultimodalOutput(result)) {
-    return result;
-  }
-  return result.structuredContent;
+  return createMcpAppToolResult(appOrigin, ordinaryResult);
 }
 
 function readToolCallMeta(context: McpExecuteContext): Record<string, unknown> | undefined {

@@ -59,6 +59,30 @@ export const EMBED_WORKER_INSTANCE_NAME_PREFIX = 'brainstrike-embedding-worker:'
 export const EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY =
   'brainstrike-embedding-worker-telemetry-channel';
 
+/** Suffix deriving the adapter-to-worker request-control channel from telemetry identity. */
+export const EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX = ':request-control';
+
+/** Pool-wide request control used to abort work without terminating a warmed worker. */
+export interface EmbedWorkerRequestControl {
+  readonly id: string;
+  readonly type: 'cancel-request' | 'clear-request-control';
+}
+
+export function assertEmbedWorkerRequestControl(
+  value: unknown
+): asserts value is EmbedWorkerRequestControl {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding worker request-control event must be an object.');
+  }
+  const event = value as Record<string, unknown>;
+  if (event['type'] !== 'cancel-request' && event['type'] !== 'clear-request-control') {
+    throw new Error('Embedding worker request-control event has an invalid type.');
+  }
+  if (!(typeof event['id'] === 'string' && event['id'].length > 0)) {
+    throw new Error('Embedding worker request-control event requires a request id.');
+  }
+}
+
 /** Worker-lifetime notice emitted immediately before device-loss self-termination. */
 export interface EmbedWorkerTelemetrySourceClosed {
   readonly reason: 'device-lost';

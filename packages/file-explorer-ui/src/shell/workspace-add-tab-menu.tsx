@@ -6,6 +6,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
   formatShortcut,
+  TAB_STRIP_ICON_BUTTON_CLASS_NAME,
 } from '@brainstrike/ui';
 import { Plus } from 'lucide-react';
 import type { ReactElement } from 'react';
@@ -31,13 +32,14 @@ export function WorkspaceAddTabMenu({ apps, onOpenApp }: WorkspaceAddTabMenuProp
       <DropdownMenuTrigger asChild>
         <Button
           aria-label="Add workspace tab"
-          className="my-auto h-6 w-6 flex-shrink-0 rounded-sm"
+          className={TAB_STRIP_ICON_BUTTON_CLASS_NAME}
           data-testid="workspace-add-tab"
-          size="icon"
+          size="icon-xs"
           title="Add workspace tab"
+          type="button"
           variant="ghost"
         >
-          <Plus className="h-4 w-4" />
+          <Plus className="size-3.5" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">

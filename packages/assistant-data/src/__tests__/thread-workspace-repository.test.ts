@@ -32,6 +32,7 @@ describe('createThreadWorkspaceRepository', () => {
     const db = createMockDb();
     const repository = createThreadWorkspaceRepository(db as unknown as DbHandle);
 
+    db.query.mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1' }] });
     await repository.setThreadWorkspace('thread-1', 'brainstrike:workspace', SNAPSHOT);
 
     const [sql, params] = db.query.mock.calls[0] ?? [];
@@ -40,6 +41,16 @@ describe('createThreadWorkspaceRepository', () => {
     expect(params?.[0]).toBe('thread-1');
     expect(params?.[1]).toBe('brainstrike:workspace');
     expect(JSON.parse(String(params?.[2]))).toEqual(SNAPSHOT);
+  });
+
+  it('preserves actual database failures instead of treating them as deleted owners', async () => {
+    const db = createMockDb();
+    const repository = createThreadWorkspaceRepository(db as unknown as DbHandle);
+    const failure = new Error('Database write failed');
+    db.query.mockRejectedValueOnce(failure);
+    await expect(repository.setThreadWorkspace('thread-1', 'owner', SNAPSHOT)).rejects.toBe(
+      failure
+    );
   });
 
   it('rejects blank thread/resource ids without touching the database', async () => {

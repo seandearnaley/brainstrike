@@ -5,6 +5,7 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { WEB_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
 import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
+import { DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY } from '@brainstrike/assistant-contract/memory-settings';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { act, render, screen, waitFor } from '@testing-library/react';
@@ -20,6 +21,7 @@ import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import {
   changesetRefreshMock,
+  delegatedPanelCallbacks,
   fileExplorerMocks,
   hasDesktopLlmHostMock,
   loadTestLocalLlmBackend,
@@ -36,6 +38,19 @@ import {
   testEnabledModels,
   useChangesetMock,
 } from './assistant-ui-panel-wrapper-test-support';
+
+const { useEnableModelSentinelMock } = vi.hoisted(() => ({
+  useEnableModelSentinelMock: vi.fn(async () => true),
+}));
+
+// The enable RULE (hosted providers toggle, local-runtime providers refuse
+// with a toast) is `useEnableModel`'s own contract — covered exhaustively by
+// `hooks/use-enable-model.test.tsx`. This file only needs to prove the
+// wrapper WIRES that hook's callback straight through as `onEnableModel`,
+// so `useEnableModel` is mocked to a sentinel identity here.
+vi.mock('../hooks/use-enable-model', () => ({
+  useEnableModel: () => useEnableModelSentinelMock,
+}));
 
 describe('AssistantUiPanelWrapper', () => {
   test('re-reads the checkpoint journal when a run finishes (no thread switch)', async () => {
@@ -229,7 +244,7 @@ describe('AssistantUiPanelWrapper', () => {
       waitFor(
         () => {
           expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
-            'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.'
+            'Connect an AI provider in Settings → Providers to enable the assistant.'
           );
           expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
         },
@@ -682,36 +697,18 @@ describe('AssistantUiPanelWrapper', () => {
     });
   });
 
-  test('disabling the active model calls toggleModel with correct args', async () => {
-    const user = userEvent.setup();
-    await renderAssistantPanel(['openai'], () =>
+  test('wires useEnableModel() straight through as onEnableModel', async () => {
+    await renderAssistantPanel(['openai', 'anthropic'], () =>
       waitFor(() => {
         expect((screen.getByTestId('provider-select') as HTMLSelectElement).value).toBe('openai');
       })
     );
 
-    const initialCompositeModel = useAssistantPreferencesStore.getState().getSelectedModel();
-    if (!initialCompositeModel) {
-      throw new Error('expected initial model');
-    }
-
-    // Extract just the model name from composite key (format: "provider::model")
-    const initialModelName = initialCompositeModel.split('::')[1];
-    if (!initialModelName) {
-      throw new Error('expected model name in composite key');
-    }
-
-    const toggle = screen.getByTestId(
-      `model-toggle-openai-${initialModelName}`
-    ) as HTMLInputElement;
-
-    // Verify toggle is checked before clicking
-    expect(toggle.checked).toBe(true);
-
-    await user.click(toggle);
-
-    // Verify the model was removed from the test enabled set (DB mock)
-    expect(testEnabledModels.has(initialModelName)).toBe(false);
+    // The enable rule itself (hosted toggles, local-runtime refuses with a
+    // toast) is `useEnableModel`'s own contract, covered by
+    // `hooks/use-enable-model.test.tsx`. This only proves the wrapper wires
+    // that hook's callback through unchanged.
+    expect(delegatedPanelCallbacks.onEnableModel).toBe(useEnableModelSentinelMock);
   });
 
   test('loads MCP tools on mount', async () => {
@@ -1318,7 +1315,10 @@ describe('AssistantUiPanelWrapper', () => {
         expect(requestData['memory']).toMatchObject({
           memoryOptions: {
             lastMessages: 12,
-            workingMemory: { enabled: false, scope: 'resource' },
+            workingMemory: {
+              enabled: false,
+              scope: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.scope,
+            },
           },
         });
         expect(requestData['providerOptions']).toEqual({
@@ -1556,7 +1556,7 @@ describe('AssistantUiPanelWrapper', () => {
         expect(requestData['memory']).toMatchObject({
           memoryOptions: {
             lastMessages: 40,
-            workingMemory: { enabled: true, scope: 'resource' },
+            workingMemory: { enabled: true, scope: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.scope },
           },
           resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
           threadId: 'thread-existing',
@@ -1582,7 +1582,7 @@ describe('AssistantUiPanelWrapper', () => {
         expect(requestData['memory']).toMatchObject({
           memoryOptions: {
             lastMessages: false,
-            workingMemory: { enabled: true, scope: 'resource' },
+            workingMemory: { enabled: true, scope: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.scope },
           },
         });
       })
@@ -2038,7 +2038,7 @@ describe('AssistantUiPanelWrapper', () => {
       selectedModel: 'google::gemini-3.1-pro-preview',
       selectedProvider: 'google',
     }));
-    usePanelLayoutStore.setState({ activeTab: 'explorer', settingsOpen: false });
+    usePanelLayoutStore.setState({ activeTab: 'explorer' });
     window.location.hash = '';
 
     const user = userEvent.setup();
@@ -2050,8 +2050,7 @@ describe('AssistantUiPanelWrapper', () => {
     );
 
     await user.click(screen.getByTestId('tool-menu-open-settings'));
-    expect(usePanelLayoutStore.getState().activeTab).toBe('explorer');
-    expect(usePanelLayoutStore.getState().settingsOpen).toBe(true);
+    expect(usePanelLayoutStore.getState().activeTab).toBe('settings');
     expect(window.location.hash).toBe('#settings/ai-tools');
   });
 

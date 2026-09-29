@@ -858,15 +858,18 @@ describe('useDatabaseDemoData', () => {
     await waitFor(() => {
       expect(mockVectorStatusUIStore.cachedFileData?.page).toBe(0);
     });
+    expect(result.current.getTestCacheDiagnostics().cachedRecordPageEntries).toBe(1);
     rerender({ page: 1 });
     await waitFor(() => {
       expect(mockVectorStatusUIStore.cachedFileData?.page).toBe(1);
     });
+    expect(result.current.getTestCacheDiagnostics().cachedRecordPageEntries).toBe(2);
 
     liveQueries.recordResult.loading = true;
     rerender({ page: 0 });
 
     expect(result.current.records.map((record) => record.id)).toEqual(['cached-page-record']);
+    expect(result.current.getTestCacheDiagnostics().cachedRecordPageEntries).toBe(2);
   });
 
   it('computes active-collection counts live from file_records/file_chunks so indexing progress is visible', async () => {

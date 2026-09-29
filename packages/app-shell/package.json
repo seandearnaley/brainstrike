@@ -3,9 +3,8 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/app-state": "workspace:*",
-    "@atlaskit/pragmatic-drag-and-drop": "^3.0.0",
-    "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.0.1",
-    "@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.0.1",
+    "@atlaskit/pragmatic-drag-and-drop": "^3.1.0",
+    "@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.2.0",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-data": "workspace:*",
     "@brainstrike/assistant-ui": "workspace:*",
@@ -18,6 +17,7 @@
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/hooks": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/local-runtime": "workspace:*",
     "@brainstrike/logging": "workspace:*",
@@ -26,6 +26,7 @@
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/settings-ui": "workspace:*",
+    "@brainstrike/token-cache": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
@@ -39,6 +40,7 @@
     "lucide-react": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",
@@ -58,6 +60,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./app-reload": {
+      "types": "./dist/app-reload/index.d.ts",
+      "import": "./dist/app-reload/index.js"
     },
     "./connected-prompt-manager-lazy": {
       "types": "./dist/connected-prompt-manager-lazy.d.ts",
@@ -87,6 +93,10 @@
       "types": "./dist/diagnostics/index.d.ts",
       "import": "./dist/diagnostics/index.js"
     },
+    "./forge/availability": {
+      "types": "./dist/forge/availability.d.ts",
+      "import": "./dist/forge/availability.js"
+    },
     "./git-panel": {
       "types": "./dist/git-panel/index.d.ts",
       "import": "./dist/git-panel/index.js"
@@ -107,6 +117,14 @@
       "types": "./dist/user-commands-bridge.d.ts",
       "import": "./dist/user-commands-bridge.js"
     },
+    "./worktree-map": {
+      "types": "./dist/worktree-map/index.d.ts",
+      "import": "./dist/worktree-map/index.js"
+    },
+    "./worktrees/availability": {
+      "types": "./dist/worktrees/availability.d.ts",
+      "import": "./dist/worktrees/availability.js"
+    },
     "./notes-page-content": {
       "types": "./dist/notes-page-content.d.ts",
       "import": "./dist/notes-page-content.js"
@@ -122,6 +140,10 @@
     "./terminal-panel/availability": {
       "types": "./dist/terminal-panel/availability.d.ts",
       "import": "./dist/terminal-panel/availability.js"
+    },
+    "./workspace-connect/workspace-connect-bridge": {
+      "types": "./dist/workspace-connect/workspace-connect-bridge.d.ts",
+      "import": "./dist/workspace-connect/workspace-connect-bridge.js"
     },
     "./canvas/canvas-panel": {
       "types": "./dist/canvas/canvas-panel.d.ts",

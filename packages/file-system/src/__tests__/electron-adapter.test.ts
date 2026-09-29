@@ -243,6 +243,75 @@ describe('ElectronFileSystemAdapter', () => {
     expect(content).toBe('hello');
   });
 
+  it('reads an absolute path only within the supplied mounted root', async () => {
+    const filePath = path.join(tempDir, 'absolute.txt');
+    fs.writeFileSync(filePath, 'absolute content');
+
+    await expect(adapter.readFileByAbsolutePath(filePath, tempDir, 'native-root')).resolves.toBe(
+      'absolute content'
+    );
+    await expect(
+      adapter.readFileByAbsolutePath(
+        path.join(tempDir, '..', 'outside.txt'),
+        tempDir,
+        'native-root'
+      )
+    ).rejects.toBeInstanceOf(AccessError);
+  });
+
+  it.each([
+    { absolutePath: () => path.join(tempDir, 'absolute.txt'), rootPath: 'mounted-root' },
+    { absolutePath: 'absolute.txt', rootPath: () => tempDir },
+    { absolutePath: () => path.join(tempDir, 'absolute.txt'), rootPath: '' },
+    { absolutePath: () => path.join(tempDir, 'absolute.txt'), rootPath: '   ' },
+  ])(
+    'rejects malformed explicit absolute read authority %# before legacy path handling',
+    async ({ absolutePath: absolutePathValue, rootPath: rootPathValue }) => {
+      const absolutePath =
+        typeof absolutePathValue === 'function' ? absolutePathValue() : absolutePathValue;
+      const rootPath = typeof rootPathValue === 'function' ? rootPathValue() : rootPathValue;
+      fs.writeFileSync(path.join(tempDir, 'absolute.txt'), 'absolute content');
+      const legacyRead = vi.spyOn(adapter, 'readFileByPath');
+
+      await expect(
+        adapter.readFileByAbsolutePath(absolutePath, rootPath, 'native-root')
+      ).rejects.toBeInstanceOf(AccessError);
+      expect(legacyRead).not.toHaveBeenCalled();
+    }
+  );
+
+  it('requires durable identity without changing non-registry root-path confinement', async () => {
+    const absolutePath = path.join(tempDir, 'absolute.txt');
+    fs.writeFileSync(absolutePath, 'absolute content');
+    const legacyRead = vi.spyOn(adapter, 'readFileByPath');
+
+    await expect(adapter.readFileByAbsolutePath(absolutePath, tempDir, '')).rejects.toThrow(
+      'durable rootId'
+    );
+    expect(legacyRead).not.toHaveBeenCalled();
+  });
+
+  it('reads the canonical path returned by validation instead of the original alias', async () => {
+    const requestedPath = path.join(tempDir, 'requested.txt');
+    const canonicalPath = path.join(tempDir, 'canonical.txt');
+    const originalRealpath = fsPromises.realpath.bind(fsPromises);
+    vi.spyOn(fsPromises, 'realpath').mockImplementation(async (candidate) => {
+      if (candidate === requestedPath) {
+        return canonicalPath;
+      }
+      return originalRealpath(candidate);
+    });
+    const stat = vi.spyOn(fsPromises, 'stat').mockResolvedValue({ size: 17 } as fs.Stats);
+    const readFile = vi.spyOn(fsPromises, 'readFile').mockResolvedValue('canonical content');
+
+    await expect(
+      adapter.readFileByAbsolutePath(requestedPath, tempDir, 'native-root')
+    ).resolves.toBe('canonical content');
+
+    expect(stat).toHaveBeenCalledExactlyOnceWith(canonicalPath);
+    expect(readFile).toHaveBeenCalledExactlyOnceWith(canonicalPath, 'utf-8');
+  });
+
   it('should throw AccessError when readdir fails', async () => {
     const { dialog } = await import('electron');
     vi.mocked(dialog.showOpenDialog).mockResolvedValue({
@@ -414,12 +483,16 @@ describe('ElectronFileSystemAdapter', () => {
       const captured: { callback: ((changes: unknown[]) => void) | null } = {
         callback: null,
       };
-      vi.doMock('../adapters/parcel-watchers', () => ({
-        startParcelWatch: (_handle: unknown, onChanges: (changes: unknown[]) => void) => {
-          captured.callback = onChanges;
-          return Promise.resolve(() => undefined);
-        },
-      }));
+      vi.doMock('../adapters/parcel-watchers', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('../adapters/parcel-watchers.js')>();
+        return {
+          ...actual,
+          startParcelWatch: (_handle: unknown, onChanges: (changes: unknown[]) => void) => {
+            captured.callback = onChanges;
+            return Promise.resolve(() => undefined);
+          },
+        };
+      });
 
       const { dialog } = await import('electron');
       vi.mocked(dialog.showOpenDialog).mockResolvedValue({

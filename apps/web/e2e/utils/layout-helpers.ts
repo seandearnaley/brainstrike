@@ -456,10 +456,12 @@ export async function waitForContextExplorerPage(page: Page, timeout = 15_000): 
 /**
  * Single source of truth for how Settings is reached.
  *
- * Settings is a profile-launched modal: `RootLayoutContent` filters the
- * `/settings` entry out of `navigationItems`, so there is no sidebar nav button
- * for it. The account menu trigger is labelled "Open profile menu" and the entry
- * inside renders as "Settings…" (with an ellipsis), hence the prefix match.
+ * Settings is a full nav-rail route like Notes/Git/Browser (BST-1668 — the
+ * #1626 profile-launched modal is gone): `RootLayoutContent` keeps the
+ * `/settings` entry in `navigationItems`, ordered last, and mounts the page
+ * through the same keep-mounted route wrapper as the other tabs
+ * (`data-testid="settings-route"`). The account menu's "Settings…" entry still
+ * exists and lands on the same route.
  *
  * Keep every Settings-launching path routed through these helpers so a future UI
  * change only has to update one place.
@@ -473,133 +475,216 @@ export function settingsMenuItemLocator(page: Page) {
 }
 
 /**
- * The modal's accessible title. Radix renders it as an `sr-only` heading, which
- * Playwright still treats as visible, so it doubles as the open/closed signal.
+ * The app's left nav rail (`NavigationSidebar`, `aria-label="Main navigation"`).
+ * Every rail-item locator is scoped here so a settings category, a status-bar
+ * control or an empty-state CTA that happens to be named "Settings" or
+ * "Context Explorer" can never turn a navigation into a strict-mode violation.
  */
-export function settingsModalHeadingLocator(page: Page) {
-  return page.getByRole('heading', { exact: true, name: 'Settings' });
+export function mainNavigationLocator(page: Page) {
+  return page.getByRole('navigation', { exact: true, name: 'Main navigation' });
+}
+
+/** The rail destinations specs navigate to. */
+export type MainNavigationItem = 'Context Explorer' | 'Settings';
+
+/** ONE definition of a rail item's button — scoped to the rail landmark. */
+export function mainNavigationButtonLocator(page: Page, label: MainNavigationItem) {
+  return mainNavigationLocator(page).getByRole('button', { exact: true, name: label });
 }
 
 /**
- * `DialogContent` renders its own close affordance with the accessible name
- * "Close" (an `sr-only` span next to the X icon — see `packages/ui/src/dialog.tsx`).
- * Scope it to the dialog that owns the Settings title so a second dialog can never
- * satisfy this locator.
+ * The page's own `h1`. The settings route is `display: none` whenever another
+ * tab is active (keep-mounted, hidden), so the heading's visibility doubles as
+ * the on/off-route signal.
+ */
+export function settingsHeadingLocator(page: Page) {
+  return page.getByRole('heading', { exact: true, level: 1, name: 'Settings' });
+}
+
+export async function isSettingsPageOpen(page: Page): Promise<boolean> {
+  return page.getByTestId('settings-route').isVisible();
+}
+
+/**
+ * Every Radix floating surface that participates in the DismissableLayer stack.
+ * Portals append at mount, so the LAST match in document order is the layer
+ * that opened most recently.
+ */
+const FLOATING_LAYER_SELECTOR = [
+  '[data-slot="dialog-content"]',
+  '[data-slot="select-content"]',
+  '[data-slot="popover-content"]',
+  '[data-slot="dropdown-menu-content"]',
+  '[data-slot="context-menu-content"]',
+].join(', ');
+
+type LayerReadiness =
+  | 'no-modal-beneath'
+  | 'not-registered'
+  | 'not-topmost'
+  | 'ready'
+  | 'target-missing';
+
+/**
+ * Waits until Radix has registered `targetSelector` as the topmost layer, so a
+ * dismissal aimed at it cannot be routed somewhere else.
  *
- * Matched by role and accessible name rather than `data-slot`: the slot attributes
- * are internal styling hooks, so renaming one would leave the `packages/ui` unit
- * tests (which assert the accessible name) green while silently reintroducing the
- * opaque close-timeout this helper exists to prevent.
+ * `DismissableLayer` keeps its stack in a module-level `Set` that it mutates in
+ * an EFFECT but reads during RENDER, so a freshly mounted layer paints one
+ * frame at `index === -1`: `pointer-events: none` on the layer that just
+ * opened. Keyboard dismissal keys off the same stack, so an Escape inside that
+ * window goes to the layer UNDERNEATH. While Settings was a modal (#1626 until
+ * BST-1668) that closed the whole modal and unmounted the nested surface with
+ * it — both panels vanished and the assertion saw zero. Measured on the old
+ * `settings-modal-layering` spec: the pre-settle snapshot appeared in 3 of 6
+ * runs and correlated exactly with the failure.
+ *
+ * Readiness is `pointer-events: auto` ON THE TARGET, not a shape imposed on the
+ * whole stack. Radix computes `index >= indexOf(highestLayerWithOutsidePointer
+ * EventsDisabled)`, so an unregistered layer resolves `none` and a registered
+ * one resolves `auto` — for modal and NON-modal layers alike. Requiring "every
+ * layer beneath is none" would be wrong: `Popover` is a bare
+ * `PopoverPrimitive.Root` (`packages/ui/src/popover.tsx`), i.e. Radix's default
+ * `modal={false}`, so it never disables outside pointer events and the dialog
+ * under it keeps `auto` forever. `DialogContent`, `SelectContent` and
+ * `DropdownMenu` (Radix default `modal={true}`) do disable them.
+ *
+ * Naming the target is what keeps this from passing vacuously: a predicate over
+ * "whatever currently matches" is satisfied by the dialog alone whenever the
+ * new layer has not mounted yet — precisely the window it exists to close.
+ *
+ * When `targetSelector` can match more than one open layer (nested dialogs both
+ * carry `data-slot="dialog-content"`), the caller must first assert the new one
+ * exists — `expect(panels).toHaveCount(2)` — because "last match" cannot tell
+ * "not open yet" from "open".
+ *
+ * Two known limits, neither reachable from the current callers:
+ * - "last match is topmost" assumes the layer PORTALS to `document.body`.
+ *   `packages/ui/src/model-picker/model-picker.tsx:86` deliberately sets
+ *   `portal={false}` to stay inside the parent Dialog's RemoveScroll allow-list;
+ *   such a layer sits inside its dialog in document order, so with two dialogs
+ *   open the ordering premise breaks.
+ * - Radix submenu surfaces (`*-sub-content`) are not listed: they are not
+ *   separate DismissableLayers, and adding them unverified would be guesswork.
  */
-export function settingsModalCloseButtonLocator(page: Page) {
-  return page
-    .getByRole('dialog')
-    .filter({ has: settingsModalHeadingLocator(page) })
-    .getByRole('button', { exact: true, name: 'Close' });
-}
-
-type SettingsModalState = 'closed' | 'occluded' | 'open';
-
-/**
- * Reads the Settings dialog straight from the DOM instead of the accessibility
- * tree. While a Radix Select or Popover is open *inside* the dialog, Radix marks
- * the dialog `aria-hidden="true"` with `pointer-events: none` (measured, not
- * assumed), so every role-based locator resolves to zero matches and the modal
- * reports as CLOSED while it is open and merely occluded. `data-slot` is the only
- * handle that survives that state.
- */
-async function readSettingsModalState(page: Page): Promise<SettingsModalState> {
-  return page.evaluate(() => {
-    const dialog = Array.from(document.querySelectorAll('[data-slot="dialog-content"]')).find(
-      (node) => node.querySelector('[data-slot="dialog-title"]')?.textContent?.trim() === 'Settings'
+export async function waitForFloatingLayerStack(
+  page: Page,
+  targetSelector: string,
+  timeout = 5000
+): Promise<void> {
+  const readiness = (): Promise<LayerReadiness> =>
+    page.evaluate(
+      ([all, target]: readonly string[]): LayerReadiness => {
+        const layers = Array.from(document.querySelectorAll(all as string));
+        // LAST match, not first: the target is by definition the most recently
+        // opened layer, and a slot like `dialog-content` matches every dialog on
+        // screen. `querySelector` would resolve to the one UNDERNEATH.
+        const node = Array.from(document.querySelectorAll(target as string)).at(-1);
+        if (!node) {
+          return 'target-missing';
+        }
+        if (layers.at(-1) !== node) {
+          return 'not-topmost';
+        }
+        // Radix sets this while ANY layer disables outside pointer events. With
+        // no such layer the `auto` check below is trivially true and would wait
+        // on nothing, so say that instead of reporting a false ready.
+        // Radix sets this while ANY layer disables outside pointer events, and
+        // only then does it write `pointerEvents` on the layers themselves. With
+        // no such layer there is no signal at all, so say that rather than
+        // reporting a false ready.
+        if (document.body.style.pointerEvents !== 'none') {
+          return 'no-modal-beneath';
+        }
+        // Radix's OWN bookkeeping, read from the inline style it writes on the
+        // layer node — not the computed value. Computed style is not a
+        // registration signal: `model-picker.tsx` hardcodes `pointer-events-auto`
+        // on its PopoverContent, which would read `auto` before registration,
+        // and a `portal={false}` layer inherits whatever its ancestor dialog has.
+        return (node as HTMLElement).style.pointerEvents === 'auto' ? 'ready' : 'not-registered';
+      },
+      [FLOATING_LAYER_SELECTOR, targetSelector] as const
     );
-    if (!dialog) {
-      return 'closed';
+
+  const deadline = Date.now() + timeout;
+  let last: LayerReadiness = 'target-missing';
+
+  while (Date.now() < deadline) {
+    // Deliberately not `waitForFunction`: its rejection is indistinguishable
+    // from a navigation tearing down the execution context, and reporting that
+    // as a layer-ownership defect sends the next reader down the wrong path.
+    last = await readiness();
+    if (last === 'ready') {
+      return;
     }
-    return dialog.getAttribute('aria-hidden') === 'true' ? 'occluded' : 'open';
-  });
-}
-
-export async function isSettingsModalOpen(page: Page): Promise<boolean> {
-  return (await readSettingsModalState(page)) !== 'closed';
-}
-
-/**
- * Shared guard for every helper that queries the app shell by role. Radix marks
- * everything outside an open dialog `aria-hidden`, which removes the sidebar
- * from the accessibility tree `getByRole` walks, so those locators resolve to
- * zero matches and die on a bare visibility timeout. Fail with the real cause.
- */
-export async function assertSettingsModalClosed(page: Page, caller: string): Promise<void> {
-  if (await isSettingsModalOpen(page)) {
-    throw new Error(
-      `${caller} was called while the Settings modal is open. The sidebar is hidden from the accessibility tree behind the dialog — close the modal first (closeSettingsModal(page), or HomePage.closeSettings()).`
-    );
-  }
-}
-
-export async function openSettingsModal(page: Page): Promise<void> {
-  const expect = await getPlaywrightExpect();
-
-  // The profile menu trigger lives in the app shell, which sits behind the
-  // dialog's `aria-hidden` once Settings is open. Calling this twice would
-  // otherwise resolve to zero matches and surface as an opaque timeout.
-  if (await isSettingsModalOpen(page)) {
-    throw new Error(
-      'openSettingsModal(page) was called while the Settings modal is already open. The profile menu trigger is hidden from the accessibility tree behind the dialog — call closeSettingsModal(page) first, or drop the redundant open.'
-    );
+    if (last === 'no-modal-beneath') {
+      throw new Error(
+        `waitForFloatingLayerStack("${targetSelector}") needs a modal layer open beneath the target — ` +
+          'Radix only assigns pointer-events while some layer disables outside pointer events, so ' +
+          'there is no readiness signal to wait on here and the wait would pass vacuously.'
+      );
+    }
+    await page.waitForTimeout(25);
   }
 
-  const trigger = profileMenuButtonLocator(page);
-  await expect(trigger).toBeVisible();
-  await expect(trigger).toBeEnabled();
-  await trigger.click();
+  const measured = await page.evaluate(
+    (selector: string) =>
+      Array.from(document.querySelectorAll(selector)).map((layer) => ({
+        inlinePointerEvents: (layer as HTMLElement).style.pointerEvents || '(unset)',
+        slot: layer.getAttribute('data-slot'),
+        zIndex: globalThis.getComputedStyle(layer).zIndex,
+      })),
+    FLOATING_LAYER_SELECTOR
+  );
 
-  const settingsItem = settingsMenuItemLocator(page);
-  await expect(settingsItem).toBeVisible();
-  await settingsItem.click();
+  const reason: Record<Exclude<LayerReadiness, 'no-modal-beneath' | 'ready'>, string> = {
+    'not-registered': `"${targetSelector}" is topmost but never gained pointer-events. A PERMANENT stall here is a real layer-ownership defect, not a timing problem.`,
+    'not-topmost': `"${targetSelector}" is open but is not the last floating layer in document order — something opened above it.`,
+    'target-missing': `Nothing matched "${targetSelector}" — the interaction that should have opened it probably did not.`,
+  };
+
+  throw new Error(
+    `waitForFloatingLayerStack("${targetSelector}") gave up after ${timeout}ms: ${reason[last]} ` +
+      `Measured layers: ${JSON.stringify(measured)}.`
+  );
 }
 
 /**
- * Dismiss the Settings modal and wait for it to unmount. Throws when the modal
- * is not open so callers cannot silently drift out of sync with the UI.
- *
- * Click the dialog's own close button rather than pressing Escape: Radix routes
- * Escape to the topmost `DismissableLayer`, so any Select or Popover open inside
- * Settings swallows the keypress and the dialog stays put — surfacing a whole
- * timeout later as a generic "expected to be hidden" with no hint of the cause.
- *
- * Clicking is NOT immune to that same nested layer. Measured: with a Select open
- * inside Settings the dialog carries `aria-hidden="true"` and
- * `pointer-events: none`, so the close button is neither queryable by role nor
- * clickable. What the state probe buys is a named, actionable failure instead of
- * a bare "Settings heading not visible", which reads as "the modal is closed"
- * when it is open and merely covered.
- *
- * The inner layer is deliberately NOT auto-dismissed. Swallowing it would let a
- * test that lost track of its own UI state keep passing.
+ * Navigate onto the Settings route via the nav rail. Throws when Settings is
+ * already the active route so a spec cannot drift out of sync with the UI and
+ * keep passing on a redundant open.
  */
-export async function closeSettingsModal(page: Page, timeout = 15_000): Promise<void> {
+export async function openSettingsPage(page: Page): Promise<void> {
+  if (await isSettingsPageOpen(page)) {
+    throw new Error(
+      'openSettingsPage(page) was called while Settings is already the active route. Drop the redundant open, or leaveSettingsPage(page) first.'
+    );
+  }
+
+  await activateSidebarNavigation(page, 'Settings');
+}
+
+/**
+ * Leave the Settings route for the Context Explorer and wait for the settings
+ * page to be hidden. Throws when Settings is not the active route so callers
+ * cannot silently drift out of sync with the UI.
+ *
+ * Settings is a keep-mounted route, so "leaving" hides the page rather than
+ * unmounting it — a spec that needs a fresh settings page must reload.
+ */
+export async function leaveSettingsPage(page: Page, timeout = 15_000): Promise<void> {
   const expect = await getPlaywrightExpect();
 
-  const state = await readSettingsModalState(page);
-  if (state === 'closed') {
+  if (!(await isSettingsPageOpen(page))) {
     throw new Error(
-      'closeSettingsModal(page) was called while the Settings modal is not open. Remove the redundant close, or open Settings first.'
-    );
-  }
-  if (state === 'occluded') {
-    throw new Error(
-      'closeSettingsModal(page) found the Settings modal covered by a nested overlay — a Select, Popover or Combobox is still open inside Settings. Radix marks the dialog aria-hidden with pointer-events:none while that layer is up, so the close button is neither queryable by role nor clickable. Dismiss the inner layer first (choose an option, or press Escape once).'
+      'leaveSettingsPage(page) was called while Settings is not the active route. Remove the redundant call, or open Settings first.'
     );
   }
 
-  const heading = settingsModalHeadingLocator(page);
+  const heading = settingsHeadingLocator(page);
   await expect(heading).toBeVisible({ timeout });
 
-  const closeButton = settingsModalCloseButtonLocator(page);
-  await expect(closeButton).toBeVisible({ timeout });
-  await closeButton.click({ timeout });
+  await activateSidebarNavigation(page, 'Context Explorer');
   await expect(heading).not.toBeVisible({ timeout });
 }
 
@@ -611,7 +696,7 @@ export async function waitForSettingsPage(page: Page, timeout = 15_000): Promise
     await expect(loadingFallback).not.toBeVisible({ timeout });
   }
 
-  await expect(settingsModalHeadingLocator(page)).toBeVisible({
+  await expect(settingsHeadingLocator(page)).toBeVisible({
     timeout,
   });
 }
@@ -633,7 +718,7 @@ export async function waitForAppearanceSection(page: Page) {
 /**
  * Click a theme button inside the Appearance section. Scoped to the section
  * so the nav sidebar's theme toggle can never match; dispatchEvent because a
- * plain click can land on the focus ring while the dialog animates. The ONE
+ * plain click can land on the focus ring while the route settles. The ONE
  * appearance-theme flow both theme specs share (review finding on #2138 —
  * previously three near-verbatim copies).
  */
@@ -649,22 +734,17 @@ export async function activateAppearanceThemeButton(
 }
 
 /**
- * Activate a sidebar navigation destination.
- *
- * `label` is deliberately the single literal 'Context Explorer': Settings is not
- * a sidebar destination — `RootLayoutContent` filters `/settings` out of
- * `navigationItems` — so accepting it here would encode a false model of the UI.
- * Use {@link openSettingsModal} for Settings.
+ * Activate a sidebar navigation destination. Settings is a rail item like the
+ * rest (BST-1668); {@link openSettingsPage} is this plus the redundant-open
+ * guard, and is what specs should call.
  */
 export async function activateSidebarNavigation(
   page: Page,
-  label: 'Context Explorer'
+  label: MainNavigationItem
 ): Promise<void> {
   const expect = await getPlaywrightExpect();
 
-  await assertSettingsModalClosed(page, `activateSidebarNavigation(page, '${label}')`);
-
-  const navigationButton = page.getByRole('button', { exact: true, name: label });
+  const navigationButton = mainNavigationButtonLocator(page, label);
   await expect(navigationButton).toBeVisible();
   await expect(navigationButton).toBeEnabled();
   // Playwright's native click retries kept racing this sidebar's rerender path.

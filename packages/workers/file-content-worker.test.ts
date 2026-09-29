@@ -4,7 +4,8 @@ import {
   resetFileSizeConfig,
   setFileSizeConfig,
 } from '@brainstrike/file-system';
-import { createFileNode } from '@brainstrike/test-utils';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
+import type { FileHandle } from '@brainstrike/types';
 import * as utils from '@brainstrike/utils';
 import { fileContent } from '@brainstrike/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -26,14 +27,7 @@ vi.spyOn(console, 'error').mockImplementation(() => {});
 
 function createRequest(path: string) {
   const node = createFileNode({ path });
-  const handle: {
-    path: string;
-    name: string;
-    kind: 'file';
-    size?: number;
-    platform: 'web';
-    _internal: FileSystemFileHandle | FileSystemDirectoryHandle;
-  } = {
+  const handle: FileHandle = {
     _internal: node.handle,
     kind: 'file',
     name: node.name,
@@ -91,6 +85,165 @@ describe('file-content-worker', () => {
 
     expect(displayResult(results[req.compositeKey])).toBe('from-handle');
     expect(readFile).toHaveBeenCalledTimes(1);
+    expect(readFileByPath).not.toHaveBeenCalled();
+  });
+
+  it('uses the explicit root-confined capability for an absolute path request', async () => {
+    const readFileByAbsolutePath = vi.fn(async () => 'from-absolute-path');
+    const readFileByPath = vi.fn(async () => 'from-adapter-path');
+    const adapter = {
+      exists: vi.fn(),
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      readFileByAbsolutePath,
+      readFileByPath,
+      requestDirectoryAccess: vi.fn(),
+    } as unknown as FileSystemAdapter;
+    const request = {
+      absoluteRootId: 'root-workspace',
+      absoluteRootPath: '/workspace',
+      compositeKey: 'root|@|/workspace/file.txt',
+      path: '/workspace/file.txt',
+    };
+
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const results = await worker([request]);
+
+    expect(displayResult(results[request.compositeKey])).toBe('from-absolute-path');
+    expect(readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(
+      '/workspace/file.txt',
+      '/workspace',
+      'root-workspace'
+    );
+    expect(readFileByPath).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { absoluteRootPath: 'C:\\Workspace', path: 'C:\\Workspace\\file.txt' },
+    {
+      absoluteRootPath: '\\\\server\\share',
+      path: '\\\\server\\share\\file.txt',
+    },
+  ])(
+    'preserves drive and UNC explicit read shapes root=$absoluteRootPath',
+    async ({ absoluteRootPath, path }) => {
+      const readFileByAbsolutePath = vi.fn(async () => 'cross-platform-content');
+      const adapter = {
+        exists: vi.fn(),
+        readDirectory: vi.fn(),
+        readFile: vi.fn(),
+        readFileByAbsolutePath,
+        requestDirectoryAccess: vi.fn(),
+      } as unknown as FileSystemAdapter;
+      const request = {
+        absoluteRootId: 'root-cross-platform',
+        absoluteRootPath,
+        compositeKey: `root|@|${path}`,
+        path,
+      };
+
+      const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+      const results = await worker([request]);
+
+      expect(displayResult(results[request.compositeKey])).toBe('cross-platform-content');
+      expect(readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(
+        path,
+        absoluteRootPath,
+        'root-cross-platform'
+      );
+    }
+  );
+
+  it.each([
+    { absoluteRootPath: '', path: '/workspace/file.txt' },
+    { absoluteRootPath: '   ', path: '/workspace/file.txt' },
+    { absoluteRootPath: 'workspace', path: '/workspace/file.txt' },
+    { absoluteRootPath: '\\workspace', path: '/workspace/file.txt' },
+    { absoluteRootPath: '/workspace', path: 'file.txt' },
+    { absoluteRootPath: '/workspace', path: '\\file.txt' },
+  ])(
+    'rejects malformed explicit read authority root=$absoluteRootPath path=$path',
+    async ({ absoluteRootPath, path }) => {
+      const readFileByAbsolutePath = vi.fn(async () => 'unsafe-content');
+      const readFileByPath = vi.fn(async () => 'unsafe-fallback-content');
+      const adapter = {
+        exists: vi.fn(),
+        readDirectory: vi.fn(),
+        readFile: vi.fn(),
+        readFileByAbsolutePath,
+        readFileByPath,
+        requestDirectoryAccess: vi.fn(),
+      } as unknown as FileSystemAdapter;
+      const request = {
+        absoluteRootId: 'root-workspace',
+        absoluteRootPath,
+        compositeKey: 'root|@|malformed-file.txt',
+        path,
+      };
+
+      const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+      const results = await worker([request]);
+
+      expect(results[request.compositeKey]).toEqual({
+        message: 'Error accessing file',
+        status: 'inaccessible',
+      });
+      expect(readFileByAbsolutePath).not.toHaveBeenCalled();
+      expect(readFileByPath).not.toHaveBeenCalled();
+    }
+  );
+
+  it('rejects an absolute request without durable root identity and never falls back', async () => {
+    const readFileByAbsolutePath = vi.fn(async () => 'unsafe-content');
+    const readFileByPath = vi.fn(async () => 'unsafe-fallback-content');
+    const adapter = {
+      exists: vi.fn(),
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      readFileByAbsolutePath,
+      readFileByPath,
+      requestDirectoryAccess: vi.fn(),
+    } as unknown as FileSystemAdapter;
+    const request = {
+      absoluteRootPath: '/workspace',
+      compositeKey: 'root-workspace|@|/workspace/file.txt',
+      path: '/workspace/file.txt',
+    };
+
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const results = await worker([request]);
+
+    expect(results[request.compositeKey]).toEqual({
+      message: 'Error accessing file',
+      status: 'inaccessible',
+    });
+    expect(readFileByAbsolutePath).not.toHaveBeenCalled();
+    expect(readFileByPath).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to adapter-defined path reads for an absolute request', async () => {
+    const readFileByPath = vi.fn(async () => 'unsafe-fallback-content');
+    const adapter = {
+      exists: vi.fn(),
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      readFileByPath,
+      requestDirectoryAccess: vi.fn(),
+    } as unknown as FileSystemAdapter;
+    const request = {
+      absoluteRootId: 'root-workspace',
+      absoluteRootPath: '/workspace',
+      compositeKey: 'root|@|/workspace/file.txt',
+      path: '/workspace/file.txt',
+    };
+
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const results = await worker([request]);
+
+    expect(results[request.compositeKey]).toEqual({
+      message: 'Error accessing file',
+      status: 'inaccessible',
+    });
     expect(readFileByPath).not.toHaveBeenCalled();
   });
 

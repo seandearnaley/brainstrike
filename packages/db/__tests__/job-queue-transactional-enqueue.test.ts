@@ -8,9 +8,35 @@ import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 describe('JobQueue transactional enqueue', () => {
   let db: PGlite;
+  let transactionCount: number;
+  let queryOnlyTransactionDb: IDatabase;
 
   beforeEach(async () => {
     db = await createMigratedTestDb();
+    transactionCount = 0;
+    let transactionActive = false;
+    queryOnlyTransactionDb = {
+      query: async <T = unknown>(sql: string, params?: unknown[]) => {
+        if (transactionActive) {
+          throw new Error('Outer connection queried while the transaction callback is active.');
+        }
+        return db.query<T>(sql, params);
+      },
+      transaction: async (run) => {
+        if (transactionActive) {
+          throw new Error('Nested transaction opened while the transaction callback is active.');
+        }
+        transactionCount += 1;
+        return db.transaction(async (tx) => {
+          transactionActive = true;
+          try {
+            return await run({ query: tx.query.bind(tx) });
+          } finally {
+            transactionActive = false;
+          }
+        });
+      },
+    };
   });
 
   async function seedFileAndEmbeddingSet(fileRecordId = 'file-1'): Promise<void> {
@@ -70,7 +96,7 @@ describe('JobQueue transactional enqueue', () => {
   it('inserts chunks and enqueues embedding jobs in one transaction', async () => {
     await seedFileAndEmbeddingSet();
 
-    await insertChunksAndEnqueueEmbeddingJobs(db as unknown as IDatabase, {
+    await insertChunksAndEnqueueEmbeddingJobs(queryOnlyTransactionDb, {
       chunks: [makeChunk()],
       dimensionParameter: null,
       fileRecordId: 'file-1',
@@ -83,11 +109,28 @@ describe('JobQueue transactional enqueue', () => {
     const chunks = await db.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM file_chunks WHERE id = 'chunk-1'`
     );
-    const jobs = await db.query<{ chunk_id: string; state: string }>(
-      `SELECT chunk_id, state FROM job_queue WHERE job_type = 'embed_chunk'`
+    const jobs = await db.query<{
+      chunk_id: string;
+      embedding_input_hash: string;
+      source_content_hash: string;
+      state: string;
+    }>(
+      `SELECT chunk_id,
+              payload->>'embeddingInputHash' AS embedding_input_hash,
+              payload->>'sourceContentHash' AS source_content_hash,
+              state
+         FROM job_queue WHERE job_type = 'embed_chunk'`
     );
     expect(Number(chunks.rows[0]?.count ?? 0)).toBe(1);
-    expect(jobs.rows).toEqual([{ chunk_id: 'chunk-1', state: 'queued' }]);
+    expect(transactionCount).toBe(1);
+    expect(jobs.rows).toEqual([
+      {
+        chunk_id: 'chunk-1',
+        embedding_input_hash: '5359eace2a9f21f21e7ea601475201045f73784801dc9148c754b0583e6e94bd',
+        source_content_hash: 'chunk-hash',
+        state: 'queued',
+      },
+    ]);
   });
 
   // Pins the single embed-job dedupe key format. `@brainstrike/pipeline`'s
@@ -97,7 +140,7 @@ describe('JobQueue transactional enqueue', () => {
   it('persists the canonical dedupe key from @brainstrike/indexing-contract', async () => {
     await seedFileAndEmbeddingSet();
 
-    await insertChunksAndEnqueueEmbeddingJobs(db as unknown as IDatabase, {
+    await insertChunksAndEnqueueEmbeddingJobs(queryOnlyTransactionDb, {
       chunks: [makeChunk()],
       dimensionParameter: null,
       fileRecordId: 'file-1',
@@ -124,7 +167,7 @@ describe('JobQueue transactional enqueue', () => {
   it('records chunk and set identity in first-class columns, not the dedupe key', async () => {
     await seedFileAndEmbeddingSet();
 
-    await insertChunksAndEnqueueEmbeddingJobs(db as unknown as IDatabase, {
+    await insertChunksAndEnqueueEmbeddingJobs(queryOnlyTransactionDb, {
       chunks: [makeChunk()],
       dimensionParameter: null,
       fileRecordId: 'file-1',
@@ -147,7 +190,7 @@ describe('JobQueue transactional enqueue', () => {
     await seedFileAndEmbeddingSet('file-2');
 
     await expect(
-      insertChunksAndEnqueueEmbeddingJobs(db as unknown as IDatabase, {
+      insertChunksAndEnqueueEmbeddingJobs(queryOnlyTransactionDb, {
         chunks: [makeChunk({ fileRecordId: 'file-2' })],
         dimensionParameter: null,
         fileRecordId: 'file-1',

@@ -1,11 +1,11 @@
-import { MockFileSystemAdapter } from '@brainstrike/file-system';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import {
-  composeWrappers,
-  createDirectoryNode,
-  createFileNode,
-  makeRenderWithProviders,
-} from '@brainstrike/test-utils';
+  __resetBackgroundIndexingPreferencesStoreForTests,
+  useBackgroundIndexingPreferencesStore,
+} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { createDirectoryNode, createFileNode } from '@brainstrike/file-tree-test-fixtures';
+import { MemoryStorageAdapter } from '@brainstrike/storage';
+import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { act, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
@@ -81,6 +81,7 @@ describe('FileExplorerSidebar', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    __resetBackgroundIndexingPreferencesStoreForTests();
   });
 
   it('renders with directory and files', () => {
@@ -144,8 +145,13 @@ describe('FileExplorerSidebar', () => {
     expect(screen.getByText('No matching files found')).toBeInTheDocument();
   });
 
-  // Single-root regression: rootDirectoryHandles with one entry → no section headers
-  it('renders single-root layout (no section headers) when rootDirectoryHandles has one entry', () => {
+  // Single-root regression: rootDirectoryHandles with one entry → no forest
+  // section headers. "No section headers" is NOT the same claim as "no
+  // workspace-root context menu" — BST-1393 review fold-in: the single-root
+  // branch previously had no trigger for the menu at all (the primary,
+  // one-folder scenario), so this pin now also asserts the menu row IS
+  // present, distinguishing the two.
+  it('renders single-root layout (no forest section headers, but a menu trigger row) when rootDirectoryHandles has one entry', () => {
     act(() => {
       renderWithProviders(
         <FileExplorerSidebar
@@ -156,13 +162,16 @@ describe('FileExplorerSidebar', () => {
       );
     });
 
-    // Single-root: no section headers, just the tree
+    // Single-root: no FOREST section headers, just the tree…
     expect(screen.queryByTestId('root-section-header')).toBeNull();
     expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
+    // …but the single-root header ROW (the workspace-root menu's trigger)
+    // is present — this is the gap the fold-in closes.
+    expect(screen.getByTestId('single-root-header-row')).toBeInTheDocument();
   });
 
   // Single-root regression: undefined rootDirectoryHandles → original layout
-  it('renders single-root layout (no section headers) when rootDirectoryHandles is undefined', () => {
+  it('renders single-root layout (no forest section headers, but a menu trigger row) when rootDirectoryHandles is undefined', () => {
     act(() => {
       renderWithProviders(
         <FileExplorerSidebar
@@ -175,6 +184,45 @@ describe('FileExplorerSidebar', () => {
 
     expect(screen.queryByTestId('root-section-header')).toBeNull();
     expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
+    expect(screen.getByTestId('single-root-header-row')).toBeInTheDocument();
+  });
+
+  it('shows the indexing control for an excluded single worktree root', () => {
+    useBackgroundIndexingPreferencesStore
+      .getState()
+      .setWorktreeRootIndexingState([
+        { adapterRootId: 'adapter-root', dbRootId: 'db-root', indexed: false },
+      ]);
+
+    act(() => {
+      renderWithProviders(
+        <FileExplorerSidebar
+          {...defaultProps}
+          rootIdByPath={new Map([['/test-directory', 'adapter-root']])}
+        />
+      );
+    });
+
+    expect(screen.getByRole('button', { name: /Not indexed/ })).toBeInTheDocument();
+  });
+
+  it('shows the indexing control for an excluded single worktree root', () => {
+    useBackgroundIndexingPreferencesStore
+      .getState()
+      .setWorktreeRootIndexingState([
+        { adapterRootId: 'adapter-root', dbRootId: 'db-root', indexed: false },
+      ]);
+
+    act(() => {
+      renderWithProviders(
+        <FileExplorerSidebar
+          {...defaultProps}
+          rootIdByPath={new Map([['/test-directory', 'adapter-root']])}
+        />
+      );
+    });
+
+    expect(screen.getByRole('button', { name: /Not indexed/ })).toBeInTheDocument();
   });
 
   // Forest mode: two roots → two section headers + two treegrids (EXACTLY 2)

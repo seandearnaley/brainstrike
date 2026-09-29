@@ -50,6 +50,9 @@ beforeEach(() => {
   // other queries override this.
   mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
   resetDesktopMastraMemoryCacheForTests();
+  mockSecretsService.getCredential
+    .mockReset()
+    .mockResolvedValue({ key: 'test-api-key', type: 'api_key' });
   mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
   mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
   Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });
@@ -60,7 +63,7 @@ afterEach(() => {
   resetDesktopMastraMemoryCacheForTests();
 }, 15_000);
 describe('agent-stream-init runtime composition and memory', () => {
-  it('passes filesystem MCP config through to the Mastra runtime', async () => {
+  it('passes the desktop MCP host outside serializable runtime data', async () => {
     const { loadMcpConfig } = await import('../../mcp-loader');
     const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
     const { streamResponse } = await import('../../assistant-server/http');
@@ -104,20 +107,13 @@ describe('agent-stream-init runtime composition and memory', () => {
     });
 
     expect(toAiSdkStyleStream).toHaveBeenCalledTimes(1);
-    const [, runtime] = (toAiSdkStyleStream as Mock).mock.calls[0] as [
+    const [, runtime, options] = (toAiSdkStyleStream as Mock).mock.calls[0] as [
       unknown,
       Record<string, unknown>,
+      { mcpHost?: unknown },
     ];
-    expect(runtime['mcpConfig']).toEqual({
-      servers: [
-        {
-          args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
-          command: 'npx',
-          name: 'filesystem',
-          transport: 'stdio',
-        },
-      ],
-    });
+    expect(runtime['mcpConfig']).toBeUndefined();
+    expect(options.mcpHost).toEqual(expect.any(Object));
   });
 
   it('threads the built-in subagent personas onto the runtime for a hosted provider', async () => {
@@ -612,7 +608,9 @@ describe('agent-stream-init runtime composition and memory', () => {
       'anthropic',
       'test-api-key',
       'claude-haiku-4-5',
-      expect.objectContaining({ apiKey: 'test-api-key', provider: 'openai' })
+      // BST-1352 review: the runtime carries NO apiKey field — the memory
+      // model key travels through the resolved observationalMemoryModel.
+      expect.objectContaining({ provider: 'openai' })
     );
     expect(createPgliteMastraMemory).toHaveBeenCalledWith({
       database: expect.anything(),
@@ -644,14 +642,26 @@ describe('agent-stream-init runtime composition and memory', () => {
       expect.objectContaining({
         memory: expect.objectContaining({ resourceId: 'workspace-a', threadId: 'thread-1' }),
       }),
-      { memory: mockPgliteMastraMemory, storage: mockPgliteMastraStorage }
+      {
+        // BST-1352: the resolved auth input rides the stream OPTIONS.
+        authInput: { apiKey: 'test-api-key', kind: 'api_key' },
+        mcpHost: expect.any(Object),
+        // BST-1566: the process-local task host rides the stream options
+        // beside mcpHost; it opens the database only once a Tasks-capable
+        // server connects, which is why getDatabase stays at 3 calls above.
+        mcpTaskTracking: expect.any(Object),
+        memory: mockPgliteMastraMemory,
+        storage: mockPgliteMastraStorage,
+      }
     );
   });
 
   it('surfaces an unreadable observational-memory key during stream initialization', async () => {
     const { SecretReadError } = await import('../../secrets');
-    mockSecretsService.getKey
-      .mockResolvedValueOnce('anthropic-key')
+    // BST-1352: both the chat credential and the memory model-target key
+    // resolve through the TYPED reader now.
+    mockSecretsService.getCredential
+      .mockResolvedValueOnce({ key: 'anthropic-key', type: 'api_key' })
       .mockRejectedValueOnce(new SecretReadError('decrypt_failed', 'openai'));
 
     const response = await runRequest({
@@ -698,11 +708,10 @@ describe('agent-stream-init runtime composition and memory', () => {
   });
 
   it('surfaces an actionable missing observational-memory credential', async () => {
-    const getKey = mockSecretsService.getKey as unknown as Mock<
-      (provider: string) => Promise<string | null>
-    >;
-    getKey.mockImplementation((provider: string) =>
-      Promise.resolve(provider === 'anthropic' ? 'anthropic-key' : null)
+    mockSecretsService.getCredential.mockImplementation((provider: string) =>
+      Promise.resolve(
+        provider === 'anthropic' ? { key: 'anthropic-key', type: 'api_key' as const } : null
+      )
     );
 
     const response = await runRequest({
@@ -746,16 +755,15 @@ describe('agent-stream-init runtime composition and memory', () => {
         'Observational memory requires an API key for "openai". Add the key in Settings, then retry.',
       provider: 'openai',
     });
-    expect(mockSecretsService.getKey).toHaveBeenNthCalledWith(1, 'anthropic');
-    expect(mockSecretsService.getKey).toHaveBeenNthCalledWith(2, 'openai');
+    expect(mockSecretsService.getCredential).toHaveBeenNthCalledWith(1, 'anthropic');
+    expect(mockSecretsService.getCredential).toHaveBeenNthCalledWith(2, 'openai');
   });
 
   it('surfaces an actionable missing semantic-recall credential', async () => {
-    const getKey = mockSecretsService.getKey as unknown as Mock<
-      (provider: string) => Promise<string | null>
-    >;
-    getKey.mockImplementation((provider: string) =>
-      Promise.resolve(provider === 'anthropic' ? 'anthropic-key' : null)
+    mockSecretsService.getCredential.mockImplementation((provider: string) =>
+      Promise.resolve(
+        provider === 'anthropic' ? { key: 'anthropic-key', type: 'api_key' as const } : null
+      )
     );
 
     const response = await runRequest({
@@ -799,8 +807,8 @@ describe('agent-stream-init runtime composition and memory', () => {
         'Semantic recall requires an API key for "google". Add the key in Settings, then retry.',
       provider: 'google',
     });
-    expect(mockSecretsService.getKey).toHaveBeenNthCalledWith(1, 'anthropic');
-    expect(mockSecretsService.getKey).toHaveBeenNthCalledWith(2, 'google');
+    expect(mockSecretsService.getCredential).toHaveBeenNthCalledWith(1, 'anthropic');
+    expect(mockSecretsService.getCredential).toHaveBeenNthCalledWith(2, 'google');
   });
 
   it('builds observational memory on the built-in local model via the llm-host proxy', async () => {
@@ -1171,10 +1179,12 @@ describe('agent-stream-init runtime composition and memory', () => {
         toolName: 'workspace.writeFile',
       },
       expect.objectContaining({
+        // BST-1352: the resume leg receives the auth input on its OPTIONS…
+        authInput: { apiKey: 'test-api-key', kind: 'api_key' },
         memory: mockPgliteMastraMemory,
         requireToolApproval: true,
+        resolvePersonaApiKey: expect.any(Function),
         runtime: expect.objectContaining({
-          apiKey: 'test-api-key',
           memory: expect.objectContaining({
             resourceId: 'workspace-a',
             threadId: 'thread-1',
@@ -1184,6 +1194,14 @@ describe('agent-stream-init runtime composition and memory', () => {
         storage: mockPgliteMastraStorage,
       })
     );
+    // …and the runtime object carries NO apiKey field (regression pin for the
+    // RequestContext-serialization hazard: credentials never ride RuntimeData).
+    const [, approvalOptions] = (streamMastraToolApprovalAction as Mock).mock.calls[0] as [
+      unknown,
+      { runtime: Record<string, unknown> },
+    ];
+    expect(approvalOptions.runtime).not.toHaveProperty('apiKey');
+    expect(JSON.stringify(approvalOptions.runtime)).not.toContain('test-api-key');
   });
 
   it('rejects tool approval resume when workflow storage is missing from memory', async () => {
@@ -1278,7 +1296,11 @@ describe('agent-stream-init runtime composition and memory', () => {
         toolName: 'brainstrike.submitPlan',
       },
       expect.objectContaining({
+        // BST-1352: the suspend-resume leg receives the auth input on its
+        // OPTIONS; the runtime carries no credential fields.
+        authInput: { apiKey: 'test-api-key', kind: 'api_key' },
         memory: mockPgliteMastraMemory,
+        resolvePersonaApiKey: expect.any(Function),
         runtime: expect.objectContaining({ provider: 'openai' }),
         storage: mockPgliteMastraStorage,
       })
@@ -1516,6 +1538,72 @@ describe('agent-stream-init runtime composition and memory', () => {
     expect(streamMastraToolApprovalAction).not.toHaveBeenCalled();
     expect(streamMastraToolResumeAction).not.toHaveBeenCalled();
   });
+
+  it.each(['legacy-catalog', 'missing-configuration'])(
+    'returns actionable admitted-child remediation through the shared HTTP initializer (%s)',
+    async (kind) => {
+      const { streamMastraToolApprovalAction } = await import('@brainstrike/agent');
+      // Exercise the public package boundary, bypassing only this suite's agent mock.
+      const actualAgent =
+        await vi.importActual<typeof import('@brainstrike/agent')>('@brainstrike/agent');
+      const identity = {
+        childRuntimeRunId: 'child-run',
+        parentRuntimeRunId: 'parent-run',
+        parentToolCallId: 'parent-call',
+        personaId: 'worker',
+      };
+      const action = {
+        action: 'approve' as const,
+        delegation: { path: [identity], toolCallId: 'leaf-call' },
+        runId: 'parent-run',
+        toolCallId: 'parent-call',
+      };
+      const configuration =
+        kind === 'legacy-catalog'
+          ? {
+              maxSteps: 3,
+              persona: {
+                allowedToolIds: ['*'],
+                description: 'Work',
+                id: 'worker',
+                instructions: 'Original workspace-private instructions',
+                label: 'Worker',
+                maxSteps: 3,
+                mode: 'worker',
+              },
+            }
+          : undefined;
+      const error = await actualAgent
+        .streamMastraToolApprovalAction(action, {
+          conversationBinding: {
+            ...actualAgent.createDelegatedConversationBinding(async () => {}),
+            resolveToolAction: async () => [
+              { configuration, identity, resourceId: 'child-owner', threadId: 'child' },
+            ],
+          },
+          storage: mockPgliteMastraStorage as never,
+        })
+        .catch((failure: unknown) => failure);
+      expect(error).toMatchObject({ code: 'admitted_child_configuration_unavailable' });
+      vi.mocked(streamMastraToolApprovalAction).mockRejectedValueOnce(error);
+      const response = await runRequest({
+        body: JSON.stringify({
+          data: { memory: { resourceId: 'workspace-a', threadId: 'thread-1' }, provider: 'openai' },
+          messages: [],
+          runConfig: { custom: { brainstrikeToolApproval: action } },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      });
+      expect(response.status).toBe(409);
+      expect(JSON.parse(response.body)).toMatchObject({
+        error: 'admitted_child_configuration_unavailable',
+        message: expect.stringContaining('Start a new delegation'),
+      });
+      expect(response.body).not.toContain('workspace-private');
+    }
+  );
 
   it('should handle stream initialization failure', async () => {
     const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');

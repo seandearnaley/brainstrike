@@ -31,6 +31,12 @@ export type ContextTarget =
       kind: 'workspace-file-tab';
       tabId: string;
     })
+  | {
+      readonly kind: 'workspace-app-tab';
+      readonly appId: string;
+      readonly label: string;
+      readonly placement: 'dynamic' | 'pinned';
+    }
   | (FileContextIdentity & {
       kind: 'file-viewer';
       /** Exact, event-time selection snapshot; null means the selection is collapsed. */
@@ -42,6 +48,12 @@ export type ContextTarget =
     })
   | (AssistantThreadContextIdentity & { kind: 'assistant-thread' })
   | (AssistantThreadContextIdentity & { kind: 'assistant-thread-tab' })
+  | {
+      readonly kind: 'browser-tab';
+      readonly tabId: string;
+      readonly title: string;
+      readonly url: string;
+    }
   | {
       readonly allowOverlap: boolean;
       readonly compositeKey: string;
@@ -68,6 +80,11 @@ export type ContextTarget =
       readonly searchRangeCount: number;
       readonly startLine: number;
     }
+  /**
+   * The empty background of a tab strip (BST-1836 §6.4). Strip-level local
+   * actions (New, Close All) claim it; `stripId` names the owning strip.
+   */
+  | { readonly kind: 'tab-strip'; readonly stripId: string }
   | { kind: 'collection'; id: string; name: string }
   | { kind: 'collection-file'; id: string; name: string; path: string | null }
   | { kind: 'chunk'; id: string; content: string }
@@ -116,6 +133,39 @@ export type ContextTarget =
       readonly repositoryRoot: string;
       readonly trust: 'unvalidated' | 'validated';
       readonly trustReason: string | null;
+    }
+  /**
+   * A CONNECTED workspace root — the Explorer's per-root section header
+   * (spec §7). This kind closes the `docs/agents/workspace-context.md`
+   * DEFERRED ruling ("root headers have no ContextTarget kind yet").
+   *
+   * `rootId` is the surface's resolved root IDENTITY: the durable `roots.id`
+   * when one exists, otherwise the legacy path-as-id the forest already falls
+   * back to (`RootSection`'s `rootIdentity`). Like every other durable root id
+   * in this union it is commonly a UUID and MUST NOT be treated as a path.
+   *
+   * `path` is `null` when the root has no absolute path distinct from its
+   * name — a browser File-System-Access root, whose `DirectoryHandle.path` IS
+   * its `name` (`packages/types/src/file-system.ts`: "on web `path` is only
+   * the directory name"). Correction: this name-equality check is NEW
+   * normalization logic in `workspaceRootToTarget`, not a rule reused from
+   * `RootSectionHeader` — that component's own `path` prop is a plain
+   * truthiness check (`{path ? ... : name}`) and its doc says callers must
+   * omit the prop for FSA roots; nothing in the header itself compares
+   * `path` against a display name. Path-shaped actions gate on the DATA
+   * (`isVisible`) and web hides them without any platform check.
+   *
+   * `isMain` is the workspace-wide MAIN role (`activeRootIds[0]`) the header
+   * renders as its "Main" badge — deliberately NOT the workspace bar's
+   * per-thread primary, which has a different writer and a different meaning
+   * (BST-1393 ruling R1).
+   */
+  | {
+      readonly displayName: string;
+      readonly isMain: boolean;
+      readonly kind: 'workspace-root';
+      readonly path: string | null;
+      readonly rootId: string;
     };
 
 export type ContextTargetKind = ContextTarget['kind'];

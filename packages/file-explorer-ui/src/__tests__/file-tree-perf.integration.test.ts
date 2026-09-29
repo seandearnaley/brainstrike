@@ -29,7 +29,11 @@
  * - Mega trees complete within 20x budget (BST-149)
  */
 
-import { flattenTreeForCount, generateLargeTree, largeTreePresets } from '@brainstrike/test-utils';
+import {
+  flattenTreeForCount,
+  generateLargeTree,
+  largeTreePresets,
+} from '@brainstrike/file-tree-test-fixtures';
 import { PERF_BUDGETS } from '@brainstrike/utils/perf-timing';
 import { describe, expect, it } from 'vitest';
 

@@ -1,3 +1,4 @@
+import { fileNodeToDirectoryHandle } from '@brainstrike/file-system/file-node-handles';
 import type { DirectoryHandle, FileSystemAdapter, IFileNode } from '@brainstrike/types';
 import { IGNORED_PATHS } from '@brainstrike/types';
 
@@ -56,13 +57,7 @@ function createFileNodeBase(node: IFileNode, state: TraversalState): IFileNode {
 }
 
 function createChildDirectoryHandle(node: IFileNode, parent: DirectoryHandle): DirectoryHandle {
-  return {
-    _internal: node.handle,
-    kind: 'directory',
-    name: node.name,
-    path: node.path,
-    platform: parent.platform,
-  };
+  return fileNodeToDirectoryHandle(node, parent.rootId);
 }
 
 async function processDirectoryNode(

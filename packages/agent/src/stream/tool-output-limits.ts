@@ -1,6 +1,8 @@
 import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
+import { SUBAGENT_DELEGATION_TOOL_PREFIX } from '@brainstrike/assistant-contract/personas';
 import {
   findLlmModelDefinition,
+  findProviderDefinition,
   type ProviderId,
 } from '@brainstrike/assistant-contract/provider-registry';
 import { createLogger } from '@brainstrike/logging';
@@ -133,7 +135,12 @@ export function resolveToolResultBudgetForModel(
   if (definition) {
     return resolveScaledToolResultBudget(definition.contextWindow);
   }
-  if (providerId === 'ollama' || providerId === 'lmstudio') {
+  // Guarded lookup: providerId can be an unvalidated persona-pin cast, so an
+  // out-of-registry id must reach the documented warn+anchor fallback below —
+  // never a TypeError (PR #2513 review, finding 1).
+  if (findProviderDefinition(providerId)?.runtime === 'local') {
+    // Local-runtime servers (registry `runtime: 'local'`) discover their
+    // model catalogs dynamically, so no static definition exists.
     return resolveScaledToolResultBudget(DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW);
   }
   logger.warn('Unknown model id for tool-result budget resolution; using fallback window', {
@@ -590,6 +597,50 @@ function resolveOverrideTokens(override: number, scaledDefaultTokens: number | u
   return Math.max(TRANSPORT_TOOL_RESULT_TOKEN_FLOOR, Math.round(override * scaleFactor));
 }
 
+/** A compact per-child row keeps small identifying args; above this, drop them. */
+const DELEGATION_CHILD_ARGS_MAX_SERIALIZED_CHARS = 200;
+
+/**
+ * Project a delegation (`agent-*`) result's `subAgentToolResults` to the
+ * compact per-child rows the SubagentCard actually renders — toolName,
+ * toolCallId, isError, and small args — dropping the raw child `result`
+ * bodies BEFORE any size bounding.
+ *
+ * Field failure (2026-08-24): the raw list carried full child tool outputs,
+ * ONE oversized entry blew the generic budget, `trimCollectionToBudget`
+ * returned undefined (even a single item did not fit), and the preview
+ * fallback dropped the list wholesale — so a reopened card read "Completed ·
+ * 0 tool calls" for a child that did minutes of work. Nothing downstream
+ * needs the raw bodies: the parent model receives only the child's answer
+ * text (Mastra's delegation `toModelOutput`), and the card renders only the
+ * identifying fields.
+ */
+function projectDelegationResultForTransport(toolName: string, output: unknown): unknown {
+  if (!(toolName.startsWith(SUBAGENT_DELEGATION_TOOL_PREFIX) && isPlainRecordOutput(output))) {
+    return output;
+  }
+  const list = output['subAgentToolResults'];
+  if (!Array.isArray(list)) {
+    return output;
+  }
+  const compact = list.map((entry) => {
+    if (!isPlainRecordOutput(entry)) {
+      return entry;
+    }
+    const args = entry['args'];
+    const keepArgs =
+      args !== undefined &&
+      stringifyJsonSafe(toJsonSafe(args)).length <= DELEGATION_CHILD_ARGS_MAX_SERIALIZED_CHARS;
+    return {
+      ...(keepArgs ? { args } : {}),
+      ...(entry['isError'] === undefined ? {} : { isError: entry['isError'] }),
+      ...(typeof entry['toolCallId'] === 'string' ? { toolCallId: entry['toolCallId'] } : {}),
+      ...(typeof entry['toolName'] === 'string' ? { toolName: entry['toolName'] } : {}),
+    };
+  });
+  return { ...output, subAgentToolResults: compact };
+}
+
 export function boundToolOutputForModel(
   toolName: string,
   output: unknown,
@@ -603,7 +654,7 @@ export function boundToolOutputForModel(
       ? (scaledDefaultTokens ?? MAX_TOOL_RESULT_TOKENS)
       : resolveOverrideTokens(override, scaledDefaultTokens));
   const maxSerializedChars = maxTokens * APPROX_CHARS_PER_TOKEN;
-  const jsonSafeOutput = toJsonSafe(output);
+  const jsonSafeOutput = toJsonSafe(projectDelegationResultForTransport(toolName, output));
   const serialized = stringifyJsonSafe(jsonSafeOutput);
 
   // Recognized envelopes are idempotent only when they fit the ACTIVE budget.

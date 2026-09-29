@@ -44,6 +44,9 @@ beforeEach(() => {
   // other queries override this.
   mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
   resetDesktopMastraMemoryCacheForTests();
+  mockSecretsService.getCredential
+    .mockReset()
+    .mockResolvedValue({ key: 'test-api-key', type: 'api_key' });
   mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
   mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
   Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });
@@ -58,6 +61,66 @@ afterEach(() => {
   resetDesktopMastraMemoryCacheForTests();
 }, 15_000);
 describe('run persistence through the HTTP path', () => {
+  it('marks a rejected decision before stream admission without claiming the paused run', async () => {
+    const { toAiSdkStyleStream } = await import('@brainstrike/agent');
+    const response = await runRequest({
+      body: JSON.stringify({
+        data: {
+          memory: { resourceId: 'workspace-a', runId: 'rejected-answer-leg', threadId: 'thread-1' },
+          provider: 'openai',
+        },
+        messages: [],
+        pausedMessageId: 'paused-ui-owner',
+        runConfig: {
+          custom: {
+            brainstrikeToolApproval: {
+              action: 'approve',
+              runId: 'native-run',
+              toolCallId: 'canvas-call',
+            },
+          },
+        },
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+      url: '/',
+    });
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'assistant_admission_rejected',
+      message: 'Assistant stream failed.',
+    });
+    expect(toAiSdkStyleStream).not.toHaveBeenCalled();
+  });
+
+  it('keeps post-admission action stream failures on the generic error path', async () => {
+    const { streamMastraToolApprovalAction } = await import('@brainstrike/agent');
+    const { streamResponse } = await import('../../assistant-server/http');
+    (streamResponse as Mock).mockRejectedValueOnce(new Error('stream setup failed'));
+    const response = await runRequest({
+      body: JSON.stringify({
+        data: { memory: { resourceId: 'workspace-a', threadId: 'thread-1' }, provider: 'openai' },
+        messages: [],
+        runConfig: {
+          custom: {
+            brainstrikeToolApproval: {
+              action: 'approve',
+              runId: 'native-run',
+              toolCallId: 'canvas-call',
+            },
+          },
+        },
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+      url: '/',
+    });
+    expect(response.status).toBe(500);
+    expect(JSON.parse(response.body).error).toBe('assistant_stream_failed');
+    expect(streamMastraToolApprovalAction).toHaveBeenCalled();
+  });
+
   it('marks assistant thread runs completed after desktop streams finish', async () => {
     const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
       await import('@brainstrike/agent');
@@ -217,8 +280,8 @@ describe('run persistence through the HTTP path', () => {
     });
 
     expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
-      expect.arrayContaining(['run-output-limit', 'failed', terminalError])
+      expect.stringContaining("SET status = 'failed', error = $2"),
+      ['run-output-limit', terminalError]
     );
   });
 
@@ -802,8 +865,8 @@ describe('run persistence through the HTTP path', () => {
       })
     );
     expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
-      expect.arrayContaining(['run-source-error', 'failed', 'agent stream failed'])
+      expect.stringContaining("SET status = 'failed', error = $2"),
+      ['run-source-error', 'agent stream failed']
     );
   });
 
@@ -840,8 +903,8 @@ describe('run persistence through the HTTP path', () => {
 
     expect(response.status).toBe(500);
     expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
-      expect.arrayContaining(['run-failed', 'failed', 'stream pipeline failed'])
+      expect.stringContaining("SET status = 'failed', error = $2"),
+      ['run-failed', 'stream pipeline failed']
     );
   });
 

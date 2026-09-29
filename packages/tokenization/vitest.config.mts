@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
@@ -16,6 +17,7 @@ export default defineConfig({
     globals: true,
     hookTimeout: 15_000,
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
+    reporters: ['default', new LostTestFileReporter()],
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     testTimeout: 30_000,
   },

@@ -1,4 +1,5 @@
 import {
+  type BedrockReasoningEffort,
   type GoogleThinkingLevel,
   OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
@@ -7,6 +8,7 @@ import {
 import type { AssistantTaskItem } from './assistant-task-list.js';
 import type { RuntimeAssistantMemorySettings } from './memory-settings.js';
 import type { SkillsContextRequest } from './skills.js';
+import type { RuntimeSubagentSettings } from './subagent-settings.js';
 
 export type RuntimeJsonObject = Record<string, unknown>;
 
@@ -30,6 +32,7 @@ export interface AssistantRunSteeringControl {
  * drift from the pickers that read them.
  */
 export {
+  type BedrockReasoningEffort,
   type GoogleThinkingLevel,
   OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
@@ -66,7 +69,7 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * Mirrors the `thinking` discriminated union of the installed
- * `@ai-sdk/anthropic` (4.0.39), held there by
+ * `@ai-sdk/anthropic` (4.0.49), held there by
  * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`.
  *
  * `budgetTokens` is OPTIONAL upstream and required here on purpose: an
@@ -79,15 +82,49 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
  * provider-side on current models, so reasoning must be asked for explicitly —
  * that silence was why Claude runs showed no thinking. `enabled` + an explicit
  * `budgetTokens` remains supported for older models.
+ *
+ * `updates` — thinking returned BETWEEN tool calls — is new in this provider
+ * range and is mirrored because the wire accepts it, not because the app emits
+ * it: the producer in `assistant-ui-panel-wrapper-runtime` still projects
+ * `resolveReasoningVisible` onto `summarized`/`omitted` only. Leaving it out
+ * would make this union strictly narrower than the provider, the exact failure
+ * mode the mirror contract exists to catch.
  */
 export type AnthropicThinkingOptions =
-  | { type: 'adaptive'; display?: 'omitted' | 'summarized' }
+  | { type: 'adaptive'; display?: 'omitted' | 'summarized' | 'updates' }
   | { type: 'enabled'; budgetTokens: number }
   | { type: 'disabled' };
 
 export interface AnthropicProviderOptions extends RuntimeJsonObject {
   effort?: AnthropicEffort;
   thinking?: AnthropicThinkingOptions;
+}
+
+/**
+ * Mirrors `reasoningConfig` of the installed `@ai-sdk/amazon-bedrock` (5.0.57).
+ *
+ * Deliberately NOT a discriminated union: `type: 'enabled'` carries
+ * `budgetTokens` for Claude routes and `maxReasoningEffort` for Amazon Nova,
+ * so the same tag has two valid payloads and a union on `type` would be a lie.
+ * WHICH payload a route accepts is a registry fact
+ * (`LlmModelDefinition.bedrockReasoning`), not something this shape can encode.
+ *
+ * `type` is REQUIRED here though optional upstream: a config with no type is
+ * not a shape this app emits.
+ *
+ * `display` is the VISIBILITY knob and is honored by the SDK only for
+ * `type: 'adaptive'` — the same asymmetry first-party Anthropic has, where the
+ * legacy `enabled` + budget form carries no display either.
+ */
+export interface BedrockReasoningConfig {
+  budgetTokens?: number;
+  display?: 'omitted' | 'summarized';
+  maxReasoningEffort?: BedrockReasoningEffort;
+  type: 'adaptive' | 'disabled' | 'enabled';
+}
+
+export interface BedrockProviderOptions extends RuntimeJsonObject {
+  reasoningConfig?: BedrockReasoningConfig;
 }
 
 export interface GoogleProviderOptions extends RuntimeJsonObject {
@@ -119,6 +156,7 @@ export interface RuntimeModelSettings {
 
 export type RuntimeProviderOptions = RuntimeJsonObject & {
   anthropic?: AnthropicProviderOptions;
+  bedrock?: BedrockProviderOptions;
   google?: GoogleProviderOptions;
   lmstudio?: LocalRuntimeProviderOptions;
   local?: LocalProviderOptions;
@@ -327,7 +365,12 @@ export interface RuntimeData {
    * `submitPlan`/`askUser` survive because they are classified `read`, not
    * because they suspend) and prepends a PLAN-MODE instruction block, so the model
    * investigates and proposes a plan for approval before any changes. Sent over
-   * the wire ONLY when `true` (presence-means-on, like `permissionPolicyRequest`).
+   * the wire ONLY when `true`, but read the VALUE rather than key presence: the
+   * request-lifecycle producer writes the key unconditionally and lets
+   * `JSON.stringify` drop an explicit `undefined`. Pinned by "leaves the opt-in
+   * keys PRESENT with undefined values" in `use-assistant-request-lifecycle.test.ts`;
+   * same shape as `permissionPolicyRequest`, whose declaration in
+   * `packages/agent/src/types.ts` carries the full rationale.
    * Excluded for the built-in local provider. Agent-only enforcement.
    */
   planMode?: boolean;
@@ -379,6 +422,15 @@ export interface RuntimeData {
    * inject personas or credentials. Absent => delegation on, nothing disabled.
    */
   subagentPersonasRequest?: SubagentPersonasAvailabilityRequest;
+  /**
+   * Renderer-supplied delegation limits, per turn tree and per child
+   * (Settings → Subagents → Subagent limits, `assistant-subagent-preferences.v1`). A
+   * preference the host VALIDATES (`parseRuntimeSubagentSettings`: absent →
+   * defaults, malformed → throws). Its budgets are copied into the original
+   * turn's durable budget row at first admission; a later leg never changes
+   * that row.
+   */
+  subagentSettings?: RuntimeSubagentSettings;
   /**
    * The current per-thread assistant task list, read server-side at request
    * start and re-serialized into the system instructions every turn (see the

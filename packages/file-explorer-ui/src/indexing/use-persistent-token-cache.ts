@@ -61,6 +61,8 @@ export interface UsePersistentTokenCacheProps {
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
   /** File contents by composite key (folderId::path) - now optional for cache hits */
   fileContents: Record<string, string>;
+  /** Current on-disk byte sizes by composite key. Required before persistent validation. */
+  fileSizes?: Record<string, number>;
   /** Callback when token count is resolved (triggers re-render) */
   onTokenResolved: () => void;
   /** Token counting state (old API) */
@@ -228,6 +230,7 @@ function readInMemorySelectionStats(
  */
 export function usePersistentTokenCache({
   fileContents,
+  fileSizes,
   tokenCounting,
   decodeFileSelection,
   onTokenResolved,
@@ -268,7 +271,12 @@ export function usePersistentTokenCache({
         // Try to get from hot cache first (no content needed!)
         // Pass undefined for content to check cache only
         const content = fileContents[compositeKey];
-        const count = persistentCache.getTokenCount(folderId, normalizedPath, content);
+        const count = persistentCache.getTokenCount(
+          folderId,
+          normalizedPath,
+          content,
+          fileSizes?.[compositeKey]
+        );
 
         if (count !== null) {
           return count;
@@ -324,7 +332,15 @@ export function usePersistentTokenCache({
       }
       return;
     },
-    [fileContents, persistentCache, tokenCounting, decodeFileSelection, onTokenResolved]
+    [
+      countingRuntimeStateKey,
+      decodeFileSelection,
+      fileContents,
+      fileSizes,
+      onTokenResolved,
+      persistentCache,
+      tokenCounting,
+    ]
   );
 
   /**

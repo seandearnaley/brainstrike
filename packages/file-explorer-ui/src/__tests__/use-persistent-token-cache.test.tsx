@@ -35,6 +35,7 @@ const flushMicrotasks = async () => {
 describe('usePersistentTokenCache', () => {
   let tokenCounting: TokenCountingState;
   let fileContents: Record<string, string>;
+  let fileSizes: Record<string, number>;
   let onTokenResolved: () => void;
   let logEntries: LogRecord[];
   let removeLogListener: (() => void) | null;
@@ -42,6 +43,7 @@ describe('usePersistentTokenCache', () => {
   beforeEach(() => {
     tokenCounting = createTokenCounting();
     fileContents = {};
+    fileSizes = {};
     onTokenResolved = vi.fn();
     mockContext = null;
     logEntries = [];
@@ -62,6 +64,7 @@ describe('usePersistentTokenCache', () => {
       usePersistentTokenCache({
         decodeFileSelection,
         fileContents,
+        fileSizes,
         onTokenResolved,
         tokenCounting,
       })
@@ -99,7 +102,12 @@ describe('usePersistentTokenCache', () => {
 
       const value = result.current.getTokenCount('folder::file.txt');
       expect(value).toBe(42);
-      expect(mockContext?.getTokenCount).toHaveBeenCalledWith('folder', 'file.txt', 'hello');
+      expect(mockContext?.getTokenCount).toHaveBeenCalledWith(
+        'folder',
+        'file.txt',
+        'hello',
+        undefined
+      );
     });
 
     it('normalizes restored absolute paths before reading persistent token counts', () => {
@@ -108,7 +116,12 @@ describe('usePersistentTokenCache', () => {
 
       const value = result.current.getTokenCount('/repo::/repo/src/file.txt');
       expect(value).toBe(42);
-      expect(mockContext?.getTokenCount).toHaveBeenCalledWith('/repo', 'src/file.txt', 'hello');
+      expect(mockContext?.getTokenCount).toHaveBeenCalledWith(
+        '/repo',
+        'src/file.txt',
+        'hello',
+        undefined
+      );
     });
 
     it('normalizes restored absolute paths before reading persistent file sizes', () => {
@@ -131,11 +144,17 @@ describe('usePersistentTokenCache', () => {
     it('forwards content when triggering persistent counting', () => {
       (mockContext!.getTokenCount as ReturnType<typeof vi.fn>).mockReturnValueOnce(null);
       fileContents['folder::file.txt'] = 'content-here';
+      fileSizes['folder::file.txt'] = 123;
 
       const { result } = renderCacheHook();
       result.current.getTokenCount('folder::file.txt');
 
-      expect(mockContext?.getTokenCount).toHaveBeenCalledWith('folder', 'file.txt', 'content-here');
+      expect(mockContext?.getTokenCount).toHaveBeenCalledWith(
+        'folder',
+        'file.txt',
+        'content-here',
+        123
+      );
     });
 
     it('exposes cacheVersion from context', () => {

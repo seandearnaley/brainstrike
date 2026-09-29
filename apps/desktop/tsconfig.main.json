@@ -95,6 +95,9 @@
       "@brainstrike/notes-vault/desktop-contract": [
         "../../packages/notes-vault/dist/desktop/bridge-contract.d.ts"
       ],
+      "@brainstrike/effect-kit": [
+        "../../packages/effect-kit/dist/index.d.ts"
+      ],
       "@brainstrike/logging": [
         "../../packages/logging/dist/index.d.ts"
       ],
@@ -127,6 +130,8 @@
     "src/db-host-protocol.ts",
     "src/db-main.ts",
     "src/parser-host-entry.ts",
+    "src/official-conformance-client-entry.ts",
+    "src/official-conformance-client-process.ts",
     "src/parser-host-shared.ts",
     "src/parser-host-manager.ts",
     "src/ipc-parser-host.ts",
@@ -137,6 +142,9 @@
     "src/assistant-server.ts",
     "src/secrets.ts",
     "src/mcp-loader.ts",
+    "src/mcp/server-actor.ts",
+    "src/mcp/host-revision-publisher.ts",
+    "src/mcp/host-service.ts",
     "src/create-window.ts",
     "src/setup-security.ts",
     "src/agent-client-loader.ts",

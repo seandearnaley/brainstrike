@@ -1,0 +1,35 @@
+name: Knip audit
+
+# Owner: Sean Dearnaley (@seandearnaley), BST-1761.
+# Weekly/manual until runner cost and sustained signal justify a PR gate.
+# Findings and tool/build errors fail the run; no baseline or swallowed failures.
+on:
+  schedule:
+    - cron: '37 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: knip-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TURBO_CACHE_DIR: .turbo
+
+jobs:
+  audit:
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+      - name: Audit unused files and dependencies
+        run: time pnpm knip
+      - name: Prove file and dependency detection
+        run: node scripts/check-knip-liveness.mjs

@@ -1,5 +1,6 @@
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createGoogle } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import {
   assertSafeBearerToken,
@@ -15,14 +16,28 @@ import {
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import type { RuntimeData } from '../types';
-import { wrapAnthropicModelWithPromptCaching } from './anthropic-prompt-caching';
+import { resolveBedrockModelId } from './bedrock-model-id';
+import { resolveCodexModelId } from './codex-model-id';
 import { createLlmHostChatModel } from './local/llm-host-chat-model';
 import type { LocalLanguageModelSettings } from './local/local-language-model';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content';
+import { wrapModelWithDeclaredPromptCaching } from './prompt-caching';
+import {
+  apiKeyAuthInput,
+  assertExactlyOneAwsCredential,
+  assertValidProviderAuthInput,
+  bearerApiKeyOnly,
+  type ProviderAuthInput,
+  type ProviderFetchOptions,
+  providerFetchOptions,
+  requireAwsAuthInput,
+  requireCustomFetchAuthInput,
+} from './provider-auth-input';
 import {
   isSupportedProvider,
   listProviders,
   PROVIDER_DEFAULT_MODELS,
+  providerAuthType,
   type SupportedProvider,
 } from './types';
 
@@ -32,11 +47,6 @@ export type LocalLanguageModelFactory = (
 ) => unknown;
 
 let localLanguageModelFactory: LocalLanguageModelFactory | undefined;
-
-// Stateless singleton; explicit-key routers use their per-instance model
-// cache (fresh per createProvider call), so sharing this instance is for
-// tidiness, not cache reuse.
-const openRouterStrictContentGateway = new OpenRouterStrictContentGateway();
 
 export type ConcreteLanguageModel = Exclude<MastraModelConfig, string | OpenAICompatibleConfig>;
 const PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS = new Set<SupportedProvider>([
@@ -94,26 +104,44 @@ function pickApiKey(
 }
 
 /**
+ * Build the AI SDK `create*` settings object from projected auth options,
+ * preserving the pre-BST-1352 `apiKey ? { apiKey } : undefined` shape exactly
+ * when nothing was projected.
+ */
+function sdkFactorySettings(options: ProviderFetchOptions): ProviderFetchOptions | undefined {
+  if (options.apiKey === undefined && options.fetch === undefined) {
+    return;
+  }
+  return options;
+}
+
+/** Error-context helper: only computed when a throw actually happens (E4). */
+function listSupportedProviderIds(): readonly SupportedProvider[] {
+  return listProviders().map((entry) => entry.id) as readonly SupportedProvider[];
+}
+
+/**
  * Create a language model instance for the specified provider
  *
  * @param provider - The AI provider to use
- * @param apiKey - Optional API key (uses environment variables if not provided)
+ * @param auth - Optional auth input (BST-1352 union; `api_key` matches the old
+ *   string parameter — SDK-side environment variables apply when omitted)
  * @param model - Optional model name (uses provider-specific default if not provided)
  * @returns A language model instance configured for the provider
- * @throws Error if the provider is not supported or API key is missing
+ * @throws Error if the provider is not supported or the auth input is invalid
  */
 export function createProvider(
   provider: SupportedProvider | string,
-  apiKey?: string,
+  auth?: ProviderAuthInput,
   model?: string,
   runtime?: Pick<RuntimeData, 'localLlmHostClient' | 'providerOptions'>
 ): MastraModelConfig {
-  const supportedProviders = listProviders().map(
-    (entry) => entry.id
-  ) as readonly SupportedProvider[];
+  // Shape validation (aws region) happens BEFORE provider dispatch so a
+  // malformed input fails identically on every provider case.
+  assertValidProviderAuthInput(auth);
   if (!isSupportedProvider(provider)) {
     throw createMastraAgentError('mastra_agent_unsupported_provider', {
-      context: { provider, supportedProviders },
+      context: { provider, supportedProviders: listSupportedProviderIds() },
       detail: `Unsupported provider: ${provider}`,
     });
   }
@@ -137,19 +165,52 @@ export function createProvider(
       // repointed at `.chat(modelName)` (chat-completions) or an
       // OpenAI-compatible base URL, the native web-search tool must move with
       // it — see the matching invariant comment in native-web-search.ts.
-      const openaiProvider = createOpenAI(apiKey ? { apiKey } : undefined);
+      const openaiProvider = createOpenAI(
+        sdkFactorySettings(providerFetchOptions(auth, validatedProvider))
+      );
       return openaiProvider(modelName);
     }
 
+    case 'openai-codex': {
+      // BST-1356 (legal gate BST-1351). Same OpenAI Responses SDK surface as
+      // the `openai` case above, but EVERY byte of authentication lives in the
+      // injected fetch closure: it strips the SDK's dummy authorization,
+      // attaches the subscription bearer from the desktop provider-auth
+      // engine, and rewrites the request onto OpenAI's Codex backend.
+      //
+      // The narrow is load-bearing, not defensive: without it an `api_key`
+      // input would reach `createOpenAI` and quietly bill the user's METERED
+      // platform account for traffic they asked to draw on their subscription.
+      const codexAuth = requireCustomFetchAuthInput(auth, validatedProvider);
+      const codexProvider = createOpenAI(
+        sdkFactorySettings(providerFetchOptions(codexAuth, validatedProvider))
+      );
+      // Catalog ids are `codex/`-prefixed (the models table's id is a global
+      // primary key); the Codex backend wants the bare id.
+      return codexProvider(resolveCodexModelId(modelName));
+    }
+
     case 'anthropic': {
-      const anthropicProvider = createAnthropic(apiKey ? { apiKey } : undefined);
+      const anthropicProvider = createAnthropic(
+        sdkFactorySettings(providerFetchOptions(auth, validatedProvider))
+      );
       // BST-587: every hosted Anthropic request carries a tail cache breakpoint
-      // so multi-step agent runs cache-read the shared prefix.
-      return wrapAnthropicModelWithPromptCaching(anthropicProvider(modelName));
+      // so multi-step agent runs cache-read the shared prefix. The wrapper
+      // composes with EVERY auth kind, custom_fetch included — the Proxy
+      // intercepts doStream/doGenerate regardless of how the model was built.
+      // BST-1354 made the SELECTION registry-driven; every Anthropic model row
+      // declares `promptCaching: 'anthropic'`, so behavior here is unchanged.
+      return wrapModelWithDeclaredPromptCaching(
+        validatedProvider,
+        modelName,
+        anthropicProvider(modelName)
+      );
     }
 
     case 'google': {
-      const googleProvider = createGoogleGenerativeAI(apiKey ? { apiKey } : undefined);
+      const googleProvider = createGoogle(
+        sdkFactorySettings(providerFetchOptions(auth, validatedProvider))
+      );
       return googleProvider(modelName);
     }
 
@@ -163,12 +224,65 @@ export function createProvider(
       // gateway: replayed assistant turns that carry only tool calls
       // serialize as `content: null`, which Alibaba-hosted qwen/* models
       // reject with a 400 — see openrouter-strict-content.ts.
+      // Constructed per call so the request's already-resolved credential
+      // (BRAINSTRIKE_* override, vendor env name, or stored keychain key) is
+      // threaded into the gateway's getApiKey — never re-derived from a
+      // hardcoded env read (BST-1361). The key comes off the BST-1352 auth
+      // seam: descriptor config, no fetch seam, so `bearerApiKeyOnly` throws
+      // typed on custom_fetch/aws instead of silently dropping them.
+      const apiKey = bearerApiKeyOnly(auth, validatedProvider);
       return new ModelRouterLanguageModel(
         {
           id: `openrouter/${modelName}`,
           ...(apiKey ? { apiKey } : {}),
         },
-        [openRouterStrictContentGateway]
+        [new OpenRouterStrictContentGateway(apiKey)]
+      );
+    }
+
+    case 'bedrock': {
+      // The aws auth input is REQUIRED — a bearer key alone (api_key kind) or
+      // absent auth carries no region, and region is mandatory (typed
+      // failure, never a silent default).
+      const awsAuth = requireAwsAuthInput(auth, validatedProvider);
+      // EXACTLY ONE credential form, bearer (BST-1350) or credential chain
+      // (BST-1353) — with neither, the AI SDK signs with AMBIENT env
+      // credentials, i.e. an identity the user never chose.
+      //
+      // REDUNDANT BY DESIGN, and measured to be so: `createProvider` always
+      // runs `assertValidProviderAuthInput` first, so removing EITHER call
+      // alone breaks no test (verified by mutation during the #2524 rebase);
+      // only removing BOTH does. Kept as a local invariant at the single
+      // point of use, because this is the line where a missing credential
+      // becomes a silently mis-signed AWS request. Do not delete it as "dead
+      // code" — the pre-dispatch validator is generic over the whole union,
+      // this one is the Bedrock case's own contract.
+      assertExactlyOneAwsCredential(awsAuth);
+      // SDK settings ride the SAME providerFetchOptions seam as every other
+      // AI SDK factory case (PR #2522 review, finding 9) — a future
+      // fetch-carrying auth kind composes without a bespoke branch here. The
+      // credential provider is added beside it (it is Bedrock-only, so it
+      // stays out of the generic projection); the AI SDK prefers `apiKey`
+      // over `credentialProvider` when both are set, which is precisely why
+      // the XOR above is enforced instead of relied upon.
+      const bedrockProvider = createAmazonBedrock({
+        ...providerFetchOptions(awsAuth, validatedProvider),
+        ...(awsAuth.credentialProvider === undefined
+          ? {}
+          : { credentialProvider: awsAuth.credentialProvider }),
+        region: awsAuth.region,
+      });
+      // The catalog stores UNPREFIXED Bedrock model ids; the cross-region
+      // inference-profile prefix is a per-request routing concern derived
+      // from the request's region (see bedrock-model-id.ts).
+      //
+      // BST-1354: capability lookup uses the UNPREFIXED catalog id, while the
+      // SDK model is built from the ROUTED id — the prefix selects a
+      // cross-region profile, it does not change what the model supports.
+      return wrapModelWithDeclaredPromptCaching(
+        validatedProvider,
+        modelName,
+        bedrockProvider(resolveBedrockModelId(modelName, awsAuth.region))
       );
     }
 
@@ -187,7 +301,7 @@ export function createProvider(
       // disabled, so the dummy is harmless on the wire.
       const ollamaOptions = runtime?.providerOptions?.ollama;
       const url = resolveLocalRuntimeBaseUrl('ollama', ollamaOptions?.baseUrl);
-      const resolvedKey = pickApiKey(apiKey, ollamaOptions);
+      const resolvedKey = pickApiKey(bearerApiKeyOnly(auth, validatedProvider), ollamaOptions);
       return {
         apiKey: resolvedKey ?? 'ollama',
         id: `ollama/${modelName}`,
@@ -204,7 +318,7 @@ export function createProvider(
       // `apiKey` (preventing OPENAI_API_KEY env-var leakage to remote hosts).
       const lmStudioOptions = runtime?.providerOptions?.lmstudio;
       const url = resolveLocalRuntimeBaseUrl('lmstudio', lmStudioOptions?.baseUrl);
-      const resolvedKey = pickApiKey(apiKey, lmStudioOptions);
+      const resolvedKey = pickApiKey(bearerApiKeyOnly(auth, validatedProvider), lmStudioOptions);
       return {
         apiKey: resolvedKey ?? 'lmstudio',
         id: `lmstudio/${modelName}`,
@@ -213,6 +327,10 @@ export function createProvider(
     }
 
     case 'local': {
+      // The built-in local model never consumes a bearer key; the narrow runs
+      // (and its result is discarded) so custom_fetch/aws still fail typed
+      // instead of being silently ignored on this keyless case.
+      bearerApiKeyOnly(auth, validatedProvider);
       // Host-injected client (desktop main): proxy generation to the hidden
       // llm-host renderer. Without a client (web/browser renderer), run the
       // in-process backend — that path requires a browser environment.
@@ -239,7 +357,7 @@ export function createProvider(
 
     default:
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
-        context: { provider, supportedProviders },
+        context: { provider, supportedProviders: listSupportedProviderIds() },
         detail: `Unsupported provider: ${provider}`,
       });
   }
@@ -266,14 +384,20 @@ export function createLanguageModelProvider(
       detail: `Persistent memory does not support provider: ${provider}`,
     });
   }
-  if (provider !== 'local' && !apiKey?.trim()) {
+  // Registry-derived (PR #2513 review, finding 7): within the persistent-
+  // memory allowlist above, `local` is the only `authType: 'none'` member
+  // (ollama/lmstudio are excluded from persistent memory entirely), so this
+  // is behavior-identical to the previous `provider !== 'local'` check.
+  if (providerAuthType(provider) !== 'none' && !apiKey?.trim()) {
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {
       context: { provider },
       detail: `Persistent memory provider "${provider}" requires an explicit API key.`,
     });
   }
 
-  const modelConfig = createProvider(provider, apiKey, model, runtime);
+  // Persistent memory stays on the resolved-string surface; the ONE
+  // string→union adapter wraps it for the factory seam (BST-1352).
+  const modelConfig = createProvider(provider, apiKeyAuthInput(apiKey), model, runtime);
   if (isConcreteLanguageModel(modelConfig)) {
     return modelConfig;
   }
@@ -346,12 +470,9 @@ export function createEmbeddingProvider(
   apiKey: string | undefined,
   model: string
 ): MastraEmbeddingModel<string> {
-  const supportedProviders = listProviders().map(
-    (entry) => entry.id
-  ) as readonly SupportedProvider[];
   if (!isSupportedProvider(provider)) {
     throw createMastraAgentError('mastra_agent_unsupported_provider', {
-      context: { provider, supportedProviders },
+      context: { provider, supportedProviders: listSupportedProviderIds() },
       detail: `Unsupported embedding provider: ${provider}`,
     });
   }
@@ -363,7 +484,7 @@ export function createEmbeddingProvider(
     }
 
     case 'google': {
-      const googleProvider = createGoogleGenerativeAI(apiKey ? { apiKey } : undefined);
+      const googleProvider = createGoogle(apiKey ? { apiKey } : undefined);
       return asSpecV3EmbeddingModel(googleProvider.embeddingModel(model));
     }
 
@@ -371,17 +492,25 @@ export function createEmbeddingProvider(
     case 'openrouter':
     case 'cohere':
     case 'voyage':
+    // Bedrock exposes embedding models upstream, but Brainstrike's Bedrock
+    // phase 1 is LLM-only (registry capabilities.embeddings: false) — an
+    // explicit throw, never a silent degrade (BST-1350).
+    case 'bedrock':
+    // The ChatGPT subscription grants no embeddings endpoint (registry
+    // capabilities.embeddings: false) — explicit throw, never a silent
+    // degrade to the metered platform API (BST-1356).
+    case 'openai-codex':
     case 'ollama':
     case 'lmstudio':
     case 'local':
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
-        context: { provider, supportedProviders },
+        context: { provider, supportedProviders: listSupportedProviderIds() },
         detail: `Mastra semantic recall embedder is not supported for provider: ${provider}`,
       });
 
     default:
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
-        context: { provider, supportedProviders },
+        context: { provider, supportedProviders: listSupportedProviderIds() },
         detail: `Unsupported embedding provider: ${provider}`,
       });
   }

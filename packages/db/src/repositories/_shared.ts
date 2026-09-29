@@ -71,6 +71,26 @@ export function dedupeByContentAndModel<T extends { contentHash: string; modelKe
  */
 export const MAX_INLINE_FILE_PATHS = 500;
 
+export function assertFuzzyThreshold(value: number): void {
+  if (!Number.isFinite(value) || value <= 0 || value > 1) {
+    throw new Error('fullTextSearch fuzzyThreshold must be a finite value in (0, 1].');
+  }
+}
+
+export function shouldUseFuzzyFallback(options: {
+  exactResultCount: number;
+  fuzzyFallback: boolean;
+  language: string;
+  queryMode: 'plain' | 'websearch' | 'phrase';
+}): boolean {
+  return (
+    options.exactResultCount === 0 &&
+    options.fuzzyFallback &&
+    options.language === 'english' &&
+    options.queryMode === 'plain'
+  );
+}
+
 /**
  * Maximum number of embedding dimension entries to cache.
  * Prevents unbounded memory growth in long-running processes.
@@ -410,6 +430,12 @@ export const BM25_CONTENT_INDEX_NAME = 'idx_file_chunks_content_bm25';
  * BM25 ranking expression for `file_chunks.content`, negated so the surfaced
  * rank is higher-is-better. The query remains parameterized; the index name is
  * a code-owned literal.
+ *
+ * BM25 orders but never matches: every lexical arm still selects rows with
+ * `content_tsvector @@ tsquery` and only ORDERS them with this expression, so
+ * a row BM25 would score but the tsquery rejects (stemming or tokenizer
+ * differences, rare terms) never reaches RRF fusion. Recall is bounded by the
+ * tsvector arm — keep that in mind when tuning `ftsWeight` (BST-908).
  */
 export function bm25RankExpression(queryParam: string): string {
   return `(-(content <@> to_bm25query(${queryParam}, '${BM25_CONTENT_INDEX_NAME}')))::float8`;

@@ -2,14 +2,14 @@
 /// <reference types="@testing-library/jest-dom" />
 
 import path from 'node:path';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
 export default defineConfig({
-  define: {
-    'import.meta.url': JSON.stringify('file:///mock/url'),
-  },
+  // Preserve real module URLs: source-boundary tests read files relative to them.
+  // Vitest 5 applies define replacements to test modules too (BST-1689).
   resolve: {
     alias: [
       {
@@ -219,7 +219,8 @@ export default defineConfig({
     // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     pool: 'threads',
-    setupFiles: ['./vitest.setup.ts'],
+    reporters: ['default', new LostTestFileReporter()],
+    setupFiles: ['@brainstrike/test-utils/vitest.event-loop-watchdog.setup', './vitest.setup.ts'],
     testTimeout: 30_000,
     unstubGlobals: true,
     // Coverage consolidated at root vitest.config.mts

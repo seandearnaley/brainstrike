@@ -4,15 +4,12 @@ import { readFullTreeWithOptions } from '@brainstrike/file-explorer-ui/tree';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { createLogger } from '@brainstrike/logging';
-import type { FileSystemChange, IFileNode } from '@brainstrike/types';
+import type { DirectoryHandle, FileSystemChange, IFileNode } from '@brainstrike/types';
 import {
   type BackgroundIndexingPolicyPreset,
   createBackgroundIndexingEntryPolicy,
 } from '@brainstrike/utils';
-import {
-  isAbsoluteFileSystemPath,
-  normalizeSelectionPathForFolder,
-} from '@brainstrike/utils/relative-file-path';
+import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import {
   type ChunkingRedispatchTracker,
   collectPreparedChangesInBatches,
@@ -20,14 +17,19 @@ import {
   type PreparedChangesSummary,
 } from './workspace-collection-sync-import';
 import { createScanningStatusReporter, throwIfAborted } from './workspace-collection-sync-progress';
-
-interface RootDirectoryHandle {
-  _internal?: unknown;
-  kind: 'directory';
-  name: string;
-  path: string;
-  platform: 'electron' | 'web';
-}
+import {
+  countRelativePathSegments,
+  getParentRelativePath,
+  getPathName,
+  isRootSelfPath,
+  isUnderRelativePrefix,
+  isUnderTruncatedDirectory,
+  iterRelativePathSegments,
+  normalizeScopedChangePath,
+  toRootAnchoredPath,
+  toRootRelativePath,
+  toTruncatedRelativePrefixes,
+} from './workspace-collection-sync-scan-paths';
 
 type WorkspaceCollectionSyncScanScope =
   | {
@@ -40,7 +42,7 @@ type WorkspaceCollectionSyncScanScope =
 
 interface WorkspaceCollectionSyncScanRequest {
   indexingPolicyPreset: BackgroundIndexingPolicyPreset;
-  rootDirectoryHandle: RootDirectoryHandle | null;
+  rootDirectoryHandle: DirectoryHandle | null;
   scope?: WorkspaceCollectionSyncScanScope;
 }
 
@@ -81,41 +83,7 @@ interface ScopedPendingRemoval {
 
 type WorkspaceIndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy>;
 
-const SLASH_CHAR_CODE = 47;
-
 const logger = createLogger('WorkspaceCollectionSyncScan');
-
-/**
- * Convert the walker's absolute truncated-directory paths into root-relative
- * prefixes ('' = the root itself) for absence-inference guards.
- */
-function toTruncatedRelativePrefixes(
-  truncatedDirectoryPaths: ReadonlySet<string>,
-  rootPath: string
-): string[] {
-  const prefixes = new Set<string>();
-  for (const path of truncatedDirectoryPaths) {
-    if (toSlashPath(path.replace(/\\/g, '/')) === toSlashPath(rootPath)) {
-      prefixes.add('');
-      continue;
-    }
-    prefixes.add(
-      normalizeSelectionPathForFolder(path, rootPath, {
-        label: 'Workspace Index truncated directory path',
-      })
-    );
-  }
-  return [...prefixes];
-}
-
-function isUnderTruncatedDirectory(
-  relativePath: string,
-  truncatedDirectoryPrefixes: readonly string[]
-): boolean {
-  return truncatedDirectoryPrefixes.some(
-    (prefix) => prefix === '' || relativePath === prefix || relativePath.startsWith(`${prefix}/`)
-  );
-}
 
 /**
  * A truncated adapter listing means the scan only saw the first N entries of a
@@ -147,70 +115,6 @@ function createEmptyPreparedSyncChanges(): PreparedSyncChanges {
       unchangedCount: 0,
     },
   };
-}
-
-function toSlashPath(value: string): string {
-  return value.replace(/\\/g, '/').replace(/\/+$/u, '');
-}
-
-function joinRootRelativePath(rootPath: string, relativePath: string): string {
-  const normalizedRoot = toSlashPath(rootPath);
-  return `${normalizedRoot}/${relativePath.replace(/^\/+/u, '')}`;
-}
-
-function getPathName(path: string): string {
-  let end = path.length;
-  while (end > 0 && path.charCodeAt(end - 1) === SLASH_CHAR_CODE) {
-    end -= 1;
-  }
-  if (end === 0) {
-    return path;
-  }
-  const separatorIndex = path.lastIndexOf('/', end - 1);
-  return path.slice(separatorIndex + 1, end);
-}
-
-function countRelativePathSegments(path: string): number {
-  let count = 0;
-  let inSegment = false;
-  for (let index = 0; index < path.length; index += 1) {
-    if (path.charCodeAt(index) === SLASH_CHAR_CODE) {
-      inSegment = false;
-      continue;
-    }
-    if (inSegment) {
-      continue;
-    }
-    count += 1;
-    inSegment = true;
-  }
-  return count;
-}
-
-function* iterRelativePathSegments(path: string): IterableIterator<string> {
-  let start = 0;
-  while (start < path.length) {
-    while (start < path.length && path.charCodeAt(start) === SLASH_CHAR_CODE) {
-      start += 1;
-    }
-    if (start >= path.length) {
-      return;
-    }
-    let end = path.indexOf('/', start);
-    if (end === -1) {
-      end = path.length;
-    }
-    // Directory change resolution may run for many watcher paths; scanning here
-    // avoids split/filter arrays while preserving empty-segment skipping.
-    yield path.slice(start, end);
-    start = end + 1;
-  }
-}
-
-function getParentRelativePath(relativePath: string): string | null {
-  const normalized = relativePath.replace(/\\/g, '/').replace(/\/+$/u, '');
-  const separatorIndex = normalized.lastIndexOf('/');
-  return separatorIndex === -1 ? null : normalized.slice(0, separatorIndex);
 }
 
 function isDirectoryNode(node: IFileNode): boolean {
@@ -256,53 +160,42 @@ function collectFullScanMissingFileInvalidations(args: {
   });
 }
 
-function normalizeScopedChangePath(change: FileSystemChange, rootPath: string): string {
-  const normalizedPath = change.path.replace(/\\/g, '/');
-  const normalizedRoot = toSlashPath(rootPath);
-  if (isAbsoluteFileSystemPath(normalizedPath)) {
-    const pathLower = normalizedPath.toLowerCase();
-    const rootLower = normalizedRoot.toLowerCase();
-    if (!(pathLower === rootLower || pathLower.startsWith(`${rootLower}/`))) {
-      throw new Error(`Workspace Index watcher path is outside the active root: ${change.path}`);
-    }
-  }
-  return normalizeSelectionPathForFolder(normalizedPath, rootPath, {
-    label: 'Workspace Index watcher path',
-  });
-}
-
-function isRootSelfPath(path: string, rootPath: string): boolean {
-  return toSlashPath(path.replace(/\\/g, '/')) === toSlashPath(rootPath);
-}
-
-function toDirectoryHandle(node: IFileNode, rootHandle: RootDirectoryHandle): RootDirectoryHandle {
-  const nodeHandle = node.handle as Partial<RootDirectoryHandle>;
+function toDirectoryHandle(node: IFileNode, rootHandle: DirectoryHandle): DirectoryHandle {
+  const nodeHandle = 'platform' in node.handle ? node.handle : null;
+  const rootId = nodeHandle?.rootId ?? rootHandle.rootId;
   return {
+    // On web, the child node's handle IS the raw FileSystemDirectoryHandle
+    // (no _internal on it) and must become the rebuilt handle's _internal —
+    // the web adapter can only read directories through it.
+    _internal: nodeHandle?._internal ?? node.handle,
     kind: 'directory',
     name: node.name,
     path: node.path,
-    platform: nodeHandle.platform ?? rootHandle.platform,
-    ...(nodeHandle._internal === undefined ? {} : { _internal: nodeHandle._internal }),
+    platform: nodeHandle?.platform ?? rootHandle.platform,
+    ...(rootId === undefined ? {} : { rootId }),
   };
 }
 
 function toSyntheticFileNode(args: {
   relativePath: string;
-  rootHandle: RootDirectoryHandle;
+  rootHandle: DirectoryHandle;
   rootPath: string;
 }): IFileNode {
-  const absolutePath = joinRootRelativePath(args.rootPath, args.relativePath);
+  // Anchor rather than join: the web watcher's paths are already root-anchored,
+  // and re-joining them doubles the root segment (see toRootAnchoredPath).
+  const absolutePath = toRootAnchoredPath(args.rootPath, args.relativePath);
   const fileName = getPathName(args.relativePath);
   return {
     // Watcher batches can synthesize many file nodes; scan once instead of
-    // allocating split/filter arrays for every changed path.
-    depth: countRelativePathSegments(args.relativePath),
+    // allocating split/filter arrays for every changed path. Depth is measured
+    // from the root, so it counts the root-relative path, not the cache identity.
+    depth: countRelativePathSegments(toRootRelativePath(args.rootPath, absolutePath)),
     handle: {
       kind: 'file',
       name: fileName,
       path: absolutePath,
       platform: args.rootHandle.platform,
-    } as unknown as IFileNode['handle'],
+    },
     name: fileName,
     path: absolutePath,
     rootFolderId: args.rootPath,
@@ -311,10 +204,83 @@ function toSyntheticFileNode(args: {
   };
 }
 
+/**
+ * A synthetic descriptor handle is unreadable on web: file content processing
+ * stamps `node.handle` as the FileHandle's `_internal`, and the web adapter's
+ * readFile requires that to be a raw FileSystemFileHandle. When the sibling
+ * listing missed a changed file (truncated listing, or created after the
+ * parent was listed), resolve the real child handle through the adapter's
+ * capability seam — absent on adapters that read by path (Electron), which
+ * keep the synthetic node. A failed resolution also keeps the synthetic node:
+ * the doomed read surfaces the path in `inaccessiblePaths` instead of the
+ * change silently vanishing from the scan.
+ */
+async function resolveSyntheticFileNodeHandle(args: {
+  deps: WorkspaceCollectionSyncScanDeps;
+  node: IFileNode;
+  onResolutionFailure: (path: string) => void;
+  rootHandle: DirectoryHandle;
+}): Promise<IFileNode> {
+  const { fileSystemAdapter } = args.deps;
+  if (!fileSystemAdapter.resolveFileHandleByPath) {
+    return args.node;
+  }
+  // The durable rootId is the ONLY thing that names the root being scanned.
+  // Two weaker forms were tried and are wrong: the node's own path is prefixed
+  // with the root's display NAME, which the adapter never matches against its
+  // id-keyed handle cache; and a bare root-relative path is resolved against
+  // `lastRootFolderId` — the last root ADDED — so scanning any other root
+  // silently returns that root's copy of the same relative path and indexes
+  // its bytes here. Without a rootId there is no safe query to make.
+  const { rootId } = args.rootHandle;
+  if (!rootId) {
+    args.onResolutionFailure(args.node.path);
+    return args.node;
+  }
+  try {
+    // The adapter walks from the root handle, so it needs the path relative to
+    // the ROOT — not the managed-cache identity, which on web still carries the
+    // root-name prefix and would send it into a phantom child of the root.
+    const rawFileHandle = await fileSystemAdapter.resolveFileHandleByPath(
+      `${rootId}/${toRootRelativePath(args.rootHandle.path, args.node.path)}`
+    );
+    // Mirror the web adapter's readDirectory shape: node.handle IS the raw handle.
+    return { ...args.node, handle: rawFileHandle };
+  } catch (error) {
+    args.onResolutionFailure(args.node.path);
+    logger.debug('Workspace Index could not resolve a web file handle for a changed path', {
+      error: error instanceof Error ? error.message : String(error),
+      path: args.node.path,
+    });
+    return args.node;
+  }
+}
+
+/**
+ * A failed resolution leaves an unreadable synthetic node, so the file lands in
+ * `inaccessiblePaths` rather than being indexed. A single miss is an ordinary
+ * race (deleted between the watcher event and the scan) and stays at debug; a
+ * batch of them means something systemic — root handle evicted, permission
+ * revoked — which would otherwise repeat invisibly on every scan forever. One
+ * warning per scan, mirroring `warnOnTruncatedDirectories`.
+ */
+function warnOnFileHandleResolutionFailures(failedPaths: ReadonlySet<string>): void {
+  if (failedPaths.size === 0) {
+    return;
+  }
+  logger.warn(
+    'Workspace Index could not resolve readable file handles for changed paths; they will surface as inaccessible',
+    {
+      failedResolutions: failedPaths.size,
+      samplePaths: [...failedPaths].slice(0, 10),
+    }
+  );
+}
+
 async function readDirectoryWithProgress(args: {
   abortSignal: AbortSignal;
   deps: WorkspaceCollectionSyncScanDeps;
-  handle: RootDirectoryHandle;
+  handle: DirectoryHandle;
   onDirectoryTruncated: (path: string) => void;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<IFileNode[]> {
@@ -347,13 +313,20 @@ async function resolveDirectoryHandleForRelativePath(args: {
   onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
   relativePath: string;
-  rootHandle: RootDirectoryHandle;
+  rootHandle: DirectoryHandle;
   rootPath: string;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
-}): Promise<RootDirectoryHandle | null> {
+}): Promise<DirectoryHandle | null> {
   let currentHandle = args.rootHandle;
   let currentRelativePath = '';
-  for (const segment of iterRelativePathSegments(args.relativePath)) {
+  // Walking descends from the ROOT HANDLE, so it is expressed in root-relative
+  // coordinates — not the managed-cache identity, which on web still carries
+  // the root-name prefix and would send the first step looking for a child of
+  // the root named after the root itself. The entry policy takes the same
+  // coordinate by contract (see background-indexing-policy.ts).
+  for (const segment of iterRelativePathSegments(
+    toRootRelativePath(args.rootPath, toRootAnchoredPath(args.rootPath, args.relativePath))
+  )) {
     const children = await readDirectoryWithProgress({
       abortSignal: args.abortSignal,
       deps: args.deps,
@@ -369,16 +342,7 @@ async function resolveDirectoryHandleForRelativePath(args: {
       if (node.name === segment) {
         return true;
       }
-      try {
-        return (
-          normalizeScopedChangePath(
-            { kind: 'directory', path: node.path, type: 'modified' },
-            args.rootPath
-          ) === nextRelativePath
-        );
-      } catch {
-        return false;
-      }
+      return toRootRelativePath(args.rootPath, node.path) === nextRelativePath;
     });
     if (!matchingDirectory) {
       return null;
@@ -404,12 +368,18 @@ async function resolveChangedFileNode(args: {
   entryPolicy: WorkspaceIndexingEntryPolicy;
   onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
+  onFileHandleResolutionFailure: (path: string) => void;
   relativePath: string;
-  rootHandle: RootDirectoryHandle;
+  rootHandle: DirectoryHandle;
   rootPath: string;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<IFileNode | null> {
-  const parentRelativePath = getParentRelativePath(args.relativePath);
+  // Root-relative is the coordinate for walking and for the entry policy; the
+  // managed-cache identity (args.relativePath) stays the DB key and is not
+  // interchangeable with it on web.
+  const nodePath = toRootAnchoredPath(args.rootPath, args.relativePath);
+  const rootRelativePath = toRootRelativePath(args.rootPath, nodePath);
+  const parentRelativePath = getParentRelativePath(rootRelativePath);
   const parentHandle = parentRelativePath
     ? await resolveDirectoryHandleForRelativePath({
         abortSignal: args.abortSignal,
@@ -424,11 +394,12 @@ async function resolveChangedFileNode(args: {
       })
     : args.rootHandle;
   const fileName = getPathName(args.relativePath);
-  let node = toSyntheticFileNode({
+  const syntheticNode = toSyntheticFileNode({
     relativePath: args.relativePath,
     rootHandle: args.rootHandle,
     rootPath: args.rootPath,
   });
+  let node = syntheticNode;
   if (parentHandle) {
     const siblings = await readDirectoryWithProgress({
       abortSignal: args.abortSignal,
@@ -437,21 +408,12 @@ async function resolveChangedFileNode(args: {
       onDirectoryTruncated: args.onDirectoryTruncated,
       statusReporter: args.statusReporter,
     });
-    const matchingNode = siblings.find((candidate) => {
-      if (!(isFileNode(candidate) && candidate.name === fileName)) {
-        return false;
-      }
-      try {
-        return (
-          normalizeScopedChangePath(
-            { kind: 'file', path: candidate.path, type: 'modified' },
-            args.rootPath
-          ) === args.relativePath
-        );
-      } catch {
-        return false;
-      }
-    });
+    const matchingNode = siblings.find(
+      (candidate) =>
+        isFileNode(candidate) &&
+        candidate.name === fileName &&
+        toRootRelativePath(args.rootPath, candidate.path) === rootRelativePath
+    );
     if (matchingNode) {
       node = matchingNode;
     }
@@ -460,11 +422,24 @@ async function resolveChangedFileNode(args: {
     !args.entryPolicy.shouldIncludeFile({
       fileName: node.name,
       fileSize: node.size ?? 0,
-      relativePath: args.relativePath,
+      relativePath: rootRelativePath,
     })
   ) {
     args.onExcludedEntry();
     return null;
+  }
+  // Resolve only what survives the gate: on web this costs a getDirectoryHandle
+  // per path segment plus a best-effort handle-cache write, and a watcher burst
+  // (installs, builds) is overwhelmingly paths the gate drops. Ordering is
+  // safe because resolution cannot change the gate's inputs — a raw
+  // FileSystemFileHandle carries neither the name nor the size it reads.
+  if (node === syntheticNode) {
+    node = await resolveSyntheticFileNodeHandle({
+      deps: args.deps,
+      node,
+      onResolutionFailure: args.onFileHandleResolutionFailure,
+      rootHandle: args.rootHandle,
+    });
   }
   return node;
 }
@@ -472,11 +447,11 @@ async function resolveChangedFileNode(args: {
 async function readScopedDirectoryTree(args: {
   abortSignal: AbortSignal;
   deps: WorkspaceCollectionSyncScanDeps;
-  directoryHandle: RootDirectoryHandle;
+  directoryHandle: DirectoryHandle;
   entryPolicy: WorkspaceIndexingEntryPolicy;
   onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
-  rootHandle: RootDirectoryHandle;
+  rootHandle: DirectoryHandle;
   rootPath: string;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<IFileNode[]> {
@@ -489,14 +464,9 @@ async function readScopedDirectoryTree(args: {
   });
   const fileNodes: IFileNode[] = [];
   for (const node of children) {
-    const relativePath = normalizeScopedChangePath(
-      {
-        kind: node.type === 'directory' ? 'directory' : 'file',
-        path: node.path,
-        type: 'modified',
-      },
-      args.rootPath
-    );
+    // Entry-policy coordinate: relative to the ROOT, per its documented
+    // contract — not the managed-cache identity.
+    const relativePath = toRootRelativePath(args.rootPath, node.path);
     if (isDirectoryNode(node)) {
       if (
         !args.entryPolicy.shouldTraverseDirectory({
@@ -538,10 +508,6 @@ async function readScopedDirectoryTree(args: {
     fileNodes.push(node);
   }
   return fileNodes;
-}
-
-function isUnderRelativePrefix(path: string, prefix: string): boolean {
-  return path === prefix || path.startsWith(`${prefix}/`);
 }
 
 function makeInvalidationTargetKey(target: ManagedCacheInvalidationTarget): string {
@@ -655,14 +621,18 @@ async function collectChangedDirectoryFileNodes(args: {
   onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
   relativePath: string;
-  rootHandle: RootDirectoryHandle;
+  rootHandle: DirectoryHandle;
   rootPath: string;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<IFileNode[]> {
+  const rootRelativePath = toRootRelativePath(
+    args.rootPath,
+    toRootAnchoredPath(args.rootPath, args.relativePath)
+  );
   if (
     !args.entryPolicy.shouldTraverseDirectory({
-      directoryName: getPathName(args.relativePath),
-      relativePath: args.relativePath,
+      directoryName: getPathName(rootRelativePath),
+      relativePath: rootRelativePath,
     })
   ) {
     args.onExcludedEntry();
@@ -704,7 +674,8 @@ async function collectScopedChange(args: {
   entryPolicy: WorkspaceIndexingEntryPolicy;
   onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
-  rootHandle: RootDirectoryHandle;
+  onFileHandleResolutionFailure: (path: string) => void;
+  rootHandle: DirectoryHandle;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<void> {
   if (args.change.type === 'removed') {
@@ -727,6 +698,7 @@ async function collectScopedChange(args: {
       entryPolicy: args.entryPolicy,
       onDirectoryTruncated: args.onDirectoryTruncated,
       onExcludedEntry: args.onExcludedEntry,
+      onFileHandleResolutionFailure: args.onFileHandleResolutionFailure,
       relativePath,
       rootHandle: args.rootHandle,
       rootPath: args.context.rootPath,
@@ -876,6 +848,10 @@ async function collectPreparedScopedChanges(args: {
   const onDirectoryTruncated = (path: string): void => {
     truncatedDirectoryPaths.add(path);
   };
+  const fileHandleResolutionFailurePaths = new Set<string>();
+  const onFileHandleResolutionFailure = (path: string): void => {
+    fileHandleResolutionFailurePaths.add(path);
+  };
   const accumulator: ScopedChangeAccumulator = {
     changedFileNodesByPath: new Map<string, IFileNode>(),
     forceReadRelativePaths: new Set<string>(),
@@ -893,12 +869,14 @@ async function collectPreparedScopedChanges(args: {
         entryPolicy,
         onDirectoryTruncated,
         onExcludedEntry,
+        onFileHandleResolutionFailure,
         rootHandle,
         statusReporter,
       });
     }
     throwIfAborted(args.abortSignal);
     warnOnTruncatedDirectories(truncatedDirectoryPaths);
+    warnOnFileHandleResolutionFailures(fileHandleResolutionFailurePaths);
 
     const existingEntries = await args.deps.fileRecordRepository.listManagedCacheEntryMetadata(
       args.context.collectionId

@@ -94,10 +94,11 @@ export interface AssistantRewindFileOutcome {
 /**
  * Which runs a rewind covers. `none` is an honest, non-error outcome: a
  * message with no run at or after it simply has no file changes to revert.
- * `runs-table-absent` is reported distinctly from `no-runs-after-message`
- * rather than collapsed into one "nothing to do" — a profile that has never
- * recorded an assistant run is a different fact from a thread whose tail
- * produced no runs.
+ *
+ * It carries ONE reason. The companion `runs-table-absent` was retired by
+ * BST-1651: it meant "this profile has never recorded an assistant run",
+ * inferred from the runs table not existing — a state migration 118 removed.
+ * An unmigrated database is not a reason this union reports; it raises.
  */
 export type AssistantRewindRange =
   | {
@@ -107,7 +108,7 @@ export type AssistantRewindRange =
     }
   | {
       readonly kind: 'none';
-      readonly reason: 'no-runs-after-message' | 'runs-table-absent';
+      readonly reason: 'no-runs-after-message';
     };
 
 /**

@@ -1,10 +1,14 @@
 /// <reference types="vitest" />
 
 import path from 'node:path';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
-import { withBoundedTraceChunkNames } from '../config/src/vitest-browser.ts';
+import {
+  resolveVisualBaselinePath,
+  withBoundedTraceChunkNames,
+} from '../config/src/vitest-browser.ts';
 
 // Resolve workspace deps (platform-utils, utils) from SOURCE, not built dist.
 // Applied per-project (vitest 4 does not inherit the root-level resolve into
@@ -54,6 +58,11 @@ export default defineConfig({
         test: {
           browser: {
             enabled: true,
+            expect: {
+              toMatchScreenshot: {
+                resolveScreenshotPath: resolveVisualBaselinePath,
+              },
+            },
             instances: [{ browser: 'chromium' }],
             // CI launch args match the db browser project / the shared
             // createPlaywrightOptions helper: job containers get Docker's
@@ -91,5 +100,6 @@ export default defineConfig({
         },
       },
     ],
+    reporters: ['default', new LostTestFileReporter()],
   },
 });

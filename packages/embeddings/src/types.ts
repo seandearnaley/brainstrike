@@ -97,6 +97,8 @@ export interface EmbeddingStreamBatch {
 }
 
 export interface EmbeddingStreamOptions {
+  /** Abort this background worker's dedicated stream on controller Stop. */
+  readonly signal?: AbortSignal;
   /** Maximum local inference sub-batch size for this stream. */
   streamBatchSize?: number;
 }

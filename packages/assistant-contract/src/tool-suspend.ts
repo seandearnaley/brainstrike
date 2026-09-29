@@ -1,3 +1,9 @@
+import {
+  type DelegatedToolActionIdentity,
+  type DelegatedToolDecisionState,
+  hasValidDelegatedDecisionState,
+  hasValidDelegatedToolActionTarget,
+} from './delegated-tool-actions.js';
 /**
  * Tool SUSPEND transport contract — the wire vocabulary for the two suspending
  * native tools (`submitPlan`, `askUser`). This PARALLELS the tool-APPROVAL
@@ -84,9 +90,14 @@ export function hasRegisteredSuspendResumeUi(
  *   close a tool call out on `tool.completed`/`tool.failed`. Closing this one
  *   out would contradict `runStillSuspended: true` in the event's own metadata.
  *
- * It IS in `isAlwaysVisibleRunEvent`, because the transient
- * `brainstrike.tool-suspend` notice is gone after a reload and this row is then
- * the only thing left explaining the dead end.
+ * It IS in `isAlwaysVisibleRunEvent`, but NOT because the notice is lost on
+ * reload — since BST-1084 `appendSuspendedPauseMessages` re-appends the
+ * transient `brainstrike.tool-suspend` notice for pauses that are STILL
+ * suspended. What that notice cannot be is IN the transcript: it is a synthetic
+ * message appended at the END of the thread, and it exists only while the pause
+ * is pending. This row is the in-transcript record, at the point the run
+ * actually stopped, and the only thing that outlives the pause being answered
+ * or discarded.
  */
 export const UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND =
   'tool.resume.unsupported' satisfies AssistantRunEventKind;
@@ -98,6 +109,13 @@ export const UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND =
  * narrows it by `toolName`.
  */
 export interface AssistantToolSuspendRequest {
+  continuationId?: string;
+  delegation?: DelegatedToolActionIdentity;
+  /**
+   * The DURABLE host leg that streamed this pause — see {@link
+   * import('./tool-approval.js').AssistantToolApprovalRequest.hostRunId}.
+   */
+  hostRunId?: string;
   /** Optional JSON-schema echo of the tool's resumeSchema, for UX/debugging. */
   resumeSchema?: unknown;
   runId: string;
@@ -118,6 +136,8 @@ export interface AssistantToolSuspendRequest {
  * plan/question renders its real content, not a placeholder.
  */
 export interface RediscoveredToolSuspend extends AssistantToolSuspendRequest {
+  /** Present when the host has already admitted this exact delegated leaf decision. */
+  readonly decisionState?: DelegatedToolDecisionState;
   /**
    * ADVISORY resumability flag. The desktop endpoint only ever writes the
    * literal `false` (no registered resume UI in this build), mirroring the
@@ -151,7 +171,9 @@ export function isRediscoveredToolSuspend(value: unknown): value is Rediscovered
     isBoundedIdentifier(value['toolCallId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
     isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS) &&
     typeof value['suspendedAt'] === 'string' &&
-    typeof value['stale'] === 'boolean'
+    typeof value['stale'] === 'boolean' &&
+    hasValidDelegatedDecisionState(value) &&
+    hasValidDelegatedToolActionTarget(value)
   );
 }
 
@@ -163,6 +185,15 @@ export function isRediscoveredToolSuspend(value: unknown): value is Rediscovered
  * as `unknown`; Mastra validates it against the tool's `resumeSchema` on resume.
  */
 export interface AssistantToolResumeAction {
+  continuationId?: string;
+  delegation?: DelegatedToolActionIdentity;
+  /**
+   * The DURABLE host leg (`brainstrike_assistant_thread_runs.id`) whose turn
+   * surfaced this pause — see {@link
+   * import('./tool-approval.js').AssistantToolApprovalAction.hostRunId}. Never
+   * `runId`, which is the native Mastra run the resume route addresses.
+   */
+  hostRunId?: string;
   resumeData: unknown;
   runId: string;
   toolCallId: string;
@@ -174,6 +205,9 @@ export type ToolResumeRunConfigActionReadResult =
   | { readonly invalid: true };
 
 const TOOL_RESUME_ACTION_OWN_KEYS = new Set<PropertyKey>([
+  'continuationId',
+  'delegation',
+  'hostRunId',
   'resumeData',
   'runId',
   'toolCallId',
@@ -199,11 +233,16 @@ export function isAssistantToolResumeAction(value: unknown): value is AssistantT
   return (
     isRecord(value) &&
     Reflect.ownKeys(value).every((key) => TOOL_RESUME_ACTION_OWN_KEYS.has(key)) &&
+    hasValidDelegatedToolActionTarget(value) &&
     Object.hasOwn(value, 'resumeData') &&
     Object.hasOwn(value, 'runId') &&
     Object.hasOwn(value, 'toolCallId') &&
     isBoundedIdentifier(value['runId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
     isBoundedIdentifier(value['toolCallId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
+    // Same own-and-bounded discipline as `toolName` (approval-action symmetry).
+    (!('hostRunId' in value) ||
+      (Object.hasOwn(value, 'hostRunId') &&
+        isBoundedIdentifier(value['hostRunId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS))) &&
     (!('toolName' in value) ||
       (Object.hasOwn(value, 'toolName') &&
         isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS)))

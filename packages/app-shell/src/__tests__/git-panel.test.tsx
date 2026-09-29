@@ -33,12 +33,16 @@ const mockRoot: {
   },
 };
 
-vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
-  useFileSystem: () => ({
-    rootDirectoryHandle: mockRoot.handle,
-    rootIdByPath: new Map<string, string>(),
-  }),
-}));
+vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui/shell')>();
+  return {
+    FILE_EXPLORER_REFRESH_EVENT: actual.FILE_EXPLORER_REFRESH_EVENT,
+    useFileSystem: () => ({
+      rootDirectoryHandle: mockRoot.handle,
+      rootIdByPath: new Map<string, string>(),
+    }),
+  };
+});
 
 /**
  * `ChangesetFileDiffCard` (mounted by the Changes tab, BST-1116 W6 Task A)
@@ -214,6 +218,9 @@ function installBridge(bridge: Partial<GitBridge>): GitBridge {
     ),
     commit: vi.fn(async () => ok({ branch: 'main', commit: 'abc1234' })),
     commitFiles: vi.fn(async () => ok([])),
+    createBranch: vi.fn(async (_rootId: string, params: { branch: string }) =>
+      ok({ branch: params.branch })
+    ),
     diff: vi.fn(async () =>
       ok({ path: 'staged.ts', staged: true, truncated: false, unifiedDiff: '' })
     ),
@@ -1098,6 +1105,9 @@ describe('GitPanel', () => {
           worktrees: [],
         })
       ),
+      // `deriveBranchSwitchDirty` (branch-switch-model) reads `files`, not
+      // `clean` — an empty list is what actually makes every row switchable.
+      status: vi.fn(async () => ok(makeStatus({ clean: true, files: [] }))),
     });
     render(<GitPanel />);
 
@@ -1151,7 +1161,9 @@ describe('GitPanel', () => {
           })
         )
       ),
-      status: vi.fn(async () => ok(makeStatus({ branch }))),
+      // Same fixture note as above: `files: []` is what makes the switch
+      // menu item enabled, not `clean: true` on its own.
+      status: vi.fn(async () => ok(makeStatus({ branch, clean: true, files: [] }))),
       switchBranch: vi.fn(async (_rootId: string, params: { branch: string }) => {
         branch = params.branch;
         return ok({ branch });
@@ -1208,16 +1220,22 @@ describe('GitPanel', () => {
         ok(
           makeStatus({
             branch,
-            clean: branch !== 'main',
+            // Clean regardless of branch: this test exercises diff-clearing
+            // on switch, not the dirty gate. A TRACKED change would disable
+            // the switch menu item entirely (see branch-switch-model /
+            // deriveBranchSwitchDirty), so the selected diff here is an
+            // UNTRACKED file — a real, reachable state: browsing an
+            // untracked file's diff never blocks switching branches.
+            clean: true,
             files:
               branch === 'main'
                 ? [
                     {
-                      path: 'staged.ts',
-                      staged: true,
-                      status: 'M',
+                      path: 'untracked.ts',
+                      staged: false,
+                      status: '?',
                       unstaged: false,
-                      untracked: false,
+                      untracked: true,
                     },
                   ]
                 : [],
@@ -1231,7 +1249,7 @@ describe('GitPanel', () => {
     });
     render(<GitPanel />);
 
-    await user.click(await screen.findByRole('button', { name: 'staged.ts' }));
+    await user.click(await screen.findByRole('button', { name: 'untracked.ts' }));
     expect(await screen.findByTestId('diff-view-stub')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Current branch main' }));
@@ -1242,36 +1260,52 @@ describe('GitPanel', () => {
     expect(fileDiff).toHaveBeenCalledTimes(1);
   });
 
-  it('implements keyboard-operated tabs with persistent labelled panels', async () => {
+  it('switches Changes and History on the shared panel-header switcher, manually activated', async () => {
     const user = userEvent.setup();
     installBridge({});
     render(<GitPanel />);
 
-    const changesTab = await screen.findByRole('tab', { name: /Changes/ });
-    const historyTab = screen.getByRole('tab', { name: 'History' });
-    expect(changesTab).toHaveAttribute('aria-controls', 'git-workbench-changes-panel');
-    expect(changesTab).toHaveAttribute('tabindex', '0');
+    const tablist = await screen.findByRole('tablist', { name: 'Changes and history' });
+    const changesTab = within(tablist).getByRole('tab', { name: 'Changes, 3 changed files' });
+    const historyTab = within(tablist).getByRole('tab', { name: 'History' });
+    // Same `sm` switcher and 36px header row as Library and Explorer|Search.
+    expect(tablist).toHaveAttribute('data-size', 'sm');
+    expect(tablist.parentElement).toHaveClass('h-9', 'border-b', 'px-2');
+    expect(changesTab).toHaveAttribute('data-slot', 'tabs-trigger');
+    // The changed-file count stays inside the Changes trigger.
+    expect(within(changesTab).getByText('3')).toBeInTheDocument();
+    // Roving tabindex: focus entering the list lands on the selected tab.
+    act(() => tablist.focus());
+    expect(changesTab).toHaveFocus();
     expect(historyTab).toHaveAttribute('tabindex', '-1');
 
-    const changesPanel = document.getElementById('git-workbench-changes-panel');
-    const historyPanel = document.getElementById('git-workbench-history-panel');
-    expect(changesPanel).toHaveAttribute('aria-labelledby', 'git-workbench-changes-tab');
-    expect(changesPanel).not.toHaveAttribute('hidden');
-    expect(historyPanel).toHaveAttribute('aria-labelledby', 'git-workbench-history-tab');
+    // Each tab controls a panel labelled by that tab.
+    const changesPanel = document.getElementById(changesTab.getAttribute('aria-controls') ?? '');
+    const historyPanel = document.getElementById(historyTab.getAttribute('aria-controls') ?? '');
+    expect(changesPanel).toHaveAttribute('role', 'tabpanel');
+    expect(changesPanel).toHaveAttribute('aria-labelledby', changesTab.id);
+    expect(historyPanel).toHaveAttribute('aria-labelledby', historyTab.id);
+    expect(screen.getByRole('tabpanel', { name: /Changes/ })).toBe(changesPanel);
     expect(historyPanel).toHaveAttribute('hidden');
 
-    changesTab.focus();
+    // Arrows rove focus only; Enter activates.
     await user.keyboard('{ArrowRight}');
-
     expect(historyTab).toHaveFocus();
+    expect(historyTab).toHaveAttribute('aria-selected', 'false');
+    expect(historyPanel).toHaveAttribute('hidden');
+
+    await user.keyboard('{Enter}');
     expect(historyTab).toHaveAttribute('aria-selected', 'true');
     expect(historyTab).toHaveAttribute('tabindex', '0');
     expect(changesTab).toHaveAttribute('tabindex', '-1');
     expect(changesPanel).toHaveAttribute('hidden');
     expect(historyPanel).not.toHaveAttribute('hidden');
 
+    // Home roves back; Space activates.
     await user.keyboard('{Home}');
     expect(changesTab).toHaveFocus();
+    expect(changesTab).toHaveAttribute('aria-selected', 'false');
+    await user.keyboard(' ');
     expect(changesTab).toHaveAttribute('aria-selected', 'true');
   });
 
@@ -1645,7 +1679,11 @@ describe('GitPanel', () => {
     expect(screen.getByRole('button', { name: 'Pull from upstream' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Push to upstream' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Current branch main' }));
-    expect(screen.getByText('Open the repository root to switch branches.')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'This folder is below the repository root — open the repository root to switch branches.'
+      )
+    ).toBeInTheDocument();
   });
 
   it('renders the not-a-repository empty state', async () => {

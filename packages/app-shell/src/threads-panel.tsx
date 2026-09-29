@@ -1,7 +1,6 @@
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
-  ASSISTANT_THREAD_COLOR_IDS,
   ASSISTANT_THREAD_ICON_IDS,
   type AssistantMemoryThread,
   type AssistantThreadColorId,
@@ -14,18 +13,18 @@ import {
   createPgliteAssistantThreadGroupsRepository,
   createPgliteAssistantThreadRepository,
   getGroupMemberIds,
+  getThreadPrimaryRootId,
+  type ThreadFilters,
+  type ThreadFolderRow,
   type ThreadListView,
+  type ThreadOrderPresentation,
+  type ThreadsPanelFolderSortBy,
   type ThreadsPanelGroupBy,
   type ThreadsPanelSortBy,
   useAssistantThreadGroupsStore,
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import {
-  type AnyContextAction,
-  defineContextAction,
-  type TargetOf,
-} from '@brainstrike/context-actions';
 import { ThreadSearchRepository } from '@brainstrike/db';
 import {
   useDbInitializationStatus,
@@ -36,7 +35,6 @@ import {
 import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
-  ActionContextMenu,
   Button,
   type CheckboxState,
   Popover,
@@ -47,52 +45,64 @@ import {
   type TreeNode,
   TreeTable,
   type TreeTableColumn,
-  useContextMenuTarget,
 } from '@brainstrike/ui';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import {
   ArrowLeft,
   Check,
-  ChevronDown,
-  ChevronUp,
   Folder,
   FolderMinus,
   FolderPlus,
   ListChecks,
-  LoaderCircle,
-  MessageSquare,
   MoreHorizontal,
   Palette,
   Pencil,
   Plus,
-  SlidersHorizontal,
   SwatchBook,
   Trash2,
   X,
 } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import {
+  ASSISTANT_THREAD_COLOR_PALETTES,
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   ASSISTANT_THREAD_ICON_PRESENTATION,
   getAssistantThreadColorSurface,
-  THREAD_CONTROL_ACTION_CLASS_NAME,
-  THREAD_CONTROL_MARK_CLASS_NAME,
-  THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
-  THREAD_CONTROL_TITLE_CLASS_NAME,
+  resolveThreadRowStatusState,
 } from './assistant-thread-presentation';
+import { publishDelegatedColorRefresh } from './delegated-color-refresh';
+import { DelegatedSidebarCell } from './delegated-sidebar-cell';
+import { useCreateThreadInFolder } from './hooks/use-create-thread-in-folder';
+import { type ForgePrCacheLookup, useForgePrCache } from './hooks/use-forge-pr-cache';
+import { useOnScreenThreadId } from './hooks/use-on-screen-thread';
+import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
+import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
+import { useThreadFolderRows } from './hooks/use-thread-folder-rows';
+import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approval';
+import { useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
+import { canRefreshAgentColors, refreshAgentColors } from './refresh-agent-colors';
+import { lookupThreadBranch, type ThreadBranchLookup } from './thread-branch-resolution';
+import { ThreadFolderHeader } from './thread-folder-header';
+import { lookupThreadForgePr } from './thread-forge-pr-resolution';
 import {
+  filterThreadsByThreadFilters,
+  hasActiveThreadFilters,
   resolveThreadPanelContentState,
+  type ThreadPanelFolderGroupingState,
   type ThreadPanelLoadState,
 } from './thread-panel-content-state';
 import {
+  filterThreadPanelSelection,
+  getThreadPanelCollapseId,
+  getThreadPanelMemberSectionId,
   getThreadPanelRowHeightPx,
   THREAD_PANEL_DISCLOSURE_INCREMENT,
-  THREAD_PANEL_UNGROUPED_NODE_ID,
+  type ThreadPanelGroupRow,
   type ThreadPanelVisibleRow,
 } from './thread-panel-visible-rows';
+import { type ThreadMoveTarget, ThreadRow } from './thread-row';
 import { useThreadSearchStore } from './thread-search-store';
 import {
   resolveThreadsPanelDrop,
@@ -102,83 +112,24 @@ import {
 import {
   GroupBodyDndShell,
   GroupHeaderDndShell,
-  ThreadRowDndShell,
   UngroupedSectionDndShell,
   useThreadsPanelDropMonitor,
 } from './threads-panel-dnd-elements';
 import { ThreadsPanelSearch } from './threads-panel-search';
+import { ThreadsViewOptionsPopover } from './threads-panel-view-options';
 import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
+import { useDelegatedSidebar } from './use-delegated-sidebar';
 import { type ThreadPanelSelection, useThreadPanelSelection } from './use-thread-panel-selection';
 import { useThreadSearchController } from './use-thread-search-controller';
+import { useThreadSearchResultNavigation } from './use-thread-search-result-navigation';
+import { useThreadSearchTitles } from './use-thread-search-titles';
 
 // Stable fallback so `threads` keeps referential identity across renders when
 // the resource has no entry yet (the membership/view useMemos depend on it).
 const EMPTY_THREADS: readonly AssistantMemoryThread[] = [];
-
-const PROVIDER_LABELS: Record<string, string> = {
-  anthropic: 'Anthropic',
-  google: 'Google',
-  openai: 'OpenAI',
-  openrouter: 'OpenRouter',
-};
-
-function getProviderLabel(provider: string | undefined): string | null {
-  if (!provider) {
-    return null;
-  }
-  return PROVIDER_LABELS[provider] ?? provider;
-}
-
-function getThreadIconId(thread: AssistantMemoryThread): AssistantThreadIconId {
-  return thread.metadata?.icon ?? 'message';
-}
-
-function getThreadColorId(thread: AssistantMemoryThread): AssistantThreadColorId | null {
-  return thread.metadata?.color ?? null;
-}
-
-function getThreadColorConfig(thread: AssistantMemoryThread) {
-  return getAssistantThreadColorSurface(getThreadColorId(thread));
-}
-
-function getReasoningValue(thread: AssistantMemoryThread): string | null {
-  const provider = thread.latestRun?.provider;
-  const providerOptions = thread.latestRun?.providerOptions;
-  const providerRecord =
-    provider && providerOptions && typeof providerOptions[provider] === 'object'
-      ? (providerOptions[provider] as Record<string, unknown>)
-      : null;
-  const nestedReasoning = providerRecord?.['reasoning'];
-  const nestedEffort =
-    nestedReasoning && typeof nestedReasoning === 'object'
-      ? (nestedReasoning as Record<string, unknown>)['effort']
-      : undefined;
-  const reasoning =
-    providerRecord?.['reasoningEffort'] ?? providerRecord?.['effort'] ?? nestedEffort;
-  return typeof reasoning === 'string' && reasoning.trim() ? reasoning : null;
-}
-
-function getReasoningLabel(thread: AssistantMemoryThread): string | null {
-  const value = getReasoningValue(thread);
-  return value ? `Reasoning: ${value}` : null;
-}
-
-function getMaxOutputValue(thread: AssistantMemoryThread): string | null {
-  const value = thread.latestRun?.modelSettings?.['maxOutputTokens'];
-  return typeof value === 'number' && Number.isFinite(value) ? String(value) : null;
-}
-
-function getMaxOutputLabel(thread: AssistantMemoryThread): string | null {
-  const value = getMaxOutputValue(thread);
-  return value ? `Max output: ${value}` : null;
-}
-
-function formatThreadDate(value: Date): string {
-  return new Intl.DateTimeFormat('en', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(value);
-}
+// Stable identities so folder mode's empty inputs do not churn memo deps.
+const EMPTY_MOVE_TARGETS: readonly ThreadMoveTarget[] = [];
+const EMPTY_ROOT_IDS: readonly string[] = [];
 
 function ThreadStateCard({
   description,
@@ -200,1032 +151,6 @@ function ThreadStateCard({
       <div className="font-medium text-sm">{title}</div>
       <p className="pt-2 text-muted-foreground text-xs leading-5">{description}</p>
     </div>
-  );
-}
-
-interface ThreadMoveTarget {
-  readonly id: string;
-  readonly name: string;
-}
-
-function ThreadRows({
-  activeThreadIds,
-  membershipByThreadId,
-  moveTargets,
-  onDeleteThread,
-  onMoveThreadToGroup,
-  onRenameThread,
-  onSelectThread,
-  onUpdateThreadMetadata,
-  selectedThreadId,
-  threads,
-}: {
-  readonly activeThreadIds: ReadonlySet<string>;
-  readonly membershipByThreadId: ReadonlyMap<string, string | null>;
-  readonly moveTargets: readonly ThreadMoveTarget[];
-  readonly onDeleteThread: (threadId: string) => Promise<void>;
-  readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
-  readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
-  readonly onSelectThread: (threadId: string) => void;
-  readonly onUpdateThreadMetadata: (
-    threadId: string,
-    metadata: AssistantThreadMetadata
-  ) => Promise<void>;
-  readonly selectedThreadId: string | undefined;
-  readonly threads: readonly AssistantMemoryThread[];
-}): ReactElement {
-  const [customizingThreadId, setCustomizingThreadId] = useState<string | null>(null);
-  const [confirmingDeleteThreadId, setConfirmingDeleteThreadId] = useState<string | null>(null);
-  const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
-  const [expandedThreadIds, setExpandedThreadIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [metadataError, setMetadataError] = useState<string | null>(null);
-  const [draftTitle, setDraftTitle] = useState<string>('');
-  const [renameError, setRenameError] = useState<string | null>(null);
-  const [savingMetadataThreadId, setSavingMetadataThreadId] = useState<string | null>(null);
-  const [savingThreadId, setSavingThreadId] = useState<string | null>(null);
-
-  return (
-    <div className="space-y-2">
-      {threads.map((thread) => (
-        <ThreadRowDndShell
-          groupId={membershipByThreadId.get(thread.id) ?? null}
-          key={thread.id}
-          threadId={thread.id}
-        >
-          <ThreadRowItem
-            active={activeThreadIds.has(thread.id)}
-            confirmingDeleteThreadId={confirmingDeleteThreadId}
-            customizingThreadId={customizingThreadId}
-            deleteError={deleteError}
-            deletingThreadId={deletingThreadId}
-            draftTitle={draftTitle}
-            editingThreadId={editingThreadId}
-            expandedThreadIds={expandedThreadIds}
-            metadataError={metadataError}
-            moveTargets={moveTargets}
-            onCancelRename={() => {
-              setEditingThreadId(null);
-              setDraftTitle('');
-              setRenameError(null);
-            }}
-            onConfirmDeleteThread={() => {
-              setDeletingThreadId(thread.id);
-              setDeleteError(null);
-              onDeleteThread(thread.id)
-                .then(() => {
-                  setConfirmingDeleteThreadId(null);
-                })
-                .catch((error: unknown) => {
-                  setDeleteError(error instanceof Error ? error.message : String(error));
-                })
-                .finally(() => {
-                  setDeletingThreadId(null);
-                });
-            }}
-            onCustomizeThreadToggle={() => {
-              setCustomizingThreadId((currentThreadId) =>
-                currentThreadId === thread.id ? null : thread.id
-              );
-              setMetadataError(null);
-            }}
-            onDeleteThreadCancel={() => {
-              setConfirmingDeleteThreadId(null);
-              setDeleteError(null);
-            }}
-            onDeleteThreadStart={() => {
-              setConfirmingDeleteThreadId(thread.id);
-              setDeleteError(null);
-              setCustomizingThreadId(null);
-            }}
-            onDraftTitleChange={setDraftTitle}
-            onExpandedThreadToggle={() => {
-              setExpandedThreadIds((currentThreadIds) => {
-                const nextThreadIds = new Set(currentThreadIds);
-                if (nextThreadIds.has(thread.id)) {
-                  nextThreadIds.delete(thread.id);
-                } else {
-                  nextThreadIds.add(thread.id);
-                }
-                return nextThreadIds;
-              });
-            }}
-            onMetadataError={setMetadataError}
-            onMoveThreadToGroup={onMoveThreadToGroup}
-            onRenameThread={onRenameThread}
-            onRenameThreadStart={() => {
-              setEditingThreadId(thread.id);
-              setDraftTitle(thread.title);
-              setRenameError(null);
-              setCustomizingThreadId(null);
-            }}
-            onRenameThreadSubmitError={setRenameError}
-            onRenameThreadSubmitted={() => {
-              setEditingThreadId(null);
-              setDraftTitle('');
-            }}
-            onSavingMetadataThreadIdChange={setSavingMetadataThreadId}
-            onSavingThreadIdChange={setSavingThreadId}
-            onSelectThread={onSelectThread}
-            onUpdateThreadMetadata={onUpdateThreadMetadata}
-            renameError={renameError}
-            rowGroupId={membershipByThreadId.get(thread.id) ?? null}
-            savingMetadataThreadId={savingMetadataThreadId}
-            savingThreadId={savingThreadId}
-            selectedThreadId={selectedThreadId}
-            thread={thread}
-          />
-        </ThreadRowDndShell>
-      ))}
-    </div>
-  );
-}
-
-function ThreadRowItem({
-  active,
-  customizingThreadId,
-  confirmingDeleteThreadId,
-  deletingThreadId,
-  deleteError,
-  draftTitle,
-  editingThreadId,
-  expandedThreadIds,
-  metadataError,
-  moveTargets,
-  onCancelRename,
-  onCustomizeThreadToggle,
-  onConfirmDeleteThread,
-  onDeleteThreadCancel,
-  onDeleteThreadStart,
-  onDraftTitleChange,
-  onExpandedThreadToggle,
-  onMetadataError,
-  onMoveThreadToGroup,
-  onRenameThread,
-  onRenameThreadStart,
-  onRenameThreadSubmitted,
-  onRenameThreadSubmitError,
-  onSavingMetadataThreadIdChange,
-  onSavingThreadIdChange,
-  onSelectThread,
-  onUpdateThreadMetadata,
-  renameError,
-  rowGroupId,
-  savingMetadataThreadId,
-  savingThreadId,
-  selectedThreadId,
-  thread,
-}: {
-  readonly active: boolean;
-  readonly customizingThreadId: string | null;
-  readonly confirmingDeleteThreadId: string | null;
-  readonly deletingThreadId: string | null;
-  readonly deleteError: string | null;
-  readonly draftTitle: string;
-  readonly editingThreadId: string | null;
-  readonly expandedThreadIds: ReadonlySet<string>;
-  readonly metadataError: string | null;
-  readonly moveTargets: readonly ThreadMoveTarget[];
-  readonly onCancelRename: () => void;
-  readonly onCustomizeThreadToggle: () => void;
-  readonly onConfirmDeleteThread: () => void;
-  readonly onDeleteThreadCancel: () => void;
-  readonly onDeleteThreadStart: () => void;
-  readonly onDraftTitleChange: (title: string) => void;
-  readonly onExpandedThreadToggle: () => void;
-  readonly onMetadataError: (message: string | null) => void;
-  readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
-  readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
-  readonly onRenameThreadStart: () => void;
-  readonly onRenameThreadSubmitted: () => void;
-  readonly onRenameThreadSubmitError: (message: string) => void;
-  readonly onSavingMetadataThreadIdChange: (threadId: string | null) => void;
-  readonly onSavingThreadIdChange: (threadId: string | null) => void;
-  readonly onSelectThread: (threadId: string) => void;
-  readonly onUpdateThreadMetadata: (
-    threadId: string,
-    metadata: AssistantThreadMetadata
-  ) => Promise<void>;
-  readonly renameError: string | null;
-  readonly rowGroupId: string | null;
-  readonly savingMetadataThreadId: string | null;
-  readonly savingThreadId: string | null;
-  readonly selectedThreadId: string | undefined;
-  readonly thread: AssistantMemoryThread;
-}): ReactElement {
-  const isSelected = selectedThreadId === thread.id;
-  const isEditing = editingThreadId === thread.id;
-  const isConfirmingDelete = confirmingDeleteThreadId === thread.id;
-  const isCustomizing = customizingThreadId === thread.id;
-  const isExpanded = expandedThreadIds.has(thread.id);
-  const colorConfig = getThreadColorConfig(thread);
-  const contextMenuController = useContextMenuTarget();
-  const { setTarget: setContextMenuTarget } = contextMenuController;
-  const rowActions = useMemo<readonly AnyContextAction[]>(() => {
-    const isCurrentTarget = (target: TargetOf<'assistant-thread'>): boolean =>
-      target.id === thread.id && target.resourceId === thread.resourceId;
-    const staleTargetFailure = Promise.resolve({
-      error: 'Thread row is no longer available',
-      ok: false as const,
-    });
-
-    return [
-      defineContextAction({
-        appliesTo: ['assistant-thread'] as const,
-        group: 'primary',
-        icon: MessageSquare,
-        id: 'assistant-thread.open',
-        isEnabled: (target) => isCurrentTarget(target) && !isSelected,
-        label: 'Open',
-        run: (target) => {
-          if (!isCurrentTarget(target)) {
-            return staleTargetFailure;
-          }
-          onSelectThread(target.id);
-          return Promise.resolve({ ok: true });
-        },
-      }),
-      defineContextAction({
-        appliesTo: ['assistant-thread'] as const,
-        group: 'primary',
-        icon: Pencil,
-        id: 'assistant-thread.rename',
-        isEnabled: (target) => isCurrentTarget(target),
-        label: 'Rename…',
-        run: (target) => {
-          if (!isCurrentTarget(target)) {
-            return staleTargetFailure;
-          }
-          onRenameThreadStart();
-          return Promise.resolve({ ok: true });
-        },
-      }),
-      defineContextAction({
-        appliesTo: ['assistant-thread'] as const,
-        group: 'primary',
-        icon: Palette,
-        id: 'assistant-thread.customize',
-        isEnabled: (target) => isCurrentTarget(target),
-        label: isCustomizing ? 'Close Customization' : 'Customize…',
-        run: (target) => {
-          if (!isCurrentTarget(target)) {
-            return staleTargetFailure;
-          }
-          onCustomizeThreadToggle();
-          return Promise.resolve({ ok: true });
-        },
-      }),
-      defineContextAction({
-        appliesTo: ['assistant-thread'] as const,
-        group: 'inspect',
-        icon: isExpanded ? ChevronUp : ChevronDown,
-        id: 'assistant-thread.toggle-details',
-        isEnabled: (target) => isCurrentTarget(target),
-        label: isExpanded ? 'Hide Details' : 'Show Details',
-        run: (target) => {
-          if (!isCurrentTarget(target)) {
-            return staleTargetFailure;
-          }
-          onExpandedThreadToggle();
-          return Promise.resolve({ ok: true });
-        },
-      }),
-      ...moveTargets.flatMap((moveTarget) =>
-        moveTarget.id === rowGroupId
-          ? []
-          : defineContextAction({
-              appliesTo: ['assistant-thread'] as const,
-              group: 'tree',
-              icon: Folder,
-              id: `assistant-thread.move-to-group.${moveTarget.id}`,
-              isEnabled: (target) => isCurrentTarget(target),
-              label: `Move to ${moveTarget.name}`,
-              run: (target) => {
-                if (!isCurrentTarget(target)) {
-                  return staleTargetFailure;
-                }
-                return onMoveThreadToGroup(target.id, moveTarget.id).then(
-                  () => ({ ok: true as const }),
-                  (error: unknown) => ({
-                    error: error instanceof Error ? error.message : String(error),
-                    ok: false as const,
-                  })
-                );
-              },
-            })
-      ),
-      ...(rowGroupId
-        ? [
-            defineContextAction({
-              appliesTo: ['assistant-thread'] as const,
-              group: 'tree',
-              icon: FolderMinus,
-              id: 'assistant-thread.remove-from-group',
-              isEnabled: (target) => isCurrentTarget(target),
-              label: 'Remove from Group',
-              run: (target) => {
-                if (!isCurrentTarget(target)) {
-                  return staleTargetFailure;
-                }
-                return onMoveThreadToGroup(target.id, null).then(
-                  () => ({ ok: true as const }),
-                  (error: unknown) => ({
-                    error: error instanceof Error ? error.message : String(error),
-                    ok: false as const,
-                  })
-                );
-              },
-            }),
-          ]
-        : []),
-      defineContextAction({
-        appliesTo: ['assistant-thread'] as const,
-        group: 'danger',
-        icon: Trash2,
-        id: 'assistant-thread.delete',
-        isEnabled: (target) => isCurrentTarget(target) && !isConfirmingDelete,
-        label: 'Delete…',
-        run: (target) => {
-          if (!isCurrentTarget(target)) {
-            return staleTargetFailure;
-          }
-          onDeleteThreadStart();
-          return Promise.resolve({ ok: true });
-        },
-      }),
-    ];
-  }, [
-    isConfirmingDelete,
-    isCustomizing,
-    isExpanded,
-    isSelected,
-    moveTargets,
-    onCustomizeThreadToggle,
-    onDeleteThreadStart,
-    onExpandedThreadToggle,
-    onMoveThreadToGroup,
-    onRenameThreadStart,
-    onSelectThread,
-    rowGroupId,
-    thread.id,
-    thread.resourceId,
-  ]);
-  return (
-    <div
-      className={`my-0.5 flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} w-auto flex-col justify-center overflow-hidden rounded-md px-2 text-left transition-[background-color,box-shadow] motion-reduce:transition-none ${
-        isSelected ? colorConfig.selectedClassName : colorConfig.idleClassName
-      }`}
-      data-testid="thread-row"
-    >
-      {isEditing ? (
-        <ThreadRenameForm
-          active={active}
-          draftTitle={draftTitle}
-          onCancelRename={onCancelRename}
-          onDraftTitleChange={onDraftTitleChange}
-          onRenameThread={onRenameThread}
-          onRenameThreadSubmitError={onRenameThreadSubmitError}
-          onRenameThreadSubmitted={onRenameThreadSubmitted}
-          onSavingThreadIdChange={onSavingThreadIdChange}
-          renameError={renameError}
-          savingThreadId={savingThreadId}
-          thread={thread}
-        />
-      ) : (
-        <ActionContextMenu controller={contextMenuController} localActions={rowActions}>
-          {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: layout-neutral wrapper claims a resource-scoped thread context target */}
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: layout-neutral wrapper delegates all activation to the menu */}
-          <div
-            className="contents"
-            onContextMenu={() =>
-              setContextMenuTarget(assistantThreadToTarget(thread, 'assistant-thread'))
-            }
-            onContextMenuCapture={() => setContextMenuTarget(null)}
-          >
-            <ThreadRowDisplay
-              active={active}
-              customizing={isCustomizing}
-              deleteError={isConfirmingDelete ? deleteError : null}
-              deleting={deletingThreadId === thread.id}
-              expanded={isExpanded}
-              metadataError={isCustomizing ? metadataError : null}
-              metadataSaving={savingMetadataThreadId === thread.id}
-              onConfirmDeleteThread={onConfirmDeleteThread}
-              onCustomizeThreadToggle={onCustomizeThreadToggle}
-              onDeleteThreadCancel={onDeleteThreadCancel}
-              onDeleteThreadStart={onDeleteThreadStart}
-              onExpandedThreadToggle={onExpandedThreadToggle}
-              onMetadataError={onMetadataError}
-              onRenameThreadStart={onRenameThreadStart}
-              onSavingMetadataThreadIdChange={onSavingMetadataThreadIdChange}
-              onSelectThread={onSelectThread}
-              onUpdateThreadMetadata={onUpdateThreadMetadata}
-              pendingDelete={isConfirmingDelete}
-              selected={isSelected}
-              thread={thread}
-            />
-          </div>
-        </ActionContextMenu>
-      )}
-    </div>
-  );
-}
-
-function ThreadRenameForm({
-  active,
-  draftTitle,
-  onCancelRename,
-  onDraftTitleChange,
-  onRenameThread,
-  onRenameThreadSubmitted,
-  onRenameThreadSubmitError,
-  onSavingThreadIdChange,
-  renameError,
-  savingThreadId,
-  thread,
-}: {
-  readonly active: boolean;
-  readonly draftTitle: string;
-  readonly onCancelRename: () => void;
-  readonly onDraftTitleChange: (title: string) => void;
-  readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
-  readonly onRenameThreadSubmitted: () => void;
-  readonly onRenameThreadSubmitError: (message: string) => void;
-  readonly onSavingThreadIdChange: (threadId: string | null) => void;
-  readonly renameError: string | null;
-  readonly savingThreadId: string | null;
-  readonly thread: AssistantMemoryThread;
-}): ReactElement {
-  return (
-    <form
-      className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} items-center gap-2`}
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSavingThreadIdChange(thread.id);
-        onRenameThread(thread.id, draftTitle)
-          .then(onRenameThreadSubmitted)
-          .catch((error: unknown) => {
-            onRenameThreadSubmitError(error instanceof Error ? error.message : String(error));
-          })
-          .finally(() => {
-            onSavingThreadIdChange(null);
-          });
-      }}
-    >
-      <ThreadIdentityMark active={active} thread={thread} />
-      <input
-        aria-label="Thread title"
-        className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onChange={(event) => {
-          onDraftTitleChange(event.target.value);
-        }}
-        onKeyDown={(event) => {
-          if (event.defaultPrevented || event.key !== 'Escape') {
-            return;
-          }
-          event.preventDefault();
-          event.stopPropagation();
-          onCancelRename();
-        }}
-        value={draftTitle}
-      />
-      {renameError ? <span className="text-[11px] text-destructive">{renameError}</span> : null}
-      <Button
-        aria-label="Save thread title"
-        className={THREAD_CONTROL_ACTION_CLASS_NAME}
-        disabled={savingThreadId === thread.id}
-        size="icon-xs"
-        type="submit"
-        variant="ghost"
-      >
-        <Check className="size-3" />
-      </Button>
-      <Button
-        aria-label="Cancel rename"
-        className={THREAD_CONTROL_ACTION_CLASS_NAME}
-        onClick={onCancelRename}
-        size="icon-xs"
-        type="button"
-        variant="ghost"
-      >
-        <X className="size-3" />
-      </Button>
-    </form>
-  );
-}
-
-function ThreadRowDisplay({
-  active,
-  customizing,
-  deleteError,
-  deleting,
-  expanded,
-  metadataError,
-  metadataSaving,
-  onCustomizeThreadToggle,
-  onConfirmDeleteThread,
-  onDeleteThreadCancel,
-  onDeleteThreadStart,
-  onExpandedThreadToggle,
-  onMetadataError,
-  onRenameThreadStart,
-  onSavingMetadataThreadIdChange,
-  onSelectThread,
-  onUpdateThreadMetadata,
-  pendingDelete,
-  selected,
-  thread,
-}: {
-  readonly active: boolean;
-  readonly customizing: boolean;
-  readonly deleteError: string | null;
-  readonly deleting: boolean;
-  readonly expanded: boolean;
-  readonly metadataError: string | null;
-  readonly metadataSaving: boolean;
-  readonly onCustomizeThreadToggle: () => void;
-  readonly onConfirmDeleteThread: () => void;
-  readonly onDeleteThreadCancel: () => void;
-  readonly onDeleteThreadStart: () => void;
-  readonly onExpandedThreadToggle: () => void;
-  readonly onMetadataError: (message: string | null) => void;
-  readonly onRenameThreadStart: () => void;
-  readonly onSavingMetadataThreadIdChange: (threadId: string | null) => void;
-  readonly onSelectThread: (threadId: string) => void;
-  readonly onUpdateThreadMetadata: (
-    threadId: string,
-    metadata: AssistantThreadMetadata
-  ) => Promise<void>;
-  readonly pendingDelete: boolean;
-  readonly selected: boolean;
-  readonly thread: AssistantMemoryThread;
-}): ReactElement {
-  const [actionsOpen, setActionsOpen] = useState(false);
-
-  const closeActions = (): void => {
-    setActionsOpen(false);
-  };
-
-  return (
-    <>
-      <div className="flex min-w-0 items-center justify-between gap-1.5">
-        <button
-          aria-current={selected ? 'true' : undefined}
-          className="min-w-0 flex-1 text-left"
-          onClick={(event) => {
-            event.stopPropagation();
-            onSelectThread(thread.id);
-          }}
-          type="button"
-        >
-          <div className="grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-x-2">
-            <div className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} items-center`}>
-              <ThreadIdentityMark active={active} thread={thread} />
-            </div>
-            <div
-              className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} min-w-0 items-center gap-1.5`}
-            >
-              <div className={THREAD_CONTROL_TITLE_CLASS_NAME}>{thread.title}</div>
-              <ThreadMetadataBadges thread={thread} />
-            </div>
-          </div>
-        </button>
-        <div className="-mr-px flex shrink-0 items-center gap-0.5">
-          <Button
-            aria-label={`${expanded ? 'Hide' : 'Show'} thread details ${thread.title}`}
-            className={THREAD_CONTROL_ACTION_CLASS_NAME}
-            onClick={(event) => {
-              event.stopPropagation();
-              onExpandedThreadToggle();
-            }}
-            size="icon-xs"
-            type="button"
-            variant="ghost"
-          >
-            {expanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-          </Button>
-          <Popover
-            onOpenChange={(open) => {
-              setActionsOpen(open);
-              if (open || !customizing) {
-                return;
-              }
-              onCustomizeThreadToggle();
-            }}
-            open={actionsOpen || customizing}
-          >
-            <PopoverTrigger asChild>
-              <Button
-                aria-label={`Thread actions ${thread.title}`}
-                className={THREAD_CONTROL_ACTION_CLASS_NAME}
-                onClick={(event) => event.stopPropagation()}
-                size="icon-xs"
-                type="button"
-                variant="ghost"
-              >
-                <MoreHorizontal className="size-3" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="end"
-              className={
-                customizing
-                  ? 'w-64 max-w-[calc(var(--radix-popover-content-available-width)-0.5rem)] p-3'
-                  : 'w-48 p-1.5'
-              }
-              collisionPadding={8}
-              onClick={(event) => event.stopPropagation()}
-            >
-              {customizing ? (
-                <ThreadCustomizationPanel
-                  metadataError={metadataError}
-                  metadataSaving={metadataSaving}
-                  onMetadataError={onMetadataError}
-                  onSavingMetadataThreadIdChange={onSavingMetadataThreadIdChange}
-                  onUpdateThreadMetadata={onUpdateThreadMetadata}
-                  thread={thread}
-                />
-              ) : (
-                <div className="grid gap-0.5">
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-xs"
-                    onClick={onCustomizeThreadToggle}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <SwatchBook className="size-3.5" />
-                    Customize
-                  </Button>
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-xs"
-                    onClick={() => {
-                      closeActions();
-                      onRenameThreadStart();
-                    }}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Pencil className="size-3.5" />
-                    Rename
-                  </Button>
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-destructive text-xs hover:text-destructive"
-                    onClick={() => {
-                      closeActions();
-                      onDeleteThreadStart();
-                    }}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Trash2 className="size-3.5" />
-                    Delete…
-                  </Button>
-                </div>
-              )}
-            </PopoverContent>
-          </Popover>
-        </div>
-      </div>
-      {pendingDelete ? (
-        <div className="mt-2 mb-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
-          <p className="text-[11px] text-destructive">
-            Delete this thread and its Mastra memory rows permanently?
-          </p>
-          {deleteError ? <p className="mt-1 text-[11px] text-destructive">{deleteError}</p> : null}
-          <div className="mt-2 flex justify-end gap-2">
-            <Button
-              aria-label={`Cancel delete thread ${thread.title}`}
-              disabled={deleting}
-              onClick={onDeleteThreadCancel}
-              size="sm"
-              type="button"
-              variant="ghost"
-            >
-              Cancel
-            </Button>
-            <Button
-              aria-label={`Confirm delete thread ${thread.title}`}
-              disabled={deleting}
-              onClick={onConfirmDeleteThread}
-              size="sm"
-              type="button"
-              variant="destructive"
-            >
-              Delete
-            </Button>
-          </div>
-        </div>
-      ) : null}
-      {expanded ? <ThreadExpandedDetails thread={thread} /> : null}
-    </>
-  );
-}
-
-function ThreadIdentityMark({
-  active,
-  thread,
-}: {
-  readonly active: boolean;
-  readonly thread: AssistantMemoryThread;
-}): ReactElement {
-  const iconId = getThreadIconId(thread);
-  const colorId = getThreadColorId(thread);
-  const Icon = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].iconComponent;
-  const colorConfig = getThreadColorConfig(thread);
-  return (
-    <span
-      className={`relative ${THREAD_CONTROL_MARK_CLASS_NAME} ${colorConfig.markClassName}`}
-      data-testid={`thread-color-${colorId ?? 'unassigned'}`}
-    >
-      <Icon className="size-3" data-testid={`thread-icon-${iconId}`} />
-      {active ? (
-        <LoaderCircle
-          aria-label={`${thread.title} is active`}
-          className="pointer-events-none absolute -right-1 -bottom-1 size-3 animate-spin rounded-full border border-background bg-background text-current shadow-sm motion-reduce:animate-none"
-          data-testid="thread-active-spinner"
-          role="img"
-        />
-      ) : null}
-    </span>
-  );
-}
-
-function ThreadCustomizationPanel({
-  metadataError,
-  metadataSaving,
-  onMetadataError,
-  onSavingMetadataThreadIdChange,
-  onUpdateThreadMetadata,
-  thread,
-}: {
-  readonly metadataError: string | null;
-  readonly metadataSaving: boolean;
-  readonly onMetadataError: (message: string | null) => void;
-  readonly onSavingMetadataThreadIdChange: (threadId: string | null) => void;
-  readonly onUpdateThreadMetadata: (
-    threadId: string,
-    metadata: AssistantThreadMetadata
-  ) => Promise<void>;
-  readonly thread: AssistantMemoryThread;
-}): ReactElement {
-  const saveMetadata = (metadata: AssistantThreadMetadata): void => {
-    onSavingMetadataThreadIdChange(thread.id);
-    onMetadataError(null);
-    onUpdateThreadMetadata(thread.id, metadata)
-      .catch((error: unknown) => {
-        onMetadataError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        onSavingMetadataThreadIdChange(null);
-      });
-  };
-  return (
-    <div className="grid gap-3" data-testid="thread-customization-panel">
-      <div>
-        <div className="font-medium text-xs">Thread appearance</div>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">Choose an icon and accent.</p>
-      </div>
-      <div className="grid gap-3">
-        <div>
-          <div className="mb-1.5 text-[11px] text-muted-foreground">Icon</div>
-          <div className="grid grid-cols-6 gap-1">
-            {ASSISTANT_THREAD_ICON_IDS.map((iconId) => {
-              const Icon = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].iconComponent;
-              const label = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].label;
-              const selected = getThreadIconId(thread) === iconId;
-              return (
-                <Button
-                  aria-label={`Use ${label} icon`}
-                  aria-pressed={selected}
-                  className={
-                    selected ? 'bg-accent shadow-inner ring-1 ring-border' : 'text-muted-foreground'
-                  }
-                  disabled={metadataSaving}
-                  key={iconId}
-                  onClick={() => {
-                    saveMetadata({ icon: iconId });
-                  }}
-                  size="icon-sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  <Icon className="size-4" />
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-        <div>
-          <div className="mb-1.5 text-[11px] text-muted-foreground">Color</div>
-          <div className="grid grid-cols-6 gap-1">
-            {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => {
-              const label = ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label;
-              const selected = getThreadColorId(thread) === colorId;
-              return (
-                <Button
-                  aria-label={`Use ${label} color`}
-                  aria-pressed={selected}
-                  className={selected ? 'bg-accent shadow-inner ring-1 ring-border' : undefined}
-                  disabled={metadataSaving}
-                  key={colorId}
-                  onClick={() => {
-                    saveMetadata({ color: colorId });
-                  }}
-                  size="icon-sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  <span
-                    className={`size-4 rounded-full ring-1 ring-black/10 ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
-                  />
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-      {metadataError ? <p className="text-[11px] text-destructive">{metadataError}</p> : null}
-    </div>
-  );
-}
-
-function ThreadExpandedDetails({
-  thread,
-}: {
-  readonly thread: AssistantMemoryThread;
-}): ReactElement {
-  const providerLabel = getProviderLabel(thread.latestRun?.provider);
-  const reasoningValue = getReasoningValue(thread);
-  const maxOutputValue = getMaxOutputValue(thread);
-  return (
-    <div
-      className="mt-2 mb-2 rounded-md border border-border bg-background/70 p-2"
-      data-testid="thread-expanded-details"
-    >
-      <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">
-        {providerLabel ? <ThreadDetail label="Provider" value={providerLabel} /> : null}
-        {thread.latestRun?.model ? (
-          <ThreadDetail label="Model" value={thread.latestRun.model} />
-        ) : null}
-        {thread.latestRun?.runtimeKind ? (
-          <ThreadDetail label="Runtime" value={thread.latestRun.runtimeKind} />
-        ) : null}
-        {thread.latestRun?.status ? (
-          <ThreadDetail label="Status" value={thread.latestRun.status} />
-        ) : null}
-        {reasoningValue ? <ThreadDetail label="Reasoning" value={reasoningValue} /> : null}
-        {maxOutputValue ? <ThreadDetail label="Max output" value={maxOutputValue} /> : null}
-        <ThreadDetail label="Created" value={formatThreadDate(thread.createdAt)} />
-        <ThreadDetail label="Updated" value={formatThreadDate(thread.updatedAt)} />
-      </div>
-      <div className="mt-2 border-border border-t pt-2">
-        <div className="font-medium text-[11px] text-muted-foreground">Diagnostics</div>
-        <div className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
-          {thread.id}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ThreadDetail({
-  label,
-  value,
-}: {
-  readonly label: string;
-  readonly value: string;
-}): ReactElement {
-  return (
-    <div>
-      <div className="text-muted-foreground">{label}</div>
-      <div className="truncate font-medium">{value}</div>
-    </div>
-  );
-}
-
-function ThreadMetadataBadges({
-  thread,
-}: {
-  readonly thread: AssistantMemoryThread;
-}): ReactElement | null {
-  const providerLabel = getProviderLabel(thread.latestRun?.provider);
-  const reasoningLabel = getReasoningLabel(thread);
-  const maxOutputLabel = getMaxOutputLabel(thread);
-  if (!(providerLabel || thread.latestRun?.model || reasoningLabel || maxOutputLabel)) {
-    return null;
-  }
-  return (
-    <div className="@[420px]/threads:flex hidden min-w-0 shrink items-center gap-1 overflow-hidden [&>span:nth-child(n+2)]:@[560px]/threads:inline-flex [&>span:nth-child(n+2)]:hidden">
-      {providerLabel ? <ThreadBadge>{providerLabel}</ThreadBadge> : null}
-      {thread.latestRun?.model ? <ThreadBadge>{thread.latestRun.model}</ThreadBadge> : null}
-      {reasoningLabel ? <ThreadBadge>{reasoningLabel}</ThreadBadge> : null}
-      {maxOutputLabel ? <ThreadBadge>{maxOutputLabel}</ThreadBadge> : null}
-    </div>
-  );
-}
-
-function ThreadBadge({ children }: { readonly children: string }): ReactElement {
-  return (
-    <span className="inline-flex shrink-0 rounded-full border border-border/70 bg-background/70 px-1.5 py-0 text-[9px] text-muted-foreground leading-4">
-      {children}
-    </span>
-  );
-}
-
-const GROUP_BY_OPTIONS: readonly { readonly label: string; readonly value: ThreadsPanelGroupBy }[] =
-  [
-    { label: 'Custom groups', value: 'custom-groups' },
-    { label: 'No grouping', value: 'none' },
-  ];
-
-const SORT_BY_OPTIONS: readonly { readonly label: string; readonly value: ThreadsPanelSortBy }[] = [
-  { label: 'Recency', value: 'recency' },
-  { label: 'Name', value: 'name' },
-  { label: 'Custom', value: 'custom' },
-];
-
-function ViewOptionRadio({
-  checked,
-  label,
-  onSelect,
-}: {
-  readonly checked: boolean;
-  readonly label: string;
-  readonly onSelect: () => void;
-}): ReactElement {
-  return (
-    <label
-      className={`flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent ${
-        checked ? 'bg-accent/60 font-medium' : ''
-      }`}
-    >
-      <input checked={checked} className="sr-only" onChange={onSelect} type="radio" value={label} />
-      <span>{label}</span>
-      {checked ? <Check className="h-3.5 w-3.5" /> : null}
-    </label>
-  );
-}
-
-function ThreadsViewOptionsPopover({
-  groupBy,
-  onGroupByChange,
-  onSortByChange,
-  sortBy,
-}: {
-  readonly groupBy: ThreadsPanelGroupBy;
-  readonly onGroupByChange: (groupBy: ThreadsPanelGroupBy) => void;
-  readonly onSortByChange: (sortBy: ThreadsPanelSortBy) => void;
-  readonly sortBy: ThreadsPanelSortBy;
-}): ReactElement {
-  const hasNonDefaultView = groupBy !== 'custom-groups' || sortBy !== 'recency';
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          aria-label="View options"
-          className="relative"
-          size="icon-xs"
-          title="View options"
-          type="button"
-          variant="ghost"
-        >
-          <SlidersHorizontal className="size-3.5" />
-          {hasNonDefaultView ? (
-            <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
-          ) : null}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-52 p-2">
-        <div className="grid gap-2">
-          <div aria-label="Group by" role="radiogroup">
-            <div className="px-2 pb-1 text-[11px] text-muted-foreground">Group by</div>
-            {GROUP_BY_OPTIONS.map((option) => (
-              <ViewOptionRadio
-                checked={groupBy === option.value}
-                key={option.value}
-                label={option.label}
-                onSelect={() => onGroupByChange(option.value)}
-              />
-            ))}
-          </div>
-          <div aria-label="Sort by" role="radiogroup">
-            <div className="px-2 pb-1 text-[11px] text-muted-foreground">Sort by</div>
-            {SORT_BY_OPTIONS.map((option) => (
-              <ViewOptionRadio
-                checked={sortBy === option.value}
-                key={option.value}
-                label={option.label}
-                onSelect={() => onSortByChange(option.value)}
-              />
-            ))}
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
   );
 }
 
@@ -1372,7 +297,7 @@ function ThreadGroupHeader({
                       <div>
                         <div className="font-medium text-xs">Group appearance</div>
                         <p className="text-[10px] text-muted-foreground">
-                          Choose an icon and accent.
+                          Choose an icon and color.
                         </p>
                       </div>
                     </div>
@@ -1421,43 +346,55 @@ function ThreadGroupHeader({
                         </Button>
                       </div>
                     </div>
-                    <div className="text-[11px] text-muted-foreground">Color</div>
-                    <div className="grid grid-cols-4 gap-1" data-testid="thread-group-color-grid">
-                      {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
-                        <Button
-                          aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${group.name}`}
-                          aria-pressed={group.color === colorId}
-                          className={`justify-self-center ${
-                            group.color === colorId
-                              ? 'bg-accent shadow-inner ring-1 ring-border'
-                              : ''
-                          }`}
-                          key={colorId}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onColorChange(colorId);
-                          }}
-                          size="icon-sm"
-                          type="button"
-                          variant="ghost"
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={`size-4 rounded-full ring-1 ring-black/10 ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
-                          />
-                        </Button>
+                    <div className="text-[11px] text-muted-foreground">Color palette</div>
+                    <div className="grid gap-2" data-testid="thread-group-color-grid">
+                      {ASSISTANT_THREAD_COLOR_PALETTES.map((palette) => (
+                        <div key={palette.label}>
+                          <div className="mb-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+                            {palette.label}
+                          </div>
+                          <fieldset
+                            aria-label={`${palette.label} colors`}
+                            className="grid grid-cols-6 gap-1"
+                          >
+                            {palette.colors.map((colorId) => (
+                              <Button
+                                aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${group.name}`}
+                                aria-pressed={group.color === colorId}
+                                className={
+                                  group.color === colorId
+                                    ? 'bg-accent shadow-inner ring-1 ring-border'
+                                    : undefined
+                                }
+                                key={colorId}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onColorChange(colorId);
+                                }}
+                                size="icon-sm"
+                                type="button"
+                                variant="ghost"
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  className={`size-4 rounded-full ring-1 ring-black/10 ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
+                                />
+                              </Button>
+                            ))}
+                          </fieldset>
+                        </div>
                       ))}
                       <Button
                         aria-label={`Clear color for ${group.name}`}
                         aria-pressed={group.color === null}
-                        className={`justify-self-center ${
+                        className={`h-7 justify-start gap-2 px-2 text-[11px] ${
                           group.color === null ? 'bg-accent shadow-inner ring-1 ring-border' : ''
                         }`}
                         onClick={(event) => {
                           event.stopPropagation();
                           onColorChange(null);
                         }}
-                        size="icon-sm"
+                        size="sm"
                         type="button"
                         variant="ghost"
                       >
@@ -1465,6 +402,7 @@ function ThreadGroupHeader({
                           aria-hidden="true"
                           className="size-4 rounded-full border border-border bg-muted"
                         />
+                        No color
                       </Button>
                     </div>
                   </div>
@@ -1573,15 +511,25 @@ interface ThreadGroupSectionHandlers {
 }
 
 function buildThreadPanelTreeNodes(
-  rows: readonly ThreadPanelVisibleRow[]
+  rows: readonly ThreadPanelVisibleRow[],
+  delegatedEnabled = false
 ): TreeNode<ThreadPanelVisibleRow>[] {
   return rows.map((row) => ({
     data: row,
-    depth: row.kind === 'group' ? 0 : row.parentId === null ? 0 : 1,
+    depth:
+      row.kind === 'delegated' || row.kind === 'delegated-state'
+        ? row.depth
+        : row.kind === 'group'
+          ? 0
+          : row.parentId === null
+            ? 0
+            : 1,
     // Disclosure is already applied by buildThreadPanelVisibleRows, but every
     // section header remains an expandable treegrid parent so aria-expanded
     // and the shared Left/Right keyboard contract expose a symmetric tree.
-    hasChildren: row.kind === 'group',
+    hasChildren:
+      row.kind === 'group' ||
+      (delegatedEnabled && (row.kind === 'thread' || row.kind === 'delegated')),
     id: row.id,
     parentId: row.kind === 'group' ? null : row.parentId,
     type: `thread-panel-${row.kind}`,
@@ -1597,7 +545,9 @@ interface ThreadGroupChassisPresentation {
 
 function getThreadPanelRowGroupId(row: ThreadPanelVisibleRow): string | null {
   if (row.kind === 'group') {
-    return row.group?.id ?? null;
+    // Only a CUSTOM group tints a chassis: folder sections have no color of
+    // their own (a folder is not a curated object).
+    return row.header.kind === 'group' ? row.header.group.id : null;
   }
   return row.groupId;
 }
@@ -1636,6 +586,20 @@ function buildThreadGroupChassisByRowId(
   return chassisByRowId;
 }
 
+/** Accessible name of a section, whatever kind of section it is. */
+function getThreadPanelSectionLabel(row: ThreadPanelGroupRow): string {
+  switch (row.header.kind) {
+    case 'group':
+      return row.header.group.name;
+    case 'folder':
+      return row.header.folder.displayName;
+    case 'unassigned':
+      return 'No folder';
+    default:
+      return 'Ungrouped';
+  }
+}
+
 function getSelectionState(
   memberIds: readonly string[],
   selectedThreadIds: ReadonlySet<string>
@@ -1652,8 +616,51 @@ function getSelectionState(
   return selectedCount === memberIds.length ? 'checked' : 'indeterminate';
 }
 
-type ThreadRowsProps = Parameters<typeof ThreadRows>[0];
-type ThreadPanelGroupRow = Extract<ThreadPanelVisibleRow, { readonly kind: 'group' }>;
+interface ThreadRowContextProps {
+  readonly activeThreadIds: ReadonlySet<string>;
+  /** Both durable-root and legacy-path branch joins. */
+  readonly branchLookup: ThreadBranchLookup;
+  readonly failedUnseenThreadIds: ReadonlySet<string>;
+  /** Folder sections project a thread's root binding; they are not move targets. */
+  readonly folderMode: boolean;
+  readonly forgePrLookup: ForgePrCacheLookup;
+  readonly membershipByThreadId: ReadonlyMap<string, string | null>;
+  readonly moveTargets: readonly ThreadMoveTarget[];
+  readonly needsYouThreadIds: ReadonlySet<string>;
+  readonly onDeleteThread: (threadId: string) => Promise<void>;
+  readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
+  readonly onRefreshAgentColors?:
+    | ((threadId: string, ownerResourceId: string) => Promise<number>)
+    | undefined;
+  readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
+  readonly onSelectThread: (threadId: string) => void;
+  readonly onUpdateThreadMetadata: (
+    threadId: string,
+    metadata: AssistantThreadMetadata
+  ) => Promise<void>;
+  /** False for folder grouping and while a Show-only filter narrows the list. */
+  readonly rowsDraggable: boolean;
+  readonly selectedThreadId: string | undefined;
+  readonly unseenThreadIds: ReadonlySet<string>;
+}
+
+/**
+ * Resolves the branch chip from the durable root id first, with the legacy
+ * display-path join owned by `lookupThreadBranch` as a fallback. A durable id
+ * is authoritative: if it has no match, a replacement root mounted at the
+ * same path must not borrow the old thread's branch.
+ *
+ * A resolved worktree with neither a branch nor a detached HEAD is bare. It
+ * intentionally renders no chip: an empty badge would occupy the narrow
+ * panel's protected slot and hide useful provider metadata.
+ */
+function resolveThreadPanelBranch(
+  thread: AssistantMemoryThread,
+  branchLookup: ThreadBranchLookup
+): ThreadBranchInfo | null {
+  const branch = lookupThreadBranch(thread, branchLookup);
+  return branch && (branch.branch || branch.detached) ? branch : null;
+}
 
 // Group surfaces are borderless tinted slabs; only the rounded caps vary by
 // the row's position inside the visible chassis.
@@ -1724,13 +731,26 @@ function ThreadPanelEmptyCell({
 
 function ThreadPanelGroupCell({
   groupHandlers,
+  onNewThreadInFolder,
   row,
 }: {
   readonly groupHandlers: ThreadGroupSectionHandlers;
+  readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly row: ThreadPanelGroupRow;
 }): ReactElement {
-  const group = row.group;
-  if (!group) {
+  const header = row.header;
+  if (header.kind === 'folder' || header.kind === 'unassigned') {
+    return (
+      <div data-testid="thread-group-section">
+        <ThreadFolderHeader
+          folder={header.kind === 'folder' ? header.folder : null}
+          onNewThreadHere={onNewThreadInFolder}
+          threadCount={row.totalCount}
+        />
+      </div>
+    );
+  }
+  if (header.kind === 'ungrouped') {
     return (
       <UngroupedSectionDndShell>
         <div
@@ -1755,6 +775,7 @@ function ThreadPanelGroupCell({
     );
   }
 
+  const group = header.group;
   const isRenaming = groupHandlers.renamingGroupId === group.id;
   return (
     <div data-testid="thread-group-section">
@@ -1785,24 +806,64 @@ function ThreadPanelGroupCell({
 
 function ThreadPanelCell({
   groupHandlers,
+  onNewThreadInFolder,
   onShowMore,
   row,
   rowsProps,
+  onShowMoreChildren,
 }: {
+  readonly onShowMoreChildren: (id: string) => void;
   readonly groupHandlers: ThreadGroupSectionHandlers;
+  readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onShowMore: (sectionKey: string) => void;
   readonly row: ThreadPanelVisibleRow;
-  readonly rowsProps: Omit<ThreadRowsProps, 'threads'>;
+  readonly rowsProps: ThreadRowContextProps;
 }): ReactElement {
   let content: ReactElement;
-  if (row.kind === 'thread') {
-    content = <ThreadRows {...rowsProps} threads={[row.thread]} />;
+  if (row.kind === 'delegated' || row.kind === 'delegated-state') {
+    content = <DelegatedSidebarCell onShowMore={onShowMoreChildren} row={row} />;
+  } else if (row.kind === 'thread') {
+    const groupId = rowsProps.folderMode
+      ? null
+      : (rowsProps.membershipByThreadId.get(row.thread.id) ?? null);
+    content = (
+      <ThreadRow
+        branch={resolveThreadPanelBranch(row.thread, rowsProps.branchLookup)}
+        draggable={rowsProps.rowsDraggable}
+        groupId={groupId}
+        // Row-local mutation state must never survive a virtual cell changing
+        // identity; the key makes that lifetime contract explicit.
+        key={row.thread.id}
+        moveTargets={rowsProps.moveTargets}
+        onDeleteThread={rowsProps.onDeleteThread}
+        onMoveThreadToGroup={rowsProps.onMoveThreadToGroup}
+        onRefreshAgentColors={rowsProps.onRefreshAgentColors}
+        onRenameThread={rowsProps.onRenameThread}
+        onSelectThread={rowsProps.onSelectThread}
+        onUpdateThreadMetadata={rowsProps.onUpdateThreadMetadata}
+        pr={lookupThreadForgePr(row.thread, rowsProps.branchLookup, rowsProps.forgePrLookup)}
+        selected={rowsProps.selectedThreadId === row.thread.id}
+        status={resolveThreadRowStatusState({
+          failedUnseen: rowsProps.failedUnseenThreadIds.has(row.thread.id),
+          needsYou: rowsProps.needsYouThreadIds.has(row.thread.id),
+          running: rowsProps.activeThreadIds.has(row.thread.id),
+          unseen: rowsProps.unseenThreadIds.has(row.thread.id),
+        })}
+        thread={row.thread}
+      />
+    );
   } else if (row.kind === 'show-more') {
     content = <ThreadPanelShowMoreCell onShowMore={onShowMore} row={row} />;
   } else if (row.kind === 'empty') {
     content = <ThreadPanelEmptyCell row={row} />;
   } else {
-    content = <ThreadPanelGroupCell groupHandlers={groupHandlers} row={row} />;
+    content = (
+      <ThreadPanelGroupCell
+        groupHandlers={groupHandlers}
+        onNewThreadInFolder={onNewThreadInFolder}
+        row={row}
+      />
+    );
   }
   return <ThreadPanelContentLane>{content}</ThreadPanelContentLane>;
 }
@@ -1888,9 +949,15 @@ function useThreadBulkSelectionController({
 }
 
 function ThreadBulkSelectionOverlay({
+  canMove,
   controller,
   moveTargets,
 }: {
+  /**
+   * False in folder grouping: custom-group membership is invisible there, so a
+   * Move action would move threads with no feedback of any kind.
+   */
+  readonly canMove: boolean;
   readonly controller: ThreadBulkSelectionController;
   readonly moveTargets: readonly ThreadMoveTarget[];
 }): ReactElement {
@@ -1937,25 +1004,34 @@ function ThreadBulkSelectionOverlay({
         </div>
       ) : null}
       {controller.panel === 'color' ? (
-        <div className="pointer-events-auto ml-auto w-56 rounded-xl border border-border/80 bg-popover/95 p-2 shadow-lg backdrop-blur-sm">
+        <div className="pointer-events-auto ml-auto w-60 rounded-xl border border-border/80 bg-popover/95 p-2 shadow-lg backdrop-blur-sm">
           <div className="px-2 pb-1 text-[11px] text-muted-foreground">Color selected</div>
-          <div className="grid grid-cols-4 gap-1" data-testid="thread-bulk-color-grid">
-            {ASSISTANT_THREAD_COLOR_IDS.map((colorId) => (
-              <Button
-                aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${controller.selectedCount} threads`}
-                className="justify-self-center"
-                disabled={controller.pending}
-                key={colorId}
-                onClick={() => controller.onColor(colorId)}
-                size="icon-sm"
-                type="button"
-                variant="ghost"
-              >
-                <span
-                  aria-hidden="true"
-                  className={`size-3.5 rounded-full ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
-                />
-              </Button>
+          <div className="grid gap-2" data-testid="thread-bulk-color-grid">
+            {ASSISTANT_THREAD_COLOR_PALETTES.map((palette) => (
+              <div key={palette.label}>
+                <div className="px-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+                  {palette.label}
+                </div>
+                <fieldset aria-label={`${palette.label} colors`} className="grid grid-cols-6 gap-1">
+                  {palette.colors.map((colorId) => (
+                    <Button
+                      aria-label={`Use ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].label} color for ${controller.selectedCount} threads`}
+                      className="justify-self-center"
+                      disabled={controller.pending}
+                      key={colorId}
+                      onClick={() => controller.onColor(colorId)}
+                      size="icon-sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`size-3.5 rounded-full ${ASSISTANT_THREAD_COLOR_PRESENTATION[colorId].accentClassName}`}
+                      />
+                    </Button>
+                  ))}
+                </fieldset>
+              </div>
             ))}
           </div>
         </div>
@@ -1979,13 +1055,17 @@ function ThreadBulkSelectionOverlay({
                 },
               ]
             : [
-                {
-                  disabled: controller.pending,
-                  icon: <Folder className="size-3.5" />,
-                  id: 'move',
-                  label: 'Move',
-                  onAction: () => controller.onTogglePanel('move'),
-                },
+                ...(canMove
+                  ? [
+                      {
+                        disabled: controller.pending,
+                        icon: <Folder className="size-3.5" />,
+                        id: 'move',
+                        label: 'Move',
+                        onAction: () => controller.onTogglePanel('move'),
+                      },
+                    ]
+                  : []),
                 {
                   disabled: controller.pending,
                   icon: <Palette className="size-3.5" />,
@@ -2019,25 +1099,37 @@ function ThreadBulkSelectionOverlay({
 
 function ThreadPanelTree({
   activeThreadIds,
+  branchLookup,
+  failedUnseenThreadIds,
+  forgePrLookup,
   groupHandlers,
   membershipByThreadId,
   moveTargets,
+  needsYouThreadIds,
   onBulkColor,
   onBulkDelete,
   onBulkMove,
   onDeleteThread,
   onMoveThreadToGroup,
+  onNewThreadInFolder,
   onRenameThread,
+  onRefreshAgentColors,
   onSelectThread,
   onUpdateThreadMetadata,
   selectedThreadId,
   selection,
+  threadFiltersActive,
+  unseenThreadIds,
   view,
 }: {
   readonly activeThreadIds: ReadonlySet<string>;
+  readonly branchLookup: ThreadBranchLookup;
+  readonly failedUnseenThreadIds: ReadonlySet<string>;
+  readonly forgePrLookup: ForgePrCacheLookup;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
   readonly moveTargets: readonly ThreadMoveTarget[];
+  readonly needsYouThreadIds: ReadonlySet<string>;
   readonly onBulkColor: (
     threadIds: readonly string[],
     color: AssistantThreadColorId
@@ -2046,7 +1138,11 @@ function ThreadPanelTree({
   readonly onBulkMove: (threadIds: readonly string[], groupId: string | null) => Promise<void>;
   readonly onDeleteThread: (threadId: string) => Promise<void>;
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
+  readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
+  readonly onRefreshAgentColors?:
+    | ((threadId: string, ownerResourceId: string) => Promise<number>)
+    | undefined;
   readonly onSelectThread: (threadId: string) => void;
   readonly onUpdateThreadMetadata: (
     threadId: string,
@@ -2054,8 +1150,12 @@ function ThreadPanelTree({
   ) => Promise<void>;
   readonly selectedThreadId: string | undefined;
   readonly selection: ThreadPanelSelection;
+  /** Withdraws the row drag affordance — see {@link ThreadRowDragScope}. */
+  readonly threadFiltersActive: boolean;
+  readonly unseenThreadIds: ReadonlySet<string>;
   readonly view: ThreadListView;
 }): ReactElement {
+  const folderMode = view.kind === 'folders';
   const {
     clearSelection,
     onShowMore: handleShowMore,
@@ -2064,14 +1164,18 @@ function ThreadPanelTree({
     selectedThreadIds: selectedAvailableThreadIds,
     visibleRows,
   } = selection;
-  const nodes = useMemo(() => buildThreadPanelTreeNodes(visibleRows.rows), [visibleRows.rows]);
+  const delegated = useDelegatedSidebar(visibleRows.rows);
+  const nodes = useMemo(
+    () => buildThreadPanelTreeNodes(delegated.rows, delegated.enabled),
+    [delegated.rows, delegated.enabled]
+  );
   const colorByGroupId = useMemo(
     () =>
       new Map(
         view.kind === 'grouped'
           ? view.sections.flatMap((section) =>
-              section.group.color
-                ? ([[section.group.id, section.group.color]] as const)
+              section.header.group.color
+                ? ([[section.header.group.id, section.header.group.color]] as const)
                 : ([] as const)
             )
           : []
@@ -2084,10 +1188,13 @@ function ThreadPanelTree({
   );
   const expandedGroupIds = useMemo(
     () =>
-      new Set(
-        visibleRows.rows.flatMap((row) => (row.kind === 'group' && !row.collapsed ? [row.id] : []))
-      ),
-    [visibleRows.rows]
+      new Set([
+        ...delegated.expandedIds,
+        ...visibleRows.rows.flatMap((row) =>
+          row.kind === 'group' && !row.collapsed ? [row.id] : []
+        ),
+      ]),
+    [delegated.expandedIds, visibleRows.rows]
   );
   const bulkSelectionController = useThreadBulkSelectionController({
     onBulkColor,
@@ -2097,28 +1204,47 @@ function ThreadPanelTree({
     selectedThreadIds: selectedAvailableThreadIds,
   });
 
-  const rowsProps = useMemo<Omit<ThreadRowsProps, 'threads'>>(
+  const rowsProps = useMemo<ThreadRowContextProps>(
     () => ({
       activeThreadIds,
+      branchLookup,
+      failedUnseenThreadIds,
+      folderMode,
+      forgePrLookup,
       membershipByThreadId,
-      moveTargets,
+      // A folder is not a custom group, so folder mode offers no "Move to …"
+      // row action: the binding is the thread's own, re-bound from the
+      // composer's folder chip.
+      moveTargets: folderMode ? EMPTY_MOVE_TARGETS : moveTargets,
+      needsYouThreadIds,
       onDeleteThread,
       onMoveThreadToGroup,
+      onRefreshAgentColors,
       onRenameThread,
       onSelectThread,
       onUpdateThreadMetadata,
+      rowsDraggable: !(folderMode || threadFiltersActive),
       selectedThreadId,
+      unseenThreadIds,
     }),
     [
       activeThreadIds,
+      branchLookup,
+      failedUnseenThreadIds,
+      folderMode,
+      forgePrLookup,
       membershipByThreadId,
       moveTargets,
+      needsYouThreadIds,
       onDeleteThread,
       onMoveThreadToGroup,
       onRenameThread,
+      onRefreshAgentColors,
       onSelectThread,
       onUpdateThreadMetadata,
       selectedThreadId,
+      threadFiltersActive,
+      unseenThreadIds,
     ]
   );
   const columns = useMemo<TreeTableColumn<ThreadPanelVisibleRow>[]>(
@@ -2127,7 +1253,9 @@ function ThreadPanelTree({
         cell: ({ node }) => (
           <ThreadPanelCell
             groupHandlers={groupHandlers}
+            onNewThreadInFolder={onNewThreadInFolder}
             onShowMore={handleShowMore}
+            onShowMoreChildren={delegated.showMore}
             row={node.data}
             rowsProps={rowsProps}
           />
@@ -2140,7 +1268,7 @@ function ThreadPanelTree({
         treeControlsPosition: 'top',
       },
     ],
-    [groupHandlers, handleShowMore, rowsProps]
+    [delegated.showMore, groupHandlers, handleShowMore, onNewThreadInFolder, rowsProps]
   );
 
   return (
@@ -2156,8 +1284,7 @@ function ThreadPanelTree({
             return `Select thread ${row.thread.title}`;
           }
           if (row.kind === 'group') {
-            const label = row.group?.name ?? 'Ungrouped';
-            return `Select all ${row.totalCount} threads in ${label}`;
+            return `Select all ${row.totalCount} threads in ${getThreadPanelSectionLabel(row)}`;
           }
           return;
         }}
@@ -2168,7 +1295,7 @@ function ThreadPanelTree({
           }
           if (row.kind === 'group' && row.totalCount > 0) {
             return getSelectionState(
-              getGroupMemberIds(view, row.group?.id ?? null),
+              getGroupMemberIds(view, getThreadPanelMemberSectionId(row)),
               selectedAvailableThreadIds
             );
           }
@@ -2191,16 +1318,22 @@ function ThreadPanelTree({
             return;
           }
           if (row.kind === 'group') {
-            selectGroup(row.group?.id ?? null, nextState);
+            selectGroup(getThreadPanelMemberSectionId(row), nextState);
           }
         }}
-        onMultiSelectChange={replaceSelection}
+        onMultiSelectChange={(ids) =>
+          replaceSelection(filterThreadPanelSelection(ids, delegated.rows))
+        }
         onToggleExpand={(nodeId) => {
-          const row = visibleRows.rows.find((candidate) => candidate.id === nodeId);
+          const row = delegated.rows.find((candidate) => candidate.id === nodeId);
+          if (row?.kind === 'thread' || row?.kind === 'delegated') {
+            delegated.toggle(row);
+            return;
+          }
           if (row?.kind !== 'group') {
             return;
           }
-          groupHandlers.onToggleGroupCollapsed(row.group?.id ?? THREAD_PANEL_UNGROUPED_NODE_ID);
+          groupHandlers.onToggleGroupCollapsed(getThreadPanelCollapseId(row));
         }}
         rowClassName={(node) => {
           const row = node.data;
@@ -2228,6 +1361,7 @@ function ThreadPanelTree({
       />
       {selectedAvailableThreadIds.size > 0 ? (
         <ThreadBulkSelectionOverlay
+          canMove={!folderMode}
           controller={bulkSelectionController}
           moveTargets={moveTargets}
         />
@@ -2236,35 +1370,74 @@ function ThreadPanelTree({
   );
 }
 
+/**
+ * How the list is ordered, which is NOT the same question as how it is grouped:
+ * `flat` and `grouped` are the two presentations that own a MANUAL order and
+ * therefore a persisted `ThreadsPanelSortBy`, while `folder` sorts by its own
+ * `folderSortBy` (name/recency only — a folder section has nowhere to persist a
+ * drag). Exhaustive over ThreadsPanelGroupBy so a future group-by value fails
+ * loudly here instead of silently landing on `'grouped'`.
+ */
+type ThreadPanelSortPresentation = ThreadOrderPresentation | 'folder';
+
+function resolveSortPresentation(groupBy: ThreadsPanelGroupBy): ThreadPanelSortPresentation {
+  switch (groupBy) {
+    case 'none':
+      return 'flat';
+    case 'custom-groups':
+      return 'grouped';
+    case 'folder':
+      return 'folder';
+    default: {
+      const exhaustive: never = groupBy;
+      throw new Error(`Unknown thread group-by presentation: ${JSON.stringify(exhaustive)}.`);
+    }
+  }
+}
+
 function ThreadsPanelContent({
   activeThreadIds,
+  branchLookup,
   databaseError,
   databaseStartupLoading,
+  failedUnseenThreadIds,
+  folderGrouping,
+  forgePrLookup,
   groupHandlers,
   loadState,
   membershipByThreadId,
   moveTargets,
+  needsYouThreadIds,
   onBulkColor,
   onBulkDelete,
   onBulkMove,
   onDeleteThread,
   onMoveThreadToGroup,
+  onNewThreadInFolder,
   onRenameThread,
+  onRefreshAgentColors,
   onSelectThread,
   onUpdateThreadMetadata,
   repository,
   selectedThreadId,
   selection,
+  threadFiltersActive,
   threads,
+  unseenThreadIds,
   view,
 }: {
   readonly activeThreadIds: ReadonlySet<string>;
+  readonly branchLookup: ThreadBranchLookup;
   readonly databaseError: Error | null;
   readonly databaseStartupLoading: boolean;
+  readonly failedUnseenThreadIds: ReadonlySet<string>;
+  readonly folderGrouping: ThreadPanelFolderGroupingState | null;
+  readonly forgePrLookup: ForgePrCacheLookup;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly loadState: ThreadPanelLoadState | null;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
   readonly moveTargets: readonly ThreadMoveTarget[];
+  readonly needsYouThreadIds: ReadonlySet<string>;
   readonly onBulkColor: (
     threadIds: readonly string[],
     color: AssistantThreadColorId
@@ -2273,7 +1446,11 @@ function ThreadsPanelContent({
   readonly onBulkMove: (threadIds: readonly string[], groupId: string | null) => Promise<void>;
   readonly onDeleteThread: (threadId: string) => Promise<void>;
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
+  readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
+  readonly onRefreshAgentColors?:
+    | ((threadId: string, ownerResourceId: string) => Promise<number>)
+    | undefined;
   readonly onSelectThread: (threadId: string) => void;
   readonly onUpdateThreadMetadata: (
     threadId: string,
@@ -2282,14 +1459,18 @@ function ThreadsPanelContent({
   readonly repository: AssistantThreadRepository | null;
   readonly selectedThreadId: string | undefined;
   readonly selection: ThreadPanelSelection;
+  readonly threadFiltersActive: boolean;
   readonly threads: readonly AssistantMemoryThread[];
+  readonly unseenThreadIds: ReadonlySet<string>;
   readonly view: ThreadListView;
 }): ReactElement {
   const contentState = resolveThreadPanelContentState({
     databaseError,
     databaseStartupLoading,
+    folderGrouping,
     loadState,
     repositoryReady: Boolean(repository),
+    threadFiltersActive,
     threads,
     view,
   });
@@ -2306,19 +1487,27 @@ function ThreadsPanelContent({
   return (
     <ThreadPanelTree
       activeThreadIds={activeThreadIds}
+      branchLookup={branchLookup}
+      failedUnseenThreadIds={failedUnseenThreadIds}
+      forgePrLookup={forgePrLookup}
       groupHandlers={groupHandlers}
       membershipByThreadId={membershipByThreadId}
       moveTargets={moveTargets}
+      needsYouThreadIds={needsYouThreadIds}
       onBulkColor={onBulkColor}
       onBulkDelete={onBulkDelete}
       onBulkMove={onBulkMove}
       onDeleteThread={onDeleteThread}
       onMoveThreadToGroup={onMoveThreadToGroup}
+      onNewThreadInFolder={onNewThreadInFolder}
+      onRefreshAgentColors={onRefreshAgentColors}
       onRenameThread={onRenameThread}
       onSelectThread={onSelectThread}
       onUpdateThreadMetadata={onUpdateThreadMetadata}
       selectedThreadId={selectedThreadId}
       selection={selection}
+      threadFiltersActive={threadFiltersActive}
+      unseenThreadIds={unseenThreadIds}
       view={view}
     />
   );
@@ -2342,28 +1531,41 @@ export interface ThreadsPanelProps {
  * withdraw rather than report a list that is not on screen.
  */
 function ThreadsPanelToolbar({
+  folderSortBy,
   groupBy,
+  hasPrFilterAvailable,
   newGroupDisabled,
   newThreadDisabled,
   newThreadTitle,
+  onClearThreadFilters,
   onCreateGroup,
   onCreateThread,
+  onFolderSortByChange,
   onGroupByChange,
   onSortByChange,
+  onThreadFilterChange,
   selection,
   sortBy,
+  threadFilters,
   treeOnScreen,
 }: {
+  readonly folderSortBy: ThreadsPanelFolderSortBy;
   readonly groupBy: ThreadsPanelGroupBy;
+  /** See `ThreadsViewOptionsPopover` — gates whether "Has PR" is offered at all. */
+  readonly hasPrFilterAvailable: boolean;
   readonly newGroupDisabled: boolean;
   readonly newThreadDisabled: boolean;
   readonly newThreadTitle: string;
+  readonly onClearThreadFilters: () => void;
   readonly onCreateGroup: () => void;
   readonly onCreateThread: () => void;
+  readonly onFolderSortByChange: (folderSortBy: ThreadsPanelFolderSortBy) => void;
   readonly onGroupByChange: (groupBy: ThreadsPanelGroupBy) => void;
   readonly onSortByChange: (sortBy: ThreadsPanelSortBy) => void;
+  readonly onThreadFilterChange: (filter: keyof ThreadFilters, enabled: boolean) => void;
   readonly selection: ThreadPanelSelection;
   readonly sortBy: ThreadsPanelSortBy;
+  readonly threadFilters: ThreadFilters;
   readonly treeOnScreen: boolean;
 }): ReactElement {
   const visibleThreadCount = selection.visibleRows.visibleThreadIds.length;
@@ -2414,10 +1616,16 @@ function ThreadsPanelToolbar({
           </Button>
         ) : null}
         <ThreadsViewOptionsPopover
+          folderSortBy={folderSortBy}
           groupBy={groupBy}
+          hasPrFilterAvailable={hasPrFilterAvailable}
+          onClearThreadFilters={onClearThreadFilters}
+          onFolderSortByChange={onFolderSortByChange}
           onGroupByChange={onGroupByChange}
           onSortByChange={onSortByChange}
+          onThreadFilterChange={onThreadFilterChange}
           sortBy={sortBy}
+          threadFilters={threadFilters}
         />
         <Button
           aria-label="New group"
@@ -2450,6 +1658,15 @@ function ThreadsPanelToolbar({
       </div>
     </div>
   );
+}
+
+async function handleRefreshAgentColors(
+  threadId: string,
+  ownerResourceId: string
+): Promise<number> {
+  const changed = await refreshAgentColors(threadId, ownerResourceId);
+  publishDelegatedColorRefresh();
+  return changed;
 }
 
 export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = {}): ReactElement {
@@ -2510,8 +1727,13 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   const groupBy = useAssistantThreadGroupsStore((state) => state.groupBy);
   const flatSortBy = useAssistantThreadGroupsStore((state) => state.flatSortBy);
   const groupedSortBy = useAssistantThreadGroupsStore((state) => state.groupedSortBy);
+  const folderSortBy = useAssistantThreadGroupsStore((state) => state.folderSortBy);
+  const threadFilters = useAssistantThreadGroupsStore((state) => state.threadFilters);
   const setGroupBy = useAssistantThreadGroupsStore((state) => state.setGroupBy);
   const setSortBy = useAssistantThreadGroupsStore((state) => state.setSortBy);
+  const setFolderSortBy = useAssistantThreadGroupsStore((state) => state.setFolderSortBy);
+  const setThreadFilter = useAssistantThreadGroupsStore((state) => state.setThreadFilter);
+  const clearThreadFilters = useAssistantThreadGroupsStore((state) => state.clearThreadFilters);
   const toggleGroupCollapsed = useAssistantThreadGroupsStore((state) => state.toggleGroupCollapsed);
   const ensureGroups = useAssistantThreadGroupsStore((state) => state.ensureGroups);
   const createGroup = useAssistantThreadGroupsStore((state) => state.createGroup);
@@ -2546,29 +1768,183 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
       ),
     [placementsByThreadId, resourceId]
   );
-  const membershipByThreadId = useMemo(
-    () => buildThreadMembership({ groups, placements, threads }),
-    [groups, placements, threads]
-  );
-  const sortPresentation = groupBy === 'none' ? 'flat' : 'grouped';
+  const sortPresentation = resolveSortPresentation(groupBy);
+  const folderGrouping = sortPresentation === 'folder';
   const sortBy = sortPresentation === 'flat' ? flatSortBy : groupedSortBy;
+
+  // The three list-wide run-state projections. ONE live query (or one batched
+  // read) per signal, never one per row — and each reports its own failure
+  // rather than an empty result that would read as "nothing to report".
+  const threadsAwaitingApproval = useThreadsAwaitingApproval({
+    database,
+    resourceId,
+    schemaReady: Object.hasOwn(threadsByResourceId, resourceId),
+  });
+  const lastViewedAtByThreadId = useAssistantThreadStore((state) => state.lastViewedAtByThreadId);
+  const unseenBaselineAt = useAssistantThreadStore((state) => state.unseenBaselineAt);
+  // A list, not a transcript: this panel only READS which thread is on screen
+  // (published by the thread strip's workspace) and never advances the viewed
+  // watermark — selecting a row here shows the user nothing to have seen.
+  const onScreenThreadId = useOnScreenThreadId();
+  const unseenThreadIds = useUnseenThreadIds({
+    lastViewedAtByThreadId,
+    onScreenThreadId,
+    threads,
+    unseenBaselineAt,
+  });
+
+  // The folder rows behind folder grouping, and the branch chips beside them.
+  // Both are requested only in folder grouping: entering it is the gesture,
+  // and the branch inventory is a full repo/worktree scan across every root.
+  const threadRootIds = useMemo<readonly string[]>(() => {
+    if (!folderGrouping) {
+      return EMPTY_ROOT_IDS;
+    }
+    const rootIds = new Set<string>();
+    for (const thread of threads) {
+      const rootId = getThreadPrimaryRootId(thread);
+      if (rootId) {
+        rootIds.add(rootId);
+      }
+    }
+    return [...rootIds];
+  }, [folderGrouping, threads]);
+  const folderRows = useThreadFolderRows(database, threadRootIds);
+  const {
+    available: branchLookupAvailable,
+    byRootId,
+    byRootIdAndPath,
+    byRootPath,
+  } = useThreadBranchByRootPath({
+    enabled: folderGrouping,
+  });
+  const branchLookup = useMemo<ThreadBranchLookup>(
+    () => ({ byRootId, byRootIdAndPath, byRootPath }),
+    [byRootId, byRootIdAndPath, byRootPath]
+  );
+  // Gated on folder grouping exactly like the branch chips: the pill only
+  // exists there, and an ungated live query would subscribe every panel mount.
+  const { byRepoBranch: forgePrLookup, error: forgePrError } = useForgePrCache({
+    database,
+    enabled: folderGrouping,
+  });
+  // "Has PR" can only ever match a thread while folder grouping is active AND
+  // the branch lookup's bridge is present (desktop; web omits it — the
+  // omit-don't-stub constraint, matching how the chips themselves disappear
+  // rather than fabricating a branch). Both `branchLookup` and `forgePrLookup`
+  // above are already gated on `folderGrouping` alone, so `hasPrThreadIds`
+  // below is naturally empty outside that combination — this flag exists so
+  // the OPTION disappears too, and so a filter left ticked from a session
+  // where it worked doesn't silently strand the list at zero rows once its
+  // data sources are gated again.
+  const hasPrFilterAvailable = folderGrouping && branchLookupAvailable;
+
+  // Folder sections mint persisted collapse keys; this is the symmetric prune
+  // to the one `deleteGroup` does for group keys. The RESOLVED folder rows are
+  // the only honest live-root evidence the panel has — an empty map also means
+  // "still loading", "the folder query failed", or "not in folder grouping at
+  // all", and pruning on any of those would wipe every folder's collapse state.
+  const pruneFolderCollapseIds = useAssistantThreadGroupsStore(
+    (state) => state.pruneFolderCollapseIds
+  );
+  const folderRowsByRootId = folderRows.rowsByRootId;
+  const folderRowsResolved = !(folderRows.loading || folderRows.error);
+  useEffect(() => {
+    if (!(folderRowsResolved && folderRowsByRootId.size > 0)) {
+      return;
+    }
+    pruneFolderCollapseIds([...folderRowsByRootId.keys()]);
+  }, [folderRowsByRootId, folderRowsResolved, pruneFolderCollapseIds]);
+
+  // Ignores a `hasPr: true` left over from a session where folder grouping
+  // (or the branch lookup bridge) was available: without this, leaving that
+  // mode would strand the list at zero rows behind a filter the "Has PR"
+  // option has ALSO just disappeared for (see `hasPrFilterAvailable` above),
+  // with no visible control left to un-tick it.
+  const effectiveThreadFilters = useMemo(
+    () => (hasPrFilterAvailable ? threadFilters : { ...threadFilters, hasPr: false }),
+    [hasPrFilterAvailable, threadFilters]
+  );
+  const threadFiltersActive = hasActiveThreadFilters(effectiveThreadFilters);
+  // "Has PR" is a projection over the same lookup the pill renders from, so a
+  // filtered row and its pill can never disagree.
+  const hasPrThreadIds = useMemo(
+    () =>
+      new Set(
+        threads
+          .filter((thread) => lookupThreadForgePr(thread, branchLookup, forgePrLookup) !== null)
+          .map((thread) => thread.id)
+      ),
+    [branchLookup, forgePrLookup, threads]
+  );
+  const filteredThreads = useMemo(
+    () =>
+      filterThreadsByThreadFilters({
+        filters: effectiveThreadFilters,
+        hasPrThreadIds,
+        needsYouThreadIds: threadsAwaitingApproval.threadIds,
+        runningThreadIds: activeThreads.threadIds,
+        threads,
+        unseenThreadIds: unseenThreadIds.unseen,
+      }),
+    [
+      activeThreads.threadIds,
+      effectiveThreadFilters,
+      hasPrThreadIds,
+      threads,
+      threadsAwaitingApproval.threadIds,
+      unseenThreadIds.unseen,
+    ]
+  );
+
+  const membershipByThreadId = useMemo(
+    () => buildThreadMembership({ groups, placements, threads: filteredThreads }),
+    [filteredThreads, groups, placements]
+  );
+  // The section builder's input is discriminated on `groupBy`: folder grouping
+  // takes the folder rows and folder sort and no group inputs at all, so the
+  // two modes are separate calls rather than one over-wide argument.
   const view = useMemo(
-    () => buildThreadListSections({ groupBy, groups, placements, sortBy, threads }),
-    [groupBy, groups, placements, sortBy, threads]
+    () =>
+      groupBy === 'folder'
+        ? buildThreadListSections({
+            folderRowsByRootId: folderRows.rowsByRootId,
+            folderSortBy,
+            groupBy,
+            threads: filteredThreads,
+          })
+        : buildThreadListSections({
+            groupBy,
+            groups,
+            placements,
+            sortBy,
+            threads: filteredThreads,
+          }),
+    [filteredThreads, folderRows.rowsByRootId, folderSortBy, groupBy, groups, placements, sortBy]
   );
   const moveTargets = useMemo(
     () => groups.map((group) => ({ id: group.id, name: group.name })),
     [groups]
   );
   // Disclosure limits + bulk selection live here so the toolbar's count and
-  // select-visible toggle read the same state the treegrid renders.
-  const selection = useThreadPanelSelection({ collapsedGroupIds, threads, view });
+  // select-visible toggle read the same state the treegrid renders. FILTERED
+  // threads, not all of them: a thread the Show only filters removed is not in
+  // the list, so it must not stay in a selection whose action bar the user
+  // reads as "these rows".
+  const selection = useThreadPanelSelection({ collapsedGroupIds, threads: filteredThreads, view });
+  // An unresolved or failed folder map is EMPTY, and an empty map files every
+  // thread under "No folder" — so in folder grouping both replace the tree.
+  const folderGroupingState = folderGrouping
+    ? { error: folderRows.error, loading: folderRows.loading }
+    : null;
   const contentState = resolveThreadPanelContentState({
     databaseError,
     databaseStartupLoading,
+    folderGrouping: folderGroupingState,
     loadState,
     repositoryReady: Boolean(repository),
-    threads,
+    threadFiltersActive,
+    threads: filteredThreads,
     view,
   });
 
@@ -2588,6 +1964,8 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     repository: threadSearchRepository,
     resourceId,
   });
+  const searchResultTitles = useThreadSearchTitles(threadSearchRepository, resourceId);
+  const selectSearchResult = useThreadSearchResultNavigation(threadSearchRepository, resourceId);
   const searchActive = useThreadSearchStore((state) => state.status !== 'idle');
   // The count and the select-visible toggle describe the treegrid. Withdraw
   // them whenever something else stands in for it — a state card, or search
@@ -2631,8 +2009,8 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     if (groupsRepository && placementsByThreadId[threadId]) {
       await removeThreadPlacement(groupsRepository, threadId);
     }
-    // Search-index rows for a deleted thread are inert (query-time join by
-    // id) and swept by the sync GC, but clear them eagerly like placements.
+    // Native repositories atomically clear the entire delegated subtree.
+    // Also clear requested IDs for adapters without that native cascade.
     if (threadSearchRepository) {
       await threadSearchRepository.deleteThreads([threadId]);
     }
@@ -2684,6 +2062,15 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     },
     [groupsRepository, moveThreadToGroup, resourceId]
   );
+  const handleCreateThreadInFolder = useCreateThreadInFolder();
+  const handleSortByChange = (nextSortBy: ThreadsPanelSortBy): void => {
+    if (sortPresentation === 'folder') {
+      // Unreachable through the popover, which binds folder mode to
+      // `setFolderSortBy`. Loud rather than silently writing the grouped sort.
+      throw new Error('Folder grouping sorts through setFolderSortBy, not setSortBy.');
+    }
+    setSortBy(sortPresentation, nextSortBy);
+  };
   const handleCreateGroup = (): void => {
     if (!groupsRepository) {
       return;
@@ -2731,6 +2118,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
         return;
       }
       const intent = resolveThreadsPanelDrop({
+        filtersActive: threadFiltersActive,
         groupIdByThreadId: membershipByThreadId,
         source,
         target,
@@ -2762,6 +2150,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
       moveThreadToGroup,
       reorderGroups,
       resourceId,
+      threadFiltersActive,
       view,
     ]
   );
@@ -2792,7 +2181,9 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
       data-testid="threads-panel"
     >
       <ThreadsPanelToolbar
+        folderSortBy={folderSortBy}
         groupBy={groupBy}
+        hasPrFilterAvailable={hasPrFilterAvailable}
         newGroupDisabled={!groupsRepository}
         newThreadDisabled={!(repository && resourceId) || loadState?.status === 'loading'}
         newThreadTitle={
@@ -2800,6 +2191,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
             ? 'Create a new Mastra memory thread for this workspace.'
             : 'The assistant memory database is still initializing.'
         }
+        onClearThreadFilters={clearThreadFilters}
         onCreateGroup={handleCreateGroup}
         onCreateThread={() => {
           if (!(repository && resourceId)) {
@@ -2809,18 +2201,22 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
             // The store records the explicit error state; no fallback thread source is used.
           });
         }}
+        onFolderSortByChange={setFolderSortBy}
         onGroupByChange={setGroupBy}
-        onSortByChange={(nextSortBy) => setSortBy(sortPresentation, nextSortBy)}
+        onSortByChange={handleSortByChange}
+        onThreadFilterChange={setThreadFilter}
         selection={selection}
         sortBy={sortBy}
+        threadFilters={threadFilters}
         treeOnScreen={treeOnScreen}
       />
 
       <ThreadsPanelSearch
         groupNameByThreadId={groupNameByThreadId}
         onRetry={retrySearch}
-        onSelectThread={handleSelectThread}
+        onSelectThread={selectSearchResult}
         threadsById={threadsById}
+        titlesByThreadId={searchResultTitles}
       />
 
       {groupActionError ? (
@@ -2844,12 +2240,26 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
           Active thread status unavailable: {activeThreads.error.message}
         </p>
       ) : null}
+      {threadsAwaitingApproval.error ? (
+        <p className="px-3 pb-2 text-[11px] text-destructive" data-testid="thread-approvals-error">
+          Approval status unavailable: {threadsAwaitingApproval.error.message}
+        </p>
+      ) : null}
+      {forgePrError ? (
+        <p className="px-3 pb-2 text-[11px] text-destructive" data-testid="thread-pr-status-error">
+          Pull request status unavailable: {forgePrError.message}
+        </p>
+      ) : null}
 
       <div className={searchActive ? 'hidden' : 'flex min-h-0 flex-1 overflow-hidden'}>
         <ThreadsPanelContent
           activeThreadIds={activeThreads.threadIds}
+          branchLookup={branchLookup}
           databaseError={databaseError}
           databaseStartupLoading={databaseStartupLoading}
+          failedUnseenThreadIds={unseenThreadIds.failedUnseen}
+          folderGrouping={folderGroupingState}
+          forgePrLookup={forgePrLookup}
           groupHandlers={{
             collapsedGroupIds,
             onDeleteGroup: handleDeleteGroup,
@@ -2891,18 +2301,23 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
           loadState={loadState}
           membershipByThreadId={membershipByThreadId}
           moveTargets={moveTargets}
+          needsYouThreadIds={threadsAwaitingApproval.threadIds}
           onBulkColor={handleBulkColor}
           onBulkDelete={handleBulkDelete}
           onBulkMove={handleBulkMove}
           onDeleteThread={handleDeleteThread}
           onMoveThreadToGroup={handleMoveThreadToGroup}
+          onNewThreadInFolder={handleCreateThreadInFolder}
+          onRefreshAgentColors={canRefreshAgentColors() ? handleRefreshAgentColors : undefined}
           onRenameThread={handleRenameThread}
           onSelectThread={handleSelectThread}
           onUpdateThreadMetadata={handleUpdateThreadMetadata}
           repository={repository}
           selectedThreadId={selectedThreadId}
           selection={selection}
-          threads={threads}
+          threadFiltersActive={threadFiltersActive}
+          threads={filteredThreads}
+          unseenThreadIds={unseenThreadIds.unseen}
           view={view}
         />
       </div>

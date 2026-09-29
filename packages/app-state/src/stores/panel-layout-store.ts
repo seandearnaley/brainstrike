@@ -4,19 +4,26 @@
  * Canonical source of truth for the app-wide agent shell layout and root tab state.
  * - sizes: [left, right, console] as percentages (0..100), normalized on write
  * - visibility flags: showLeftPanel/showRightPanel/showConsole
- * - activeTab: 'explorer' | 'settings' | 'git' | 'terminal'
- * - settingsOpen: session-only visibility for the modal settings surface
+ * - activeTab: 'explorer' | 'settings' | 'git' | 'notes' | 'browser'
  *
  * Persistence: uses `@brainstrike/storage` adapters; persisted subset only.
  * Integration: use with `PanelLayoutProvider` in controlled mode (pass state + onChange).
  */
 
-import { createLogger } from '@brainstrike/logging';
 import type { StorageAdapter } from '@brainstrike/storage';
-import { createBrowserStorageAdapter } from '@brainstrike/storage';
 import type { StateCreator } from 'zustand';
 import { type PersistOptions, type PersistStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import {
+  createAdapterPersistStorage,
+  createPersistedLayoutParser,
+  DEFAULT_MIN_PANEL_SIZE,
+  type PanelSizes,
+  resolveDefaultPersistStorage,
+  resolveGlobalStoreSingleton,
+  resolveNextSizes,
+  type SizeRules,
+} from './persisted-layout-store';
 
 /**
  * Top-level shell routes selected from the left nav rail. `'changes'` is NOT
@@ -26,52 +33,29 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
  */
 export type PanelTab = 'explorer' | 'settings' | 'git' | 'terminal' | 'notes' | 'browser';
 
-/**
- * The subset of the store the visible-surface rule reads. Kept structural so
- * the selector can be called both as a zustand selector
- * (`usePanelLayoutStore(selectVisibleSurface)`) and as a plain function on
- * values a component has already subscribed to.
- */
-export type VisibleSurfaceState = Pick<PanelLayoutStoreState, 'activeTab' | 'settingsOpen'>;
-
 export interface PanelLayoutStoreState {
   // Root tabs
   activeTab: PanelTab;
+  /**
+   * Navigate to the Settings shell route. Settings is a full nav-rail tab
+   * like git/notes/browser (BST-1668 — the #1626 modal is gone), so this is
+   * `setActiveTab('settings')` under a name every entry point (profile menu,
+   * ⌘K, status items, tool menus) can share without knowing the tab id.
+   */
   openSettings: () => void;
   setActiveTab: (tab: PanelTab) => void;
-  setSettingsOpen: (open: boolean) => void;
 
   // Actions
   setSizes: (sizes: number[]) => void;
   setState: (next: Partial<PanelLayoutStoreState>) => void;
-  settingsOpen: boolean;
   showConsole: boolean;
   showLeftPanel: boolean;
   showRightPanel: boolean;
   // Layout
-  sizes: [number, number, number];
+  sizes: PanelSizes;
   toggleConsole: () => void;
   toggleLeft: () => void;
   toggleRight: () => void;
-}
-
-/**
- * The surface the user is actually looking at, and the ONE definition of the
- * settings-overlay precedence rule (BST-1281).
- *
- * Settings is a modal dialog layered over whichever tab is underneath it, so an
- * open dialog wins. `activeTab === 'settings'` is the same surface reached from
- * the nav rail — `setActiveTab` sets `settingsOpen` alongside it — but it is
- * checked explicitly because `setState` can write `activeTab` on its own, and a
- * consumer that only looked at `settingsOpen` would then disagree with the
- * dialog on screen.
- *
- * Consumers: `RootLayoutContent` (settings dialog `open` prop + long-task
- * telemetry route) and `useDocumentTitle` (document title/description). Change
- * the rule here and every consumer moves with it.
- */
-export function selectVisibleSurface(state: VisibleSurfaceState): PanelTab {
-  return state.settingsOpen || state.activeTab === 'settings' ? 'settings' : state.activeTab;
 }
 
 /**
@@ -90,11 +74,9 @@ const DEFAULT_STATE: Omit<
   | 'toggleConsole'
   | 'openSettings'
   | 'setActiveTab'
-  | 'setSettingsOpen'
   | 'setState'
 > = {
   activeTab: 'explorer',
-  settingsOpen: false,
   showConsole: false,
   showLeftPanel: true,
   showRightPanel: true,
@@ -105,11 +87,14 @@ const STORE_NAME = 'panel-layout-store.v1' as const;
 const STORE_VERSION = 4 as const;
 
 /**
- * Minimum panel sizes to prevent corrupted tiny values.
- * Panels smaller than this threshold are considered corrupted and reset to defaults.
+ * Panels smaller than DEFAULT_MIN_PANEL_SIZE (but non-zero) are considered
+ * corrupted and reset to defaults — enforced on write by `resolveNextSizes`
+ * and on read by the persisted-layout parser.
  */
-const MIN_PANEL_SIZE = 10;
-const logger = createLogger('PanelLayoutStore');
+const SIZE_RULES: SizeRules = {
+  defaultSizes: DEFAULT_STATE.sizes,
+  minPanelSize: DEFAULT_MIN_PANEL_SIZE,
+};
 
 const creator: StateCreator<PanelLayoutStoreState, [['zustand/persist', unknown]], []> = (
   set,
@@ -117,23 +102,11 @@ const creator: StateCreator<PanelLayoutStoreState, [['zustand/persist', unknown]
 ) => ({
   ...DEFAULT_STATE,
 
-  openSettings: () => set({ settingsOpen: true }),
+  openSettings: () => set({ activeTab: 'settings' }),
 
-  setActiveTab: (tab: PanelTab) => set({ activeTab: tab, settingsOpen: tab === 'settings' }),
+  setActiveTab: (tab: PanelTab) => set({ activeTab: tab }),
 
-  setSettingsOpen: (open: boolean) => set({ settingsOpen: open }),
-
-  setSizes: (sizes: number[]) => {
-    const normalized = normalizeSizes(sizes);
-    const next: Partial<PanelLayoutStoreState> = {
-      sizes: [
-        (normalized[0] as number | undefined) ?? get().sizes[0],
-        (normalized[1] as number | undefined) ?? get().sizes[1],
-        (normalized[2] as number | undefined) ?? get().sizes[2],
-      ] as [number, number, number],
-    };
-    set(next);
-  },
+  setSizes: (sizes: number[]) => set({ sizes: resolveNextSizes(sizes, get().sizes, SIZE_RULES) }),
 
   setState: (next: Partial<PanelLayoutStoreState>) => set(next),
   toggleConsole: () => set({ showConsole: !get().showConsole }),
@@ -146,139 +119,19 @@ type PersistedPanelState = Pick<
   PanelLayoutStoreState,
   'sizes' | 'showLeftPanel' | 'showRightPanel' | 'showConsole'
 >;
-interface PersistedPanelStorageValue {
-  state: PersistedPanelState;
-  version: number;
-}
 
-/**
- * Check if sizes array contains corrupted values (non-zero but below minimum).
- */
-function hasCorruptedSizes(sizes: unknown): boolean {
-  if (!Array.isArray(sizes) || sizes.length !== DEFAULT_STATE.sizes.length) {
-    return true;
-  }
-  return sizes.some(
-    (size) =>
-      typeof size !== 'number' ||
-      Number.isNaN(size) ||
-      size < 0 ||
-      (size > 0 && size < MIN_PANEL_SIZE)
-  );
-}
-
-function parsePersistedPanelState(raw: string | null): PersistedPanelStorageValue | null {
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as {
-      state?: PersistedPanelState;
-      version?: number;
-    };
-    const rawState = parsed?.state;
-    if (!rawState) {
-      return null;
-    }
-    // Root-tab selection is intentionally session-only. Whitelist the persisted
-    // layout fields so legacy snapshots containing activeTab: "prompts" cannot
-    // restore a route that now lives inside the agent sidebar.
-    const state: PersistedPanelState = {
-      showConsole: rawState.showConsole,
-      showLeftPanel: rawState.showLeftPanel,
-      showRightPanel: rawState.showRightPanel,
-      sizes: rawState.sizes,
-    };
-    const version = typeof parsed.version === 'number' ? parsed.version : 0;
-    if (state.sizes && hasCorruptedSizes(state.sizes)) {
-      return {
-        state: {
-          ...state,
-          sizes: [...DEFAULT_STATE.sizes] as [number, number, number],
-        },
-        version,
-      };
-    }
-    return { state, version };
-  } catch (error) {
-    if (process.env['NODE_ENV'] !== 'production') {
-      logger.warn('Ignoring invalid persisted panel layout state', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-    return null;
-  }
-}
-
-function createAdapterPersistStorage(storage: StorageAdapter): PersistStorage<PersistedPanelState> {
-  return {
-    // Adapter-backed storage remains async, so this hydration path resolves on a later microtask.
-    // The fallback storage stays synchronous for direct localStorage environments.
-    getItem: async (name: string) => parsePersistedPanelState(await storage.getItem(name)),
-    removeItem: async (name: string) => {
-      await storage.removeItem(name);
-    },
-    setItem: async (name: string, value) => {
-      await storage.setItem(name, JSON.stringify(value));
-    },
-  };
-}
-
-function createFallbackPersistStorage(): PersistStorage<PersistedPanelState> {
-  const memoryStorage = new Map<string, string>();
-
-  const getBrowserStorage = (): Storage | null => {
-    if (typeof window === 'undefined') {
-      return null;
-    }
-    try {
-      return window.localStorage;
-    } catch {
-      return null;
-    }
-  };
-
-  const readRaw = (name: string): string | null => {
-    const browserStorage = getBrowserStorage();
-    if (browserStorage) {
-      return browserStorage.getItem(name);
-    }
-    return memoryStorage.get(name) ?? null;
-  };
-
-  const writeRaw = (name: string, value: string): void => {
-    const browserStorage = getBrowserStorage();
-    if (browserStorage) {
-      browserStorage.setItem(name, value);
-      return;
-    }
-    memoryStorage.set(name, value);
-  };
-
-  const removeRaw = (name: string): void => {
-    const browserStorage = getBrowserStorage();
-    if (browserStorage) {
-      browserStorage.removeItem(name);
-      return;
-    }
-    memoryStorage.delete(name);
-  };
-
-  return {
-    getItem: (name: string) => parsePersistedPanelState(readRaw(name)),
-    removeItem: (name: string) => {
-      removeRaw(name);
-    },
-    setItem: (name: string, value) => {
-      writeRaw(name, JSON.stringify(value));
-    },
-  };
-}
+// Root-tab selection is intentionally session-only. Whitelist the persisted
+// layout fields so legacy snapshots containing activeTab: "prompts" cannot
+// restore a route that now lives inside the agent sidebar.
+const parsePersistedPanelState = createPersistedLayoutParser<PersistedPanelState>({
+  defaultSizes: DEFAULT_STATE.sizes,
+  loggerName: 'PanelLayoutStore',
+  persistedKeys: ['showConsole', 'showLeftPanel', 'showRightPanel', 'sizes'],
+});
 
 function persistOptions(
-  storage: PersistStorage<PersistedPanelState>
-): PersistOptions<PanelLayoutStoreState, PersistedPanelState> {
+  storage: PersistStorage<Partial<PersistedPanelState>>
+): PersistOptions<PanelLayoutStoreState, Partial<PersistedPanelState>> {
   return {
     migrate: (persistedState, version) => {
       // The outer shell replaced the old three-pane geometry, so pre-v4 sizes do not map
@@ -304,85 +157,22 @@ function persistOptions(
 }
 
 export function createPanelLayoutStore(storage: StorageAdapter) {
-  return createPanelLayoutStoreWithPersistStorage(createAdapterPersistStorage(storage));
+  return createPanelLayoutStoreWithPersistStorage(
+    createAdapterPersistStorage(storage, parsePersistedPanelState)
+  );
 }
 
-function createPanelLayoutStoreWithPersistStorage(storage: PersistStorage<PersistedPanelState>) {
+function createPanelLayoutStoreWithPersistStorage(
+  storage: PersistStorage<Partial<PersistedPanelState>>
+) {
   return create<PanelLayoutStoreState>()(persist(creator, persistOptions(storage)));
 }
 
 // HMR-safe default instance
 const GLOBAL_KEY = '__brainstrike_panel_layout_store__' as const;
-const BRAND = '__brainstrike_store_brand__';
-const BRAND_VERSION = 1 as const;
-// `typeof globalThis` carries an implicit string index signature, so the
-// registry view is a plain annotated assignment — no cast required.
-const g: Record<string, unknown> = globalThis;
 
-type BoundStore = ReturnType<ReturnType<typeof create<PanelLayoutStoreState>>>;
+type BoundStore = ReturnType<typeof createPanelLayoutStoreWithPersistStorage>;
 
-function isValidStore(candidate: unknown): candidate is BoundStore & { [k: string]: unknown } {
-  if (!candidate || typeof candidate !== 'function') {
-    return false;
-  }
-  const fn = candidate as {
-    getState?: unknown;
-    setState?: unknown;
-    [BRAND]?: unknown;
-  };
-  const ok = typeof fn.getState === 'function' && typeof fn.setState === 'function';
-  return ok && fn[BRAND] === BRAND_VERSION;
-}
-
-let singleton = g[GLOBAL_KEY] as unknown;
-
-if (!isValidStore(singleton)) {
-  let storage: PersistStorage<PersistedPanelState>;
-  try {
-    storage = createAdapterPersistStorage(createBrowserStorageAdapter());
-  } catch {
-    storage = createFallbackPersistStorage();
-  }
-
-  singleton = createPanelLayoutStoreWithPersistStorage(storage);
-  (singleton as Record<string, unknown>)[BRAND] = BRAND_VERSION;
-  g[GLOBAL_KEY] = singleton as unknown;
-}
-
-export const usePanelLayoutStore = singleton as BoundStore;
-
-/**
- * Normalize panel sizes, enforcing minimum thresholds for visible panels.
- * Sizes below MIN_PANEL_SIZE are considered corrupted and trigger a reset to defaults.
- *
- * @param sizes - Array of panel sizes [left, right, console]
- * @returns Normalized sizes with valid values
- */
-function normalizeSizes(sizes: number[]): number[] {
-  if (!sizes || sizes.length === 0) {
-    return [];
-  }
-
-  const clamped = sizes.map((size) => {
-    const num = typeof size === 'number' && !Number.isNaN(size) ? size : 0;
-    return Math.max(0, Math.min(100, num));
-  });
-
-  // Check for corrupted values (non-zero but below minimum threshold)
-  // This catches cases like [4.488, 5.386, 0] from corrupted localStorage
-  const hasCorruptedValues = clamped.some((size) => size > 0 && size < MIN_PANEL_SIZE);
-
-  if (hasCorruptedValues) {
-    // Return defaults for corrupted state
-    return [DEFAULT_STATE.sizes[0], DEFAULT_STATE.sizes[1], DEFAULT_STATE.sizes[2]];
-  }
-
-  const total = clamped.reduce((sum, size) => sum + size, 0);
-  if (total === 0) {
-    return clamped.map(() => 100 / clamped.length);
-  }
-  if (total > 100) {
-    return clamped.map((s) => (s / total) * 100);
-  }
-  return clamped;
-}
+export const usePanelLayoutStore: BoundStore = resolveGlobalStoreSingleton(GLOBAL_KEY, () =>
+  createPanelLayoutStoreWithPersistStorage(resolveDefaultPersistStorage(parsePersistedPanelState))
+);

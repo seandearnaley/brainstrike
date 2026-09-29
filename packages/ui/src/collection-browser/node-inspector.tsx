@@ -466,7 +466,7 @@ export function NodeInspector({
         <CollapseToggleButton isCollapsed={false} onToggle={handleToggle} />
       </div>
 
-      <ScrollArea className="[&>[data-radix-scroll-area-viewport]]:!overflow-x-hidden flex-1">
+      <ScrollArea className="flex-1" contentWidth="viewport">
         <div className="overflow-hidden p-3">
           <InspectorContent nodeData={nodeData} nodeType={nodeType} />
         </div>

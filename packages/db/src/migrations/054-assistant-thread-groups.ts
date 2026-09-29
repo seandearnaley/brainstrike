@@ -22,6 +22,7 @@ export const migration054AssistantThreadGroups: Migration = {
     DROP TABLE IF EXISTS brainstrike_assistant_thread_placements;
     DROP TABLE IF EXISTS brainstrike_assistant_thread_groups;
   `,
+  ledgerKey: 'custom-054-assistant-thread-groups',
   name: 'assistant_thread_groups',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_groups (

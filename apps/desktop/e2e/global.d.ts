@@ -13,22 +13,22 @@ declare global {
     agent?: {
       chat?: (messages: unknown[], runtime?: unknown) => Promise<unknown[]>;
     };
+    electronAPI?: import('../src/types/desktop-electron-api').VisibleDesktopElectronApi;
+    // Shape defined ONCE in
+    // @brainstrike/assistant-contract/env-bootstrap-bridge. Declared so an
+    // e2e spec can stub the env bootstrap projection and drive the Settings
+    // Environment section (BST-1363) without real .env files on disk.
+    envBootstrap?: Partial<
+      import('@brainstrike/assistant-contract/env-bootstrap-bridge').EnvBootstrapBridge
+    >;
     mcp?: {
       getConfig?: () => Promise<unknown>;
       watch?: () => Promise<{ watching: boolean }>;
       unwatch?: () => Promise<{ watching: false }>;
     };
-    secrets?: {
-      saveKey?: (
-        provider: string,
-        value: string
-      ) => Promise<{ ok?: boolean; error?: string } | undefined>;
-      getKey?: (provider: string) => Promise<string | null>;
-      deleteKey?: (provider: string) => Promise<void>;
-      list?: () => Promise<string[]>;
-      listStored?: () => Promise<string[]>;
-      clearAll?: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
-    };
+    // Shape defined ONCE in @brainstrike/assistant-contract/secrets-bridge;
+    // e2e keeps every method optional (bridge presence is capability-checked).
+    secrets?: Partial<import('@brainstrike/assistant-contract/secrets-bridge').SecretsBridge>;
   }
 }
 

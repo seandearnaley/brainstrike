@@ -476,7 +476,9 @@ describe('createWorkerpoolAdapter', () => {
 
     const preAborted = new AbortController();
     preAborted.abort();
-    await adapter.add({ ...minimalTask, id: 'pre-aborted' }, { signal: preAborted.signal });
+    await expect(
+      adapter.add({ ...minimalTask, id: 'pre-aborted' }, { signal: preAborted.signal })
+    ).rejects.toMatchObject({ name: 'AbortError' });
 
     const runtimeAbort = new AbortController();
     const pending = adapter.add(
@@ -484,9 +486,9 @@ describe('createWorkerpoolAdapter', () => {
       { signal: runtimeAbort.signal }
     );
     runtimeAbort.abort();
-    await pending;
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
 
-    expect(workerpoolMocks.cancel).toHaveBeenCalledTimes(2);
+    expect(workerpoolMocks.cancel).not.toHaveBeenCalled();
   });
 
   it('waits for in-flight tasks when drain() is called', async () => {

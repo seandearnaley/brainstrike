@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import { type ChangesIpcHandlers, createChangesIpcHandlers } from './changes-ipc-handlers';
-import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import { changesContract } from './ipc-domains/changes.contract';
+import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc-registry';
 
 /**
  * Register the desktop `changes` IPC domain (BST-1113), wiring the real
@@ -11,43 +11,7 @@ export function registerChangesIpcHandlers(
   handlers: ChangesIpcHandlers = createChangesIpcHandlers()
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
-
-  registry.registerInvoke(
-    'changes',
-    DESKTOP_IPC_CHANNELS.changes.resolveView,
-    (_event, rootId: unknown, changeset: unknown) => handlers.resolveView(rootId, changeset)
-  );
-  registry.registerInvoke(
-    'changes',
-    DESKTOP_IPC_CHANNELS.changes.fileDiff,
-    (_event, rootId: unknown, changeset: unknown, path: unknown) =>
-      handlers.fileDiff(rootId, changeset, path)
-  );
-  registry.registerInvoke('changes', DESKTOP_IPC_CHANNELS.changes.inventory, () =>
-    handlers.inventory()
-  );
-  // Conversation Rewind (BST-1115 W5 T4). Every payload arrives as `unknown`
-  // and is narrowed inside the handler, same as the two above.
-  registry.registerInvoke(
-    'changes',
-    DESKTOP_IPC_CHANNELS.changes.rewindPreview,
-    (_event, payload: unknown) => handlers.rewindPreview(payload)
-  );
-  registry.registerInvoke(
-    'changes',
-    DESKTOP_IPC_CHANNELS.changes.applyRewind,
-    (_event, payload: unknown) => handlers.applyRewind(payload)
-  );
-  registry.registerInvoke(
-    'changes',
-    DESKTOP_IPC_CHANNELS.changes.redoRewind,
-    (_event, payload: unknown) => handlers.redoRewind(payload)
-  );
-  registry.registerInvoke(
-    'changes',
-    DESKTOP_IPC_CHANNELS.changes.finalizeRewinds,
-    (_event, payload: unknown) => handlers.finalizeRewinds(payload)
-  );
+  registerDomain(registry, 'changes', changesContract, handlers);
 
   return () => {
     registry.unregisterAll();

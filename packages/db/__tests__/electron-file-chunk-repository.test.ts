@@ -46,8 +46,7 @@ const createRepo = () => {
   return { exec, query, repo };
 };
 
-// Repo whose IPC db ALSO exposes the atomic `transaction(statements, resultIndex)`
-// primitive (the real desktop preload provides it; older/mocked APIs may not).
+// Repo whose IPC db also exposes the atomic statement-list transaction primitive.
 const createRepoWithTransaction = () => {
   const query = vi.fn<ElectronDbAPI['query']>();
   const exec = vi.fn<ElectronDbAPI['exec']>();
@@ -92,6 +91,19 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
       embeddingUpdatedAt: '2025-01-02T00:00:00.000Z',
     });
     expect(query).toHaveBeenCalledWith(expect.stringContaining('WHERE id = $1'), ['chunk-1']);
+  });
+
+  it('counts deleted chunks from RETURNING rows, since the DB host sends no row count', async () => {
+    // The desktop DB host protocol surfaces only `rows`; a `rowCount` field
+    // never arrives, which is what the old cast silently read as `undefined`.
+    query.mockResolvedValueOnce({ rows: [{ id: 'chunk-1' }, { id: 'chunk-2' }] });
+    query.mockResolvedValueOnce({ rows: [{ id: 'chunk-1' }] });
+    query.mockResolvedValueOnce({ rows: [] });
+
+    await expect(repo.deleteByFileRecordId('file-1')).resolves.toBe(2);
+    await expect(repo.delete('chunk-1')).resolves.toBe(true);
+    await expect(repo.delete('chunk-missing')).resolves.toBe(false);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('RETURNING id'), ['file-1']);
   });
 
   it('returns null when findById misses', async () => {
@@ -247,6 +259,39 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(query.mock.calls[1][0]).toBe('DELETE FROM file_chunks');
   });
 
+  it('runs the same fuzzy fallback over the Electron database bridge', async () => {
+    const created = createRepoWithTransaction();
+    created.query.mockResolvedValueOnce({ rows: [] });
+    created.transaction.mockResolvedValueOnce({
+      rows: [
+        {
+          ...createRowFromChunk(baseChunk),
+          fts_rank: '0.875',
+          position: '1',
+        },
+      ],
+    });
+
+    const results = await created.repo.fullTextSearch('authentcation', { queryMode: 'plain' });
+
+    expect(results).toEqual([
+      {
+        chunk: baseChunk,
+        matchKind: 'fuzzy',
+        position: 1,
+        rank: 0.875,
+      },
+    ]);
+    expect(created.query).toHaveBeenCalledTimes(1);
+    expect(created.transaction).toHaveBeenCalledTimes(1);
+    const [statements, resultIndex] = created.transaction.mock.calls[0]!;
+    expect(resultIndex).toBe(1);
+    expect(statements[0]?.sql).toContain("set_config('pg_trgm.word_similarity_threshold'");
+    expect(statements[1]?.sql).toContain('$1 <% content');
+    expect(statements[1]?.sql).toContain("plainto_tsquery($2::regconfig, $1)::text <> ''");
+    expect(statements[1]?.params).toEqual(['authentcation', 'english', 0.6, 10]);
+  });
+
   it('clears embeddings and refreshes stats in one atomic query', async () => {
     query.mockResolvedValueOnce({ rows: [{ clearedCount: 3 }] });
 
@@ -265,20 +310,21 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
   // predicate) can't use that index → seq scan, which also makes the ef_search /
   // iterative_scan tuning inert. Pin the index-matching SQL shape.
   it('builds an index-matching halfvec search (column cast + vector_dims predicate)', async () => {
+    const { query, repo, transaction } = createRepoWithTransaction();
     const dimension = 768;
     const queryEmbedding = Array.from({ length: dimension }, () => 0.1);
     query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM embedding_sets')) {
         return { rows: [{ dimensions: dimension, distance: 'cosine' }] };
       }
-      // BEGIN / COMMIT / SET LOCAL tuning / the SELECT all return no rows here.
-      return { rows: [] };
+      throw new Error(`Unexpected non-transaction query: ${sql}`);
     });
+    transaction.mockResolvedValue({ rows: [] });
 
     await repo.searchSimilar(queryEmbedding, { embeddingSetId: 'set-1', limit: 5 });
 
-    const searchSql = query.mock.calls
-      .map((call) => call[0])
+    const searchSql = transaction.mock.calls[0]?.[0]
+      .map((statement) => statement.sql)
       .find((sql) => sql.includes('ROW_NUMBER() OVER'));
     expect(searchSql).toBeDefined();
     // Column cast to fixed-dim halfvec so the ORDER BY can use the partial index.
@@ -290,8 +336,8 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(searchSql).not.toContain('embedding <=> $1::vector');
   });
 
-  // #1141 part (b): when the IPC db exposes the atomic `transaction` primitive, the
-  // vector search must run its tuning + SELECT through ONE transaction() call (so
+  // #1141 part (b): when the IPC db exposes the atomic statement-list primitive, the
+  // vector search must run its tuning + SELECT through one statement-list call (so
   // pglite.transaction() in main holds the connection lock and a concurrent FTS
   // SELECT from HybridSearchService's Promise.all can't interleave) — NOT via the
   // raw BEGIN/COMMIT path that doesn't serialize over IPC.
@@ -337,7 +383,7 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(statements.at(-1)?.params?.length).toBeGreaterThan(0);
   });
 
-  it('falls back to raw BEGIN/COMMIT when the IPC db has no transaction primitive', async () => {
+  it('rejects a query-only IPC handle before opening a raw transaction', async () => {
     const { repo, query } = createRepo();
     const dimension = 4;
     query.mockImplementation(async (sql: string) => {
@@ -347,17 +393,36 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
       return { rows: [] };
     });
 
-    await repo.searchSimilar(
-      Array.from({ length: dimension }, () => 0.1),
-      {
-        embeddingSetId: 'set-1',
-        limit: 5,
-      }
-    );
+    await expect(
+      repo.searchSimilar(
+        Array.from({ length: dimension }, () => 0.1),
+        {
+          embeddingSetId: 'set-1',
+          limit: 5,
+        }
+      )
+    ).rejects.toThrow('Electron ANN search requires atomic database transaction support.');
 
     const calls = query.mock.calls.map((c) => c[0]);
-    expect(calls).toContain('BEGIN');
-    expect(calls).toContain('COMMIT');
+    expect(calls).not.toContain('BEGIN');
+    expect(calls).not.toContain('COMMIT');
+    expect(calls.some((sql) => sql.startsWith('SET LOCAL'))).toBe(false);
+    expect(calls.some((sql) => sql.includes('ROW_NUMBER() OVER'))).toBe(false);
+  });
+
+  it('propagates atomic statement-list transaction failures', async () => {
+    const { repo, query, transaction } = createRepoWithTransaction();
+    const failure = new Error('desktop ANN transaction failed');
+    query.mockResolvedValue({ rows: [{ dimensions: 4, distance: 'cosine' }] });
+    transaction.mockRejectedValue(failure);
+
+    await expect(
+      repo.searchSimilar([0.1, 0.1, 0.1, 0.1], {
+        embeddingSetId: 'set-1',
+        limit: 5,
+      })
+    ).rejects.toBe(failure);
+    expect(query.mock.calls.some(([sql]) => sql === 'BEGIN' || sql === 'ROLLBACK')).toBe(false);
   });
 });
 

@@ -10,6 +10,7 @@ import { MastraCompositeStore } from '@mastra/core/storage';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { Memory } from '@mastra/memory';
 import type { AssistantRunEventSink } from '../run-events';
+import { type BackgroundTaskScope, PgliteBackgroundTasksStore } from './background-store';
 import { PgliteMemoryStore } from './memory-store';
 import type { PgliteDatabase } from './types';
 import { PgliteVectorStore } from './vector-store';
@@ -18,7 +19,15 @@ import { PgliteWorkflowsStore } from './workflows-store';
 type MastraRuntimeMemoryOptions = NonNullable<AgentMemoryOption['options']>;
 type ConcreteLanguageModel = Exclude<MastraModelConfig, string | OpenAICompatibleConfig>;
 
-export interface PgliteMastraMemoryOptions {
+/**
+ * A conversation-scoped background domain always carries the host's task
+ * deadline (`resolveChildTaskTimeoutMs`); an unscoped store carries neither.
+ */
+export type BackgroundTaskOwnership =
+  | { backgroundTaskScope: BackgroundTaskScope; backgroundTaskTimeoutMs: number }
+  | { backgroundTaskScope?: undefined; backgroundTaskTimeoutMs?: undefined };
+
+export type PgliteMastraMemoryOptions = BackgroundTaskOwnership & {
   database: PgliteDatabase;
   embedder?: MastraEmbeddingModel<string> | string;
   eventSink?: AssistantRunEventSink;
@@ -29,9 +38,10 @@ export interface PgliteMastraMemoryOptions {
   runId?: string;
   /** @deprecated Use memorySettings.semanticRecall.enabled. */
   semanticRecall?: boolean;
-}
+};
 
 export interface PgliteMastraMemoryResult {
+  backgroundTaskScope?: BackgroundTaskScope;
   memory: Memory;
   storage: MastraCompositeStore;
   store: PgliteMemoryStore;
@@ -111,6 +121,8 @@ function buildMastraMemoryOptions({
 }
 
 export async function createPgliteMastraMemory({
+  backgroundTaskScope,
+  backgroundTaskTimeoutMs,
   database,
   embedder,
   eventSink,
@@ -140,6 +152,7 @@ export async function createPgliteMastraMemory({
   }
 
   const store = new PgliteMemoryStore({
+    ...(backgroundTaskScope ? { backgroundTaskScope } : {}),
     database,
     ...(eventSink ? { eventSink } : {}),
     ...(runId ? { runId } : {}),
@@ -147,8 +160,14 @@ export async function createPgliteMastraMemory({
   await store.init();
   const workflows = new PgliteWorkflowsStore({ database });
   await workflows.init();
+  const backgroundTasks = new PgliteBackgroundTasksStore(
+    database,
+    backgroundTaskScope,
+    backgroundTaskTimeoutMs
+  );
+  await backgroundTasks.init();
   const storage = new MastraCompositeStore({
-    domains: { memory: store, workflows },
+    domains: { backgroundTasks, memory: store, workflows },
     id: `${id}-storage`,
   });
   const vector = new PgliteVectorStore({
@@ -169,5 +188,12 @@ export async function createPgliteMastraMemory({
     }),
   });
 
-  return { memory, storage, store, vector, workflows };
+  return {
+    ...(backgroundTaskScope ? { backgroundTaskScope } : {}),
+    memory,
+    storage,
+    store,
+    vector,
+    workflows,
+  };
 }

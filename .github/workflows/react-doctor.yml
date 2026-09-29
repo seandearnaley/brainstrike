@@ -1,9 +1,8 @@
 name: React Doctor
 
-# React Doctor replaces standalone knip in CI: it runs the dead-code pass (deslop)
-# AND ~250 React/JS lint rules (Security, Bugs, Performance, Accessibility,
-# Maintainability). knip itself is retained for local dependency auditing (`pnpm knip`)
-# because deslop cannot express per-dependency ignores — see doctor.config.ts.
+# React Doctor owns React/JS lint. Its changed-scope scan does not run graph rules.
+# Knip is the authoritative file/dependency auditor, with curated entrypoints and
+# dependency exceptions in knip.jsonc. See the scheduled/manual knip.yml workflow.
 #
 # Gate policy (per team decision):
 #   - scope: changed   -> only NEWLY introduced issues are reported/blocking on a PR;
@@ -35,7 +34,9 @@ env:
 
 jobs:
   react-doctor:
-    runs-on: ubuntu-latest
+    # Short x64 automation: preserve the 2-vCPU/8-GB shape at the lower
+    # Ubicloud standard rate. Provider allocation must fail visibly.
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v6
         with:
@@ -43,6 +44,8 @@ jobs:
       - uses: millionco/react-doctor@v2
         with:
           # Pinned for reproducible CI (kept in lockstep with the devDependency).
-          version: "0.9.11"
+          version: "0.9.13"
+          # Match .nvmrc; the composite otherwise defaults to Node 24.
+          node-version: "26.8.2"
           scope: changed
           blocking: error

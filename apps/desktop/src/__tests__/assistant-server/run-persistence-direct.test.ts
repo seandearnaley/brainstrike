@@ -8,11 +8,14 @@
  */
 import type { StreamChunk } from '@brainstrike/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { desktopAssistantServerLogger } from '../../assistant-server/logger';
 import {
   observeDesktopAssistantRunEvents,
   persistDesktopChildRunUsage,
   persistDesktopToolCallTelemetry,
 } from '../../assistant-server/run-persistence';
+import { DbHostRequestTimeoutError } from '../../db-host-manager';
+import { resetDesktopDatabaseWorkSchedulerForTests } from '../../platform/desktop-database-work';
 
 // File-local double — the pre-split suite shared one across every describe.
 const mockDesktopDatabase = {
@@ -20,6 +23,7 @@ const mockDesktopDatabase = {
 };
 
 beforeEach(() => {
+  resetDesktopDatabaseWorkSchedulerForTests();
   mockDesktopDatabase.query.mockReset();
   mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
 });
@@ -71,6 +75,151 @@ describe('run-event persistence tap transience', () => {
       .flat();
     expect(persistedValues).not.toContain(1234);
     expect(persistedValues).toContain('run.finished');
+  });
+
+  it('stamps the host leg on the pauses of its own turn, never on a continuation pause', async () => {
+    // The host leg is the ONE place that knows which durable
+    // `brainstrike_assistant_thread_runs` row is streaming — the same knowledge
+    // it already stamps on every run event. A pause of this turn (the root's
+    // own, or a delegated child's card) carries it so the history topology
+    // adapter can anchor the suspended message; a CHILD-CONTINUATION pause does
+    // not, because a continuation leg's `turn_message_id` is the continuation
+    // id, not a root message, so anchoring a root edge on it would dangle.
+    const runId = 'run-host-leg-1';
+    const rootPause = {
+      runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+      toolCallId: 'call-root',
+      toolName: 'brainstrike.executeCommand',
+      type: 'tool-approval-required',
+    } as unknown as StreamChunk;
+    const delegatedPause = {
+      chunk: {
+        runId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+        toolCallId: 'call-child',
+        toolName: 'brainstrike.askUser',
+        type: 'tool-suspend-required',
+      },
+      identity: {
+        childRuntimeRunId: 'child-run',
+        parentRuntimeRunId: '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039',
+        parentToolCallId: 'delegate-1',
+        personaId: 'explore',
+      },
+      messageId: 'child-message',
+      type: 'delegated-conversation-chunk',
+    } as unknown as StreamChunk;
+    const continuationPause = {
+      chunk: {
+        runId: '11b02e1c-3fae-410b-9697-f7175c77693d',
+        toolCallId: 'call-continuation',
+        toolName: 'brainstrike.askUser',
+        type: 'tool-suspend-required',
+      },
+      continuationId: 'continuation-1',
+      messageId: 'continuation-message',
+      nativeRunId: '11b02e1c-3fae-410b-9697-f7175c77693d',
+      threadId: 'child-thread',
+      type: 'child-continuation-chunk',
+    } as unknown as StreamChunk;
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield rootPause;
+      yield delegatedPause;
+      yield continuationPause;
+    }
+
+    const seen: StreamChunk[] = [];
+    for await (const chunk of observeDesktopAssistantRunEvents(
+      source(),
+      runId,
+      [],
+      async () => mockDesktopDatabase
+    )) {
+      seen.push(chunk);
+    }
+
+    expect(seen[0]).toMatchObject({ hostRunId: runId, toolCallId: 'call-root' });
+    expect(seen[1]).toMatchObject({ chunk: { hostRunId: runId, toolCallId: 'call-child' } });
+    // Identity, not a shape match: a continuation pause passes through
+    // untouched, so no stamp can reach a leg whose turn link is not a root
+    // message.
+    expect(seen[2]).toBe(continuationPause);
+  });
+
+  it('upserts one event with retry evidence when the timed-out insert later completes', async () => {
+    const persistedEvents = new Map<string, string | null>();
+    let completeTimedOutInsert!: () => void;
+    const timedOutInsertCompletion = new Promise<void>((resolve) => {
+      completeTimedOutInsert = resolve;
+    });
+    const timeout = new DbHostRequestTimeoutError({
+      pendingCount: 2,
+      requestKind: 'query',
+      timeoutMs: 30_000,
+      willTerminateHost: false,
+    });
+    mockDesktopDatabase.query.mockImplementation(async (sql, params) => {
+      if (!sql.includes('INSERT INTO brainstrike_assistant_run_events')) {
+        return { rows: [] };
+      }
+      const eventId = params?.[0];
+      const metadata = params?.[7];
+      if (typeof eventId !== 'string') {
+        throw new Error('Expected a run-event id.');
+      }
+      if (mockDesktopDatabase.query.mock.calls.length === 1) {
+        void timedOutInsertCompletion.then(() => {
+          persistedEvents.set(eventId, typeof metadata === 'string' ? metadata : null);
+        });
+        throw timeout;
+      }
+      await timedOutInsertCompletion;
+      persistedEvents.set(eventId, typeof metadata === 'string' ? metadata : null);
+      return { rows: [] };
+    });
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield {
+        event: {
+          id: 'event-idempotent-retry',
+          kind: 'run.step.started',
+          label: 'Step started',
+          metadata: { authorization: 'must-not-persist' },
+          status: 'running',
+          timestamp: '2026-08-25T00:00:00.000Z',
+        },
+        type: 'run-event',
+      } as StreamChunk;
+    }
+
+    const drain = async (): Promise<void> => {
+      for await (const _chunk of observeDesktopAssistantRunEvents(
+        source(),
+        'run-idempotent-retry',
+        [],
+        async () => mockDesktopDatabase
+      )) {
+        // Drain the persistence tap so its ordered queue flushes.
+      }
+    };
+    const drainPromise = drain();
+    await vi.waitFor(() => expect(mockDesktopDatabase.query).toHaveBeenCalledTimes(2));
+    expect(persistedEvents.size).toBe(0);
+    completeTimedOutInsert();
+    await drainPromise;
+
+    expect(mockDesktopDatabase.query).toHaveBeenCalledTimes(2);
+    expect(mockDesktopDatabase.query.mock.calls[0]?.[1]?.[0]).toBe('event-idempotent-retry');
+    expect(mockDesktopDatabase.query.mock.calls[1]?.[1]?.[0]).toBe('event-idempotent-retry');
+    expect(persistedEvents.size).toBe(1);
+    const persistedMetadata = JSON.parse(persistedEvents.get('event-idempotent-retry') ?? '{}');
+    expect(persistedMetadata).not.toHaveProperty('authorization');
+    expect(persistedMetadata).toMatchObject({
+      databaseRetry: {
+        attempt: 2,
+        reason: 'host-saturated-timeout',
+      },
+    });
   });
 });
 
@@ -304,4 +453,48 @@ describe('tool-call telemetry durable persistence (BST-1190)', () => {
     expect(seen).toEqual([]);
     expect(mockDesktopDatabase.query).not.toHaveBeenCalled();
   });
+});
+
+it('records the rejected delegated usage identity and still rejects the stream', async () => {
+  const errorLog = vi.spyOn(desktopAssistantServerLogger, 'error');
+  const rejection = new Error('controlled delegated usage rejection');
+  mockDesktopDatabase.query.mockRejectedValueOnce(rejection);
+  const value = {
+    delegation: {
+      parentRuntimeRunId: 'native-parent',
+      parentToolCallId: 'delegate-call',
+      resourceId: 'child-resource',
+      threadId: 'child-thread',
+    },
+    estimated: false,
+    inputTokens: 42,
+    model: 'x-ai/grok-4.6',
+    outputTokens: 7,
+    personaId: 'explore',
+    provider: 'openrouter',
+    source: 'subagent' as const,
+  };
+  async function* source(): AsyncIterable<StreamChunk> {
+    yield { type: 'child-run-usage', value };
+  }
+  try {
+    const iterator = persistDesktopChildRunUsage(
+      source(),
+      'host-run',
+      undefined,
+      async () => mockDesktopDatabase
+    );
+    await expect(iterator[Symbol.asyncIterator]().next()).rejects.toBe(rejection);
+    expect(errorLog).toHaveBeenCalledWith('Failed to persist bound delegated usage', {
+      code: 'assistant_delegated_usage_write_failed',
+      delegation: value.delegation,
+      error: rejection,
+      model: value.model,
+      personaId: value.personaId,
+      provider: value.provider,
+      runId: 'host-run',
+    });
+  } finally {
+    errorLog.mockRestore();
+  }
 });

@@ -40,6 +40,7 @@ export const migration010FlexibleEmbeddingDimensions: Migration = {
       throw new Error(`Failed to recreate vector indexes after restoring 768D column: ${message}`);
     }
   },
+  ledgerKey: 'custom-010-flexible-embedding-dimensions',
   name: 'flexible_embedding_dimensions',
   up: async (db) => {
     const columnCheck = await db.query<{ count: number }>(

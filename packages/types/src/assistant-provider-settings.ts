@@ -23,12 +23,16 @@
 /**
  * THE reasoning-effort vocabulary, weakest to strongest.
  *
+ * Mirrors the `reasoningEffort` enum of the installed `@ai-sdk/openai` (4.0.49)
+ * chat-options declaration; policed by
+ * `scripts/__tests__/ai-sdk-openai-mirror-contract.test.mjs`.
+ *
  * This is the union's MEMBERSHIP, not an offered list. Nothing here says a
  * given model accepts every value: what a particular model offers is resolved
  * per-family by `resolveReasoningControlsAvailability`
  * (`@brainstrike/assistant-contract/model-reasoning`), and narrowing an offered
  * list must never be expressed by narrowing this declaration — see the
- * `ANTHROPIC_REASONING_EFFORTS` ruling in `docs/agents/assistant-providers.md`.
+ * per-model `anthropicReasoning` ladder ruling in `docs/agents/assistant-providers.md`.
  * Its only job is to be the single place the values are written down.
  *
  * Declared as a value so the one place that needs them at RUNTIME — the Hosted
@@ -52,7 +56,7 @@ export const OPENAI_REASONING_EFFORT_VALUES = [
 export type OpenAiReasoningEffort = (typeof OPENAI_REASONING_EFFORT_VALUES)[number];
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
 /**
- * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.39).
+ * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.49).
  * `xhigh`/`max` are real wire values — omitting them made the picker offer a
  * strictly narrower range than the provider accepts.
  *
@@ -62,6 +66,16 @@ export type OpenAiReasoningSummary = 'auto' | 'detailed';
  * declaration — and the version named above — against the installed package.
  */
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/**
+ * Mirrors the `reasoningConfig.maxReasoningEffort` enum of the installed
+ * `@ai-sdk/amazon-bedrock` (5.0.76). Structurally identical to
+ * `AnthropicEffort` today and deliberately declared separately: they mirror
+ * two independent upstream packages, so aliasing one to the other would make
+ * an upgrade to either silently redefine the other's picker.
+ * `bedrock-reasoning-dialect-contract.spec.ts` compares this declaration
+ * against the installed provider.
+ */
+export type BedrockReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
 /** Thinking levels offered by the Gemini Flash line. */
@@ -74,6 +88,16 @@ export const GOOGLE_FLASH_THINKING_LEVELS: readonly GoogleThinkingLevel[] = [
 
 /** Gemini 3 Pro restricts thinking to low/high (no minimal/medium). */
 export const GOOGLE_PRO_THINKING_LEVELS: readonly GoogleThinkingLevel[] = ['low', 'high'];
+
+/**
+ * Gemini 3.7 Flash accepts low/medium/high and rejects minimal.
+ * https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash (retrieved 2026-08-20)
+ */
+const GOOGLE_GEMINI_37_FLASH_THINKING_LEVELS: readonly GoogleThinkingLevel[] = [
+  'low',
+  'medium',
+  'high',
+];
 
 /**
  * Whether a model ID is a Gemini 3.x Pro model (e.g. gemini-3-pro-preview,
@@ -92,7 +116,14 @@ export function isGemini3ProModel(modelName: string | undefined): boolean {
 export function getGoogleThinkingLevels(
   modelName: string | undefined
 ): readonly GoogleThinkingLevel[] {
-  return isGemini3ProModel(modelName) ? GOOGLE_PRO_THINKING_LEVELS : GOOGLE_FLASH_THINKING_LEVELS;
+  if (isGemini3ProModel(modelName)) {
+    return GOOGLE_PRO_THINKING_LEVELS;
+  }
+  // Keep this exact. Aliases and sibling variants require their own evidence;
+  // prefix matching could incorrectly narrow a future Flash-Lite ladder.
+  return modelName === 'gemini-3.7-flash'
+    ? GOOGLE_GEMINI_37_FLASH_THINKING_LEVELS
+    : GOOGLE_FLASH_THINKING_LEVELS;
 }
 
 /**
@@ -113,6 +144,17 @@ export interface AssistantProviderSettings {
   agentMaxSteps?: number;
   anthropicEffort?: AnthropicEffort;
   anthropicThinkingBudgetTokens?: number;
+  /**
+   * Bedrock reasoning DEPTH. Deliberately its own key rather than a reuse of
+   * `anthropicEffort`: Bedrock's effort ladder is per-model (the adaptive
+   * Claude routes, the legacy budget-token route and Amazon Nova each accept a
+   * different set), and Bedrock exposes no free-form thinking BUDGET control,
+   * so `anthropicThinkingBudgetTokens` has no meaning there. Sharing the
+   * Anthropic key would let the Anthropic Thinking toggle write a budget that
+   * the Bedrock request builder silently ignores — a switch that reads on while
+   * nothing is requested.
+   */
+  bedrockEffort?: BedrockReasoningEffort;
   googleIncludeThoughts?: boolean;
   googleThinkingLevel?: GoogleThinkingLevel;
   /**
@@ -156,6 +198,7 @@ export const assistantProviderSettingKeys = [
   'agentMaxSteps',
   'anthropicEffort',
   'anthropicThinkingBudgetTokens',
+  'bedrockEffort',
   'googleIncludeThoughts',
   'googleThinkingLevel',
   'localRuntimeBaseUrl',

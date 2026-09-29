@@ -46,40 +46,45 @@ export class HomePage {
 
   /**
    * Navigates to Settings, and is IDEMPOTENT: calling it while Settings is
-   * already open is a no-op rather than a 30s timeout.
+   * already the active route is a no-op rather than a redundant rail click.
    *
-   * Settings is a Radix `Dialog` (`root-layout-content.tsx`, #1626). Radix marks
-   * every sibling of an open modal `aria-hidden`, which removes the
-   * `NavigationSidebar` — and the `AccountMenu` trigger inside it — from the
-   * ACCESSIBILITY TREE. The button is still painted on screen, but
-   * `getByRole('button', { name: 'Open profile menu' })` cannot resolve it, so a
-   * second call failed with `locator.click: Timeout 30000ms exceeded / waiting
-   * for getByRole(...)` — a locator wait, not an obscured-click error.
-   *
-   * That is why the guard reads the settings navigation rather than the trigger:
-   * the trigger is unobservable in exactly the state we need to detect.
-   *
-   * The guard is scoped to `[data-state="open"]` because `DialogContent` carries
-   * `duration-200 data-[state=closed]:animate-out` (`packages/ui/src/dialog.tsx`),
-   * so Radix keeps it mounted and visible for ~200ms AFTER a close. An unscoped
-   * visibility probe would read `true` against a CLOSING dialog, skip the trigger
-   * click, and then fail confusingly in whatever `openCategory()` came next.
-   *
-   * This is a navigation postcondition, not error tolerance — the method still
-   * ends by asserting Settings is open on BOTH paths, so a genuine failure to
-   * open remains a visible timeout.
+   * Settings is a full nav-rail route (BST-1668), mounted through the same
+   * keep-mounted wrapper as Git/Notes/Browser, so "open" means the
+   * `settings-route` wrapper is visible (it is `display: none` under any
+   * other tab). The method ends by asserting the settings navigation is
+   * visible on BOTH paths, so a genuine failure to open remains a visible
+   * timeout.
    */
   async openSettings() {
-    const openSettingsNavigation = this.page
-      .locator('[data-slot="dialog-content"][data-state="open"]')
+    const settingsNavigation = this.page
+      .getByTestId('settings-route')
       .getByRole('navigation', { name: 'Settings categories' });
 
-    if (!(await openSettingsNavigation.isVisible())) {
-      await this.page.getByRole('button', { name: 'Open profile menu' }).click();
-      await this.page.getByRole('menuitem', { name: 'Settings…' }).click();
+    if (!(await settingsNavigation.isVisible())) {
+      await this.mainNavigation.getByRole('button', { exact: true, name: 'Settings' }).click();
     }
 
-    await openSettingsNavigation.waitFor({ state: 'visible', timeout: 10_000 });
+    await settingsNavigation.waitFor({ state: 'visible', timeout: 10_000 });
+  }
+
+  /**
+   * The app's left nav rail. Rail-item clicks are scoped here so a settings
+   * category or status-bar control sharing an accessible name can never
+   * collide with a navigation.
+   */
+  get mainNavigation() {
+    return this.page.getByRole('navigation', { exact: true, name: 'Main navigation' });
+  }
+
+  /** Leave the Settings route for the Context Explorer (BST-1668). */
+  async leaveSettings() {
+    await this.mainNavigation
+      .getByRole('button', { exact: true, name: 'Context Explorer' })
+      .click();
+    await this.page
+      .getByTestId('settings-route')
+      .getByRole('navigation', { name: 'Settings categories' })
+      .waitFor({ state: 'hidden', timeout: 10_000 });
   }
 
   async toggleTheme() {

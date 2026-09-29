@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
   type AssistantPersonaDefinition,
+  type AssistantPersonaScope,
   assertReadOnlyPersona,
   BUILT_IN_PERSONAS,
+  delegationDescriptionForPersona,
   delegationToolNameForPersona,
+  effectiveChildStepBudget,
   PersonaToolRiskViolationError,
+  personaMode,
+  personaScope,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '../personas';
 import { ASSISTANT_RUN_EVENT_KINDS, type AssistantRunEventKind } from '../run-events';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS, SUBAGENT_SETTINGS_LIMITS } from '../subagent-settings';
+import { MAX_USER_PERSONA_MAX_STEPS } from '../user-personas';
 
 const baseDefinition = (
   overrides: Partial<AssistantPersonaDefinition>
@@ -19,6 +26,70 @@ const baseDefinition = (
   label: 'Explorer',
   maxSteps: 8,
   ...overrides,
+});
+
+describe('effectiveChildStepBudget', () => {
+  it('is the declared budget capped by the SETTINGS ceiling, and is what the model is told', () => {
+    const within = { description: 'd', maxSteps: 4 };
+    const over = { description: 'd', maxSteps: 99 };
+    const settings = { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 40 };
+    expect(effectiveChildStepBudget(within, settings)).toBe(4);
+    expect(effectiveChildStepBudget(over, settings)).toBe(40);
+    expect(delegationDescriptionForPersona(within, settings)).toContain('Runs at most 4 steps');
+    expect(delegationDescriptionForPersona(over, settings)).toContain('Runs at most 40 steps');
+    expect(delegationDescriptionForPersona(over, settings)).toContain(
+      `${settings.maxChildOutputTokens} output tokens per child`
+    );
+  });
+
+  it("states the turn's tree limits from the request settings, never a constant", () => {
+    const settings = {
+      ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+      maxConcurrentWork: 5,
+      maxDepth: 7,
+      maxInvocations: 11,
+      maxTreeOutputTokens: 98_765,
+    };
+    expect(delegationDescriptionForPersona({ description: 'd', maxSteps: 4 }, settings)).toContain(
+      'The root turn permits at most 7 descendant levels, 11 invocations, 5 active work ' +
+        'operations, 32768 output tokens per child and 98765 across descendants.'
+    );
+  });
+});
+
+describe('personaMode', () => {
+  it('defaults an absent mode to read-only and preserves explicit modes', () => {
+    expect(personaMode({})).toBe('read-only');
+    expect(personaMode({ mode: 'read-only' })).toBe('read-only');
+    expect(personaMode({ mode: 'worker' })).toBe('worker');
+  });
+});
+
+describe('personaScope', () => {
+  it('copies the declared tools so a captured scope cannot change with its source', () => {
+    const allowedToolIds = ['brainstrike.readWorkspaceFile'];
+    const scope: AssistantPersonaScope = personaScope(baseDefinition({ allowedToolIds }));
+    allowedToolIds.push('brainstrike.grepSearch');
+    expect(scope.allowedToolIds).toEqual(['brainstrike.readWorkspaceFile']);
+  });
+
+  it('reports read-only for legacy personas without a mode and worker for explicit workers', () => {
+    const explore = BUILT_IN_PERSONAS.find((persona) => persona.id === 'explore');
+    const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
+    if (!(explore && worker)) {
+      throw new Error('built-ins missing');
+    }
+    expect(personaScope(explore)).toEqual({
+      allowedToolIds: explore.allowedToolIds,
+      maxSteps: explore.maxSteps,
+      mode: 'read-only',
+    });
+    expect(personaScope(worker)).toEqual({
+      allowedToolIds: ['*'],
+      maxSteps: worker.maxSteps,
+      mode: 'worker',
+    });
+  });
 });
 
 describe('assertReadOnlyPersona', () => {
@@ -53,12 +124,16 @@ describe('assertReadOnlyPersona', () => {
 });
 
 describe('BUILT_IN_PERSONAS', () => {
-  it('exposes exactly the explore and analyze personas', () => {
-    expect(BUILT_IN_PERSONAS.map((persona) => persona.id)).toEqual(['explore', 'analyze']);
+  it('exposes read-only specialists and an explicit worker', () => {
+    expect(BUILT_IN_PERSONAS.map((persona) => persona.id)).toEqual([
+      'explore',
+      'analyze',
+      'worker',
+    ]);
   });
 
-  it('every built-in persona is read-only (construction-time enforced)', () => {
-    for (const persona of BUILT_IN_PERSONAS) {
+  it('existing specialists remain read-only (construction-time enforced)', () => {
+    for (const persona of BUILT_IN_PERSONAS.filter((entry) => entry.id !== 'worker')) {
       expect(() => assertReadOnlyPersona(persona)).not.toThrow();
     }
   });
@@ -116,6 +191,107 @@ describe('subagent run-event kinds', () => {
     ];
     for (const kind of expected) {
       expect(ASSISTANT_RUN_EVENT_KINDS).toContain(kind);
+    }
+  });
+});
+
+describe('delegationDescriptionForPersona', () => {
+  const persona = (maxSteps: number) => ({
+    allowedToolIds: [],
+    description: 'Delegate exploration.',
+    id: 'x',
+    instructions: 'i',
+    label: 'X',
+    maxSteps,
+  });
+
+  it('derives the cap from maxSteps instead of restating it in prose', () => {
+    // The supervisor picks the SIZE of a delegated task from this description
+    // and nothing else — it becomes the `agent-<id>` tool description. Deriving
+    // it here rather than writing "16 steps" into each persona's prose removes
+    // the drift entirely: there is no second copy to fall out of sync.
+    expect(
+      delegationDescriptionForPersona(persona(16), DEFAULT_RUNTIME_SUBAGENT_SETTINGS)
+    ).toContain('at most 16 steps');
+    expect(
+      delegationDescriptionForPersona(persona(4), DEFAULT_RUNTIME_SUBAGENT_SETTINGS)
+    ).toContain('at most 4 steps');
+  });
+
+  it('does not promise a reserved summary for a one-step persona', () => {
+    const description = delegationDescriptionForPersona(
+      persona(1),
+      DEFAULT_RUNTIME_SUBAGENT_SETTINGS
+    );
+    expect(description).toContain('at most 1 step —');
+    expect(description).not.toContain('reserved');
+    expect(
+      delegationDescriptionForPersona(persona(2), DEFAULT_RUNTIME_SUBAGENT_SETTINGS)
+    ).toContain('2 steps, one of which is reserved');
+  });
+
+  it('covers USER-defined personas, whose frontmatter never mentions a cap', () => {
+    // A user persona's description comes straight from its markdown frontmatter,
+    // so it can never disclose its own budget. Hardcoding the sentence in the
+    // built-ins would have left exactly this case with the original bug.
+    const userPersona: AssistantPersonaDefinition = { ...persona(4), source: 'user' };
+    expect(
+      delegationDescriptionForPersona(userPersona, DEFAULT_RUNTIME_SUBAGENT_SETTINGS)
+    ).toContain('at most 4 steps');
+  });
+
+  it('keeps the persona own description intact', () => {
+    expect(
+      delegationDescriptionForPersona(persona(16), DEFAULT_RUNTIME_SUBAGENT_SETTINGS)
+    ).toContain('Delegate exploration.');
+  });
+
+  it('discloses the effective cap (the setting) for every built-in', () => {
+    for (const builtIn of BUILT_IN_PERSONAS) {
+      expect(delegationDescriptionForPersona(builtIn, DEFAULT_RUNTIME_SUBAGENT_SETTINGS)).toContain(
+        `at most ${DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxChildSteps} steps`
+      );
+    }
+  });
+
+  it("lets the user's step setting govern every built-in", () => {
+    // Built-ins used to declare 32 (worker 16), so effective = min(persona,
+    // setting) silently ignored any "Max steps per subagent" above that. They
+    // now declare the host ceiling — which is also the user-persona ceiling, so
+    // a user persona can still replicate any built-in — and the setting alone
+    // decides the budget.
+    expect(MAX_USER_PERSONA_MAX_STEPS).toBe(SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max);
+    for (const builtIn of BUILT_IN_PERSONAS) {
+      expect(builtIn.maxSteps).toBe(MAX_USER_PERSONA_MAX_STEPS);
+      for (const maxChildSteps of [1, 64, 250, SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max]) {
+        expect(effectiveChildStepBudget(builtIn, { maxChildSteps })).toBe(maxChildSteps);
+      }
+    }
+  });
+});
+
+describe('persona instructions demand provenance, not conclusions', () => {
+  it('requires every finding to distinguish code from documentation', () => {
+    // An explore child reported FOREGROUND_GATE_REOPEN_MS=250 as a code
+    // constant. It exists only in docs/agents/local-inference.md — the doc
+    // itself says the real constant is named something else. The supervisor
+    // then wrote it into durable memory under "Verified architecture survey".
+    for (const persona of BUILT_IN_PERSONAS) {
+      expect(persona.instructions.toLowerCase()).toContain('documentation');
+    }
+  });
+
+  it('keeps read-only specialists focused on findings', () => {
+    // An explore child asked to survey the repo "for a developer-onboarding
+    // document" returned a complete HTML page. It is a research step, not the
+    // author: the supervisor discarded the page and the child had burned its
+    // budget writing it.
+    //
+    // The Analyst is delegated research for reports and pages too, so guarding
+    // only `explore` would leave the identical budget-waster one delegation
+    // away.
+    for (const persona of BUILT_IN_PERSONAS.filter((entry) => entry.mode !== 'worker')) {
+      expect(persona.instructions.toLowerCase()).toContain('do not produce the final deliverable');
     }
   });
 });

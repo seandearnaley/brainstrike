@@ -1,13 +1,22 @@
 // packages/agent/src/config/__tests__/resilience-config.spec.ts
+
+import { MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS } from '@brainstrike/assistant-contract';
 import { afterEach, describe, expect, it } from 'vitest';
+import { TOOL_GUARD_MARGIN_MS } from '../../tools/resolve-tool-guard-budget';
 import {
   DEFAULT_APPROVAL_STALE_MS,
+  DEFAULT_STREAM_FIRST_OUTPUT_MS,
   DEFAULT_STREAM_INACTIVITY_MS,
+  DEFAULT_STREAM_REASONING_GAP_MS,
+  DEFAULT_STREAM_STALL_ATTEMPTS,
   DEFAULT_TOOL_CALL_INPUT_MS,
   DEFAULT_TOOL_TIMEOUT_MS,
   resolveApprovalStaleMs,
   resolveAssistantResilienceConfig,
+  resolveStreamFirstOutputMs,
   resolveStreamInactivityMs,
+  resolveStreamReasoningGapMs,
+  resolveStreamStallAttempts,
   resolveToolCallInputMs,
   resolveToolTimeoutMs,
 } from '../resilience-config';
@@ -16,6 +25,9 @@ describe('resilience-config', () => {
   const KEYS = [
     'BRAINSTRIKE_TOOL_TIMEOUT_MS',
     'BRAINSTRIKE_STREAM_INACTIVITY_MS',
+    'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS',
+    'BRAINSTRIKE_STREAM_REASONING_GAP_MS',
+    'BRAINSTRIKE_STREAM_STALL_ATTEMPTS',
     'BRAINSTRIKE_TOOL_CALL_INPUT_MS',
     'BRAINSTRIKE_APPROVAL_STALE_MS',
   ] as const;
@@ -52,8 +64,12 @@ describe('resilience-config', () => {
 
   it('resolves the documented assistant resilience defaults together', () => {
     expect(resolveAssistantResilienceConfig()).toEqual({
+      streamFirstOutputMs: DEFAULT_STREAM_FIRST_OUTPUT_MS,
       streamInactivityMs: DEFAULT_STREAM_INACTIVITY_MS,
+      streamReasoningGapMs: DEFAULT_STREAM_REASONING_GAP_MS,
+      streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: DEFAULT_TOOL_CALL_INPUT_MS,
+      toolExecutingMs: MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS + 30_000,
       toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
     });
   });
@@ -63,8 +79,12 @@ describe('resilience-config', () => {
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '50';
     process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '75';
     expect(resolveAssistantResilienceConfig()).toEqual({
+      streamFirstOutputMs: DEFAULT_STREAM_FIRST_OUTPUT_MS,
       streamInactivityMs: 50,
+      streamReasoningGapMs: DEFAULT_STREAM_REASONING_GAP_MS,
+      streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: 75,
+      toolExecutingMs: MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS + 30_000,
       toolTimeoutMs: 25,
     });
   });
@@ -101,8 +121,12 @@ describe('resilience-config', () => {
     // unset default simply resolves wide enough to satisfy the invariant.
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '900000';
     expect(resolveAssistantResilienceConfig()).toEqual({
+      streamFirstOutputMs: 900_000,
       streamInactivityMs: 900_000,
+      streamReasoningGapMs: 900_000,
+      streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: 900_000,
+      toolExecutingMs: MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS + 30_000,
       toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
     });
   });
@@ -132,11 +156,153 @@ describe('resilience-config', () => {
     expect(() => resolveApprovalStaleMs()).toThrow(/BRAINSTRIKE_APPROVAL_STALE_MS/);
   });
 
-  it('throws when the tool timeout is not shorter than stream inactivity', () => {
-    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '100';
-    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '100';
+  it('gives the first output a window far wider than an inter-output gap', () => {
+    // A request carrying a large prompt at high reasoning effort can take
+    // minutes to emit ANYTHING, in EVERY step. That is a different question
+    // from "how long a gap is tolerable once output is already flowing"
+    // (BST-1408), so the two must not share one number.
+    expect(resolveStreamFirstOutputMs()).toBe(DEFAULT_STREAM_FIRST_OUTPUT_MS);
+    expect(DEFAULT_STREAM_FIRST_OUTPUT_MS).toBeGreaterThan(DEFAULT_STREAM_INACTIVITY_MS);
+  });
+
+  it('gives a reasoning gap a window far wider than an inter-output gap', () => {
+    // A reasoning delta means the model is THINKING, not answering. The pause
+    // between two of them is the same event as the pause before the first one,
+    // so it belongs to the wide budget — measuring it against the tight one
+    // killed google/gemini-3.7-flash at reasoning.effort 'high'.
+    expect(resolveStreamReasoningGapMs()).toBe(DEFAULT_STREAM_REASONING_GAP_MS);
+    expect(DEFAULT_STREAM_REASONING_GAP_MS).toBeGreaterThan(DEFAULT_STREAM_INACTIVITY_MS);
+  });
+
+  it('uses a valid reasoning-gap env override', () => {
+    process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = '450000';
+    expect(resolveStreamReasoningGapMs()).toBe(450_000);
+  });
+
+  it('throws on a malformed reasoning-gap env value (no silent coercion)', () => {
+    process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = 'a while';
+    expect(() => resolveStreamReasoningGapMs()).toThrow(/BRAINSTRIKE_STREAM_REASONING_GAP_MS/);
+  });
+
+  it('throws on a non-positive reasoning-gap env value', () => {
+    process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = '0';
+    expect(() => resolveStreamReasoningGapMs()).toThrow(/BRAINSTRIKE_STREAM_REASONING_GAP_MS/);
+  });
+
+  it('throws when an EXPLICIT reasoning gap is tighter than inactivity', () => {
+    // Contradictory in the same shape as the first-output rule: a reasoning
+    // pause is strictly less suspicious than an answering pause, so a narrower
+    // reasoning budget would fire on healthy thought.
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
+    process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = '119999';
     expect(() => resolveAssistantResilienceConfig()).toThrow(
-      /BRAINSTRIKE_TOOL_TIMEOUT_MS must be less than BRAINSTRIKE_STREAM_INACTIVITY_MS/
+      /BRAINSTRIKE_STREAM_REASONING_GAP_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS/
     );
+  });
+
+  it('widens the DEFAULT reasoning gap to a longer configured inactivity window', () => {
+    // Unset must never fail on a variable the user never set — it resolves wide
+    // enough to satisfy the invariant instead.
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '900000';
+    expect(resolveAssistantResilienceConfig().streamReasoningGapMs).toBe(900_000);
+  });
+
+  it('uses a valid first-output env override', () => {
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '450000';
+    expect(resolveStreamFirstOutputMs()).toBe(450_000);
+  });
+
+  it('prefers an explicit first-output override argument over env', () => {
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '450000';
+    expect(resolveStreamFirstOutputMs(7000)).toBe(7000);
+  });
+
+  it('throws on a malformed first-output env value (no silent coercion)', () => {
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = 'eventually';
+    expect(() => resolveStreamFirstOutputMs()).toThrow(/BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS/);
+  });
+
+  it('throws on a non-positive first-output env value', () => {
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '0';
+    expect(() => resolveStreamFirstOutputMs()).toThrow(/BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS/);
+  });
+
+  it('throws when BOTH windows are set explicitly and the first-output one is tighter', () => {
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '119999';
+    expect(() => resolveAssistantResilienceConfig()).toThrow(
+      /BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS/
+    );
+  });
+
+  it('keeps the default first-output window when it already exceeds inactivity', () => {
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
+    expect(resolveAssistantResilienceConfig().streamFirstOutputMs).toBe(
+      DEFAULT_STREAM_FIRST_OUTPUT_MS
+    );
+  });
+
+  it('resolves every window together when all five are set explicitly', () => {
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '25';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '50';
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '90';
+    process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = '95';
+    process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '75';
+    expect(resolveAssistantResilienceConfig()).toEqual({
+      streamFirstOutputMs: 90,
+      streamInactivityMs: 50,
+      streamReasoningGapMs: 95,
+      streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
+      toolCallInputMs: 75,
+      toolExecutingMs: MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS + 30_000,
+      toolTimeoutMs: 25,
+    });
+  });
+
+  it('derives the tool-executing backstop above the largest guard budget', () => {
+    const config = resolveAssistantResilienceConfig();
+    expect(config.toolExecutingMs).toBe(600_000 + 5000 + 30_000);
+    expect(config.toolExecutingMs).toBeGreaterThan(
+      MAX_NATIVE_TOOL_EXECUTION_BUDGET_MS + TOOL_GUARD_MARGIN_MS
+    );
+  });
+
+  it('keeps the backstop above a global tool timeout larger than every declared budget', () => {
+    const config = resolveAssistantResilienceConfig({
+      streamInactivityMs: 120_000,
+      toolTimeoutMs: 900_000,
+    });
+    expect(config.toolExecutingMs).toBe(900_000 + 30_000);
+  });
+
+  it('no longer requires the tool timeout to sit under stream inactivity', () => {
+    expect(() =>
+      resolveAssistantResilienceConfig({ streamInactivityMs: 120_000, toolTimeoutMs: 180_000 })
+    ).not.toThrow();
+  });
+
+  it('defaults to a small stall-attempt budget, and 1 opts out of recovery', () => {
+    // A resume re-sends the whole prompt, so the budget is deliberately small;
+    // `1` reproduces the pre-BST-1409 immediately-terminal behavior exactly.
+    expect(resolveStreamStallAttempts()).toBe(DEFAULT_STREAM_STALL_ATTEMPTS);
+    expect(DEFAULT_STREAM_STALL_ATTEMPTS).toBe(2);
+    process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '1';
+    expect(resolveStreamStallAttempts()).toBe(1);
+  });
+
+  it('throws on a malformed stall-attempt budget, naming the right UNIT', () => {
+    // A count reported as "must be a positive integer (ms)" is a strict-parse
+    // error that lies about what it wants — on the one knob an operator is most
+    // likely to hand-set.
+    process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = 'twice';
+    expect(() => resolveStreamStallAttempts()).toThrow(
+      /BRAINSTRIKE_STREAM_STALL_ATTEMPTS must be a positive integer \(attempts\)/
+    );
+    expect(() => resolveStreamStallAttempts()).not.toThrow(/\(ms\)/);
+  });
+
+  it('throws on a zero stall-attempt budget (a turn always gets one attempt)', () => {
+    process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '0';
+    expect(() => resolveStreamStallAttempts()).toThrow(/BRAINSTRIKE_STREAM_STALL_ATTEMPTS/);
   });
 });

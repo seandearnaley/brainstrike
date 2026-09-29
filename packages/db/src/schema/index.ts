@@ -125,7 +125,7 @@ export const roots = pgTable('roots', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   displayName: text('display_name').notNull(),
   id: text('id').primaryKey().default(sql`(uuidv7()::text)`),
-  kind: text('kind').$type<'path' | 'fsa' | 'snapshot' | 'legacy'>().notNull(),
+  kind: text('kind').$type<'path' | 'fsa' | 'snapshot' | 'legacy' | 'worktree'>().notNull(),
   lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
   path: text('path'),
   status: text('status')

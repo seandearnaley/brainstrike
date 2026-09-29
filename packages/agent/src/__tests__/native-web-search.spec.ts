@@ -41,8 +41,8 @@ function baseParams(overrides: Partial<Parameters<typeof applyProviderNativeWebS
     [SANITIZED_ID]: makeTavilyToolStub() as unknown as ToolsInput[string],
   };
   return {
-    apiKey: 'sk-test',
     askTools: new Map<string, unknown>(),
+    auth: { apiKey: 'sk-test', kind: 'api_key' as const },
     logger: { info: vi.fn() },
     provider: 'anthropic',
     toolNameMap: new Map<string, string>([[SANITIZED_ID, WEB_SEARCH_TOOL_ID]]),
@@ -84,7 +84,10 @@ describe('providerSupportsNativeWebSearch', () => {
 
 describe('createProviderNativeWebSearchTool', () => {
   it('builds a provider-EXECUTED anthropic web-search tool (no execute, correct id)', () => {
-    const tool = createProviderNativeWebSearchTool('anthropic', 'sk-test');
+    const tool = createProviderNativeWebSearchTool('anthropic', {
+      apiKey: 'sk-test',
+      kind: 'api_key',
+    });
     expect(tool).toBeDefined();
     expect(toolType(tool)).toBe('provider');
     expect(toolId(tool)).toBe('anthropic.web_search_20250305');
@@ -94,7 +97,10 @@ describe('createProviderNativeWebSearchTool', () => {
   });
 
   it('builds a provider-EXECUTED openai web-search tool (no execute, correct id)', () => {
-    const tool = createProviderNativeWebSearchTool('openai', 'sk-test');
+    const tool = createProviderNativeWebSearchTool('openai', {
+      apiKey: 'sk-test',
+      kind: 'api_key',
+    });
     expect(tool).toBeDefined();
     expect(toolType(tool)).toBe('provider');
     expect(toolId(tool)).toBe('openai.web_search');
@@ -256,8 +262,8 @@ describe('applyProviderNativeWebSearch — driven by the real permission gate', 
     expect(gateResult.askToolIds.has(SANITIZED_ID)).toBe(true);
 
     const result = applyProviderNativeWebSearch({
-      apiKey: undefined,
       askTools: gateResult.askTools,
+      auth: undefined,
       provider: 'openrouter',
       toolNameMap,
       tools: gateResult.tools,
@@ -268,7 +274,9 @@ describe('applyProviderNativeWebSearch — driven by the real permission gate', 
     expect(toolId(picked)).toBe(WEB_SEARCH_TOOL_ID);
     expect(toolType(picked)).toBeUndefined();
     expect(hasExecute(picked)).toBe(true);
-    expect((picked as { requireApproval?: unknown }).requireApproval).toBe(true);
+    // The ask decision lives in `askTools` (asserted above) and is enforced by
+    // the runtime's live predicate; no flag rides on the tool (2026-09-15).
+    expect((picked as { requireApproval?: unknown }).requireApproval).toBeUndefined();
   });
 
   it('native-capable provider (anthropic) + real deny gate → web search omitted, native never injected', () => {
@@ -288,8 +296,8 @@ describe('applyProviderNativeWebSearch — driven by the real permission gate', 
     expect(gateResult.askToolIds.has(SANITIZED_ID)).toBe(false);
 
     const result = applyProviderNativeWebSearch({
-      apiKey: 'sk-test',
       askTools: gateResult.askTools,
+      auth: { apiKey: 'sk-test', kind: 'api_key' as const },
       provider: 'anthropic',
       toolNameMap,
       tools: gateResult.tools,
@@ -350,7 +358,7 @@ describe('createMastraAgentRuntime provider-native web search wiring', () => {
       }
       const threadId = `native-web-${provider}`;
       const first = await processor.processInputStep(createDiscoveryStepArgs(threadId, 0));
-      await first.tools.search_tools.execute?.({ query: SANITIZED_ID });
+      await first.tools.load_tool.execute?.({ toolName: SANITIZED_ID });
       const second = await processor.processInputStep(createDiscoveryStepArgs(threadId, 1));
       return second.tools;
     } finally {

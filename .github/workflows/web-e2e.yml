@@ -44,7 +44,7 @@ jobs:
     # both native-build projects — see the matching note in test.yml's web-e2e
     # job.
     container:
-      image: mcr.microsoft.com/playwright:v1.62.1-noble
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
       # `--user 1001` (pwuser) owns the browsers under /ms-playwright; this is
       # the configuration in Playwright's official GitHub Actions example.
       options: --user 1001
@@ -118,11 +118,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          gh label create "web-e2e-failure" \
+          set -euo pipefail
+          if ! gh label create "web-e2e-failure" \
             --repo "$REPO" \
+            --force \
             --color d93f0b \
-            --description "Auto-opened by web-e2e.yml when the scheduled web E2E run fails" \
-            2>/dev/null || true
+            --description "Auto-opened by web-e2e.yml when the scheduled web E2E run fails"; then
+            echo "::error::Could not ensure the 'web-e2e-failure' label exists, so the tracking issue can be neither filed nor de-duplicated."
+            exit 1
+          fi
 
       - name: Open or update tracking issue
         env:

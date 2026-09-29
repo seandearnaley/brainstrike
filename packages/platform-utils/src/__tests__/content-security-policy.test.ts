@@ -43,7 +43,7 @@ const ELECTRON_DEV_CSP =
   "font-src 'self' data: http://localhost:*; " +
   "form-action 'self'; " +
   "frame-ancestors 'none'; " +
-  'frame-src brainstrike-canvas:; ' +
+  'frame-src brainstrike-canvas: brainstrike-mcp-app:; ' +
   "img-src 'self' data: blob: brainstrike-asset: http://localhost:*; " +
   "object-src 'none'; " +
   "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' http://localhost:*; " +
@@ -57,7 +57,7 @@ const ELECTRON_PROD_CSP =
   "font-src 'self' data:; " +
   "form-action 'self'; " +
   "frame-ancestors 'none'; " +
-  'frame-src brainstrike-canvas:; ' +
+  'frame-src brainstrike-canvas: brainstrike-mcp-app:; ' +
   "img-src 'self' data: blob: brainstrike-asset:; " +
   "object-src 'none'; " +
   "script-src 'self' blob: 'wasm-unsafe-eval'; " +
@@ -132,16 +132,26 @@ describe('getContentSecurityPolicy', () => {
     const electronDev = getContentSecurityPolicy('development', 'electron');
     const electronProd = getContentSecurityPolicy('production', 'electron');
 
-    it('frames only the Canvas shell: brainstrike-canvas: on Electron, same-origin on web (BST-1173)', () => {
-      // The Canvas sandbox shell is the ONLY thing either app ever frames.
-      // Electron serves it via the brainstrike-canvas: protocol (its own CSP
-      // header, exempt from the global stamp); web serves it same-origin at
-      // /canvas-frame.html with per-path headers. Neither target may frame the
-      // other's mechanism, and frame-src must never fall back to default-src.
-      expect(directiveOf(electronDev, 'frame-src')).toBe('frame-src brainstrike-canvas:');
-      expect(directiveOf(electronProd, 'frame-src')).toBe('frame-src brainstrike-canvas:');
+    it('frames only host-served sandbox shells: the Canvas and MCP App schemes on Electron, same-origin on web (BST-1173, BST-1572)', () => {
+      // Electron frames exactly two host-authored shells, each served by its
+      // own privileged scheme with a header-delivered CSP (exempt from the
+      // global stamp): the Canvas shell (brainstrike-canvas:) and the MCP App
+      // sandbox shell (brainstrike-mcp-app:). Web serves the canvas shell
+      // same-origin at /canvas-frame.html and has no MCP App host. Neither
+      // target may frame the other's mechanism, frame-src must never fall
+      // back to default-src, and blob: must NEVER be a frame source: a blob
+      // shell would run on the host origin with no header CSP at all.
+      expect(directiveOf(electronDev, 'frame-src')).toBe(
+        'frame-src brainstrike-canvas: brainstrike-mcp-app:'
+      );
+      expect(directiveOf(electronProd, 'frame-src')).toBe(
+        'frame-src brainstrike-canvas: brainstrike-mcp-app:'
+      );
       expect(directiveOf(webDev, 'frame-src')).toBe("frame-src 'self'");
       expect(directiveOf(webProd, 'frame-src')).toBe("frame-src 'self'");
+      for (const csp of [electronDev, electronProd, webDev, webProd]) {
+        expect(directiveOf(csp, 'frame-src')).not.toContain('blob:');
+      }
     });
 
     it('only Electron registers the custom brainstrike-asset: image protocol', () => {

@@ -1,16 +1,11 @@
-import type { AssistantRunEventKind } from '@brainstrike/assistant-contract';
-import {
-  ASSISTANT_RUN_EVENT_DATA_NAME,
-  ASSISTANT_RUN_EVENT_KINDS,
-} from '@brainstrike/assistant-contract';
+import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
 import { TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeAll, describe, expect, it } from 'vitest';
+import type { AssistantRunEventDisplayStatus } from '../assistant-run-event-derivation';
 import {
   deriveAssistantRunEventRows,
-  getMatchingCompletedKind,
-  getMatchingFailedKind,
   isAlwaysVisibleRunEvent,
   resolveAssistantRunEventRenderPlan,
   resolveAssistantRunEventStatus,
@@ -25,10 +20,13 @@ beforeAll(() => {
   } as never;
 });
 
-function renderTimeline(data: Record<string, unknown>) {
+function renderTimeline(
+  data: Record<string, unknown>,
+  statusOverride?: AssistantRunEventDisplayStatus
+) {
   return render(
     <TooltipProvider>
-      <AssistantRunTimeline data={data} />
+      <AssistantRunTimeline data={data} {...(statusOverride ? { statusOverride } : {})} />
     </TooltipProvider>
   );
 }
@@ -196,94 +194,6 @@ describe('deriveAssistantRunEventRows', () => {
   });
 });
 
-describe('getMatchingCompletedKind', () => {
-  it('maps run.step.started to run.step.finished (not .completed)', () => {
-    expect(getMatchingCompletedKind('run.step.started')).toBe('run.step.finished');
-  });
-  it('keeps run.started -> run.finished and tool.started -> tool.completed', () => {
-    expect(getMatchingCompletedKind('run.started')).toBe('run.finished');
-    expect(getMatchingCompletedKind('tool.started')).toBe('tool.completed');
-  });
-  it('maps non-run *.started to *.completed', () => {
-    expect(getMatchingCompletedKind('memory.semantic.started')).toBe('memory.semantic.completed');
-  });
-});
-
-describe('run-event terminal pairing contract', () => {
-  const STARTED_KINDS = ASSISTANT_RUN_EVENT_KINDS.filter((kind) => kind.endsWith('.started'));
-  const declares = (kind: string): kind is AssistantRunEventKind =>
-    (ASSISTANT_RUN_EVENT_KINDS as readonly string[]).includes(kind);
-  const stemOf = (kind: string) => kind.slice(0, -'.started'.length);
-
-  // The pairing the helpers MUST produce, written out so a rename on either
-  // side (contract kind or helper) fails here instead of drifting silently.
-  // `subagent.started` is the case that regressed: its terminals are
-  // `.finished`/`.failed`, never the `.completed` a suffix rewrite invents.
-  const PAIRINGS = [
-    ['memory.observation.started', 'memory.observation.completed', 'memory.observation.failed'],
-    ['memory.reflection.started', 'memory.reflection.completed', null],
-    ['memory.semantic.started', 'memory.semantic.completed', null],
-    ['run.started', 'run.finished', 'run.failed'],
-    ['run.step.started', 'run.step.finished', null],
-    ['subagent.started', 'subagent.finished', 'subagent.failed'],
-    ['subagent.tool.started', 'subagent.tool.completed', 'subagent.tool.failed'],
-    ['tool.started', 'tool.completed', 'tool.failed'],
-  ] as const;
-
-  it('tables exactly the .started kinds the contract declares', () => {
-    // Exhaustive, not a floor: a new declared `.started` kind fails HERE with
-    // "add me to the table" rather than being covered only by the generic
-    // loops below, which would let the table quietly stop being the full map
-    // it advertises. Also catches a silently narrowed STARTED_KINDS filter.
-    expect([...STARTED_KINDS].sort()).toEqual(PAIRINGS.map(([started]) => started).sort());
-  });
-
-  it.each(PAIRINGS)('pairs %s with %s / %s', (started, completed, failed) => {
-    expect(getMatchingCompletedKind(started)).toBe(completed);
-    expect(getMatchingFailedKind(started)).toBe(failed);
-  });
-
-  it('never pairs a .started kind with a terminal the contract does not declare', () => {
-    for (const started of STARTED_KINDS) {
-      const completed = getMatchingCompletedKind(started);
-      const failed = getMatchingFailedKind(started);
-      // A success terminal is mandatory: without one, a running row can only be
-      // closed by the generic end-of-run fallbacks (or, when the failure
-      // pairing is also absent, not at all — it spins for the whole run).
-      expect(completed).not.toBeNull();
-      expect(declares(completed as string)).toBe(true);
-      if (failed !== null) {
-        expect(declares(failed)).toBe(true);
-      }
-    }
-  });
-
-  it('pairs a failure terminal exactly when the contract declares one', () => {
-    for (const started of STARTED_KINDS) {
-      expect(getMatchingFailedKind(started) === null).toBe(!declares(`${stemOf(started)}.failed`));
-    }
-  });
-
-  it('leaves no .started kind with an ambiguous success terminal', () => {
-    // Both spellings are tried, so a namespace declaring `.completed` AND
-    // `.finished` would make the lookup order load-bearing. None may.
-    for (const started of STARTED_KINDS) {
-      const stem = stemOf(started);
-      expect([declares(`${stem}.completed`), declares(`${stem}.finished`)]).not.toEqual([
-        true,
-        true,
-      ]);
-    }
-  });
-
-  it('returns null for kinds that are not .started', () => {
-    for (const kind of ASSISTANT_RUN_EVENT_KINDS.filter((k) => !k.endsWith('.started'))) {
-      expect(getMatchingCompletedKind(kind)).toBeNull();
-      expect(getMatchingFailedKind(kind)).toBeNull();
-    }
-  });
-});
-
 describe('isAlwaysVisibleRunEvent', () => {
   const ts = '2026-06-16T10:00:00.000Z';
   const event = (kind: string, status: string) => ({
@@ -292,6 +202,21 @@ describe('isAlwaysVisibleRunEvent', () => {
     label: kind,
     status,
     timestamp: ts,
+  });
+
+  it('forces the delegation ledger row to stay visible (settled 2026-09-15)', () => {
+    expect(isAlwaysVisibleRunEvent(event('delegation.ledger', 'running'))).toBe(true);
+    expect(isAlwaysVisibleRunEvent(event('delegation.ledger', 'completed'))).toBe(true);
+  });
+
+  it('forces the budget-exhaustion breadcrumb to stay visible (settled 2026-09-15)', () => {
+    expect(isAlwaysVisibleRunEvent(event('delegation.budget.exhausted', 'info'))).toBe(true);
+  });
+
+  it('keeps the resolved permission gate informational, NOT always visible (2026-09-15)', () => {
+    // Debug evidence for why a card appeared; the approval card itself is the
+    // user-facing surface, so this row stays behind Developer detail.
+    expect(isAlwaysVisibleRunEvent(event('permission.gate.resolved', 'completed'))).toBe(false);
   });
 
   it('forces run-level failure and cancellation rows to stay visible', () => {
@@ -304,6 +229,43 @@ describe('isAlwaysVisibleRunEvent', () => {
     // tool this build has no resume UI for: the `brainstrike.tool-suspend`
     // notice is transient, so after a reload this row is all that is left.
     expect(isAlwaysVisibleRunEvent(event('tool.resume.unsupported', 'failed'))).toBe(true);
+  });
+
+  it('forces the approval pause to stay visible (BST-1402)', () => {
+    // A still-PENDING pause does get its actionable `brainstrike.tool-approval`
+    // notice re-appended on load (rediscovered from the Mastra suspended
+    // snapshot), but that notice sits at the END of the thread and vanishes the
+    // moment the pause is answered. This row is the in-transcript record, where
+    // the run actually stopped and asked, and the only one that outlives the
+    // answer. It is a `tool.*` kind carrying the paused call's `toolCallId`, so
+    // without the exemption the mapper's `tool-call` part suppresses it as
+    // "already carded".
+    expect(isAlwaysVisibleRunEvent(event('tool.approval.requested', 'running'))).toBe(true);
+  });
+
+  it('forces a swallowed compaction failure to stay visible (BST-1737)', () => {
+    // The pre-request compaction pass threw, so the turn went to the provider
+    // over budget. Nothing cards that: the user's only other symptom is a later
+    // provider context-overflow error naming an unrelated cause. Without this
+    // membership the row is hidden at default detail and the kind reports
+    // nothing to the user it exists for.
+    expect(isAlwaysVisibleRunEvent(event('compaction.failed', 'failed'))).toBe(true);
+  });
+
+  it('forces a skipped MCP server to stay visible (BST-1602)', () => {
+    // The cleanest case in this list: the tool never entered the run's map, so
+    // NOTHING cards it. The "Tool execution failed." card the user does see
+    // belongs to the model's follow-up call on the missing tool and names the
+    // wrong cause.
+    expect(isAlwaysVisibleRunEvent(event('mcp.tools.unavailable', 'failed'))).toBe(true);
+  });
+
+  it('forces a dropped provider setting to stay visible (BST-1701)', () => {
+    // The provider answered normally after silently discarding part of the
+    // request (a user-set `temperature` on a model that rejects one), so the
+    // turn looks healthy and nothing cards it. Hidden at default detail, this
+    // row would report the silent degradation to nobody.
+    expect(isAlwaysVisibleRunEvent(event('provider.request.warned', 'failed'))).toBe(true);
   });
 
   it('does not force background bookkeeping or already-carded tool failures', () => {
@@ -560,6 +522,30 @@ describe('resolveAssistantRunEventStatus', () => {
 describe('resolveAssistantRunEventRenderPlan', () => {
   const ts = '2026-06-11T00:00:00.000Z';
 
+  it('keeps run.stalled and run.resumed visible in the timeline', () => {
+    // BST-1409's whole design rests on recovery being VISIBLE. These two carry
+    // no toolCallId and are not `.started` kinds, so neither the card-suppression
+    // rule nor the terminal-pairing rule may hide them — pinned here because a
+    // future suppression tweak that silently swallowed them would turn a
+    // deliberately reported retry back into a silent one.
+    for (const [kind, label] of [
+      ['run.stalled', 'Model stream stalled'],
+      ['run.resumed', 'Continuing after a stall'],
+    ] as const) {
+      const event = {
+        detail: 'Attempt 1 of 2.',
+        id: `r-${kind}`,
+        kind,
+        label,
+        metadata: { attempt: 1, maxAttempts: 2 },
+        status: 'info',
+        timestamp: ts,
+      };
+      const messages = [{ parts: [runEventPart(event)], role: 'assistant' }];
+      expect(resolveAssistantRunEventRenderPlan(messages, event).hidden).toBe(false);
+    }
+  });
+
   it('hides tool.* events when their tool-call part renders as a card', () => {
     const started = {
       id: 't1',
@@ -750,5 +736,264 @@ describe('AssistantRunTimeline render', () => {
     expect(screen.getByTestId('assistant-thinking-indicator')).toHaveTextContent('Thinking');
     expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute('data-tone', 'greyscale');
     expect(screen.getAllByTestId('assistant-thinking-mark')).toHaveLength(1);
+  });
+});
+
+describe('tool.approval.requested resolution (BST-1402)', () => {
+  const approval = (toolCallId: string, timestamp: string, runId = 'run-a') => ({
+    id: `approval-${toolCallId}`,
+    kind: 'tool.approval.requested',
+    label: 'Awaiting your approval',
+    metadata: { toolCallId, toolName: 'brainstrike.executeCommand' },
+    runId,
+    status: 'running',
+    timestamp,
+  });
+  const toolEvent = (
+    kind: string,
+    toolCallId: string,
+    status: string,
+    timestamp: string,
+    runId = 'run-a'
+  ) => ({
+    id: `${kind}-${toolCallId}-${runId}`,
+    kind,
+    label: kind,
+    metadata: { toolCallId, toolName: 'brainstrike.executeCommand' },
+    runId,
+    status,
+    timestamp,
+  });
+
+  // The pause has no suffix-derived terminal on purpose (it is not a `.started`
+  // kind), so without an explicit pairing its `running` row would spin forever —
+  // the exact hazard `run-event terminal pairing contract` guards for `.started`
+  // kinds. These pin the explicit pairing instead.
+  it.each([
+    ['tool.completed', 'completed', 'approve => the resumed stream runs the tool'],
+    ['tool.failed', 'failed', 'decline => "Tool call declined"'],
+    ['tool.resume.unsupported', 'failed', 'no resume UI in this build'],
+  ])('closes the pause out on %s as %s (%s)', (terminalKind, expected) => {
+    const pause = approval('call-1', '2026-06-20T00:00:00.000Z');
+    const terminal = toolEvent(terminalKind, 'call-1', expected, '2026-06-20T00:00:05.000Z');
+    const messages = [{ parts: [runEventPart(pause), runEventPart(terminal)], role: 'assistant' }];
+    expect(resolveAssistantRunEventStatus(messages, pause as never)).toBe(expected);
+    expect(deriveAssistantRunEventRows(messages).statuses[pause.id]).toBe(expected);
+  });
+
+  // The SHAPE a reloaded thread actually has. The approve/decline resume is a
+  // SEPARATE stream leg that mints its own runId and its own `thread_runs` row,
+  // and the paused leg emits no run terminal of its own — so the pause carries
+  // run A and its answer carries run B. Live streams hid this (live run-event
+  // parts carry no `runId` at all); hydrated parts carry the persisted one, so a
+  // run-scoped pairing spins "Awaiting your approval" forever on every reloaded
+  // thread that ever contained an approval, including long-answered ones.
+  it.each([
+    ['tool.completed', 'completed', 'approved in the resume leg'],
+    ['tool.failed', 'failed', 'declined in the resume leg'],
+    ['tool.resume.unsupported', 'failed', 'resume leg had no registered UI'],
+  ])('closes the pause out on %s as %s ACROSS the resume run (%s)', (terminalKind, expected) => {
+    const pause = approval('call-1', '2026-06-20T00:00:00.000Z', 'run-a');
+    const terminal = toolEvent(
+      terminalKind,
+      'call-1',
+      expected,
+      '2026-06-20T00:00:05.000Z',
+      'run-b'
+    );
+    const messages = [{ parts: [runEventPart(pause), runEventPart(terminal)], role: 'assistant' }];
+    expect(resolveAssistantRunEventStatus(messages, pause as never)).toBe(expected);
+    expect(deriveAssistantRunEventRows(messages).statuses[pause.id]).toBe(expected);
+  });
+
+  it('is NOT closed out by the tool.started the approval merely unblocks', () => {
+    // `tool.started` carries status 'running', so pairing against it would
+    // "resolve" the row to the status it already had — and would report a
+    // still-executing tool as an answered pause. Emitted by the RESUME leg, so
+    // it also carries that leg's own runId.
+    const pause = approval('call-1', '2026-06-20T00:00:00.000Z', 'run-a');
+    const started = toolEvent(
+      'tool.started',
+      'call-1',
+      'running',
+      '2026-06-20T00:00:05.000Z',
+      'run-b'
+    );
+    const messages = [{ parts: [runEventPart(pause), runEventPart(started)], role: 'assistant' }];
+    expect(resolveAssistantRunEventStatus(messages, pause as never)).toBe('running');
+    expect(deriveAssistantRunEventRows(messages).statuses[pause.id]).toBe('running');
+  });
+
+  it("never lets ANOTHER call's terminal answer this pause, in ANY run", () => {
+    // Dropping the run scope must not mean dropping scoping: `toolCallId` is the
+    // identity that matches, and it matches NOTHING else.
+    const pause = approval('call-1', '2026-06-20T00:00:00.000Z', 'run-a');
+    const sameRun = toolEvent('tool.completed', 'call-2', 'completed', '2026-06-20T00:00:05.000Z');
+    const otherRun = toolEvent(
+      'tool.completed',
+      'call-3',
+      'completed',
+      '2026-06-20T00:00:06.000Z',
+      'run-b'
+    );
+    for (const other of [sameRun, otherRun]) {
+      const messages = [{ parts: [runEventPart(pause), runEventPart(other)], role: 'assistant' }];
+      expect(resolveAssistantRunEventStatus(messages, pause as never)).toBe('running');
+      expect(deriveAssistantRunEventRows(messages).statuses[pause.id]).toBe('running');
+    }
+  });
+
+  it('falls back to the run leaving running when the call never reports', () => {
+    // Cancelling mid-pause produces no `tool.*` terminal at all.
+    const pause = approval('call-1', '2026-06-20T00:00:00.000Z', 'run-a');
+    const cancelled = (runId: string) => ({
+      id: `run-cancelled-${runId}`,
+      kind: 'run.cancelled',
+      label: 'Assistant run cancelled',
+      runId,
+      status: 'cancelled',
+      timestamp: '2026-06-20T00:00:09.000Z',
+    });
+    const ownRun = [
+      { parts: [runEventPart(pause), runEventPart(cancelled('run-a'))], role: 'assistant' },
+    ];
+    expect(resolveAssistantRunEventStatus(ownRun, pause as never)).toBe('cancelled');
+    expect(deriveAssistantRunEventRows(ownRun).statuses[pause.id]).toBe('cancelled');
+
+    // The generic end-of-run fallbacks stay RUN-scoped: only the `toolCallId`
+    // pairing above is run-agnostic, so an unrelated run ending cannot answer
+    // this pause.
+    const otherRun = [
+      { parts: [runEventPart(pause), runEventPart(cancelled('run-b'))], role: 'assistant' },
+    ];
+    expect(resolveAssistantRunEventStatus(otherRun, pause as never)).toBe('running');
+    expect(deriveAssistantRunEventRows(otherRun).statuses[pause.id]).toBe('running');
+  });
+
+  it("stays visible on BOTH render-plan paths despite the paused call's card", () => {
+    const pause = approval('call-1', '2026-06-20T00:00:00.000Z');
+    const messages = [
+      {
+        parts: [
+          runEventPart(pause),
+          { toolCallId: 'call-1', toolName: 'brainstrike.executeCommand', type: 'tool-call' },
+        ],
+        role: 'assistant',
+      },
+    ];
+    expect(resolveAssistantRunEventRenderPlan(messages, pause).hidden).toBe(false);
+    expect(deriveAssistantRunEventRows(messages).renderPlanKeys[pause.id]).toBe('visible:1');
+  });
+
+  it('renders the pause label', () => {
+    renderTimeline(approval('call-1', '2026-06-20T00:00:00.000Z'));
+    expect(screen.getByText('Approval requested')).toBeTruthy();
+  });
+});
+
+describe('interrupted rule (settled owner, no pending pause)', () => {
+  const settled = { reason: 'stop', type: 'complete' } as const;
+  const started = (id: string, toolCallId: string) => ({
+    id,
+    kind: 'tool.started',
+    label: 'Tool started',
+    metadata: { toolCallId },
+    status: 'running',
+    timestamp: '2026-09-07T00:00:00.000Z',
+  });
+  const approval = (id: string, toolCallId: string) => ({
+    id,
+    kind: 'tool.approval.requested',
+    label: 'Awaiting your approval',
+    metadata: { toolCallId, toolName: 'brainstrike.executeCommand' },
+    runId: 'run-a',
+    status: 'running',
+    timestamp: '2026-09-07T00:00:00.000Z',
+  });
+
+  it('resolves an unpaired running row to interrupted when its message has settled', () => {
+    const event = started('s1', 'call-1');
+    const messages = [{ parts: [runEventPart(event)], role: 'assistant', status: settled }];
+    expect(resolveAssistantRunEventStatus(messages, event as never)).toBe('interrupted');
+    expect(deriveAssistantRunEventRows(messages).statuses[event.id]).toBe('interrupted');
+  });
+
+  it('leaves an unpaired running row running while its message is running or requires action', () => {
+    const event = started('s1', 'call-1');
+    for (const status of [{ type: 'running' }, { reason: 'interrupt', type: 'requires-action' }]) {
+      const messages = [{ parts: [runEventPart(event)], role: 'assistant', status }];
+      expect(resolveAssistantRunEventStatus(messages, event as never)).toBe('running');
+      expect(deriveAssistantRunEventRows(messages).statuses[event.id]).toBe('running');
+    }
+  });
+
+  it('never guesses: a message without a status leaves the row running', () => {
+    const event = started('s1', 'call-1');
+    const messages = [{ parts: [runEventPart(event)], role: 'assistant' }];
+    expect(resolveAssistantRunEventStatus(messages, event as never)).toBe('running');
+    expect(deriveAssistantRunEventRows(messages).statuses[event.id]).toBe('running');
+  });
+
+  it('keeps a settled pause row running while a pending pause card for that call exists (rediscovered on reload)', () => {
+    const event = approval('a1', 'call-1');
+    const messages = [
+      { parts: [runEventPart(event)], role: 'assistant', status: settled },
+      {
+        parts: [
+          {
+            data: { runId: 'run-a', toolCallId: 'call-1', toolName: 'brainstrike.executeCommand' },
+            name: 'brainstrike.tool-approval',
+            type: 'data',
+          },
+        ],
+        role: 'assistant',
+        status: settled,
+      },
+    ];
+    expect(resolveAssistantRunEventStatus(messages, event as never)).toBe('running');
+    expect(deriveAssistantRunEventRows(messages).statuses[event.id]).toBe('running');
+  });
+
+  it('resolves an abandoned pause (settled, no card, no terminal) to interrupted', () => {
+    const event = approval('a1', 'call-1');
+    const messages = [{ parts: [runEventPart(event)], role: 'assistant', status: settled }];
+    expect(resolveAssistantRunEventStatus(messages, event as never)).toBe('interrupted');
+    expect(deriveAssistantRunEventRows(messages).statuses[event.id]).toBe('interrupted');
+  });
+
+  it('a pending pause card for ANOTHER call does not keep this pause alive', () => {
+    const event = approval('a1', 'call-1');
+    const messages = [
+      { parts: [runEventPart(event)], role: 'assistant', status: settled },
+      {
+        parts: [
+          {
+            data: { runId: 'run-a', toolCallId: 'call-2', toolName: 'brainstrike.executeCommand' },
+            name: 'brainstrike.tool-approval',
+            type: 'data',
+          },
+        ],
+        role: 'assistant',
+        status: settled,
+      },
+    ];
+    expect(resolveAssistantRunEventStatus(messages, event as never)).toBe('interrupted');
+    expect(deriveAssistantRunEventRows(messages).statuses[event.id]).toBe('interrupted');
+  });
+
+  it('renders an interrupted row static, with the approval wording for a pause', () => {
+    renderTimeline({ ...approval('a1', 'call-1') }, 'interrupted');
+    expect(screen.getByLabelText('Interrupted')).toBeInTheDocument();
+    expect(screen.getByText('Approval was pending')).toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-thinking-indicator')).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(0);
+  });
+
+  it('renders an interrupted non-approval row with its own label, not the approval wording', () => {
+    renderTimeline({ ...started('s1', 'call-1') }, 'interrupted');
+    expect(screen.getByLabelText('Interrupted')).toBeInTheDocument();
+    expect(screen.getByText('Tool started')).toBeInTheDocument();
+    expect(screen.queryByText('Approval was pending')).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(0);
   });
 });

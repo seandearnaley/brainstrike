@@ -1,3 +1,4 @@
+import { parseOpenRouterModelMetadataSnapshot } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import { createOpenRouterModelMetadataService } from '../../assistant-server/openrouter-model-metadata';
 
@@ -40,6 +41,90 @@ describe('OpenRouterModelMetadataService', () => {
         headers: { accept: 'application/json', authorization: 'Bearer secret-key' },
       })
     );
+  });
+
+  it('does not let live metadata widen a catalogued fixed route budget', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            architecture: {
+              input_modalities: ['text', 'image', 'video'],
+              output_modalities: ['text'],
+            },
+            context_length: 2_000_000,
+            id: 'qwen/qwen3.8-flash',
+            reasoning: {
+              default_effort: 'xhigh',
+              default_enabled: true,
+              mandatory: false,
+              supported_efforts: ['xhigh', 'medium', 'low'],
+              supports_max_tokens: true,
+            },
+            supported_parameters: [
+              'tools',
+              'tool_choice',
+              'reasoning',
+              'response_format',
+              'structured_outputs',
+              'max_tokens',
+            ],
+            top_provider: {
+              context_length: 2_000_000,
+              max_completion_tokens: 262_144,
+            },
+          },
+        }),
+        { status: 200 }
+      )
+    );
+    const service = createOpenRouterModelMetadataService({ fetchImpl, now: () => 1000 });
+
+    await expect(service.get('qwen/qwen3.8-flash', 'secret-key')).resolves.toMatchObject({
+      freshness: 'live',
+      metadata: {
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.8-flash',
+        maxOutputTokens: 131_072,
+        reasoning: {
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['xhigh', 'medium', 'low'],
+        },
+        supportedParameters: expect.arrayContaining([
+          'tools',
+          'tool_choice',
+          'response_format',
+          'structured_outputs',
+        ]),
+      },
+    });
+  });
+
+  it('keeps a catalog fallback output ceiling within a narrower live context', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            context_length: 65_536,
+            id: 'qwen/qwen3.8-flash',
+            supported_parameters: ['tools', 'reasoning', 'max_tokens'],
+            top_provider: { context_length: 65_536 },
+          },
+        }),
+        { status: 200 }
+      )
+    );
+    const service = createOpenRouterModelMetadataService({ fetchImpl, now: () => 1000 });
+
+    const snapshot = await service.get('qwen/qwen3.8-flash', 'secret-key');
+
+    expect(snapshot.metadata).toMatchObject({
+      contextWindow: 65_536,
+      maxOutputTokens: 65_536,
+    });
+    expect(() => parseOpenRouterModelMetadataSnapshot(snapshot)).not.toThrow();
   });
 
   it('deduplicates concurrent refreshes', async () => {
@@ -101,6 +186,131 @@ describe('OpenRouterModelMetadataService', () => {
     });
   });
 
+  it('returns stale metadata when body reading stalls past the deadline and ignores abort', async () => {
+    vi.useFakeTimers();
+    let resolveBody: ((value: unknown) => void) | undefined;
+    const stalled = new Response('', { status: 200 });
+    vi.spyOn(stalled, 'json').mockImplementation(
+      () =>
+        new Promise<unknown>((resolve) => {
+          resolveBody = resolve;
+        })
+    );
+    let now = 1000;
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(payload), { status: 200 }))
+      .mockResolvedValueOnce(stalled)
+      .mockResolvedValueOnce(new Response(JSON.stringify(payload), { status: 200 }));
+    const service = createOpenRouterModelMetadataService({
+      fetchImpl,
+      now: () => now,
+      requestTimeoutMs: 5,
+      successTtlMs: 10,
+    });
+    try {
+      await service.get('openai/gpt-5.4-mini', 'secret-key');
+      now = 2000;
+
+      const refresh = service.get('openai/gpt-5.4-mini', 'secret-key');
+      await vi.advanceTimersByTimeAsync(5);
+      await expect(refresh).resolves.toMatchObject({
+        freshness: 'stale-cache',
+        metadata: { checkedAt: 1000 },
+        warning: 'OpenRouter Models API request timed out after 5ms',
+      });
+      expect(fetchImpl.mock.calls[1]?.[1]?.signal?.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+
+      now = 3000;
+      await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).resolves.toMatchObject({
+        freshness: 'live',
+        metadata: { checkedAt: 3000 },
+      });
+      resolveBody?.({ data: { ...payload.data, context_length: 1 } });
+      await Promise.resolve();
+      await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).resolves.toMatchObject({
+        freshness: 'fresh-cache',
+        metadata: { checkedAt: 3000, contextWindow: 400_000 },
+      });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails visibly when the first fetch ignores abort past its deadline', async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementation(() => new Promise<Response>(() => {}));
+    const service = createOpenRouterModelMetadataService({ fetchImpl, requestTimeoutMs: 5 });
+    try {
+      const assertion = expect(service.get('openai/gpt-5.4-mini', 'secret-key')).rejects.toThrow(
+        'OpenRouter Models API request timed out after 5ms'
+      );
+      await vi.advanceTimersByTimeAsync(5);
+      await assertion;
+      expect(fetchImpl.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('observes a body rejection that arrives after timeout', async () => {
+    vi.useFakeTimers();
+    let rejectBody: ((error: Error) => void) | undefined;
+    const response = new Response('', { status: 200 });
+    vi.spyOn(response, 'json').mockImplementation(
+      () =>
+        new Promise<unknown>((_resolve, reject) => {
+          rejectBody = reject;
+        })
+    );
+    const service = createOpenRouterModelMetadataService({
+      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(response),
+      requestTimeoutMs: 5,
+    });
+
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const assertion = expect(service.get('openai/gpt-5.4-mini', 'secret-key')).rejects.toThrow(
+        'OpenRouter Models API request timed out after 5ms'
+      );
+      await vi.advanceTimersByTimeAsync(5);
+      await assertion;
+      rejectBody?.(new Error('late body failure'));
+      await vi.advanceTimersByTimeAsync(1);
+      expect(unhandled).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      process.off('unhandledRejection', unhandled);
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the deadline after successful metadata reading', async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }));
+    const service = createOpenRouterModelMetadataService({ fetchImpl, requestTimeoutMs: 20 });
+
+    try {
+      await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).resolves.toMatchObject({
+        freshness: 'live',
+      });
+      const signal = fetchImpl.mock.calls[0]?.[1]?.signal;
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(20);
+      expect(signal?.aborted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('fails visibly when no validated snapshot exists', async () => {
     const service = createOpenRouterModelMetadataService({
       fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status: 503 })),
@@ -108,6 +318,15 @@ describe('OpenRouterModelMetadataService', () => {
     await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).rejects.toThrow(
       'OpenRouter Models API returned status 503'
     );
+  });
+
+  it('preserves the original request error when no snapshot exists', async () => {
+    const failure = new TypeError('fetch failed');
+    const service = createOpenRouterModelMetadataService({
+      fetchImpl: vi.fn<typeof fetch>().mockRejectedValue(failure),
+    });
+
+    await expect(service.get('openai/gpt-5.4-mini', 'secret-key')).rejects.toBe(failure);
   });
 
   it.each(['', 'gpt-5.4-mini', 'openai/model/extra'])('rejects invalid model id %j', async (id) => {

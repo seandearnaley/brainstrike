@@ -4,6 +4,7 @@
 
 import type { StorageAdapter } from '@brainstrike/storage';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { readGlobalSlot, setGlobalSlot } from './global-slots';
 
 // Mock the logger using vi.hoisted
 const mockLogger = vi.hoisted(() => ({
@@ -72,7 +73,7 @@ const mockLocalStorage = {
 };
 
 // Add localStorage to global
-(global as unknown as { localStorage: typeof mockLocalStorage }).localStorage = mockLocalStorage;
+setGlobalSlot('localStorage', mockLocalStorage);
 
 const mockStorageAdapter: StorageAdapter = {
   async clear(): Promise<void> {
@@ -116,7 +117,7 @@ class MockErrorEvent extends Event {
     return 0;
   }
 }
-(global as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = MockErrorEvent;
+setGlobalSlot('ErrorEvent', MockErrorEvent);
 
 describe('resolveWorkerStorageUrl', () => {
   it('returns the emitted ESM worker artifact URL', async () => {
@@ -162,7 +163,7 @@ describe('WorkerStorage', () => {
     mockLogger.error.mockClear();
 
     // Save original Worker if it exists
-    originalWorker = (global as unknown as { Worker?: typeof Worker }).Worker;
+    originalWorker = readGlobalSlot<typeof Worker>('Worker');
 
     // Create mock worker instance
     mockWorker = new MockWorker();
@@ -313,7 +314,10 @@ describe('WorkerStorage', () => {
 
       expect(result).toEqual(testData);
       expect(mockLocalStorage.getItem).toHaveBeenCalledWith('fallback-key');
-      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
+      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed', {
+        errorName: 'Error',
+        key: 'fallback-key',
+      });
     });
 
     it('should return null when key does not exist', async () => {
@@ -548,7 +552,10 @@ describe('WorkerStorage', () => {
       // Should fall back to localStorage after timeout
       const result = await promise;
       expect(result).toBeNull();
-      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
+      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed', {
+        errorName: 'Error',
+        key: 'test',
+      });
     });
 
     it('should handle missing error message in worker response', async () => {
@@ -567,7 +574,10 @@ describe('WorkerStorage', () => {
       const result = await storage.getItem('test');
 
       expect(result).toBeNull();
-      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
+      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed', {
+        errorName: 'Error',
+        key: 'test',
+      });
     });
   });
 

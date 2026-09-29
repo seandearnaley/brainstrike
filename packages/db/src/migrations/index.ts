@@ -97,6 +97,52 @@ import { migration095AssistantThreadWorkspaces } from './095-assistant-thread-wo
 import { migration096OpenRouterQwen3827B } from './096-openrouter-qwen-3-8-27b.js';
 import { migration097OpenRouterQwen38TwoPointFourT } from './097-openrouter-qwen-3-8-2-4t-a95b.js';
 import { migration098OpenRouterQwen38Max } from './098-openrouter-qwen-3-8-max.js';
+import { migration099OpenRouterNemotron35Lightning } from './099-openrouter-nemotron-3-5-lightning.js';
+import { migration100OpenRouterGrok46 } from './100-openrouter-grok-4-6.js';
+import { migration101AmazonBedrock } from './101-amazon-bedrock.js';
+import { migration102AmazonNova2Lite } from './102-amazon-nova-2-lite.js';
+import { migration103OpenAiCodex } from './103-openai-codex.js';
+import { migration104GoogleGemini37Flash } from './104-google-gemini-3-7-flash.js';
+import { migration105EmbeddingJobInputHash } from './105-embedding-job-input-hash.js';
+import { migration106OpenRouterMuseSpark12 } from './106-openrouter-muse-spark-1-2.js';
+import { migration107OpenRouterOxAlpha } from './107-openrouter-ox-alpha.js';
+import { migration108OpenRouterGlm53 } from './108-openrouter-glm-5-3.js';
+import { migration109Worktrees } from './109-worktrees.js';
+import { migration110ForgePrCache } from './110-forge-pr-cache.js';
+import { migration111RootsWorktreeKind } from './111-roots-worktree-kind.js';
+import { migration112WorktreeSetupReason } from './112-worktree-setup-reason.js';
+import { migration113OpenRouterQwen38Flash } from './113-openrouter-qwen-3-8-flash.js';
+import { migration114McpTasks } from './114-mcp-tasks.js';
+import { migration115McpTaskAuthority } from './115-mcp-task-authority.js';
+import { migration116AnthropicClaudeOpus5 } from './116-anthropic-claude-opus-5.js';
+import { migration117MastraMemorySchema } from './117-mastra-memory-schema.js';
+import { migration118AssistantThreadRuns } from './118-assistant-thread-runs.js';
+import { migration119OpenrouterCatalogModels } from './119-openrouter-catalog-models.js';
+import { migration120OpenrouterCatalogModels } from './120-openrouter-catalog-models.js';
+import { migration121RetireDelistedOpenRouterModels } from './121-retire-delisted-openrouter-models.js';
+import { migration122AnthropicBedrockCatalogModels } from './122-anthropic-bedrock-catalog-models.js';
+import { migration123OpenaiGpt6Astra } from './123-openai-gpt-6-astra.js';
+import { migration124GoogleCatalogModels } from './124-google-catalog-models.js';
+import { migration125BedrockAnthropicClaudeOpus5 } from './125-bedrock-anthropic-claude-opus-5.js';
+import { migration126DelegatedConversations } from './126-delegated-conversations.js';
+import { migration127DelegatedInvocations } from './127-delegated-invocations.js';
+import { migration128DelegatedInvocationUsage } from './128-delegated-invocation-usage.js';
+import { migration129ArtifactExecutionScope } from './129-artifact-execution-scope.js';
+import { migration130OpenrouterDeepseekDeepseekV41Flash } from './130-openrouter-deepseek-deepseek-v4-1-flash.js';
+import { migration131DelegatedToolDecisions } from './131-delegated-tool-decisions.js';
+import { migration132DelegationBudgets } from './132-delegation-budgets.js';
+import { migration133MastraBackgroundTasks } from './133-mastra-background-tasks.js';
+import { migration134DelegatedCancellationAdmission } from './134-delegated-cancellation-admission.js';
+import { migration135DelegatedContinuations } from './135-delegated-continuations.js';
+import { migration136DelegatedInputPayload } from './136-delegated-input-payload.js';
+import { migration137ChildExecutionConfiguration } from './137-child-execution-configuration.js';
+import { migration138IndependentChildContinuationPauses } from './138-independent-child-continuation-pauses.js';
+import { migration139SwarmDiagnostics } from './139-swarm-diagnostics.js';
+import { migration140AssistantNativeRuns } from './140-assistant-native-runs.js';
+import { migration141OpenrouterInclusionaiLing30Flash } from './141-openrouter-inclusionai-ling-3-0-flash.js';
+import { migration142OpenaiAnthropicOpenrouterBedrockCatalogModels } from './142-openai-anthropic-openrouter-bedrock-catalog-models.js';
+import { migration143AgentIdentityPalettes } from './143-agent-identity-palettes.js';
+import { migration144AgentFamilyColors } from './144-agent-family-colors.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -200,6 +246,52 @@ export const migrations: Migration[] = [
   migration096OpenRouterQwen3827B,
   migration097OpenRouterQwen38TwoPointFourT,
   migration098OpenRouterQwen38Max,
+  migration099OpenRouterNemotron35Lightning,
+  migration100OpenRouterGrok46,
+  migration101AmazonBedrock,
+  migration102AmazonNova2Lite,
+  migration103OpenAiCodex,
+  migration104GoogleGemini37Flash,
+  migration105EmbeddingJobInputHash,
+  migration106OpenRouterMuseSpark12,
+  migration107OpenRouterOxAlpha,
+  migration108OpenRouterGlm53,
+  migration109Worktrees,
+  migration110ForgePrCache,
+  migration111RootsWorktreeKind,
+  migration112WorktreeSetupReason,
+  migration113OpenRouterQwen38Flash,
+  migration114McpTasks,
+  migration115McpTaskAuthority,
+  migration116AnthropicClaudeOpus5,
+  migration117MastraMemorySchema,
+  migration118AssistantThreadRuns,
+  migration119OpenrouterCatalogModels,
+  migration120OpenrouterCatalogModels,
+  migration121RetireDelistedOpenRouterModels,
+  migration122AnthropicBedrockCatalogModels,
+  migration123OpenaiGpt6Astra,
+  migration124GoogleCatalogModels,
+  migration125BedrockAnthropicClaudeOpus5,
+  migration126DelegatedConversations,
+  migration127DelegatedInvocations,
+  migration128DelegatedInvocationUsage,
+  migration129ArtifactExecutionScope,
+  migration130OpenrouterDeepseekDeepseekV41Flash,
+  migration131DelegatedToolDecisions,
+  migration132DelegationBudgets,
+  migration133MastraBackgroundTasks,
+  migration134DelegatedCancellationAdmission,
+  migration135DelegatedContinuations,
+  migration136DelegatedInputPayload,
+  migration137ChildExecutionConfiguration,
+  migration138IndependentChildContinuationPauses,
+  migration139SwarmDiagnostics,
+  migration140AssistantNativeRuns,
+  migration141OpenrouterInclusionaiLing30Flash,
+  migration142OpenaiAnthropicOpenrouterBedrockCatalogModels,
+  migration143AgentIdentityPalettes,
+  migration144AgentFamilyColors,
 ];
 
 // Export base migrations (without chunks table) for test environments

@@ -7,20 +7,18 @@ import type { AssistantRejectionPayload } from '@brainstrike/assistant-wire';
 import {
   resolveAssistantProviderConfig,
   resolveAssistantProviderConfigs,
-} from './assistant-config';
+} from './assistant-config.js';
 import {
   describeWebAssistantInputError,
   WEB_ASSISTANT_STREAM_INITIALIZATION_FAILURE,
-} from './web-assistant-request';
+} from './web-assistant-request.js';
 import {
   filterWebAssistantPayload,
   InvalidWebAssistantRuntimeDataError,
-} from './web-assistant-runtime';
-import { buildWebAssistantStreamFromPrepared } from './web-assistant-stream';
+} from './web-assistant-runtime.js';
+import { buildWebAssistantStreamFromPrepared } from './web-assistant-stream.js';
 
-// This file participates in the Vercel API's Node16/CommonJS compilation.
-// TS1541 requires the import-resolution attribute even though the type is
-// erased; removing it makes `type-check:api` fail before emit.
+// Match the native ESM logging export used by the hosted API.
 type ScopedLogger = import('@brainstrike/logging', { with: {
   'resolution-mode': 'import',
 }}).ScopedLogger;
@@ -88,8 +86,13 @@ export async function runWebAssistantPost(params: {
       filterPayload: (payload) => filterWebAssistantPayload(payload, hostedProviders),
       logger: params.logger,
       readBody: async () => params.bodyText,
-      resolveProviderApiKey: async (provider) =>
-        configuredProviders.find((config) => config.provider === provider)?.apiKey,
+      // BST-1352: Hosted Web adapts via `api_key` credentials ONLY — server
+      // env keys are the sole web credential source (no typed-credential
+      // resolution, no secret store on web).
+      resolveProviderCredential: async (provider) => {
+        const apiKey = configuredProviders.find((config) => config.provider === provider)?.apiKey;
+        return apiKey === undefined ? undefined : { key: apiKey, source: 'env', type: 'api_key' };
+      },
     });
   } catch (error) {
     // Preparation tags EVERY hook throw as AssistantFilterPayloadError and
@@ -137,7 +140,7 @@ export async function runWebAssistantPost(params: {
   try {
     const stream = await buildWebAssistantStreamFromPrepared({
       agentMessages: prepared.request.messages,
-      apiKey: prepared.request.apiKey,
+      credential: prepared.request.credential,
       runtimeData: prepared.request.runtimeData,
       ...(params.signal ? { signal: params.signal } : {}),
     });

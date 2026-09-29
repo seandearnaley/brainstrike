@@ -1,7 +1,6 @@
 import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import {
   type PanelTab,
-  selectVisibleSurface,
   usePanelLayoutStore,
 } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
@@ -10,8 +9,9 @@ import {
   ChangesReviewProvider,
   type RewindContextValue,
   RewindProvider,
+  ToolApprovalGrantProvider,
 } from '@brainstrike/assistant-ui';
-import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
+import { usePGliteDatabase } from '@brainstrike/db/react';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
 import {
   RootDataDeletionProvider,
@@ -20,16 +20,13 @@ import {
   WorkspaceBody,
   WorkspaceOpenFileBridge,
   WorkspaceTabStrip,
-  WorkspaceTabsProvider,
 } from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import type { QueueAdapter } from '@brainstrike/queue';
+import { McpElicitationHost } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-host';
 import {
   ActionRegistryProvider,
-  Dialog,
-  DialogContent,
-  DialogTitle,
   IdeLayout,
   PanelLayoutProvider,
   type PanelLayoutState,
@@ -66,16 +63,23 @@ import { CommandPaletteHost } from './command-palette-host';
 import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
+import { DelegatedWorkspaceTabsProvider } from './delegated-workspace-apps';
+import { deleteRootDataFromDb } from './delete-root-data';
 import {
   type RendererDiagnosticSurface,
   rendererLongTaskTelemetry,
 } from './diagnostics/renderer-long-task-telemetry';
 import { ExplorerSearchTabs } from './explorer-search-tabs';
+import { McpPromptComposerHost } from './mcp-prompts/mcp-prompt-host';
 import { QuickOpenHost } from './quick-open-host';
+import { TabChordHost } from './tab-chords/tab-chord-host';
+import { WorkspaceTabChords } from './tab-chords/workspace-tab-chords';
 import { ThreadWorkspaceCoordinator } from './thread-workspace/thread-workspace-coordinator';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
+import { useToolApprovalGrantHandlers } from './use-tool-approval-grant-handlers';
+import { WorkspaceConnectHost } from './workspace-connect/workspace-connect-host';
 // Side-effect: register session-only stores with the factory-reset pipeline.
 import './register-factory-reset-session-stores';
 
@@ -84,43 +88,6 @@ interface DebouncedPanelLayoutState {
   readonly showLeftPanel: boolean;
   readonly showRightPanel: boolean;
   readonly sizes: [number, number, number];
-}
-
-/**
- * Reads the affected-row count from a DML query result across driver shapes:
- * PGlite populates `affectedRows`; node-pg-style bridges use `rowCount`.
- * Returns `null` when neither is present so callers can distinguish
- * "positively zero rows" from "the driver did not report a count" and avoid a
- * false abort on a bridge that strips the field.
- */
-function readAffectedRows(result: unknown): number | null {
-  const shaped = result as { affectedRows?: unknown; rowCount?: unknown };
-  if (typeof shaped.affectedRows === 'number') {
-    return shaped.affectedRows;
-  }
-  if (typeof shaped.rowCount === 'number') {
-    return shaped.rowCount;
-  }
-  return null;
-}
-
-/**
- * Deletes a root's `roots` row (cascading file_records + chunks via migration
- * 039's ON DELETE CASCADE). `roots.id` is a uuidv7, but the disconnect flow
- * passes a path as the id for legacy/unregistered roots (the sidebar falls
- * back to `handle.path` when `rootIdByPath` has no entry), so the row must be
- * matched by `id` OR `path` — `path` is uniquely indexed. A delete that
- * positively affects zero rows THROWS: the seam's contract is "never a silent
- * no-op", so an unconfirmed delete must abort the disconnect rather than let
- * the user believe data was removed while UUID-keyed rows survive.
- */
-export async function deleteRootDataFromDb(db: DbHandle, rootIdOrPath: string): Promise<void> {
-  const result = await db.query('DELETE FROM roots WHERE id = $1 OR path = $1', [rootIdOrPath]);
-  if (readAffectedRows(result) === 0) {
-    throw new Error(
-      `Root data deletion matched no rows for "${rootIdOrPath}" — refusing to report a silent success.`
-    );
-  }
 }
 
 function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
@@ -221,6 +188,13 @@ export interface RootLayoutContentProps {
    * launcher card, or "+"-menu entry renders at all.
    */
   readonly terminalPageContent?: ReactNode;
+  /**
+   * Optional Worktree Map surface (desktop-only). Supplied by the desktop
+   * wrapper when the `window.worktrees` bridge is present; web never constructs
+   * it. Registered as a closable singleton workspace app tab (BST-1392); when
+   * absent, no Worktrees tab, launcher card, or "+"-menu entry renders at all.
+   */
+  readonly worktreeMapPageContent?: ReactNode;
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
@@ -238,12 +212,36 @@ function resolveActiveTabForPath(path: string): PanelTab {
   return NAV_PATH_TO_TAB[path] ?? 'explorer';
 }
 
+const SETTINGS_NAV_PATH = '/settings';
+
 /**
- * A capability-gated route (git/changes/terminal/notes) that, once first
- * opened, STAYS mounted and only toggles hidden — so its watchers/scan
- * state/scroll position survive later tab switches. `content` is `undefined`
- * when the app wrapper never constructed the surface at all (capability
- * absent); this renders nothing in that case, same as an unopened tab.
+ * Nav-rail order: every route the wrappers contribute, then Settings last.
+ * The wrappers append their capability-gated routes (notes/git/browser) AFTER
+ * the shared `navigationItems` list, which places Settings second; the shell
+ * owns the rail, so it owns the rule that Settings closes the list.
+ *
+ * The settings route is always mounted, so a list without the `/settings`
+ * item would silently strip the rail affordance while the route stayed
+ * reachable through the profile menu / ⌘K. Throw instead.
+ */
+function orderNavigationItems(items: readonly NavigationItem[]): NavigationItem[] {
+  const settings = items.filter((item) => item.path === SETTINGS_NAV_PATH);
+  if (settings.length === 0) {
+    throw new Error(
+      `RootLayoutContent: navigationItems has no '${SETTINGS_NAV_PATH}' item — the Settings route always mounts and needs its nav-rail entry (see @brainstrike/app-shell/navigation).`
+    );
+  }
+  const routes = items.filter((item) => item.path !== SETTINGS_NAV_PATH);
+  return [...routes, ...settings];
+}
+
+/**
+ * A shell route (git/notes/browser/settings) that, once first opened, STAYS
+ * mounted and only toggles hidden — so its watchers/scan state/scroll
+ * position/in-progress edits survive later tab switches. `content` is
+ * `undefined` when the app wrapper never constructed the surface at all
+ * (capability absent); this renders nothing in that case, same as an
+ * unopened tab.
  * Extracted out of `RootLayoutContent`'s own JSX (rather than four inline
  * ternaries) to keep that already-large component's cognitive complexity
  * under the lint budget.
@@ -469,6 +467,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   loadLocalLlmBackend,
   preloadDatabaseTabOnMount,
   terminalPageContent,
+  worktreeMapPageContent,
   visible,
 }: {
   readonly canvasPanelContent?: ReactNode;
@@ -479,6 +478,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly preloadDatabaseTabOnMount: boolean;
   readonly terminalPageContent?: ReactNode;
+  readonly worktreeMapPageContent?: ReactNode;
   readonly visible: boolean;
 }): ReactElement {
   // Platform-injected markdown preview capabilities (external links, image src
@@ -490,6 +490,8 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   // The workspace app registry (BST-1258; Terminal joined as a workspace app
   // in BST-1270, replacing its nav route). Construction is the pure
   // buildWorkspaceApps helper — capability gating by omission.
+  const toolApprovalGrants = useToolApprovalGrantHandlers();
+  const workspaceStripRootRef = useRef<HTMLDivElement>(null);
   const workspaceApps = useMemo<readonly WorkspaceApp[]>(
     () =>
       buildWorkspaceApps({
@@ -503,6 +505,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           />
         ),
         ...(terminalPageContent ? { terminalPageContent } : {}),
+        ...(worktreeMapPageContent ? { worktreeMapPageContent } : {}),
       }),
     [
       contextExplorerPageContent,
@@ -511,6 +514,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
       changesPageContent,
       canvasPanelContent,
       terminalPageContent,
+      worktreeMapPageContent,
     ]
   );
 
@@ -522,53 +526,66 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           context from a common ancestor. */}
       <FileTreeWrapper>
         <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
-          <WorkspaceTabsProvider apps={workspaceApps}>
+          <DelegatedWorkspaceTabsProvider apps={workspaceApps}>
             {/* Thread⇄workspace binding (BST-1268): snapshots the live stores
                 per thread and hydrates on switch. Inside FileTreeWrapper so it
                 reaches the file-explorer store; renders nothing. */}
             <ThreadWorkspaceCoordinator />
-            <AgentWorkspaceLayout
-              assistantContent={
-                <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
-              }
-              sidebarContent={
-                <AgentSidebarPanel
-                  databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-                  preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                  promptsContent={(isActive) => (
-                    <Suspense
-                      fallback={
-                        <div
-                          className="grid h-full place-items-center text-muted-foreground text-xs"
-                          data-testid="prompt-workbench-lazy-fallback"
-                          role="status"
-                        >
-                          Opening Prompt Workbench…
-                        </div>
-                      }
-                    >
-                      <ConnectedPromptManagerLazy
-                        loadEmbeddingQueue={loadEmbeddingQueue}
-                        suggestionsEnabled={visible && isActive}
-                      />
-                    </Suspense>
-                  )}
-                  threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-                />
-              }
-              workspaceContent={
-                <>
-                  {/* ⌘P quick-open + the open-file registration both mount INSIDE
+            {/* Registers the workspace strip with the tab chord router (BST-1842). */}
+            <WorkspaceTabChords focusRootRef={workspaceStripRootRef} />
+            {/* Grants are offered wherever an approval card can render: the root
+                chat panel AND the child conversation views under the workspace
+                (a child card without "Allow reads this session" forces a click
+                per read; BST-1723, 2026-09-14). */}
+            <ToolApprovalGrantProvider handlers={toolApprovalGrants}>
+              <AgentWorkspaceLayout
+                assistantContent={
+                  <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
+                }
+                sidebarContent={
+                  <AgentSidebarPanel
+                    databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                    preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                    promptsContent={(isActive) => (
+                      <Suspense
+                        fallback={
+                          <div
+                            className="grid h-full place-items-center text-muted-foreground text-xs"
+                            data-testid="prompt-workbench-lazy-fallback"
+                            role="status"
+                          >
+                            Opening Prompt Workbench…
+                          </div>
+                        }
+                      >
+                        <ConnectedPromptManagerLazy
+                          loadEmbeddingQueue={loadEmbeddingQueue}
+                          suggestionsEnabled={visible && isActive}
+                        />
+                      </Suspense>
+                    )}
+                    threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                  />
+                }
+                workspaceContent={
+                  <>
+                    {/* ⌘P quick-open + the open-file registration both mount INSIDE
                       the outer IdeLayout so they reach its IdeFileEditorContext;
                       the nested explorer layout inherits the same seam. */}
-                  <QuickOpenHost />
-                  <WorkspaceOpenFileBridge />
-                  <WorkspaceBody />
-                </>
-              }
-              workspaceHeaderContent={<WorkspaceTabStrip />}
-            />
-          </WorkspaceTabsProvider>
+                    <QuickOpenHost />
+                    <WorkspaceOpenFileBridge />
+                    <WorkspaceBody />
+                  </>
+                }
+                workspaceHeaderContent={
+                  // Layout-neutral (`contents`): the root chords restore focus into.
+                  <div className="contents" ref={workspaceStripRootRef}>
+                    <WorkspaceTabStrip />
+                  </div>
+                }
+              />
+            </ToolApprovalGrantProvider>
+          </DelegatedWorkspaceTabsProvider>
         </MarkdownPreviewCapabilitiesProvider>
       </FileTreeWrapper>
     </div>
@@ -585,6 +602,7 @@ export function RootLayoutContent({
   gitPageContent,
   notesPageContent,
   terminalPageContent,
+  worktreeMapPageContent,
   navigationItems,
   loadEmbeddingQueue = null,
   loadLocalLlmBackend,
@@ -592,19 +610,13 @@ export function RootLayoutContent({
   databaseTabChunkingMode = 'local',
   preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
-  const activeTab = usePanelLayoutStore((state) => state.activeTab);
+  const shellTab = usePanelLayoutStore((state) => state.activeTab);
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
-  const settingsOpen = usePanelLayoutStore((state) => state.settingsOpen);
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
-  const setSettingsOpen = usePanelLayoutStore((state) => state.setSettingsOpen);
   const setState = usePanelLayoutStore((state) => state.setState);
-  const shellTab = activeTab === 'settings' ? 'explorer' : activeTab;
   const [mountedTabs, setMountedTabs] = useState<ReadonlySet<PanelTab>>(() => new Set([shellTab]));
   const appConfig = useMemo(
-    () =>
-      createAppConfig({
-        navigationItems: navigationItems.filter((item) => item.path !== '/settings'),
-      }),
+    () => createAppConfig({ navigationItems: orderNavigationItems(navigationItems) }),
     [navigationItems]
   );
   // useMemo with [] is correct: the preload bridge exists before React mounts,
@@ -616,15 +628,12 @@ export function RootLayoutContent({
   // footer link (packages/ui, gated on this same context) renders null without it.
   const changesReviewValue = useChangesReviewValue(changesPageContent, setActiveTab);
   const rewindValue = useRewindValue(changesPageContent);
-  // BST-1281: the settings-overlay precedence rule has exactly one definition,
-  // in the panel-layout store, so this shell and `useDocumentTitle` cannot drift
-  // apart — the tab chrome, the telemetry route and the document title are all
-  // derived from the same value.
-  const visibleSurface = selectVisibleSurface({ activeTab, settingsOpen });
-  const settingsVisible = visibleSurface === 'settings';
+  // Settings is a shell route like every other tab (BST-1668), so the tab
+  // chrome, the telemetry route and `useDocumentTitle` all derive from the
+  // one `activeTab` value and cannot drift apart.
   // Assignment (not a cast) so `PanelTab ⊆ RendererDiagnosticSurface` stays a
   // compile-time check as either union gains members.
-  const diagnosticSurface: RendererDiagnosticSurface = visibleSurface;
+  const diagnosticSurface: RendererDiagnosticSurface = shellTab;
   const longTaskContext = useMemo(
     () => ({ enabledFeatureFlags: diagnosticFeatureFlags ?? null, route: diagnosticSurface }),
     [diagnosticFeatureFlags, diagnosticSurface]
@@ -649,25 +658,9 @@ export function RootLayoutContent({
     });
   }, [shellTab]);
 
-  const handleSettingsOpenChange = useCallback(
-    (open: boolean) => {
-      setSettingsOpen(open);
-      if (!open && activeTab === 'settings') {
-        setActiveTab('explorer');
-      }
-    },
-    [activeTab, setActiveTab, setSettingsOpen]
-  );
-
   const handleNavigationClick = useCallback(
-    (path: string) => {
-      if (path === '/settings') {
-        openSettings();
-        return;
-      }
-      setActiveTab(resolveActiveTabForPath(path));
-    },
-    [openSettings, setActiveTab]
+    (path: string) => setActiveTab(resolveActiveTabForPath(path)),
+    [setActiveTab]
   );
   const panelState = usePanelLayoutStore(
     (state) => ({
@@ -702,7 +695,7 @@ export function RootLayoutContent({
       <ChangesReviewProvider value={changesReviewValue}>
         {/* Binds the assistant panel's "Restore to before this message"
             affordance (BST-1115). The modal it raises is mounted below, as a
-            lexical SIBLING of the Settings dialog rather than inside any
+            lexical SIBLING of every shell route rather than inside any
             surface, because both entry points (assistant panel, Changes
             header) must land in the same one. */}
         <RewindProvider value={rewindValue}>
@@ -711,6 +704,9 @@ export function RootLayoutContent({
             visible renderer mounts RootLayoutContent, so hidden hosts never
             instantiate it (structural gating — no role check needed here). */}
             <CommandPaletteHost />
+            {/* Tab chords (BST-1842): the same structural gating as the palette. */}
+            <TabChordHost />
+            <WorkspaceConnectHost />
             <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
               <EmbeddingRuntimeProvider>
                 {/* One shared embedder cache for every semantic-search surface. The
@@ -739,19 +735,19 @@ export function RootLayoutContent({
                         preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
                         terminalPageContent={terminalPageContent}
                         visible={shellTab === 'explorer'}
+                        worktreeMapPageContent={worktreeMapPageContent}
                       />
                     </PanelLayoutProvider>
                   </div>
-                  <Dialog onOpenChange={handleSettingsOpenChange} open={settingsVisible}>
-                    <DialogContent
-                      aria-describedby={undefined}
-                      className="h-[min(780px,calc(100vh-3rem))] max-h-[calc(100vh-3rem)] w-[min(1180px,calc(100vw-3rem))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/70 bg-background p-0 shadow-[0_32px_96px_-24px_rgba(0,0,0,0.55)] sm:max-w-none"
-                      overlayClassName="bg-background/55 backdrop-blur-md"
-                    >
-                      <DialogTitle className="sr-only">Settings</DialogTitle>
-                      {settingsPageContent}
-                    </DialogContent>
-                  </Dialog>
+                  {/* MCP elicitation consent is app-wide (BST-1584): desktop main
+                    pushes server input requests here regardless of route, and the
+                    host renders nothing when the preload bridge is absent. */}
+                  <McpElicitationHost />
+                  {/* Composer MCP prompt selection is app-wide (BST-1592): the
+                    "/" menu's execute hands the selection here from wherever the
+                    composer is mounted, and the host renders nothing when the
+                    preload bridge is absent. */}
+                  <McpPromptComposerHost />
                   {/* Each keeps its content mounted-but-hidden once first opened — see
                     KeepMountedRoute's own doc comment for why. */}
                   <KeepMountedRoute
@@ -774,6 +770,15 @@ export function RootLayoutContent({
                     mountedTabs={mountedTabs}
                     shellTab={shellTab}
                     tab="browser"
+                  />
+                  {/* Settings is a full shell tab (BST-1668): same keep-mounted
+                    contract as the routes above, so in-progress edits survive
+                    a trip to another tab. */}
+                  <KeepMountedRoute
+                    content={settingsPageContent}
+                    mountedTabs={mountedTabs}
+                    shellTab={shellTab}
+                    tab="settings"
                   />
                 </SearchEmbedderProvider>
               </EmbeddingRuntimeProvider>

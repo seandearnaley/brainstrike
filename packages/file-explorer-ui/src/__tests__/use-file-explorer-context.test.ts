@@ -1,6 +1,6 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import type { StorageAdapter } from '@brainstrike/storage';
-import { createFileNode } from '@brainstrike/test-utils';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -77,9 +77,13 @@ describe('useFileExplorer (context)', () => {
   ): ReturnType<typeof useFileSystem> {
     return {
       addRootDirectory: vi.fn().mockResolvedValue(null),
+      // Web-shaped adapter: the desktop-only capabilities are absent, not stubbed.
+      addRootDirectoryByPath: undefined,
       clearRootDirectory: vi.fn(),
       isAccessLoading: false,
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ reason: '', supported: true }),
+      listRecentRoots: undefined,
+      recentRootsRevision: 0,
       registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
       removeRootDirectory: vi.fn().mockResolvedValue(undefined),
       rootDirectoryHandle: rootHandle,
@@ -133,6 +137,7 @@ describe('useFileExplorer (context)', () => {
       clearQuickFilter: vi.fn(),
       clearSelectedFiles: vi.fn(),
       collapseAllDirectories: vi.fn(),
+      consumePersistenceRecoveryNotice: vi.fn(),
       currentFolderId: null,
       devInlineFixtureEnabled: false,
       disabledExcludeFilters: new Set<string>(),
@@ -161,11 +166,15 @@ describe('useFileExplorer (context)', () => {
       isFiltersExpanded: true,
       lastActiveTab: 'files',
       maxSelectionCount: 10,
+      persistenceRecoveryNotice: null,
       querySelectionManifest: null,
       quickFilter: '',
+      reconcileSelectionWithDirectorySnapshot: vi.fn(),
+      reconcileSelectionWithDirectorySnapshots: vi.fn(),
       removeActiveRoot: vi.fn(),
       removeMultipleSelectedFiles: vi.fn(),
       removeSelectedFile: vi.fn(),
+      reportPersistedStateDiscard: vi.fn(),
       resetSelectionToExplicit: vi.fn(),
       rootDescriptors: {},
       selectedFilePaths: new Set<string>(),
@@ -264,10 +273,12 @@ describe('useFileExplorer (context)', () => {
     vi.mocked(useSharedFileContentLoading).mockReturnValue({
       canLoadWithoutTree: false,
       error: null,
+      fileContentErrors: new Map(),
       fileContents: { '/file1.ts': 'content' },
       handleFileContentLoading: mockHandleFileContentLoading,
       isLoading: false,
       loadingFiles: new Set<string>(),
+      reloadFileContents: vi.fn(),
     });
 
     const coreReturn = {
@@ -299,11 +310,11 @@ describe('useFileExplorer (context)', () => {
 
     act(() => {
       result.current.handleRootDirectorySelect();
-      result.current.loadFileContent('/file1.ts');
+      result.current.loadFileContent('/file1.ts', 'interactive');
     });
 
     expect(mockSelectRootDirectory).toHaveBeenCalled();
-    expect(mockHandleFileContentLoading).toHaveBeenCalledWith(['/file1.ts']);
+    expect(mockHandleFileContentLoading).toHaveBeenCalledWith(['/file1.ts'], 'interactive');
   });
 
   it('applyFileFilters updates store filters and returns freshly filtered fileTree', () => {
@@ -355,14 +366,16 @@ describe('useFileExplorer (context)', () => {
     const { result } = renderHook(() => useFileExplorer());
 
     await act(async () => {
-      await result.current.loadMultipleFileContents(['/file1.ts', '/file2.js', '/file3.tsx']);
+      await result.current.loadMultipleFileContents(
+        ['/file1.ts', '/file2.js', '/file3.tsx'],
+        'background'
+      );
     });
 
-    expect(mockHandleFileContentLoading).toHaveBeenCalledWith([
-      '/file1.ts',
-      '/file2.js',
-      '/file3.tsx',
-    ]);
+    expect(mockHandleFileContentLoading).toHaveBeenCalledWith(
+      ['/file1.ts', '/file2.js', '/file3.tsx'],
+      'background'
+    );
   });
 
   describe('stale state clearing behavior', () => {

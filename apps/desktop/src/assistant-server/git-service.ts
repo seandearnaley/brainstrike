@@ -30,8 +30,10 @@ import type {
   GitAheadBehind,
   GitBranchSummary,
   GitCommitResult,
+  GitCreateBranchResult,
   GitDiff,
   GitDiffParams,
+  GitForgeRepositoryContext,
   GitPushPullResult,
   GitRepository,
   GitResult,
@@ -40,6 +42,7 @@ import type {
   GitSwitchBranchResult,
   GitWorktreeSummary,
 } from '@brainstrike/types';
+import { resolveForgeRemoteName } from '@brainstrike/types';
 import { createHistoryOps } from './git-history';
 import { parseBranchSummaries, parseWorktreeSummaries } from './git-repository-parsers';
 import { createStructuredDiffOps, STRUCTURED_DIFF_CONTENT_CAP_BYTES } from './git-structured-diff';
@@ -49,8 +52,10 @@ export type {
   GitBranchSummary,
   GitCommitFile,
   GitCommitResult,
+  GitCreateBranchResult,
   GitDiff,
   GitDiffParams,
+  GitForgeRepositoryContext,
   GitHistoryCommit,
   GitHistoryPage,
   GitPushPullResult,
@@ -145,6 +150,16 @@ export type GitCommandRunner = (params: {
    */
   readonly binaryStdout?: boolean | undefined;
   readonly cwd: string;
+  /**
+   * Extra environment variables merged OVER the runner's pinned base
+   * environment (never replacing it wholesale) — e.g. a private
+   * `GIT_INDEX_FILE` for an isolated staging operation. After that merge, the
+   * runner MUST re-apply `GIT_TERMINAL_PROMPT=0`, `GIT_LITERAL_PATHSPECS=1`,
+   * and `LC_ALL=C`; those safety-pinned keys are never caller-overridable.
+   * Optional; most callers omit it and get the runner's ordinary pinned
+   * environment.
+   */
+  readonly env?: Readonly<Record<string, string>> | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly timeoutMs: number;
 }) => Promise<GitCommandRun>;
@@ -936,6 +951,95 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     return { ok: true, value: configured };
   }
 
+  /**
+   * The three facts a forge lookup needs, in one pass: the realpath'd common
+   * dir (repository identity), the checked-out branch (null when detached),
+   * and the default remote's URL.
+   *
+   * `remoteReason` is non-null exactly when `remoteUrl` is null, so the caller
+   * can SAY why there is no PR chip instead of showing nothing.
+   */
+  async function forgeRepositoryContext(): Promise<GitResult<GitForgeRepositoryContext>> {
+    const commonDirRun = await invoke(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    if (commonDirRun.exitCode !== 0) {
+      return { error: describeFailure(commonDirRun), ok: false };
+    }
+    const rawCommonDir = stripLineEnding(commonDirRun.stdout);
+    if (rawCommonDir.length === 0) {
+      return { error: 'git returned an empty git common dir', ok: false };
+    }
+    // Neither await depends on the other's result — realpath resolves the
+    // already-known rawCommonDir, and the symbolic-ref spawn reads HEAD —
+    // so they run concurrently instead of back-to-back.
+    const [commonDir, headRun] = await Promise.all([
+      realpath(rawCommonDir),
+      invoke(['symbolic-ref', '--quiet', '--short', 'HEAD']),
+    ]);
+    if (headRun.exitCode !== 0 && headRun.exitCode !== 1) {
+      return { error: describeFailure(headRun), ok: false };
+    }
+    const branch = headRun.exitCode === 0 ? stripLineEnding(headRun.stdout) || null : null;
+    const remotes = await listRemoteNames();
+    if (!remotes.ok) {
+      return remotes;
+    }
+    const configured = await resolveDefaultRemote(branch, remotes.value);
+    if (!configured.ok) {
+      return {
+        ok: true,
+        value: { branch, commonDir, remoteReason: configured.error, remoteUrl: null },
+      };
+    }
+    const remoteName = resolveForgeRemoteName({
+      configuredRemote: configured.value,
+      remotes: remotes.value,
+    });
+    if (!remoteName.ok) {
+      return {
+        ok: true,
+        value: { branch, commonDir, remoteReason: remoteName.reason, remoteUrl: null },
+      };
+    }
+    const urlRun = await invoke(['remote', 'get-url', remoteName.value]);
+    if (urlRun.exitCode !== 0) {
+      return {
+        ok: true,
+        value: {
+          branch,
+          commonDir,
+          remoteReason: `git could not read the URL of remote "${remoteName.value}": ${describeFailure(urlRun)}`,
+          remoteUrl: null,
+        },
+      };
+    }
+    const remoteUrl = stripLineEnding(urlRun.stdout);
+    if (remoteUrl.length === 0) {
+      // `remoteReason` is non-null exactly when `remoteUrl` is null (see the
+      // doc comment above): a successful exit with empty stdout must still
+      // be treated as a stated failure, not silently paired with
+      // `remoteUrl: ''` — that pairing would violate the invariant and send
+      // an empty string into `parseForgeRemote` as `unparsable-remote`.
+      return {
+        ok: true,
+        value: {
+          branch,
+          commonDir,
+          remoteReason: `git returned an empty URL for remote "${remoteName.value}"`,
+          remoteUrl: null,
+        },
+      };
+    }
+    return {
+      ok: true,
+      value: {
+        branch,
+        commonDir,
+        remoteReason: null,
+        remoteUrl,
+      },
+    };
+  }
+
   async function createRepositorySnapshot(): Promise<GitResult<GitRepository>> {
     const inventory = await loadRepositoryInventory();
     if (!inventory.ok) {
@@ -1046,6 +1150,52 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
      */
     commitFiles: historyOps.commitFiles,
 
+    /** Create a new local branch at `startPoint` and check it out in this worktree. */
+    createBranch: async (params: {
+      branch: string;
+      startPoint?: string;
+    }): Promise<GitResult<GitCreateBranchResult>> => {
+      try {
+        if (typeof params.branch !== 'string' || params.branch.length === 0) {
+          return { error: 'branch must be a non-empty string', ok: false };
+        }
+        if (params.branch === '-') {
+          return { error: 'local branch "-" is not supported', ok: false };
+        }
+        const startPoint = params.startPoint;
+        if (
+          startPoint !== undefined &&
+          (typeof startPoint !== 'string' || startPoint.length === 0)
+        ) {
+          return { error: 'startPoint must be a non-empty string when supplied', ok: false };
+        }
+        const scope = await requireFullWorktreeRoot('Branch creation');
+        if (!scope.ok) {
+          return scope;
+        }
+        const branch = params.branch;
+        const exists = await invoke(['show-ref', '--verify', '--hash', `refs/heads/${branch}`]);
+        if (exists.exitCode === 0) {
+          // NEVER fall through to a plain switch: the caller asked to CREATE,
+          // and quietly checking out an existing branch is a different action.
+          return { error: `local branch "${branch}" already exists`, ok: false };
+        }
+        const run_ = await invokeHookFree([
+          'switch',
+          '--no-guess',
+          '-c',
+          branch,
+          ...(startPoint ? ['--', startPoint] : []),
+        ]);
+        if (run_.exitCode !== 0) {
+          return { error: describeFailure(run_), ok: false };
+        }
+        return { ok: true, value: { branch } };
+      } catch (error) {
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
+
     /**
      * Unified diff for a path (or the whole tree), optionally for the index.
      *
@@ -1135,6 +1285,9 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         return { error: toErrorMessage(error), ok: false };
       }
     },
+
+    /** Repository identity + branch + default-remote URL for forge lookups. */
+    forgeRepositoryContext,
 
     /** Paginated, summary-only history for HEAD, a local branch, or a returned OID. */
     history: historyOps.history,

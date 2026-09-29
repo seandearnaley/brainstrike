@@ -2,6 +2,7 @@
 /// <reference types="@testing-library/jest-dom" />
 
 import { resolve } from 'node:path';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
@@ -109,7 +110,11 @@ export default defineConfig({
     // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     pool: 'threads',
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    reporters: ['default', new LostTestFileReporter()],
+    setupFiles: [
+      '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
+      '@brainstrike/test-utils/vitest.setup',
+    ],
     unstubGlobals: true,
   },
 });

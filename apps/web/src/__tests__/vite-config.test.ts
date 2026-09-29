@@ -10,6 +10,10 @@ function readWebViteConfig(): string {
   return readFileSync(path.resolve(process.cwd(), 'vite.config.mts'), 'utf8');
 }
 
+function readWebVitestConfig(): string {
+  return readFileSync(path.resolve(process.cwd(), 'vitest.config.mts'), 'utf8');
+}
+
 const PACKAGES_DIR = path.resolve(process.cwd(), '../../packages');
 
 function readFileExplorerTsupConfig(): string {
@@ -31,6 +35,17 @@ function readFileExplorerTsupConfig(): string {
 const registryEntries = workspaceSrcAliases(PACKAGES_DIR);
 
 describe('web vite config alias contract', () => {
+  it('pins the production embedding worker import to source in Vitest', () => {
+    const config = readWebVitestConfig();
+
+    expect(config).toMatch(
+      /find:\s*'@brainstrike\/embedding-worker\/worker'[\s\S]{0,180}replacement:\s*resolve\(\s*import\.meta\.dirname,\s*'\.\.\/\.\.\/packages\/embedding-worker\/src\/embedding\.worker\.ts'\s*\)/
+    );
+    expect(config.indexOf("find: '@brainstrike/embedding-worker/worker'")).toBeLessThan(
+      config.indexOf('...workspaceSrcAliases(')
+    );
+  });
+
   it('keeps the documented production chunk warning ceiling', () => {
     const config = readWebViteConfig();
 
@@ -140,7 +155,7 @@ describe('web vite config alias contract', () => {
     expect(config).toContain("code.includes('process.exitCode')");
     expect(config).toContain('code.replaceAll(');
     expect(config).toMatch(
-      /worker:\s*\{\s*format:\s*'es',\s*plugins:\s*\(\)\s*=>\s*\[browserWorkerProcessExitCodePlugin\(\)\]/
+      /worker:\s*\{\s*format:\s*'es',\s*plugins:\s*\(\)\s*=>\s*\[\s*preserveWorkerEntryPlugin\(\),\s*browserWorkerProcessExitCodePlugin\(\),?\s*\]/
     );
   });
 

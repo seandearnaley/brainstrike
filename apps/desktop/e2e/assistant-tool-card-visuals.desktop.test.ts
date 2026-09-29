@@ -27,7 +27,7 @@ async function openAssistantChat(window: Page): Promise<void> {
 }
 
 async function sendPrompt(window: Page, prompt: string): Promise<void> {
-  const input = window.locator('#assistant-input');
+  const input = window.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
   await input.fill(prompt);
 
@@ -55,7 +55,16 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     await expect(window.getByText('Retrieved answer.').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    // Tool cards render directly in the thread (no reasoning fold for tool-only turns).
+    // See the note in assistant-retrieval.desktop.test.ts: the group is
+    // collapsed at all times since BST-1679, so `data-state` — not
+    // `aria-expanded` — is the turn-finished sync.
+    await expect(window.getByTestId('assistant-activity-group').first()).toHaveAttribute(
+      'data-state',
+      'done',
+      { timeout: E2E_TIMEOUTS.toolVisibility }
+    );
+    const summary = window.getByTestId('assistant-activity-summary').first();
+    await summary.click();
     const toolCard = window.getByTestId('tool-fallback').first();
     await expect(toolCard).toBeVisible({ timeout: E2E_TIMEOUTS.toolVisibility });
     await expect(toolCard).toHaveAttribute('data-tool-category', 'internal');
@@ -72,10 +81,18 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 
-    await expect(window.getByText(errorMessage).first()).toBeVisible({
+    const activityGroup = window.getByTestId('assistant-activity-group').first();
+    await expect(activityGroup).toHaveAttribute('data-state', 'done', {
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    // Tool cards render directly in the thread (no reasoning fold for tool-only turns).
+    const summary = window.getByTestId('assistant-activity-summary').first();
+    await expect(summary).toContainText('1 failed');
+    // The resting headline is the verb summary now (BST-1679), not the fixed
+    // word "Worked": an unrecognised tool name reads honestly as "Used <name>".
+    // `data-state` (synced above) is the state sync; the text proves which
+    // step it summarizes.
+    await expect(summary).toContainText('brainstrike.retrieveContext');
+    await summary.click();
     const toolCard = window.getByTestId('tool-fallback').first();
     await expect(toolCard).toBeVisible({ timeout: E2E_TIMEOUTS.toolVisibility });
     // Category classification is independent of the failure state; an internal

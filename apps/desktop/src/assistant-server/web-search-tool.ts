@@ -30,7 +30,7 @@ const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
 const MAX_SNIPPET_CHARS = 600;
 
 const UNAVAILABLE_MESSAGE =
-  'Web search is unavailable — add a Tavily API key in Settings → API Keys to enable it.';
+  'Web search is unavailable — add a Tavily API key in Settings → Providers → Other credentials to enable it.';
 
 class MalformedTavilyCitationUrlError extends Error {
   constructor() {
@@ -109,9 +109,10 @@ function readTavilyEnvKey(): string | undefined {
  * Resolve the Tavily key server-side ONLY: env vars first, then the encrypted
  * keychain via {@link getSecretsService}. The key is never returned to the
  * model or the renderer — it is used solely to authenticate the Tavily request
- * inside this main-process tool.
+ * inside this main-process tool (and the BST-1357 verification probe, which is
+ * equally main-side and returns only a typed status).
  */
-async function resolveTavilyApiKeyFromKeychain(): Promise<string | undefined> {
+export async function resolveTavilyApiKeyFromKeychain(): Promise<string | undefined> {
   const envKey = readTavilyEnvKey();
   if (envKey) {
     return envKey;

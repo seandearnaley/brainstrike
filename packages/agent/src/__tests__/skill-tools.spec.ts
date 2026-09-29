@@ -14,6 +14,7 @@
 import { createSkill, resolveAgentSkills } from '@mastra/core/skills';
 import { describe, expect, it } from 'vitest';
 import {
+  BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE,
   createAssistantSkillTools,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
   SKILL_TOOL_IDS,
@@ -60,8 +61,8 @@ describe('createAssistantSkillTools', () => {
     const tools = createAssistantSkillTools(inlineEngine('Run scripts/palette.mjs if useful.'));
     const output = String(await executeTool(tools.skill, { name: 'test-skill' }));
 
-    expect(output).toContain('brainstrike.runSkillScript');
-    expect(output).toContain('brainstrike.writeWorkspaceFile');
+    expect(output).toContain('brainstrike_runSkillScript');
+    expect(output).toContain('brainstrike_writeWorkspaceFile');
     expect(output).toMatch(/declined.*continue.*native workspace tools/is);
     expect(output).not.toMatch(/absolute skill path/i);
   });
@@ -137,5 +138,58 @@ describe('transport guard override for skill activations', () => {
       maxTokens: MAX_TOOL_RESULT_TOKENS,
       truncated: true,
     });
+  });
+});
+
+describe('activation execution guidance', () => {
+  // Field failure (2026-08-23): a skill activation told the model to "run
+  // listed skill scripts with brainstrike.runSkillScript", but that tool is
+  // DEFERRED behind tool discovery on hosted discovery runs. The model checked
+  // its visible tools, concluded the tool did not exist, and worked around via
+  // executeCommand — bypassing the typed skill-script policy layer. The
+  // guidance must carry its own recovery path: load the tool via load_tool by
+  // exact name first, callable on the next step of the same response. (On non-discovery runs the tool is eager and
+  // the clause is inert.)
+  it('tells the model how to LOAD runSkillScript when it is deferred', async () => {
+    const { BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE } = await import('../skills/skill-tools');
+    expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toContain('load_tool');
+    expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).not.toContain('search_tools');
+    // load_tool matches the REGISTERED (sanitized) id exactly; the dotted
+    // canonical id would return "not found" (review of #3049).
+    expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toContain('brainstrike_runSkillScript');
+    expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toContain('brainstrike_writeWorkspaceFile');
+    expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).not.toContain('brainstrike.runSkillScript');
+    expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toContain('same response');
+    expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).not.toContain('next turn');
+  });
+});
+
+describe('activation guidance survives truncation', () => {
+  // Review of #2625: the wrappers nested as
+  // withBoundedStringOutput(withActivationGuidance(...)), so the guidance was
+  // appended BEFORE bounding — and fitToSerializedBudget keeps a PREFIX, so an
+  // activation exceeding the budget lost the entire trailing guidance block.
+  // That is precisely the large, script-heavy SKILL.md most likely to need the
+  // runSkillScript recovery path (the 2026-08-23 field failure's shape). The
+  // bound must reserve the guidance's space: truncated content + honest note +
+  // guidance, all inside the budget — the same order the desktop activation
+  // context uses.
+  it('keeps the execution guidance on an over-budget activation', async () => {
+    const hugeInstructions = 'run scripts/setup.mjs then scripts/build.mjs. '.repeat(2000);
+    const tools = createAssistantSkillTools(inlineEngine(hugeInstructions));
+    const output = String(await executeTool(tools.skill, { name: 'test-skill' }));
+
+    expect(output).toContain('[Skill instructions truncated');
+    expect(output.endsWith(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE)).toBe(true);
+    // Still inside the transport budget the bound exists to satisfy.
+    expect(JSON.stringify(output).length).toBeLessThanOrEqual(
+      SKILL_ACTIVATION_RESULT_TOKEN_BUDGET * 4
+    );
+  });
+
+  it('appends the guidance verbatim on an under-budget activation', async () => {
+    const tools = createAssistantSkillTools(inlineEngine('Short instructions.'));
+    const output = String(await executeTool(tools.skill, { name: 'test-skill' }));
+    expect(output.endsWith(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE)).toBe(true);
   });
 });

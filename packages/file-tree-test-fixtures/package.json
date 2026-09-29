@@ -1,0 +1,42 @@
+{
+  "name": "@brainstrike/file-tree-test-fixtures",
+  "version": "0.1.0",
+  "dependencies": {
+    "@brainstrike/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "happy-dom": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "private": true,
+  "scripts": {
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
+    "dev": "tsc --build --watch --preserveWatchOutput",
+    "test": "vitest run",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+  },
+  "sideEffects": false,
+  "turbo": {
+    "outputs": [
+      "dist/**"
+    ]
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts"
+}

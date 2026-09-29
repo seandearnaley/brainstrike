@@ -4,15 +4,16 @@
   "dependencies": {
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/types": "workspace:*",
+    "ignore": "catalog:",
     "minimatch": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/file-tree-test-fixtures": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@stryker-mutator/api": "catalog:",
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/typescript-checker": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
-    "@swc/core": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
@@ -117,6 +118,10 @@
     "./crypto": {
       "types": "./dist/crypto.d.ts",
       "default": "./dist/crypto.js"
+    },
+    "./window-focus-bridge": {
+      "types": "./dist/window-focus-bridge.d.ts",
+      "default": "./dist/window-focus-bridge.js"
     }
   },
   "files": [
@@ -135,7 +140,7 @@
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
-    "mutation": "npx @stryker-mutator/core run",
+    "mutation": "stryker run",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",

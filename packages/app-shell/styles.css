@@ -2,3 +2,4 @@
 /* Re-export vector-management's source globs so the consumer app picks up
  * utility classes used by CreateSearchCollection / Manage dialogs etc. */
 @import "@brainstrike/vector-management/styles.css";
+@import "@brainstrike/notes-vault/styles.css";

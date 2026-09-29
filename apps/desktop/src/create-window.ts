@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { createLogger } from '@brainstrike/logging';
+import { Effect, Schedule } from 'effect';
 import { app, BrowserWindow } from 'electron';
 import { resolveAgentDevtoolsWindowTitle } from './agent-devtools-config';
 import {
@@ -9,20 +11,19 @@ import {
   recordRendererRecoveryReloadAttempt,
 } from './desktop-crash-recovery';
 import {
-  type DesktopRendererLaunchMode,
-  resolveDesktopRendererLaunchMode,
-} from './desktop-launch-mode';
+  type DesktopRendererTarget,
+  resolveDesktopRendererTarget,
+} from './desktop-renderer-target';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
+import { resolveDistRoot } from './dist-root';
+import { shouldDenyMcpAppFrameNavigation } from './mcp/apps-frame-navigation';
 import type { DesktopWindowState } from './store-schema';
+import { publishWindowFocus } from './window-focus-ipc';
 import { assignWindowRole, getWindowRole } from './window-role';
 import { ensureWindowBoundsVisible, resolveInitialWindowState } from './window-state';
 
 const startupLogger = createLogger('CreateWindow');
 
-const resolveDistRoot = (): string => {
-  const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();
-  return path.basename(appPath) === 'dist' ? appPath : path.join(appPath, 'dist');
-};
 const DEV_RENDERER_ORIGIN = new URL(DESKTOP_DEV_RENDERER_URL).origin;
 
 function isAllowedRendererNavigation(win: BrowserWindow, targetUrl: string): boolean {
@@ -64,6 +65,31 @@ function configureSecurity(win: BrowserWindow) {
     event.preventDefault();
   });
 
+  // `will-navigate` is main-frame only. The MCP App sandbox shell and its
+  // srcdoc app frame are fenced here (BST-1572): see apps-frame-navigation.ts.
+  win.webContents.on(
+    'will-frame-navigate',
+    (details: Electron.Event<Electron.WebContentsWillFrameNavigateEventParams>) => {
+      // `frame` is null only for a frame Electron already disposed; such a
+      // navigation cannot belong to a live sandbox shell or app frame.
+      const frameUrl = details.frame?.url ?? '';
+      if (
+        shouldDenyMcpAppFrameNavigation({
+          frameUrl,
+          isMainFrame: details.isMainFrame,
+          parentUrl: details.frame?.parent?.url,
+          targetUrl: details.url,
+        })
+      ) {
+        startupLogger.warn(
+          { frameUrl, targetUrl: details.url },
+          'Denied MCP App sandbox frame navigation'
+        );
+        details.preventDefault();
+      }
+    }
+  );
+
   // CSP handled elsewhere
 }
 
@@ -102,49 +128,45 @@ function shouldAutoOpenDevTools(): boolean {
   return process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] === '1';
 }
 
-async function wait(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function connectToDevServer(win: BrowserWindow) {
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= DEV_SERVER_RETRY_ATTEMPTS; attempt++) {
-    try {
+async function connectToDevServer(win: BrowserWindow, devRendererUrl: string): Promise<void> {
+  let attempt = 0;
+  const load = Effect.tryPromise({
+    catch: (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      startupLogger.warn(
+        { attempt, message, url: devRendererUrl },
+        'Desktop renderer connection attempt failed'
+      );
+      return error;
+    },
+    try: async () => {
+      attempt++;
       const attemptStart = Date.now();
       // CRITICAL: Keep dev renderer URL deterministic.
       // Probing multiple ports caused hidden startup slowdowns and non-deterministic
       // behavior when another local dev server occupied the expected renderer port.
       startupLogger.info(
-        { attempt, url: DESKTOP_DEV_RENDERER_URL },
+        { attempt, url: devRendererUrl },
         'Attempting to connect desktop renderer'
       );
-      await win.loadURL(DESKTOP_DEV_RENDERER_URL);
+      await win.loadURL(devRendererUrl);
       startupLogger.info(
-        { attempt, elapsedMs: Date.now() - attemptStart, url: DESKTOP_DEV_RENDERER_URL },
+        { attempt, elapsedMs: Date.now() - attemptStart, url: devRendererUrl },
         'Desktop renderer connection established'
       );
-      return;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      startupLogger.warn(
-        { attempt, message, url: DESKTOP_DEV_RENDERER_URL },
-        'Desktop renderer connection attempt failed'
-      );
-      lastError = error;
-    }
-
-    if (attempt < DEV_SERVER_RETRY_ATTEMPTS) {
-      await wait(DEV_SERVER_RETRY_DELAY_MS);
-    }
-  }
-
-  throw new Error(
-    `Unable to connect to dev renderer at ${DESKTOP_DEV_RENDERER_URL} after ${DEV_SERVER_RETRY_ATTEMPTS} attempts`,
-    {
-      cause: lastError instanceof Error ? lastError : undefined,
-    }
+    },
+  });
+  const retryPolicy = Schedule.spaced(DEV_SERVER_RETRY_DELAY_MS).pipe(
+    Schedule.upTo({ times: DEV_SERVER_RETRY_ATTEMPTS - 1 })
   );
+  try {
+    await runAtPromiseBoundary(Effect.retry(load, retryPolicy));
+  } catch (error) {
+    throw new Error(
+      `Unable to connect to dev renderer at ${devRendererUrl} after ${DEV_SERVER_RETRY_ATTEMPTS} attempts`,
+      { cause: error instanceof Error ? error : undefined }
+    );
+  }
 }
 
 export function noteNextWindowReload(win: BrowserWindow, metadata: WindowReloadMetadata): void {
@@ -154,48 +176,36 @@ export function noteNextWindowReload(win: BrowserWindow, metadata: WindowReloadM
 /**
  * Load the renderer content (either built files or dev server).
  */
-interface LoadRendererOptions {
-  isTestMode: boolean;
-  launchMode?: DesktopRendererLaunchMode;
-}
-
-async function loadRenderer(win: BrowserWindow, options: LoadRendererOptions) {
-  const distRoot = resolveDistRoot();
-  const rendererPath = path.join(distRoot, 'renderer/index.html');
-  const hasBuiltRenderer = fs.existsSync(rendererPath);
-  const launchMode = options.launchMode ?? 'built';
-
+/**
+ * Loads the document named by the process-wide renderer target (BST-1641):
+ * the same object `main.ts` configured, the hidden hosts load from, and the
+ * IPC sender-frame allowlist is derived from. Resolving it here — before any
+ * `loadFile`/`loadURL` — makes an unconfigured target a named load-time
+ * failure instead of every authorized IPC channel rejecting at first invoke.
+ */
+async function loadRenderer(win: BrowserWindow, target: DesktopRendererTarget) {
   startupLogger.debug(
-    {
-      distRoot,
-      hasBuiltRenderer,
-      isPackaged: app.isPackaged,
-      rendererPath,
-    },
+    { distRoot: resolveDistRoot(), isPackaged: app.isPackaged, target },
     'Loading renderer'
   );
 
-  if (launchMode === 'built' || launchMode === 'test-built') {
-    if (!hasBuiltRenderer) {
+  if (target.kind === 'built-renderer') {
+    if (!fs.existsSync(target.rendererPath)) {
       throw new Error(
-        `Built renderer is required in packaged/test mode but was not found at ${rendererPath}`
+        `Built renderer is required in packaged/test mode but was not found at ${target.rendererPath}`
       );
     }
 
     startupLogger.debug('Loading built renderer file');
-    await loadProductionRenderer(win, rendererPath);
+    await loadProductionRenderer(win, target.rendererPath);
     return;
-  }
-
-  if (launchMode !== 'dev-server') {
-    throw new Error(`Unsupported renderer launch mode "${launchMode}".`);
   }
 
   try {
     // In local development, always prefer Vite dev server.
     // Using file:// renderer in dev can break module workers (opaque origin).
     startupLogger.debug('Attempting dev server renderer first');
-    await connectToDevServer(win);
+    await connectToDevServer(win, target.url);
     // Keep DevTools opt-in so local startup remains deterministic and we don't
     // force-open a debug window on every launch.
     if (shouldAutoOpenDevTools()) {
@@ -232,11 +242,9 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     );
   };
   const isTestMode = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
-  const launchMode = resolveDesktopRendererLaunchMode({
-    argv: process.argv,
-    isPackaged: app.isPackaged,
-    isTestMode,
-  });
+  // Resolved before the BrowserWindow exists so a missing target fails here,
+  // by name, rather than after a window was shown.
+  const rendererTarget = resolveDesktopRendererTarget();
   const resolvedWindowState = ensureWindowBoundsVisible(
     resolveInitialWindowState(options.windowState)
   );
@@ -288,6 +296,16 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       : {}),
   });
   assignWindowRole(win, 'visible-ui');
+  // The renderer's app-active signal follows THIS window's native focus, not its
+  // own `document.hasFocus()` (false while the browser pane or DevTools holds
+  // keyboard focus). Attached before `show()` and before the renderer loads: the
+  // renderer subscribes and asks `isFocused()` during the load, and `show()`
+  // itself hands the window key status, so a listener attached after either would
+  // miss a transition the renderer's initial read predates. A push before the
+  // renderer has subscribed is dropped, which is fine: its own `isFocused()`
+  // answers the state at call time. Per window, so a dock-reopened replacement
+  // publishes too.
+  publishWindowFocus(win);
   if (agentDevtoolsWindowTitle) {
     win.on('page-title-updated', (event: Electron.Event) => {
       event.preventDefault();
@@ -423,6 +441,31 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     app.removeListener('activate', activateHandler);
   });
 
+  // A hung renderer leaves no trace in the durable log on its own: the main
+  // process keeps serving while the window is frozen (2026-09-14, four child
+  // streams into the root thread). Electron reports the hang; record it and
+  // its recovery with timing so a debug pack can prove WHEN the UI locked.
+  let unresponsiveSince: number | undefined;
+  win.webContents.on('unresponsive', () => {
+    unresponsiveSince = Date.now();
+    startupLogger.error(
+      { code: 'renderer_unresponsive', windowRole: getWindowRole(win) ?? 'visible-ui' },
+      'Renderer became unresponsive'
+    );
+  });
+  win.webContents.on('responsive', () => {
+    startupLogger.warn(
+      {
+        code: 'renderer_responsive_again',
+        unresponsiveMs:
+          unresponsiveSince === undefined ? undefined : Date.now() - unresponsiveSince,
+        windowRole: getWindowRole(win) ?? 'visible-ui',
+      },
+      'Renderer responsive again'
+    );
+    unresponsiveSince = undefined;
+  });
+
   win.webContents.on(
     'render-process-gone',
     (_event: Electron.Event, details: Electron.RenderProcessGoneDetails) => {
@@ -537,7 +580,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
 
   logStartupPhase('loading-renderer');
   try {
-    await loadRenderer(win, { isTestMode, launchMode });
+    await loadRenderer(win, rendererTarget);
   } catch (error) {
     // Don't leave a dead splash window on screen when the renderer never loads;
     // destroy it and let the caller surface the failure.

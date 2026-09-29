@@ -4,9 +4,18 @@ import {
   delegationToolNameForPersona,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '@brainstrike/assistant-contract/personas';
-import { createElement, useMemo } from 'react';
+import { createElement, use, useCallback, useMemo, useSyncExternalStore } from 'react';
+import {
+  readSubagentConversationAddress,
+  readSubagentInvocationRun,
+  type SubagentConversationAddress,
+  type SubagentInvocationRun,
+  SubagentLiveInvocationContext,
+} from './subagent-conversation-navigation';
 import { SubagentExecutionCard } from './subagent-execution-card';
-import { type SubAgentToolRow, serializeLiveSubagentToolRows } from './subagent-tool-rows';
+import { useSubagentInvocationSnapshot } from './use-subagent-invocation-snapshot';
+import { useSubagentNavigation } from './use-subagent-navigation';
+import { useSubagentPresentation } from './use-subagent-presentation';
 
 /**
  * The registered delegation-tool component: reads the current message's parts
@@ -16,24 +25,80 @@ import { type SubAgentToolRow, serializeLiveSubagentToolRows } from './subagent-
  * before the result (with `subAgentToolResults`) lands. Kept out of the card so
  * the card stays render-testable without the assistant-ui store.
  *
- * The selector serializes the derived rows (see `serializeLiveSubagentToolRows`):
- * `useAuiState` compares selector results with `Object.is`, so returning the raw
- * `state.message.parts` array — a stable reference that grows in place — would
- * never re-render, freezing the live count on an early snapshot (D2).
+ * One thread-level incremental index derives the live rows and special outcome;
+ * this card subscribes only to its `toolCallId` snapshot. That keeps the
+ * sibling-message hydration rule without making every visible card walk the
+ * full retained thread on every store update.
  */
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
-  const liveRowsJson = useAuiState((state) =>
-    serializeLiveSubagentToolRows(state.message.parts, props.toolCallId)
+  const liveInvocations = use(SubagentLiveInvocationContext);
+  const invocationJson = useAuiState((state) =>
+    JSON.stringify(readSubagentInvocationRun(state.message.parts, props.toolCallId))
   );
-  const liveRows = useMemo(() => JSON.parse(liveRowsJson) as SubAgentToolRow[], [liveRowsJson]);
+  const invocation = useMemo(
+    () => JSON.parse(invocationJson) as SubagentInvocationRun,
+    [invocationJson]
+  );
+  const addressJson = useAuiState((state) =>
+    JSON.stringify(
+      readSubagentConversationAddress(state.message.parts, props.toolCallId, props.result)
+    )
+  );
+  const persistedAddress = useMemo(
+    () => JSON.parse(addressJson) as SubagentConversationAddress,
+    [addressJson]
+  );
+  const getLiveThreadId = useCallback(
+    () =>
+      invocation.kind === 'available'
+        ? liveInvocations?.getThreadId({
+            parentRuntimeRunId: invocation.parentRuntimeRunId,
+            parentToolCallId: props.toolCallId,
+          })
+        : undefined,
+    [invocation, liveInvocations, props.toolCallId]
+  );
+  const liveThreadId = useSyncExternalStore(
+    liveInvocations?.subscribe ?? emptySubscribe,
+    getLiveThreadId,
+    getLiveThreadId
+  );
+  const address: SubagentConversationAddress =
+    persistedAddress.kind === 'available' &&
+    liveThreadId &&
+    persistedAddress.threadId !== liveThreadId
+      ? { error: 'Conflicting child conversation addresses.', kind: 'invalid' }
+      : persistedAddress.kind === 'unavailable' && liveThreadId
+        ? { kind: 'available', threadId: liveThreadId }
+        : persistedAddress;
+  const { entry: presentation, reload } = useSubagentPresentation(
+    address.kind === 'available' ? address.threadId : undefined
+  );
+  const navigation = useSubagentNavigation(address, invocation, props.toolCallId);
+  const { outcome, rows: liveRows } = useSubagentInvocationSnapshot(props.toolCallId);
   return createElement(SubagentExecutionCard, {
+    // Conditional spread, not `isError: props.isError`: under
+    // `exactOptionalPropertyTypes` an optional prop may be absent but never
+    // explicitly `undefined`.
+    ...(props.isError === undefined ? {} : { isError: props.isError }),
+    ...navigation,
+    ...(presentation && 'presentation' in presentation
+      ? { presentation: presentation.presentation }
+      : {}),
+    ...(presentation && 'error' in presentation
+      ? { onReloadPresentation: reload, presentationError: presentation.error }
+      : {}),
+    ...(typeof props.args['prompt'] === 'string' ? { task: props.args['prompt'] } : {}),
     liveRows,
+    ...(outcome ? { outcome } : {}),
     result: props.result,
     status: props.status,
     toolCallId: props.toolCallId,
     toolName: props.toolName,
   });
 };
+
+const emptySubscribe = () => () => undefined;
 
 /**
  * `agent-<personaId>` delegation tool name → SubagentExecutionCardConnected,

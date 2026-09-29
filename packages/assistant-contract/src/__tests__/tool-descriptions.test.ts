@@ -22,6 +22,15 @@ describe('TOOL_DESCRIPTIONS', () => {
     }
   });
 
+  it('tells the model the manageCanvas write IS the deliverable, never an empty placeholder', () => {
+    // Live-app verifier runs 6/7 (2026-09-15): the root pre-created an empty
+    // shell "to receive the report" and wrote it behind a second approval.
+    const description = TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageCanvas];
+    expect(description).toMatch(/deliverable/);
+    expect(description).toMatch(/placeholder/);
+    expect(description).toMatch(/when the content is ready/);
+  });
+
   it('guards dynamic lookups instead of widening the exact registry', () => {
     expect(getNativeToolDescription(NATIVE_TOOL_ID.executeCommand)).toBe(
       TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.executeCommand]

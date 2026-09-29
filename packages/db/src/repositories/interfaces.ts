@@ -5,12 +5,22 @@ import type {
 } from '@brainstrike/types';
 import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set.js';
 import type {
+  ChunkSearchOptions,
+  ChunkSearchResult,
+  FileChunk,
+  FileChunkInsert,
+  FileChunkUpdate,
+  FTSSearchOptions,
+  FTSSearchResult,
+} from '../models/file-chunk.js';
+import type {
   FileImportRequest,
   FileImportResult,
   FileRecord,
   FileRecordUpdate,
   ManagedCacheEntryMetadata,
 } from '../models/file-record';
+import type { GrepCandidate, GrepCandidateOptions } from '../models/grep.js';
 
 /**
  * Common interface for all embedding sets repositories
@@ -32,6 +42,43 @@ export interface IEmbeddingSetsRepository {
     id: string,
     metadata: { name?: string; description?: string; tags?: string; category?: string }
   ) => Promise<EmbeddingSet | null>;
+}
+
+/**
+ * Shared file-chunk repository contract implemented by the direct PGlite,
+ * Drizzle, and Electron IPC transports.
+ * Drizzle rejects vector limits above 2,000; raw/IPC callers use bounded overfetch.
+ * Raw/IPC snapshot scopes enforce expiry; Drizzle retains membership-only scopes.
+ * Callers must not rely on these adapters having identical snapshot lifetimes.
+ */
+export interface IFileChunkRepository {
+  clearAll: () => Promise<number>;
+  clearEmbeddingsForSet: (embeddingSetId: string) => Promise<number>;
+  delete: (id: string) => Promise<boolean>;
+  deleteByFileRecordId: (fileRecordId: string) => Promise<number>;
+  findAll: () => Promise<FileChunk[]>;
+  findByFileRecordId: (fileRecordId: string) => Promise<FileChunk[]>;
+  findById: (id: string) => Promise<FileChunk | null>;
+  findGrepCandidates: (options: GrepCandidateOptions) => Promise<GrepCandidate[]>;
+  fullTextSearch: (query: string, options?: FTSSearchOptions) => Promise<FTSSearchResult[]>;
+  getCoverageForSet: (embeddingSetId: string) => Promise<{
+    chunksWithEmbeddingsForSet: number;
+    totalChunks: number;
+  }>;
+  getStats: () => Promise<{
+    averageTokenCount: number;
+    chunksWithEmbeddings: number;
+    chunkTypeDistribution: Record<string, number>;
+    totalChunks: number;
+  }>;
+  insert: (chunk: FileChunkInsert) => Promise<FileChunk>;
+  insertMany: (chunks: FileChunkInsert[]) => Promise<FileChunk[]>;
+  insertManyWithTx: (tx: IDatabase, chunks: FileChunkInsert[]) => Promise<FileChunk[]>;
+  searchSimilar: (
+    queryEmbedding: number[],
+    options?: ChunkSearchOptions
+  ) => Promise<ChunkSearchResult[]>;
+  update: (chunk: FileChunkUpdate) => Promise<FileChunk | null>;
 }
 
 /**

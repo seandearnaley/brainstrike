@@ -26,7 +26,9 @@ function pathRoot(rootId: string, name: string, path: string): RootDescriptor {
 
 describe('reconcileRoots', () => {
   it('maps desktop path roots onto an existing live DB row by path without modifying it', async () => {
-    const dbRows = [{ id: 'db-1', path: '/workspace/my-project', status: 'live' }];
+    const dbRows = [
+      { id: 'db-1', kind: 'snapshot', path: '/workspace/my-project', status: 'live' },
+    ];
     const query = vi.fn(async (sql: string, _params?: unknown[]) =>
       sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
     );
@@ -38,8 +40,12 @@ describe('reconcileRoots', () => {
     });
 
     expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('db-1');
+    expect(result.dbRootKindByAdapterRootId.get('adapter-1')).toBe('snapshot');
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE'))).toBe(false);
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(false);
+    // BST-1400 item 11: a matched root is NOT a new row — the boot discovery
+    // nudge must not fire for the ordinary "already-registered root" case.
+    expect(result.insertedAdapterRootIds.has('adapter-1')).toBe(false);
   });
 
   it("restores status='live' on a matched disconnected row (remount-by-path)", async () => {
@@ -61,6 +67,15 @@ describe('reconcileRoots', () => {
     expect(update?.[0]).toMatch(/status = 'live'/);
     expect(update?.[0]).toMatch(/last_verified_at = NOW\(\)/);
     expect(update?.[1]).toEqual(['db-1']);
+    // BST-1400 item 11 review fold-in: matched-and-restored is NOT the same
+    // as matched-and-already-live — the row was 'disconnected' a moment ago,
+    // outside the inventory's `WHERE status = 'live'` view (workspace-
+    // roots.ts), so flipping it to live makes it newly addressable and MUST
+    // be reported as inserted, the same as a genuine insert. (The original
+    // version of this fix reported `false` here — the exact regression this
+    // assertion now pins; see the sibling `use-roots-reconciliation.test.tsx`
+    // test for the end-to-end discovery-nudge behavior this feeds.)
+    expect(result.insertedAdapterRootIds.has('adapter-1')).toBe(true);
   });
 
   it.each(['needs-regrant', 'snapshot-stale'])(
@@ -83,6 +98,8 @@ describe('reconcileRoots', () => {
       expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE roots'))).toBe(
         false
       );
+      // No flip happened, so this is an ordinary match — must not nudge.
+      expect(result.insertedAdapterRootIds.has('adapter-1')).toBe(false);
     }
   );
 
@@ -104,6 +121,10 @@ describe('reconcileRoots', () => {
       query,
     });
     expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('db-1');
+    // The row is STILL 'disconnected' (the flip failed) — outside the
+    // inventory's view either way, so this must not be reported as
+    // inserted; the next reconcile's retry is what should eventually nudge.
+    expect(result.insertedAdapterRootIds.has('adapter-1')).toBe(false);
   });
 
   it('does not path-match FSA roots because path is only the directory display name', async () => {
@@ -193,12 +214,134 @@ describe('reconcileRoots', () => {
     });
 
     expect(result.dbRootIdByAdapterRootId.get('adapter-2')).toBe('adapter-2');
+    expect(result.dbRootKindByAdapterRootId.get('adapter-2')).toBe('fsa');
     const insertCall = query.mock.calls.find(([sql]) =>
       (sql as string).includes('INSERT INTO roots')
     );
     expect(insertCall?.[1]).toEqual(
       expect.arrayContaining(['adapter-2', 'fsa', 'fresh-folder', 'fresh-folder'])
     );
+    // BST-1400 item 11: a genuine insert IS reported, so the boot discovery
+    // nudge still fires for the case it exists for.
+    expect(result.insertedAdapterRootIds.has('adapter-2')).toBe(true);
+  });
+
+  it('inserts a managed worktree path with kind worktree', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    const result = await reconcileRoots({
+      adapterRoots: [pathRoot('worktree-root', 'bright-fox', '/managed/app/bright-fox')],
+      managedWorktreePaths: new Set(['/managed/app/bright-fox']),
+      platformKind: 'path',
+      query,
+    });
+
+    const insertCall = query.mock.calls.find(([sql]) =>
+      (sql as string).includes('INSERT INTO roots')
+    );
+    expect(insertCall?.[1]).toEqual([
+      'worktree-root',
+      'worktree',
+      'bright-fox',
+      '/managed/app/bright-fox',
+    ]);
+    expect(result.dbRootKindByAdapterRootId.get('worktree-root')).toBe('worktree');
+  });
+
+  it('keeps the platform kind for an ordinary path when another path is managed', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    await reconcileRoots({
+      adapterRoots: [pathRoot('ordinary-root', 'project', '/workspace/project')],
+      managedWorktreePaths: new Set(['/managed/app/bright-fox']),
+      platformKind: 'path',
+      query,
+    });
+
+    const insertCall = query.mock.calls.find(([sql]) =>
+      (sql as string).includes('INSERT INTO roots')
+    );
+    expect(insertCall?.[1]?.[1]).toBe('path');
+  });
+
+  it('keeps the platform kind when managed worktree paths are unavailable on web', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    await reconcileRoots({
+      adapterRoots: [fsaRoot('web-root', 'project')],
+      platformKind: 'fsa',
+      query,
+    });
+
+    const insertCall = query.mock.calls.find(([sql]) =>
+      (sql as string).includes('INSERT INTO roots')
+    );
+    expect(insertCall?.[1]?.[1]).toBe('fsa');
+  });
+
+  it('inserts a managed worktree path with kind worktree', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    const result = await reconcileRoots({
+      adapterRoots: [pathRoot('worktree-root', 'bright-fox', '/managed/app/bright-fox')],
+      managedWorktreePaths: new Set(['/managed/app/bright-fox']),
+      platformKind: 'path',
+      query,
+    });
+
+    const insertCall = query.mock.calls.find(([sql]) =>
+      (sql as string).includes('INSERT INTO roots')
+    );
+    expect(insertCall?.[1]).toEqual([
+      'worktree-root',
+      'worktree',
+      'bright-fox',
+      '/managed/app/bright-fox',
+    ]);
+    expect(result.dbRootKindByAdapterRootId.get('worktree-root')).toBe('worktree');
+  });
+
+  it('keeps the platform kind for an ordinary path when another path is managed', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    await reconcileRoots({
+      adapterRoots: [pathRoot('ordinary-root', 'project', '/workspace/project')],
+      managedWorktreePaths: new Set(['/managed/app/bright-fox']),
+      platformKind: 'path',
+      query,
+    });
+
+    const insertCall = query.mock.calls.find(([sql]) =>
+      (sql as string).includes('INSERT INTO roots')
+    );
+    expect(insertCall?.[1]?.[1]).toBe('path');
+  });
+
+  it('keeps the platform kind when managed worktree paths are unavailable on web', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    await reconcileRoots({
+      adapterRoots: [fsaRoot('web-root', 'project')],
+      platformKind: 'fsa',
+      query,
+    });
+
+    const insertCall = query.mock.calls.find(([sql]) =>
+      (sql as string).includes('INSERT INTO roots')
+    );
+    expect(insertCall?.[1]?.[1]).toBe('fsa');
   });
 
   it('registers two same-name FSA roots independently', async () => {
@@ -270,6 +413,10 @@ describe('reconcileRoots', () => {
     // The loop continued: the second root still registered (its own insert
     // also "converges" in this mock, proving no abort).
     expect(result.dbRootIdByAdapterRootId.has('adapter-2')).toBe(true);
+    // BST-1400 item 11: a row that landed via a concurrent writer's insert is
+    // still NEW relative to what any already-running inventory build has
+    // seen, so it counts as inserted even though THIS call converged onto it.
+    expect(result.insertedAdapterRootIds.has('adapter-1')).toBe(true);
   });
 
   it('rethrows non-path-race insert failures instead of swallowing them', async () => {

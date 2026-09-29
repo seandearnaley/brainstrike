@@ -76,11 +76,21 @@ async function writeFabricatedWorktreeAdmin(
   name: string,
   targetGitPath: string
 ): Promise<void> {
-  const adminDir = path.join(repo, '.git', 'worktrees', name);
-  await fsPromises.mkdir(adminDir, { recursive: true });
+  const worktreesDir = path.join(repo, '.git', 'worktrees');
+  await expect(
+    fsPromises.lstat(worktreesDir),
+    'Fabricated inventory requires a fresh repository without existing worktree admin entries'
+  ).rejects.toMatchObject({ code: 'ENOENT' });
+  // Each attack fixture starts without worktrees. Publish its complete, locked
+  // admin directory atomically so Git maintenance cannot prune partial writes.
+  const stagingDir = await fsPromises.mkdtemp(path.join(repo, '.git', 'inventory-admin-'));
+  const adminDir = path.join(stagingDir, name);
+  await fsPromises.mkdir(adminDir);
+  await fsPromises.writeFile(path.join(adminDir, 'locked'), 'security fixture\n', 'utf8');
   await fsPromises.writeFile(path.join(adminDir, 'gitdir'), `${targetGitPath}\n`, 'utf8');
   await fsPromises.writeFile(path.join(adminDir, 'HEAD'), 'ref: refs/heads/master\n', 'utf8');
   await fsPromises.writeFile(path.join(adminDir, 'commondir'), '../..\n', 'utf8');
+  await fsPromises.rename(stagingDir, worktreesDir);
 }
 
 afterEach(async () => {
@@ -342,15 +352,13 @@ describe('buildInventorySnapshot', () => {
     await execFileAsync('git', ['commit', '-q', '-m', 'add inside-link symlink'], { cwd: repo });
 
     await writeFabricatedWorktreeAdmin(repo, 'evil', path.join(insideLinkPath, '.git'));
-    // Keep Git itself from pruning/omitting the synthetic admin entry before
-    // the inventory service can exercise the canonical-path trust boundary.
-    // A locked malicious entry is still attacker-constructible; it simply
-    // makes this security fixture hermetic across the full test-file lifecycle.
-    await fsPromises.writeFile(
-      path.join(repo, '.git', 'worktrees', 'evil', 'locked'),
-      'security fixture\n',
-      'utf8'
-    );
+    // Maintenance must leave the locked malicious entry visible to inventory;
+    // the lock is attacker-constructible and does not establish trust.
+    await execFileAsync('git', ['worktree', 'prune', '--expire=now'], { cwd: repo });
+    await expect(
+      fsPromises.readFile(path.join(repo, '.git', 'worktrees', 'evil', 'locked'), 'utf8'),
+      'Git pruning must preserve the complete locked attack fixture before inventory runs'
+    ).resolves.toBe('security fixture\n');
 
     const snapshot = await buildInventorySnapshot({
       loadRoots: loadRootsFrom([{ id: 'root-main', path: repo }]),

@@ -4,6 +4,7 @@ import type {
   ProviderConfig,
 } from '@mastra/core/llm';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import { getProviderEnvKeys } from './registry';
 
 /**
  * OpenRouter strict-content compatibility (2026-08-16 field failure).
@@ -106,16 +107,28 @@ export function createOpenRouterStrictContentFetch(baseFetch?: typeof fetch): ty
  * Resolution parity with the built-in models.dev gateway is deliberate:
  * same provider package + version (guarded by
  * `scripts/__tests__/openrouter-provider-mirror-contract.test.mjs`), same
- * base URL (`OPENROUTER_BASE_URL` env override honored), same
- * `OPENROUTER_API_KEY` env fallback wording — the only delta is the
- * strict-content fetch, pinned by the request-equivalence spec. Everything
- * else the router does (explicit-credential precedence, sampling-param
- * stripping keyed by router id) is unchanged because the router class itself
- * is unchanged.
+ * base URL (`OPENROUTER_BASE_URL` env override honored), same missing-auth
+ * phrasing — the only delta is the strict-content fetch, pinned by the
+ * request-equivalence spec. Everything else the router does
+ * (explicit-credential precedence, sampling-param stripping keyed by router
+ * id) is unchanged because the router class itself is unchanged.
+ *
+ * Key resolution (BST-1361): the provider factory threads the request's
+ * already-resolved credential through the constructor, so a key sourced from
+ * `BRAINSTRIKE_OPENROUTER_API_KEY` or the stored keychain reaches the
+ * gateway exactly like an `OPENROUTER_API_KEY` one. The residual env
+ * fallback (Mastra-initiated getApiKey calls with no threaded key) derives
+ * its names from the provider registry — never a hardcoded single name.
  */
 export class OpenRouterStrictContentGateway implements MastraModelGatewayInterface {
   readonly id = 'brainstrike-openrouter';
   readonly name = 'Brainstrike OpenRouter strict-content gateway';
+  private readonly resolvedApiKey: string | undefined;
+
+  constructor(resolvedApiKey?: string) {
+    const trimmed = resolvedApiKey?.trim();
+    this.resolvedApiKey = trimmed && trimmed.length > 0 ? trimmed : undefined;
+  }
 
   handlesModel(modelId: string): boolean {
     if (!modelId.startsWith(OPENROUTER_ROUTER_PREFIX)) {
@@ -135,15 +148,21 @@ export class OpenRouterStrictContentGateway implements MastraModelGatewayInterfa
   }
 
   getApiKey(modelId: string): Promise<string> {
-    const apiKey = process.env['OPENROUTER_API_KEY'];
-    if (!apiKey) {
-      // Phrasing matters: GatewayManager classifies /Could not find API key/i
-      // as an expected missing-auth state for catalog checks, not a failure.
-      return Promise.reject(
-        new Error(`Could not find API key process.env.OPENROUTER_API_KEY for model id ${modelId}`)
-      );
+    if (this.resolvedApiKey) {
+      return Promise.resolve(this.resolvedApiKey);
     }
-    return Promise.resolve(apiKey);
+    const envNames = getProviderEnvKeys('openrouter');
+    for (const envName of envNames) {
+      const value = process.env[envName]?.trim();
+      if (value) {
+        return Promise.resolve(value);
+      }
+    }
+    // Phrasing matters: GatewayManager classifies /Could not find API key/i
+    // as an expected missing-auth state for catalog checks, not a failure.
+    return Promise.reject(
+      new Error(`Could not find API key (checked ${envNames.join(', ')}) for model id ${modelId}`)
+    );
   }
 
   resolveLanguageModel(args: {

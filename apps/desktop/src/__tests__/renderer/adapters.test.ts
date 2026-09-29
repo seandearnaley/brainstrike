@@ -1,3 +1,4 @@
+import type { WatcherHealthEvent } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetFsWatchDispatcherForTest,
@@ -161,6 +162,50 @@ describe('ElectronRendererFileSystemAdapter', () => {
     });
   });
 
+  describe('readFileByAbsolutePath', () => {
+    it('carries the claimed mounted root through the scoped bridge API', async () => {
+      const absolutePath = '/Users/test/project/file.txt';
+      const rootPath = '/Users/test/project';
+      const rootId = 'root-project';
+      mockElectronAPI.fileSystem.readFileByAbsolutePath.mockResolvedValue('absolute content');
+
+      await expect(adapter.readFileByAbsolutePath(absolutePath, rootPath, rootId)).resolves.toBe(
+        'absolute content'
+      );
+      expect(mockElectronAPI.fileSystem.readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(
+        absolutePath,
+        rootPath,
+        rootId
+      );
+      expect(mockElectronAPI.fileSystem.readFileByPath).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { absolutePath: '/workspace/file.txt', rootPath: '' },
+      { absolutePath: '/workspace/file.txt', rootPath: '   ' },
+      { absolutePath: '/workspace/file.txt', rootPath: 'workspace' },
+      { absolutePath: 'file.txt', rootPath: '/workspace' },
+      { absolutePath: '\\file.txt', rootPath: '/workspace' },
+    ])(
+      'rejects malformed explicit read authority root=$rootPath path=$absolutePath',
+      async ({ absolutePath, rootPath }) => {
+        mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue('unsafe-content');
+
+        await expect(
+          adapter.readFileByAbsolutePath(absolutePath, rootPath, 'root-project')
+        ).rejects.toThrow('absolute path');
+        expect(mockElectronAPI.fileSystem.readFileByPath).not.toHaveBeenCalled();
+      }
+    );
+
+    it('rejects missing durable root identity before invoking the bridge', async () => {
+      await expect(
+        adapter.readFileByAbsolutePath('/workspace/file.txt', '/workspace', '')
+      ).rejects.toThrow('durable rootId');
+      expect(mockElectronAPI.fileSystem.readFileByAbsolutePath).not.toHaveBeenCalled();
+    });
+  });
+
   describe('addRoot', () => {
     it('should call electronAPI.fileSystem.addRoot and return the descriptor', async () => {
       const mockDescriptor = {
@@ -280,7 +325,7 @@ describe('watcher health capability (BST-568 slice 3)', () => {
   }
 
   let adapter: ElectronRendererFileSystemAdapter;
-  let pushHealth: ((event: ReturnType<typeof makeHealthEvent>) => void) | null;
+  let pushHealth: ((event: WatcherHealthEvent) => void) | null;
 
   beforeEach(() => {
     __resetFsWatchDispatcherForTest();
@@ -288,7 +333,7 @@ describe('watcher health capability (BST-568 slice 3)', () => {
     vi.clearAllMocks();
     pushHealth = null;
     vi.mocked(mockElectronAPI.fileSystem.onWatchHealth).mockImplementation(
-      (callback: (event: unknown) => void) => {
+      (callback: (event: WatcherHealthEvent) => void) => {
         pushHealth = callback;
         return () => {
           pushHealth = null;
@@ -593,7 +638,14 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
   ];
 
   let adapter: ElectronRendererFileSystemAdapter;
-  let pushEvent: ((event: { changes: typeof sampleChanges; watchId: string }) => void) | null;
+  let pushEvent:
+    | ((event: {
+        changes: typeof sampleChanges;
+        filteredChangeBoundaries?: readonly string[];
+        filteredChangeBoundariesOverflow?: true;
+        watchId: string;
+      }) => void)
+    | null;
   let unsubscribe: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -603,7 +655,12 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
     pushEvent = null;
     unsubscribe = vi.fn();
     mockElectronAPI.fileSystem.onWatchEvent.mockImplementation(((
-      callback: (event: { changes: typeof sampleChanges; watchId: string }) => void
+      callback: (event: {
+        changes: typeof sampleChanges;
+        filteredChangeBoundaries?: readonly string[];
+        filteredChangeBoundariesOverflow?: true;
+        watchId: string;
+      }) => void
     ) => {
       pushEvent = callback;
       return unsubscribe;
@@ -621,6 +678,26 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
 
     pushEvent?.({ changes: sampleChanges, watchId: 'watch-1' });
     expect(onChanges).toHaveBeenCalledWith(sampleChanges);
+  });
+
+  it('forwards filtered-boundary evidence through the existing shared watch callback', async () => {
+    const onChanges = vi.fn();
+
+    adapter.watchDirectory(handle, onChanges);
+    await vi.waitFor(() => {
+      expect(pushEvent).not.toBeNull();
+    });
+
+    pushEvent?.({
+      changes: [],
+      filteredChangeBoundaries: ['packages/app/dist'],
+      filteredChangeBoundariesOverflow: true,
+      watchId: 'watch-1',
+    });
+    expect(onChanges).toHaveBeenCalledWith([], {
+      filteredChangeBoundaries: ['packages/app/dist'],
+      filteredChangeBoundariesOverflow: true,
+    });
   });
 
   it('ignores change events stamped with a different watchId', async () => {

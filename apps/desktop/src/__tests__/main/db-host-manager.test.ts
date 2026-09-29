@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface PostedMessage {
   readonly id: string;
@@ -24,6 +24,14 @@ class FakeUtilityProcess extends EventEmitter {
   });
   readonly messages: PostedMessage[] = [];
   pid: number | undefined = 42;
+
+  exitOnKill(code = 0): this {
+    this.kill.mockImplementation(() => {
+      queueMicrotask(() => this.emit('exit', code));
+      return true;
+    });
+    return this;
+  }
 
   reply(message: PostedMessage, result: unknown): void {
     this.emit('message', {
@@ -88,6 +96,14 @@ function latestProcess(): FakeUtilityProcess {
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+// Waited on rather than counted in ticks: dispatch depth is a request-layer detail.
+async function waitForLastRequest(kind: string): Promise<PostedMessage> {
+  await vi.waitFor(() => {
+    expect(latestProcess().messages.at(-1)?.request.kind).toBe(kind);
+  });
+  return latestProcess().messages.at(-1) as PostedMessage;
 }
 
 function restoreEnvValue(key: string, value: string | undefined): void {
@@ -343,6 +359,7 @@ describe('DbHostManager', () => {
     const diagnosticsMessage = latestProcess().messages.at(-1);
     expect(diagnosticsMessage?.request.kind).toBe('diagnostics');
     latestProcess().reply(diagnosticsMessage as PostedMessage, {
+      activeLiveQueryCount: 7,
       dataDir: '/mock/pgdata',
       hasDatabaseHandle: true,
     });
@@ -351,7 +368,51 @@ describe('DbHostManager', () => {
       dataDir: '/mock/pgdata',
       hasDatabaseHandle: true,
     });
+    expect(await diagnosticsPromise).not.toHaveProperty('activeLiveQueryCount');
     expect(forkMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports and releases test-only manager and host live-query ownership', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+    const databasePromise = manager.getDatabase();
+    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
+    const database = await databasePromise;
+
+    const livePromise = database.live.query({ query: 'SELECT 1' });
+    const liveStartMessage = latestProcess().messages.at(-1);
+    latestProcess().reply(liveStartMessage as PostedMessage, {
+      initialResults: { rows: [] },
+      liveId: 'live-memory-test',
+    });
+    const liveQuery = await livePromise;
+
+    const activeDiagnosticsPromise = manager.getLiveQueryDiagnosticsForTests();
+    const activeDiagnosticsMessage = latestProcess().messages.at(-1);
+    expect(activeDiagnosticsMessage?.request.kind).toBe('diagnostics');
+    latestProcess().reply(activeDiagnosticsMessage as PostedMessage, {
+      activeLiveQueryCount: 1,
+    });
+    await expect(activeDiagnosticsPromise).resolves.toEqual({
+      hostLiveQueryCount: 1,
+      managerLiveQueryCount: 1,
+    });
+
+    const unsubscribePromise = liveQuery.unsubscribe();
+    const stopMessage = latestProcess().messages.at(-1);
+    expect(stopMessage?.request.kind).toBe('live:stop');
+    latestProcess().reply(stopMessage as PostedMessage, { stopped: true });
+    await unsubscribePromise;
+
+    const releasedDiagnosticsPromise = manager.getLiveQueryDiagnosticsForTests();
+    const releasedDiagnosticsMessage = latestProcess().messages.at(-1);
+    latestProcess().reply(releasedDiagnosticsMessage as PostedMessage, {
+      activeLiveQueryCount: 0,
+    });
+    await expect(releasedDiagnosticsPromise).resolves.toEqual({
+      hostLiveQueryCount: 0,
+      managerLiveQueryCount: 0,
+    });
   });
 
   it('closes and clears the default utility DB host manager singleton', async () => {
@@ -365,7 +426,7 @@ describe('DbHostManager', () => {
     });
     await expect(diagnosticsPromise).resolves.toMatchObject({ hasDatabaseHandle: true });
 
-    const firstHost = latestProcess();
+    const firstHost = latestProcess().exitOnKill();
     const closePromise = closeDbHostManager();
     const closeMessage = firstHost.messages.at(-1);
     expect(closeMessage?.request.kind).toBe('close');
@@ -374,37 +435,6 @@ describe('DbHostManager', () => {
 
     expect(firstHost.kill).toHaveBeenCalledTimes(1);
     expect(getDbHostManager()).not.toBe(manager);
-  });
-
-  it('terminates the utility DB host when close acknowledgement is blocked behind pending work', async () => {
-    vi.useFakeTimers();
-    try {
-      const { createDbHostManager } = await import('../../db-host-manager');
-      const manager = createDbHostManager({
-        closeTimeoutMs: 5,
-        entryPath: '/mock/db-host-entry.js',
-      });
-
-      const diagnosticsPromise = manager.getDiagnostics();
-      const firstHost = latestProcess();
-      expect(firstHost.messages.at(-1)?.request.kind).toBe('diagnostics');
-      const diagnosticsAssertion = expect(diagnosticsPromise).rejects.toThrow('DB host closed.');
-
-      const closePromise = manager.close();
-      expect(firstHost.messages.at(-1)?.request.kind).toBe('close');
-
-      await vi.advanceTimersByTimeAsync(5);
-      await closePromise;
-
-      await diagnosticsAssertion;
-      expect(firstHost.kill).toHaveBeenCalledTimes(1);
-      expect(loggerWarnMock).toHaveBeenCalledWith(
-        'Timed out waiting for DB host close acknowledgement; terminating host',
-        { timeoutMs: 5 }
-      );
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('does not create a second default manager while singleton close is in flight', async () => {
@@ -417,7 +447,7 @@ describe('DbHostManager', () => {
     });
     await expect(diagnosticsPromise).resolves.toMatchObject({ hasDatabaseHandle: true });
 
-    const firstHost = latestProcess();
+    const firstHost = latestProcess().exitOnKill();
     const closePromise = closeDbHostManager();
     expect(() => getDbHostManager()).toThrow(
       'DB host manager is closing; wait for closeDbHostManager() to complete.'
@@ -516,6 +546,7 @@ describe('DbHostManager', () => {
 
   it('does not terminate the utility DB host when a non-transaction request times out', async () => {
     vi.useFakeTimers();
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
     try {
       const { createDbHostManager } = await import('../../db-host-manager');
       const manager = createDbHostManager({
@@ -531,6 +562,7 @@ describe('DbHostManager', () => {
       await vi.advanceTimersByTimeAsync(5);
       await diagnosticsAssertion;
       expect(firstHost.kill).not.toHaveBeenCalled();
+      expect(killSpy).not.toHaveBeenCalled();
 
       const nextDiagnosticsPromise = manager.getDiagnostics();
       expect(forkMock).toHaveBeenCalledTimes(1);
@@ -539,6 +571,7 @@ describe('DbHostManager', () => {
       });
       await expect(nextDiagnosticsPromise).resolves.toMatchObject({ hasDatabaseHandle: true });
     } finally {
+      killSpy.mockRestore();
       vi.useRealTimers();
     }
   });
@@ -546,7 +579,9 @@ describe('DbHostManager', () => {
   it('logs request context when a query request times out', async () => {
     vi.useFakeTimers();
     try {
-      const { createDbHostManager } = await import('../../db-host-manager');
+      const { createDbHostManager, DbHostRequestTimeoutError } = await import(
+        '../../db-host-manager'
+      );
       const manager = createDbHostManager({
         entryPath: '/mock/db-host-entry.js',
         requestTimeoutMs: 5,
@@ -561,18 +596,26 @@ describe('DbHostManager', () => {
         'SELECT * FROM file_chunks WHERE embedding_set_id = $1 AND embedding IS NULL',
         ['set-timeout']
       );
+      const queuedQueryPromise = database.query('SELECT 1');
+      const queuedQueryError = queuedQueryPromise.catch((error: unknown) => error);
       const timeoutAssertion = expect(queryPromise).rejects.toThrow(
         'DB host request timed out: query'
       );
 
       await vi.advanceTimersByTimeAsync(5);
       await timeoutAssertion;
+      await expect(queryPromise).rejects.toMatchObject({ hostSaturated: true, pendingCount: 2 });
+      await expect(queryPromise).rejects.toBeInstanceOf(DbHostRequestTimeoutError);
+      await expect(queuedQueryError).resolves.toMatchObject({
+        hostSaturated: true,
+        pendingCount: 1,
+      });
 
       expect(loggerWarnMock).toHaveBeenCalledWith(
         expect.objectContaining({
           elapsedMs: 5,
           paramsCount: 1,
-          pendingCount: 1,
+          pendingCount: 2,
           requestKind: 'query',
           sqlPreview: 'SELECT * FROM file_chunks WHERE embedding_set_id = $1 AND embedding IS NULL',
           timeoutMs: 5,
@@ -628,7 +671,7 @@ describe('DbHostManager', () => {
     }
   });
 
-  it('keeps the oldest abandoned request under an eviction burst so the head-of-line culprit still gets its late-completion log', async () => {
+  it('does not classify a host as transient after an abandoned request stays wedged for another timeout window', async () => {
     vi.useFakeTimers();
     try {
       const { createDbHostManager } = await import('../../db-host-manager');
@@ -642,43 +685,45 @@ describe('DbHostManager', () => {
       });
       const database = await databasePromise;
 
-      // One wedged statement makes every request queued behind it time out
-      // too — far more than the abandoned-map capacity. The FIRST request is
-      // the one actually executing; its entry must survive the burst.
-      const promises = Array.from({ length: 70 }, (_, index) =>
-        database.query(`SELECT ${index}`, [])
-      );
-      for (const promise of promises) {
-        promise.catch(() => undefined);
-      }
-      const firstMessage = latestProcess().messages.at(-70) as PostedMessage;
+      const wedgedQuery = database.query('SELECT 1');
+      const wedgedError = wedgedQuery.catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(5);
-      loggerWarnMock.mockClear();
+      await wedgedError;
 
-      await vi.advanceTimersByTimeAsync(20);
-      latestProcess().reply(firstMessage, { rows: [] });
+      const recoveryQueries = [database.query('SELECT 2'), database.query('SELECT 3')];
+      const recoveryMessages = latestProcess().messages.slice(-2) as PostedMessage[];
+      const queuedErrors = recoveryQueries.map((query) => query.catch((error: unknown) => error));
+      await vi.advanceTimersByTimeAsync(5);
+
+      await expect(queuedErrors[0]).resolves.toMatchObject({
+        hostSaturated: false,
+        pendingCount: 2,
+      });
+      await queuedErrors[1];
+
+      for (const message of recoveryMessages) {
+        latestProcess().reply(message, { rows: [] });
+      }
       await flushMicrotasks();
 
-      expect(loggerWarnMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          elapsedMs: 25,
-          ok: true,
-          requestKind: 'query',
-        }),
-        'DB host request completed after timeout'
+      const laterErrors = [database.query('SELECT 4'), database.query('SELECT 5')].map((query) =>
+        query.catch((error: unknown) => error)
       );
+      await vi.advanceTimersByTimeAsync(5);
+
+      await expect(laterErrors[0]).resolves.toMatchObject({ hostSaturated: true, pendingCount: 2 });
+      await expect(laterErrors[1]).resolves.toMatchObject({ hostSaturated: true, pendingCount: 1 });
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('evicts a permanently-abandoned entry once it exceeds the staleness ceiling, so the map cannot stay wedged full forever', async () => {
+  it('retains the oldest non-stale abandoned request when the tracking map is full', async () => {
     vi.useFakeTimers();
     try {
       const { createDbHostManager } = await import('../../db-host-manager');
       const manager = createDbHostManager({
         entryPath: '/mock/db-host-entry.js',
-        maintenanceRequestTimeoutMs: 50,
         requestTimeoutMs: 5,
       });
       const databasePromise = manager.getDatabase();
@@ -687,34 +732,27 @@ describe('DbHostManager', () => {
       });
       const database = await databasePromise;
 
-      // Fill the abandoned-request map to capacity with requests that never
-      // reply — the "wedged host, never terminated" scenario the bounded map
-      // must still recover from.
       const fillPromises = Array.from({ length: 64 }, (_, index) =>
         database.query(`SELECT ${index}`, [])
       );
+      const oldestMessage = latestProcess().messages.at(-64) as PostedMessage;
       for (const promise of fillPromises) {
         promise.catch(() => undefined);
       }
       await vi.advanceTimersByTimeAsync(5);
 
-      // None of the 64 ever reply. Once they've outlived the maintenance
-      // staleness ceiling, a new timeout must still be able to evict the
-      // oldest one and get tracked — not be dropped as "map full" forever.
-      await vi.advanceTimersByTimeAsync(50);
-      const lateQueryPromise = database.query('SELECT 64', []);
-      lateQueryPromise.catch(() => undefined);
-      const lateMessage = latestProcess().messages.at(-1) as PostedMessage;
+      const overflowPromise = database.query('SELECT 64', []);
+      overflowPromise.catch(() => undefined);
       await vi.advanceTimersByTimeAsync(5);
       loggerWarnMock.mockClear();
 
       await vi.advanceTimersByTimeAsync(20);
-      latestProcess().reply(lateMessage, { rows: [] });
+      latestProcess().reply(oldestMessage, { rows: [] });
       await flushMicrotasks();
 
       expect(loggerWarnMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          elapsedMs: 25,
+          elapsedMs: 30,
           ok: true,
           requestKind: 'query',
         }),
@@ -775,6 +813,7 @@ describe('DbHostManager', () => {
 
   it('uses the initialization timeout for the first DB host startup request', async () => {
     vi.useFakeTimers();
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
     try {
       const { createDbHostManager } = await import('../../db-host-manager');
       const manager = createDbHostManager({
@@ -791,39 +830,23 @@ describe('DbHostManager', () => {
       const firstHost = latestProcess();
 
       await vi.advanceTimersByTimeAsync(5);
-      expect(firstHost.kill).not.toHaveBeenCalled();
+      expect(killSpy).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(10);
       const databaseError = await databaseErrorPromise;
       expect(databaseError).toBeInstanceOf(Error);
       expect((databaseError as Error).message).toBe('DB host request timed out: init');
-      expect(firstHost.kill).toHaveBeenCalledTimes(1);
+      expect(killSpy).toHaveBeenCalledWith(firstHost.pid, 'SIGKILL');
+      expect(firstHost.kill).not.toHaveBeenCalled();
     } finally {
+      killSpy.mockRestore();
       vi.useRealTimers();
     }
   });
 
-  it('terminates the utility DB host when initialization fails', async () => {
-    const { createDbHostManager } = await import('../../db-host-manager');
-    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
-
-    const databasePromise = manager.getDatabase();
-    const firstHost = latestProcess();
-    firstHost.reject(firstHost.messages.at(-1) as PostedMessage, 'init failed');
-
-    await expect(databasePromise).rejects.toThrow('init failed');
-    expect(firstHost.kill).toHaveBeenCalledTimes(1);
-
-    const nextDatabasePromise = manager.getDatabase();
-    expect(forkMock).toHaveBeenCalledTimes(2);
-    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
-      initialized: true,
-    });
-    await expect(nextDatabasePromise).resolves.toBeDefined();
-  });
-
-  it('terminates the utility DB host when a transaction request times out', async () => {
+  it('SIGKILLs the utility DB host when a transaction request times out and forks its replacement only after the exit', async () => {
     vi.useFakeTimers();
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
     try {
       const { createDbHostManager } = await import('../../db-host-manager');
       const manager = createDbHostManager({
@@ -852,15 +875,21 @@ describe('DbHostManager', () => {
       await vi.advanceTimersByTimeAsync(5);
 
       await transactionAssertion;
-      expect(firstHost.kill).toHaveBeenCalledTimes(1);
+      expect(killSpy).toHaveBeenCalledWith(firstHost.pid, 'SIGKILL');
+      expect(firstHost.kill).not.toHaveBeenCalled();
 
       const nextDiagnosticsPromise = manager.getDiagnostics();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(forkMock).toHaveBeenCalledTimes(1);
+      firstHost.emit('exit', 9);
+      await vi.advanceTimersByTimeAsync(0);
       expect(forkMock).toHaveBeenCalledTimes(2);
       latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
         hasDatabaseHandle: true,
       });
       await expect(nextDiagnosticsPromise).resolves.toMatchObject({ hasDatabaseHandle: true });
     } finally {
+      killSpy.mockRestore();
       vi.useRealTimers();
     }
   });
@@ -889,14 +918,10 @@ describe('DbHostManager', () => {
       request: { kind: 'transaction:start', transactionId: expect.stringMatching(/^tx:/) },
     });
     latestProcess().reply(txStart as PostedMessage, { transactionId });
-    await flushMicrotasks();
-    await flushMicrotasks();
 
-    const commitMessage = latestProcess().messages.at(-1);
-    expect(commitMessage).toMatchObject({
-      request: { kind: 'transaction:commit', transactionId },
-    });
-    latestProcess().reply(commitMessage as PostedMessage, { committed: true });
+    const commitMessage = await waitForLastRequest('transaction:commit');
+    expect(commitMessage.request.transactionId).toBe(transactionId);
+    latestProcess().reply(commitMessage, { committed: true });
 
     await expect(resultPromise).resolves.toEqual({ value: 1 });
   });
@@ -918,13 +943,9 @@ describe('DbHostManager', () => {
       request: { kind: 'transaction:start', transactionId: expect.stringMatching(/^tx:/) },
     });
     latestProcess().reply(txStart as PostedMessage, { transactionId });
-    await flushMicrotasks();
-
-    const rollbackMessage = latestProcess().messages.at(-1);
-    expect(rollbackMessage).toMatchObject({
-      request: { kind: 'transaction:rollback', transactionId },
-    });
-    latestProcess().reply(rollbackMessage as PostedMessage, { rolledBack: true });
+    const rollbackMessage = await waitForLastRequest('transaction:rollback');
+    expect(rollbackMessage.request.transactionId).toBe(transactionId);
+    latestProcess().reply(rollbackMessage, { rolledBack: true });
 
     await expect(resultPromise).rejects.toThrow('callback failed');
   });

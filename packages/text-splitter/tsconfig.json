@@ -10,12 +10,7 @@
     "types": [
       "node"
     ],
-    "strictNullChecks": true,
-    "paths": {
-      "@brainstrike/tokenization": [
-        "../tokenization/dist/index.d.ts"
-      ]
-    }
+    "strictNullChecks": true
   },
   "include": [
     "src/**/*"
@@ -27,7 +22,7 @@
   ],
   "references": [
     {
-      "path": "../tokenization"
+      "path": "../indexing-contract"
     }
   ]
 }

@@ -21,6 +21,7 @@
  */
 import { getMastraResetTables, getResetTables, wasmLoader } from '@brainstrike/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 import {
   getDatabaseMock,
   handlers,
@@ -57,13 +58,28 @@ const PRESENT_RELATIONS = [
   'brainstrike_assistant_thread_placements',
   // Per-thread workspace snapshots (migration 095, BST-1268).
   'brainstrike_assistant_thread_workspaces',
+  'brainstrike_delegation_step_reservations',
+  'brainstrike_delegation_child_budgets',
+  'brainstrike_delegation_budgets',
+  'brainstrike_delegated_tool_decisions',
+  'brainstrike_delegated_continuation_decisions',
+  'brainstrike_delegated_continuations',
+  'brainstrike_delegated_invocations',
+  'brainstrike_delegated_conversations',
   'prompt_items',
   'brainstrike_assistant_tool_output_artifacts',
   'brainstrike_canvas_versions',
   'brainstrike_tool_call_telemetry',
   'brainstrike_token_estimate_calibration',
   'brainstrike_diagnostic_events',
+  // Forge PR cache (migration 110, BST-1391).
+  'brainstrike_forge_prs',
+  // Managed-worktree ledger (migration 109, BST-1390).
+  'brainstrike_worktrees',
   'brainstrike_mind_ops',
+  // Principal-bound MCP Tasks handles and durable authority epochs (migration 114, BST-1562).
+  'brainstrike_mcp_tasks',
+  'brainstrike_mcp_task_authorities',
   'brainstrike_thread_message_index',
   'brainstrike_thread_search_state',
   'brainstrike_workspace_snapshots',
@@ -77,6 +93,7 @@ const PRESENT_RELATIONS = [
  * absence does not abort the reset transaction.
  */
 const LAZY_MASTRA_RELATIONS = [
+  'mastra_background_tasks',
   'mastra_messages',
   'mastra_observational_memory',
   'mastra_resources',
@@ -139,7 +156,10 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
   it('commits the clear when the lazy Mastra relations were never created', async () => {
     const handler = handlers.get('db:clearAll');
 
-    const result = (await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE')) as ClearAllResult;
+    const result = (await handler?.(
+      createTrustedInvokeEvent(),
+      'CONFIRM_CLEAR_DATABASE'
+    )) as ClearAllResult;
 
     // Asserting the message too, so a regression reports the actual Postgres
     // error (`25P02 …transaction is aborted…`) instead of a bare `false`.
@@ -174,7 +194,10 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     await db.exec('DROP TABLE roots');
     const handler = handlers.get('db:clearAll');
 
-    const result = (await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE')) as ClearAllResult;
+    const result = (await handler?.(
+      createTrustedInvokeEvent(),
+      'CONFIRM_CLEAR_DATABASE'
+    )) as ClearAllResult;
 
     expect(result).toMatchObject({ message: 'Database cleared successfully', success: true });
     expect(await countRows('prompt_items')).toBe(0);
@@ -204,7 +227,10 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     `);
     const handler = handlers.get('db:clearAll');
 
-    const result = (await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE')) as ClearAllResult;
+    const result = (await handler?.(
+      createTrustedInvokeEvent(),
+      'CONFIRM_CLEAR_DATABASE'
+    )) as ClearAllResult;
 
     expect(result.success).toBe(false);
     expect(result.message).toMatch(/violates foreign key constraint/iu);
@@ -228,7 +254,10 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     `);
     const handler = handlers.get('db:clearAll');
 
-    const result = (await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE')) as ClearAllResult;
+    const result = (await handler?.(
+      createTrustedInvokeEvent(),
+      'CONFIRM_CLEAR_DATABASE'
+    )) as ClearAllResult;
 
     expect(result).toMatchObject({ success: true });
     for (const table of LAZY_MASTRA_RELATIONS) {

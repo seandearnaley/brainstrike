@@ -12,7 +12,8 @@ import {
 describe('provider registry metadata', () => {
   it('lists all supported providers with display names', () => {
     const providers = listProviders();
-    expect(providers).toHaveLength(9);
+    // 11 since BST-1356 added `openai-codex` (ChatGPT subscription).
+    expect(providers).toHaveLength(11);
 
     for (const provider of providers) {
       expect(typeof provider.displayName).toBe('string');
@@ -45,10 +46,21 @@ describe('provider registry metadata', () => {
   });
 
   it('surface provider environment key precedence', () => {
-    const envKeys = providerEnvKeys('openai');
-    expect(envKeys[0]).toBe('BRAINSTRIKE_OPENAI_API_KEY');
-    expect(envKeys[1]).toBe('BS_OPENAI_API_KEY');
-    expect(envKeys).toContain('OPENAI_API_KEY');
-    expect(envKeys).toContain('AI_OPENAI_API_KEY');
+    // BST-1361: exactly two names — app-scoped override first, vendor second.
+    expect(providerEnvKeys('openai')).toEqual(['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY']);
+    expect(providerEnvKeys('anthropic')).toEqual([
+      'BRAINSTRIKE_ANTHROPIC_API_KEY',
+      'ANTHROPIC_API_KEY',
+    ]);
+    expect(providerEnvKeys('google')).toEqual([
+      'BRAINSTRIKE_GOOGLE_API_KEY',
+      'GOOGLE_GENERATIVE_AI_API_KEY',
+    ]);
+    // BST-1350: bedrock keeps the same override-first order; the vendor name
+    // is AWS's documented bearer variable for Bedrock API keys.
+    expect(providerEnvKeys('bedrock')).toEqual([
+      'BRAINSTRIKE_BEDROCK_API_KEY',
+      'AWS_BEARER_TOKEN_BEDROCK',
+    ]);
   });
 });

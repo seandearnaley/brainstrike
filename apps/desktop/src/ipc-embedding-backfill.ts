@@ -13,6 +13,7 @@ import {
   type GpuMemoryReclaimConfig,
   type GpuMemoryReclaimMode,
 } from './backfill-maintenance-coordinator';
+import { assertBackgroundDatabaseWorkAdmitted } from './database-integrity-state';
 import { getDatabase } from './db-main';
 import { isDesktopShuttingDown, isExpectedBackfillTeardown } from './desktop-shutdown-state';
 import {
@@ -327,6 +328,10 @@ export async function runDesktopEmbeddingBackfill(params: {
     onDetachedFailure,
     source,
   } = params;
+  // Backfills are background database work: while an integrity error is
+  // contained, refuse before the host starts or an in-flight entry exists.
+  // Runs already in flight were canceled at the transition.
+  assertBackgroundDatabaseWorkAdmitted();
   const inFlightBackfill = embeddingBackfillsInFlight.get(normalizedEmbeddingSetId);
   if (inFlightBackfill) {
     if (source === 'background-indexing') {
@@ -374,6 +379,11 @@ export async function runDesktopEmbeddingBackfill(params: {
   embeddingBackfillsInFlight.set(normalizedEmbeddingSetId, inFlightState);
 
   const runBackfill = async (): Promise<void> => {
+    if (isDesktopShuttingDown()) {
+      // Starting the host now would recreate a hidden renderer that graceful
+      // shutdown is about to dispose. Job rows stay durable for the next launch.
+      throw new Error('Desktop is shutting down; the embedding backfill was not started.');
+    }
     const hostStatus = await hostManager.ensureStarted({ waitForRunning: true });
     if (hostStatus.state !== 'running') {
       throw new Error(hostStatus.lastError ?? 'Embedding host failed to reach the running state.');
@@ -514,9 +524,9 @@ export async function runDesktopEmbeddingBackfill(params: {
 
   if (source === 'background-indexing') {
     void runBackfillWithLifecycle().catch(async (error: unknown) => {
-      // The IPC request has already resolved, so its corruption wrapper cannot
-      // observe this terminal failure. Route it back through the composition
-      // root after lifecycle cleanup has settled.
+      // The IPC request has already resolved, so its containment wrapper cannot
+      // observe this terminal failure. Route it back to the IPC domain after
+      // lifecycle cleanup has settled.
       try {
         await onDetachedFailure(error);
       } catch (handlerError) {

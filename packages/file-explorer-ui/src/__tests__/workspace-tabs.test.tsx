@@ -2,7 +2,7 @@ import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
 import { act, fireEvent, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LayoutGrid } from 'lucide-react';
-import { useEffect } from 'react';
+import { type CSSProperties, useEffect } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseTabManagerReturn } from '../hooks/use-tab-manager';
 import { useWorkspaceTabs } from '../shell/use-workspace-tabs';
@@ -29,11 +29,12 @@ vi.mock('../shell/file-tab-explorer-pane', () => ({
 vi.mock('../shell/use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(() => ({
     canLoadWithoutTree: false,
+    fileContentErrors: new Map<string, Error>(),
     fileContents: {},
     fileTree: [],
-    loadFileContent: vi.fn(),
+    loadFileContent: vi.fn().mockResolvedValue(undefined),
     loadingFiles: new Set<string>(),
-    loadMultipleFileContents: vi.fn(),
+    loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
     rootDirectoryHandle: null,
   })),
 }));
@@ -130,6 +131,40 @@ describe('workspace tabs — apps, launcher, selection', () => {
     expect(tabs[2]).toHaveAccessibleName(/canvas/i);
   });
 
+  it('paints a dynamic conversation tab through its validated style and compact icon tile', async () => {
+    useWorkspaceTabSelectionStore.getState().openApp('changes');
+    renderWorkspace([
+      FILES_APP,
+      {
+        ...CHANGES_APP,
+        placement: 'dynamic',
+        tabAppearance: {
+          accentClassName: 'bg-green-500',
+          colorId: 'family:1375:540',
+          idleClassName: 'bs-agent-family-idle',
+          markClassName: 'bs-agent-family-mark',
+          selectedClassName: 'bs-agent-family-selected',
+          style: {
+            '--agent-accent-dark': 'oklch(0.760 0.131 137.5)',
+            '--agent-accent-light': 'oklch(0.520 0.160 137.5)',
+          } as CSSProperties,
+        },
+      },
+    ]);
+    const tab = await screen.findByTestId('workspace-app-tab-changes');
+    // The shared TabStrip paints the identity tint on the tab shell; the
+    // consumer's `data-agent-color` hook now rides on the role=tab button.
+    const surface = tab.parentElement;
+    expect(tab).toHaveAttribute('data-agent-color', 'family:1375:540');
+    expect(surface).toHaveClass('bs-agent-family-selected');
+    expect((surface as HTMLElement).style.getPropertyValue('--agent-accent-light')).toMatch(
+      /^oklch\(/
+    );
+    expect(screen.getByTestId('workspace-agent-mark')).toContainElement(tab.querySelector('svg'));
+    expect(screen.getByTestId('workspace-agent-mark')).toHaveClass('bs-agent-family-mark');
+    expect(tab.querySelector('.w-0\\.5')).toBeNull();
+  });
+
   it('does not render tabs for registered apps that are not open', async () => {
     renderWorkspace([FILES_APP, CHANGES_APP, CANVAS_APP]);
 
@@ -142,7 +177,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
     const user = userEvent.setup();
     renderWorkspace();
 
-    await user.click(await screen.findByRole('button', { name: /close files/i }));
+    await user.click(await screen.findByTestId('workspace-app-tab-close-context-explorer'));
 
     expect(await screen.findByTestId('workspace-launcher')).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /files/i })).not.toBeInTheDocument();
@@ -188,7 +223,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
 
     renderWorkspace();
 
-    await user.click(await screen.findByRole('button', { name: /close files/i }));
+    await user.click(await screen.findByTestId('workspace-app-tab-close-context-explorer'));
 
     await waitFor(() => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
@@ -214,6 +249,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
       icon: LayoutGrid,
       id: 'context-explorer',
       label: 'Files',
+      placement: 'pinned',
       render: () => <MountProbe />,
     };
     renderWorkspace([probeApp, CHANGES_APP]);
@@ -237,7 +273,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
 
     // CLOSING the tab unmounts the surface — the ✕ is the user's lever to
     // release a runaway Canvas iframe (review finding).
-    await user.click(await screen.findByRole('button', { name: /close files/i }));
+    await user.click(await screen.findByTestId('workspace-app-tab-close-context-explorer'));
     await waitFor(() => {
       expect(screen.queryByTestId('probe-body')).not.toBeInTheDocument();
     });
@@ -261,7 +297,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
     const changesTab = await screen.findByRole('tab', { name: /changes/i });
     filesTab.focus();
 
-    fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowRight' });
+    fireEvent.keyDown(filesTab, { key: 'ArrowRight' });
 
     expect(changesTab).toHaveFocus();
     // Selection did NOT follow focus — activating a needs-permission file tab
@@ -278,15 +314,17 @@ describe('workspace tabs — apps, launcher, selection', () => {
 
     const tablist = await screen.findByRole('tablist');
     // Every focusable child of the tablist is a tab (close buttons are
-    // tabIndex=-1; chevrons and the overflow menu live OUTSIDE the tablist).
+    // aria-hidden and tabIndex=-1; strip controls live OUTSIDE the tablist).
     for (const button of Array.from(tablist.querySelectorAll('button'))) {
       if (button.getAttribute('role') === 'tab') {
         continue;
       }
       expect(button).toHaveAttribute('tabindex', '-1');
+      expect(button).toHaveAttribute('aria-hidden', 'true');
     }
-    // Chevrons and the ⋯ overflow menu are NOT tablist children.
-    expect(tablist.contains(screen.getByRole('button', { name: /more tab actions/i }))).toBe(false);
+    // The All-tabs and "+" menus are NOT tablist children.
+    expect(tablist.contains(screen.getByRole('button', { name: 'All tabs' }))).toBe(false);
+    expect(tablist.contains(screen.getByTestId('workspace-add-tab'))).toBe(false);
   });
 
   it('Delete closes the focused tab and moves focus to its successor', async () => {
@@ -297,7 +335,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
     const filesTab = await screen.findByRole('tab', { name: /files/i });
     filesTab.focus();
 
-    fireEvent.keyDown(screen.getByRole('tablist'), { key: 'Delete' });
+    fireEvent.keyDown(filesTab, { key: 'Delete' });
 
     await waitFor(() => {
       expect(screen.queryByRole('tab', { name: /files/i })).not.toBeInTheDocument();
@@ -383,18 +421,18 @@ describe('workspace tabs — apps, launcher, selection', () => {
     const tab = await screen.findByRole('tab', { name: /deleted\.ts/i });
     expect(tab).toBeInTheDocument();
     expect(closeTab).not.toHaveBeenCalled();
-    // Marked as deleted: distinct data-state for styling/e2e and an
-    // accessible-name suffix so screen readers hear the deletion.
-    expect(tab).toHaveAttribute('data-state', 'not-found');
-    expect(tab).toHaveAccessibleName('deleted.ts (deleted)');
+    // Marked as deleted: the status icon replaces the file icon and the
+    // status text joins the accessible name (TabStrip status contract).
+    expect(tab.querySelector('[data-tab-status="deleted"]')).not.toBeNull();
+    expect(tab).toHaveAccessibleName('deleted.ts, deleted');
     // Body explains the deletion.
     expect(await screen.findByText('File Not Found')).toBeInTheDocument();
   });
 
-  it('does not invent a context menu for workspace app tabs', async () => {
+  it('opens the workspace-app-tab menu on an app tab (BST-1836 D4)', async () => {
     renderWorkspace();
 
     fireEvent.contextMenu(await screen.findByRole('tab', { name: /files/i }));
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(await screen.findByRole('menuitem', { name: 'Close' })).toBeInTheDocument();
   });
 });

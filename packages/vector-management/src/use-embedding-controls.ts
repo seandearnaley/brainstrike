@@ -1,12 +1,11 @@
 import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db/react';
-// Import types to ensure global Window augmentation is available
-import '@brainstrike/types';
 import { useCallback, useRef } from 'react';
 import type { EmbeddingActionsDropdownProps } from './embedding-actions-dropdown';
 import { useSharedEmbeddingRuntime } from './embedding-runtime-provider';
 import type { EmbeddingStatusBarProps } from './embedding-status-bar';
 import { getBackfillDisabledState } from './vector-status/backfill-utils';
+import { getEmbeddingHostApi } from './vector-status/embedding-runtime-controller';
 import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';
 
@@ -32,25 +31,16 @@ export interface UseEmbeddingControlsResult {
 }
 
 /**
- * Detect if running in Electron renderer.
- * Uses the global Window augmentation from @brainstrike/types.
- */
-function isElectronRenderer(): boolean {
-  return typeof window !== 'undefined' && window.electronAPI !== undefined;
-}
-
-/**
  * Determine worker status from various state flags.
- * Uses the global Window augmentation from @brainstrike/types.
  */
 function getWorkerStatus(
+  isWeb: boolean,
   queueCounts: { failed: number; running: number },
   startWorkerError: string | null,
   startingWorker: boolean,
   workerLocalRunning: boolean,
   throughput: number
 ): 'running' | 'error' | 'disabled' | 'initializing' {
-  const isWeb = typeof window !== 'undefined' && window.electronAPI === undefined;
   if (queueCounts.failed > 0 || startWorkerError) {
     return 'error';
   }
@@ -147,8 +137,8 @@ export function useEmbeddingControls({
   validateApiKeyRef.current = queueState.validateApiKey;
 
   // Determine if we need to auto-start worker (web platform only)
-  const isWebPlatform = typeof window !== 'undefined' && !isElectronRenderer();
-  const isDesktopPlatform = typeof window !== 'undefined' && isElectronRenderer();
+  const isDesktopPlatform = getEmbeddingHostApi() !== null;
+  const isWebPlatform = typeof window !== 'undefined' && !isDesktopPlatform;
   const needsWorkerStart =
     isWebPlatform && !workerControls.workerLocalRunning && !workerControls.startingWorker;
   const dropdownStartingWorker =
@@ -223,6 +213,7 @@ export function useEmbeddingControls({
 
   // Worker status for status bar
   const workerStatus = getWorkerStatus(
+    isWebPlatform,
     queueState.queueCounts,
     workerControls.startWorkerError,
     workerControls.startingWorker,

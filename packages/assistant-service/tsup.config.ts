@@ -13,8 +13,10 @@ export default defineConfig({
   entry: [
     'src/http.ts',
     'src/local-provider-runtime.ts',
+    'src/mcp-content-application-port.ts',
     'src/memory-model-targets.ts',
     'src/ports.ts',
+    'src/provider-credential-projection.ts',
     'src/request.ts',
     'src/run-turn.ts',
     'src/secret-errors.ts',

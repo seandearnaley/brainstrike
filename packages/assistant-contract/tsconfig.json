@@ -8,10 +8,16 @@
     "outDir": "dist",
     "declaration": true,
     "declarationMap": true,
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
+    ]
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "src/**/*.json"
   ],
   "exclude": [
     "dist",
@@ -25,9 +31,6 @@
     },
     {
       "path": "../tokenization"
-    },
-    {
-      "path": "../utils"
     },
     {
       "path": "../types"

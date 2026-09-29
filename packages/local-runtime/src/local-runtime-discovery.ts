@@ -157,6 +157,8 @@ function buildProbeDefinitions(
 }
 
 export interface LocalRuntimeDiscoveryServiceOptions {
+  /** Host capability: disallow direct requests regardless of caller surface overrides. */
+  readonly browserUnavailableReason?: string;
   /**
    * Optional explicit runtime surface.
    */
@@ -456,6 +458,7 @@ function pickBestFailure(
 }
 
 export class LocalRuntimeDiscoveryService {
+  private readonly browserUnavailableReason: string | undefined;
   private readonly fetchImpl: typeof fetch | undefined;
   private readonly successTtlMs: number;
   private readonly failureBaseBackoffMs: number;
@@ -484,6 +487,7 @@ export class LocalRuntimeDiscoveryService {
     );
     this.requestTimeoutMs = sanitizeDuration(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
     this.defaultSurface = options.defaultSurface;
+    this.browserUnavailableReason = options.browserUnavailableReason;
     this.now = options.now ?? (() => Date.now());
     this.logger = options.logger ?? noopLocalRuntimeLogger;
   }
@@ -529,6 +533,9 @@ export class LocalRuntimeDiscoveryService {
     options: ProbeLocalRuntimeOptions = {}
   ): Promise<LocalRuntimeAvailabilityState> {
     const now = this.now();
+    if (this.browserUnavailableReason) {
+      return { checkedAt: now, message: this.browserUnavailableReason, state: 'blocked_web' };
+    }
     const cached = this.cache.get(runtime);
     const baseUrl = resolveRuntimeBaseUrl(runtime, options.endpoint?.baseUrl);
     const surface = options.surface ?? resolveRuntimeSurface(this.defaultSurface);

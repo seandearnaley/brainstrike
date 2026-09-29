@@ -1,10 +1,11 @@
 {
   // Turborepo monorepo configuration for brainstrike
-  "$schema": "https://v2-10-10.turborepo.dev/schema.json",
-  // Opt into Turborepo 3.0's global-configuration shape while 2.10 can still
+  "$schema": "https://v2-11-2.turborepo.dev/schema.json",
+  // Opt into Turborepo 3.0's global-configuration shape while 2.x can still
   // validate the migration. Deleting this flag without moving the fields back
   // is a hard configuration error, never a silent fallback.
   "futureFlags": {
+    "affectedUsingTaskInputs": true,
     "globalConfiguration": true
   },
   "global": {
@@ -77,8 +78,6 @@
       "turbo.jsonc", // Turborepo configuration
       "biome.json", // Formatting/linting configuration
       ".nvmrc", // Node version specification
-      "scripts/enforce-coverage.mjs", // Coverage thresholds (invalidates test cache when thresholds change)
-      "scripts/verify-no-cross-chunk-cycles.mjs", // Cross-chunk cycle guard (BST-861); wired into apps/web `build` and apps/desktop `build:renderer` — must invalidate their build cache when edited
       "scripts/prune-stale-dist.mjs" // Stale-dist pruner (2026-07-30 cache-poisoning class); wired into the `build` of every non-cleaning tsc package — must invalidate their build cache when edited
     ]
   },
@@ -116,16 +115,11 @@
     // green for weeks). `topo` REPLACES the edge: it re-carries the cascade
     // through a node that runs no script. See proof #2 in the B4 PR body.
     //
-    // INPUTS: deliberately the FULL default (no `inputs` key — every checked-in
-    // file of the package hashes into its topo node). A dep's test-only edit
-    // therefore re-runs its dependents' tests too. That is over-invalidation,
-    // but narrowing (excluding `**/*.test.*` / `**/__tests__/**`) was reviewed
-    // OUT of B4: `__tests__/` dirs in this repo contain helper/fixture modules
-    // that other packages CAN import, and nothing enforces "test files are
-    // never imported cross-package" — an unenforced exclusion is a stale-green
-    // vector, while test-only over-invalidation is merely a slower cache miss.
-    // Precision is a possible follow-up, gated on a guard proving no
-    // cross-package import resolves into an excluded path.
+    // INPUTS: full defaults unless a package has an explicitly guarded pilot.
+    // Types alone excludes executable test/spec files from topo and build;
+    // lint:private-test-input-locality rejects outside readers of those files.
+    // Owner tests retain full inputs. Helpers and shared fixtures remain hashed.
+    // Do not extend exclusions without import/read and real Turbo hash proofs.
     "topo": {
       "dependsOn": [
         "^topo"
@@ -326,6 +320,7 @@
       "with": [
         "@brainstrike/assistant-contract#dev",
         "@brainstrike/indexing-contract#dev",
+        "@brainstrike/effect-kit#dev",
         "@brainstrike/logging#dev",
         "@brainstrike/types#dev", // Run the 'dev' script from the @brainstrike/types package
         "@brainstrike/utils#dev", // Run the 'dev' script from the @brainstrike/utils package

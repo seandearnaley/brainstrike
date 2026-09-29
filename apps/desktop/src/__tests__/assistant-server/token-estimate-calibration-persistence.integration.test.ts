@@ -1,5 +1,6 @@
 import type { StreamChunk, TokenEstimateCalibrationSample } from '@brainstrike/agent';
-import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
+import { MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
@@ -32,7 +33,9 @@ async function* calibrationStream(
 }
 
 async function seedRun(db: TestDatabase, runId: string, threadId: string): Promise<void> {
-  await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
+  // Migrations 117/118 own the assistant schema; the repository probes for
+  // it rather than creating it (BST-1651).
+  await migrate(db);
   await db.query(
     `INSERT INTO ${MASTRA_MEMORY_TABLES.threads}
       (id, "resourceId", title, metadata, "createdAt", "updatedAt")
@@ -41,7 +44,7 @@ async function seedRun(db: TestDatabase, runId: string, threadId: string): Promi
   );
   const repository = createPgliteAssistantThreadRepository(db as DbHandle);
   await repository.createThreadRun({
-    id: runId,
+    id: runId as HostRunId,
     model: 'gpt-5.6-terra',
     provider: 'openai',
     resourceId: 'workspace-a',

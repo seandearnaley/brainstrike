@@ -112,6 +112,16 @@ process boundaries are serializable plain data. `AbortSignal` and class
 instances are process-local; represent cancellation or state changes through a
 dedicated bridge/protocol rather than putting them in serialized runtime data.
 
+### Background runtime capability
+
+`MastraAgentRuntimeOptions.backgroundTaskScope` is a host-owned resource/thread
+scope supplied alongside matching durable memory/storage. It enables native
+background delegation with host-owned parent continuation; it is not model-provided configuration. Desktop
+memory forwards it through assistant-service. See `docs/agents/assistant-subagents.md`
+and `docs/agents/mastra-boundary.md` for ownership, pending decision recovery and
+native shutdown qualifications. Explicit root Stop joins native work and cancels
+queued/paused tasks; ordinary disposal preserves resumable decisions.
+
 ### Tools
 
 Tools are the main extension point. A tool is an object with an `id`, a  
@@ -146,8 +156,32 @@ When adding a new tool:
     aware that the runtime may rename them internally; the original name is  
     preserved in `runtime.toolNameMap`.
     
-6. **Document your tool**. Update this AGENTS.md to describe any new tools,  
-    their purpose, limitations and usage. If the tool proxies to an external  
+6. **Declare the tool once**. A Brainstrike native tool is ONE
+    `defineNativeTool({...})` file under
+    `packages/assistant-contract/src/native-tools/definitions/` (id, model-facing
+    description, registered Zod `inputSchema`, load/risk `defaults`, discovery
+    namespace + capability family, `surfaces`, history posture, inspector
+    `returns` prose) listed once in `native-tools/index.ts`. Every registry —
+    `NATIVE_TOOL_ID`, `TOOL_DESCRIPTIONS`, `NATIVE_TOOL_DEFAULTS`,
+    `NATIVE_TOOL_INPUT_SCHEMAS`, discovery namespaces, capability families, the
+    web/local partitions, the history allowlists, and the prompt composer's
+    model-facing name map — is derived from that list; a missing facet fails at
+    definition time (`InvalidNativeToolDefinitionError` /
+    `UndeterminableToolRiskError`), never as a stale second copy. The settings
+    inspector display (`NATIVE_TOOL_SCHEMAS`) is derived from the definition's
+    `inputSchema` too: parameter prose is the schema's `.describe()` text, and
+    an optional `display` map on the definition adds inspector-only prose that
+    is never sent to the model. Then add the tool's executor entry to the
+    exhaustive `NATIVE_TOOL_EXECUTORS` map
+    (`apps/desktop/src/assistant-server/native-tool-executors-*.ts`) — a
+    definition without an entry is a compile error, and
+    `buildDesktopAssistantTools` folds the catalog through that map. The
+    catalog's one inline snapshot
+    (`packages/assistant-contract/src/__tests__/native-tools.test.ts`) is the
+    only place a tool id is listed by hand.
+
+7. **Document your tool**. Update this AGENTS.md to describe any new tools,
+    their purpose, limitations and usage. If the tool proxies to an external
     service, document rate limits and visible failure behavior.
 
 ### `brainstrike.manageCanvas` tool (schema here, executed in desktop)
@@ -156,7 +190,8 @@ Single tool with an `action` discriminated union — `create`, `update`,
 `rewrite`, `list` — persisting versioned Canvas documents
 (`brainstrike_canvas_versions`, migration 082) that the Canvas surface renders
 in the sandboxed CanvasFrame (BST-1173). The Zod schema lives in
-`src/tools/schemas-workspace.ts` (provider envelope is a strict root object
+`packages/assistant-contract/src/native-tools/schemas/schemas-workspace.ts` (re-exported from
+`src/tools/schemas-workspace.ts`) (provider envelope is a strict root object
 delegating to the canonical union; root `oneOf` is rejected by the provider
 contract). Execution lives in `apps/desktop/src/assistant-server/manage-canvas-tool.ts`.
 
@@ -182,6 +217,70 @@ Limitations / invariants:
   same as workspace-file content fields); titles at 500 chars.
 - Risk category is `edit` — durable writes must not be available in plan mode
   or default-allowed under permission enforcement.
+
+### `brainstrike.listWorktrees` / `brainstrike.manageWorktree` tools (schema here, executed in desktop)
+
+Two tools over ONE code path (BST-1392, spec §6.4): both call the SAME
+`WorktreeService` the Worktree Map / Mode chip calls, never `git worktree`
+directly. `listWorktrees` is read-only; `manageWorktree` creates or archives.
+The Zod schemas live in
+`packages/assistant-contract/src/native-tools/schemas/schemas-worktrees.ts` (re-exported from
+`src/tools/schemas-worktrees.ts`)
+(`ListWorktreesInputSchema`, `ManageWorktreeInputSchema` — the latter is a
+strict root object with a `superRefine` delegating to a `create`/`archive`
+discriminated union, same shape as `manageCanvas`: a raw discriminated union
+serializes as a root `oneOf`, rejected by the provider contract), both
+entries in `NATIVE_TOOL_INPUT_SCHEMAS` (`src/tools/schemas.ts`). Execution
+lives in `apps/desktop/src/assistant-server/worktree-tools.ts`, registered by
+`assistant-tools.ts` inside the same local-provider gate `inspectCommandSessions`
+occupies (both ids are absent from `LOCAL_DESKTOP_NATIVE_TOOL_IDS`).
+
+Purpose and semantics:
+
+- `listWorktrees {root?}` returns every worktree the inventory ⋈ ledger knows
+  about — `branch`, `path`, whether BrainStrike manages it, `usable`, and
+  `disabledReason` when it is not. Omit `root` to list every open root;
+  otherwise the tool resolves `root` to its repository identity
+  (`repoCommonDir`, the realpath'd git-common-dir every worktree of one
+  repository shares) and returns every entry sharing it — the primary
+  checkout included, regardless of which specific checkout is the granted
+  root. Scoping by path equality or by the granted root's own `rootId` is
+  deliberately NOT used: managed worktrees are created outside every granted
+  root by policy, so only the one checkout that IS the granted root ever
+  carries a matching `rootId`, and `root.path` is not realpath'd while
+  inventory paths are — both would silently return the wrong (or an empty)
+  set for a thread bound to a worktree checkout, the tool's primary scenario.
+- `manageWorktree {action: 'create', branch, baseRef?, name?, root?}` creates
+  an isolated worktree; `baseRef` defaults to `HEAD`, `name` defaults to the
+  branch's last path segment. `{action: 'archive', worktreeId, force?}`
+  archives one, always capturing a restorable snapshot first; `force`
+  overrides a dirty/unpushed refusal but never an active-run refusal.
+
+Limitations / invariants:
+
+- Desktop-only (excluded from `WebNativeToolId` and `WEB_NATIVE_TOOL_IDS` —
+  git worktrees are a filesystem capability the web assistant server has no
+  bridge to). Also absent from `LOCAL_DESKTOP_NATIVE_TOOL_IDS`: the built-in
+  on-device model's prefill budget cannot afford an approval-gated mutation
+  surface it will never see reflected back.
+- `listWorktrees` is `read` risk, no approval; `manageWorktree` is `execute`
+  risk and approval-gated (spec §6.4) — the model is asking the host to run
+  git against the user's checkout. Keeping the read-only listing in its own
+  tool is what lets that classification stay strict.
+- Provenance (`created_by='agent'`, the originating `run_id`/`thread_id`) is
+  bound in `assistant-server.ts`, where the request's run id is in scope —
+  never taken from tool input, since provenance the model can set is
+  provenance the model can forge.
+- A missing capability THROWS a stated reason
+  (`"Worktree management is not available in this session."`) rather than
+  returning an empty list; an unresolvable `root` throws naming the root
+  rather than returning `{ worktrees: [] }` — both would otherwise present
+  "the service is not wired" or "root didn't resolve" as the different,
+  honest fact "this workspace has no worktrees" (`WorktreeListEntry`'s own
+  NO SILENT HIDING contract, spec §13).
+- Service refusals (a dirty worktree without `force`, an active run blocking
+  archive, a name collision) surface to the model VERBATIM as the thrown
+  error's message — never re-worded or swallowed.
 
 ### `brainstrike.runPython` tool
 
@@ -240,6 +339,15 @@ ticket's divergence map), not from git history of the deleted files.
 
 ### Remote tools via MCP
 
+Hosted runs keep MCP schemas deferred. `search_tools` returns at most three
+ranked matches without loading them; `load_tool` loads a tool by exact name
+(`toolName` or `toolNames[]`); `list_available_tools` enumerates the same
+eligible deferred catalog without loading schemas or invoking servers. It
+returns 50 entries per page with matching totals, `nextOffset`, and explicit
+description truncation. All three controls are reserved when discovery is
+installed. Inventory membership is per runtime and inherits all existing
+permission/capability gates.
+
 The Model‑Context Protocol allows tool providers to be run as separate  
 processes or remote HTTP services and discovered at runtime. You can configure
 servers in an `mcp.config.json` adjacent to where `createMastraAgentRuntime` is
@@ -280,6 +388,21 @@ session termination before locally closing and still completes local cleanup if
 termination fails. An unexpected stdio child exit invalidates that connection
 without replaying its in-flight request; only a later operation may reconnect.
 
+Client input is fail-closed. The package provides one capability runtime that
+the explicit transports install before connect; it advertises only what a
+caller's resolver supplies (desktop production supplies presenter-backed
+elicitation, BST-1584) and enables nothing on its own. Modern
+`input_required` and legacy pushed requests can share the same handlers, with
+automatic fulfillment bounded to eight rounds. Each install returns an owned
+lease that aborts active handler work, removes its request/notification
+handlers, awaits settlement, and reports exact close counts. Elicitation modes
+are advertised separately. URL elicitation requires HTTPS with no embedded
+credentials before consent; HTTP exists only behind the explicit loopback
+development policy. Accepted form content is host-validated, including the
+SDK's four string formats and enum-only multiselect arrays. Deprecated roots,
+sampling, and protocol logging remain absent unless a later owner supplies each
+complete handler. Review deprecated compatibility for removal on 2027-07-28.
+
 `createMastraAgentRuntime` uses those official-SDK clients for every configured
 transport and converts their discovered tools through one shared adapter before
 the unchanged namespace/sanitize, output-bound, guard, hook, and permission
@@ -289,6 +412,27 @@ the complete MCP result before Brainstrike applies persistence and model-output
 budgets. Tool progress is emitted as a transient custom stream part; a
 progress-writer failure is logged but never overrides the remote tool's primary
 result or error.
+
+The dedicated MCP client subpath also preserves resources, resource templates,
+prompts, completions, pagination, cache hints, and era-specific subscriptions.
+Unsupported lists fail through strict typed SDK capability errors instead of
+returning empty arrays. The first cursorless tools/resources/templates/prompts
+list on each SDK connection forces a cache refresh; later requests retain normal
+SDK cache semantics. Server-feature notification handlers are registered once
+per SDK connection, settle subscribers independently, and report every rejection
+through the configured diagnostic sink. This transport seam does not itself
+claim product support or inject resource or prompt content into model context.
+
+Registered MCP extension requests use the host-owned
+`McpClientExtensionRegistry`: both peers must advertise the exact extension,
+the complete host implementation and strictly compatible client/server settings
+must validate, and params/results cross Standard Schema boundaries. The
+registry seals before connection advertisement, so late registration or mutable
+settings cannot change a live connection's dispatch surface. Only exact
+registered `2026-07-28` contracts outside active core/lifecycle and notification
+namespaces may use the owned transport rewrite from a non-colliding internal SDK
+method to the canonical wire method. Never generalize that bridge into arbitrary
+custom-method dispatch or a core-era bypass.
 
 Tips for MCP integration:
 
@@ -302,6 +446,44 @@ Tips for MCP integration:
     rebuild remote clients on changes; this emits progress events so the UI  
     remains responsive.
     
+
+### Host-owned delegated conversation binding (BST-1718)
+
+Persona tools share central artifact settlement after their independent gate and
+before their own model projection. Child settlement requires the observed native
+execution thread; ordinary ToolsInput functions expose it via Mastra's memory
+RequestContext, while ToolAction contexts may expose `agent.threadId`. The shared
+execution identity reader supports both vendor contexts and ignores tool input.
+Artifact ownership stays on the root resource/thread/run; native execution thread
+distinguishes sibling call IDs in migration 129. See the native sibling recovery
+test and `docs/agents/assistant-subagents.md`.
+
+`MastraAgentRuntimeOptions.conversationBinding` accepts
+`createDelegatedConversationBinding(persist)`. This requires parent/child thread
+memory scope and a structured-cloneable configuration snapshot; the host validates
+a finite JSON object before storage. The native delegation hook records
+observed parent identity in a WeakMap keyed by the actual child RequestContext;
+the child input processor awaits the host callback with its actual native
+thread/resource and an immutable persona/step-cap snapshot. Missing parent
+binding or rejected persistence prevents child model/tool execution. The callback
+must validate root ownership and persist through the host database; it never
+belongs in RuntimeData or serialized RequestContext entries.
+
+Desktop run-scoped memory now activates this optional port using the host's
+persisted owner/root/turn scope. Snapshot resume skips the child input processor.
+The `conversationBinding.bindRun` callback is awaited at the first child event of
+each attempt/resume leg and authorizes the original persisted invocation.
+Bound completion usage retains native parent-run/tool-call and child-thread/resource
+identity; the existing desktop writer reconciles cumulative reports after child
+publication. The host-only `getDelegatedSystemContext` callback projects original system text.
+The root stores only that data in its native RequestContext snapshot; new children
+started after approval or question resume receive the same original context.
+Callbacks and RuntimeData are never serialized. Non-text metadata is not system
+authority. The child checks its context byte budget before inference; native child
+MessageList snapshots retain their initial context across approval.
+Explorer/Analyst remain read-only; workers require the complete
+durable decision host, and nesting remains disabled. The native and production-stream integration suites cover
+this seam; see docs/agents/assistant-subagents.md for the full contract.
 
 ### Memory and conversation management
 

@@ -1,6 +1,42 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
+    // The ROOT workspace, declared explicitly (BST-1377).
+    //
+    // This block has to live here, in `workspaces`, and NOT at the top level of
+    // this file. Measured on knip 6.32.2: top-level `entry`/`project` are the
+    // DEFAULTS INHERITED BY WORKSPACES THAT DECLARE NONE — they are not the root
+    // workspace's own scope. Every workspace below declares its own `project`, so
+    // the old top-level `"e2e/**/*.ts"` patterns governed nothing at all and the
+    // root workspace silently fell back to knip's default `**/*`: it claimed
+    // every file in the repo that no other workspace owns. knip says so itself
+    // ("Remove, or move unused top-level entry to workspace config"), and
+    // negating patterns from the top level provably does nothing — `!spikes/**`
+    // at the top level left every spike finding in place.
+    //
+    // That default `**/*` is what made knip grade foreign code:
+    //   * `spikes/*` are throwaway prototypes deliberately OUTSIDE the pnpm
+    //     workspace, each with its own package.json AND its own npm
+    //     package-lock.json (docs/superpowers/plans/2026-08-03-changeset-discovery-spike.md:
+    //     "NOT part of the pnpm workspace — use npm inside it, never add it to
+    //     pnpm-workspace.yaml"). Their correctly-declared deps were reported as
+    //     "unlisted" only because knip checked them against THIS repo's
+    //     manifests, and their un-imported prototype sources as "unused files".
+    //   * `docs/` is prose plus hand-wired hook scripts a human pastes into a
+    //     hooks.json by absolute path — never imported by anything.
+    // Neither is root-workspace source, so neither belongs in the root scope.
+    //
+    // The root workspace genuinely owns only the repo-root config files. Keep
+    // these patterns at depth 1 — widening to `**` reinstates the fallback.
+    ".": {
+      "entry": ["*.{js,mjs,cjs,ts,mts,cts}"],
+      "project": ["*.{js,mjs,cjs,ts,mts,cts}"],
+      "ignoreDependencies": [
+        // scripts/react-compiler-inventory.mjs imports transformSync directly.
+        // CLI scripts are outside the root graph; keep the exception root-only.
+        "oxc-transform-react"
+      ]
+    },
     // Define workspaces based on the Turborepo setup
     "apps/site": {
       "project": ["src/**/*.{ts,tsx}", "e2e/**/*.ts"],
@@ -27,12 +63,21 @@
         "src/config/server.ts"
       ],
       "ignoreDependencies": [
+        // Imported by src/app/globals.css via @import; CSS imports are not followed
+        // by this workspace's TS/TSX project glob (knip 6.32.2).
+        "@brainstrike/mcp-app-host-ui",
+        // PGlite is the app's database engine. It is reached ONLY through
+        // vite.config.mts — `optimizeDeps.include` prebundles it and a resolve
+        // alias swaps its nodefs build for the OPFS one — never through an
+        // import in src/. Those are bare strings in a config object, so no knip
+        // config can attribute them: same class as the prebundles below.
+        "@electric-sql/pglite",
+        "@electric-sql/pglite-pgvector",
         "@fontsource-variable/geist", // Imported via CSS @import in globals.css
         "@fontsource-variable/geist-mono", // Imported via CSS @import in globals.css
         "@tailwindcss/typography", // Loaded via Tailwind v4 `@plugin` directive in src/app/globals.css (knip does not parse CSS)
         // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
         "@assistant-ui/react",
-        "@assistant-ui/react-data-stream",
         "@assistant-ui/react-markdown",
         "@assistant-ui/styles",
         "@radix-ui/react-accordion",
@@ -63,20 +108,40 @@
       "entry": [
         "src/main.ts", // Electron main process
         "src/preload.ts", // Electron preload script
-        "src/renderer/main.tsx" // Renderer entry point
+        "src/renderer/main.tsx", // Renderer entry point
+        // Freeze-watchdog worker_threads target. A REAL esbuild entry
+        // (scripts/build-main-config.mjs MAIN_PROCESS_ENTRY_POINTS), shipped as
+        // the flat `dist/main-watchdog-worker.js` that apps/desktop/package.json
+        // unpacks beside app.asar and src/diagnostics/main-watchdog-path.ts
+        // resolves by FILE NAME — it is deliberately never imported, so nothing
+        // in the module graph reaches it. The build config that names it lives
+        // under apps/desktop/scripts/, which the root `scripts/**/*` ignore hides
+        // from knip. Contract: docs/agents/platform-contracts.md:1284.
+        "src/diagnostics/main-watchdog-worker.ts",
+        // Official MCP conformance child-process entry. Like the watchdog, this
+        // is a real build-main-config entry invoked by file name from the root
+        // driver rather than imported by the desktop module graph.
+        "src/official-conformance-client-entry.ts"
       ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         "electron-builder-squirrel-windows", // Required peer dependency for electron-builder Windows builds
+        "@effect/language-service", // Effect language-service plugin name, not a package; see packages/effect-kit
         "@vitest/coverage-v8", // Only used in vitest.config.mts, not imported in source code
         "@tailwindcss/typography", // Loaded via Tailwind v4 `@plugin` directive in src/renderer/styles.css (knip does not parse CSS)
         "xvfb-maybe", // Script binary in test:e2e* (invoked through scripts/run-env.mjs, which knip cannot resolve) + desktop-e2e.yml
+        // Loaded through an INDIRECTED require in
+        // scripts/start-agent-devtools-session.mjs: `initializeWindowsJob(platform,
+        // load = require)` then `load('@brainstrike/windows-job-native')`. knip
+        // resolves literal import/require specifiers only, never a require passed
+        // as a parameter — and that file sits under the root `scripts/**/*` ignore
+        // regardless. Same class as xvfb-maybe above.
+        "@brainstrike/windows-job-native",
         "@fontsource-variable/geist", // Imported via CSS @import in renderer/styles.css
         "@fontsource-variable/geist-mono", // Imported via CSS @import in renderer/styles.css
         // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
         "@assistant-ui/react",
-        "@assistant-ui/react-data-stream",
         "@assistant-ui/react-markdown",
         "@assistant-ui/styles",
         "@radix-ui/react-accordion",
@@ -109,6 +174,12 @@
         "**/*.test.{ts,tsx}",
         "**/*.stories.{ts,tsx}"
       ],
+      "ignoreDependencies": [
+        // See packages/db: consumed as the relative source path
+        // `../config/src/vitest-browser.ts` from vitest.config.mts, which knip
+        // resolves to a file rather than to the package name.
+        "@brainstrike/config"
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -129,6 +200,12 @@
       "typescript": {
         "config": "tsconfig.json"
       }
+    },
+    "packages/assistant-contract": {
+      "ignoreDependencies": [
+        // Effect language-service plugin name, not a package; see packages/effect-kit.
+        "@effect/language-service"
+      ]
     },
     "packages/assistant-data": {
       "project": ["src/**/*.{ts,tsx}"],
@@ -238,9 +315,37 @@
     "packages/storage": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignoreDependencies": [
+        // See packages/db: consumed as the relative source path
+        // `../config/src/vitest-browser.ts` from vitest.config.mts, which knip
+        // resolves to a file rather than to the package name.
+        "@brainstrike/config"
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
+    },
+    "packages/embedding-worker": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignoreDependencies": [
+        // See packages/db: consumed as the relative source path
+        // `../config/src/vitest-browser.ts` from vitest.config.mts, which knip
+        // resolves to a file rather than to the package name.
+        "@brainstrike/config"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    // Native node-gyp addons. Their only consumer of `node-addon-api` is
+    // binding.gyp — `<!@(node -p "require('node-addon-api').include")` — and knip
+    // does not parse gyp files, so no entry/project glob can reach it.
+    "packages/secure-fs-native": {
+      "ignoreDependencies": ["node-addon-api"]
+    },
+    "packages/windows-job-native": {
+      "ignoreDependencies": ["node-addon-api"]
     },
     "packages/app-state": {
       "project": ["src/**/*.{ts,tsx}"],
@@ -332,7 +437,15 @@
         "stryker.config.js" // Mutation testing config
       ],
       "ignoreDependencies": [
-        "esbuild" // Pulled indirectly by vite-plugin-wasm / vitest tooling in this workspace
+        "esbuild", // Pulled indirectly by vite-plugin-wasm / vitest tooling in this workspace
+        // Consumed by vitest.config.mts as `../config/src/vitest-browser.ts` — a
+        // RELATIVE path into the sibling workspace's SOURCE, deliberately, so the
+        // test lane needs no built dist of @brainstrike/config. knip resolves that
+        // to a file, not to the package name, so it cannot credit the declaration.
+        // The declaration still states the real workspace dependency; do not drop it.
+        "@brainstrike/config",
+        // Effect language-service plugin name, not a package; see packages/effect-kit.
+        "@effect/language-service"
       ],
       "typescript": {
         "config": "tsconfig.json"
@@ -341,6 +454,35 @@
     "packages/platform-utils": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/mcp-test-lab": {
+      "entry": ["__tests__/**/*.test.ts"],
+      "project": [
+        "src/**/*.ts",
+        "__tests__/**/*.test.ts"
+      ],
+      "ignoreDependencies": [
+        // Exact-pinned official runner provenance. The bounded conformance lane
+        // consumes its CLI/package entry rather than importing it from src/.
+        "@modelcontextprotocol/conformance"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/effect-kit": {
+      "project": ["src/**/*.ts"],
+      "ignore": ["**/__tests__/**", "**/*.test.ts"],
+      "ignoreDependencies": [
+        // The Effect language-service tsconfig plugin NAME, not a package: the
+        // pinned `@effect/tsgo` binary resolves it in its dedicated diagnostics
+        // mode (docs/agents/effect-boundary.md § "Effect diagnostics"). Every
+        // Effect package carries the same entry.
+        "@effect/language-service"
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -373,7 +515,9 @@
       ],
       "ignoreDependencies": [
         // Bundled via tsup.config.ts noExternal; wasm subpath declared in src/types/wasm.d.ts
-        "tiktoken"
+        "tiktoken",
+        // Effect language-service plugin name, not a package; see packages/effect-kit.
+        "@effect/language-service"
       ],
       "typescript": {
         "config": "tsconfig.json"
@@ -394,6 +538,13 @@
     },
     "packages/agent": {
       "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": [
+        // Hosted bundling inlines workspace logging/tokenization. Their native
+        // loaders remain external and resolve from agent, not their source owner.
+        // verify-hosted-web-bundle loads that real artifact; manifest tests pin ownership.
+        "pino",
+        "tiktoken"
+      ],
       "ignore": [
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
@@ -421,14 +572,8 @@
       }
     }
   },
-  // Root level entries and projects, e.g., for tests/configs not tied to a specific workspace
-  "entry": [
-    "e2e/**/*.ts", // Keep root E2E as requested for now
-    "vitest.workspace.ts" // Add the vitest workspace file as an entry point
-  ],
-  "project": [
-    "e2e/**/*.ts" // Keep root E2E project files
-  ],
+  // NOTE: no top-level `entry`/`project` here on purpose — see the `"."`
+  // workspace block above for why the root scope must be declared there.
   // Global ignores applicable across all workspaces
   "ignore": [
     "**/node_modules/**",
@@ -438,8 +583,6 @@
     "**/*.d.ts",
     // react-doctor auto-discovers doctor.config.ts by convention (`pnpm run react-doctor` + react-doctor.yml)
     "doctor.config.ts",
-    // Ignore husky hook file
-    ".husky/commit-msg.js",
     // Ignore Playwright merge config - used by CI workflows via shell commands
     "playwright-merge.config.js",
     // Ignore all scripts - utility scripts run directly, not imported
@@ -460,11 +603,8 @@
     // These might need re-evaluation after running Knip
     "dompurify",
     "@babel/core",
-    "glob",
-    "husky",
     "identity-obj-proxy", // Likely used for test mocking
     "tailwindcss", // Likely used via PostCSS, might be flagged
-    "ts-node", // Likely used for scripts/configs
     "@commitlint/cli", // Used with commitlint.config.ts but no hooks yet
     "@vitejs/plugin-react", // Only used in Vite config
     "babel-plugin-react-compiler", // Resolved indirectly by reactCompilerPreset in Vite config

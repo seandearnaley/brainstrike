@@ -1,12 +1,29 @@
+export * from './admitted-child-configuration.js';
 export * from './assistant-attachments.js';
 export * from './assistant-auth.js';
 export * from './assistant-stream-session.js';
 export * from './assistant-task-list.js';
+export * from './bedrock-defaults.js';
+export * from './canvas-link.js';
+export * from './child-execution-configuration.js';
+export * from './child-followup.js';
+export * from './child-input.js';
+export * from './child-input-model.js';
+export * from './child-permission-ceiling.js';
 export * from './compaction-summary.js';
 export * from './context-breakdown.js';
 export * from './context-budget.js';
 export * from './context-packer.js';
 export * from './conversation-rewind.js';
+export * from './delegated-conversation-stream.js';
+export * from './delegated-tool-actions.js';
+export {
+  type DelegatedBudgetPort,
+  type DelegatedInvocationAdmission,
+  DelegatedOutputReservationExceededError,
+  type DelegatedStepReservation,
+  type DelegationBudgetCap,
+} from './delegation-limits.js';
 export * from './edit-checkpoints.js';
 export * from './file-mention-directive.js';
 export * from './guarded-tool-error.js';
@@ -17,23 +34,39 @@ export * from './local-llm-artifacts.js';
 export * from './local-llm-device.js';
 export * from './local-llm-model-specs.js';
 export * from './mastra-memory-schema.js';
+export * from './mcp-apps-ipc.js';
+export * from './mcp-elicitation.js';
+export * from './mcp-extensions.js';
+export * from './mcp-host.js';
+export * from './mcp-status.js';
+export * from './mcp-task-ipc.js';
+export * from './mcp-task-presentation.js';
+export * from './mcp-tool-preferences.js';
 export * from './memory-settings.js';
 export * from './model-reasoning.js';
 export * from './native-tool-catalog.js';
+export * from './openai-codex-defaults.js';
 export * from './openrouter-coding-defaults.js';
 export * from './openrouter-model-metadata.js';
 export * from './personas.js';
+export * from './provider-auth.js';
+export * from './provider-credential.js';
 export * from './provider-key-resolution.js';
 export * from './provider-key-source.js';
 export * from './provider-metadata.js';
+export * from './provider-model-default-policies.js';
 export * from './provider-registry.js';
+export * from './provider-verification.js';
 export * from './reasoning-visibility.js';
 export * from './run-events.js';
 export * from './run-usage.js';
 export * from './runtime-data.js';
 export * from './secret-read-error.js';
+export * from './shell-git-correlation.js';
 export * from './shell-output.js';
 export * from './skills.js';
+export * from './subagent-settings.js';
+export * from './suspended-run-discovery.js';
 export * from './thread-history-adapter.js';
 export * from './tool-approval.js';
 export * from './tool-discovery.js';

@@ -1,15 +1,21 @@
 import type {
   AssistantMemoryThread,
   AssistantThreadGroup,
+  ThreadFolderRow,
   ThreadListView,
 } from '@brainstrike/assistant-data';
+import { folderSectionId, UNASSIGNED_FOLDER_SECTION_ID } from '@brainstrike/assistant-data';
 import { describe, expect, it } from 'vitest';
 import { THREAD_CONTROL_ROW_PITCH_PX } from '../assistant-thread-presentation';
 import {
   buildThreadPanelVisibleRows,
+  filterThreadPanelSelection,
+  getThreadPanelCollapseId,
+  getThreadPanelMemberSectionId,
   getThreadPanelRowHeightPx,
   THREAD_PANEL_DISCLOSURE_INCREMENT,
   THREAD_PANEL_INITIAL_VISIBLE_LIMIT,
+  type ThreadPanelGroupRow,
 } from '../thread-panel-visible-rows';
 
 function thread(id: string): AssistantMemoryThread {
@@ -57,11 +63,13 @@ describe('buildThreadPanelVisibleRows', () => {
       kind: 'grouped',
       sections: [
         {
-          group: firstGroup,
+          header: { group: firstGroup, kind: 'group' },
+          id: firstGroup.id,
           threads: Array.from({ length: 55 }, (_, index) => thread(`a-${index}`)),
         },
         {
-          group: secondGroup,
+          header: { group: secondGroup, kind: 'group' },
+          id: secondGroup.id,
           threads: Array.from({ length: 3 }, (_, index) => thread(`b-${index}`)),
         },
       ],
@@ -95,7 +103,8 @@ describe('buildThreadPanelVisibleRows', () => {
       kind: 'grouped',
       sections: [
         {
-          group: collapsedGroup,
+          header: { group: collapsedGroup, kind: 'group' },
+          id: collapsedGroup.id,
           threads: Array.from({ length: 60 }, (_, index) => thread(`hidden-${index}`)),
         },
       ],
@@ -121,7 +130,7 @@ describe('buildThreadPanelVisibleRows', () => {
     const emptyGroup = group('group-empty');
     const view: ThreadListView = {
       kind: 'grouped',
-      sections: [{ group: emptyGroup, threads: [] }],
+      sections: [{ header: { group: emptyGroup, kind: 'group' }, id: emptyGroup.id, threads: [] }],
       ungrouped: [],
     };
 
@@ -142,7 +151,13 @@ describe('buildThreadPanelVisibleRows', () => {
   it('uses stable structural IDs and preserves thread IDs', () => {
     const view: ThreadListView = {
       kind: 'grouped',
-      sections: [{ group: group('group-a'), threads: [thread('thread-a')] }],
+      sections: [
+        {
+          header: { group: group('group-a'), kind: 'group' },
+          id: 'group-a',
+          threads: [thread('thread-a')],
+        },
+      ],
       ungrouped: [thread('thread-b')],
     };
 
@@ -158,6 +173,136 @@ describe('buildThreadPanelVisibleRows', () => {
       'group:ungrouped',
       'thread-b',
     ]);
+  });
+
+  it('renders a folders view as section rows keyed by their own section ids', () => {
+    const folder: ThreadFolderRow = {
+      displayName: 'brainstrike',
+      path: '/tmp/brainstrike',
+      rootId: 'root-1',
+    };
+    const view: ThreadListView = {
+      kind: 'folders',
+      sections: [
+        {
+          header: { folder, kind: 'folder' },
+          id: folderSectionId(folder.rootId),
+          threads: [thread('thread-a')],
+        },
+        {
+          header: { kind: 'unassigned' },
+          id: UNASSIGNED_FOLDER_SECTION_ID,
+          threads: [thread('thread-b')],
+        },
+      ],
+    };
+
+    const result = buildThreadPanelVisibleRows({
+      collapsedGroupIds: {},
+      limitsBySectionKey: {},
+      view,
+    });
+
+    expect(result.rows.map((row) => row.id)).toEqual([
+      'folder:root-1',
+      'thread-a',
+      'folder-unassigned',
+      'thread-b',
+    ]);
+    expect(result.rows[0]).toMatchObject({
+      collapsed: false,
+      header: { folder, kind: 'folder' },
+      kind: 'group',
+      sectionKey: 'folder:root-1',
+      totalCount: 1,
+    });
+    expect(result.rows[1]).toMatchObject({ parentId: 'folder:root-1' });
+    expect(result.rows[3]).toMatchObject({ parentId: 'folder-unassigned' });
+    expect(result.visibleThreadIds).toEqual(['thread-a', 'thread-b']);
+  });
+
+  it('collapses and discloses folder sections through their own section keys', () => {
+    const folder: ThreadFolderRow = { displayName: 'work', path: null, rootId: 'root-2' };
+    const view: ThreadListView = {
+      kind: 'folders',
+      sections: [
+        {
+          header: { folder, kind: 'folder' },
+          id: folderSectionId(folder.rootId),
+          threads: Array.from({ length: 60 }, (_, index) => thread(`f-${index}`)),
+        },
+      ],
+    };
+
+    const disclosed = buildThreadPanelVisibleRows({
+      collapsedGroupIds: {},
+      limitsBySectionKey: {},
+      view,
+    });
+    expect(disclosed.visibleThreadIds).toHaveLength(50);
+    expect(disclosed.rows.at(-1)).toMatchObject({
+      id: 'show-more:folder:root-2',
+      kind: 'show-more',
+      remainingCount: 10,
+      sectionKey: 'folder:root-2',
+    });
+
+    const collapsed = buildThreadPanelVisibleRows({
+      collapsedGroupIds: { 'folder:root-2': true },
+      limitsBySectionKey: {},
+      view,
+    });
+    expect(collapsed.rows).toHaveLength(1);
+    expect(collapsed.rows[0]).toMatchObject({ collapsed: true, totalCount: 60 });
+    expect(collapsed.visibleThreadIds).toEqual([]);
+  });
+
+  it('refuses a folder section id it did not mint instead of rendering it as a node', () => {
+    const view: ThreadListView = {
+      kind: 'folders',
+      sections: [
+        { header: { kind: 'unassigned' }, id: 'somewhere-else', threads: [thread('thread-a')] },
+      ],
+    };
+
+    expect(() =>
+      buildThreadPanelVisibleRows({ collapsedGroupIds: {}, limitsBySectionKey: {}, view })
+    ).toThrow(/somewhere-else/);
+  });
+});
+
+describe('thread panel section addresses', () => {
+  function groupRow(header: ThreadPanelGroupRow['header'], id: ThreadPanelGroupRow['id']) {
+    return {
+      collapsed: false,
+      header,
+      id,
+      kind: 'group',
+      sectionKey: id,
+      totalCount: 0,
+    } satisfies ThreadPanelGroupRow;
+  }
+
+  it('addresses custom groups by group id and Ungrouped by null', () => {
+    const customGroup = group('group-a');
+    const row = groupRow({ group: customGroup, kind: 'group' }, 'group:group-a');
+    expect(getThreadPanelMemberSectionId(row)).toBe('group-a');
+    expect(getThreadPanelCollapseId(row)).toBe('group-a');
+
+    const ungrouped = groupRow({ kind: 'ungrouped' }, 'group:ungrouped');
+    expect(getThreadPanelMemberSectionId(ungrouped)).toBeNull();
+    expect(getThreadPanelCollapseId(ungrouped)).toBe('group:ungrouped');
+  });
+
+  it('addresses folder sections by their section id, never by a group id', () => {
+    const folder: ThreadFolderRow = { displayName: 'work', path: null, rootId: 'root-2' };
+    const row = groupRow({ folder, kind: 'folder' }, 'folder:root-2');
+    expect(getThreadPanelMemberSectionId(row)).toBe('folder:root-2');
+    expect(getThreadPanelCollapseId(row)).toBe('folder:root-2');
+
+    const unassigned = groupRow({ kind: 'unassigned' }, UNASSIGNED_FOLDER_SECTION_ID);
+    expect(getThreadPanelMemberSectionId(unassigned)).toBe('folder-unassigned');
+    expect(getThreadPanelCollapseId(unassigned)).toBe('folder-unassigned');
   });
 });
 
@@ -179,4 +324,29 @@ describe('getThreadPanelRowHeightPx', () => {
     expect(getThreadPanelRowHeightPx('thread')).toBe(THREAD_CONTROL_ROW_PITCH_PX);
     expect(getThreadPanelRowHeightPx('group')).not.toBe(THREAD_CONTROL_ROW_PITCH_PX);
   });
+});
+
+it('preserves selected ordinary threads hidden by disclosure while excluding child state rows', () => {
+  const selected = filterThreadPanelSelection(
+    new Set(['visible-root', 'hidden-root', 'child-state']),
+    [
+      {
+        groupId: null,
+        id: 'visible-root',
+        kind: 'thread',
+        parentId: null,
+        thread: thread('visible-root'),
+      },
+      {
+        depth: 1,
+        groupId: null,
+        id: 'child-state',
+        isError: false,
+        kind: 'delegated-state',
+        label: 'Loading child conversations',
+        parentId: 'visible-root',
+      },
+    ]
+  );
+  expect([...selected]).toEqual(['visible-root', 'hidden-root']);
 });

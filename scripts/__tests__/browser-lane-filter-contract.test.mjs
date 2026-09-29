@@ -53,6 +53,19 @@ function workflowFilterList() {
   return [...runLine[1].matchAll(/--filter=(\S+)/gu)].map((match) => match[1]).sort();
 }
 
+function embeddingWorkerScripts() {
+  const manifest = JSON.parse(
+    readFileSync(path.join(repoRoot, 'packages/embedding-worker/package.json'), 'utf8')
+  );
+  return manifest.scripts ?? {};
+}
+
+test('embedding-worker separates unit and browser Vitest projects', () => {
+  const scripts = embeddingWorkerScripts();
+  assert.equal(scripts.test, 'vitest run --project unit');
+  assert.equal(scripts['test:browser'], 'vitest run --project browser');
+});
+
 test('the Browser tests CI filter list equals the packages defining test:browser', () => {
   assert.deepEqual(
     workflowFilterList(),

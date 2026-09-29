@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  DATABASE_WORK_INVALIDATED_BY_RECOVERY_MESSAGE,
+  DatabaseIntegrityError,
+  getDesktopDatabaseIntegrity,
+  resetDesktopDatabaseIntegrityForTests,
+} from '../../database-integrity-state';
+import {
   getDesktopDatabaseWorkScheduler,
   getDesktopDatabaseWorkSchedulerSnapshot,
-  quiesceDesktopDatabaseWorkForRecovery,
   resetDesktopDatabaseWorkSchedulerForTests,
   resolveSqlParamsAndWorkOptions,
-  resumeDesktopDatabaseWorkAfterRecoveryReload,
   runDesktopScheduledDatabaseWork,
   runWithDesktopDatabaseResetBarrier,
   waitForDesktopDatabaseWorkSchedulerIdle,
@@ -15,6 +17,7 @@ import {
 describe('desktop database work platform', () => {
   beforeEach(() => {
     resetDesktopDatabaseWorkSchedulerForTests();
+    resetDesktopDatabaseIntegrityForTests();
   });
 
   it('keeps submitted work behind an active reset barrier', async () => {
@@ -92,95 +95,136 @@ describe('desktop database work platform', () => {
     expect(idleResolved).toBe(true);
   });
 
-  it('invalidates queued work and rejects new submissions until recovery reload starts', async () => {
-    let releaseRunningWork: (() => void) | null = null;
-    const runningWorkStarted = new Promise<void>((resolve) => {
-      void runDesktopScheduledDatabaseWork(
-        { label: 'corrupting-operation', priority: 'foreground' },
+  describe('database integrity containment gate', () => {
+    const SIGNAL = { message: 'invalid page in block 3', sqlstate: 'XX001' } as const;
+
+    function startBlockingForegroundWork(): {
+      readonly release: () => void;
+      readonly started: Promise<void>;
+    } {
+      let release: () => void = () => undefined;
+      const started = new Promise<void>((resolve) => {
+        void runDesktopScheduledDatabaseWork(
+          { label: 'blocking-foreground', priority: 'foreground' },
+          async () => {
+            resolve();
+            await new Promise<void>((done) => {
+              release = done;
+            });
+          }
+        );
+      });
+      return { release: () => release(), started };
+    }
+
+    it('rejects a new background submission with background-paused and never runs its closure', async () => {
+      const contained = getDesktopDatabaseIntegrity().contain('db:query', SIGNAL);
+      const operation = vi.fn(async () => 'ran');
+
+      const rejection = await runDesktopScheduledDatabaseWork(
+        { label: 'background-while-contained', priority: 'background' },
+        operation
+      ).catch((error: unknown) => error);
+
+      expect(rejection).toBeInstanceOf(DatabaseIntegrityError);
+      expect((rejection as DatabaseIntegrityError).detail).toEqual({
+        reason: 'background-paused',
+        state: contained.state,
+      });
+      expect(operation).not.toHaveBeenCalled();
+      expect(getDesktopDatabaseWorkSchedulerSnapshot().queued.background).toBe(0);
+    });
+
+    it('rejects a background task that was queued before containment when it would start', async () => {
+      const blocker = startBlockingForegroundWork();
+      await blocker.started;
+      const operation = vi.fn(async () => 'ran');
+      const queued = runDesktopScheduledDatabaseWork(
+        { label: 'queued-background', priority: 'background' },
+        operation
+      );
+      const queuedRejection = expect(queued).rejects.toThrow(DatabaseIntegrityError);
+      await Promise.resolve();
+
+      getDesktopDatabaseIntegrity().contain('db:query', SIGNAL);
+      blocker.release();
+
+      await queuedRejection;
+      expect(operation).not.toHaveBeenCalled();
+    });
+
+    it('lets the task that is already running finish', async () => {
+      let release: () => void = () => undefined;
+      let markStarted: () => void = () => undefined;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const running = runDesktopScheduledDatabaseWork(
+        { label: 'running-background', priority: 'background' },
         async () => {
-          resolve();
-          await new Promise<void>((release) => {
-            releaseRunningWork = release;
+          markStarted();
+          await new Promise<void>((done) => {
+            release = done;
           });
+          return 'finished';
         }
       );
+      await started;
+
+      getDesktopDatabaseIntegrity().contain('db:query', SIGNAL);
+      release();
+
+      await expect(running).resolves.toBe('finished');
     });
-    await runningWorkStarted;
 
-    const staleOperation = vi.fn(async () => 'stale-result');
-    const queuedWork = runDesktopScheduledDatabaseWork(
-      { label: 'queued-before-recovery', priority: 'foreground' },
-      staleOperation
-    );
-    const queuedWorkAssertion = expect(queuedWork).rejects.toThrow(
-      DATABASE_WORK_INVALIDATED_BY_RECOVERY_MESSAGE
-    );
+    it('keeps running foreground and normal work while contained', async () => {
+      getDesktopDatabaseIntegrity().contain('db:query', SIGNAL);
 
-    quiesceDesktopDatabaseWorkForRecovery();
-    if (!releaseRunningWork) {
-      throw new Error('Running work did not expose a release callback.');
-    }
-    const finishRunningWork = releaseRunningWork as (() => void) | null;
-    if (!finishRunningWork) {
-      throw new Error('Running work did not expose a release callback.');
-    }
-    finishRunningWork();
-
-    await queuedWorkAssertion;
-    expect(staleOperation).not.toHaveBeenCalled();
-    await expect(
-      runDesktopScheduledDatabaseWork(
-        { label: 'submitted-during-recovery', priority: 'foreground' },
-        async () => 'blocked'
-      )
-    ).rejects.toThrow(DATABASE_WORK_INVALIDATED_BY_RECOVERY_MESSAGE);
-
-    resumeDesktopDatabaseWorkAfterRecoveryReload();
-    await expect(
-      runDesktopScheduledDatabaseWork(
-        { label: 'fresh-renderer-operation', priority: 'foreground' },
-        async () => 'fresh-result'
-      )
-    ).resolves.toBe('fresh-result');
-  });
-
-  it('invalidates queued work submitted through the scheduler handed to backfills', async () => {
-    const backfillScheduler = getDesktopDatabaseWorkScheduler();
-    let releaseRunningWork: (() => void) | null = null;
-    const runningWorkStarted = new Promise<void>((resolve) => {
-      void runDesktopScheduledDatabaseWork(
-        { label: 'corrupting-operation', priority: 'foreground' },
-        async () => {
-          resolve();
-          await new Promise<void>((release) => {
-            releaseRunningWork = release;
-          });
-        }
-      );
+      await expect(
+        runDesktopScheduledDatabaseWork(
+          { label: 'foreground-while-contained', priority: 'foreground' },
+          async () => 'foreground'
+        )
+      ).resolves.toBe('foreground');
+      await expect(
+        runDesktopScheduledDatabaseWork(
+          { label: 'normal-while-contained', priority: 'normal' },
+          async () => 'normal'
+        )
+      ).resolves.toBe('normal');
     });
-    await runningWorkStarted;
 
-    const staleBackfillQuery = vi.fn(async () => 'stale-result');
-    const queuedBackfillWork = backfillScheduler.run(staleBackfillQuery, {
-      label: 'queued-backfill-query',
-      priority: 'background',
+    it('gates the scheduler handed to backfills the same way', async () => {
+      getDesktopDatabaseIntegrity().contain('db:query', SIGNAL);
+      const operation = vi.fn(async () => 'ran');
+
+      await expect(
+        getDesktopDatabaseWorkScheduler().run(operation, {
+          label: 'backfill-query',
+          priority: 'background',
+        })
+      ).rejects.toThrow(DatabaseIntegrityError);
+      expect(operation).not.toHaveBeenCalled();
+      await expect(
+        getDesktopDatabaseWorkScheduler().run(async () => 'foreground', {
+          label: 'foreground-query',
+          priority: 'foreground',
+        })
+      ).resolves.toBe('foreground');
     });
-    const queuedBackfillAssertion = expect(queuedBackfillWork).rejects.toThrow(
-      DATABASE_WORK_INVALIDATED_BY_RECOVERY_MESSAGE
-    );
 
-    quiesceDesktopDatabaseWorkForRecovery();
-    if (!releaseRunningWork) {
-      throw new Error('Running work did not expose a release callback.');
-    }
-    const finishRunningWork = releaseRunningWork as (() => void) | null;
-    if (!finishRunningWork) {
-      throw new Error('Running work did not expose a release callback.');
-    }
-    finishRunningWork();
+    it('admits background work again after the database is replaced', async () => {
+      const integrity = getDesktopDatabaseIntegrity();
+      integrity.contain('db:query', SIGNAL);
+      integrity.markDatabaseReplaced('factory-reset');
 
-    await queuedBackfillAssertion;
-    expect(staleBackfillQuery).not.toHaveBeenCalled();
+      await expect(
+        runDesktopScheduledDatabaseWork(
+          { label: 'background-after-replacement', priority: 'background' },
+          async () => 'ran'
+        )
+      ).resolves.toBe('ran');
+    });
   });
 
   it('resolves SQL params separately from database work options', () => {

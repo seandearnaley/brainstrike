@@ -470,7 +470,7 @@ export function createEmbeddingCacheRepository(
   const surface = db as { query?: unknown; transaction?: unknown; runTransaction?: unknown };
   // Statement-list runTransaction (#1141/#1145) positively identifies the IPC
   // bridge — do not infer it from the ABSENCE of callback `transaction`:
-  // ElectronDatabaseAPI's optional `transaction` member invites a future
+  // DesktopDatabaseBridge's optional `transaction` member invites a future
   // preload to add one, which would otherwise flip desktop into
   // drizzle-over-IPC far from the change that caused it (review #2166).
   // The bridge returns EARLY, before any Drizzle branch: createDbHandle

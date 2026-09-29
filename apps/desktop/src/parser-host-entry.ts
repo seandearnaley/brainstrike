@@ -15,9 +15,9 @@
  */
 
 import { parseSync } from 'oxc-parser';
+import { isParserHostParseRequest } from './parser-host-schema';
 import {
   extractParserHostRequestId,
-  isParserHostParseRequest,
   type ParserHostAstNode,
   type ParserHostParseOptions,
   type ParserHostParseRequest,

@@ -1,6 +1,11 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
+    "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
+    ],
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
@@ -76,6 +81,9 @@
       "@brainstrike/types": [
         "../../packages/types/src"
       ],
+      "@brainstrike/effect-kit": [
+        "../../packages/effect-kit/src/index.ts"
+      ],
       "@brainstrike/logging": [
         "../../packages/logging/src/index.ts"
       ],
@@ -139,6 +147,12 @@
       "@brainstrike/assistant-data/assistant-thread-run-reaper": [
         "../../packages/assistant-data/src/assistant-thread-run-reaper.ts"
       ],
+      "@brainstrike/assistant-data/assistant-memory-repository": [
+        "../../packages/assistant-data/src/assistant-memory-repository.ts"
+      ],
+      "@brainstrike/app-shell/app-reload": [
+        "../../packages/app-shell/src/app-reload/index.ts"
+      ],
       "@brainstrike/app-shell/changes/availability": [
         "../../packages/app-shell/src/changes/availability.ts"
       ],
@@ -153,6 +167,9 @@
       ],
       "@brainstrike/app-shell/user-commands-bridge": [
         "../../packages/app-shell/src/user-commands-bridge.ts"
+      ],
+      "@brainstrike/app-shell/worktrees/availability": [
+        "../../packages/app-shell/src/worktrees/availability.ts"
       ],
       "@brainstrike/notes-vault/desktop-contract": [
         "../../packages/notes-vault/src/desktop/bridge-contract.ts"
@@ -212,6 +229,9 @@
     },
     {
       "path": "../../packages/platform-utils"
+    },
+    {
+      "path": "../../packages/effect-kit"
     },
     {
       "path": "../../packages/logging"

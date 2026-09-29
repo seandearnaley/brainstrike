@@ -1,7 +1,12 @@
 import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
+import {
+  SUBAGENT_NO_ANSWER_OUTCOME,
+  SUBAGENT_REJECTED_OUTCOME,
+  SUBAGENT_TRUNCATED_OUTCOME,
+} from '@brainstrike/assistant-contract/personas';
 import { extractPrimaryArg } from './tool-summaries';
 
-export type SubAgentToolRowStatus = 'error' | 'running' | 'success';
+export type SubAgentToolRowStatus = 'error' | 'interrupted' | 'running' | 'success';
 
 export interface SubAgentToolRow {
   argSummary: string | undefined;
@@ -39,11 +44,84 @@ export function readSubAgentToolRows(result: unknown): SubAgentToolRow[] {
   });
 }
 
+/** How a delegation ended, beyond what the tool-call status can express. */
+export type SubagentDelegationOutcome =
+  | typeof SUBAGENT_NO_ANSWER_OUTCOME
+  | typeof SUBAGENT_REJECTED_OUTCOME
+  | typeof SUBAGENT_TRUNCATED_OUTCOME;
+
+/**
+ * This delegation's terminal outcome, when it is one the tool-call status
+ * cannot express (BST-1410).
+ *
+ * A child that exhausts its step cap mid-tool-loop still produces a SUCCESSFUL
+ * delegation tool call, so `status.type` reports it as complete — the same
+ * silent success that made a supervisor abandon delegation for a whole turn.
+ * The discriminator is the terminal run event's bounded `outcome` metadata,
+ * never the human label (a hard child failure shares the same kind and status).
+ *
+ * Scoped by `parentToolCallId` because MAX_CONCURRENT_DELEGATIONS is 2: an
+ * unscoped read would report one delegation's outcome on another's card.
+ */
+export function readSubagentDelegationOutcome(
+  parts: readonly unknown[],
+  parentToolCallId: string
+): SubagentDelegationOutcome | undefined {
+  for (const part of parts) {
+    const event = readSubagentRunEventContribution(part);
+    if (event?.parentToolCallId === parentToolCallId && event.outcome) {
+      return event.outcome;
+    }
+  }
+  return;
+}
+
 const SUBAGENT_TOOL_KIND_STATUS: Record<string, SubAgentToolRowStatus> = {
   'subagent.tool.completed': 'success',
   'subagent.tool.failed': 'error',
   'subagent.tool.started': 'running',
 };
+
+export interface SubagentRunEventContribution {
+  readonly outcome?: SubagentDelegationOutcome;
+  readonly parentToolCallId: string;
+  readonly row?: SubAgentToolRow;
+}
+
+/** Parse one persisted run-event part for the shared thread index and legacy readers. */
+export function readSubagentRunEventContribution(
+  part: unknown
+): SubagentRunEventContribution | undefined {
+  const data = readAssistantRunEventDataPart(part);
+  const metadata = data?.metadata;
+  const parentToolCallId = metadata?.['parentToolCallId'];
+  if (!(data && metadata && typeof parentToolCallId === 'string')) {
+    return;
+  }
+  const outcome =
+    metadata['outcome'] === SUBAGENT_NO_ANSWER_OUTCOME ||
+    metadata['outcome'] === SUBAGENT_REJECTED_OUTCOME ||
+    metadata['outcome'] === SUBAGENT_TRUNCATED_OUTCOME
+      ? metadata['outcome']
+      : undefined;
+  const status = SUBAGENT_TOOL_KIND_STATUS[data.kind];
+  const toolCallId = metadata['toolCallId'];
+  const row =
+    status && typeof toolCallId === 'string' && toolCallId.length > 0
+      ? {
+          argSummary: undefined,
+          key: toolCallId,
+          status,
+          toolName:
+            typeof metadata['childToolName'] === 'string' ? metadata['childToolName'] : 'tool',
+        }
+      : undefined;
+  return {
+    ...(outcome ? { outcome } : {}),
+    parentToolCallId,
+    ...(row ? { row } : {}),
+  };
+}
 
 /**
  * LIVE in-flight per-child rows derived from `subagent.tool.*` run-event message
@@ -57,26 +135,10 @@ export function readLiveSubagentToolRows(
 ): SubAgentToolRow[] {
   const byChild = new Map<string, SubAgentToolRow>();
   for (const part of parts) {
-    const data = readAssistantRunEventDataPart(part);
-    if (!data) {
-      continue;
+    const event = readSubagentRunEventContribution(part);
+    if (event?.parentToolCallId === parentToolCallId && event.row) {
+      byChild.set(event.row.key, event.row);
     }
-    const status = SUBAGENT_TOOL_KIND_STATUS[data.kind];
-    if (!status) {
-      continue;
-    }
-    const metadata = data.metadata;
-    if (!metadata || metadata['parentToolCallId'] !== parentToolCallId) {
-      continue;
-    }
-    const toolCallId =
-      typeof metadata['toolCallId'] === 'string' ? metadata['toolCallId'] : undefined;
-    if (!toolCallId) {
-      continue;
-    }
-    const toolName =
-      typeof metadata['childToolName'] === 'string' ? metadata['childToolName'] : 'tool';
-    byChild.set(toolCallId, { argSummary: undefined, key: toolCallId, status, toolName });
   }
   return Array.from(byChild.values());
 }
@@ -118,4 +180,80 @@ export function mergeSubagentToolRows(
     byKey.set(row.key, row);
   }
   return Array.from(byKey.values());
+}
+
+interface MessageWithParts {
+  readonly parts?: readonly unknown[];
+  readonly status?: unknown;
+}
+
+/**
+ * True when the message's OWN status says it is finished. Absent status is
+ * NOT settled — liveness is never guessed (see `isSettledMessage` in
+ * assistant-run-event-derivation.ts for the sibling rule this mirrors).
+ */
+function isSettledMessageStatus(status: unknown): boolean {
+  return isRecord(status) && (status['type'] === 'complete' || status['type'] === 'incomplete');
+}
+
+/**
+ * Thread-wide variant of {@link readLiveSubagentToolRows} (2026-08-24 field
+ * failure): hydration weaves a run's `subagent.tool.*` events into ONE
+ * assistant group, and an approval-resume turn splits into sibling groups —
+ * so on reload the events can land on a DIFFERENT message than the delegation
+ * card, and a message-scoped read shows "0 tool calls" for a child that did
+ * minutes of work. The events are `parentToolCallId`-scoped by design, so
+ * reading every message's parts is safe and reload-robust.
+ *
+ * Derives per message rather than concatenating every message's parts first:
+ * a `running` row whose owning message has already settled (`complete` or
+ * `incomplete`) has no terminal event anywhere in that message — it was
+ * interrupted (crash, kill, abandoned pause) — so it renders static instead
+ * of pulsing forever. Messages are iterated in thread order and `Map.set`
+ * overwrites, so "later event supersedes earlier" still holds across
+ * messages.
+ */
+export function readLiveSubagentToolRowsFromMessages(
+  messages: readonly MessageWithParts[],
+  parentToolCallId: string
+): SubAgentToolRow[] {
+  const byChild = new Map<string, SubAgentToolRow>();
+  for (const message of messages) {
+    if (!Array.isArray(message.parts)) {
+      continue;
+    }
+    const settled = isSettledMessageStatus(message.status);
+    for (const row of readLiveSubagentToolRows(message.parts, parentToolCallId)) {
+      byChild.set(
+        row.key,
+        settled && row.status === 'running' ? { ...row, status: 'interrupted' } : row
+      );
+    }
+  }
+  return Array.from(byChild.values());
+}
+
+/** Value-stable serialization of {@link readLiveSubagentToolRowsFromMessages}. */
+export function serializeLiveSubagentToolRowsFromMessages(
+  messages: readonly MessageWithParts[],
+  parentToolCallId: string
+): string {
+  return JSON.stringify(readLiveSubagentToolRowsFromMessages(messages, parentToolCallId));
+}
+
+/** Thread-wide variant of {@link readSubagentDelegationOutcome} — same rationale. */
+export function readSubagentDelegationOutcomeFromMessages(
+  messages: readonly MessageWithParts[],
+  parentToolCallId: string
+): SubagentDelegationOutcome | undefined {
+  for (const message of messages) {
+    if (!Array.isArray(message.parts)) {
+      continue;
+    }
+    const outcome = readSubagentDelegationOutcome(message.parts, parentToolCallId);
+    if (outcome) {
+      return outcome;
+    }
+  }
+  return;
 }

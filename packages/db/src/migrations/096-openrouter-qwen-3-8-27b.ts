@@ -8,6 +8,7 @@ export const migration096OpenRouterQwen3827B: Migration = {
       AND id = 'qwen/qwen3.8-27b';
     UPDATE models SET sort_order = sort_order - 1 WHERE provider_id = 'openrouter';
   `,
+  ledgerKey: 'custom-096-openrouter-qwen-3-8-27b',
   name: 'openrouter_qwen_3_8_27b',
   up: `
     UPDATE models SET sort_order = sort_order + 1 WHERE provider_id = 'openrouter';

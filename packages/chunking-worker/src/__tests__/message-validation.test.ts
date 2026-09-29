@@ -26,6 +26,39 @@ describe('chunking worker message validation', () => {
     }
   });
 
+  it('keeps the historical leniency: extra keys and undefined optional keys pass', () => {
+    // Senders spread optional fields, so an explicit `undefined` must stay valid,
+    // and a newer host may add fields an older worker does not know yet.
+    expect(
+      isChunkingRequestOptions({
+        maxTokens: undefined,
+        separators: undefined,
+        strategy: 'auto',
+        unknownFutureOption: true,
+      })
+    ).toBe(true);
+    expect(
+      isChunkRequest({
+        content: 'text',
+        extra: { traceId: 't-1' },
+        fileName: 'a.ts',
+        filePath: '/w/a.ts',
+        fileRecordId: 'rec-1',
+        id: 'req-1',
+        options: { strategy: 'auto' },
+        type: 'chunk',
+      })
+    ).toBe(true);
+  });
+
+  it('rejects non-integer and non-finite numeric options', () => {
+    expect(isChunkingRequestOptions({ maxTokens: 1.5, strategy: 'auto' })).toBe(false);
+    expect(isChunkingRequestOptions({ overlap: Number.NaN, strategy: 'auto' })).toBe(false);
+    expect(
+      isChunkingRequestOptions({ maxTokens: Number.POSITIVE_INFINITY, strategy: 'auto' })
+    ).toBe(false);
+  });
+
   it('rejects unknown chunking strategies', () => {
     expect(isChunkingRequestOptions({ strategy: 'bogus' })).toBe(false);
   });

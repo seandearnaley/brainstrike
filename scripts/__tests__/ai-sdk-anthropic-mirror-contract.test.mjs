@@ -34,6 +34,13 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 // compared, because both mirrors hand-copy `'omitted' | 'summarized'` and the
 // app emits those at runtime — a release re-spelling them while leaving the
 // `adaptive` discriminant alone would otherwise pass.
+//
+// 4.0.49 added a SECOND, undiscriminated member alongside the discriminated
+// union: `{ type?: never; blockBinding: … }`, a shape that carries no `type`
+// literal at all. It is outside this contract's scope by construction — there
+// is no discriminant to compare — and the mirrors deliberately do not grow it
+// here. Adopting `blockBinding` is a feature decision about what the app emits,
+// not a drift this guard is entitled to force.
 const PROVIDER_PACKAGE = '@ai-sdk/anthropic';
 const MIRROR_ROOTS = ['apps', 'packages'];
 const MIRROR_ROOT_LABEL = MIRROR_ROOTS.map((root) => `${root}/*/src`).join(' or ');
@@ -118,35 +125,238 @@ function unique(values) {
   return [...new Set(values)].sort();
 }
 
+const CLOSING_BRACKETS = new Map([
+  ['<', '>'],
+  ['[', ']'],
+  ['{', '}'],
+  ['(', ')'],
+]);
+
 /**
- * The `display` values of the upstream `adaptive` variant.
+ * Whether the character at `index` closes the innermost open bracket.
  *
- * Scoped to that variant rather than searched across the whole `thinking`
- * block: `display` is currently unique to `adaptive`, but a future release
- * adding a same-named field to another variant must not silently merge into
- * this set. The slice runs from the `adaptive` discriminant to the `$strip`
- * marker that closes its ZodObject.
+ * There is deliberately NO special case for the `>` of an arrow type, and the
+ * reason is a proof rather than a measurement. An earlier version carried one
+ * defensively, on the theory that `z.ZodType<() => void>` could pop the frame
+ * `<` opened and truncate the slice.
+ *
+ * It cannot, at any call site in this file. Truncation requires the mis-pop to
+ * EMPTY the stack, so the outermost opener handed to `sliceBalanced` would have
+ * to be `<`. Every entry point opens a brace or a square bracket instead — the
+ * options declaration, the discriminated union, each union member, and each
+ * enum body. So an arrow's `>` can only pop an INNER `<` frame, after which the
+ * type's own closing `>` matches nothing and is skipped, and the slice still
+ * ends at the right outermost closer.
+ *
+ * That is why no fixture could be built that went red without the guard: it was
+ * unreachable. It is removed rather than kept as code no test can exercise. If a
+ * call site is ever added that opens with an angle bracket, this reasoning
+ * expires with it.
  */
-function extractUpstreamAdaptiveDisplay(thinkingBlock) {
-  const adaptiveStart = thinkingBlock.indexOf('type: z.ZodLiteral<"adaptive">');
-  if (adaptiveStart === -1) {
+function isCloser(source, index, stack) {
+  return stack.length > 0 && source[index] === stack.at(-1);
+}
+
+/**
+ * The text inside the bracket that opens at `openIndex`, or `null` when the
+ * source never balances.
+ *
+ * Anchored regexes stopped being able to read this declaration at 4.0.49:
+ * `thinking` is no longer a bare `ZodDiscriminatedUnion` but a `ZodUnion`
+ * wrapping one plus an undiscriminated sibling, so the union body sits two
+ * bracket levels deeper and a lazy `[\s\S]*?` stops at whichever `]>>;` comes
+ * first rather than at the matching one. A depth scan reads the real nesting;
+ * `null` on an unbalanced source keeps the failure loud rather than handing
+ * back a truncated slice that parses into a plausible-looking subset.
+ *
+ * Worth knowing when reading the rest of this file: a BRACKET mis-scan here is
+ * LOUD. A corrupted slice makes `sliceAfter` return null or a body that
+ * `topLevelFields` cannot parse, `thinkingTypes` comes back empty, and the
+ * pinned real-tree assertions fail with "must be re-derived, not skipped".
+ *
+ * That is a claim about UNBALANCED input, and it does not extend to every kind
+ * of mis-scan — an earlier version of this comment said "there is no path where
+ * a bad scan quietly narrows the answer", which was wrong. A brace inside a
+ * string literal (`z.ZodLiteral<"a{b">`) desynchronises this stack, and while
+ * that particular case is loud, the SILENT ones came from the comment stripper,
+ * which is why it is quote-aware. These scanners are still string-unaware; the
+ * protection against that is that an unbalanced result fails the pinned
+ * assertions, not that it cannot happen.
+ */
+function sliceBalanced(source, openIndex) {
+  const stack = [];
+  for (let index = openIndex; index < source.length; index += 1) {
+    const char = source[index];
+    const closing = CLOSING_BRACKETS.get(char);
+    if (closing !== undefined) {
+      stack.push(closing);
+      continue;
+    }
+    if (isCloser(source, index, stack)) {
+      stack.pop();
+      if (stack.length === 0) {
+        return source.slice(openIndex + 1, index);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Block comments are stripped before any scanning. A `<`, `[` or unpaired
+ * bracket inside a JSDoc block — `{@link <https://…>}` is the ordinary way this
+ * shows up — desynchronizes the bracket stack, and the same text breaks
+ * `topLevelFields`, which requires each `;`-separated chunk to start with an
+ * identifier and so drops any field a comment precedes. Generated zod-inference
+ * types carry no JSDoc today; this removes the whole class rather than relying
+ * on that staying true.
+ */
+function stripBlockComments(source) {
+  // Line comments are stripped per line, and ONLY outside a string literal.
+  // A blanket /\/\/[^\n]*/ deletes real declaration text the moment a literal
+  // contains `//` — a URL-valued enum member is the ordinary way that happens.
+  // `b: "https://x"; c: z.ZodString;` would become `b: "https:` with the
+  // terminating `;` eaten, merging two fields into one chunk and dropping the
+  // second from topLevelFields with no signal. Brackets stay balanced through
+  // that, so nothing downstream notices: it is silent narrowing, which is the
+  // class this whole contract exists to prevent.
+  const withoutBlocks = source.replace(/\/\*[\s\S]*?\*\//gu, '');
+  return withoutBlocks
+    .split('\n')
+    .map((line) => {
+      let quote = null;
+      for (let index = 0; index < line.length; index += 1) {
+        const char = line[index];
+        if (quote) {
+          if (char === '\\') {
+            index += 1;
+          } else if (char === quote) {
+            quote = null;
+          }
+          continue;
+        }
+        if (char === '"' || char === "'" || char === '`') {
+          quote = char;
+          continue;
+        }
+        if (char === '/' && line[index + 1] === '/') {
+          return line.slice(0, index);
+        }
+      }
+      return line;
+    })
+    .join('\n');
+}
+
+/** The balanced body of the first `bracket` that follows `marker`. */
+function sliceAfter(source, marker, bracket) {
+  const markerIndex = source.indexOf(marker);
+  if (markerIndex === -1) {
+    return null;
+  }
+  const openIndex = source.indexOf(bracket, markerIndex + marker.length);
+  return openIndex === -1 ? null : sliceBalanced(source, openIndex);
+}
+
+/**
+ * Splits on `separator` occurrences sitting at bracket depth 0.
+ *
+ * This is what lets the extractor talk about a declaration's OWN members:
+ * `anthropicLanguageModelOptions` nests a second `thinking` field inside
+ * `fallbacks`, and the `adaptive` variant nests a `blockBinding` object, so a
+ * flat scan would fold those into the top-level answer.
+ */
+function splitTopLevel(source, separator) {
+  const parts = [];
+  const stack = [];
+  let start = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const closing = CLOSING_BRACKETS.get(char);
+    if (closing !== undefined) {
+      stack.push(closing);
+      continue;
+    }
+    if (isCloser(source, index, stack)) {
+      stack.pop();
+      continue;
+    }
+    if (stack.length === 0 && char === separator) {
+      parts.push(source.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(source.slice(start));
+  return parts;
+}
+
+/** The `name -> type expression` pairs declared directly in a `{…}` type body. */
+function topLevelFields(objectBody) {
+  const fields = new Map();
+  for (const declaration of splitTopLevel(objectBody, ';')) {
+    const named = /^\s*(?<name>[A-Za-z_$][\w$]*)\??:(?<type>[\s\S]*)$/u.exec(declaration);
+    if (named) {
+      fields.set(named.groups.name, named.groups.type);
+    }
+  }
+  return fields;
+}
+
+/**
+ * The literal values of a `z.ZodEnum<{…}>` type expression.
+ *
+ * Tolerates a `ZodOptional` (or any other) wrapper on purpose: this contract
+ * compares VALUES, never optionality.
+ */
+function extractZodEnumValues(typeExpression) {
+  // EVERY `z.ZodEnum<` in the expression, not just the first. Reading one would
+  // report a NARROWER upstream set than reality if a value union is ever spelled
+  // as `z.ZodUnion<[z.ZodEnum<…>, z.ZodEnum<…>]>` — and a mirror that is
+  // genuinely narrower than the provider would then compare clean. That is this
+  // contract's own bug class, inverted. The pinned assertions catch it for
+  // today's shape, but those are exactly what gets edited during an upgrade.
+  const values = [];
+  let cursor = 0;
+  for (;;) {
+    const found = typeExpression.indexOf('z.ZodEnum<', cursor);
+    if (found === -1) {
+      break;
+    }
+    const body = sliceAfter(typeExpression.slice(found), 'z.ZodEnum<', '{');
+    if (body !== null) {
+      values.push(
+        ...[...body.matchAll(/: "(?<value>[^"]+)"/gu)].map((match) => match.groups.value)
+      );
+    }
+    cursor = found + 'z.ZodEnum<'.length;
+  }
+  return unique(values);
+}
+
+/**
+ * The top-level fields of each member of the `thinking` discriminated union.
+ *
+ * Reads the `ZodDiscriminatedUnion` specifically rather than the whole
+ * `thinking` expression, so the undiscriminated `blockBinding`-only sibling
+ * 4.0.49 added is not mistaken for a variant, and so the `display` compared
+ * below is unambiguously the `adaptive` one — a future release adding a
+ * same-named field to another variant must not silently merge into that set.
+ */
+function extractUpstreamThinkingVariants(thinkingType) {
+  const unionMembers = sliceAfter(thinkingType, 'z.ZodDiscriminatedUnion<', '[');
+  if (unionMembers === null) {
     return [];
   }
-  const adaptiveEnd = thinkingBlock.indexOf('z.core.$strip>', adaptiveStart);
-  const adaptiveBlock = thinkingBlock.slice(
-    adaptiveStart,
-    adaptiveEnd === -1 ? undefined : adaptiveEnd
-  );
-  // Tolerates `display` becoming required: only the ZodEnum body is required to
-  // match, not the ZodOptional wrapper.
-  const displayBlock = /display: (?:z\.ZodOptional<)?z\.ZodEnum<\{(?<body>[\s\S]*?)\}>/u.exec(
-    adaptiveBlock
-  );
-  return unique(
-    [...(displayBlock?.groups?.body ?? '').matchAll(/: "(?<value>[^"]+)";/gu)].map(
-      (match) => match.groups.value
-    )
-  );
+  return splitTopLevel(unionMembers, ',')
+    .map((member) => sliceAfter(member, 'z.ZodObject<', '{'))
+    .filter((body) => body !== null)
+    .map((body) => topLevelFields(body));
+}
+
+/** The `type: z.ZodLiteral<"…">` discriminant of one union variant, if it has one. */
+function readDiscriminant(variantFields) {
+  const literal = /^\s*z\.ZodLiteral<"(?<value>[^"]+)">\s*$/u.exec(variantFields.get('type') ?? '');
+  return literal?.groups?.value ?? null;
 }
 
 /**
@@ -178,37 +388,36 @@ function extractMirrorAdaptiveDisplay(thinkingBody) {
  * `dist/index.d.ts` is the right source rather than `src/`: it is what `tsc`
  * loads for our code, so it is the shape the mirrors are actually claiming to
  * match. Both properties are read out of the `anthropicLanguageModelOptions`
- * declaration specifically — `thinking` also appears further down the same file
- * as an unrelated `ZodRecord` on the raw request body.
+ * declaration specifically, and out of its OWN top-level fields — `thinking`
+ * appears again inside that declaration's `fallbacks` entry as a `ZodRecord`,
+ * and again further down the file on the raw request body.
  */
-export function extractUpstreamUnions(declarationSource) {
-  const declarationStart = declarationSource.indexOf(
-    'declare const anthropicLanguageModelOptions:'
+export function extractUpstreamUnions(rawDeclarationSource) {
+  const declarationSource = stripBlockComments(rawDeclarationSource);
+  const optionsBody = sliceAfter(
+    declarationSource,
+    'declare const anthropicLanguageModelOptions:',
+    '{'
   );
-  if (declarationStart === -1) {
-    return { adaptiveDisplay: [], effort: [], thinkingTypes: [] };
+  if (optionsBody === null) {
+    return {
+      adaptiveDisplay: [],
+      adaptiveFieldCount: 0,
+      effort: [],
+      fieldCount: 0,
+      thinkingTypes: [],
+    };
   }
-  const nextDeclaration = declarationSource.indexOf('\ndeclare ', declarationStart + 1);
-  const block = declarationSource.slice(
-    declarationStart,
-    nextDeclaration === -1 ? undefined : nextDeclaration
-  );
-  const effortBlock = /\n {4}effort: z\.ZodOptional<z\.ZodEnum<\{(?<body>[\s\S]*?)\}>>;/u.exec(
-    block
-  );
-  const thinkingBlock =
-    /\n {4}thinking: z\.ZodOptional<z\.ZodDiscriminatedUnion<\[(?<body>[\s\S]*?)\]>>;/u.exec(block);
+  const fields = topLevelFields(optionsBody);
+  const variants = extractUpstreamThinkingVariants(fields.get('thinking') ?? '');
+  const adaptive = variants.find((variant) => readDiscriminant(variant) === 'adaptive');
   return {
-    adaptiveDisplay: extractUpstreamAdaptiveDisplay(thinkingBlock?.groups?.body ?? ''),
-    effort: unique(
-      [...(effortBlock?.groups?.body ?? '').matchAll(/: "(?<value>[^"]+)";/gu)].map(
-        (match) => match.groups.value
-      )
-    ),
+    adaptiveDisplay: extractZodEnumValues(adaptive?.get('display') ?? ''),
+    adaptiveFieldCount: adaptive?.size ?? 0,
+    effort: extractZodEnumValues(fields.get('effort') ?? ''),
+    fieldCount: fields.size,
     thinkingTypes: unique(
-      [
-        ...(thinkingBlock?.groups?.body ?? '').matchAll(/type: z\.ZodLiteral<"(?<value>[^"]+)">/gu),
-      ].map((match) => match.groups.value)
+      variants.map((variant) => readDiscriminant(variant)).filter((value) => value !== null)
     ),
   };
 }
@@ -552,19 +761,97 @@ test('money control: unreadable upstream declarations fail instead of passing va
   assert.match(violations.join('\n'), /found no hand-mirrored @ai-sdk\/anthropic unions/u);
 });
 
+// A synthetic declaration in the 4.0.49 shape, so the comment stripping below
+// is exercised on input that actually contains what it guards against. The real
+// dist/index.d.ts carries no JSDoc today, so without this the stripping would be
+// unfalsifiable — removing it leaves every real-tree case green, which is not
+// evidence of anything.
+function syntheticDeclaration({ jsdoc = '', urlField = '', splitEnum = false } = {}) {
+  const effort = splitEnum
+    ? 'z.ZodOptional<z.ZodUnion<[z.ZodEnum<{ low: "low" }>, z.ZodEnum<{ medium: "medium"; high: "high" }>]>>'
+    : 'z.ZodOptional<z.ZodEnum<{ low: "low"; medium: "medium"; high: "high" }>>';
+  return `declare const anthropicLanguageModelOptions: z.ZodObject<{
+	effort: ${effort};${urlField}${jsdoc}
+	thinking: z.ZodOptional<z.ZodUnion<readonly [z.ZodDiscriminatedUnion<[z.ZodObject<{
+		type: z.ZodLiteral<"adaptive">;
+		display: z.ZodOptional<z.ZodEnum<{ omitted: "omitted"; summarized: "summarized" }>>;
+	}, $strip>, z.ZodObject<{ type: z.ZodLiteral<"disabled">; }, $strip>]>, z.ZodObject<{
+		type: z.ZodOptional<z.ZodNever>;
+	}, $strip>]>>;
+}, $strip>;
+`;
+}
+
+test('scanner: a `//` inside a string literal does not eat the rest of the field', () => {
+  // The silent case, and the reason the line stripper is quote-aware. A blanket
+  // /\/\/[^\n]*/ turns `docs: "https://x";` into `docs: "https:` — the
+  // terminating `;` goes with it, `splitTopLevel` then sees ONE chunk spanning
+  // two fields, and `topLevelFields` keeps the first and drops the second with
+  // no signal. Brackets stay balanced throughout, so nothing downstream notices.
+  const documented = extractUpstreamUnions(
+    syntheticDeclaration({ urlField: '\n\tdocs: z.ZodLiteral<"https://example.invalid/a">;' })
+  );
+  assert.deepEqual(documented.effort, ['high', 'low', 'medium']);
+  assert.deepEqual(documented.thinkingTypes, ['adaptive', 'disabled']);
+  assert.deepEqual(documented.adaptiveDisplay, ['omitted', 'summarized']);
+});
+
+test('scanner: a value union spelled as two enums reports BOTH sets', () => {
+  // Reading only the first `z.ZodEnum<` would report `['low']` — a NARROWER
+  // upstream than reality, against which a genuinely narrow mirror compares
+  // clean. That is this contract's own bug class, inverted.
+  const split = extractUpstreamUnions(syntheticDeclaration({ splitEnum: true }));
+  assert.deepEqual(split.effort, ['high', 'low', 'medium']);
+});
+
+test('scanner: a JSDoc block inside the declaration body does not blind the scan', () => {
+  // Measured: without stripBlockComments this returns effort=[] and
+  // thinkingTypes=[], because the unpaired `{` and `<` desynchronize the bracket
+  // stack and topLevelFields then sees no identifier-led chunk. Loud, but it
+  // would refuse a legitimate upstream release that merely documented a field.
+  const documented = extractUpstreamUnions(
+    syntheticDeclaration({ jsdoc: '\n\t/** doc { unpaired and <https://example.invalid/a[b> */' })
+  );
+  assert.deepEqual(documented.thinkingTypes, ['adaptive', 'disabled']);
+  assert.deepEqual(documented.adaptiveDisplay, ['omitted', 'summarized']);
+  assert.deepEqual(documented.effort, ['high', 'low', 'medium']);
+  // The undocumented form reads identically — stripping changes nothing else.
+  assert.deepEqual(extractUpstreamUnions(syntheticDeclaration()), documented);
+});
+
 test('extraction: reads the real provider declaration and the real mirrors', () => {
   // Guards the parsers themselves — a regex that silently stopped matching
   // would make every comparison above trivially true.
   const { installedVersion, mirrors, upstream } = loadActualState();
   assert.match(installedVersion, /^\d+\.\d+\.\d+$/u);
+  // A floor on the field map itself. topLevelFields drops any `;`-separated
+  // chunk that does not start with an identifier, which is right for index
+  // signatures and stray text but means a `readonly`-prefixed or quoted member
+  // vanishes with no signal. The pinned unions below catch a drop of `effort` or
+  // `thinking`; this catches a scan that quietly collapsed to a handful of
+  // fields while those two happened to survive.
+  // The adaptive variant's OWN fields, not just the declaration's. Variant
+  // extraction reads the first `z.ZodObject<` per union member, so an upstream
+  // that ever expresses a variant as an intersection or `.extend()` chain would
+  // emit two objects and the second's fields — a `display` that moved there
+  // included — would be dropped in silence. The declaration-level floor below
+  // cannot see that; this can.
+  assert.ok(
+    upstream.adaptiveFieldCount >= 2,
+    `expected the adaptive variant to expose at least type and display, read ${upstream.adaptiveFieldCount}`
+  );
+  assert.ok(
+    upstream.fieldCount >= 5,
+    `expected the options declaration to expose several top-level fields, read ${upstream.fieldCount}`
+  );
   assert.deepEqual(upstream.effort, ['high', 'low', 'max', 'medium', 'xhigh']);
   assert.deepEqual(upstream.thinkingTypes, ['adaptive', 'disabled', 'enabled']);
-  assert.deepEqual(upstream.adaptiveDisplay, ['omitted', 'summarized']);
+  assert.deepEqual(upstream.adaptiveDisplay, ['omitted', 'summarized', 'updates']);
   const agentMirror = mirrors.find((mirror) => mirror.file === 'packages/agent/src/types.ts');
   assert.ok(agentMirror, 'expected the packages/agent mirror to be discovered');
   assert.deepEqual(agentMirror.effort, ['high', 'low', 'max', 'medium', 'xhigh']);
   assert.deepEqual(agentMirror.thinkingTypes, ['adaptive', 'disabled', 'enabled']);
-  assert.deepEqual(agentMirror.adaptiveDisplay, ['omitted', 'summarized']);
+  assert.deepEqual(agentMirror.adaptiveDisplay, ['omitted', 'summarized', 'updates']);
   assert.deepEqual(agentMirror.annotatedVersions, [installedVersion]);
 });
 

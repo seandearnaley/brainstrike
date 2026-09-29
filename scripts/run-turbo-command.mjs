@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -11,6 +12,8 @@ const NESTED_TURBO_RUN_LOCK_DIRNAME = 'nested-turbo-run.lock';
 const NESTED_RUN_LOCK_POLL_MS = 200;
 const NESTED_RUN_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
 const DEV_DEPS_PREPARED_ENV = 'BRAINSTRIKE_DEV_DEPS_PREPARED';
+const MAX_CACHE_NAMESPACE_BYTES = 255;
+const CACHE_NAMESPACE_DIGEST_LENGTH = 12;
 
 export function isProcessAlive(pid) {
   try {
@@ -19,6 +22,61 @@ export function isProcessAlive(pid) {
   } catch (error) {
     return error instanceof Error && 'code' in error && error.code === 'EPERM';
   }
+}
+
+export function resolveGitWorktreeRoot(cwd = process.cwd(), options = {}) {
+  const fileSystem = options.fs ?? fs;
+  let current = fileSystem.realpathSync(cwd);
+
+  // The nearest marker is intentional: nested repositories and submodules get
+  // independent cache namespaces without spawning Git on every Turbo command.
+  for (;;) {
+    if (fileSystem.existsSync(path.join(current, '.git'))) {
+      return current;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      throw new Error(
+        `Unable to resolve a Git worktree root from ${cwd}. Set BRAINSTRIKE_TURBO_CACHE_DIR to run outside a Git worktree.`
+      );
+    }
+    current = parent;
+  }
+}
+
+function getWorktreeCacheNamespace(worktreeRoot) {
+  const name = path.basename(worktreeRoot).replaceAll(/[^a-zA-Z0-9._-]/gu, '-') || 'worktree';
+  const digest = createHash('sha256')
+    .update(worktreeRoot)
+    .digest('hex')
+    .slice(0, CACHE_NAMESPACE_DIGEST_LENGTH);
+  const maxNameLength = MAX_CACHE_NAMESPACE_BYTES - CACHE_NAMESPACE_DIGEST_LENGTH - 1;
+  return `${name.slice(0, maxNameLength)}-${digest}`;
+}
+
+function resolveTurboWorkingDirectory(args, cwd) {
+  let turboCwd = cwd;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--cwd') {
+      const value = args[index + 1];
+      if (!value) {
+        throw new Error('--cwd requires a directory argument.');
+      }
+      turboCwd = path.resolve(cwd, value);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--cwd=')) {
+      const value = arg.slice('--cwd='.length);
+      if (!value) {
+        throw new Error('--cwd requires a directory argument.');
+      }
+      turboCwd = path.resolve(cwd, value);
+    }
+  }
+  return turboCwd;
 }
 
 function sleepSync(ms) {
@@ -101,23 +159,31 @@ export function acquireNestedTurboRunLock(cacheDir, options = {}) {
   }
 }
 
-export function resolveTurboCacheDir({ env = process.env, platform = process.platform } = {}) {
+export function resolveTurboCacheDir({
+  cwd = process.cwd(),
+  env = process.env,
+  fs: fileSystem = fs,
+  platform = process.platform,
+} = {}) {
   const configuredCacheDir = env['TURBO_CACHE_DIR'] || env['BRAINSTRIKE_TURBO_CACHE_DIR'];
   if (configuredCacheDir) {
     return configuredCacheDir;
   }
+
+  const worktreeRoot = resolveGitWorktreeRoot(cwd, { fs: fileSystem });
+  const namespace = getWorktreeCacheNamespace(worktreeRoot);
 
   if (platform === 'darwin') {
     const home = env['HOME'];
     if (!home) {
       throw new Error('HOME is required to resolve the default Turborepo cache directory.');
     }
-    return path.join(home, 'Library', 'Caches', 'BrainStrike', 'turbo');
+    return path.join(home, 'Library', 'Caches', 'BrainStrike', 'turbo', 'worktrees', namespace);
   }
 
   const xdgCacheHome = env['XDG_CACHE_HOME'];
   if (xdgCacheHome) {
-    return path.join(xdgCacheHome, 'brainstrike', 'turbo');
+    return path.join(xdgCacheHome, 'brainstrike', 'turbo', 'worktrees', namespace);
   }
 
   const home = env['HOME'] || env['USERPROFILE'];
@@ -126,7 +192,7 @@ export function resolveTurboCacheDir({ env = process.env, platform = process.pla
       'HOME, USERPROFILE, or XDG_CACHE_HOME is required to resolve the Turborepo cache directory.'
     );
   }
-  return path.join(home, '.cache', 'brainstrike', 'turbo');
+  return path.join(home, '.cache', 'brainstrike', 'turbo', 'worktrees', namespace);
 }
 
 export function buildTurboArgs(args, options = {}) {
@@ -134,7 +200,11 @@ export function buildTurboArgs(args, options = {}) {
     return [...args];
   }
 
-  const cacheDir = resolveTurboCacheDir(options);
+  const cwd = options.cwd ?? process.cwd();
+  const cacheDir = resolveTurboCacheDir({
+    ...options,
+    cwd: resolveTurboWorkingDirectory(args, cwd),
+  });
   return [...args, `--cache-dir=${cacheDir}`];
 }
 
@@ -304,9 +374,9 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
   // scripts/__tests__/run-turbo-command.test.mjs): when an outer turbo task is
   // running this script, that task's `dependsOn: ["^build"]` has already built
   // every package this invocation would filter, so re-entering turbo is pure
-  // duplication — and a data race: this nested run resolves the GLOBAL cache
-  // (see resolveTurboCacheDir) while the outer run may use a different cache
-  // dir, so the same task hash can miss here after hitting outside, and the
+  // duplication — and a data race: this nested run may resolve a different
+  // cache directory than the outer run, so the same task hash can miss here
+  // after hitting outside, and the
   // re-executed build's `rimraf dist` deletes outputs that concurrently
   // running sibling tasks (e.g. web's vite config-load) are importing.
   // TURBO_HASH is injected by turbo into every task's environment and is the

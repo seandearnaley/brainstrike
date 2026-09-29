@@ -86,7 +86,9 @@
       "owner": "assistant",
       "packages": [
         "@brainstrike/agent",
-        "@brainstrike/assistant-service"
+        "@brainstrike/assistant-service",
+        "@brainstrike/mcp-app-host",
+        "@brainstrike/mcp-app-host-ui"
       ],
       "mayDependOn": [
         "indexing",
@@ -141,11 +143,14 @@
         "@brainstrike/assistant-wire",
         "@brainstrike/context-actions",
         "@brainstrike/e2e-test-utils",
+        "@brainstrike/effect-kit",
         "@brainstrike/file-system",
+        "@brainstrike/file-tree-test-fixtures",
         "@brainstrike/hooks",
         "@brainstrike/indexing-contract",
         "@brainstrike/local-runtime",
         "@brainstrike/logging",
+        "@brainstrike/mcp-tasks-extension",
         "@brainstrike/storage",
         "@brainstrike/test-utils",
         "@brainstrike/tokenization",
@@ -154,6 +159,18 @@
         "@brainstrike/utils"
       ],
       "mayDependOn": [
+        "tooling"
+      ]
+    },
+    {
+      "id": "test-infrastructure",
+      "title": "Production-independent test infrastructure",
+      "owner": "tooling",
+      "packages": [
+        "@brainstrike/mcp-test-lab"
+      ],
+      "mayDependOn": [
+        "shared-foundation",
         "tooling"
       ]
     },

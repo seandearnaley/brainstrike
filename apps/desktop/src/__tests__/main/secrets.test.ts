@@ -11,6 +11,10 @@ vi.mock('electron', () => ({
   safeStorage: safeStorageMock,
 }));
 
+import {
+  createSecretsMcpBearerCredentialAuthority,
+  mcpBearerCredentialStorageKey,
+} from '../../mcp/bearer-credential';
 import { createSecretsService } from '../../secrets';
 
 type StoreRecord = Record<string, unknown>;
@@ -110,6 +114,26 @@ describe('secrets', () => {
 
     expect(await service.clearAll()).toBe(true);
     expect(await service.listProviders()).toEqual([]);
+  });
+
+  it('factory-reset clearAll removes MCP bearer credentials from the shared authority', async () => {
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
+    safeStorageMock.getSelectedStorageBackend.mockReturnValue('keychain');
+    safeStorageMock.encryptString.mockImplementation((value: string) => Buffer.from(value));
+    safeStorageMock.decryptString.mockImplementation((value: Buffer) => value.toString('utf8'));
+    const reference = {
+      id: '00000000-0000-4000-8000-000000000001',
+      store: 'mcp-credentials',
+    } as const;
+    const store = createStore();
+    const service = createSecretsService(store as never);
+    const authority = createSecretsMcpBearerCredentialAuthority(service);
+
+    await service.saveKey(mcpBearerCredentialStorageKey(reference), 'factory-reset-secret');
+    await expect(authority.inspect(reference)).resolves.toEqual({ state: 'stored' });
+
+    await expect(service.clearAll()).resolves.toBe(true);
+    await expect(authority.inspect(reference)).resolves.toEqual({ state: 'missing' });
   });
 
   it('returns false when clearAll fails', async () => {

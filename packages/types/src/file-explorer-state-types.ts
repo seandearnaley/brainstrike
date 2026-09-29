@@ -13,6 +13,7 @@ import {
   type SelectionModel,
   type SelectionQueryDescriptor,
 } from './file-explorer-selection-types.js';
+import type { IFileNode } from './file-system.js';
 
 // Multi-root types (Phase 4)
 
@@ -26,6 +27,8 @@ export interface StoredRootDescriptor {
   path: string;
   rootId: string;
 }
+
+export type PersistenceRecoveryNotice = 'persisted-state-discarded' | 'persisted-state-unavailable';
 
 // Data types
 export interface FileExplorerData {
@@ -103,6 +106,11 @@ export interface FileExplorerData {
   isFiltersExpanded: boolean;
   lastActiveTab: string;
   maxSelectionCount: number;
+  /**
+   * Ephemeral, redacted notice that persisted explorer state was rejected and
+   * replaced with defaults. Null for first run and successful hydration.
+   */
+  persistenceRecoveryNotice: PersistenceRecoveryNotice | null;
   querySelectionManifest: QuerySelectionManifest | null;
   /**
    * Quick filter input in the sidebar filter bar.
@@ -169,6 +177,8 @@ export interface FileExplorerState extends FileExplorerData {
   clearQuickFilter: () => void;
   clearSelectedFiles: () => void;
   collapseAllDirectories: () => void;
+  /** Atomically clear a pending recovery notice. Returns true only once. */
+  consumePersistenceRecoveryNotice: () => boolean;
   evictOldFileContents: (count?: number) => void;
 
   // New actions
@@ -176,6 +186,24 @@ export interface FileExplorerState extends FileExplorerData {
   getFileContent: (compositeKey: string) => string | undefined;
   getFileContentCacheStats: () => CacheStats;
   hydrateFolderState: (folderId: string) => void;
+  /**
+   * Reconcile selection keys against one complete directory enumeration.
+   * Only absence proven at this directory boundary removes a key; descendants
+   * of a surviving directory retain their selection until that directory is
+   * itself enumerated.
+   */
+  reconcileSelectionWithDirectorySnapshot: (
+    folderId: string,
+    directoryPath: string,
+    entries: readonly Pick<IFileNode, 'path' | 'type'>[]
+  ) => void;
+  reconcileSelectionWithDirectorySnapshots: (
+    folderId: string,
+    snapshots: readonly {
+      directoryPath: string;
+      entries: readonly Pick<IFileNode, 'path' | 'type'>[];
+    }[]
+  ) => void;
   /**
    * Disconnect a root: atomically purge it from activeRootIds, rootDescriptors,
    * folderStates, and folderAccessOrder (single setState). Does NOT touch
@@ -186,6 +214,8 @@ export interface FileExplorerState extends FileExplorerData {
   removeActiveRoot: (rootId: string) => void;
   removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   removeSelectedFile: (folderId: string, path: string) => void;
+  /** Record a redacted persistence recovery notice for the UI hydration boundary. */
+  reportPersistedStateDiscard: (notice?: PersistenceRecoveryNotice) => void;
   /**
    * Reset the selection model to explicit mode: clears any query selection
    * (descriptor + manifest) and materialized-path cache. Used by write-back
@@ -324,6 +354,7 @@ export const DEFAULT_STATE = {
   isFiltersExpanded: true,
   lastActiveTab: 'files',
   maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
+  persistenceRecoveryNotice: null as PersistenceRecoveryNotice | null,
   querySelectionManifest: null as QuerySelectionManifest | null,
   quickFilter: '',
   rootDescriptors: {} as Record<string, StoredRootDescriptor>,

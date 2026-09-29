@@ -28,11 +28,11 @@ import {
 } from '../utils/normalized-file-tree';
 import {
   buildHandleMap,
-  type FileSystemHandle,
+  type FileNodeHandle,
   rehydrateTree,
   toWorkerFileNodes,
 } from '../utils/worker-node-conversion';
-import type { LazyFileTreeState, RootLoadOutcome } from './use-lazy-file-tree';
+import type { LazyFileTreeState, RootLoadOutcome } from './use-lazy-file-tree-types';
 
 const logger = createLogger('LazyFileTree');
 
@@ -59,6 +59,10 @@ export type PendingExpandAllUpdate =
 
 const inFlightRootLoads = new Map<string, InFlightRootLoad>();
 
+function createRootLoadKey(rootPath: string, rootFolderId?: string): string {
+  return `${rootPath}::${rootFolderId ?? ''}`;
+}
+
 function countTreeNodes(nodes: readonly CountableTreeNode[]): number {
   let count = 0;
   const stack = [...nodes];
@@ -83,6 +87,41 @@ function countTreeNodes(nodes: readonly CountableTreeNode[]): number {
  */
 export function __resetInFlightRootLoads(): void {
   inFlightRootLoads.clear();
+}
+
+/**
+ * Establish a force-refresh boundary against a root read that was already in
+ * flight when the invalidation arrived. A still-live predecessor is allowed to
+ * settle for its existing consumers, but the caller starts a new physical read
+ * afterward instead of joining pre-mutation I/O. An already-aborted request is
+ * retired immediately; its identity-checked finalizer cannot delete the next
+ * request registered under the same key.
+ */
+export async function waitForPriorRootLoad(rootPath: string, rootFolderId?: string): Promise<void> {
+  const loadKey = createRootLoadKey(rootPath, rootFolderId);
+  const priorRequest = inFlightRootLoads.get(loadKey);
+  if (!priorRequest) {
+    return;
+  }
+  if (priorRequest.abortController.signal.aborted) {
+    if (inFlightRootLoads.get(loadKey) === priorRequest) {
+      inFlightRootLoads.delete(loadKey);
+    }
+    return;
+  }
+
+  try {
+    await priorRequest.promise;
+  } catch (error) {
+    logger.debug('Prior root load settled with an error before forced refresh', {
+      error: error instanceof Error ? error.message : String(error),
+      loadKey,
+      rootPath,
+    });
+  }
+  if (inFlightRootLoads.get(loadKey) === priorRequest) {
+    inFlightRootLoads.delete(loadKey);
+  }
 }
 
 /**
@@ -228,7 +267,13 @@ export function hasCommittedRootIdentityChanged(
   return committedIdentity !== null && committedIdentity !== nextIdentity;
 }
 
-export function createLoadRootPendingState(currentState: LazyFileTreeState): LazyFileTreeState {
+export function createLoadRootPendingState(
+  currentState: LazyFileTreeState,
+  publishPending = true
+): LazyFileTreeState {
+  if (!publishPending) {
+    return currentState;
+  }
   if (
     currentState.isInitialLoading &&
     currentState.error === null &&
@@ -505,7 +550,7 @@ export function loadRootChildren(args: RootLoadArguments): RootLoadSubscription 
   // load, so whichever registered first stamped the other's nodes — directory
   // recursive-select then keyed composite selections by the wrong identity and
   // the selection vanished into an unread folderState.
-  const loadKey = `${rootPath}::${rootFolderId ?? ''}`;
+  const loadKey = createRootLoadKey(rootPath, rootFolderId);
   const existingRequest = inFlightRootLoads.get(loadKey);
   if (existingRequest && !existingRequest.abortController.signal.aborted) {
     logger.debug('loadRoot joined existing in-flight request', { loadKey, rootPath });
@@ -570,7 +615,7 @@ export function shouldSkipSpecificPathLoad(
 function rehydrateWorkerChildrenStrict(
   path: string,
   children: WorkerFileNode[],
-  handleMap: Map<string, FileSystemHandle>
+  handleMap: Map<string, FileNodeHandle>
 ): IFileNode[] {
   const patchEstimate = estimateTreePayloadBytes(children);
   recordFileTreeTelemetry({
@@ -605,7 +650,7 @@ function rehydrateWorkerChildrenStrict(
 }
 
 export function applyWorkerPatchesToNormalizedTree(args: {
-  handleMap: Map<string, FileSystemHandle>;
+  handleMap: Map<string, FileNodeHandle>;
   normalizedTree: NormalizedFileTreeState;
   patches: readonly AccumulatedFileTreePatchMessage[];
 }): {
@@ -670,7 +715,7 @@ export function applyWorkerPatchesToNormalizedTree(args: {
 }
 
 export function applyWorkerExpandAllResult(args: {
-  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
+  handleMapRef: React.RefObject<Map<string, FileNodeHandle>>;
   normalizedTreeRef: React.RefObject<NormalizedFileTreeState>;
   onNodesIndexedRef: React.RefObject<
     ((nodes: IFileNode[], parentPath: string | null) => void) | undefined

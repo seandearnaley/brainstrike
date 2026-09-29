@@ -256,7 +256,63 @@ describe('walkDirectoryParallel', () => {
     expect(tree.map((node) => node.name)).toEqual(['alpha', 'beta', 'alpha.ts', 'zeta.ts']);
   });
 
+  it('preserves the durable rootId on rebuilt child directory handles', async () => {
+    const stampedRootHandle: DirectoryHandle = {
+      ...rootHandle,
+      rootId: 'outer-root-id',
+    };
+    const readDirectory = vi.fn(async (handle: DirectoryHandle): Promise<IFileNode[]> => {
+      if (handle.path === '/workspace/root') {
+        return [
+          {
+            ...createDirectoryEntry('nested-root', '/workspace/root/nested-root'),
+            handle: {
+              kind: 'directory',
+              name: 'nested-root',
+              path: '/workspace/root/nested-root',
+              platform: 'electron',
+              rootId: 'outer-root-id',
+            } as unknown as IFileNode['handle'],
+          },
+        ];
+      }
+      return [];
+    });
+
+    await walkDirectoryParallel(createFileSystemAdapter(readDirectory), stampedRootHandle);
+
+    expect(readDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/workspace/root/nested-root',
+        rootId: 'outer-root-id',
+      })
+    );
+  });
+
+  it('inherits the parent rootId when a child directory handle is unstamped', async () => {
+    const stampedRootHandle: DirectoryHandle = {
+      ...rootHandle,
+      rootId: 'outer-root-id',
+    };
+    const readDirectory = vi.fn(async (handle: DirectoryHandle): Promise<IFileNode[]> => {
+      if (handle.path === '/workspace/root') {
+        return [createDirectoryEntry('nested-root', '/workspace/root/nested-root')];
+      }
+      return [];
+    });
+
+    await walkDirectoryParallel(createFileSystemAdapter(readDirectory), stampedRootHandle);
+
+    expect(readDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/workspace/root/nested-root',
+        rootId: 'outer-root-id',
+      })
+    );
+  });
+
   it('uses canonical entry handle paths for web child directory reads while preserving relative node paths', async () => {
+    const rawDirectory = { kind: 'directory', name: 'docs' };
     const webRootHandle: DirectoryHandle = {
       _internal: undefined,
       kind: 'directory',
@@ -270,11 +326,12 @@ describe('walkDirectoryParallel', () => {
           {
             ...createDirectoryEntry('docs', 'web-root/docs'),
             handle: {
+              _internal: rawDirectory,
               kind: 'directory',
               name: 'docs',
               path: 'web-root/docs',
               platform: 'web',
-            } as unknown as IFileNode['handle'],
+            },
           },
         ];
       }
@@ -286,7 +343,9 @@ describe('walkDirectoryParallel', () => {
 
     const tree = await walkDirectoryParallel(createFileSystemAdapter(readDirectory), webRootHandle);
 
-    expect(readDirectory).toHaveBeenCalledWith(expect.objectContaining({ path: 'web-root/docs' }));
+    expect(readDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({ _internal: rawDirectory, path: 'web-root/docs' })
+    );
     expect(tree).toEqual([
       expect.objectContaining({
         children: [

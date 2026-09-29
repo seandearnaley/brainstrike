@@ -34,15 +34,68 @@ import {
   type ResolvedTripwire,
   truncateStreamDetail,
 } from './mastra-chunk-decoding';
-import { makeErrorFinishChunk, makeRunFailedChunk } from './stream-run-event-chunks';
+import {
+  makeErrorFinishChunk,
+  makeRunEventChunk,
+  makeRunFailedChunk,
+  makeSyntheticFinishChunk,
+} from './stream-run-event-chunks';
 import {
   makeCancelledDelegationRunEventChunks,
   makePendingToolOutputRunEventChunks,
+  makeToolLifecycleRunEventChunk,
   type ProcessStreamPartResult,
   type ToolLifecycleState,
 } from './tool-lifecycle-processors';
 
 const logger = createLogger('MastraAgent');
+
+function settleActiveChildTools(state: ToolLifecycleState, cancelled: boolean): StreamChunk[] {
+  const chunks: StreamChunk[] = [];
+  for (const [toolCallId, active] of state.activeToolEvents ?? []) {
+    const tool = {
+      name: active.name,
+      payload: {
+        error: cancelled
+          ? 'Tool cancelled with the child run.'
+          : 'Tool interrupted before returning a result.',
+        toolCallId,
+      },
+      status: 'error',
+      type: 'tool-event',
+    } as const;
+    const terminal = makeToolLifecycleRunEventChunk(tool, 'tool-error', state);
+    chunks.push(tool);
+    if (terminal?.type === 'run-event') {
+      chunks.push(
+        cancelled ? { ...terminal, event: { ...terminal.event, status: 'cancelled' } } : terminal
+      );
+    }
+  }
+  return chunks;
+}
+
+/** A parent ending must settle every still-open child before its own finish. */
+export function makeDelegatedStreamTermination(
+  state: ToolLifecycleState,
+  cancelled: boolean,
+  detail?: string,
+  metadata?: AssistantRunEventMetadata
+): StreamChunk[] {
+  return [
+    ...makeCancelledDelegationRunEventChunks(state),
+    ...makePendingToolOutputRunEventChunks(state),
+    ...settleActiveChildTools(state, cancelled),
+    cancelled
+      ? makeRunEventChunk('run.cancelled', 'cancelled', 'Child run cancelled')
+      : makeRunFailedChunk(
+          'Child stream interrupted',
+          detail ?? 'The parent stream ended before the child reported a terminal result.',
+          metadata
+        ),
+    cancelled ? makeSyntheticFinishChunk() : makeErrorFinishChunk(),
+  ];
+}
 
 /**
  * Terminate a run gracefully after a provider/model error part.
@@ -148,8 +201,17 @@ function makeStreamStalledTermination(
   const model = runtimeData?.model?.trim();
   const localRuntimeName =
     provider === 'ollama' ? 'Ollama' : provider === 'lmstudio' ? 'LM Studio' : null;
+  // BST-1408: `inactivityMs` alone cannot say WHICH silence fired or what the
+  // provider was doing when it went quiet, so the 2026-08-22 stall had to be
+  // reconstructed by inference from run-event timestamps. `phase` separates
+  // "never started answering" from "started, then stopped"; `lastPartType` and
+  // `partsSeen` say how far the stream got. All three ride the durable
+  // run.failed metadata, so a debug bundle carries them without extra logging.
   const diagnosticContext = {
     inactivityMs: error.inactivityMs,
+    partsSeen: error.partsSeen,
+    phase: error.phase,
+    ...(error.lastPartType ? { lastPartType: error.lastPartType } : {}),
     ...(model ? { model } : {}),
     ...(provider ? { provider } : {}),
   };
@@ -160,10 +222,12 @@ function makeStreamStalledTermination(
     },
     'mastra stream stalled by inactivity timeout'
   );
-  const visibleMessage =
-    localRuntimeName && model
-      ? `${localRuntimeName} model "${model}" produced no stream output for ${error.inactivityMs}ms. Verify the ${localRuntimeName} server and model runner, then retry.`
-      : `The model stream stalled after ${error.inactivityMs}ms without output.`;
+  // Now that the phase is known, the two silences read differently — and the
+  // wording points at the window an operator would actually reach for. A
+  // never-started step rendered as "stalled ... without output" implied the
+  // model had been streaming and stopped, which is the opposite of what
+  // happened (review of #2586).
+  const visibleMessage = resolveStalledVisibleMessage(error, localRuntimeName, model);
   return [
     // A stall mid-delegation must never leave an orphaned `subagent.started`
     // with no terminal counterpart — mirror the abort branches' drain.
@@ -179,6 +243,41 @@ function makeStreamStalledTermination(
     }),
     makeErrorFinishChunk(),
   ];
+}
+
+/**
+ * The user-visible stall text. Local runtimes keep their runner-specific
+ * remedy; every other provider gets a message that names WHICH silence fired.
+ */
+function resolveStalledVisibleMessage(
+  error: StreamStalledError,
+  localRuntimeName: string | null,
+  model: string | undefined
+): string {
+  if (error.phase === 'tool-executing') {
+    // Blaming the model or the runner here would send the user to fix the
+    // wrong thing — the provider already answered with a `tool-call`. But the
+    // message must not assert the opposite either: every GUARD window is below
+    // `toolExecutingMs` by construction, while tool-lifecycle hooks compose
+    // OUTSIDE the guard (`tool-pipeline.ts`) and are deliberately not capped in
+    // aggregate, so this silence is `preHooks + guard + postHooks` and a slow
+    // hook chain can reach the backstop with a perfectly working guard. State
+    // what is known, and why this is terminal rather than retried.
+    return `A tool call was still running after ${error.inactivityMs}ms, including its lifecycle hooks. The turn was ended rather than retried, because re-running the step could start a second execution of a command that may still be alive. If no PreToolUse/PostToolUse hook is slow, please report it with a debug bundle.`;
+  }
+  if (localRuntimeName && model) {
+    return `${localRuntimeName} model "${model}" produced no stream output for ${error.inactivityMs}ms. Verify the ${localRuntimeName} server and model runner, then retry.`;
+  }
+  if (error.phase === 'awaiting-output') {
+    return `The model produced no output within ${error.inactivityMs}ms of the request starting.`;
+  }
+  if (error.phase === 'reasoning') {
+    // "stalled without output" would be actively wrong here: the model WAS
+    // producing output — reasoning — and then stopped mid-thought. Naming the
+    // phase also points at the one setting that changes this outcome.
+    return `The model stopped mid-reasoning, producing nothing further for ${error.inactivityMs}ms. Retry, or lower the reasoning effort if it recurs.`;
+  }
+  return `The model stream stalled after ${error.inactivityMs}ms without output.`;
 }
 
 function makeToolCallInputTimeoutTermination(
@@ -217,10 +316,80 @@ function makeToolCallInputTimeoutTermination(
   ];
 }
 
-type StreamWatchdogError = StreamStalledError | ToolCallInputStreamingTimeoutError;
+/**
+ * A terminal `finish` arrived on a turn whose model contributed NOTHING — no
+ * non-empty text delta, no reasoning delta, no tool-lifecycle part, across
+ * every attempt of the turn.
+ *
+ * Field case (2026-08-23, `stealth/ox-alpha`): OpenRouter's anonymous route
+ * degraded into returning HTTP 200 streams containing one instant model step
+ * with zero usage and a clean `finish`. Mapping that to `run.finished /
+ * completed` painted an empty assistant bubble marked "success" — a silent
+ * fallback. The same OpenRouter key and prompts were getting real responses
+ * from other models minutes earlier, so this is an attempt-level provider
+ * fault, and it rides the BST-1409 attempt-recovery rails exactly like a
+ * stall: thrown by the mapper's `finish` case, caught by the turn runner,
+ * retried up to the stall attempt budget, then terminated visibly.
+ */
+export class EmptyModelResponseError extends Error {
+  readonly code = 'empty_model_response';
+  /** The finish reason the empty stream claimed — `stop` in the field case. */
+  readonly finishReason: string;
+  /** Completed provider steps observed — 1 in the field case, all instant. */
+  readonly stepCount: number;
+
+  constructor(finishReason: string, stepCount: number) {
+    super(`The model returned an empty response (finish reason "${finishReason}").`);
+    this.name = 'EmptyModelResponseError';
+    this.finishReason = finishReason;
+    this.stepCount = stepCount;
+  }
+}
+
+function makeEmptyModelResponseTermination(
+  error: EmptyModelResponseError,
+  lifecycleState: ToolLifecycleState,
+  runtimeData: RuntimeData | undefined
+): StreamChunk[] {
+  const provider = runtimeData?.provider?.trim().toLowerCase();
+  const model = runtimeData?.model?.trim();
+  const diagnosticContext = {
+    finishReason: error.finishReason,
+    stepCount: error.stepCount,
+    ...(model ? { model } : {}),
+    ...(provider ? { provider } : {}),
+  };
+  logger.error(
+    { code: 'mastra_agent_empty_model_response', ...diagnosticContext },
+    'mastra stream finished without any model output'
+  );
+  const visibleMessage =
+    `The model${model ? ` "${model}"` : ''} returned an empty response — no text, reasoning, ` +
+    `or tool calls (finish reason "${error.finishReason}"). The provider route may be ` +
+    'degraded; retry, or switch models.';
+  return [
+    ...makeCancelledDelegationRunEventChunks(lifecycleState),
+    ...makePendingToolOutputRunEventChunks(lifecycleState),
+    { type: 'text-delta', value: visibleMessage },
+    makeRunFailedChunk('Assistant run failed', visibleMessage, {
+      code: error.code,
+      ...diagnosticContext,
+    }),
+    makeErrorFinishChunk(),
+  ];
+}
+
+type StreamWatchdogError =
+  | EmptyModelResponseError
+  | StreamStalledError
+  | ToolCallInputStreamingTimeoutError;
 
 export function isStreamWatchdogError(error: unknown): error is StreamWatchdogError {
-  return error instanceof StreamStalledError || error instanceof ToolCallInputStreamingTimeoutError;
+  return (
+    error instanceof StreamStalledError ||
+    error instanceof ToolCallInputStreamingTimeoutError ||
+    error instanceof EmptyModelResponseError
+  );
 }
 
 export function makeStreamWatchdogTermination(
@@ -230,6 +399,9 @@ export function makeStreamWatchdogTermination(
 ): StreamChunk[] {
   if (error instanceof ToolCallInputStreamingTimeoutError) {
     return makeToolCallInputTimeoutTermination(error, lifecycleState, runtimeData);
+  }
+  if (error instanceof EmptyModelResponseError) {
+    return makeEmptyModelResponseTermination(error, lifecycleState, runtimeData);
   }
   return makeStreamStalledTermination(error, lifecycleState, runtimeData);
 }

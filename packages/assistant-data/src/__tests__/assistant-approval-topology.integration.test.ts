@@ -1,15 +1,16 @@
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import {
   type RediscoveredToolApproval,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
 import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
-import { wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
 } from '../assistant-memory-repository';
+import { createMigratedTestPGlite } from './helpers/test-pglite';
 
 /**
  * BST-1243: approval/suspend flows must never corrupt durable branch topology.
@@ -84,17 +85,32 @@ function assistantAppendItem(args: {
   } as AdapterAppendItem;
 }
 
+/**
+ * THE RUNTIME SHAPE of an action marker's `runId`: a NATIVE Mastra run id.
+ * Mastra mints it (`options?.runId || generateId()`) and no leg passes the host
+ * id in, so it never equals a `brainstrike_assistant_thread_runs` id — proven
+ * live (fan-out verifier run 24, 2026-09-15: a root `manageCanvas` approval
+ * carried `2cc9a50d-…` while the thread's runs were `run-ffcdbd6d-…` /
+ * `run-6172a925-…`) and against the real Mastra loop on BOTH an initial leg and
+ * a background wake-up continuation. Seeding it equal to a thread-run id, as
+ * these fixtures once did, made the turn-link lookup testable but unreachable.
+ */
+const NATIVE_RUN_ID = '2cc9a50d-0a91-45b6-b6b2-9e8b42f47039';
+
 function approveEchoItem(args: {
+  /** The DURABLE host leg the pause notice named; absent on a rediscovered pause. */
+  hostRunId?: string;
   id: string;
+  nativeRunId?: string;
   parentId: string;
-  runId?: string;
   toolCallId?: string;
 }): AdapterAppendItem {
   return userAppendItem({
     custom: {
       [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
         action: 'approve',
-        runId: args.runId ?? 'run-1',
+        ...(args.hostRunId ? { hostRunId: args.hostRunId } : {}),
+        runId: args.nativeRunId ?? NATIVE_RUN_ID,
         toolCallId: args.toolCallId ?? 'call-1',
         toolName: 'brainstrike.executeCommand',
       },
@@ -160,16 +176,9 @@ function makeApproval(overrides: Partial<RediscoveredToolApproval>): Rediscovere
 describe('approval/suspend branch topology (BST-1243)', () => {
   let pgliteDataDir: string | undefined;
 
-  afterEach(async () => {
-    if (pgliteDataDir) {
-      await wasmLoader.closeCached(pgliteDataDir);
-      pgliteDataDir = undefined;
-    }
-  });
-
   async function makeHarness(prefix: string) {
     pgliteDataDir = createPgliteTestDataDir(prefix);
-    const db = (await wasmLoader.createPGlite(pgliteDataDir)) as DbHandle;
+    const db = (await createMigratedTestPGlite(pgliteDataDir)) as DbHandle;
     const repository = createPgliteAssistantThreadRepository(db);
     const thread = await repository.createThread('workspace-a');
     const makeAdapter = () =>
@@ -180,7 +189,7 @@ describe('approval/suspend branch topology (BST-1243)', () => {
       });
     const seedRun = async (runId: string, turnMessageId: string) => {
       await repository.createThreadRun({
-        id: runId,
+        id: runId as HostRunId,
         model: 'claude-sonnet-5',
         provider: 'anthropic',
         resourceId: 'workspace-a',
@@ -193,7 +202,7 @@ describe('approval/suspend branch topology (BST-1243)', () => {
   }
 
   it('keeps a live conversation with a mid-thread approval linear across reload', async () => {
-    const { db, makeAdapter, threadId } = await makeHarness('approval-linear-topology');
+    const { db, makeAdapter, seedRun, threadId } = await makeHarness('approval-linear-topology');
     const adapter = makeAdapter();
 
     // Live sequence exactly as the runtime produced it in the affected DB:
@@ -216,8 +225,12 @@ describe('approval/suspend branch topology (BST-1243)', () => {
       threadId,
     });
     // The library never fires assistant-a's own runEnd history append —
-    // suspension interrupts it. The echo is appended as assistant-a's child.
-    await adapter.append(approveEchoItem({ id: 'echo-1', parentId: 'assistant-a' }));
+    // suspension interrupts it. The echo is appended as assistant-a's child,
+    // naming the host leg that surfaced the pause.
+    await seedRun('run-host-mid-thread', 'user-1');
+    await adapter.append(
+      approveEchoItem({ hostRunId: 'run-host-mid-thread', id: 'echo-1', parentId: 'assistant-a' })
+    );
     // Post-resume continuation persists under a FRESH Mastra-minted id.
     await insertMastraMessage(db, {
       createdAt: '2026-08-10T17:20:01Z',
@@ -367,7 +380,7 @@ describe('approval/suspend branch topology (BST-1243)', () => {
   });
 
   it('treats a suspend() typed-resume echo with the same durable-parent discipline', async () => {
-    const { db, makeAdapter, threadId } = await makeHarness('suspend-resume-topology');
+    const { db, makeAdapter, seedRun, threadId } = await makeHarness('suspend-resume-topology');
     const adapter = makeAdapter();
 
     await adapter.append(userAppendItem({ id: 'user-1', parentId: null, text: 'first prompt' }));
@@ -385,12 +398,14 @@ describe('approval/suspend branch topology (BST-1243)', () => {
       text: 'which region? (suspended)',
       threadId,
     });
+    await seedRun('run-host-typed-resume', 'user-1');
     await adapter.append(
       userAppendItem({
         custom: {
           [TOOL_SUSPEND_RUN_CONFIG_KEY]: {
+            hostRunId: 'run-host-typed-resume',
             resumeData: { region: 'us-east-1' },
-            runId: 'run-1',
+            runId: NATIVE_RUN_ID,
             toolCallId: 'call-1',
             toolName: 'brainstrike.askUser',
           },
@@ -465,7 +480,9 @@ describe('approval/suspend branch topology (BST-1243)', () => {
   it('regenerated responses after an approval turn remain genuine carousel siblings', async () => {
     // Aliasing must never collapse REAL branches: a regeneration branches from
     // the user prompt with durable ids on both siblings.
-    const { db, makeAdapter, threadId } = await makeHarness('approval-regeneration-siblings');
+    const { db, makeAdapter, seedRun, threadId } = await makeHarness(
+      'approval-regeneration-siblings'
+    );
     const adapter = makeAdapter();
 
     await adapter.append(userAppendItem({ id: 'user-1', parentId: null, text: 'first prompt' }));
@@ -483,7 +500,14 @@ describe('approval/suspend branch topology (BST-1243)', () => {
       text: 'first answer (suspended at approval)',
       threadId,
     });
-    await adapter.append(approveEchoItem({ id: 'echo-1', parentId: 'assistant-a' }));
+    await seedRun('run-host-regen-siblings', 'user-1');
+    await adapter.append(
+      approveEchoItem({
+        hostRunId: 'run-host-regen-siblings',
+        id: 'echo-1',
+        parentId: 'assistant-a',
+      })
+    );
     await adapter.append(
       assistantAppendItem({ id: 'resume-leg-1', parentId: 'echo-1', text: 'continuation' })
     );
@@ -561,7 +585,7 @@ describe('approval/suspend branch topology (BST-1243)', () => {
       threadId,
     });
     await adapter.append(
-      approveEchoItem({ id: 'echo-1', parentId: 'assistant-regen', runId: 'run-regen' })
+      approveEchoItem({ hostRunId: 'run-regen', id: 'echo-1', parentId: 'assistant-regen' })
     );
 
     const edges = await readEdges(db, threadId);
@@ -625,7 +649,7 @@ describe('approval/suspend branch topology (BST-1243)', () => {
     // NOW the user approves the still-pending run-1 notice; the echo appends
     // at the thread tail (assistant-2), which already has its edge.
     await adapter.append(
-      approveEchoItem({ id: 'echo-1', parentId: 'assistant-2', runId: 'run-suspended' })
+      approveEchoItem({ hostRunId: 'run-suspended', id: 'echo-1', parentId: 'assistant-2' })
     );
     await adapter.append(
       assistantAppendItem({ id: 'resume-leg-1', parentId: 'echo-1', text: 'continuation' })
@@ -663,6 +687,71 @@ describe('approval/suspend branch topology (BST-1243)', () => {
       ['assistant-2', 'user-2'],
       ['user-3', 'assistant-2'],
     ]);
+  });
+
+  it('keeps the edge an aborted leg persists while the echo turn lookup is pending', async () => {
+    // Fan-out verifier runs 19 and 24 (2026-09-15): the approval arrived while
+    // the root leg was still streaming after background children returned.
+    // Approving appends the echo and starts the resume run, which aborts that
+    // leg; its terminal runEnd append persists the suspended message's edge
+    // while the echo's turn lookup is pending. The marker carried the native
+    // run id, which names no thread-run row, so the lookup missed and the
+    // backfill read the tail AFTER that append had advanced it to the
+    // suspended message itself — a self-parent edge that threw
+    // "conflicting branch topology".
+    const { db, repository, seedRun, threadId } = await makeHarness('echo-aborted-leg-race');
+    let lookupStarted!: () => void;
+    const lookupPending = new Promise<void>((resolve) => {
+      lookupStarted = resolve;
+    });
+    let releaseLookup!: () => void;
+    const lookupGate = new Promise<void>((resolve) => {
+      releaseLookup = resolve;
+    });
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository: {
+        ...repository,
+        getThreadRunTurnMessageId: async (runId, runThreadId) => {
+          lookupStarted();
+          await lookupGate;
+          return (await repository.getThreadRunTurnMessageId?.(runId, runThreadId)) ?? null;
+        },
+      },
+      resourceId: 'workspace-a',
+      threadId,
+    });
+    await adapter.load();
+    await adapter.append(userAppendItem({ id: 'user-1', parentId: null, text: 'fan out' }));
+    await seedRun('run-host', 'user-1');
+
+    const echo = adapter.append(
+      approveEchoItem({
+        hostRunId: 'run-host',
+        id: 'echo-1',
+        nativeRunId: 'native-run-1',
+        parentId: 'assistant-1',
+      })
+    );
+    await lookupPending;
+    await adapter.append(
+      assistantAppendItem({ id: 'assistant-1', parentId: 'user-1', text: 'aborted leg' })
+    );
+    releaseLookup();
+
+    await expect(echo).resolves.toBeUndefined();
+    // Reproduce CI's tied edge timestamps: SQL then sorts assistant-1 first.
+    // This case owns parent topology, not persistence-time ordering.
+    await db.query(
+      `UPDATE brainstrike_assistant_message_parents
+       SET created_at = '2026-09-19T00:00:00.000Z' WHERE thread_id = $1`,
+      [threadId]
+    );
+    expect(new Map(await readEdges(db, threadId))).toEqual(
+      new Map([
+        ['user-1', null],
+        ['assistant-1', 'user-1'],
+      ])
+    );
   });
 
   it('pins multi-pause rediscovery: approving an older notice continues from the durable head', async () => {
@@ -723,8 +812,9 @@ describe('approval/suspend branch topology (BST-1243)', () => {
     await adapter.append(
       approveEchoItem({
         id: 'echo-old',
+        // A rediscovered pause names no host leg: its leg ended at the restart.
+        nativeRunId: 'run-a',
         parentId: 'suspended-approval:run-b:call-b',
-        runId: 'run-a',
         toolCallId: 'call-a',
       })
     );
@@ -757,13 +847,68 @@ describe('approval/suspend branch topology (BST-1243)', () => {
     expect(history.messages.filter((item) => item.parentId === null)).toHaveLength(1);
   });
 
-  it('pins the v1 stance: regenerating a post-approval response is not a persisted branch', async () => {
-    // PR #2392 review (Claude #3): a regeneration taken from the resume-leg
-    // message re-appends with the ECHO as parent and is structurally
-    // indistinguishable from a resume leg at this seam, so its edge is
-    // deliberately not persisted. Content is never lost — the Mastra row
-    // hydrates chronologically inside the turn's group.
-    const { db, makeAdapter, threadId } = await makeHarness('post-approval-regen-drop');
+  it('lets a child-continuation decision ride the edge its follow-up leg persisted', async () => {
+    // A CHILD-CONTINUATION pause is deliberately not stamped with a host leg
+    // (that leg's `turn_message_id` is the continuation id, not a root
+    // message). That is safe because its ROOT message COMPLETES: the mapper
+    // opens root tool-call frames for a root pause — which is what leaves a
+    // suspended message `requires-action` and edge-less — but emits only a
+    // `data` frame for child-continuation frames, so the follow-up leg's
+    // runEnd append persists the edge and the decision echo resolves through
+    // it. The unstamped marker therefore never reaches the host-leg branch; if
+    // that ever changes, the adapter throws rather than guessing a parent.
+    const { db, makeAdapter, threadId } = await makeHarness('continuation-decision-echo');
+    const adapter = makeAdapter();
+
+    await adapter.append(userAppendItem({ id: 'user-1', parentId: null, text: 'first prompt' }));
+    await adapter.append(
+      userAppendItem({ id: 'child-input-1', parentId: 'user-1', text: 'continue the child' })
+    );
+    await adapter.append(
+      assistantAppendItem({
+        id: 'assistant-followup',
+        parentId: 'child-input-1',
+        text: 'child continued',
+      })
+    );
+    // The child view's decision is appended by the ROOT runtime, parented at
+    // that completed message, carrying a continuation marker with no host leg.
+    await adapter.append(
+      userAppendItem({
+        custom: {
+          [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
+            action: 'approve',
+            continuationId: 'continuation-1',
+            runId: NATIVE_RUN_ID,
+            toolCallId: 'call-continuation',
+            toolName: 'brainstrike.askUser',
+          },
+        },
+        id: 'continuation-echo-1',
+        parentId: 'assistant-followup',
+        text: 'Approved brainstrike.askUser.',
+      })
+    );
+
+    // No throw, and no guessed edge for the echo itself.
+    const edges = await readEdges(db, threadId);
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        ['user-1', null],
+        ['child-input-1', 'user-1'],
+        ['assistant-followup', 'child-input-1'],
+      ])
+    );
+    expect(edges).toHaveLength(3);
+  });
+
+  it('refuses to guess a parent when a LIVE pause echo names no host leg', async () => {
+    // NO SILENT FALLBACK. The session tail used to answer here, and because the
+    // native run id never matched a thread-run row it answered EVERY live
+    // backfill — silently, and wrongly whenever the tail was not the suspended
+    // message's own turn. A live pause always names its host leg; anything else
+    // is a producer defect and must be loud, never a guess.
+    const { db, makeAdapter, threadId } = await makeHarness('live-echo-without-host-leg');
     const adapter = makeAdapter();
 
     await adapter.append(userAppendItem({ id: 'user-1', parentId: null, text: 'first prompt' }));
@@ -781,7 +926,42 @@ describe('approval/suspend branch topology (BST-1243)', () => {
       text: 'suspended at approval',
       threadId,
     });
-    await adapter.append(approveEchoItem({ id: 'echo-1', parentId: 'assistant-a' }));
+
+    await expect(
+      adapter.append(approveEchoItem({ id: 'echo-1', parentId: 'assistant-a' }))
+    ).rejects.toThrow(/host leg/i);
+    // Nothing guessed: the suspended message keeps no fabricated edge.
+    expect(await readEdges(db, threadId)).toEqual([['user-1', null]]);
+  });
+
+  it('pins the v1 stance: regenerating a post-approval response is not a persisted branch', async () => {
+    // PR #2392 review (Claude #3): a regeneration taken from the resume-leg
+    // message re-appends with the ECHO as parent and is structurally
+    // indistinguishable from a resume leg at this seam, so its edge is
+    // deliberately not persisted. Content is never lost — the Mastra row
+    // hydrates chronologically inside the turn's group.
+    const { db, makeAdapter, seedRun, threadId } = await makeHarness('post-approval-regen-drop');
+    const adapter = makeAdapter();
+
+    await adapter.append(userAppendItem({ id: 'user-1', parentId: null, text: 'first prompt' }));
+    await insertMastraMessage(db, {
+      createdAt: '2026-08-10T17:00:00Z',
+      id: 'user-1',
+      role: 'user',
+      text: 'first prompt',
+      threadId,
+    });
+    await insertMastraMessage(db, {
+      createdAt: '2026-08-10T17:00:05Z',
+      id: 'assistant-a',
+      role: 'assistant',
+      text: 'suspended at approval',
+      threadId,
+    });
+    await seedRun('run-host-v1-stance', 'user-1');
+    await adapter.append(
+      approveEchoItem({ hostRunId: 'run-host-v1-stance', id: 'echo-1', parentId: 'assistant-a' })
+    );
     await adapter.append(
       assistantAppendItem({ id: 'resume-leg-1', parentId: 'echo-1', text: 'continuation' })
     );

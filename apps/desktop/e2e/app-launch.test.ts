@@ -1,3 +1,4 @@
+import { once } from 'node:events';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { setupAssistantMock } from './utils/assistant-mock';
@@ -5,6 +6,7 @@ import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('Electron App Launch', () => {
   test('should launch successfully and show main window', { tag: '@smoke' }, async ({
+    electronApp,
     window,
     homePage,
   }) => {
@@ -17,6 +19,12 @@ test.describe('Electron App Launch', () => {
 
     // Verify the main content is loaded
     await homePage.shouldBeVisible();
+
+    const { getBufferedElectronOutput } = await loadElectronHelpers();
+    const output = await getBufferedElectronOutput(electronApp.app);
+    const startupOutput = [...output.stderr, ...output.stdout].join('\n');
+    expect(startupOutput).not.toContain('dist/dist/main-log-transport.js');
+    expect(startupOutput).not.toContain('dist/dist/main-watchdog-worker.js');
   });
 
   test('does not start persisted stores without storage', async ({ electronApp, window }) => {
@@ -187,4 +195,73 @@ test.describe('Electron App Launch', () => {
       await host.stop();
     });
   });
+});
+
+// Drive the public preload ports continuously, as background indexing does.
+// This pins app-owned shutdown ordering without substituting a mocked host.
+test('joins renderer IPC producers before closing their hosts @smoke', async ({
+  electron,
+}, testInfo) => {
+  const page = await electron.ensureWindow();
+  const ownedProcess = (await electron.ensureContext()).app.process();
+  const output: string[] = [];
+  const producerErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.text().startsWith('Renderer shutdown producer failed')) {
+      producerErrors.push(message.text());
+    }
+  });
+  const capture = (chunk: Buffer) => output.push(chunk.toString());
+  ownedProcess.stderr?.on('data', capture);
+  ownedProcess.stdout?.on('data', capture);
+  await page.evaluate(async () => {
+    const db = window.electronAPI?.db;
+    const chunkingHost = (
+      window as typeof window & {
+        chunkingHost?: { ensureStarted(): Promise<unknown> };
+      }
+    ).chunkingHost;
+    if (!(db && chunkingHost)) {
+      throw new Error('Desktop producer capabilities unavailable');
+    }
+    const ready = Promise.withResolvers<void>();
+    const produce = async () => {
+      let completed = 0;
+      while (true) {
+        await Promise.all([
+          db.query('SELECT 1 AS shutdown_producer_probe'),
+          chunkingHost.ensureStarted(),
+        ]);
+        completed += 1;
+        if (completed === 3) {
+          ready.resolve();
+        }
+      }
+    };
+    void produce().catch((error: unknown) => {
+      ready.reject(error);
+      console.error('Renderer shutdown producer failed', error);
+    });
+    await ready.promise;
+  });
+  try {
+    await Promise.all([
+      once(ownedProcess, 'close', { signal: AbortSignal.timeout(5000) }),
+      electron.dispose(),
+    ]);
+  } finally {
+    // Preserve the original failure's output even when close rejects or times out.
+    await testInfo.attach('renderer-shutdown-process-log', {
+      body: output.join(''),
+      contentType: 'text/plain',
+    });
+  }
+  const log = output.join('');
+  expect(ownedProcess.exitCode).toBe(0);
+  expect(ownedProcess.signalCode).toBeNull();
+  expect(producerErrors).toEqual([]);
+  expect(log).not.toContain('chunking-host lifecycle has been disposed');
+  expect(log).not.toContain('Chunking host is not running (state: stopped)');
+  expect(log).not.toContain('DB host manager is closing');
+  expect(log).not.toContain("Error occurred in handler for 'db:query'");
 });

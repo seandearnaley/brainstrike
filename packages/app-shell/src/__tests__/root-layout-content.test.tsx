@@ -6,12 +6,19 @@ import type { PanelLayoutState } from '@brainstrike/ui';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type React from 'react';
-import { useState } from 'react';
+import { use, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
 import { RootLayoutContent } from '../root-layout-content';
 import type { NavigationItem } from '../types';
+import { RootsContext } from '../use-delegated-conversation-root';
 import { createRecentLongTaskEntryList } from './long-task-entry-list-test-support';
+
+vi.mock('@brainstrike/db/react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/db/react')>()),
+  useDbProviderError: () => null,
+  usePGliteDatabase: () => null,
+}));
 
 vi.mock('@brainstrike/file-explorer-hooks', async () => {
   const { createContext } = await import('react');
@@ -69,6 +76,12 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   },
 }));
 
+// The provider above is a pass-through stub with no tabs context, so the
+// workspace chord registration (covered in tab-chords/__tests__) is stubbed too.
+vi.mock('../tab-chords/workspace-tab-chords', () => ({
+  WorkspaceTabChords: () => null,
+}));
+
 vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
   FileTreeProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="file-tree-provider">{children}</div>
@@ -80,6 +93,7 @@ const mockHandlers = {
     panelConstraints: { mainContentMinSize?: string; rightPanelMinSize?: string } | undefined;
     panelIdPrefix: string | undefined;
   }>,
+  navigationPaths: [] as string[],
   onNavigationClick: (_path: string) => {},
   onOpenSettings: () => {},
   panelLayoutChanges: [] as Array<(state: PanelLayoutState) => void>,
@@ -90,16 +104,25 @@ const mockHandlers = {
 vi.mock('../app-layout', () => ({
   AppLayout: ({
     children,
+    config,
+    currentPath,
     onNavigationClick,
     onOpenSettings,
   }: {
     children: React.ReactNode;
+    config: { navigationItems: ReadonlyArray<{ path: string }> };
+    currentPath: string;
     onNavigationClick: (path: string) => void;
     onOpenSettings: () => void;
   }) => {
+    mockHandlers.navigationPaths = config.navigationItems.map((item) => item.path);
     mockHandlers.onNavigationClick = onNavigationClick;
     mockHandlers.onOpenSettings = onOpenSettings;
-    return <div data-testid="app-layout">{children}</div>;
+    return (
+      <div data-current-path={currentPath} data-testid="app-layout">
+        {children}
+      </div>
+    );
   },
 }));
 
@@ -163,7 +186,10 @@ vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({
 }));
 
 vi.mock('../assistant-chat-panel', () => ({
-  AssistantChatPanel: () => <div data-testid="assistant-chat-shell" />,
+  AssistantChatPanel: () => {
+    const roots = use(RootsContext);
+    return <div data-has-root-owner={roots !== null} data-testid="assistant-chat-shell" />;
+  },
 }));
 
 // The palette host pulls in the DB, theme, and command registry; this
@@ -176,6 +202,12 @@ vi.mock('../command-palette-host', () => ({
 // file-open seam; mock it the same way as the command palette host.
 vi.mock('../quick-open-host', () => ({
   QuickOpenHost: () => <div data-testid="quick-open-host" />,
+}));
+
+// The workspace-connect host pulls in the file-system context and the desktop
+// bridge; mock it the same way as the command palette and quick-open hosts.
+vi.mock('../workspace-connect/workspace-connect-host', () => ({
+  WorkspaceConnectHost: () => <div data-testid="workspace-connect-host" />,
 }));
 
 // The coordinator binds real stores + PGlite; this layout-routing suite mocks
@@ -242,6 +274,7 @@ vi.mock('../database-panel', () => ({
 describe('RootLayoutContent', () => {
   beforeEach(() => {
     rendererLongTaskTelemetry.reset();
+    mockHandlers.navigationPaths = [];
     mockHandlers.onNavigationClick = vi.fn();
     mockHandlers.onOpenSettings = vi.fn();
     mockHandlers.ideLayoutProps = [];
@@ -249,7 +282,6 @@ describe('RootLayoutContent', () => {
     mockHandlers.promptManagerSuspended = false;
     usePanelLayoutStore.setState({
       activeTab: 'explorer',
-      settingsOpen: false,
       showConsole: false,
       showLeftPanel: true,
       showRightPanel: false,
@@ -308,7 +340,10 @@ describe('RootLayoutContent', () => {
       'data-suggestions-enabled',
       'false'
     );
-    expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
+    expect(screen.getByTestId('assistant-chat-shell')).toHaveAttribute(
+      'data-has-root-owner',
+      'true'
+    );
     expect(screen.getByTestId('indexing-activity-coordinator')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
     expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
@@ -403,66 +438,97 @@ describe('RootLayoutContent', () => {
     expect(screen.queryByTestId('connected-prompt-manager')).not.toBeInTheDocument();
   });
 
-  it('opens settings as a modal while keeping the app workspace visible', () => {
+  it('routes settings as a full shell tab that replaces the explorer surface (BST-1668)', () => {
     renderComponent();
+
+    // Not mounted until first opened, same as every other keep-mounted route.
+    expect(screen.queryByTestId('settings-route')).not.toBeInTheDocument();
 
     act(() => {
       mockHandlers.onOpenSettings();
     });
 
-    expect(screen.getByTestId('agent-sidebar-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
-    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    const settingsRoute = screen.getByTestId('settings-route');
+    expect(settingsRoute).not.toHaveClass('hidden');
+    expect(settingsRoute).toHaveAttribute('aria-hidden', 'false');
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
+    // A tab, not an overlay: nothing is layered, and the explorer is hidden
+    // underneath exactly like it is behind git/notes/browser.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
+    expect(screen.getByTestId('app-layout')).toHaveAttribute('data-current-path', '/settings');
   });
 
-  it('opens the settings modal when an existing caller selects the settings tab', () => {
+  it('selects the settings route when an existing caller sets the settings tab', () => {
     renderComponent();
 
     act(() => {
       usePanelLayoutStore.getState().setActiveTab('settings');
     });
 
-    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('settings-route')).not.toHaveClass('hidden');
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
-    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
+    expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
   });
 
-  it('keeps the current shell tab active when settings opens and closes', async () => {
-    // BST-1270: Terminal left the shell-route system for the workspace tab
-    // strip, so the git route now pins this behavior.
+  it('reaches settings from the nav rail like git and notes', () => {
+    renderComponent();
+
+    act(() => {
+      mockHandlers.onNavigationClick('/settings');
+    });
+
+    expect(usePanelLayoutStore.getState().activeTab).toBe('settings');
+    expect(screen.getByTestId('settings-route')).not.toHaveClass('hidden');
+  });
+
+  it('keeps the settings nav item in the rail, ordered after every other route', () => {
+    renderComponent({
+      navigationItems: [
+        { icon: () => <div />, name: 'Context Explorer', path: '/' },
+        { icon: () => <div />, name: 'Settings', path: '/settings' },
+        { icon: () => <div />, name: 'Notes', path: '/notes' },
+      ],
+    });
+
+    // The wrappers append capability-gated routes AFTER the shared list, so
+    // the shell owns the rule that Settings is the last rail item.
+    expect(mockHandlers.navigationPaths).toEqual(['/', '/notes', '/settings']);
+  });
+
+  it('refuses a navigation list without the settings rail item instead of hiding Settings', () => {
+    // The shell always mounts the settings route, so a wrapper that forgot the
+    // `/settings` item would leave the route reachable only through the
+    // profile menu / ⌘K with no rail affordance — a silent degradation. Fail
+    // loudly at mount instead.
+    expect(() =>
+      renderComponent({
+        navigationItems: [{ icon: () => <div />, name: 'Context Explorer', path: '/' }],
+      })
+    ).toThrow(/\/settings/);
+  });
+
+  it('switches between settings and another shell tab without unmounting either', () => {
     usePanelLayoutStore.setState({ activeTab: 'git' });
-    const user = userEvent.setup();
     renderComponent({ gitPageContent: <div data-testid="git-page">Git</div> });
 
     act(() => {
       usePanelLayoutStore.getState().openSettings();
     });
-    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
-
-    await user.click(screen.getByRole('button', { name: 'Close' }));
-
-    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
-    expect(usePanelLayoutStore.getState().activeTab).toBe('git');
-    expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
-  });
-
-  it('closes settings when navigating to another shell tab', () => {
-    renderComponent({ gitPageContent: <div data-testid="git-page">Git</div> });
-
-    act(() => {
-      mockHandlers.onOpenSettings();
-    });
-    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByTestId('settings-route')).not.toHaveClass('hidden');
+    expect(screen.getByTestId('git-route')).toHaveClass('hidden');
 
     act(() => {
       mockHandlers.onNavigationClick('/git');
     });
 
-    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(usePanelLayoutStore.getState().activeTab).toBe('git');
     expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
+    // Keep-mounted contract, same as notes: hidden, not gone.
+    const settingsRoute = screen.getByTestId('settings-route');
+    expect(settingsRoute).toHaveClass('hidden');
+    expect(settingsRoute).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('settings-page')).toBeInTheDocument();
   });
 
   it('mounts the notes route when the notes nav item is selected', () => {
@@ -541,7 +607,7 @@ describe('RootLayoutContent', () => {
     }
   });
 
-  it('closes and reopens settings without replacing the workspace', async () => {
+  it('preserves settings page state across leaving and returning to the tab', async () => {
     const user = userEvent.setup();
 
     function StatefulSettingsPage() {
@@ -569,14 +635,18 @@ describe('RootLayoutContent', () => {
 
     await user.type(screen.getByTestId('settings-input'), 'persist me');
 
-    await user.click(screen.getByRole('button', { name: 'Close' }));
-    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    act(() => {
+      mockHandlers.onNavigationClick('/');
+    });
+    expect(screen.getByTestId('settings-route')).toHaveClass('hidden');
     expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
 
     await act(async () => mockHandlers.onOpenSettings());
 
-    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByTestId('settings-input')).toHaveValue('');
+    // The modal unmounted its content on close; a keep-mounted route keeps
+    // in-progress edits exactly like the git/notes surfaces do.
+    expect(screen.getByTestId('settings-route')).not.toHaveClass('hidden');
+    expect(screen.getByTestId('settings-input')).toHaveValue('persist me');
   });
 
   it('debounces size-only explorer layout updates and keeps the latest size payload', () => {

@@ -4,4 +4,4 @@ export { useEventCallback } from './use-event-callback.js';
 export { useFileFilters } from './use-file-filters.js';
 export { useLoadingManager } from './use-loading-manager.js';
 export { usePagination } from './use-pagination.js';
-export { useReportManager } from './use-report-manager.js';
+export { type ContextExportOutcome, useReportManager } from './use-report-manager.js';

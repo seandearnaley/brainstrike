@@ -1,11 +1,15 @@
 import type { IFileNode } from '@brainstrike/types';
 import { createContext, useContext, useMemo } from 'react';
+import type { FileContentLoadIntent } from '../file-content-load-authority-context';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
 interface FileContentContextType {
   error: Error | null;
   fileContents: { [compositeKey: string]: string };
-  handleFileContentLoading: (compositeKeys: string[]) => Promise<void>;
+  handleFileContentLoading: (
+    compositeKeys: string[],
+    intent: FileContentLoadIntent
+  ) => Promise<void>;
   isLoading: boolean;
 }
 

@@ -103,6 +103,55 @@ describe('CanvasPanel', () => {
     expect(screen.getByTestId('canvas-version-previous')).toBeEnabled();
   });
 
+  const TWO_SUMMARIES = [
+    { canvasId: 'canvas-1', createdAt: '2026-08-07 01:00:00+00', latestVersion: 3, title: 'Chart' },
+    {
+      canvasId: 'canvas-2',
+      createdAt: '2026-08-07 02:00:00+00',
+      latestVersion: 5,
+      title: 'Report',
+    },
+  ];
+
+  it('shows the canvas the navigation store focused (a canvas:// chip click), not the newest', async () => {
+    routeQueries(TWO_SUMMARIES);
+    activateThread('thread-1');
+    useChangesNavigationStore.getState().openCanvas('canvas-2');
+    renderPanel();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-version-label')).toHaveTextContent('v5 / 5');
+    });
+    expect(screen.getByTestId('canvas-picker')).toHaveValue('canvas-2');
+  });
+
+  it('the picker writes the store, so a chip click and the picker share one selection', async () => {
+    routeQueries(TWO_SUMMARIES);
+    activateThread('thread-1');
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-picker')).toHaveValue('canvas-1');
+    });
+
+    fireEvent.change(screen.getByTestId('canvas-picker'), { target: { value: 'canvas-2' } });
+
+    expect(useChangesNavigationStore.getState().focusedCanvasId).toBe('canvas-2');
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-version-label')).toHaveTextContent('v5 / 5');
+    });
+  });
+
+  it('a focused id that is not in this thread falls back to the newest canvas', async () => {
+    routeQueries(TWO_SUMMARIES);
+    activateThread('thread-1');
+    useChangesNavigationStore.getState().selectCanvas('canvas-from-another-thread');
+    renderPanel();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-picker')).toHaveValue('canvas-1');
+    });
+  });
+
   it('steps back through history and clamps at version 1', async () => {
     routeQueries();
     activateThread('thread-1');

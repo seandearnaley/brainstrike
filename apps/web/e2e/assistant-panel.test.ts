@@ -20,7 +20,7 @@ test.describe('Assistant panel (assistant-ui default) @stateful @web-assistant-s
     const viewport = page.getByTestId('assistant-ui-viewport');
     await expect(viewport).toBeVisible();
 
-    await page.locator('#assistant-input').fill('hello world');
+    await page.getByRole('textbox', { name: 'Message input' }).fill('hello world');
     await page.getByRole('button', { exact: true, name: 'Send' }).click();
 
     await expect(viewport.getByText(/Mock response from tests/i).first()).toBeVisible({
@@ -60,13 +60,9 @@ test.describe('Hosted Web multi-provider picker @stateful @web-assistant-state',
     await expect(trigger).toBeEnabled();
     await trigger.click();
 
-    const moreModels = page.getByTestId('composer-more-models-trigger');
-    await moreModels.focus();
-    await page.keyboard.press('ArrowRight');
-    const anthropic = page.getByRole('menuitem', { name: /Anthropic/ });
-    await anthropic.focus();
-    await page.keyboard.press('ArrowRight');
-    await page.getByRole('menuitemradio', { name: /^Claude Sonnet 5/ }).click();
+    const modelDialog = page.getByRole('dialog', { name: 'Choose a model' });
+    await modelDialog.getByRole('combobox').fill('Claude Sonnet 5');
+    await modelDialog.getByRole('option', { name: /^Claude Sonnet 5/ }).click();
 
     await expect(trigger).toHaveAccessibleName(/Claude Sonnet 5/);
     await expect(

@@ -40,6 +40,7 @@ From `src/index.ts`:
 
   * `FileExplorerSidebar`, `FileExplorerLeftPanel`, `FileExplorerMiddlePanel`, `FileExplorerMiddlePanelTabbed`
   * `FileTree`, `OptimizedFileTree`
+  * `WorktreeIndexingControl`
   * `PreviewPanel`, `PreviewPanelSummary`, `TabbedFileEditor`, `TabbedFileEditorPanel`
   * `SelectionCounter`
   * Config/controls: `WorkspaceSettings`, `FileFilterBar`, `ViewFilterPresetDropdown`, `IncludeProjectTreeSetting`, `MaxSelectionCountSetting`, `FolderSummaryThresholdSetting`
@@ -89,6 +90,12 @@ export default function Explorer() {
 
 * We instantiate a **scoped Zustand store** via `FileExplorerProvider`. Do **not** import or mutate the global store; always use `useFileExplorerStoreContext()`.
 * Selectors must use `createWithEqualityFn` or `shallow` where appropriate to prevent re-renders on large trees. See Zustand docs for `createWithEqualityFn` and `useShallow`. ([Zustand Documentation][1])
+* `FileExplorerProvider` owns the persisted-state recovery notification. It
+  atomically consumes the core store's redacted `persistenceRecoveryNotice`
+  and shows one informational toast: saved explorer settings were reset, while
+  user files were not changed. The toast must never include the rejection
+  reason, persisted values, root identifiers, or paths. Missing first-run state
+  and valid hydration remain silent.
 
 ### 2) Virtualization / treegrid
 
@@ -102,6 +109,14 @@ export default function Explorer() {
 
 * `useSharedFileContentLoading` batches `FileReadRequest`s to a worker created by `@brainstrike/workers/file-content-worker` with concurrency derived from `navigator.hardwareConcurrency`.
 * Per-file results stream back; we keep a `loadingFiles` set and write content into the store.
+* Load generations, active-read promises, the bounded batch queue, and the immutable per-composite-key error projection are owned once by `FileExplorerProvider`, not by each `useSharedFileContentLoading` hook. Every loader under one provider must consult that shared authority before committing content or errors, because the file-content store/cache is shared. The underlying LRU is itself store-owned; provider replacement creates a new store/cache and authority atomically. Refresh starts idle keys immediately in one batch, groups dependent keys by the exact preceding promise, and starts each group independently when that promise settles (including rejection) after filtering superseded generations. At most TWO worker queues run per provider lifecycle epoch: this leaves one lane for unrelated work when an older queue is slow while bounding a 20-group settlement burst. Queue class is explicit logical intent, NEVER inferred from a physical group's key count: tab open/Retry are `interactive`, preview/report and watcher refresh are `background`, and every predecessor group carries its originating intent even when it contains one key. Two consecutive interactive dispatches while background waits force one background dispatch. Preparation uses per-key settlement so valid siblings still read; preparation/worker failures clear every affected loading marker and set errors only for current failed keys. Every physical group settles before the public logical request rejects, and a later successful sibling cannot erase an earlier failure for another key. A retry clears only its requested keys at the logical request boundary. The error map is a live projection, not history: a key is retained only while its read is active or an explicit consumer owns it. Its aggregate `error` object is memoized by the immutable error-map snapshot so value-equivalent rerenders do not manufacture a new error identity. `WorkspaceTabsProvider` synchronously owns exactly the open-tab composite keys (the tab store's hard maximum is 20), so close, bulk close, hydration, eviction, unmount, and reset prune retired terminal errors without hiding an active tab's error. Unowned report/preview failures remain observable through the rejected request and are pruned when that request releases. `WorkspaceTabsProvider` projects the active owned key's error into `FileTabBody`'s accessible terminal error screen; content failures are never promoted to the explorer's global error surface. `trackActiveLoad`/`releaseActiveLoad` are explicit test-only predecessor seams; production reads enter through `scheduleBatch`.
+* Preview reads and context export have separate visible-failure owners. Direct preview rejection retries the exact failed keys. Copy/download retain report-manager toasts while returning a typed outcome; `FileExplorerMiddlePanelBase` stores the exact action plus a deep snapshot of its options and retries the WHOLE export only while the value-equivalent selection snapshot remains authoritative. Selection authority compares canonical set membership, not `Set` object identity, because multi-root projections may recreate an equivalent set. Report generation receives the raw background loader, so nested missing-content work cannot replace an export failure with a content-only retry. Copy/download alerts and controls are labelled distinctly; raw internal error text stays in logs rather than UI copy.
+* `FileContentErrorScreen` is actionable: it shows the selected path and a bounded safe error category, and its Retry button calls `reloadFileContents([compositeKey], 'interactive')`. Never render the raw loader error message or re-enter the automatic load loop at the terminal-error boundary.
+* Only the explicit `readFileByAbsolutePath(absolutePath, mountedRootPath, rootId)` adapter method grants handleless native-path authority; desktop carries all three values through a distinct visible-UI-only IPC call. Main exact-maps RootId, verifies the claimed presentation/canonical path belongs to that SAME live mount, then confines the requested file. Duplicate aliases and symlink/junction retargets must never select authority by path insertion order. During async desktop boot, an open tab whose exact root descriptor has not arrived stays unloaded rather than receiving a sticky inaccessible sentinel; the workspace tab effect depends on root descriptors and retries when authority arrives. A legacy path-shaped composite key still fails visibly once the descriptor projection is authoritative. `readFileByPath` is adapter-defined and the real web adapter uses it for root-relative browser-handle resolution, so its presence MUST NOT route into the desktop branch. Direct-path-capable adapters do not require a populated tree to finish a load or refresh. The dev fixture decorator preserves this capability boundary while routing fixture-owned absolute paths to fixture bytes and delegating foreign paths to the underlying capability. Each direct worker request carries its durable rootId and mounted root, and both the worker and adapter reject blank identity or blank/nonabsolute root/file arguments before I/O; the native non-registry adapter explicitly validates rootId but retains rootPath as its confinement authority. The native adapter reads the canonical path returned by validation, never the original alias. The worker never falls back to generic `readFileByPath` when the explicit capability is absent. `resolveDirectReadPath` preserves POSIX `/`, Windows drive roots, and UNC shares; relative paths must contain no empty, control, `.` or `..` segments, while absolute paths must be contained by the selected root using POSIX case-sensitive or drive/UNC case-insensitive comparison. Reject unsafe paths visibly—never reinterpret an outside absolute path as relative and never fall back to concatenation. Web missing/lazy nodes remain on the cached-handle permission path even when the adapter also implements `readFileByPath`. Structured worker `inaccessible` results are canonicalized with `buildInaccessibleContent`; the exact binary sentinel is preserved so `FileTabBody` continues to route it to `BinaryFilePreview`.
+* The two-lane content scheduler is a concurrency bound, not a liveness timeout. `FileContentWorker` accepts an optional `AbortSignal`, but this loader currently supplies no controller and has no content-read timeout or user-cancel policy. If TWO adapter reads never settle, both provider lanes remain occupied, keys sharing either predecessor remain coupled, and queued batches/logical waiters remain pending. Do not invent an elapsed-time cutoff: adding a safe bound requires an explicit cancellation owner/trigger and adapter cancellation contract.
+* Queue class comes only from caller intent, never key count: singleton preview/report/refresh work stays `background`; only tab open and explicit tab Retry are `interactive`. If an interactive caller requests a key already queued inside a background ticket, extract that exact key into a NEW interactive tail ticket—even when it was the background ticket's only key—and keep the original logical request dependent on it. Never mutate the old queue position, promote unrelated bulk companions, or read the key twice. Explicit Retry promotes/joins before beginning any replacement generation, while watcher refresh keeps predecessor-replacement semantics. The promoted key takes the next free provider lane without preempting either live lane. FIFO holds within each class, and one waiting background batch runs after at most two consecutive interactive dispatches so interactive traffic cannot starve background progress. Reset/unmount settles every queued, promoted, and active ticket once and clears their ownership maps; late physical completion remains generation-fenced.
+* Factory reset calls the same authority's invalidation before clearing all store content/cache and selections, then advances the provider lifecycle key. Web reset therefore remounts hook-local loading refs/state even without a page reload. Provider identity replacement also changes that key and commit-phase cleanup invalidates the retired authority, so late callbacks cannot mutate the replacement lifecycle.
+* Rebuilt `FileHandle`s forward `fileNode.handle.rootId` as the durable read authority when present. `rootFolderId` remains selection/cache identity and must never be substituted for `rootId`.
 * “Binary file” and “not accessible” markers are **string content** (UI treats them specially). Don’t change those strings without updating tests/UI.
 
 ### 4) Progress & cancellation
@@ -116,6 +131,12 @@ export default function Explorer() {
 ### 5) FS adapters & permissions
 
 * Browser builds rely on the **File System Access API** (Chrome/Edge et al.). The UX must respect permission prompts and error mapping (permission denied, dialog failures). Don’t bypass those guardrails or you’ll ship a broken experience across browsers. ([Chrome for Developers][4])
+* `FILE_EXPLORER_REFRESH_EVENT` may carry capped per-root
+  `filteredChangeBoundaries` plus explicit boundary overflow. This is scoped
+  Git freshness from the concrete main Explorer watcher's explicit
+  `reportDefaultFilteredChanges:true` opt-in, not watcher record loss or a
+  generic adapter default. Explorer tree/index/metadata consumers use only
+  detailed `changes` and must not turn boundary-only evidence into a full scan.
 
 ---
 
@@ -229,7 +250,8 @@ Do these before reaching for cleverness:
 
 ### TabbedFileEditor
 
-* Restores scroll from `editor-view-state-store`; uses hotkeys (`Ctrl/Cmd+W`, `Ctrl/Cmd+PageUp/Down`).
+* Restores scroll from `editor-view-state-store`.
+* Owns no tab chords: ⌘/Ctrl+W, Ctrl+PgUp/PgDn and the rest belong to the tab chord router in `packages/app-shell/src/tab-chords/`, which drives the workspace strip through `useWorkspaceTabs()`.
 * Calls `onLoadFileContent(compositeKey)` whenever an active tab is missing content (and not already loading).
 
 ---

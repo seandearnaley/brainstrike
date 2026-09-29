@@ -521,6 +521,92 @@ describe('SnapshotService — concurrency and GC', () => {
     HEAVY_TIMEOUT_MS
   );
 
+  it.each([
+    [
+      'recursive',
+      'thread-74da70cd-4f39-46de-81b3-56b7b5b1b416-b7a52f6c-7e72-4241-bf33-e5b9bbf1d93e-70950143-21e5-44b4-8aa0-b574d36ad961-55dbf797-1713-4fc6-b4e4-9e85f0453bb7',
+    ],
+    ['trailing-dot', 'abc.'],
+  ])(
+    'captures, inventories, restores and prunes %s identities without losing another writer',
+    async (_kind, threadId) => {
+      const { root, service } = await makeFixture();
+      const handle = await service.ensureShadowRepo({ path: root, rootId: 'recursive-root' });
+      await write(root, 'child.txt', 'before child');
+      const before = await service.snapshot(handle, { kind: 'turn-start', threadId });
+      await write(root, 'child.txt', 'child effect');
+      const sibling = await service.snapshot(handle, { kind: 'turn-start', threadId: 'sibling' });
+      await write(root, 'sibling.txt', 'independent sibling effect');
+      const after = await service.snapshot(handle, { kind: 'turn-end', threadId });
+      expect(new Set(await service.listSnapshotThreadIds(handle))).toEqual(
+        new Set([threadId, 'sibling'])
+      );
+      const refs = (
+        await git(root, `--git-dir=${handle.gitDir}`, 'for-each-ref', '--format=%(refname)')
+      )
+        .trim()
+        .split('\n');
+      expect(refs.some((ref) => ref.includes(threadId))).toBe(false);
+      expect(refs.every((ref) => ref.split('/').every((part) => part.length <= 128))).toBe(true);
+      expect(
+        await git(root, `--git-dir=${handle.gitDir}`, 'show', '-s', '--format=%P', after.commitOid)
+      ).toContain(before.commitOid);
+      expect(
+        await service.restorePathsFromSnapshot(handle, before.commitOid, [
+          { expectAbsent: false, path: 'child.txt' },
+        ])
+      ).toEqual([{ outcome: 'restored', path: 'child.txt' }]);
+      expect(await fsPromises.readFile(path.join(root, 'child.txt'), 'utf8')).toBe('before child');
+      expect(await fsPromises.readFile(path.join(root, 'sibling.txt'), 'utf8')).toBe(
+        'independent sibling effect'
+      );
+      expect(await service.pruneThread(handle, threadId)).toEqual({ deleted: true });
+      expect(await service.listSnapshotThreadIds(handle)).toEqual(['sibling']);
+      expect(await service.pruneThread(handle, threadId)).toEqual({ deleted: false });
+      expect(
+        await git(root, `--git-dir=${handle.gitDir}`, 'rev-parse', 'refs/snapshots/sibling')
+      ).toContain(sibling.commitOid);
+    }
+  );
+
+  it('refuses an encoded lineage whose commit belongs to another exact identity', async () => {
+    const { root, service } = await makeFixture();
+    const handle = await service.ensureShadowRepo({ path: root, rootId: 'integrity-root' });
+    // More than 128 characters selects the encoded identity namespace.
+    const threadId = 'long-native-child-'.repeat(12);
+    await write(root, 'file.txt', 'content');
+    await service.snapshot(handle, { kind: 'turn-start', threadId });
+    const other = await service.snapshot(handle, { kind: 'turn-start', threadId: 'other' });
+    const encodedRef = (
+      await git(
+        root,
+        `--git-dir=${handle.gitDir}`,
+        'for-each-ref',
+        '--format=%(refname)',
+        'refs/snapshot-identities/'
+      )
+    ).trim();
+    await git(root, `--git-dir=${handle.gitDir}`, 'update-ref', encodedRef, other.commitOid);
+    await expect(service.listSnapshotThreadIds(handle)).rejects.toThrow(
+      'does not match its durable identity'
+    );
+    await expect(service.pruneThread(handle, threadId)).rejects.toThrow(
+      'does not match its durable identity'
+    );
+    await expect(service.snapshot(handle, { kind: 'turn-end', threadId })).rejects.toThrow(
+      'does not match its durable identity'
+    );
+    expect(await git(root, `--git-dir=${handle.gitDir}`, 'rev-parse', encodedRef)).toContain(
+      other.commitOid
+    );
+    // Corruption refuses root inventory; it does not disable another verified lineage.
+    await service.snapshot(handle, { kind: 'turn-end', threadId: 'other' });
+    expect(await service.pruneThread(handle, 'other')).toEqual({ deleted: true });
+    expect(await git(root, `--git-dir=${handle.gitDir}`, 'rev-parse', encodedRef)).toContain(
+      other.commitOid
+    );
+  });
+
   it(
     'pruneThread deletes the thread ref; sweepOrphans removes dead roots and keeps live ones',
     async () => {

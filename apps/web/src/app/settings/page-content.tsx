@@ -4,6 +4,7 @@ import {
   NATIVE_TOOL_DEFAULTS,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/agent/tool-metadata';
+import { verifyProviderCredential } from '@brainstrike/app-shell';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking-settings';
 import {
   createSystemDiagnosticsSettingsCategory,
@@ -18,7 +19,11 @@ import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
-import { ModelSelectionPage } from '@brainstrike/settings-ui/settings/models/model-selection-page';
+import {
+  ModelCatalogHeaderActions,
+  ModelSelectionPage,
+} from '@brainstrike/settings-ui/settings/models/model-selection-page';
+import { createProvidersSettingsCategory } from '@brainstrike/settings-ui/settings/providers/providers-settings-category';
 import {
   LoggingSettingsSection,
   type LogSourceAdapter,
@@ -30,6 +35,7 @@ import {
 } from '@brainstrike/settings-ui/settings/tools/index';
 import {
   createAppearanceSettingsCategory,
+  createAssistantMemorySettingsCategory,
   createFactoryResetSettingsCategory,
   createLocalRuntimeSettingsCategory,
   createPermissionSettingsCategory,
@@ -80,14 +86,6 @@ function getNativeToolsAsDisplayMetadata(
  */
 function getToolDescription(toolId: string): string {
   return getNativeToolDescription(toolId) ?? `Native tool: ${toolId}`;
-}
-
-function ModelSelectionCategory() {
-  return (
-    <div className="space-y-4">
-      <ModelSelectionPage assistantMemoryBackendAvailable={hasDurableAssistantUsageCapability()} />
-    </div>
-  );
 }
 
 // Factory Reset category provided via createFactoryResetSettingsCategory()
@@ -184,14 +182,23 @@ export default function SettingsPageContent() {
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),
+      // Web has no `window.secrets` bridge, so the hub renders provider status
+      // read-only ("configured via server environment") with no editors. The
+      // capability check lives inside the component — never a platform test.
+      createProvidersSettingsCategory({ verifyProvider: verifyProviderCredential }),
       {
-        content: <ModelSelectionCategory />,
-        description: 'Manage AI providers and enable/disable specific models.',
+        content: <ModelSelectionPage />,
+        description: 'Browse every catalogued model and enable the ones you want.',
+        headerActions: <ModelCatalogHeaderActions />,
         icon: Layers,
         id: 'models',
-        keywords: ['models', 'providers', 'llm', 'embedding', 'vector'],
-        title: 'Models & Providers',
+        keywords: ['models', 'catalog', 'llm', 'embedding', 'vector'],
+        layout: 'workspace',
+        title: 'Model Catalog',
       },
+      createAssistantMemorySettingsCategory({
+        assistantMemoryBackendAvailable: hasDurableAssistantUsageCapability(),
+      }),
       {
         content: (
           <LoggingSettingsSection

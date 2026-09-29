@@ -29,6 +29,7 @@ import {
   assertTextContentsHaveNoNullBytes,
 } from '../../text-content-invariants.js';
 import {
+  assertFuzzyThreshold,
   BM25_CONTENT_INDEX_NAME,
   computeOverfetchLimit,
   FILE_CHUNK_SELECT_COLUMNS,
@@ -38,9 +39,18 @@ import {
   MAX_INLINE_FILE_PATHS,
   resolveEmbeddingDimensions,
   resolveFilteredVectorSearchRoute,
+  shouldUseFuzzyFallback,
 } from '../_shared.js';
 import type { FileChunkQueryTx } from '../file-chunk-repository.js';
+import {
+  buildChunkDistanceExpressions,
+  mapFullTextSearchRows,
+  mapVectorSearchRows,
+  normalizeChunkSearchScope,
+  tsqueryFunctionForMode,
+} from '../file-chunk-search-policy.js';
 import { runFindGrepCandidatesQuery, runInsertManyWithTx } from '../file-chunk-shared-queries.js';
+import type { IFileChunkRepository } from '../interfaces.js';
 
 /**
  * Maximum supported embedding dimension for pgvector.
@@ -62,23 +72,6 @@ function validateEmbeddingVector(embedding: number[], context: string): void {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw new Error(`${context}: Invalid embedding value at index ${i}: ${value}`);
     }
-  }
-}
-
-/**
- * Validates that a dimension value is a safe positive integer within pgvector limits.
- * @throws Error if dimension is not a safe positive integer
- */
-function validateDimension(dimension: number, context: string): void {
-  if (
-    typeof dimension !== 'number' ||
-    !Number.isInteger(dimension) ||
-    dimension <= 0 ||
-    dimension > MAX_EMBEDDING_DIMENSION
-  ) {
-    throw new Error(
-      `${context}: Invalid dimension value: ${dimension} (must be 1-${MAX_EMBEDDING_DIMENSION})`
-    );
   }
 }
 
@@ -147,7 +140,7 @@ function toPgvectorLiteral(embedding: number[]): string {
   return `[${embedding.join(',')}]`;
 }
 
-export class DrizzleFileChunkRepository {
+export class DrizzleFileChunkRepository implements IFileChunkRepository {
   constructor(private readonly db: DrizzleDb) {}
 
   async findById(id: string): Promise<FileChunk | null> {
@@ -380,14 +373,14 @@ export class DrizzleFileChunkRepository {
       throw new Error('searchSimilar requires embeddingSetId to avoid dimension mismatches');
     }
 
-    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    const { filePaths: normalizedFilePaths, selectionSnapshotId: normalizedSnapshotId } =
+      normalizeChunkSearchScope({ filePaths, selectionSnapshotId });
     if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
       throw new Error(
         `searchSimilar filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
           'Use selectionSnapshotId for large selections.'
       );
     }
-    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
     // Get embedding set config
     const [setRow] = await this.db
@@ -439,10 +432,11 @@ export class DrizzleFileChunkRepository {
       }
     }
 
-    const { similarityExpr, orderExpr } = this.buildDistanceExpressions(
+    const { similarityExpr, orderExpr } = buildChunkDistanceExpressions(
       distance as 'cosine' | 'l2' | 'ip',
       dimension,
-      route === 'exact' ? 'exact' : 'halfvec'
+      route === 'exact' ? 'exact' : 'halfvec',
+      MAX_EMBEDDING_DIMENSION
     );
 
     // Convert validated embedding to pgvector literal format
@@ -495,16 +489,14 @@ export class DrizzleFileChunkRepository {
             return await tx.execute(baseQuery);
           });
 
-    const mapped = (result.rows as Record<string, unknown>[]).map((row) => ({
-      chunk: this.fromRawRow(row),
-      rank: Number(row['rank']),
-      similarity: Number(row['similarity']),
-    }));
-
-    // Apply threshold and limit
-    return mapped
-      .filter((r) => Number.isFinite(r.similarity) && r.similarity >= threshold)
-      .slice(0, limit);
+    return mapVectorSearchRows(
+      result.rows as Array<
+        Record<string, unknown> & { rank: string | number; similarity: string | number }
+      >,
+      (row) => this.fromRawRow(row),
+      threshold,
+      limit
+    );
   }
 
   /**
@@ -531,6 +523,8 @@ export class DrizzleFileChunkRepository {
       fileRecordId,
       chunkType,
       filePaths,
+      fuzzyFallback = true,
+      fuzzyThreshold = 0.6,
       rootIds,
       selectionSnapshotId,
       queryMode = 'websearch',
@@ -544,18 +538,19 @@ export class DrizzleFileChunkRepository {
     if (!trimmedQuery) {
       return [];
     }
+    assertFuzzyThreshold(fuzzyThreshold);
 
-    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    const { filePaths: normalizedFilePaths, selectionSnapshotId: normalizedSnapshotId } =
+      normalizeChunkSearchScope({ filePaths, selectionSnapshotId });
     if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
       throw new Error(
         `fullTextSearch filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
           'Use selectionSnapshotId for large selections.'
       );
     }
-    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
     // Build tsquery using the appropriate function based on query mode
-    const tsqueryFunc = this.getTsqueryFunction(queryMode);
+    const tsqueryFunc = tsqueryFunctionForMode(queryMode);
 
     // Build WHERE clause dynamically
     const ftsColumns = includeEmbedding
@@ -571,35 +566,30 @@ export class DrizzleFileChunkRepository {
     // ORDERING comes from BM25. The `, id` tiebreaks keep ordering
     // deterministic — BM25 produces exact score ties for rows with identical
     // term statistics.
+    // BM25 orders but never matches: a row BM25 would score but the tsquery
+    // rejects never reaches fusion, so recall is tsvector-bounded (BST-908).
     // NOTE: this is the drizzle-idiomatic form of `bm25RankExpression` from
     // ../_shared.ts (used by the raw-SQL repos): the index name rides as a
     // BOUND PARAMETER here instead of a SQL literal — semantically identical
     // to Postgres, and both spellings share BM25_CONTENT_INDEX_NAME so the
     // name cannot drift between the paths.
     const bm25Rank = sql`(-(content <@> to_bm25query(${trimmedQuery}, ${BM25_CONTENT_INDEX_NAME})))::float8`;
-    let baseQuery = sql`
-      SELECT
-        ${sql.raw(ftsColumns)},
-        ${bm25Rank} as fts_rank,
-        ${headlineColumn}
-        ROW_NUMBER() OVER (ORDER BY ${bm25Rank} DESC, id) as position
-      FROM file_chunks
-      WHERE content_tsvector IS NOT NULL
-        AND content_tsvector @@ ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery})
-    `;
+    const scopeConditions: SQL[] = [];
 
     if (fileRecordId) {
-      baseQuery = sql`${baseQuery} AND file_record_id = ${fileRecordId}`;
+      scopeConditions.push(sql`file_record_id = ${fileRecordId}`);
     }
     if (chunkType) {
-      baseQuery = sql`${baseQuery} AND chunk_type = ${chunkType}`;
+      scopeConditions.push(sql`chunk_type = ${chunkType}`);
     }
     // Embedding-set scope with coverage-identity semantics (getCoverageForSet):
     // the chunk's own set matches, OR the chunk is pending embedding (NULL set)
     // and its file record carries the set. Match (tsquery) semantics unchanged.
     // Mirrors the PGlite + Electron repos.
     if (embeddingSetId !== undefined) {
-      baseQuery = sql`${baseQuery} AND (embedding_set_id = ${embeddingSetId} OR (embedding_set_id IS NULL AND file_record_id IN (SELECT id FROM file_records WHERE embedding_set_id = ${embeddingSetId})))`;
+      scopeConditions.push(
+        sql`(embedding_set_id = ${embeddingSetId} OR (embedding_set_id IS NULL AND file_record_id IN (SELECT id FROM file_records WHERE embedding_set_id = ${embeddingSetId})))`
+      );
     }
     // Scope to a set of workspace roots (see searchSimilar above for the empty /
     // NULL-root semantics). Mirrors the PGlite + Electron repos.
@@ -608,16 +598,16 @@ export class DrizzleFileChunkRepository {
       if (rootScopeCondition === null) {
         return [];
       }
-      baseQuery = sql`${baseQuery} AND ${rootScopeCondition}`;
+      scopeConditions.push(rootScopeCondition);
     }
     if (normalizedSnapshotId) {
-      baseQuery = sql`${baseQuery} AND EXISTS (
+      scopeConditions.push(sql`EXISTS (
         SELECT 1
         FROM ${selectionSnapshotFiles}
         JOIN ${fileRecords} ON ${fileRecords.path} = ${selectionSnapshotFiles.filePath}
         WHERE ${selectionSnapshotFiles.snapshotId} = ${normalizedSnapshotId}
           AND ${fileRecords.id} = ${fileChunks.fileRecordId}
-      )`;
+      )`);
     }
     if (normalizedFilePaths && normalizedFilePaths.length > 0) {
       const rows = await this.db
@@ -628,16 +618,65 @@ export class DrizzleFileChunkRepository {
       if (fileRecordIds.length === 0) {
         return [];
       }
-      baseQuery = sql`${baseQuery} AND ${inArray(fileChunks.fileRecordId, fileRecordIds)}`;
+      scopeConditions.push(inArray(fileChunks.fileRecordId, fileRecordIds));
     }
 
-    baseQuery = sql`${baseQuery}
+    const applyScopeConditions = (baseQuery: SQL): SQL => {
+      let scopedQuery = baseQuery;
+      for (const condition of scopeConditions) {
+        scopedQuery = sql`${scopedQuery} AND ${condition}`;
+      }
+      return scopedQuery;
+    };
+
+    let exactQuery = applyScopeConditions(sql`
+      SELECT
+        ${sql.raw(ftsColumns)},
+        ${bm25Rank} as fts_rank,
+        ${headlineColumn}
+        ROW_NUMBER() OVER (ORDER BY ${bm25Rank} DESC, id) as position
+      FROM file_chunks
+      WHERE content_tsvector IS NOT NULL
+        AND content_tsvector @@ ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery})
+    `);
+    exactQuery = sql`${exactQuery}
       ORDER BY fts_rank DESC, id
       LIMIT ${limit}
     `;
 
-    const result = await this.db.execute(baseQuery);
-    return this.mapFTSResults(result.rows as Record<string, unknown>[], threshold);
+    const exactResult = await this.db.execute(exactQuery);
+    const useFuzzyFallback = shouldUseFuzzyFallback({
+      exactResultCount: exactResult.rows.length,
+      fuzzyFallback,
+      language,
+      queryMode,
+    });
+    if (!useFuzzyFallback) {
+      return this.mapFTSResults(exactResult.rows as Record<string, unknown>[], 'exact', threshold);
+    }
+
+    const fuzzyRank = sql`word_similarity(${trimmedQuery}, content)::float8`;
+    let fuzzyQuery = applyScopeConditions(sql`
+      SELECT
+        ${sql.raw(ftsColumns)},
+        ${fuzzyRank} as fts_rank,
+        ROW_NUMBER() OVER (ORDER BY ${fuzzyRank} DESC, id) as position
+      FROM file_chunks
+      WHERE ${trimmedQuery} <% content
+        AND word_similarity(${trimmedQuery}, content) >= ${fuzzyThreshold}
+        AND ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery})::text <> ''
+    `);
+    fuzzyQuery = sql`${fuzzyQuery}
+      ORDER BY fts_rank DESC, id
+      LIMIT ${limit}
+    `;
+    const fuzzyResult = await this.db.transaction(async (transaction) => {
+      await transaction.execute(
+        sql`SELECT set_config('pg_trgm.word_similarity_threshold', ${String(fuzzyThreshold)}, true)`
+      );
+      return transaction.execute(fuzzyQuery);
+    });
+    return this.mapFTSResults(fuzzyResult.rows as Record<string, unknown>[], 'fuzzy', threshold);
   }
 
   /**
@@ -645,41 +684,21 @@ export class DrizzleFileChunkRepository {
    */
   private mapFTSResults(
     rows: Record<string, unknown>[],
+    matchKind: import('../../models/file-chunk.js').FTSSearchResult['matchKind'],
     threshold: number
   ): import('../../models/file-chunk.js').FTSSearchResult[] {
-    const results: import('../../models/file-chunk.js').FTSSearchResult[] = [];
-    for (const row of rows) {
-      const rank = Number(row['fts_rank']);
-      // Apply threshold filter
-      if (threshold > 0 && rank < threshold) {
-        continue;
-      }
-      const ftsResult: import('../../models/file-chunk.js').FTSSearchResult = {
-        chunk: this.fromRawRow(row),
-        position: Number(row['position']),
-        rank,
-      };
-      if (row['headline']) {
-        ftsResult.headline = String(row['headline']);
-      }
-      results.push(ftsResult);
-    }
-    return results;
-  }
-
-  /**
-   * Get the PostgreSQL tsquery function for the given query mode
-   */
-  private getTsqueryFunction(mode: import('../../models/file-chunk.js').FTSQueryMode): string {
-    switch (mode) {
-      case 'plain':
-        return 'plainto_tsquery';
-      case 'phrase':
-        return 'phraseto_tsquery';
-      default:
-        // 'websearch' is the default query mode
-        return 'websearch_to_tsquery';
-    }
+    return mapFullTextSearchRows(
+      rows as Array<
+        Record<string, unknown> & {
+          fts_rank: string | number;
+          headline?: string | null;
+          position: string | number;
+        }
+      >,
+      (row) => this.fromRawRow(row),
+      matchKind,
+      threshold
+    );
   }
 
   /**
@@ -704,17 +723,6 @@ export class DrizzleFileChunkRepository {
         .from(fileRecords)
         .where(inArray(fileRecords.rootId, Array.from(rootIds)))
     );
-  }
-
-  private normalizeFilePaths(filePaths?: readonly string[]): string[] | undefined {
-    if (!filePaths || filePaths.length === 0) {
-      return;
-    }
-    const trimmed = filePaths.map((path) => path.trim()).filter((path) => path.length > 0);
-    if (trimmed.length === 0) {
-      return;
-    }
-    return Array.from(new Set(trimmed));
   }
 
   async getStats(): Promise<{
@@ -921,54 +929,6 @@ export class DrizzleFileChunkRepository {
     );
     const row = result.rows[0] as { c?: number | string } | undefined;
     return Number(row?.c ?? 0);
-  }
-
-  /**
-   * Build distance expressions for similarity search.
-   * 'halfvec' precision (the ANN route): the embedding column is cast to
-   * halfvec(dimension) to match the half-precision partial HNSW index
-   * expression `(embedding::halfvec(N))` — without the cast the planner cannot
-   * use the dimension-specific indexes.
-   * 'exact' precision (the selective-filter route) is the mirror-image
-   * guarantee: full-precision `embedding <=> $1::vector(N)` CANNOT match that
-   * index expression, so the planner must exact-scan the filtered subset.
-   * NOTE: similarity scores are fp32 on the exact route vs fp16 on the
-   * halfvec/ANN route, so scores near the threshold can differ across routes —
-   * callers must not assume one scale.
-   */
-  private buildDistanceExpressions(
-    distance: 'cosine' | 'l2' | 'ip',
-    dimension: number,
-    precision: 'exact' | 'halfvec' = 'halfvec'
-  ): { similarityExpr: string; orderExpr: string } {
-    // Validate dimension is a safe integer (defense-in-depth)
-    validateDimension(dimension, 'buildDistanceExpressions');
-
-    // halfvec: cast embedding (and the query param) to fixed-dimension halfvec
-    // so the ORDER BY matches the half-precision HNSW partial index built by
-    // the dimension-index-helpers. The full-precision vector stays in the
-    // column; only the ANN ranking runs in fp16.
-    const embeddingCast =
-      precision === 'exact' ? 'embedding' : `(embedding::halfvec(${dimension}))`;
-    const paramCast =
-      precision === 'exact' ? `$1::vector(${dimension})` : `$1::halfvec(${dimension})`;
-
-    if (distance === 'l2') {
-      return {
-        orderExpr: `${embeddingCast} <-> ${paramCast}`,
-        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
-      };
-    }
-    if (distance === 'ip') {
-      return {
-        orderExpr: `${embeddingCast} <#> ${paramCast}`,
-        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
-      };
-    }
-    return {
-      orderExpr: `${embeddingCast} <=> ${paramCast}`,
-      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
-    };
   }
 
   /**

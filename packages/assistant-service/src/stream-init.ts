@@ -6,7 +6,9 @@ import type {
   AssistantTaskItem,
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
+  DelegatedConversationBinding,
   McpConfig,
+  ProviderAuthInput,
   RuntimeAssistantMemorySettings,
   RuntimeData,
   ScaledToolResultBudget,
@@ -21,29 +23,29 @@ import {
   resolveRequestPermissionPolicy,
   resolveScaledToolResultBudget,
   resolveToolResultBudgetForModel,
-  streamMastraToolApprovalAction,
-  streamMastraToolResumeAction,
   TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW,
-  toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { PgliteMastraMemoryResult } from '@brainstrike/agent/pglite-mastra-memory';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { AdmittedChildConfigurationError, type McpHostPort } from '@brainstrike/assistant-contract';
+import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
 import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
+import { resolveInitialAgentStream } from './initial-agent-stream.js';
 import {
   collectLocalLlmWarmupModelIds,
   isLocalChatProvider,
   resolveLocalLlmHostClient,
 } from './local-provider-runtime.js';
 import { resolveDesktopObserverUsageTarget } from './memory-model-targets.js';
-import type { AssistantLlmHostManager } from './ports.js';
+import type { AssistantLlmHostManager, AssistantStreamRuntimeOptions } from './ports.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';
 import type { PreRequestCompactionCapabilityResult } from './stream-init-compaction.js';
 import {
   runConversationCompactionBeforeStream,
   trustedCompactionOverlayFields,
-  withCompactionUsageChunk,
+  withCompactionPreludeChunks,
 } from './stream-init-compaction.js';
+import { buildInitialStreamMemoryOptions } from './stream-runtime-options.js';
 import type { AgentStreamFailure, AgentStreamResult, DesktopMemoryFeature } from './types.js';
 
 /**
@@ -72,23 +74,16 @@ async function readThreadTaskListForTurn<K extends AgentStreamCapabilityKinds>(
   }
 }
 
-interface InitialStreamMemoryOptions {
-  memory?: AgentStreamMemoryResult['memory'];
-  storage?: AgentStreamMemoryResult['storage'];
-  toolOutputArtifactInlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
-  toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
-}
-
 interface ToolOutputArtifactCapabilities {
   toolOutputArtifactReader?: ScopedToolOutputArtifactReader;
   toolOutputArtifactStore?: ToolOutputArtifactSettlementStore;
 }
 
-function buildToolOutputArtifactCapabilities<K extends AgentStreamCapabilityKinds>(
+export function buildToolOutputArtifactCapabilities<K extends AgentStreamCapabilityKinds>(
   runtimeData: RuntimeData | undefined,
   runId: string | undefined,
   getDatabase: AgentStreamDatabaseProvider<K['database']>,
-  deps: AgentStreamHelperDeps<K>
+  deps: { readonly capabilities: Pick<AgentStreamCapabilities<K>, 'artifacts'> }
 ): ToolOutputArtifactCapabilities {
   const resourceId = runtimeData?.memory?.resourceId;
   const threadId = runtimeData?.memory?.threadId;
@@ -167,88 +162,6 @@ export function resolveToolBuildBudget(
   }
   const model = runtimeData?.model || getProviderDefaultModel(normalizedProvider) || '';
   return resolveToolResultBudgetForModel(normalizedProvider, model);
-}
-
-function buildInitialStreamMemoryOptions(
-  memoryResult: AgentStreamMemoryResult | undefined,
-  toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined,
-  webExtractInlineMaxSerializedChars: number
-): InitialStreamMemoryOptions {
-  return {
-    ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
-    ...(toolOutputArtifactStore
-      ? {
-          toolOutputArtifactInlineMaxSerializedCharsByToolName: new Map([
-            [NATIVE_TOOL_ID.webExtract, webExtractInlineMaxSerializedChars],
-          ]),
-          toolOutputArtifactStore,
-        }
-      : {}),
-  };
-}
-
-/**
- * Pick the initial stream for the turn: approval-resume, suspend-resume
- * (submitPlan/askUser), or a fresh generation. Both resume paths skip
- * `injectReferencedFilesContext` — there is no new user turn to scan — mirroring
- * the approval path's contract.
- */
-async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(args: {
-  deps: AgentStreamHelperDeps<K>;
-  messages: AgentMessage[];
-  runtime: RuntimeData;
-  memoryOptions: InitialStreamMemoryOptions;
-  toolApprovalAction: AssistantToolApprovalAction | undefined;
-  toolResumeAction: AssistantToolResumeAction | undefined;
-}): Promise<AsyncIterable<StreamChunk>> {
-  const {
-    deps: { capabilities },
-    messages,
-    runtime,
-    memoryOptions,
-    toolApprovalAction,
-    toolResumeAction,
-  } = args;
-  if (toolApprovalAction) {
-    capabilities.runPersistence.recordContinuationRunTreatment?.(runtime);
-    return streamMastraToolApprovalAction(toolApprovalAction, {
-      ...memoryOptions,
-      requireToolApproval: true,
-      runtime,
-    });
-  }
-  if (toolResumeAction) {
-    capabilities.runPersistence.recordContinuationRunTreatment?.(runtime);
-    return streamMastraToolResumeAction(toolResumeAction, { ...memoryOptions, runtime });
-  }
-  // Prepend the turn's `@file` references (referenced-files), then any explicit
-  // `:skill[name]` activations, then the opt-in self-improvement signal, then
-  // the mounted roots' workspace instructions (AGENTS.md/AGENT.md/CLAUDE.md).
-  // Instructions are applied LAST so the final front-to-back order is:
-  // instructions → signal → skills → referenced files → conversation. All are
-  // no-ops (same array identity) when nothing applies.
-  const withReferencedFiles = await capabilities.contextInjectors.referencedFiles(
-    messages,
-    runtime,
-    capabilities.readWorkspaceTextFile
-  );
-  const withSkillActivations = await capabilities.contextInjectors.activatedSkills(
-    withReferencedFiles,
-    runtime.workspaceSkills
-  );
-  const withSelfImprovementSignal = await capabilities.contextInjectors.selfImprovementSignal(
-    withSkillActivations,
-    runtime
-  );
-  return toAiSdkStyleStream(
-    await capabilities.contextInjectors.workspaceInstructions(
-      withSelfImprovementSignal,
-      runtime,
-      capabilities.readWorkspaceTextFile
-    ),
-    runtime,
-    memoryOptions
-  );
 }
 
 /**
@@ -363,6 +276,13 @@ function buildAgentStreamInitializationFailure<K extends AgentStreamCapabilityKi
   stage: AgentStreamInitializationStage,
   deps: AgentStreamHelperDeps<K>
 ): AgentStreamFailure {
+  if (error instanceof AdmittedChildConfigurationError) {
+    return {
+      ok: false,
+      payload: { code: error.reason, error: error.code, message: error.message },
+      status: 409,
+    };
+  }
   const secretReadErrorPayload = getSecretReadErrorPayload(error);
   if (secretReadErrorPayload) {
     return {
@@ -384,6 +304,19 @@ function buildAgentStreamInitializationFailure<K extends AgentStreamCapabilityKi
       status: 400,
     };
   }
+  const generationRefusal = readBackgroundGenerationRefusal(error);
+  if (generationRefusal) {
+    return {
+      ok: false,
+      payload: {
+        code: generationRefusal.reason,
+        error: 'decision_refused',
+        message: generationRefusal.message,
+        stage,
+      },
+      status: 409,
+    };
+  }
   const correlationId = randomUUID();
   deps.logger.error('Failed to initialize assistant stream', { correlationId, error, stage });
   return {
@@ -396,6 +329,37 @@ function buildAgentStreamInitializationFailure<K extends AgentStreamCapabilityKi
     },
     status: 502,
   };
+}
+
+/**
+ * The cold approval path wraps host identity errors in a MastraAgentError.
+ * Carry only this bounded, host-authored upgrade refusal through the public
+ * stream response; arbitrary nested errors stay on the generic 502 path.
+ */
+function readBackgroundGenerationRefusal(
+  error: unknown
+): { readonly message: string; readonly reason: string } | undefined {
+  let candidate = error;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!(candidate instanceof Error)) {
+      return;
+    }
+    const identity = candidate as Error & {
+      readonly actionableMessage?: unknown;
+      readonly reason?: unknown;
+    };
+    if (
+      identity.name === 'DelegatedConversationIdentityError' &&
+      identity.reason === 'background-generation-unmapped' &&
+      typeof identity.actionableMessage === 'string' &&
+      identity.actionableMessage.length > 0 &&
+      identity.actionableMessage.length <= 500
+    ) {
+      return { message: identity.actionableMessage, reason: identity.reason };
+    }
+    candidate = candidate.cause;
+  }
+  return;
 }
 
 function buildWorkspaceRootResolutionFailure<K extends AgentStreamCapabilityKinds>(
@@ -495,7 +459,9 @@ export interface AgentStreamToolDependencies<K extends AgentStreamCapabilityKind
 }
 
 /** What `memory.create` yields: the Mastra memory/storage pair for the run. */
-export type AgentStreamMemoryResult = PgliteMastraMemoryResult;
+export type AgentStreamMemoryResult = PgliteMastraMemoryResult & {
+  readonly conversationBinding?: DelegatedConversationBinding;
+};
 
 /**
  * Host-composed capabilities (BST-972 B4a/B4b): every host-module VALUE edge
@@ -652,7 +618,8 @@ export interface AgentStreamCapabilities<
       stream: AsyncIterable<StreamChunk>,
       runId: string,
       observerTarget: { readonly model: string; readonly provider: string } | undefined,
-      getDatabase: AgentStreamDatabaseProvider<K['database']>
+      getDatabase: AgentStreamDatabaseProvider<K['database']>,
+      requiresDelegationIdentity?: boolean
     ) => AsyncIterable<StreamChunk>;
     readonly persistToolCallTelemetry: (
       stream: AsyncIterable<StreamChunk>,
@@ -729,13 +696,28 @@ interface AgentStreamHelperDeps<K extends AgentStreamCapabilityKinds> {
  * site would surface only at runtime.
  */
 export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKinds> {
+  /**
+   * Legacy resolved-key string, retained on the port for transport parity;
+   * NOT consumed here since the BST-1352 review — auth reaches the stream
+   * exclusively through `authInput` and the runtime carries no apiKey field.
+   */
   readonly apiKey: string | undefined;
+  /**
+   * Provider auth input (BST-1352), threaded as a DIRECT parameter into the
+   * stream options. Never copied onto RuntimeData (RequestContext.toJSON
+   * drops functions — a custom_fetch closure would vanish silently).
+   */
+  readonly authInput?: ProviderAuthInput | undefined;
   readonly capabilities: AgentStreamCapabilities<K>;
+  readonly childFollowupAction?: AssistantChildFollowupAction | undefined;
   /** Trusted host-injected compaction overlay lookup; never client supplied. */
   readonly compactionOverlayLookup?: RuntimeData['compactionOverlayLookup'];
   readonly getDatabase: AgentStreamDatabaseProvider<K['database']>;
   readonly logger: ScopedLogger;
+  readonly mcpAppAdmission?: AssistantStreamRuntimeOptions['mcpAppAdmission'];
   readonly mcpConfig: McpConfig | undefined;
+  readonly mcpHost?: McpHostPort;
+  readonly mcpTaskTracking?: AssistantStreamRuntimeOptions['mcpTaskTracking'];
   // Deliberately the mutable array type: this exact array is handed through
   // runUserPromptSubmitGate and resolveInitialAgentStream into
   // @brainstrike/agent's toAiSdkStyleStream, whose signature is AgentMessage[].
@@ -764,10 +746,14 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     logger,
     messages,
     runtimeData: incomingRuntimeData,
-    apiKey,
+    authInput,
     mcpConfig,
+    mcpHost,
+    mcpAppAdmission,
+    mcpTaskTracking,
     signal,
     runId,
+    childFollowupAction,
     toolApprovalAction,
     toolResumeAction,
     toolDependencies,
@@ -925,7 +911,9 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       // builder returns null), so no branch is needed here.
       taskList,
       ...(mcpConfig ? { mcpConfig } : {}),
-      ...(apiKey ? { apiKey } : {}),
+      // BST-1352 review: NO bearer key on the runtime — RuntimeData reaches
+      // Mastra RequestContext serialization; credentials travel ONLY as the
+      // direct authInput parameter.
       ...(localLlmHostClient ? { localLlmHostClient } : {}),
       ...(permissionPolicy ? { permissionPolicy } : {}),
       ...(hookRunner ? { hookRunner } : {}),
@@ -988,7 +976,9 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       Math.min(
         capabilities.webExtractInlineMaxSerializedChars,
         resolvedToolResultBudget.domainModelResultCharBudget
-      )
+      ),
+      authInput,
+      { mcpAppAdmission, mcpHost, mcpTaskTracking }
     );
 
     // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/
@@ -1009,7 +999,8 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
                 ),
                 runId,
                 resolveDesktopObserverUsageTarget(runtime.memory?.memorySettings),
-                getDatabase
+                getDatabase,
+                Boolean(memoryResult?.conversationBinding)
               ),
               runId,
               getDatabase
@@ -1048,14 +1039,16 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
 
     initializationStage = 'stream_construction';
     const initialStream = await resolveInitialAgentStream({
+      childFollowupAction,
       deps,
       memoryOptions,
       messages: upsGate.messages,
+      resolvePersonaApiKey: resolveProviderApiKey,
       runtime,
       toolApprovalAction,
       toolResumeAction,
     });
-    const stream = withCompactionUsageChunk(initialStream, preRequestCompaction);
+    const stream = withCompactionPreludeChunks(initialStream, preRequestCompaction);
     logger.info('Assistant stream initialized');
     // Stop (notify-only in v1): fire the terminal Stop hook best-effort when the
     // stream ends (clean/error/abort). Its run events ride the queued sink the

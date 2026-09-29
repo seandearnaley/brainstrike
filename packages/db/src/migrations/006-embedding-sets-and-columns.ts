@@ -19,6 +19,7 @@ export const migration006EmbeddingSetsAndColumns: Migration = {
     -- Drop embedding_sets table
     DROP TABLE IF EXISTS embedding_sets;
   `,
+  ledgerKey: 'custom-006-embedding-sets-and-columns',
   name: 'embedding_sets_and_columns',
   up: `
     -- Create embedding_sets table

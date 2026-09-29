@@ -22,6 +22,7 @@ export const migration046AssistantRunUsage: Migration = {
 
     DROP TABLE IF EXISTS brainstrike_assistant_run_usage;
   `,
+  ledgerKey: 'custom-046-assistant-run-usage',
   name: 'assistant_run_usage',
   up: `
     CREATE TABLE IF NOT EXISTS brainstrike_assistant_run_usage (

@@ -6,11 +6,16 @@ import {
   useAuiState,
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
-import '@testing-library/jest-dom/vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { useState } from 'react';
-import { afterEach, describe, expect, test } from 'vitest';
 import {
+  type ThreadMessageNavigation,
+  ThreadMessageNavigationContext,
+} from '../thread-message-navigation';
+import '@testing-library/jest-dom/vitest';
+import { act, fireEvent, getConfig, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
+import { afterEach, describe, expect, onTestFinished, test, vi } from 'vitest';
+import {
+  THREAD_END_THRESHOLD_PX,
   THREAD_VIRTUALIZATION_THRESHOLD,
   ThreadMessagesRegion,
 } from '../assistant-thread-messages';
@@ -34,6 +39,7 @@ import '../overrides.css';
 const MESSAGE_HEIGHT_PX = 90;
 const GROWN_MESSAGE_HEIGHT_PX = 640;
 const VIEWPORT_HEIGHT_PX = 320;
+const APPEND_TEST_INITIAL_MESSAGE_COUNT = 600;
 /** Marks a message whose stand-in renders tall — our stand-in for streaming growth. */
 const GROWN_PREFIX = 'grown:';
 
@@ -62,6 +68,7 @@ const convertMessage = (message: HarnessMessage): ThreadMessageLike => ({
  * and a content-driven height (so "the last message grew" is a real reflow).
  */
 const StandInMessage = ({ className }: { className: string }) => {
+  const messageId = useAuiState((s) => s.message.id);
   const text = useAuiState((s) => {
     const [part] = s.message.content;
     return part?.type === 'text' ? part.text : '';
@@ -70,12 +77,14 @@ const StandInMessage = ({ className }: { className: string }) => {
   return (
     <div
       className={className}
+      data-message-id={messageId}
       data-message-text={text}
       data-testid="thread-message"
       style={{
         flexShrink: 0,
         height: text.startsWith(GROWN_PREFIX) ? GROWN_MESSAGE_HEIGHT_PX : MESSAGE_HEIGHT_PX,
       }}
+      tabIndex={-1}
     />
   );
 };
@@ -90,7 +99,13 @@ const STAND_IN_COMPONENTS = {
 
 const noopNew = (_message: AppendMessage): Promise<void> => Promise.resolve();
 
-function ThreadHarness({ messages }: { messages: readonly HarnessMessage[] }) {
+function ThreadHarness({
+  messages,
+  navigation,
+}: {
+  messages: readonly HarnessMessage[];
+  navigation?: ThreadMessageNavigation;
+}) {
   const runtime = useExternalStoreRuntime({
     convertMessage,
     messages,
@@ -110,7 +125,9 @@ function ThreadHarness({ messages }: { messages: readonly HarnessMessage[] }) {
               width: 420,
             }}
           >
-            <ThreadMessagesRegion components={STAND_IN_COMPONENTS} />
+            <ThreadMessageNavigationContext value={navigation ?? null}>
+              <ThreadMessagesRegion components={STAND_IN_COMPONENTS} />
+            </ThreadMessageNavigationContext>
           </div>
         </div>
       </ThreadScrollFollowProvider>
@@ -211,7 +228,7 @@ const waitForOverflowingViewport = async (): Promise<HTMLElement> => {
  * assumption. Generous here costs nothing; every one of these waits returns as
  * soon as its condition holds.
  */
-const SETTLE_TIMEOUT_MS = 5000;
+const SETTLE_TIMEOUT_MS = Math.max(5000, getConfig().asyncUtilTimeout);
 
 /**
  * Settling after a scroll correction: measure → adjust → re-render. Tier 2 does
@@ -232,6 +249,24 @@ const scrollTo = async (viewport: HTMLElement, top: number): Promise<void> => {
   await waitFor(() => {
     expect(Math.abs(viewport.scrollTop - top)).toBeLessThanOrEqual(1);
   });
+};
+
+const expectScrollTopStableAcrossFrames = async (
+  viewport: HTMLElement,
+  expectedScrollTop: number
+): Promise<void> => {
+  // The first frame lets layout and ResizeObserver consume the appended count;
+  // the next two samples prove their deferred corrections preserve position.
+  const nextFrame = (): Promise<void> =>
+    new Promise((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+
+  await act(nextFrame);
+  for (let frame = 0; frame < 2; frame += 1) {
+    await act(nextFrame);
+    expect(Math.abs(viewport.scrollTop - expectedScrollTop)).toBeLessThanOrEqual(2);
+  }
 };
 
 afterEach(() => {
@@ -315,34 +350,88 @@ describe('virtualized tier (BST-897)', () => {
   });
 
   test('appending while scrolled up never steals the viewport, and the jump button returns to the end', async () => {
-    render(<MutableThreadHarness initialCount={600} />);
+    render(<MutableThreadHarness initialCount={APPEND_TEST_INITIAL_MESSAGE_COUNT} />);
     const viewport = await waitForOverflowingViewport();
     await waitForPinnedToEnd(viewport);
 
-    await scrollTo(viewport, 4000);
     const button = getButton();
-    await waitFor(() => {
-      expect(button).toBeEnabled();
-    });
+    // Pinned geometry settles before the button's virtualizer state. Establish
+    // the disabled starting state so the enabled wait below observes a real
+    // transition instead of passing on a stale opening render.
+    await waitFor(
+      () => {
+        expect(button).toBeDisabled();
+      },
+      { timeout: SETTLE_TIMEOUT_MS }
+    );
+
+    // A matching DOM offset can precede the virtualizer's opening rAF
+    // reconciliation. Establish a painted, pinned viewport before asking the
+    // reader to move; otherwise that unfinished index scroll owns the append.
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    await waitForPinnedToEnd(viewport);
+
+    // Clamp a one-viewport move to the mounted end window. Jumping into
+    // unmounted estimates makes row measurement corrections indistinguishable
+    // from append movement, which is not the contract this test owns.
+    const firstMountedRow = screen.getAllByTestId('thread-message')[0];
+    if (!firstMountedRow) {
+      throw new Error('Expected the virtualizer to have a mounted end window');
+    }
+    const viewportRect = viewport.getBoundingClientRect();
+    const mountedStart =
+      viewport.scrollTop +
+      firstMountedRow.getBoundingClientRect().top -
+      viewportRect.top -
+      viewport.clientTop;
+    const scrollTopAtEnd = viewport.scrollTop;
+    const target = Math.max(mountedStart, scrollTopAtEnd - viewport.clientHeight);
+    if (scrollTopAtEnd - target <= THREAD_END_THRESHOLD_PX) {
+      throw new Error('Expected the mounted window to permit a scrolled-up reading position');
+    }
+    await scrollTo(viewport, target);
+    await waitFor(
+      () => {
+        expect(button).toBeEnabled();
+      },
+      { timeout: SETTLE_TIMEOUT_MS }
+    );
 
     const scrollTopBefore = viewport.scrollTop;
-    fireEvent.click(screen.getByTestId('append'));
-
-    await waitFor(() => {
-      expect(document.querySelector('[data-thread-render-tier]')).not.toBeNull();
+    // Flush the append independently of whether the new row lands inside the
+    // current overscan window.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('append'));
     });
-    // The reading position is untouched by the append …
-    await waitFor(() => {
-      expect(Math.abs(viewport.scrollTop - scrollTopBefore)).toBeLessThanOrEqual(2);
-    });
+    await waitFor(
+      () => {
+        expect(viewport).toHaveAttribute(
+          'data-thread-message-count',
+          String(APPEND_TEST_INITIAL_MESSAGE_COUNT + 1)
+        );
+      },
+      { timeout: SETTLE_TIMEOUT_MS }
+    );
+    // The reading position remains untouched after the virtualizer consumes
+    // the appended count and its frame-boundary measurements settle …
+    await expectScrollTopStableAcrossFrames(viewport, scrollTopBefore);
     expect(button).toBeEnabled();
 
     // … and the jump button drives the virtualizer back to the true end.
     fireEvent.click(button);
     await waitForPinnedToEnd(viewport);
-    await waitFor(() => {
-      expect(button).toBeDisabled();
-    });
+    await waitFor(
+      () => {
+        expect(document.querySelector('[data-message-text="appended"]')).not.toBeNull();
+      },
+      { timeout: SETTLE_TIMEOUT_MS }
+    );
+    await waitFor(
+      () => {
+        expect(button).toBeDisabled();
+      },
+      { timeout: SETTLE_TIMEOUT_MS }
+    );
   });
 
   test('growth of the last message while pinned keeps the view at the true end', async () => {
@@ -469,4 +558,179 @@ describe('thread renderer performance evidence (BST-897)', () => {
     expect(virtualRows).toBeLessThan(100);
     expect(staticRows).toBe(1000);
   });
+});
+
+test('keeps the end pin when a pending scroll reset lands between row resize deliveries', async () => {
+  render(<ThreadHarness messages={makeMessages(600)} />);
+  const viewport = await waitForOverflowingViewport();
+  await waitForPinnedToEnd(viewport);
+  const schedule = globalThis.setTimeout.bind(globalThis);
+  let pendingReset: (() => void) | undefined;
+  const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((handler, delay, ...args) => {
+    if (delay === 150 && typeof handler === 'function') {
+      pendingReset = () => handler(...args);
+      return schedule(() => undefined, delay);
+    }
+    return schedule(handler, delay, ...args);
+  });
+  // Hold only the reset scheduled synchronously by this one scroll event;
+  // unrelated mount and post-scroll timers keep their original behavior.
+  try {
+    fireEvent.scroll(viewport);
+  } finally {
+    timer.mockRestore();
+  }
+  expect(pendingReset).toBeUndefined();
+  const rows = Array.from(viewport.querySelectorAll<HTMLElement>('[data-testid="thread-message"]'));
+  const last = rows.at(-1);
+  if (!last) {
+    throw new Error('Expected the newest message');
+  }
+  let armed = false;
+  let delivered = false;
+  const observer = new ResizeObserver(() => {
+    if (!armed) {
+      return;
+    }
+    armed = false;
+    delivered = true;
+    pendingReset?.();
+    // The native path has no timer: scrollend reads the live offset instead.
+    viewport.dispatchEvent(new Event('scrollend'));
+    // A second layout change can arrive before the browser emits the scroll
+    // event for the virtualizer's first compensation write. Creating this
+    // observer after the virtualizer orders the two deliveries; Chromium can
+    // report the second reflow as an undelivered ResizeObserver notification.
+    for (const row of rows) {
+      row.style.height = `${MESSAGE_HEIGHT_PX + 42}px`;
+    }
+  });
+  observer.observe(last);
+  onTestFinished(() => observer.disconnect());
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  armed = true;
+  for (const row of rows) {
+    row.style.height = `${MESSAGE_HEIGHT_PX + 21}px`;
+  }
+  await waitFor(() => expect(delivered).toBe(true));
+  await waitFor(() => expect(distanceFromBottom(viewport)).toBeLessThanOrEqual(2));
+});
+
+test('updates the jump affordance when scrolling crosses the end threshold within one virtual range', async () => {
+  render(<ThreadHarness messages={makeMessages(600)} />);
+  const viewport = screen.getByTestId('assistant-ui-viewport');
+  const button = screen.getByTestId('assistant-scroll-to-bottom');
+  const openingEnded = vi.fn();
+  viewport.addEventListener('scrollend', openingEnded, { once: true });
+  onTestFinished(() => viewport.removeEventListener('scrollend', openingEnded));
+  // Wait for the opening scroll's actual native completion before testing a
+  // new gesture. A momentary bottom position can precede row measurement.
+  await waitFor(() => expect(openingEnded).toHaveBeenCalled());
+  await waitForPinnedToEnd(viewport);
+  expect(viewport).toHaveAttribute('data-thread-render-tier', 'virtual');
+
+  act(() => {
+    viewport.scrollTo({
+      behavior: 'instant',
+      top: viewport.scrollHeight - viewport.clientHeight - THREAD_END_THRESHOLD_PX - 1,
+    });
+    fireEvent.scroll(viewport);
+  });
+  expect(distanceFromBottom(viewport)).toBe(THREAD_END_THRESHOLD_PX + 1);
+  expect(button).toBeEnabled();
+  const mountedRows = Array.from(viewport.querySelectorAll('[data-index]'), (row) =>
+    row.getAttribute('data-index')
+  );
+
+  expect(mountedRows.length).toBeGreaterThan(0);
+
+  // Two consecutive scroll notifications in one animation frame have the same
+  // isScrolling value and visible range. Crossing the affordance threshold must
+  // still publish new state; no scrollend or incidental React render is needed.
+  act(() => {
+    viewport.scrollTo({ behavior: 'instant', top: viewport.scrollTop + 2 });
+    fireEvent.scroll(viewport);
+  });
+  expect(
+    Array.from(viewport.querySelectorAll('[data-index]'), (row) => row.getAttribute('data-index'))
+  ).toEqual(mountedRows);
+  expect(button).toBeDisabled();
+});
+
+test('reattaches vendor layout after a virtual to static to virtual round trip', async () => {
+  const view = render(<ThreadHarness messages={makeMessages(600)} />);
+  await waitForPinnedToEnd(screen.getByTestId('assistant-ui-viewport'));
+  view.rerender(<ThreadHarness messages={makeMessages(20)} />);
+  expect(screen.getByTestId('assistant-ui-viewport')).toHaveAttribute(
+    'data-thread-render-tier',
+    'static'
+  );
+  expect(document.querySelector('.bs-virtual-thread')).toBeNull();
+  view.rerender(<ThreadHarness messages={makeMessages(600)} />);
+  const viewport = screen.getByTestId('assistant-ui-viewport');
+  expect(viewport).toHaveAttribute('data-thread-render-tier', 'virtual');
+  await waitForPinnedToEnd(viewport);
+  expect(
+    document.querySelector('.bs-virtual-thread')?.getBoundingClientRect().height
+  ).toBeGreaterThan(viewport.clientHeight);
+  const button = screen.getByTestId('assistant-scroll-to-bottom');
+  expect(button).toBeDisabled();
+  act(() => {
+    viewport.scrollTo({
+      behavior: 'instant',
+      top: viewport.scrollTop - THREAD_END_THRESHOLD_PX - 1,
+    });
+    fireEvent.scroll(viewport);
+  });
+  expect(button).toBeEnabled();
+});
+
+describe('explicit message navigation uses the active transcript scroll owner', () => {
+  test('settles an absent target visibly instead of keeping an observer alive forever', async () => {
+    const onComplete = vi.fn();
+    render(
+      <ThreadHarness
+        messages={makeMessages(40)}
+        navigation={{ messageId: 'deleted', onComplete, requestId: 2 }}
+      />
+    );
+    await waitFor(
+      () =>
+        expect(onComplete).toHaveBeenCalledWith(
+          'The matched message is not in the loaded conversation history.'
+        ),
+      { timeout: 3000 }
+    );
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+  test.each([40, 600])(
+    'focuses the exact old message among %i rows and leaves follow disengaged',
+    async (count) => {
+      const messages = makeMessages(count);
+      const { rerender } = render(<ThreadHarness messages={messages} />);
+      const viewport = screen.getByTestId('assistant-ui-viewport');
+      await waitFor(() => expect(viewport.clientHeight).toBeGreaterThan(0));
+      const errors = vi.spyOn(console, 'error');
+      onTestFinished(() => errors.mockRestore());
+      const onComplete = vi.fn();
+      const navigation = { messageId: 'm4', onComplete, requestId: 1 };
+      rerender(<ThreadHarness messages={messages} navigation={navigation} />);
+      await waitFor(() =>
+        expect(document.activeElement?.getAttribute('data-message-id')).toBe('m4')
+      );
+      await waitFor(() => {
+        const row = document.activeElement?.getBoundingClientRect();
+        const frame = viewport.getBoundingClientRect();
+        expect(row?.top).toBeGreaterThanOrEqual(frame.top);
+        expect(row?.bottom).toBeLessThanOrEqual(frame.bottom);
+      });
+      expect(onComplete).toHaveBeenCalledWith();
+      expect(errors.mock.calls.flat().join(' ')).not.toContain('flushSync was called');
+      rerender(<ThreadHarness messages={makeMessages(count + 1)} />);
+      await waitFor(() =>
+        expect(screen.getByTestId('assistant-scroll-to-bottom')).not.toBeDisabled()
+      );
+      expect(document.activeElement?.getAttribute('data-message-id')).toBe('m4');
+    }
+  );
 });

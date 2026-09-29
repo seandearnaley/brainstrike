@@ -1,8 +1,12 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
-import { withBoundedTraceChunkNames } from '../config/src/vitest-browser.ts';
+import {
+  resolveVisualBaselinePath,
+  withBoundedTraceChunkNames,
+} from '../config/src/vitest-browser.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,12 +34,7 @@ export function resolveDbTestShard(
 
 const dbTestShard = resolveDbTestShard();
 
-/**
- * Shared workspace source aliases. Vitest inline `projects` do NOT inherit the
- * top-level `resolve.alias`, so the unit project spreads this map explicitly
- * (plus the OM-schema source subpath) to keep `@brainstrike/*` resolving to
- * source the way the rest of the db test suite expects.
- */
+/** Shared source aliases; subpath aliases must precede prefix aliases. */
 const sharedAliases: Record<string, string> = {
   '@': path.resolve(__dirname, 'src'),
   // Root import (registry↔migration vision agreement test) resolves to source
@@ -43,6 +42,7 @@ const sharedAliases: Record<string, string> = {
   // aliases (e.g. mastra-memory-schema in unitAliases) must stay declared
   // BEFORE this key so the prefix match cannot shadow them.
   '@brainstrike/assistant-contract': path.resolve(__dirname, '../assistant-contract/src/index.ts'),
+  '@brainstrike/effect-kit': path.resolve(__dirname, '../effect-kit/src/index.ts'),
   '@brainstrike/embedding-worker': path.resolve(__dirname, '../embedding-worker/src'),
   '@brainstrike/file-explorer': path.resolve(__dirname, '../file-explorer/src'),
   '@brainstrike/file-explorer-hooks': path.resolve(__dirname, '../file-explorer-hooks/src'),
@@ -69,6 +69,10 @@ const unitAliases: Record<string, string> = {
     __dirname,
     '../assistant-contract/src/mastra-memory-schema.ts'
   ),
+  '@brainstrike/assistant-contract/run-events': path.resolve(
+    __dirname,
+    '../assistant-contract/src/run-events.ts'
+  ),
   '@brainstrike/assistant-contract/tool-output-artifact': path.resolve(
     __dirname,
     '../assistant-contract/src/tool-output-artifact.ts'
@@ -77,7 +81,7 @@ const unitAliases: Record<string, string> = {
 };
 
 /**
- * Vitest 4 configuration for @brainstrike/db
+ * Vitest 5 configuration for @brainstrike/db
  *
  * Test projects:
  * - unit: node/jsdom tests running REAL PGlite (WASM Postgres). The
@@ -90,7 +94,7 @@ const unitAliases: Record<string, string> = {
  */
 export default defineConfig({
   resolve: {
-    alias: sharedAliases,
+    alias: unitAliases,
   },
   test: {
     // `shard` is a Vitest runner option, not a per-project option. Keeping it
@@ -99,12 +103,7 @@ export default defineConfig({
     ...(dbTestShard ? { shard: dbTestShard } : {}),
     projects: [
       {
-        // Inline projects do not inherit the top-level resolve.alias, so the
-        // full alias set (including the OM schema source subpath) is declared
-        // here for the unit project.
-        resolve: {
-          alias: unitAliases,
-        },
+        // Vitest 5 inherits the ordered source aliases from the root config.
         test: {
           // Default to `node`: the vast majority of db unit tests are pure
           // repository/SQL/migration logic and paid ~57s/run of jsdom
@@ -129,20 +128,23 @@ export default defineConfig({
           maxWorkers: process.env['CI'] ? 2 : '50%',
           name: 'unit',
           pool: 'forks',
-          setupFiles: ['./vitest.setup.ts'],
+          setupFiles: [
+            '@brainstrike/test-utils/vitest.event-loop-watchdog.setup',
+            './vitest.setup.ts',
+          ],
           testTimeout: 10_000,
         },
       },
       {
-        // Browser project: same source aliases as the unit project — inline
-        // projects do not inherit the top-level resolve.alias, and workspace
-        // imports must execute source, not dist (incident #1066/#1207).
-        resolve: {
-          alias: unitAliases,
-        },
+        // Browser shares the root source aliases, while snapshot setup stays unit-only.
         test: {
           browser: {
             enabled: true,
+            expect: {
+              toMatchScreenshot: {
+                resolveScreenshotPath: resolveVisualBaselinePath,
+              },
+            },
             headless: true,
             instances: [{ browser: 'chromium' }],
             // withBoundedTraceChunkNames: long test names otherwise overflow
@@ -176,5 +178,6 @@ export default defineConfig({
         },
       },
     ],
+    reporters: ['default', new LostTestFileReporter()],
   },
 });

@@ -31,13 +31,18 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { parseFindings, parseIssueCount, partitionFindings } from '../turbo-boundaries.mjs';
+import {
+  gitIgnoredPaths,
+  parseFindings,
+  parseIssueCount,
+  partitionFindings,
+} from '../turbo-boundaries.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const turboBin = path.join(
@@ -83,6 +88,29 @@ function writeFixture(
   );
   if (initGit) {
     git(dir, ['init', '-q']);
+    // The mirror of the no-git control: git must answer about THIS fixture and
+    // not some repository above the temp dir, or `dist` would be classified
+    // against the wrong .gitignore and the suppression tests would be testing
+    // an unrelated tree.
+    //
+    // Compared through realpathSync on BOTH sides rather than as strings: Git
+    // for Windows reports `--absolute-git-dir` with forward slashes, which
+    // never equals a `path.join` result on win32, and realpath also settles
+    // drive-letter case and any symlinked temp dir. Comparing the raw strings
+    // would fail this control on a Windows workstation for a fixture git had
+    // resolved perfectly correctly.
+    const discovery = gitDiscovery(dir);
+    const found = discovery.stdout.trim();
+    assert.notEqual(
+      found,
+      '',
+      `fixture control: git reported no git dir for the fixture: ${discovery.stderr.trim()}`
+    );
+    assert.equal(
+      realpathSync(found),
+      realpathSync(path.join(dir, '.git')),
+      `fixture control: git resolved a repository outside the fixture: ${found}`
+    );
   }
   if (!generatedViolation) {
     return;
@@ -96,17 +124,92 @@ function writeFixture(
   }
 }
 
+/**
+ * Config every git call in this file runs under, at the highest precedence and
+ * with no config FILE involved. `core.excludesFile` is the load-bearing one:
+ * git reads `~/.config/git/ignore` BY DEFAULT, with no config entry needed, and
+ * the gate's own docstring names that as the local-vs-CI difference. A personal
+ * excludes file that happens to match a fixture path would silently reclassify
+ * source as generated. The other two pin file content and branch naming so a
+ * Windows or differently-configured runner builds the same fixture.
+ */
+function pinnedConfig(absentPath) {
+  return [
+    ['core.autocrlf', 'false'],
+    ['core.excludesFile', absentPath],
+    ['init.defaultBranch', 'main'],
+  ];
+}
+
+/**
+ * The environment that makes a fixture answer the same question everywhere.
+ *
+ * `git check-ignore` walks UP from its cwd hunting for a repository, so a
+ * fixture built with `initGit: false` is only unclassifiable if no ANCESTOR of
+ * `os.tmpdir()` is a repository either. That held on the machines this file was
+ * written on and stopped holding in CI (BST-1376): with a repository anywhere
+ * above the temp dir, check-ignore exits 1 ("nothing here is ignored") instead
+ * of 128 ("no repository to ask"), the gate classifies every finding as source,
+ * and the unclassifiable branch this file exists to cover is never reached —
+ * the test then fails on an assertion, blaming the gate for an environment fact.
+ *
+ * `GIT_CEILING_DIRECTORIES` stops the upward walk at the fixture's PARENT, so
+ * discovery can never leave the fixture: `initGit: false` means no repository,
+ * on every host, whatever sits above the temp dir. The real path is what git
+ * compares against, hence `realpathSync` (`/tmp` is a symlink on macOS).
+ */
+function gitEnv(cwd) {
+  const absentPath = path.join(cwd, 'no-such-file-by-design');
+  const pinned = pinnedConfig(absentPath);
+  const env = {
+    ...process.env,
+    GIT_CEILING_DIRECTORIES: path.dirname(realpathSync(cwd)),
+    GIT_CONFIG_COUNT: String(pinned.length),
+    GIT_CONFIG_GLOBAL: absentPath,
+    GIT_CONFIG_NOSYSTEM: '1',
+    // The stderr assertions below match git's English messages ("not a git
+    // repository"); a gettext-localized git under a non-English LANG would
+    // translate them and blame the gate for a locale fact. Same class as the
+    // ceiling pin above, different env axis.
+    LC_ALL: 'C',
+  };
+  for (const [index, [key, value]] of pinned.entries()) {
+    env[`GIT_CONFIG_KEY_${index}`] = key;
+    env[`GIT_CONFIG_VALUE_${index}`] = value;
+  }
+  return env;
+}
+
 function git(cwd, args) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', env: gitEnv(cwd) });
   assert.equal(result.error, undefined, `could not spawn git: ${result.error?.message}`);
   assert.equal(result.status, 0, `git ${args.join(' ')} failed: ${result.stderr}`);
   return result;
 }
 
+/**
+ * What git makes of the fixture, asked directly rather than through the gate.
+ * The tests use this as a SETUP control: it names the state the fixture was
+ * supposed to manufacture, so an environment that produces a different one
+ * fails while still describing itself instead of surfacing as a confusing
+ * verdict from the gate several steps later.
+ */
+function gitDiscovery(cwd) {
+  return spawnSync('git', ['rev-parse', '--absolute-git-dir'], {
+    cwd,
+    encoding: 'utf8',
+    env: gitEnv(cwd),
+  });
+}
+
 function runBoundaries(cwd) {
   // --skip-infer: the fixture must use THIS repo's turbo binary, not re-resolve
   // one from the fixture (which has no node_modules).
-  const result = spawnSync(turboBin, ['boundaries', '--skip-infer'], { cwd, encoding: 'utf8' });
+  const result = spawnSync(turboBin, ['boundaries', '--skip-infer'], {
+    cwd,
+    encoding: 'utf8',
+    env: gitEnv(cwd),
+  });
   // A spawn failure yields status null, which would satisfy notEqual(status, 0)
   // and turn the MONEY TEST vacuous. Fail here, with the real reason.
   assert.equal(result.error, undefined, `could not spawn ${turboBin}: ${result.error?.message}`);
@@ -118,6 +221,7 @@ function runGate(cwd) {
   const result = spawnSync(process.execPath, [gateScript, '--skip-infer'], {
     cwd,
     encoding: 'utf8',
+    env: gitEnv(cwd),
   });
   assert.equal(result.error, undefined, `could not spawn ${gateScript}: ${result.error?.message}`);
   assert.notEqual(
@@ -189,7 +293,7 @@ test('MONEY TEST: a violation that exists ONLY in git-ignored build output passe
     assert.notEqual(
       raw.status,
       0,
-      'raw `turbo boundaries` is expected to flag build output — if it no longer does, delete the wrapper instead of this test'
+      'raw `turbo boundaries` must scan build output; before removing the wrapper, prove tracked files under ignore patterns are judged'
     );
     assert.match(raw.stderr, /dist/, 'the raw finding must be the dist file');
 
@@ -229,6 +333,12 @@ test('a TRACKED file under dist/ is still judged — the rule is git, not the di
     'boundaries-tracked-',
     { generatedViolation: true, trackGenerated: true, violating: false },
     (dir) => {
+      // A wrapper cannot recover findings the vendor omitted. This control
+      // qualifies the vendor walk before clearing the >=2.11.3 release hold.
+      const raw = runBoundaries(dir);
+      assert.notEqual(raw.status, 0, 'the vendor must judge tracked source under ignore rules');
+      assert.match(`${raw.stdout}\n${raw.stderr}`, /undeclared-dep/);
+
       const gate = runGate(dir);
       assert.notEqual(
         gate.status,
@@ -262,12 +372,39 @@ test('when git cannot classify, the gate fails AND still hands back every findin
   // nothing is classifiable — but failing must not swallow the diagnostics the
   // developer has to act on, the way the parse-mismatch branch does not.
   withFixture('boundaries-nogit-', { initGit: false, violating: true }, (dir) => {
+    // CONTROL, before the gate is asked anything: the fixture has to actually
+    // BE unclassifiable. Git discovery walks upward, so "no .git here" is not
+    // the same as "no repository" — see gitEnv() and BST-1376. If this ever
+    // stops holding, the failure names the repository git found instead of
+    // arriving later as a bare "the gate must say why it could not classify".
+    const discovery = gitDiscovery(dir);
+    assert.equal(
+      discovery.status,
+      128,
+      'fixture control: this test needs a directory git refuses to treat as a repository, ' +
+        `but git answered with ${discovery.stdout.trim() || '(no output)'} (exit ${discovery.status}). ` +
+        'Discovery escaped the fixture — GIT_CEILING_DIRECTORIES in gitEnv() is what pins it.'
+    );
+    assert.match(
+      discovery.stderr,
+      /not a git repository/,
+      `fixture control: git failed for some other reason than having no repository: ${discovery.stderr.trim()}`
+    );
+
     const gate = runGate(dir);
     assert.notEqual(gate.status, 0, 'an unclassifiable run must fail');
+    // The SPECIFIC condition, not merely "it failed somehow": exit 128 from
+    // check-ignore is git saying there is no repository to ask. A gate that
+    // failed for any other reason has not exercised this branch.
     assert.match(
       `${gate.stdout}\n${gate.stderr}`,
-      /git check-ignore failed/,
+      /git check-ignore failed \(exit 128\)/,
       'the gate must say why it could not classify'
+    );
+    assert.match(
+      `${gate.stdout}\n${gate.stderr}`,
+      /not a git repository/,
+      "the gate must pass through git's own reason, not just an exit code"
     );
     assert.match(
       gate.stderr,
@@ -275,6 +412,57 @@ test('when git cannot classify, the gate fails AND still hands back every findin
       'turbo’s findings must survive a git failure, not be dropped on the floor'
     );
     assert.match(gate.stdout, /1 issue found/, "turbo's own summary must survive too");
+  });
+});
+
+test('a stdin write that loses its reader does not erase git’s verdict', () => {
+  // BST-1376, made deterministic. `git check-ignore` exits before reading a
+  // byte of stdin when there is no repository, so the path list is written to a
+  // pipe nobody is reading: a list small enough to fit the pipe buffer lands
+  // harmlessly and git's exit 128 comes back intact, which is why developer
+  // machines never saw this. A list too large to buffer must actually reach a
+  // reader, so the write fails — and `spawnSync` then reports EPIPE ALONGSIDE
+  // the child's real status. The gate used to read `error` first and blame the
+  // spawn, reporting "could not run git check-ignore" for a git that ran and
+  // answered; CI hit that branch twice on runs whose diffs touched no scripts/.
+  withFixture('boundaries-epipe-', { initGit: false, violating: false }, (dir) => {
+    const many = Array.from({ length: 12_000 }, (_, index) =>
+      path.join(dir, 'packages', 'alpha', 'dist', `chunk-${index}.js`)
+    );
+    // CONTROL: this test is only exercising the race while the payload cannot
+    // fit a pipe buffer. If paths ever get short enough for it to fit, this
+    // fails here rather than passing for the wrong reason.
+    const payloadBytes = many.join('\0').length + 1;
+    assert.ok(
+      payloadBytes > 512 * 1024,
+      `control: the path list must exceed any plausible pipe buffer; got ${payloadBytes} bytes`
+    );
+
+    // gitIgnoredPaths spawns git with the ambient environment, so the ceiling
+    // has to be on the environment itself for the fixture to stay repo-less.
+    const previousCeiling = process.env.GIT_CEILING_DIRECTORIES;
+    const previousLocale = process.env.LC_ALL;
+    process.env.GIT_CEILING_DIRECTORIES = path.dirname(realpathSync(dir));
+    // Same locale pin as gitEnv(): the assertion matches English git stderr.
+    process.env.LC_ALL = 'C';
+    try {
+      assert.throws(
+        () => gitIgnoredPaths(many, dir),
+        /git check-ignore failed \(exit 128\)[\s\S]*not a git repository/,
+        "git's own exit status and reason must survive a stdin write error"
+      );
+    } finally {
+      if (previousCeiling === undefined) {
+        delete process.env.GIT_CEILING_DIRECTORIES;
+      } else {
+        process.env.GIT_CEILING_DIRECTORIES = previousCeiling;
+      }
+      if (previousLocale === undefined) {
+        delete process.env.LC_ALL;
+      } else {
+        process.env.LC_ALL = previousLocale;
+      }
+    }
   });
 });
 

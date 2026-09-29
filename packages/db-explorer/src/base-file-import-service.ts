@@ -2,7 +2,7 @@ import type { FileImportResult, ImportProgress } from '@brainstrike/db';
 import { useFileRecordRepository } from '@brainstrike/db/react';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
-import type { Platform } from '@brainstrike/platform-utils';
+import { fileNodeToFileHandle } from '@brainstrike/file-system/file-node-handles';
 import type { IFileNode } from '@brainstrike/types';
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -62,14 +62,7 @@ function createFileSystemPort(adapter: FileSystemAdapter | null): FileSystemPort
 
   return {
     async readFile(node) {
-      const platform: Platform = (node.handle as { platform?: Platform })?.platform ?? 'web';
-      return adapter.readFile({
-        _internal: node.handle,
-        kind: 'file',
-        name: node.name,
-        path: node.path,
-        platform,
-      });
+      return adapter.readFile(fileNodeToFileHandle(node));
     },
     async readFileBySelection(folderId, path) {
       const name = getImportPathFileName(path);

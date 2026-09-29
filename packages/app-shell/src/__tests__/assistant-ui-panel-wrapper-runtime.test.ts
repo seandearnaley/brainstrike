@@ -1,5 +1,12 @@
-import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
+import {
+  deriveEffectiveInputBudget,
+  getLlmModelDefinition,
+  type ProviderId,
+  resolveOpenRouterOutputWindow,
+  resolveOpenRouterReasoningActive,
+} from '@brainstrike/assistant-contract';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
+import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -29,10 +36,10 @@ import {
   resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
   resolveHostedMemoryBackendAvailable,
-  resolveLocalRuntimeSelection,
   resolveModelNameFromComposite,
   resolveOpenRouterMetadataDisabledReason,
   resolveProviderModelSelection,
+  type SelectedModelBudgetDef,
   toRuntimeProviderModels,
 } from '../assistant-ui-panel-wrapper-runtime';
 
@@ -69,6 +76,7 @@ function createRepositoryStub(
     deleteThread: async () => {},
     getCrossRootUsage: async () => [],
     getThreadCumulativeUsage: async () => null,
+    getThreadRunTurnMessageId: async () => null,
     listLatestThreadRuns: async () => [],
     listMessages: async () => [],
     listThreadCheckpoints: vi.fn(async () => []),
@@ -306,7 +314,7 @@ describe('assistant runtime helpers', () => {
         providerKeySources: [{ provider: 'openai', source: 'stored' }],
       })
     ).toBe(
-      'Observational memory requires a configured Anthropic API key. Configure it in Settings → LLM Provider Keys, choose a keyless local observer, or turn observations off.'
+      'Observational memory requires a configured Anthropic API key. Configure it in Settings → Providers, choose a keyless local observer, or turn observations off.'
     );
   });
 
@@ -378,7 +386,7 @@ describe('assistant runtime helpers', () => {
         providerKeySources: [{ provider: 'google', source: 'stored' }],
       })
     ).toBe(
-      'Semantic recall requires a configured OpenAI API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn semantic recall off.'
+      'Semantic recall requires a configured OpenAI API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn semantic recall off.'
     );
   });
 
@@ -592,10 +600,10 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: { maxOutputTokens: 512 },
-      permissionPolicyRequest: undefined,
       providerOptions: { openai: { reasoningEffort: 'medium' } },
       selectedMemoryThreadId: 'thread-1',
       selectionData: { filePaths: ['src/a.ts'], folderId: 'folder-a' },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: {
         files: [],
         includeProjectTree: false,
@@ -634,8 +642,15 @@ describe('assistant runtime helpers', () => {
     expect(data).not.toHaveProperty('permissionPolicyRequest');
   });
 
-  it('attaches permissionPolicyRequest only when an opt-in snapshot is provided', () => {
-    const baseArgs = {
+  // BST-1652: the render-time builder must never produce a permission snapshot.
+  // `prepareRequestData` (use-assistant-request-lifecycle.ts) is the sole
+  // producer — it reads the live store at request-composition time and sets the
+  // field unconditionally, so anything built here would be overwritten while
+  // still costing the wrapper a store subscription. Its own suite
+  // ("permission-policy freshness at the request-composition seam") pins the
+  // producing half; this pins that no second producer reappears here.
+  it('never attaches permissionPolicyRequest (owned by the request-composition seam)', () => {
+    const data = buildAssistantRequestData({
       agentLoopSettings: { maxSteps: 6 },
       enabledNativeToolIds: [],
       hostedMemoryBackendAvailable: false,
@@ -646,29 +661,53 @@ describe('assistant runtime helpers', () => {
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
-    };
-
-    const withoutSnapshot = buildAssistantRequestData({
-      ...baseArgs,
-      permissionPolicyRequest: undefined,
     });
-    expect(withoutSnapshot).not.toHaveProperty('permissionPolicyRequest');
 
-    const snapshot: PermissionToolGateSnapshotInput = {
-      enforce: true,
-      perToolOverrides: {},
-      policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
-      sessionGrants: ['execute'],
-      yolo: false,
-    };
-    const withSnapshot = buildAssistantRequestData({
-      ...baseArgs,
-      permissionPolicyRequest: snapshot,
+    expect(data).not.toHaveProperty('permissionPolicyRequest');
+  });
+
+  it('carries the subagent budget settings on every request', () => {
+    const subagentSettings = { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 12 };
+    const data = buildAssistantRequestData({
+      agentLoopSettings: { maxSteps: 6 },
+      enabledNativeToolIds: [],
+      hostedMemoryBackendAvailable: false,
+      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+      memoryResourceId: 'workspace-a',
+      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+      modelSettings: undefined,
+      providerOptions: undefined,
+      selectedMemoryThreadId: undefined,
+      selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings,
+      workspaceContext: null,
+      workspaceIndex: baseWorkspaceIndex,
+      workspaceRootPath: '/workspace',
     });
-    expect(withSnapshot['permissionPolicyRequest']).toEqual(snapshot);
+    expect(data['subagentSettings']).toEqual(subagentSettings);
+    // The defaults are a real value, sent as such — never omitted as "unset".
+    expect(
+      buildAssistantRequestData({
+        agentLoopSettings: undefined,
+        enabledNativeToolIds: [],
+        hostedMemoryBackendAvailable: false,
+        memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
+        memoryResourceId: undefined,
+        memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+        modelSettings: undefined,
+        providerOptions: undefined,
+        selectedMemoryThreadId: undefined,
+        selectionData: { filePaths: [] as string[], folderId: undefined },
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+        workspaceContext: null,
+        workspaceIndex: baseWorkspaceIndex,
+        workspaceRootPath: null,
+      })['subagentSettings']
+    ).toEqual(DEFAULT_RUNTIME_SUBAGENT_SETTINGS);
   });
 
   it('attaches planMode only when true (presence-means-on, no false residue)', () => {
@@ -680,10 +719,10 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -705,10 +744,10 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -767,10 +806,10 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -806,10 +845,10 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -870,10 +909,10 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -899,10 +938,10 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: [] as string[], folderId: undefined },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -926,10 +965,10 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: ['src/a.ts'], folderId: 'root-a', otherRootsCount: 3 },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -945,10 +984,10 @@ describe('assistant runtime helpers', () => {
       memoryResourceId: 'workspace-a',
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelSettings: undefined,
-      permissionPolicyRequest: undefined,
       providerOptions: undefined,
       selectedMemoryThreadId: undefined,
       selectionData: { filePaths: ['src/a.ts'], folderId: 'root-a', otherRootsCount: 0 },
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
       workspaceContext: null,
       workspaceIndex: baseWorkspaceIndex,
       workspaceRootPath: '/workspace',
@@ -956,7 +995,7 @@ describe('assistant runtime helpers', () => {
     expect(dataWithoutOthers).not.toHaveProperty('selectionFilePathsFromOtherRoots');
   });
 
-  it('resolves provider and local runtime model selections', () => {
+  it('resolves provider model selections', () => {
     const models = [
       {
         contextWindow: 200_000,
@@ -990,18 +1029,6 @@ describe('assistant runtime helpers', () => {
         providerModelIds: ['fixed'],
       })
     ).toBe(false);
-
-    const selectModelForProvider = vi.fn();
-    expect(
-      resolveLocalRuntimeSelection({
-        currentProvider: 'ollama',
-        currentSelectedModel: null,
-        isModelEnabled: () => false,
-        providerHasEnabledModels: () => true,
-        selectModelForProvider,
-      })
-    ).toBe(true);
-    expect(selectModelForProvider).toHaveBeenCalledWith('ollama');
   });
 
   it('maps loaded local runtime catalogs into LLM provider models', () => {
@@ -1060,12 +1087,14 @@ describe('assistant runtime helpers', () => {
         configuredProviders: ['local'],
         enabledModelsByProvider: {
           anthropic: [],
+          bedrock: [],
           cohere: [],
           google: [],
           lmstudio: [],
           local: ['local-gemma'],
           ollama: [],
           openai: [],
+          'openai-codex': [],
           openrouter: [],
           voyage: [],
         },
@@ -1098,6 +1127,33 @@ describe('assistant runtime helpers', () => {
     expect(extractPreparedRunId({ memory: { runId: ' ' } })).toBeNull();
   });
 
+  /**
+   * BST-1699: OpenAI `gpt-6-astra`, the latest Gemini models and Anthropic
+   * Opus 4.7+ (and its Bedrock Fable 5.1 route) reject or deprecate
+   * non-default `temperature` / `top_p` / `top_k`. `buildModelSettings` is the
+   * ONLY producer of `RuntimeData.modelSettings` for an ordinary assistant
+   * run, so this is where a sampling default would enter every provider's
+   * request at once. It must stay an output-budget-only projection: the key
+   * SET is asserted, not just the values, so a new sampling key cannot be
+   * added without this failing. (A user CAN still set `temperature`/`topP`
+   * deliberately through a Prompt Workbench prompt item — that path is
+   * explicit and separate.)
+   */
+  it('projects only the output budget into model settings (no sampling params)', () => {
+    const populated = {
+      agentInputTokenLimit: 2048,
+      agentMaxSteps: 4,
+      anthropicEffort: 'high',
+      maxOutputTokens: 4096,
+      reasoningEffort: 'high',
+      reasoningSummary: 'detailed',
+    } as unknown as Parameters<typeof buildModelSettings>[0];
+    expect(buildModelSettings(populated)).toEqual({ maxOutputTokens: 4096 });
+    expect(Object.keys(buildModelSettings(populated) ?? {})).toEqual(['maxOutputTokens']);
+    expect(buildModelSettings(undefined)).toBeUndefined();
+    expect(buildModelSettings({} as Parameters<typeof buildModelSettings>[0])).toBeUndefined();
+  });
+
   it('builds provider-specific model, agent loop, and provider options', () => {
     expect(buildModelSettings({ maxOutputTokens: 42.9 })).toEqual({ maxOutputTokens: 42 });
     expect(buildAgentLoopSettings({ agentInputTokenLimit: 2048.2, agentMaxSteps: 4.8 })).toEqual({
@@ -1105,7 +1161,7 @@ describe('assistant runtime helpers', () => {
       maxSteps: 4,
     });
     expect(
-      buildProviderOptions('anthropic', 'claude-sonnet-4-5', {
+      buildProviderOptions('anthropic', 'claude-sonnet-4-6', {
         anthropicEffort: 'high',
         anthropicThinkingBudgetTokens: 1024.8,
       })
@@ -1283,20 +1339,42 @@ describe('assistant runtime helpers', () => {
       })
     ).toEqual({ maxOutputTokens: 2048 });
     expect(
+      reconcileProviderSettingsForModel('openrouter', 'nvidia/nemotron-3.5-lightning', {
+        reasoningEffort: 'none',
+      })
+    ).toEqual({ reasoningEffort: 'none' });
+    expect(
       reconcileProviderSettingsForModel('openrouter', 'google/gemini-2.5-flash', {
         maxOutputTokens: 128_000,
       })
     ).toEqual({});
     expect(
+      // BST-1804: the route's top_provider max output is 65,535.
       reconcileProviderSettingsForModel('openrouter', 'google/gemini-2.5-flash', {
-        maxOutputTokens: 65_536,
+        maxOutputTokens: 65_535,
       })
-    ).toEqual({ maxOutputTokens: 65_536 });
+    ).toEqual({ maxOutputTokens: 65_535 });
     expect(
       reconcileProviderSettingsForModel('openrouter', 'custom/unknown-model', {
         maxOutputTokens: 128_000,
       })
     ).toEqual({ maxOutputTokens: 128_000 });
+    expect(
+      reconcileProviderSettingsForModel('google', 'gemini-3.7-flash', {
+        googleThinkingLevel: 'minimal',
+        maxOutputTokens: 2048,
+      })
+    ).toEqual({ maxOutputTokens: 2048 });
+    expect(
+      reconcileProviderSettingsForModel('google', 'gemini-3.7-flash', {
+        googleThinkingLevel: 'low',
+      })
+    ).toEqual({ googleThinkingLevel: 'low' });
+    expect(
+      reconcileProviderSettingsForModel('google', 'gemini-3.5-flash', {
+        googleThinkingLevel: 'minimal',
+      })
+    ).toEqual({ googleThinkingLevel: 'minimal' });
     expect(
       buildProviderOptions('ollama', 'llama', {
         localRuntimeBaseUrl: ' http://127.0.0.1:11434 ',
@@ -1382,25 +1460,30 @@ describe('assistant runtime helpers', () => {
 });
 
 describe('buildAgentLoopSettings input-token budget', () => {
-  it('reserves the model-aware OpenRouter coding default instead of the model maximum', () => {
-    const settings = buildAgentLoopSettings(
-      undefined,
-      { contextWindow: 400_000, maxOutputTokens: 128_000 },
-      'openrouter'
-    );
+  // The reservation is the output the request sends (`buildEffectiveModelSettings`),
+  // exactly as `useOpenRouterModelMetadata` composes them.
+  function openRouterAutoLimit(model: SelectedModelBudgetDef): number | undefined {
+    const modelSettings = buildEffectiveModelSettings('openrouter', undefined, model);
+    return buildAgentLoopSettings(undefined, model, 'openrouter', modelSettings)?.inputTokenLimit;
+  }
 
+  it('reserves the model-aware OpenRouter coding default instead of the model maximum', () => {
     // The coding default is min(model output limit, 32,000). The 5% safety margin is 20,000.
-    expect(settings?.inputTokenLimit).toBe(348_000);
+    expect(openRouterAutoLimit({ contextWindow: 400_000, maxOutputTokens: 128_000 })).toBe(348_000);
   });
 
   it('caps the OpenRouter coding default to a smaller model output limit', () => {
-    const settings = buildAgentLoopSettings(
-      undefined,
-      { contextWindow: 64_000, maxOutputTokens: 16_000 },
-      'openrouter'
-    );
+    expect(openRouterAutoLimit({ contextWindow: 64_000, maxOutputTokens: 16_000 })).toBe(44_800);
+  });
 
-    expect(settings?.inputTokenLimit).toBe(44_800);
+  it('has no OpenRouter reservation of its own: throws without the output the request sends', () => {
+    expect(() =>
+      buildAgentLoopSettings(
+        undefined,
+        { contextWindow: 400_000, maxOutputTokens: 128_000 },
+        'openrouter'
+      )
+    ).toThrow(/output limit the request sends/);
   });
 
   it('reserves the configured OpenRouter output limit in the input budget', () => {
@@ -1456,6 +1539,35 @@ describe('buildAgentLoopSettings input-token budget', () => {
       /contextWindow must be a positive number/
     );
   });
+
+  // BST-1804: desktop compaction's no-`agentLoop` fallback pins itself to
+  // this SAME reproduction (conversation-compaction-input-budget.test.ts), so
+  // this is the renderer half of the pair — if either side drifts, one fails.
+  it.each([
+    ['openrouter', 'moonshotai/kimi-k3'],
+    ['openrouter', 'minimax/minimax-m3'],
+    ['openrouter', 'x-ai/grok-4.7'],
+    ['anthropic', 'claude-opus-5-5'],
+  ] as const)(
+    'derives %s/%s at default settings from the reservation the run sends',
+    (providerId, modelId) => {
+      const definition = getLlmModelDefinition(providerId as ProviderId, modelId);
+      const modelSettings = buildEffectiveModelSettings(
+        providerId,
+        undefined,
+        definition,
+        undefined,
+        modelId
+      );
+      const outputReservation =
+        providerId === 'openrouter'
+          ? resolveOpenRouterOutputWindow(definition, resolveOpenRouterReasoningActive(definition))
+          : definition.maxOutputTokens;
+      expect(
+        buildAgentLoopSettings(undefined, definition, providerId, modelSettings)?.inputTokenLimit
+      ).toBe(deriveEffectiveInputBudget(definition.contextWindow, outputReservation));
+    }
+  );
 
   it('uses conservative floor budget for dynamic local model definitions (32k context)', () => {
     // toRuntimeProviderModels sets contextWindow: 32_768, no maxOutputTokens

@@ -76,10 +76,16 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 const DialogContent = ({
   className,
   children,
+  hideCloseButton = false,
   overlayClassName,
   ref,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+  /**
+   * Omit the corner close control for consent dialogs whose every exit must be
+   * an explicit decision (the caller also owns Escape/outside-click handling).
+   */
+  hideCloseButton?: boolean;
   overlayClassName?: string;
   ref?: React.RefObject<React.ElementRef<typeof DialogPrimitive.Content> | null>;
 }) => {
@@ -102,13 +108,15 @@ const DialogContent = ({
         {...props}
       >
         {children}
-        <DialogPrimitive.Close
-          className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg:not([class*=size-])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
-          data-slot="dialog-close"
-        >
-          <X />
-          <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
+        {hideCloseButton ? null : (
+          <DialogPrimitive.Close
+            className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg:not([class*=size-])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
+            data-slot="dialog-close"
+          >
+            <X />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        )}
       </DialogPrimitive.Content>
     </DialogPortal>
   );

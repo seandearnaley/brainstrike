@@ -10,7 +10,7 @@ import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electro
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { RootDescriptor } from '@brainstrike/types';
+import type { IFileNode, RootDescriptor } from '@brainstrike/types';
 import { ipcMain } from 'electron';
 import { disposeDesktopCommandSessionsForRoot } from '../assistant-server/command-session-manager';
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
@@ -21,9 +21,15 @@ import {
   type FileReadErrorPayload,
   isFileNotFoundError,
 } from '../file-read-errors';
-import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import { createDesktopIpcRegistry, registerDomain } from '../platform/desktop-ipc-registry';
+import { fileSystemContract } from './file-system.contract';
+import type { ManagedWorktreeAuthorizer } from './workspace-recent-roots';
 import { type SecureWorkspaceRoot, WorkspaceRootRegistry } from './workspace-root-registry';
+
+interface WorkspaceRootRegistryFileSystemSeams {
+  readonly createSecureRoot: (rootPath: string) => Promise<SecureWorkspaceRoot>;
+  readonly resolveReadPath: (requestedPath: string, canonicalRoot: string) => Promise<string>;
+}
 
 interface RegisterFileSystemIpcHandlersOptions {
   readonly disposeCommandSessionsForRoot?: (rootId: string) => Promise<number>;
@@ -36,7 +42,23 @@ interface RegisterFileSystemIpcHandlersOptions {
    * serving disconnected folders.
    */
   readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
+  /**
+   * Explicit test-harness seam for roots backed by the in-memory adapter.
+   * Production callers omit it and only registered mock paths are synthetic.
+   */
+  readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
+  readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
+  /**
+   * Fired after a successful grant-recording mount (BST-1393). main uses it to
+   * push the folder into the OS recent-documents list and to rebuild the File
+   * menu's Open Recent projection. Optional so every existing caller and test
+   * is unaffected; a throwing subscriber must never fail the mount that
+   * succeeded, so the call is wrapped.
+   */
+  readonly onWorkspaceRootGranted?: ((grantedPath: string) => void) | undefined;
   readonly storage: ElectronStorageAdapter;
+  /** Explicit constructor seams for unit tests of native-root composition. */
+  readonly workspaceRootRegistryFileSystemSeams?: WorkspaceRootRegistryFileSystemSeams;
 }
 
 interface ElectronE2eFileSystemFixture {
@@ -63,6 +85,7 @@ interface ElectronE2eFileSystemFixture {
 }
 
 const MOCK_PATH_PREFIX = '/mock/' as const;
+const MOCK_ROOT_PATH = '/mock/test/directory' as const;
 const E2E_REAL_ROOT_PATH_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH' as const;
 const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 const logger = createLogger('FileSystemIpc');
@@ -166,10 +189,6 @@ function isE2eTestMode(): boolean {
     process.env['ELECTRON_IS_E2E_TEST'] === 'true' ||
     process.env['NODE_ENV'] === 'test'
   );
-}
-
-function usesSyntheticFileSystem(rootPath: string): boolean {
-  return isMockFileSystemIpcPath(rootPath) || process.env['VITEST'] === 'true';
 }
 
 async function resolveE2eRealRootDirectoryHandle(
@@ -290,10 +309,43 @@ export function registerFileSystemIpcHandlers({
   evictLspServersForRoot: evictLspServersForRootOverride,
   fileSystem,
   getRootsDatabase,
+  isSyntheticFileSystemPath = isMockFileSystemIpcPath,
+  managedWorktreeAuthorizer,
+  onWorkspaceRootGranted,
   storage,
+  workspaceRootRegistryFileSystemSeams,
 }: RegisterFileSystemIpcHandlersOptions): () => void {
+  const notifyRootGranted = (grantedPath: string): void => {
+    try {
+      onWorkspaceRootGranted?.(grantedPath);
+    } catch (error) {
+      logger.warn('workspace-root grant subscriber threw', { error });
+    }
+  };
   const evictLspServerForRoot = evictLspServersForRootOverride ?? evictLspServersForRoot;
   const registry = createDesktopIpcRegistry({ ipcMain });
+  const syntheticFileSystemClassifications = new Map<string, boolean>();
+  const bindSyntheticFileSystemClassification = (
+    rootPath: string,
+    classification: boolean
+  ): void => {
+    const classificationKey = path.normalize(rootPath);
+    const cached = syntheticFileSystemClassifications.get(classificationKey);
+    if (cached !== undefined && cached !== classification) {
+      throw new Error('Conflicting filesystem classification for canonical workspace root.');
+    }
+    syntheticFileSystemClassifications.set(classificationKey, classification);
+  };
+  const usesSyntheticFileSystem = (rootPath: string): boolean => {
+    const classificationKey = path.normalize(rootPath);
+    const cached = syntheticFileSystemClassifications.get(classificationKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const classification = isSyntheticFileSystemPath(rootPath);
+    bindSyntheticFileSystemClassification(classificationKey, classification);
+    return classification;
+  };
   const roots = new WorkspaceRootRegistry({
     createSecureRoot: async (rootPath): Promise<SecureWorkspaceRoot> => {
       if (usesSyntheticFileSystem(rootPath)) {
@@ -324,6 +376,15 @@ export function registerFileSystemIpcHandlers({
           },
           readFile: async (relativePath) => {
             const filePath = path.join(rootPath, relativePath);
+            const fixture = getElectronE2eFileSystemFixture();
+            if (fixture && path.normalize(fixture.rootHandle.path) === path.normalize(rootPath)) {
+              fixture.readFileByPathCalls.push(filePath);
+              const fixtureContent = fixture.fileContentsByPath[filePath];
+              if (fixtureContent === undefined) {
+                return { status: 'not-found' };
+              }
+              return { content: Buffer.from(fixtureContent), status: 'ok' };
+            }
             const content = await fileSystem.readFile({
               kind: 'file',
               name: path.basename(filePath),
@@ -334,25 +395,46 @@ export function registerFileSystemIpcHandlers({
           },
         };
       }
-      const { SecureRoot } = await import('@brainstrike/secure-fs-native');
-      const secureRoot = new SecureRoot(rootPath);
-      return {
-        canonicalPath: secureRoot.canonicalPath,
-        close: () => secureRoot.close(),
-        listDir: (relativePath, maxEntries) => secureRoot.listDirAsync(relativePath, maxEntries),
-        readFile: (relativePath, maxBytes) => secureRoot.readFileAsync(relativePath, maxBytes),
-      };
+      const root = workspaceRootRegistryFileSystemSeams
+        ? await workspaceRootRegistryFileSystemSeams.createSecureRoot(rootPath)
+        : await (async (): Promise<SecureWorkspaceRoot> => {
+            const { SecureRoot } = await import('@brainstrike/secure-fs-native');
+            const secureRoot = new SecureRoot(rootPath);
+            return {
+              canonicalPath: secureRoot.canonicalPath,
+              close: () => secureRoot.close(),
+              listDir: (relativePath, maxEntries) =>
+                secureRoot.listDirAsync(relativePath, maxEntries),
+              readFile: (relativePath, maxBytes) =>
+                secureRoot.readFileAsync(relativePath, maxBytes),
+            };
+          })();
+      try {
+        bindSyntheticFileSystemClassification(root.canonicalPath, false);
+      } catch (error) {
+        root.close();
+        throw error;
+      }
+      return root;
     },
     disposeCommandSessionsForRoot,
     evictLspServersForRoot: evictLspServerForRoot,
     getRootsDatabase,
+    onRootGranted: notifyRootGranted,
     pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),
-    resolveCanonicalRoot: async (rootPath) =>
-      usesSyntheticFileSystem(rootPath)
-        ? path.normalize(rootPath)
-        : path.normalize(await realpath(rootPath)),
+    resolveCanonicalRoot: async (rootPath) => {
+      if (usesSyntheticFileSystem(rootPath)) {
+        return path.normalize(rootPath);
+      }
+      const canonicalRoot = path.normalize(await realpath(rootPath));
+      bindSyntheticFileSystemClassification(canonicalRoot, false);
+      return canonicalRoot;
+    },
     resolveReadPath: async (requestedPath, canonicalRoot) => {
       if (!usesSyntheticFileSystem(canonicalRoot)) {
+        if (workspaceRootRegistryFileSystemSeams) {
+          return workspaceRootRegistryFileSystemSeams.resolveReadPath(requestedPath, canonicalRoot);
+        }
         const result = await resolveValidatedPath({
           allowMissing: false,
           maxTraversal: 0,
@@ -383,22 +465,36 @@ export function registerFileSystemIpcHandlers({
     },
     storage,
   });
+  roots.setManagedWorktreeAuthorizer(managedWorktreeAuthorizer ?? null);
 
   const addSelectedRoot = async (): Promise<RootDescriptor> =>
     roots.addRoot(await resolveRequestedDirectoryHandle(fileSystem));
 
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess,
-    async () => (await addSelectedRoot()).handle
-  );
+  registerDomain(registry, 'files', fileSystemContract, {
+    addRoot: async () => addSelectedRoot(),
 
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.readDirectory,
-    async (_event, handle: DirectoryHandle) => {
+    // Picker-less: main's recent-roots ledger is the only authorization, so an
+    // unrecorded path is rejected there rather than granted from a renderer
+    // string. The shape check stays here so a malformed payload never reaches it.
+    // The grant-notification callback (recents pushed to OS recent-documents +
+    // File-menu rebuild) fires structurally from inside WorkspaceRootRegistry.addRoot,
+    // gated on the SAME recordInRecentRoots flag that decides ledger recording —
+    // see onRootGranted on the `roots` construction above — so this handler
+    // does not need to call it itself.
+    addRootByPath: async (requestedPath: string) => {
+      if (requestedPath.length === 0) {
+        throw new Error('fs:addRootByPath requires a non-empty path.');
+      }
+      return roots.addRootByPath(requestedPath);
+    },
+
+    exists: async (requestedPath: string) => ipcPathExists(fileSystem, requestedPath),
+
+    listRecentRoots: async () => roots.listRecentRoots(),
+
+    readDirectory: async (handle: DirectoryHandle) => {
       const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
+      if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
         fixture.readDirectoryCalls.push(handle.path);
         await waitForFixtureDirectoryReadDelay(resolveFixtureDirectoryReadDelayMs(fixture));
         const entries = fixture.directoriesByPath[handle.path];
@@ -409,23 +505,18 @@ export function registerFileSystemIpcHandlers({
             'read'
           );
         }
-        return entries;
+        return entries as unknown as IFileNode[];
       }
 
-      if (isMockFileSystemIpcPath(handle.path)) {
-        const rootPath = '/mock/test/directory';
-        return getTestDirectoryStructure(rootPath);
+      if (isMockFileSystemIpcPath(handle.path) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
+        return getTestDirectoryStructure(MOCK_ROOT_PATH) as unknown as IFileNode[];
       }
       return roots.readDirectory(await resolveDirectoryHandle(handle));
-    }
-  );
+    },
 
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.readFile,
-    async (_event, handle: FileHandle) => {
+    readFile: async (handle: FileHandle) => {
       const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
+      if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
         fixture.readFileCalls.push(handle.path);
         const content = fixture.fileContentsByPath[handle.path];
         if (content === undefined) {
@@ -438,7 +529,7 @@ export function registerFileSystemIpcHandlers({
         return content;
       }
 
-      if (isMockFileSystemIpcPath(handle.path)) {
+      if (isMockFileSystemIpcPath(handle.path) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
         return 'Mock file content for testing purposes\nThis is a test file.\n';
       }
       try {
@@ -451,15 +542,28 @@ export function registerFileSystemIpcHandlers({
         }
         throw error;
       }
-    }
-  );
+    },
 
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.readFileByPath,
-    async (_event, absolutePath: string) => {
+    readFileByAbsolutePath: async (
+      absolutePath: unknown,
+      claimedRootPath: unknown,
+      claimedRootId: unknown
+    ) => {
+      const diagnosticPath = typeof absolutePath === 'string' ? absolutePath : '';
+      try {
+        return await roots.readFileByAbsolutePath(absolutePath, claimedRootPath, claimedRootId);
+      } catch (error) {
+        const payload = toFileReadErrorPayload(error, diagnosticPath);
+        if (payload) {
+          return payload;
+        }
+        throw error;
+      }
+    },
+
+    readFileByPath: async (absolutePath: string) => {
       const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
+      if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
         fixture.readFileByPathCalls.push(absolutePath);
         const content = fixture.fileContentsByPath[absolutePath];
         if (content === undefined) {
@@ -472,7 +576,7 @@ export function registerFileSystemIpcHandlers({
         return content;
       }
 
-      if (absolutePath.startsWith(MOCK_PATH_PREFIX)) {
+      if (absolutePath.startsWith(MOCK_PATH_PREFIX) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
         return 'Mock file content for testing purposes\nThis is a test file.\n';
       }
 
@@ -485,40 +589,20 @@ export function registerFileSystemIpcHandlers({
         }
         throw error;
       }
-    }
-  );
+    },
 
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.exists,
-    async (_event, requestedPath: string) => ipcPathExists(fileSystem, requestedPath)
-  );
+    removeRoot: async (rootId: string) => roots.removeRoot(rootId),
+    requestDirectoryAccess: async () => (await addSelectedRoot()).handle,
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreLastFolder, async () =>
-    roots.restoreLastFolder()
-  );
+    restoreLastFolder: async () => roots.restoreLastFolder(),
 
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.saveLastFolder,
-    async (_event, folderPath: string) => roots.setLastFolder(folderPath)
-  );
+    restoreRoots: async () => roots.restoreRoots(),
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () =>
-    roots.restoreRoots()
-  );
-
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () =>
-    addSelectedRoot()
-  );
-
-  registry.registerInvoke(
-    'files',
-    DESKTOP_IPC_CHANNELS.files.removeRoot,
-    async (_event, rootId: string) => roots.removeRoot(rootId)
-  );
+    saveLastFolder: async (folderPath: string) => roots.setLastFolder(folderPath),
+  });
   return () => {
     registry.unregisterAll();
     roots.dispose();
+    syntheticFileSystemClassifications.clear();
   };
 }

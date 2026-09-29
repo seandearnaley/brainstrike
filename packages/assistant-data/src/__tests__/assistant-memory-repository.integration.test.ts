@@ -3,6 +3,7 @@ import {
   COMPACTION_SUMMARY_METADATA_KEY,
   isCompactionSummaryPayload,
 } from '@brainstrike/assistant-contract/compaction-summary';
+import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import {
   type RediscoveredToolApproval,
   TOOL_APPROVAL_DATA_NAME,
@@ -12,9 +13,9 @@ import {
   TOOL_SUSPEND_DATA_NAME,
   UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
+import { MigrationRunner, migrations } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
   type AssistantThreadRepository,
@@ -23,6 +24,7 @@ import {
   mapRunLedgerRow,
   RUN_LEDGER_AGGREGATION_SQL,
 } from '../assistant-memory-repository';
+import { createMigratedTestPGlite } from './helpers/test-pglite';
 
 function makeMessagesOnlyRepository(): AssistantThreadRepository {
   return {
@@ -33,6 +35,7 @@ function makeMessagesOnlyRepository(): AssistantThreadRepository {
     deleteThread: vi.fn(),
     getCrossRootUsage: vi.fn(async () => []),
     getThreadCumulativeUsage: vi.fn(async () => null),
+    getThreadRunTurnMessageId: vi.fn(async () => null),
     listLatestThreadRuns: vi.fn(),
     listMessages: vi.fn(async () => [
       {
@@ -75,6 +78,67 @@ function makeSuspend(overrides: Partial<RediscoveredToolSuspend>): RediscoveredT
 }
 
 describe('createAssistantThreadHistoryAdapter', () => {
+  it.each(['pending', 'delivered'])(
+    'hydrates native user signals and their %s receipt without rendering system signals as user input',
+    async (state) => {
+      const repository = makeMessagesOnlyRepository();
+      // Native envelope observed by mastra-child-messages.integration.spec.ts.
+      repository.listMessages = vi.fn(async () => [
+        {
+          content: { format: 2, parts: [{ text: 'Prior child output', type: 'text' }] },
+          createdAt: new Date('2026-09-11T20:00:00Z'),
+          id: 'prior',
+          role: 'assistant',
+        },
+        {
+          content: {
+            format: 2,
+            metadata: {
+              brainstrikeFollowup: { runId: 'child-run', state, text: 'ACTIVE_FOLLOWUP' },
+              signal: { id: 'human-followup-request', tagName: 'user', type: 'user' },
+            },
+            parts: [{ text: 'ACTIVE_FOLLOWUP', type: 'text' }],
+          },
+          createdAt: new Date('2026-09-11T20:00:01Z'),
+          id: 'human-followup-request',
+          role: 'signal',
+        },
+        {
+          content: {
+            format: 2,
+            metadata: { signal: { id: 'notification', type: 'notification' } },
+            parts: [{ text: 'System notification', type: 'text' }],
+          },
+          createdAt: new Date('2026-09-11T20:00:02Z'),
+          id: 'notification',
+          role: 'signal',
+        },
+        {
+          content: { format: 2, parts: [{ text: 'Child reply', type: 'text' }] },
+          createdAt: new Date('2026-09-11T20:00:03Z'),
+          id: 'reply',
+          role: 'assistant',
+        },
+      ]);
+      const history = await createAssistantThreadHistoryAdapter({
+        repository,
+        resourceId: 'child-owner',
+        threadId: 'child',
+      }).load();
+      expect(history.messages.map(({ message }) => [message.id, message.role])).toEqual([
+        ['prior', 'assistant'],
+        ['human-followup-request', 'user'],
+        ['reply', 'assistant'],
+      ]);
+      expect(history.messages[1]?.message.content).toEqual([
+        { text: 'ACTIVE_FOLLOWUP', type: 'text' },
+      ]);
+      expect(history.messages[1]?.message.metadata?.custom).toEqual({
+        brainstrikeChildInputDelivery: state,
+      });
+      expect(history.messages[2]?.parentId).toBe('human-followup-request');
+    }
+  );
   // Mirrors the REAL persisted envelope pinned in
   // packages/agent mastra-memory-persistence.integration.spec.ts
   // ("persists a user image attachment part…") — never hand-edit the shape.
@@ -324,6 +388,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -396,6 +461,47 @@ describe('createAssistantThreadHistoryAdapter', () => {
     ).toBe(true);
   });
 
+  it('retains history and exposes discovery failure without persisting a transient parent', async () => {
+    const recordMessageParent = vi.fn(async () => undefined);
+    const repository = Object.assign(makeMessagesOnlyRepository(), { recordMessageParent });
+    const discoverSuspendedRuns = vi.fn(async () => ({
+      approvals: [],
+      error: { reason: 'request-failed' as const },
+      suspends: [],
+    }));
+    const adapter = createAssistantThreadHistoryAdapter({
+      discoverSuspendedRuns,
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+    const history = await adapter.load();
+    expect(history.messages[0]?.message.id).toBe('message-1');
+    const notice = history.messages.at(-1);
+    expect(notice?.message.content).toEqual([
+      { data: { reason: 'request-failed' }, name: 'suspended-run-discovery-error', type: 'data' },
+    ]);
+    expect(notice?.parentId).toBe('message-1');
+    expect(notice?.message.status).toEqual({ reason: 'stop', type: 'complete' });
+    await adapter.append({
+      message: {
+        attachments: [],
+        content: [{ text: 'Next prompt', type: 'text' }],
+        createdAt: new Date(),
+        id: 'next',
+        metadata: { custom: {} },
+        role: 'user',
+      },
+      parentId: history.headId ?? null,
+    });
+    expect(recordMessageParent).toHaveBeenCalledExactlyOnceWith({
+      messageId: 'next',
+      parentId: 'message-1',
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+  });
+
   it('appends a synthetic approval notice message per rediscovered suspended run', async () => {
     const repository = makeMessagesOnlyRepository();
     const discoverSuspendedRuns = vi.fn(async () => ({
@@ -421,6 +527,43 @@ describe('createAssistantThreadHistoryAdapter', () => {
       { data: makeApproval({}), name: TOOL_APPROVAL_DATA_NAME, type: 'data' },
     ]);
     expect(history.headId).toBe('suspended-approval:run-1:call-1');
+  });
+
+  it('gives successive delegated leaf pauses distinct hydrated identities under one parent alias', async () => {
+    const approval = {
+      ...makeApproval({}),
+      delegation: {
+        path: [
+          {
+            childRuntimeRunId: 'child-run',
+            parentRuntimeRunId: 'run-1',
+            parentToolCallId: 'call-1',
+            personaId: 'worker',
+          },
+        ],
+        toolCallId: 'leaf-first',
+      },
+    };
+    const discoverSuspendedRuns = vi.fn(async () => ({ approvals: [approval], suspends: [] }));
+    const adapter = createAssistantThreadHistoryAdapter({
+      discoverSuspendedRuns,
+      repository: makeMessagesOnlyRepository(),
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+    const first = await adapter.load();
+    const nextApproval = {
+      ...approval,
+      delegation: { ...approval.delegation, toolCallId: 'leaf-second' },
+    };
+    discoverSuspendedRuns.mockResolvedValueOnce({ approvals: [nextApproval], suspends: [] });
+    const next = await adapter.load();
+    expect(next.headId).not.toBe(first.headId);
+    expect(next.messages.at(-1)?.parentId).toBe('message-1');
+    expect(next.messages.at(-1)?.message.content).toEqual([
+      { data: nextApproval, name: TOOL_APPROVAL_DATA_NAME, type: 'data' },
+    ]);
+    expect((await adapter.load()).headId).toBe(first.headId);
   });
 
   it('runs discovery concurrently with the history query (off the serial load path)', async () => {
@@ -583,6 +726,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => []),
       listThreadCheckpoints: vi.fn(async () => []),
@@ -615,6 +759,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => []),
       listThreadCheckpoints: vi.fn(async () => []),
@@ -664,6 +809,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -698,6 +844,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -771,6 +918,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -837,6 +985,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -926,6 +1075,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -991,6 +1141,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -1062,6 +1213,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -1120,6 +1272,7 @@ describe('createAssistantThreadHistoryAdapter', () => {
         deleteThread: vi.fn(),
         getCrossRootUsage: vi.fn(async () => []),
         getThreadCumulativeUsage: vi.fn(async () => null),
+        getThreadRunTurnMessageId: vi.fn(async () => null),
         listLatestThreadRuns: vi.fn(),
         listMessages: vi.fn(async () => [
           {
@@ -1219,6 +1372,7 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     content: unknown;
     createdAt: Date;
     id: string;
+    parentId?: string | null;
     role: 'assistant' | 'user';
   }
 
@@ -1234,6 +1388,7 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
       deleteThread: vi.fn(),
       getCrossRootUsage: vi.fn(async () => []),
       getThreadCumulativeUsage: vi.fn(async () => null),
+      getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => args.messages),
       listThreadCheckpoints: vi.fn(async () => []),
@@ -1284,6 +1439,62 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     });
     return await adapter.load();
   }
+
+  it.each([false, true])(
+    'hydrates native output-denied with its original arguments and reason (persisted result=%s)',
+    async (hasPersistedResult) => {
+      const history = await loadHistory({
+        messages: [
+          {
+            content: {
+              format: 2,
+              parts: [
+                {
+                  toolInvocation: {
+                    approval: {
+                      approved: false,
+                      id: 'denied-call',
+                      ...(hasPersistedResult ? {} : { reason: 'Leave this source alone.' }),
+                    },
+                    ...(hasPersistedResult
+                      ? {
+                          result: {
+                            kind: 'declined',
+                            message: 'The user declined this tool call, so it was not executed.',
+                            reason: 'Leave this source alone.',
+                          },
+                        }
+                      : {}),
+                    args: { query: 'needle' },
+                    state: 'output-denied',
+                    toolCallId: 'denied-call',
+                    toolName: 'brainstrike_grepSearch',
+                  },
+                  type: 'tool-invocation',
+                },
+              ],
+            },
+            createdAt: new Date('2026-09-10T00:00:00Z'),
+            id: 'denied-message',
+            role: 'assistant',
+          },
+        ],
+      });
+      const part = history.messages[0]?.message.content[0];
+      expect(part).toMatchObject({
+        args: { query: 'needle' },
+        result: {
+          kind: 'declined',
+          message: 'The user declined this tool call, so it was not executed.',
+          reason: 'Leave this source alone.',
+        },
+        toolCallId: 'denied-call',
+        toolName: 'brainstrike.grepSearch',
+        type: 'tool-call',
+      });
+      expect(part).not.toHaveProperty('isError', true);
+    }
+  );
 
   it('hydrates tool-invocation parts with inline results from format-2 content', async () => {
     const history = await loadHistory({
@@ -1548,6 +1759,348 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
     ]);
   });
 
+  it('keeps a child tool start after its tool when earlier content shares its millisecond', async () => {
+    // Shape/order observed through the real native child decoder in BST-1719:
+    // text -> reasoning -> tool -> tool.started. Millisecond timestamps tie.
+    const timestamp = '2026-09-10T10:21:02.105Z';
+    const createdAt = Date.parse(timestamp);
+    const history = await loadHistory({
+      messages: [
+        {
+          content: {
+            format: 2,
+            parts: [
+              { createdAt, text: 'Child before.', type: 'text' },
+              { createdAt, reasoning: 'Search the source.', type: 'reasoning' },
+              {
+                ...makeToolInvocationPart({
+                  input: { pattern: 'flag' },
+                  result: { matches: ['FLAG-42'] },
+                  toolCallId: 'child-call',
+                  toolName: 'brainstrike_grepSearch',
+                }),
+                createdAt,
+              },
+              { createdAt: createdAt + 1, text: 'Child final.', type: 'text' },
+            ],
+          },
+          createdAt: new Date(timestamp),
+          id: 'native-child-message',
+          role: 'assistant',
+        },
+      ],
+      runEvents: [
+        {
+          id: 'child-tool-started',
+          kind: 'tool.started',
+          label: 'Tool started',
+          metadata: {
+            nativeMessageId: 'native-child-message',
+            toolCallId: 'child-call',
+            toolName: 'brainstrike.grepSearch',
+          },
+          runId: 'child-host-run',
+          sequence: 2,
+          status: 'running',
+          timestamp,
+        },
+      ],
+    });
+    expect(history.messages).toHaveLength(1);
+    expect(
+      history.messages[0]?.message.content.map((part) =>
+        part.type === 'data' ? `event:${(part.data as AssistantRunEvent).id}` : part.type
+      )
+    ).toEqual(['text', 'reasoning', 'tool-call', 'event:child-tool-started', 'text']);
+  });
+
+  it('keeps distinct child tool boundaries when every part and event shares a timestamp', async () => {
+    const timestamp = '2026-09-10T10:21:02.105Z';
+    const createdAt = Date.parse(timestamp);
+    const events = ['first-call', 'second-call'].flatMap((toolCallId, index) =>
+      (['tool.started', 'tool.completed'] as const).map(
+        (kind, offset): AssistantRunEvent => ({
+          id: `${toolCallId}-${kind}`,
+          kind,
+          label: kind,
+          metadata: { nativeMessageId: 'native-child', toolCallId },
+          runId: 'child-host-run',
+          sequence: index * 2 + offset,
+          status: kind === 'tool.started' ? 'running' : 'completed',
+          timestamp,
+        })
+      )
+    );
+    const history = await loadHistory({
+      messages: [
+        {
+          content: {
+            format: 2,
+            parts: [
+              { createdAt, text: 'Before first.', type: 'text' },
+              {
+                ...makeToolInvocationPart({
+                  result: {},
+                  toolCallId: 'first-call',
+                  toolName: 'grep_search',
+                }),
+                createdAt,
+              },
+              { createdAt, text: 'Between calls.', type: 'text' },
+              {
+                ...makeToolInvocationPart({
+                  result: {},
+                  toolCallId: 'second-call',
+                  toolName: 'grep_search',
+                }),
+                createdAt,
+              },
+              { createdAt, text: 'After second.', type: 'text' },
+            ],
+          },
+          createdAt: new Date(timestamp),
+          id: 'native-child',
+          role: 'assistant',
+        },
+      ],
+      runEvents: events,
+    });
+    expect(history.messages).toHaveLength(1);
+    expect(
+      history.messages[0]?.message.content.map((part) => {
+        if (part.type === 'data') {
+          return (part.data as AssistantRunEvent).id;
+        }
+        if (part.type === 'tool-call') {
+          return part.toolCallId;
+        }
+        return part.type;
+      })
+    ).toEqual([
+      'text',
+      'first-call',
+      'first-call-tool.started',
+      'first-call-tool.completed',
+      'text',
+      'second-call',
+      'second-call-tool.started',
+      'second-call-tool.completed',
+      'text',
+    ]);
+  });
+
+  it('routes reused tool ids by native message and flushes a final tool event tail', async () => {
+    const timestamp = '2026-09-10T10:21:02.105Z';
+    const createdAt = Date.parse(timestamp);
+    const nativeMessageIds = ['native-first', 'native-second'];
+    const history = await loadHistory({
+      messages: nativeMessageIds.flatMap((id, index) => [
+        {
+          content: { content: id, format: 2, parts: [{ text: id, type: 'text' }] },
+          createdAt: new Date(createdAt + index * 2),
+          id: `user-${id}`,
+          role: 'user',
+        },
+        {
+          content: {
+            format: 2,
+            parts: [
+              { createdAt, text: id, type: 'text' },
+              {
+                ...makeToolInvocationPart({
+                  result: { message: id },
+                  toolCallId: 'reused-call',
+                  toolName: 'grep_search',
+                }),
+                createdAt,
+              },
+            ],
+          },
+          createdAt: new Date(createdAt + index * 2 + 1),
+          id,
+          role: 'assistant',
+        },
+      ]),
+      runEvents: nativeMessageIds.flatMap((nativeMessageId) =>
+        (['tool.started', 'tool.completed'] as const).map(
+          (kind, sequence): AssistantRunEvent => ({
+            id: `${nativeMessageId}-${kind}`,
+            kind,
+            label: kind,
+            metadata: { nativeMessageId, toolCallId: 'reused-call' },
+            runId: 'shared-host-run',
+            sequence,
+            status: kind === 'tool.started' ? 'running' : 'completed',
+            timestamp,
+          })
+        )
+      ),
+    });
+    expect(history.messages).toHaveLength(4);
+    const assistants = history.messages.filter((item) => item.message.role === 'assistant');
+    expect(assistants).toHaveLength(2);
+    for (const [index, item] of assistants.entries()) {
+      const nativeMessageId = nativeMessageIds[index];
+      expect(item.message.id).toBe(nativeMessageId);
+      expect(item.message.content).toContainEqual(
+        expect.objectContaining({ result: { message: nativeMessageId }, toolCallId: 'reused-call' })
+      );
+      expect(
+        item.message.content.map((part) =>
+          part.type === 'data' ? (part.data as AssistantRunEvent).id : part.type
+        )
+      ).toEqual([
+        'text',
+        'tool-call',
+        `${nativeMessageId}-tool.started`,
+        `${nativeMessageId}-tool.completed`,
+      ]);
+    }
+  });
+
+  it.each(['tool.completed', 'tool.failed'] as const)(
+    'keeps scoped %s after its tool when no start event was retained',
+    async (kind) => {
+      const timestamp = '2026-09-10T10:21:02.105Z';
+      const createdAt = Date.parse(timestamp);
+      const history = await loadHistory({
+        messages: [
+          {
+            content: {
+              format: 2,
+              parts: [
+                { createdAt, text: 'Before.', type: 'text' },
+                {
+                  ...makeToolInvocationPart({
+                    result: 'found',
+                    toolCallId: 'child-call',
+                    toolName: 'grep_search',
+                  }),
+                  createdAt,
+                },
+                { createdAt: createdAt + 1, text: 'After.', type: 'text' },
+              ],
+            },
+            createdAt: new Date(createdAt),
+            id: 'native-child',
+            role: 'assistant',
+          },
+        ],
+        runEvents: [
+          {
+            id: 'terminal',
+            kind,
+            label: kind,
+            metadata: { nativeMessageId: 'native-child', toolCallId: 'child-call' },
+            runId: 'child-run',
+            sequence: 0,
+            status: kind === 'tool.completed' ? 'completed' : 'failed',
+            timestamp,
+          },
+          {
+            id: 'legacy-tail',
+            kind: 'run.step.finished',
+            label: 'Step finished',
+            runId: 'child-run',
+            sequence: 1,
+            status: 'completed',
+            timestamp,
+          },
+        ],
+      });
+      expect(
+        history.messages[0]?.message.content.map((part) =>
+          part.type === 'data' ? (part.data as AssistantRunEvent).id : part.type
+        )
+      ).toEqual(['text', 'tool-call', 'terminal', 'legacy-tail', 'text']);
+    }
+  );
+
+  it('does not move a scoped terminal ahead of text emitted while its tool was running', async () => {
+    const createdAt = Date.parse('2026-09-10T10:21:02.100Z');
+    const history = await loadHistory({
+      messages: [
+        {
+          content: {
+            format: 2,
+            parts: [
+              {
+                ...makeToolInvocationPart({
+                  result: 'found',
+                  toolCallId: 'child-call',
+                  toolName: 'grep_search',
+                }),
+                createdAt,
+              },
+              { createdAt: createdAt + 1, text: 'Still searching.', type: 'text' },
+              { createdAt: createdAt + 3, text: 'Finished.', type: 'text' },
+            ],
+          },
+          createdAt: new Date(createdAt),
+          id: 'native-child',
+          role: 'assistant',
+        },
+      ],
+      runEvents: [
+        {
+          id: 'terminal',
+          kind: 'tool.completed',
+          label: 'Completed',
+          metadata: { nativeMessageId: 'native-child', toolCallId: 'child-call' },
+          runId: 'child-run',
+          sequence: 0,
+          status: 'completed',
+          timestamp: new Date(createdAt + 2).toISOString(),
+        },
+      ],
+    });
+    expect(
+      history.messages[0]?.message.content.map((part) =>
+        part.type === 'data' ? (part.data as AssistantRunEvent).id : part.type
+      )
+    ).toEqual(['tool-call', 'text', 'terminal', 'text']);
+  });
+
+  it('retains scoped tool lifecycle when cancellation removes the unfinished tool part', async () => {
+    const history = await loadHistory({
+      messages: [
+        {
+          content: {
+            format: 2,
+            parts: [
+              {
+                createdAt: Date.parse('2026-09-10T10:21:02.100Z'),
+                text: 'Partial child answer.',
+                type: 'text',
+              },
+            ],
+          },
+          createdAt: new Date('2026-09-10T10:21:02.100Z'),
+          id: 'cancelled-native-child',
+          role: 'assistant',
+        },
+      ],
+      runEvents: (['tool.started', 'tool.failed'] as const).map(
+        (kind, index): AssistantRunEvent => ({
+          id: `cancelled-child-${kind}`,
+          kind,
+          label: kind,
+          metadata: { nativeMessageId: 'cancelled-native-child', toolCallId: 'unfinished-call' },
+          runId: 'cancelled-child-run',
+          sequence: index,
+          status: index === 0 ? 'running' : 'failed',
+          timestamp: `2026-09-10T10:21:02.10${index + 1}Z`,
+        })
+      ),
+    });
+    expect(
+      history.messages[0]?.message.content.map((part) =>
+        part.type === 'data' ? (part.data as AssistantRunEvent).id : part.type
+      )
+    ).toEqual(['text', 'cancelled-child-tool.started', 'cancelled-child-tool.failed']);
+    expect(history.messages).toHaveLength(1);
+  });
+
   it('interleaves run events with timestamped content parts in live order', async () => {
     const makeEvent = (id: string, timestamp: string, label: string): AssistantRunEvent => ({
       id,
@@ -1618,6 +2171,96 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
       )
     ).toEqual(['event:event-1', 'tool-call', 'event:event-2', 'text', 'event:event-3']);
   });
+
+  it.each([false, true])(
+    'keeps delegated navigation on its exact tool message across a trimmed user boundary (%s)',
+    async (trimUser) => {
+      const history = await loadHistory({
+        messages: [
+          ...(trimUser
+            ? []
+            : [
+                {
+                  content: { format: 2, parts: [{ text: 'Delegate', type: 'text' }] },
+                  createdAt: new Date('2026-09-11T19:21:17.346Z'),
+                  id: 'user-one',
+                  role: 'user' as const,
+                },
+              ]),
+          {
+            content: {
+              format: 2,
+              parts: [
+                makeToolInvocationPart({
+                  input: {},
+                  result: 'Background task started',
+                  toolCallId: 'reused-call',
+                  toolName: 'agent-worker',
+                }),
+              ],
+            },
+            createdAt: new Date('2026-09-11T19:21:17.383Z'),
+            id: 'delegation',
+            parentId: 'user-one',
+            role: 'assistant',
+          },
+          {
+            content: { format: 2, parts: [{ text: 'Worker needs approval.', type: 'text' }] },
+            createdAt: new Date('2026-09-11T19:21:17.500Z'),
+            id: 'notice',
+            parentId: 'delegation',
+            role: 'assistant',
+          },
+          {
+            content: { format: 2, parts: [{ text: 'Continue', type: 'text' }] },
+            createdAt: new Date('2026-09-11T19:21:18.532Z'),
+            id: 'user-two',
+            role: 'user',
+          },
+          {
+            content: {
+              format: 2,
+              parts: [
+                makeToolInvocationPart({
+                  input: {},
+                  result: 'Another task',
+                  toolCallId: 'reused-call',
+                  toolName: 'agent-worker',
+                }),
+              ],
+            },
+            createdAt: new Date('2026-09-11T19:21:18.548Z'),
+            id: 'second-delegation',
+            parentId: 'user-two',
+            role: 'assistant',
+          },
+        ],
+        runEvents: [
+          {
+            id: 'native-child-started',
+            kind: 'subagent.started',
+            label: 'Subagent started',
+            metadata: {
+              originatingTurnMessageId: 'user-one',
+              parentRuntimeRunId: 'native-parent-one',
+              parentToolCallId: 'reused-call',
+            },
+            runId: 'run-one',
+            sequence: 1,
+            status: 'running',
+            timestamp: '2026-09-11T19:21:17.380Z',
+          },
+        ],
+      });
+      const owners = history.messages.filter(({ message }) =>
+        message.content.some(
+          (part) =>
+            part.type === 'data' && (part.data as AssistantRunEvent).id === 'native-child-started'
+        )
+      );
+      expect(owners.map(({ message }) => message.id)).toEqual(['delegation']);
+    }
+  );
 
   it('hydrates a persisted agent-explore delegation with subAgentToolResults intact and weaves its subagent.* events into the group', async () => {
     // Copied from the REAL persisted parent row shape pinned agent-side in
@@ -2103,6 +2746,118 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
+  it('persists secondaryRootIds as a deduped string array', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.updateThreadMetadata('thread-1', {
+      secondaryRootIds: ['db-root-b', 'db-root-c', 'db-root-b'],
+    });
+
+    const update = db.query.mock.calls.find(([sql]) => sql.includes('UPDATE mastra_threads'));
+    expect(update).toBeDefined();
+    const persisted = JSON.parse(String(update?.[1]?.[1])) as { secondaryRootIds?: unknown };
+    expect(persisted.secondaryRootIds).toEqual(['db-root-b', 'db-root-c']);
+  });
+
+  it('accepts an empty secondaryRootIds array as "no secondaries" and persists []', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: [],
+      })
+    ).resolves.toBeUndefined();
+
+    const update = db.query.mock.calls.find(([sql]) => sql.includes('UPDATE mastra_threads'));
+    expect(update).toBeDefined();
+    const persisted = JSON.parse(String(update?.[1]?.[1])) as { secondaryRootIds?: unknown };
+    expect(persisted.secondaryRootIds).toEqual([]);
+  });
+
+  it('persists a deduped secondaryRootIds array for the bulk metadata update path', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('UPDATE mastra_threads')) {
+        return { rows: [{ allFound: true, updatedThreadCount: 2 }] };
+      }
+      return { rows: [] };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.updateThreadsMetadata(['thread-1', 'thread-2'], {
+      secondaryRootIds: ['a', 'b', 'a'],
+    });
+
+    const update = db.query.mock.calls.find(([sql]) => sql.includes('UPDATE mastra_threads'));
+    expect(update).toBeDefined();
+    const params = update?.[1] as unknown[] | undefined;
+    const persisted = JSON.parse(String(params?.at(-1))) as { secondaryRootIds?: unknown };
+    expect(persisted.secondaryRootIds).toEqual(['a', 'b']);
+  });
+
+  it('rejects secondaryRootIds that are not an array of non-empty strings', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: ['db-root-b', ''],
+      })
+    ).rejects.toThrow('Invalid assistant thread metadata secondary root ids.');
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: 'db-root-b' as never,
+      })
+    ).rejects.toThrow('Invalid assistant thread metadata secondary root ids.');
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE mastra_threads'),
+      expect.anything()
+    );
+  });
+
+  it('rejects whitespace-only secondaryRootIds entries', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: ['a', '   '],
+      })
+    ).rejects.toThrow('Invalid assistant thread metadata secondary root ids.');
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE mastra_threads'),
+      expect.anything()
+    );
+  });
+
+  it('throws on a malformed persisted secondaryRootIds while loading instead of coercing it', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (!sql.includes('FROM mastra_threads')) {
+        return { rows: [] };
+      }
+      return {
+        rows: [
+          {
+            createdAt: new Date('2026-08-21T09:00:00Z'),
+            id: 'thread-bad-secondaries',
+            metadata: JSON.stringify({ secondaryRootIds: [42] }),
+            resourceId: 'workspace-a',
+            title: 'Bad secondaries',
+            updatedAt: new Date('2026-08-21T09:00:00Z'),
+          },
+        ],
+      };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(repository.listThreads('workspace-a')).rejects.toThrow(
+      'Invalid assistant thread metadata secondary root ids.'
+    );
+  });
+
   it('rejects an incomplete operating-root binding while loading persisted metadata', async () => {
     const db = createMockDb();
     db.query.mockImplementation(async (sql: string) => {
@@ -2161,7 +2916,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
   it('lists thread edit checkpoints across all runs and omits before_content', async () => {
     const db = createMockDb();
     db.query.mockImplementation(async (sql: string) => {
-      if (sql.includes('brainstrike_assistant_edit_checkpoints')) {
+      if (sql.includes('FROM brainstrike_assistant_edit_checkpoints')) {
         return {
           rows: [
             {
@@ -2222,12 +2977,12 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     expect(String(checkpointCall?.[0])).not.toContain('LIMIT 1');
   });
 
-  it('bootstraps the Brainstrike-owned assistant run table before writes', async () => {
+  it('probes for the run table before writes and never creates schema', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
 
     await repository.createThreadRun({
-      id: 'run-1',
+      id: 'run-1' as HostRunId,
       model: 'gpt-5.2',
       modelSettings: { maxOutputTokens: 512 },
       provider: 'openai',
@@ -2237,9 +2992,12 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       threadId: 'thread-1',
     });
 
-    expect(db.exec).toHaveBeenCalledTimes(1);
-    expect(db.exec).toHaveBeenCalledWith(
-      expect.stringContaining('CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_runs')
+    // Migrations 117/118 own this schema now. The repository executes NO DDL:
+    // a create-if-absent branch here is what let a fresh database diverge from
+    // a migrated one without anything observing it (BST-1651).
+    expect(db.exec).not.toHaveBeenCalled();
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("to_regclass('public.' || required.relation) IS NULL")
     );
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO brainstrike_assistant_thread_runs'),
@@ -2257,7 +3015,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
-  it('bootstraps the run-usage table and inserts a usage row', async () => {
+  it('probes before inserting a usage row', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
 
@@ -2272,11 +3030,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       threadId: 'thread-1',
     });
 
-    expect(db.exec).toHaveBeenCalledWith(
-      expect.stringContaining('CREATE TABLE IF NOT EXISTS brainstrike_assistant_run_usage')
-    );
-    const bootstrapSql = String(db.exec.mock.calls[0]?.[0]);
-    expect(bootstrapSql).not.toMatch(/\balter\s+table\b[^;]*\bdrop\s+constraint\b/iu);
+    expect(db.exec).not.toHaveBeenCalled();
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO brainstrike_assistant_run_usage'),
       expect.arrayContaining([
@@ -2294,7 +3048,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
   it('bootstraps the migration-076 run-errors shape without retry fiction', async () => {
     const dataDir = createPgliteTestDataDir('assistant-run-errors-bootstrap-shape');
-    const db = await wasmLoader.createPGlite(dataDir);
+    const db = await createMigratedTestPGlite(dataDir);
     try {
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       await repository.createThread('workspace-a');
@@ -2345,13 +3099,13 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         ])
       );
     } finally {
-      await wasmLoader.closeCached(dataDir);
+      await db.close();
     }
   });
 
   it('bootstraps the migration-083+092 tool-call telemetry shape for thread deletion', async () => {
     const dataDir = createPgliteTestDataDir('tool-call-telemetry-bootstrap-shape');
-    const db = await wasmLoader.createPGlite(dataDir);
+    const db = await createMigratedTestPGlite(dataDir);
     try {
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       await repository.createThread('workspace-a');
@@ -2391,15 +3145,15 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         ])
       );
     } finally {
-      await wasmLoader.closeCached(dataDir);
+      await db.close();
     }
   });
 
   it('keeps the token-estimate calibration bootstrap shape identical to migrations 086, 089, then 091', async () => {
     const bootstrapDataDir = createPgliteTestDataDir('token-estimate-calibration-bootstrap-shape');
     const migratedDataDir = createPgliteTestDataDir('token-estimate-calibration-migrated-shape');
-    const bootstrapDb = await wasmLoader.createPGlite(bootstrapDataDir);
-    const migratedDb = await wasmLoader.createPGlite(migratedDataDir);
+    const bootstrapDb = await createMigratedTestPGlite(bootstrapDataDir);
+    const migratedDb = await createMigratedTestPGlite(migratedDataDir);
     try {
       const repository = createPgliteAssistantThreadRepository(bootstrapDb as DbHandle);
       await repository.createThread('workspace-a');
@@ -2487,14 +3241,24 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         ].sort()
       );
     } finally {
-      await wasmLoader.closeCached(bootstrapDataDir);
-      await wasmLoader.closeCached(migratedDataDir);
+      await bootstrapDb.close();
+      await migratedDb.close();
     }
   });
 
-  it('bootstraps the migration-084/087 tool projection rewrite shape for thread deletion', async () => {
+  /**
+   * BST-1651 found a REAL divergence here, and this expectation records the
+   * winner. The retired renderer bootstrap declared `kind` inline in its
+   * `CREATE TABLE` (ordinal 5); migrations 084 + 087 create the table without
+   * it and ADD it (ordinal 8). A freshly bootstrapped database and a migrated
+   * one therefore had different column ORDER for the same table, and nothing
+   * could observe it — the bootstrap's `IF NOT EXISTS` never fires on a
+   * migrated database. The migrations are now the only author, so there is one
+   * order.
+   */
+  it('carries the migration-084/087 tool projection rewrite shape for thread deletion', async () => {
     const dataDir = createPgliteTestDataDir('tool-projection-rewrite-bootstrap-shape');
-    const db = await wasmLoader.createPGlite(dataDir);
+    const db = await createMigratedTestPGlite(dataDir);
     try {
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       await repository.createThread('workspace-a');
@@ -2510,19 +3274,19 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         'thread_id',
         'rewrite_id',
         'superseded_by_tool_call_id',
-        'kind',
         'marker_text',
         'original_chars',
         'created_at',
+        'kind',
       ]);
     } finally {
-      await wasmLoader.closeCached(dataDir);
+      await db.close();
     }
   });
 
   it('bootstraps the migration-088 compaction range shape for thread deletion', async () => {
     const dataDir = createPgliteTestDataDir('compaction-range-bootstrap-shape');
-    const db = await wasmLoader.createPGlite(dataDir);
+    const db = await createMigratedTestPGlite(dataDir);
     try {
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       await repository.createThread('workspace-a');
@@ -2541,7 +3305,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         'created_at',
       ]);
     } finally {
-      await wasmLoader.closeCached(dataDir);
+      await db.close();
     }
   });
 
@@ -2561,7 +3325,6 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       threadId: 'thread-cost',
     });
 
-    expect(db.exec).toHaveBeenCalledWith(expect.stringContaining('billed_cost_usd'));
     const insert = db.query.mock.calls.find(([sql]) =>
       String(sql).includes('INSERT INTO brainstrike_assistant_run_usage')
     );
@@ -2652,9 +3415,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
     const params = insert?.[1] ?? [];
 
-    expect(db.exec).toHaveBeenCalledWith(
-      expect.stringContaining('CREATE TABLE IF NOT EXISTS brainstrike_assistant_run_events')
-    );
+    expect(db.exec).not.toHaveBeenCalled();
     expect(params).toEqual(
       expect.arrayContaining([
         'event-1',
@@ -2801,8 +3562,10 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
   it('hydrates a persisted tool.resume.unsupported row (survives a thread reload)', async () => {
     // BST-558 finding C: the `brainstrike.tool-suspend` data part is transient
-    // (aui-data, never persisted), so the live notice is gone after a reload.
-    // The durable surface is this run event — it has to survive the read path.
+    // (aui-data, never persisted). Since BST-1084 `appendSuspendedPauseMessages`
+    // re-appends that notice on reload for pauses that are STILL suspended, but
+    // only at the END of the thread and only while one is pending. The durable
+    // IN-TRANSCRIPT surface is this run event — it has to survive the read path.
     const db = createMockDb();
     db.query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM brainstrike_assistant_run_events')) {
@@ -2842,6 +3605,73 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       toolCallId: 'call-future-tool',
       toolName: 'brainstrike.someFutureSuspendingTool',
     });
+  });
+
+  it('sorts a forge pr.* row after every real stream row on the same run (BST-1391 M3)', async () => {
+    // Real PGlite, not `createMockDb()` (which just returns whatever `rows`
+    // array a test hard-codes — it never executes an `ORDER BY`). This pins
+    // the actual DB-level fact `use-forge-run-events.ts`'s
+    // `FORGE_OBSERVATION_SEQUENCE` (1_000_000_000, well under the `sequence
+    // integer` column's int4 ceiling) relies on: a large `sequence` sorts
+    // after the run's own small, monotonic stream-counter values under
+    // `ORDER BY sequence ASC, occurred_at ASC, id ASC`. The forge row's
+    // `occurred_at` is deliberately set BEFORE the run's own rows, to prove
+    // the ordering is driven by `sequence`, not `occurred_at`.
+    const dataDir = createPgliteTestDataDir('forge-observation-sequence-order');
+    const db = await createMigratedTestPGlite(dataDir);
+    try {
+      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+      const thread = await repository.createThread('workspace-a');
+      await repository.createThreadRun({
+        id: 'run-forge-order' as HostRunId,
+        model: 'gpt-test',
+        provider: 'openai',
+        resourceId: 'workspace-a',
+        runtimeKind: 'hosted',
+        startedAt: new Date('2026-04-24T12:00:00Z'),
+        status: 'running',
+        threadId: thread.id,
+      });
+      await repository.appendThreadRunEvent('run-forge-order', {
+        id: 'event-run-started',
+        kind: 'run.started',
+        label: 'Assistant run started',
+        sequence: 1,
+        status: 'running',
+        timestamp: '2026-04-24T12:00:01.000Z',
+      } satisfies AssistantRunEvent);
+      await repository.appendThreadRunEvent('run-forge-order', {
+        id: 'event-run-finished',
+        kind: 'run.finished',
+        label: 'Assistant run finished',
+        sequence: 2,
+        status: 'completed',
+        timestamp: '2026-04-24T12:00:02.000Z',
+      } satisfies AssistantRunEvent);
+      // Mirrors `FORGE_OBSERVATION_SEQUENCE` from
+      // `packages/app-shell/src/hooks/use-forge-run-events.ts` — kept as a
+      // literal here rather than an import because assistant-data must not
+      // depend on app-shell (the dependency runs the other way).
+      const FORGE_OBSERVATION_SEQUENCE = 1_000_000_000;
+      await repository.appendThreadRunEvent('run-forge-order', {
+        id: 'event-pr-opened',
+        kind: 'pr.opened',
+        label: 'Opened pull request #1',
+        sequence: FORGE_OBSERVATION_SEQUENCE,
+        status: 'info',
+        timestamp: '2026-04-24T11:59:00.000Z',
+      } satisfies AssistantRunEvent);
+
+      const events = await repository.listThreadRunEvents(thread.id, 'workspace-a');
+
+      expect(events.map((event) => event.id)).toEqual([
+        'event-run-started',
+        'event-run-finished',
+        'event-pr-opened',
+      ]);
+    } finally {
+      await db.close();
+    }
   });
 
   it('completes assistant run records without mutating thread metadata', async () => {
@@ -2916,7 +3746,9 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       turnMessageId: null,
       updatedAt: new Date('2026-04-22T10:31:00Z'),
     });
-    expect(db.query).toHaveBeenCalledTimes(1);
+    // The schema probe plus the single projection query — the badge read still
+    // makes exactly ONE round trip of its own.
+    expect(db.query).toHaveBeenCalledTimes(2);
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('LEFT JOIN'), [
       '/tmp/workspace-a',
     ]);
@@ -2980,27 +3812,30 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     ).rejects.toThrow('Assistant message history limit must be a positive safe integer.');
   });
 
-  it('retries schema initialization after a transient bootstrap failure', async () => {
+  it('re-probes after a transient probe failure instead of caching the failure', async () => {
     const db = createMockDb();
-    db.exec
-      .mockRejectedValueOnce(new Error('temporary bootstrap failure'))
-      .mockResolvedValue(undefined);
+    // Displace the seeded probe answer with a transport failure, then let the
+    // default implementation ({ rows: [] } — nothing missing) answer the retry.
+    db.query.mockReset();
+    db.query
+      .mockRejectedValueOnce(new Error('temporary probe failure'))
+      .mockImplementation(async () => ({ rows: [] }));
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
 
     await expect(
       repository.createThreadRun({
-        id: 'run-1',
+        id: 'run-1' as HostRunId,
         model: 'gpt-5.2',
         provider: 'openai',
         resourceId: '/tmp/workspace-a',
         runtimeKind: 'hosted',
         threadId: 'thread-1',
       })
-    ).rejects.toThrow('temporary bootstrap failure');
+    ).rejects.toThrow('temporary probe failure');
 
     await expect(
       repository.createThreadRun({
-        id: 'run-2',
+        id: 'run-2' as HostRunId,
         model: 'gpt-5.2',
         provider: 'openai',
         resourceId: '/tmp/workspace-a',
@@ -3012,31 +3847,34 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       resourceId: '/tmp/workspace-a',
       threadId: 'thread-1',
     });
-    expect(db.exec).toHaveBeenCalledTimes(2);
+    const probeCalls = db.query.mock.calls.filter(([sql]) =>
+      String(sql).includes("to_regclass('public.' || required.relation) IS NULL")
+    );
+    expect(probeCalls).toHaveLength(2);
   });
 
   it('deletes thread-owned rows in one atomic statement including observational memory', async () => {
     const db = createMockDb();
+    db.query.mockResolvedValue({ rows: [{ allAuthorized: true }] });
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
 
     await repository.deleteThread('thread-1');
 
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM mastra_threads'), [
       'thread-1',
-      'thread:thread-1',
     ]);
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining('DELETE FROM mastra_observational_memory'),
-      ['thread-1', 'thread:thread-1']
+      ['thread-1']
     );
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM mastra_messages'), [
       'thread-1',
-      'thread:thread-1',
     ]);
   });
 
   it('deletes thread-owned rows when the database handle only exposes query and exec', async () => {
     const db = createMockDb();
+    db.query.mockResolvedValue({ rows: [{ allAuthorized: true }] });
     const { exec, query } = db;
     const repository = createPgliteAssistantThreadRepository({
       exec,
@@ -3047,7 +3885,6 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
     expect(query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM mastra_threads'), [
       'thread-1',
-      'thread:thread-1',
     ]);
   });
 
@@ -3078,7 +3915,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     expect(repositoryA).toBe(repositoryB);
 
     await repositoryA.createThreadRun({
-      id: 'run-1',
+      id: 'run-1' as HostRunId,
       model: 'gpt-5.2',
       provider: 'openai',
       resourceId: '/tmp/workspace-a',
@@ -3086,7 +3923,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       threadId: 'thread-1',
     });
     await repositoryB.createThreadRun({
-      id: 'run-2',
+      id: 'run-2' as HostRunId,
       model: 'claude-sonnet-4-6',
       provider: 'anthropic',
       resourceId: '/tmp/workspace-a',
@@ -3094,23 +3931,20 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       threadId: 'thread-2',
     });
 
-    expect(db.exec).toHaveBeenCalledTimes(1);
+    // One probe for the shared handle, not one per repository consumer.
+    const probeCalls = db.query.mock.calls.filter(([sql]) =>
+      String(sql).includes("to_regclass('public.' || required.relation) IS NULL")
+    );
+    expect(probeCalls).toHaveLength(1);
   });
 });
 
 describe('createPgliteAssistantThreadRepository integration', () => {
   let pgliteDataDir: string | undefined;
 
-  afterEach(async () => {
-    if (pgliteDataDir) {
-      await wasmLoader.closeCached(pgliteDataDir);
-      pgliteDataDir = undefined;
-    }
-  });
-
   it('persists an explicit initial title in the same operation that creates the thread', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-create-with-title');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     const thread = await repository.createThread('workspace-a', 'Evidence review');
@@ -3123,7 +3957,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('round-trips the durable operating-root binding through thread metadata', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-operating-root');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a', 'Bound thread');
 
@@ -3142,9 +3976,130 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     });
   });
 
+  it('persists and reloads a worktree checkout', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-worktree-checkout');
+    const db = await createMigratedTestPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await repository.updateThreadMetadata(thread.id, {
+      checkoutBranch: 'bs/bright-fox',
+      checkoutLocalRootId: 'root-local',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-1',
+      checkoutWorktreePath: '/managed/repo/bright-fox',
+    });
+
+    const [reloaded] = await repository.listThreads('r');
+    expect(reloaded?.metadata).toMatchObject({
+      checkoutBranch: 'bs/bright-fox',
+      checkoutLocalRootId: 'root-local',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-1',
+      checkoutWorktreePath: '/managed/repo/bright-fox',
+    });
+
+    await repository.updateThreadMetadata(thread.id, { checkoutMode: 'local' });
+
+    const [local] = await repository.listThreads('r');
+    expect(local?.metadata).toMatchObject({ checkoutMode: 'local' });
+    expect(local?.metadata?.checkoutBranch).toBeUndefined();
+    expect(local?.metadata?.checkoutLocalRootId).toBeUndefined();
+    expect(local?.metadata?.checkoutWorktreeId).toBeUndefined();
+    expect(local?.metadata?.checkoutWorktreePath).toBeUndefined();
+  });
+
+  it('loads a legacy persisted worktree checkout with no durable Local root id', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-legacy-worktree-checkout');
+    const db = await createMigratedTestPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+    const legacyMetadata = {
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-legacy',
+      checkoutWorktreePath: '/managed/repo/legacy-worktree',
+    } as const;
+
+    await db.query('UPDATE mastra_threads SET metadata = $2::jsonb WHERE id = $1', [
+      thread.id,
+      JSON.stringify(legacyMetadata),
+    ]);
+
+    const [reloaded] = await repository.listThreads('r');
+    expect(reloaded?.metadata).toEqual(legacyMetadata);
+    expect(reloaded?.metadata?.checkoutLocalRootId).toBeUndefined();
+  });
+
+  it('persists a local checkout with no worktree keys', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-local-checkout');
+    const db = await createMigratedTestPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await repository.updateThreadMetadata(thread.id, { checkoutMode: 'local' });
+
+    const [reloaded] = await repository.listThreads('r');
+    expect(reloaded?.metadata?.checkoutMode).toBe('local');
+    expect(reloaded?.metadata?.checkoutWorktreeId).toBeUndefined();
+  });
+
+  it('rejects a worktree checkout missing its authority id', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-incomplete-worktree-checkout');
+    const db = await createMigratedTestPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await expect(
+      repository.updateThreadMetadata(thread.id, {
+        checkoutLocalRootId: 'root-local',
+        checkoutMode: 'worktree',
+        checkoutWorktreePath: '/managed/repo/bright-fox',
+      })
+    ).rejects.toThrow('Assistant thread checkout metadata is incomplete.');
+  });
+
+  it('rejects a worktree id with no mode', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-modeless-worktree-checkout');
+    const db = await createMigratedTestPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await expect(
+      repository.updateThreadMetadata(thread.id, { checkoutWorktreeId: 'w-1' })
+    ).rejects.toThrow('Assistant thread checkout metadata is incomplete.');
+  });
+
+  it('rejects a local checkout that still carries worktree keys', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-inconsistent-local-checkout');
+    const db = await createMigratedTestPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await expect(
+      repository.updateThreadMetadata(thread.id, {
+        checkoutMode: 'local',
+        checkoutWorktreeId: 'w-1',
+        checkoutWorktreePath: '/managed/repo/bright-fox',
+      })
+    ).rejects.toThrow('Assistant thread checkout metadata is inconsistent.');
+  });
+
+  it('rejects an unknown checkout mode rather than coercing it', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-unknown-checkout');
+    const db = await createMigratedTestPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await expect(
+      repository.updateThreadMetadata(thread.id, {
+        checkoutMode: 'cloud' as unknown as 'local',
+      })
+    ).rejects.toThrow('Invalid assistant thread metadata checkout mode.');
+  });
+
   it('persists carousel topology before Mastra content and hydrates the selected edit branch', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-message-carousel-topology');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
     const edges = [
@@ -3201,7 +4156,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('topologically hydrates regeneration after Mastra updates the reused user timestamp', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-regeneration-topology-order');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -3286,7 +4241,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('replays the first regenerated response in a legacy thread as an assistant sibling', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-legacy-regeneration');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -3334,12 +4289,12 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   describe('soft-rewind tombstone hydration (BST-1115)', () => {
     async function seedRewindThread(dataDirName: string): Promise<{
-      db: Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
+      db: Awaited<ReturnType<typeof createMigratedTestPGlite>>;
       repository: AssistantThreadRepository;
       threadId: string;
     }> {
       pgliteDataDir = createPgliteTestDataDir(dataDirName);
-      const db = await wasmLoader.createPGlite(pgliteDataDir);
+      const db = await createMigratedTestPGlite(pgliteDataDir);
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       const thread = await repository.createThread('workspace-a');
       for (const [index, id] of ['message-1', 'message-2', 'message-3'].entries()) {
@@ -3563,7 +4518,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('deletes messages and cascades thread runs and run events in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-delete-cascade');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -3588,7 +4543,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       threadId: thread.id,
     });
     await repository.createThreadRun({
-      id: 'run-delete',
+      id: 'run-delete' as HostRunId,
       model: 'gpt-test',
       provider: 'openai',
       resourceId: 'workspace-a',
@@ -3690,7 +4645,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('atomically deletes many threads and every explicitly owned row in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-delete');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const first = await repository.createThread('workspace-a');
     const second = await repository.createThread('workspace-a');
@@ -3847,7 +4802,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('emits a single tombstone op per delete; idempotent deletes emit none (BST-993)', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-delete-mind-ops');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
     // Placements now cascade on the SINGLE-thread path too — previously only
@@ -3886,7 +4841,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('rejects an unknown bulk-delete id without deleting known threads', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-delete-unknown');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
     // The placements table is bootstrapped by the repository itself now that
@@ -3906,7 +4861,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // constraint), so deleteThread must explicitly delete its rows or up to
     // 32 MB/thread of before_content is stranded until factory reset.
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-delete-checkpoints');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -3940,7 +4895,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('persists curated metadata without changing conversational recency', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-curated-metadata');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
     const conversationalUpdatedAt = new Date('2026-04-22T08:00:00.000Z');
@@ -3966,7 +4921,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('atomically updates curated metadata for many threads without changing recency', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-metadata');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const first = await repository.createThread('workspace-a');
     const second = await repository.createThread('workspace-a');
@@ -4001,9 +4956,20 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ]);
   });
 
+  it('rejects checkout transitions through the bulk metadata writer', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-checkout-metadata');
+    const db = await createMigratedTestPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    await expect(
+      repository.updateThreadsMetadata([thread.id], { checkoutMode: 'local' })
+    ).rejects.toThrow('Bulk assistant thread metadata updates cannot change checkout state.');
+  });
+
   it('rejects an unknown bulk metadata id without changing known threads', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-metadata-unknown');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -4017,7 +4983,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('seeds a new thread as OM-overwritable, then a manual rename clears the marker', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-title-marker');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
@@ -4032,7 +4998,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('records run usage and aggregates cumulative tokens per model in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-run-usage-cumulative');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     // Same thread, three runs across TWO models — cost must be attributable
@@ -4162,7 +5128,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('aggregates provider-reported and legacy usage separately in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-run-usage-mixed-cost');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     await repository.recordRunUsage({
@@ -4209,7 +5175,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('returns null cumulative usage for a thread with no recorded runs', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-run-usage-empty');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     await expect(repository.getThreadCumulativeUsage('never-seen')).resolves.toBeNull();
@@ -4217,7 +5183,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('aggregates cross-root usage per (root, model), including a null root bucket', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-cross-root-usage');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     // The aggregation LEFT JOINs roots for display names (production has the
@@ -4336,7 +5302,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('returns an empty cross-root usage list for a workspace with no usage', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-cross-root-usage-empty');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     // roots exists in production (migration 039); the aggregation joins it.
@@ -4349,7 +5315,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('records one outcome label per run and upserts later verdicts in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-run-outcome-upsert');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     await repository.recordRunOutcome({
@@ -4386,7 +5352,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // AND the byte-consistent main-process writer in apps/desktop
     // assistant-server/run-persistence.ts recordDesktopAssistantHookRunOutcome).
     pgliteDataDir = createPgliteTestDataDir('assistant-run-outcome-hook-precedence');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
 
     await repository.recordRunOutcome({
@@ -4435,14 +5401,14 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
   it('aggregates the run ledger across usage, tool events, checkpoints, and outcomes in real PGlite', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-run-ledger');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
 
     // Run 1: completed, two usage rows (one with exact billed cost), two tool
     // completions + one tool failure, two edits (one later reverted), no label.
     await repository.createThreadRun({
-      id: 'run-1',
+      id: 'run-1' as HostRunId,
       model: 'claude-sonnet-5',
       provider: 'anthropic',
       resourceId: 'workspace-a',
@@ -4536,7 +5502,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
     // Run 2: newer, failed transport, no usage/events, labeled failed by revert.
     await repository.createThreadRun({
-      id: 'run-2',
+      id: 'run-2' as HostRunId,
       model: 'gpt-5.2',
       provider: 'openai',
       resourceId: 'workspace-a',
@@ -4557,7 +5523,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
     // A different workspace must not bleed into the ledger.
     await repository.createThreadRun({
-      id: 'run-other',
+      id: 'run-other' as HostRunId,
       model: 'gpt-5.2',
       provider: 'openai',
       resourceId: 'workspace-b',
@@ -4623,11 +5589,11 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     // RUN_LEDGER_AGGREGATION_SQL through live.query, so the shared SQL must
     // bind each parameter exactly once. Caught live on desktop (2026-07-16).
     pgliteDataDir = createPgliteTestDataDir('assistant-run-ledger-live');
-    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const db = await createMigratedTestPGlite(pgliteDataDir);
     const repository = createPgliteAssistantThreadRepository(db as DbHandle);
     const thread = await repository.createThread('workspace-a');
     await repository.createThreadRun({
-      id: 'run-live',
+      id: 'run-live' as HostRunId,
       model: 'claude-sonnet-5',
       provider: 'anthropic',
       resourceId: 'workspace-a',
@@ -4676,9 +5642,16 @@ function createMockDb(): {
     >
   >;
 } {
+  const query = vi.fn(async () => ({ rows: [] }));
+  // The repository PROBES for its schema once per handle (BST-1651) before any
+  // behavior under test runs, and that probe is a QUERY where the retired
+  // bootstrap was an `exec`. Consuming the first slot here keeps every suite's
+  // `mockResolvedValueOnce` aligned with the first REAL query, exactly as it
+  // was when the schema arrived through `exec`.
+  query.mockResolvedValueOnce({ rows: [] });
   const db = {
     exec: vi.fn(async () => undefined),
-    query: vi.fn(async () => ({ rows: [] })),
+    query,
   };
   return {
     ...db,

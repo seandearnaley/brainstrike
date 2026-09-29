@@ -484,7 +484,7 @@ function workspacePackageDirs() {
  * through the `build` task — its `outputs: ["dist/**"]` is what the nested
  * turbo snapshots (`type-check` and `test` have `outputs: []` in turbo.jsonc).
  * An emitting tsc elsewhere (e.g. apps/web's `type-check` running
- * `tsc --build --force` over referenced packages) can refresh dist but cannot
+ * `tsc --build` over referenced packages) can refresh dist but cannot
  * create orphans (tsc only emits current program outputs) and cannot be
  * snapshotted; the prune preceding every snapshot-producing build launders
  * dist before archiving.

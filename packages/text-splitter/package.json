@@ -2,7 +2,7 @@
   "name": "@brainstrike/text-splitter",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/tokenization": "workspace:*"
+    "@brainstrike/indexing-contract": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

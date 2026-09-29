@@ -1076,6 +1076,114 @@ describe('git service — repository browser', () => {
     });
   });
 
+  it('creates and checks out a new local branch from an explicit start point', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'file.txt', 'initial\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+
+    const created = await service.createBranch({ branch: 'bs/bright-fox', startPoint: 'HEAD' });
+    expect(created).toEqual({ ok: true, value: { branch: 'bs/bright-fox' } });
+
+    const status = await service.status();
+    expect(status.ok && status.value.branch).toBe('bs/bright-fox');
+  });
+
+  it('creates the branch at the GIVEN start point, not silently at HEAD (Minor 4)', async () => {
+    const repo = await makeRepo('brainstrike-git-create-branch-startpoint-');
+    await writeFile(repo, 'file.txt', 'first\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'first commit'], { cwd: repo });
+    const firstCommit = (
+      await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })
+    ).stdout.trim();
+
+    // A second commit moves HEAD forward, so "starts at HEAD" and "starts at
+    // the first commit" become distinguishable outcomes.
+    await writeFile(repo, 'file.txt', 'second\n');
+    await execFileAsync('git', ['commit', '-qam', 'second commit'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+
+    const created = await service.createBranch({
+      branch: 'bs/from-first-commit',
+      startPoint: firstCommit,
+    });
+    expect(created).toEqual({ ok: true, value: { branch: 'bs/from-first-commit' } });
+
+    const resolved = (
+      await execFileAsync('git', ['rev-parse', 'bs/from-first-commit'], { cwd: repo })
+    ).stdout.trim();
+    expect(resolved).toBe(firstCommit);
+  });
+
+  it('refuses a branch name that already exists rather than silently switching', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'file.txt', 'initial\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+
+    await service.createBranch({ branch: 'bs/bright-fox', startPoint: 'HEAD' });
+    const again = await service.createBranch({ branch: 'bs/bright-fox', startPoint: 'HEAD' });
+    expect(again).toEqual({ error: 'local branch "bs/bright-fox" already exists', ok: false });
+  });
+
+  it('rejects an empty branch name and the "-" shorthand', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'file.txt', 'initial\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+
+    expect(await service.createBranch({ branch: '' })).toEqual({
+      error: 'branch must be a non-empty string',
+      ok: false,
+    });
+    expect(await service.createBranch({ branch: '-' })).toEqual({
+      error: 'local branch "-" is not supported',
+      ok: false,
+    });
+  });
+
+  it('refuses an option-looking branch name as a visible git error, never a flag parse (Minor 5)', async () => {
+    // Mirrors switchBranch's "switches to an option-looking local branch"
+    // parity test above, but createBranch's `-c <branch>` has no existing ref
+    // to disambiguate against — git itself refuses `--force` as a ref name
+    // (confirmed against real git: exit 128, "not a valid branch name"),
+    // rather than silently treating it as the `--force` flag to `switch`.
+    const repo = await makeRepo('brainstrike-git-create-branch-option-');
+    await writeFile(repo, 'file.txt', 'initial\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+
+    const created = await service.createBranch({ branch: '--force' });
+
+    expect(created.ok).toBe(false);
+    if (!created.ok) {
+      expect(created.error).not.toBe('');
+    }
+    const branches = await execFileAsync('git', ['branch', '--list'], { cwd: repo });
+    expect(branches.stdout).not.toContain('force');
+  });
+
+  it('rejects an empty startPoint rather than silently falling back to HEAD (Minor 6)', async () => {
+    const repo = await makeRepo('brainstrike-git-create-branch-empty-startpoint-');
+    await writeFile(repo, 'file.txt', 'initial\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+
+    // Exercises the SAME path the IPC handler now forwards an explicit ''
+    // startPoint through (git-ipc-handlers.ts no longer drops it on
+    // falsiness) — this is the service-side half of that contract.
+    expect(await service.createBranch({ branch: 'bs/empty-startpoint', startPoint: '' })).toEqual({
+      error: 'startPoint must be a non-empty string when supplied',
+      ok: false,
+    });
+  });
+
   it('switches only to an existing local branch and reports the new branch', async () => {
     const repo = await makeRepo('brainstrike-git-switch-');
     await writeFile(repo, 'file.txt', 'main\n');
@@ -2167,5 +2275,149 @@ describe('git service — structuredFileDiff commit/range modes (real repos, BST
     expect(result.value.hunks).toEqual([]);
     expect(result.value.additions).toBeNull();
     expect(result.value.deletions).toBeNull();
+  });
+});
+
+describe('git service — forgeRepositoryContext (real repos, BST-1391 review)', () => {
+  async function makeRepoWithCommit(prefix?: string): Promise<string> {
+    const repo = await makeRepo(prefix);
+    await writeFile(repo, 'README.md', '# repository\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    return repo;
+  }
+
+  async function currentBranch(repo: string): Promise<string> {
+    const { stdout } = await execFileAsync('git', ['symbolic-ref', '--short', 'HEAD'], {
+      cwd: repo,
+    });
+    return stdout.trim();
+  }
+
+  it('reports branch: null on a detached HEAD', async () => {
+    const repo = await makeRepoWithCommit('brainstrike-git-forge-detached-');
+    const { stdout: headSha } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    await execFileAsync('git', ['checkout', '-q', '--detach', headSha.trim()], { cwd: repo });
+
+    const result = await serviceFor(repo).forgeRepositoryContext();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.branch).toBeNull();
+  });
+
+  it('states a reason when the repository has no remotes', async () => {
+    const repo = await makeRepoWithCommit('brainstrike-git-forge-noremote-');
+
+    const result = await serviceFor(repo).forgeRepositoryContext();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.remoteUrl).toBeNull();
+    expect(result.value.remoteReason).toBe('The repository has no git remotes.');
+  });
+
+  it('states a reason for multiple remotes with no "origin" (resolveDefaultRemote leaves it unconfigured)', async () => {
+    const repo = await makeRepoWithCommit('brainstrike-git-forge-multiremote-');
+    await execFileAsync('git', ['remote', 'add', 'upstream', 'https://example.com/upstream.git'], {
+      cwd: repo,
+    });
+    await execFileAsync('git', ['remote', 'add', 'fork', 'https://example.com/fork.git'], {
+      cwd: repo,
+    });
+
+    const result = await serviceFor(repo).forgeRepositoryContext();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.remoteUrl).toBeNull();
+    expect(result.value.remoteReason).toBe(
+      'The repository has 2 remotes and no "origin" — set a branch upstream to choose one.'
+    );
+  });
+
+  it('states a reason when the branch tracks a configured remote that no longer exists', async () => {
+    const repo = await makeRepoWithCommit('brainstrike-git-forge-unknownremote-');
+    await execFileAsync('git', ['remote', 'add', 'origin', 'https://example.com/origin.git'], {
+      cwd: repo,
+    });
+    const branch = await currentBranch(repo);
+    await execFileAsync('git', ['config', `branch.${branch}.remote`, 'ghost'], { cwd: repo });
+
+    const result = await serviceFor(repo).forgeRepositoryContext();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.remoteUrl).toBeNull();
+    expect(result.value.remoteReason).toBe('current branch names unknown remote "ghost"');
+  });
+
+  it('states a reason when `git remote get-url` fails', async () => {
+    const repo = await makeRepoWithCommit('brainstrike-git-forge-geturlfail-');
+    await execFileAsync('git', ['remote', 'add', 'origin', 'https://example.com/origin.git'], {
+      cwd: repo,
+    });
+    const failGetUrlRunner: GitCommandRunner = (params) => {
+      if (params.args[0] === 'remote' && params.args[1] === 'get-url') {
+        return Promise.resolve({
+          exitCode: 1,
+          stderr: "fatal: simulated get-url failure for 'origin'",
+          stdout: '',
+          timedOut: false,
+        });
+      }
+      return execFileGitRunner(params);
+    };
+
+    const result = await createGitService({
+      cwd: repo,
+      run: failGetUrlRunner,
+    }).forgeRepositoryContext();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.remoteUrl).toBeNull();
+    expect(result.value.remoteReason).toBe(
+      'git could not read the URL of remote "origin": fatal: simulated get-url failure for \'origin\''
+    );
+  });
+
+  // TDD (S5b): a successful `git remote get-url` exit with EMPTY stdout used
+  // to pair `remoteUrl: ''` with `remoteReason: null`, violating the type's
+  // own documented invariant ("remoteReason is non-null exactly when
+  // remoteUrl is null") and sending '' into parseForgeRemote downstream.
+  it('treats an empty `git remote get-url` stdout as a stated failure, never `remoteUrl: ""`', async () => {
+    const repo = await makeRepoWithCommit('brainstrike-git-forge-emptyurl-');
+    await execFileAsync('git', ['remote', 'add', 'origin', 'https://example.com/origin.git'], {
+      cwd: repo,
+    });
+    const emptyGetUrlRunner: GitCommandRunner = (params) => {
+      if (params.args[0] === 'remote' && params.args[1] === 'get-url') {
+        return Promise.resolve({ exitCode: 0, stderr: '', stdout: '', timedOut: false });
+      }
+      return execFileGitRunner(params);
+    };
+
+    const result = await createGitService({
+      cwd: repo,
+      run: emptyGetUrlRunner,
+    }).forgeRepositoryContext();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.remoteUrl).toBeNull();
+    expect(result.value.remoteReason).toBe('git returned an empty URL for remote "origin"');
   });
 });

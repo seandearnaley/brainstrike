@@ -9,7 +9,6 @@ import type {
   UpdatePromptItemInput,
 } from '@brainstrike/db';
 import {
-  Badge,
   Button,
   cn,
   Dialog,
@@ -24,7 +23,6 @@ import {
 import {
   ArrowUpRight,
   BookOpenText,
-  Braces,
   Check,
   CircleAlert,
   Clock3,
@@ -51,16 +49,22 @@ import {
   useState,
 } from 'react';
 import { extractPromptTemplateVariables, renderPromptTemplate } from './prompt-template';
+import { PromptBuilderDialog } from './prompt-workbench-builder-dialog';
+import {
+  buildPromptModelSettings,
+  promptWorkbenchErrorMessage as errorMessage,
+  KIND_COPY,
+  PROMPT_KINDS,
+  type PromptDraft,
+  type PromptWorkbenchModelOption,
+} from './prompt-workbench-shared';
 
 export type PromptWorkbenchRepository = Pick<
   PromptItemRepository,
   'create' | 'list' | 'recordUsage' | 'update'
 >;
 
-export interface PromptWorkbenchModelOption {
-  readonly key: string;
-  readonly label: string;
-}
+export type { PromptWorkbenchModelOption } from './prompt-workbench-shared';
 
 export interface PromptWorkbenchPanelProps {
   readonly activeThreadId?: string;
@@ -86,55 +90,6 @@ type KindFilter = 'all' | PromptItemKind;
 interface PendingUse {
   readonly action: PromptItemUsageAction;
   readonly item: PromptItem;
-}
-
-interface PromptDraft {
-  content: string;
-  description: string;
-  isFavorite: boolean;
-  kind: PromptItemKind;
-  modelKey: string;
-  sourceUrl: string;
-  tags: string;
-  title: string;
-}
-
-const PROMPT_KINDS: readonly PromptItemKind[] = ['fragment', 'snippet', 'prompt'];
-
-const KIND_COPY: Record<PromptItemKind, { label: string; short: string }> = {
-  fragment: { label: 'Idea fragment', short: 'Fragment' },
-  prompt: { label: 'Runnable prompt', short: 'Prompt' },
-  snippet: { label: 'Reusable snippet', short: 'Snippet' },
-};
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message.trim()
-    ? error.message
-    : `Unexpected prompt workbench failure: ${String(error)}`;
-}
-
-function toDraft(item: PromptItem | null): PromptDraft {
-  return item
-    ? {
-        content: item.content,
-        description: item.description ?? '',
-        isFavorite: item.isFavorite,
-        kind: item.kind,
-        modelKey: item.modelKey ?? '',
-        sourceUrl: item.sourceUrl ?? '',
-        tags: item.tags.join(', '),
-        title: item.title,
-      }
-    : {
-        content: '',
-        description: '',
-        isFavorite: false,
-        kind: 'prompt',
-        modelKey: '',
-        sourceUrl: '',
-        tags: '',
-        title: '',
-      };
 }
 
 function tagsFromDraft(tags: string): string[] {
@@ -323,223 +278,6 @@ function EmbeddingState({ item }: { readonly item: PromptItem }) {
     <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
       <Clock3 aria-hidden="true" className="size-2.5" /> Indexing
     </span>
-  );
-}
-
-function PromptBuilderDialog({
-  item,
-  modelOptions,
-  onClose,
-  onSave,
-}: {
-  readonly item: PromptItem | null;
-  readonly modelOptions: readonly PromptWorkbenchModelOption[];
-  readonly onClose: () => void;
-  readonly onSave: (draft: PromptDraft) => Promise<void>;
-}) {
-  const [draft, setDraft] = useState<PromptDraft>(() => toDraft(item));
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const variables = useMemo(() => extractPromptTemplateVariables(draft.content), [draft.content]);
-  const unavailableModelKey =
-    draft.modelKey && !modelOptions.some((option) => option.key === draft.modelKey)
-      ? draft.modelKey
-      : null;
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(null);
-    setSaving(true);
-    try {
-      await onSave(draft);
-      setSaving(false);
-      onClose();
-    } catch (cause) {
-      setError(errorMessage(cause));
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog onOpenChange={(open) => !open && onClose()} open>
-      <DialogContent className="max-h-[min(90vh,780px)] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <div className="mb-1 flex items-center gap-2 text-sky-600 dark:text-sky-300">
-            <WandSparkles aria-hidden="true" className="size-4" />
-            <span className="font-medium text-[11px] uppercase tracking-[0.16em]">
-              Prompt builder
-            </span>
-          </div>
-          <DialogTitle>{item ? `Edit ${item.title}` : 'Build a prompt'}</DialogTitle>
-          <DialogDescription>
-            Keep the intent separate from the reusable instruction. Variables use{' '}
-            <code className="rounded bg-muted px-1 py-0.5 text-foreground">{'{{name}}'}</code>.
-          </DialogDescription>
-        </DialogHeader>
-
-        <form className="grid gap-4" onSubmit={submit}>
-          <div className="grid gap-4 sm:grid-cols-[1fr_180px]">
-            <div className="grid gap-1.5">
-              <Label htmlFor="prompt-builder-title">Title</Label>
-              <Input
-                autoFocus
-                id="prompt-builder-title"
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, title: event.target.value }))
-                }
-                placeholder="e.g. Adversarial code review"
-                value={draft.title}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="prompt-builder-kind">Type</Label>
-              <select
-                className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                id="prompt-builder-kind"
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    kind: event.target.value as PromptItemKind,
-                  }))
-                }
-                value={draft.kind}
-              >
-                {PROMPT_KINDS.map((kind) => (
-                  <option key={kind} value={kind}>
-                    {KIND_COPY[kind].label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid gap-1.5">
-            <Label htmlFor="prompt-builder-intention">Intention</Label>
-            <Input
-              id="prompt-builder-intention"
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, description: event.target.value }))
-              }
-              placeholder="What job should this do, and when should it be recalled?"
-              value={draft.description}
-            />
-          </div>
-
-          <div className="grid gap-1.5">
-            <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="prompt-builder-content">Prompt text</Label>
-              <span className="text-[10px] text-muted-foreground">
-                {draft.content.length.toLocaleString()} characters
-              </span>
-            </div>
-            <textarea
-              className="min-h-48 w-full resize-y rounded-lg border border-input bg-background/80 px-3 py-3 font-mono text-[13px] leading-6 outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
-              id="prompt-builder-content"
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, content: event.target.value }))
-              }
-              placeholder="Write the reusable instruction…"
-              required
-              value={draft.content}
-            />
-            {variables.length > 0 ? (
-              <div
-                className="flex flex-wrap items-center gap-1.5"
-                data-testid="prompt-builder-variables"
-              >
-                <Braces aria-hidden="true" className="size-3.5 text-sky-500" />
-                {variables.map((variable) => (
-                  <Badge className="font-mono font-normal" key={variable} variant="outline">
-                    {variable}
-                  </Badge>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="grid gap-1.5">
-              <Label htmlFor="prompt-builder-tags">Recall tags</Label>
-              <Input
-                id="prompt-builder-tags"
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, tags: event.target.value }))
-                }
-                placeholder="review, evidence, security"
-                value={draft.tags}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="prompt-builder-model">Run with</Label>
-              <select
-                aria-label="Run with"
-                className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                id="prompt-builder-model"
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, modelKey: event.target.value }))
-                }
-                value={draft.modelKey}
-              >
-                <option value="">Current thread model</option>
-                {unavailableModelKey ? (
-                  <option disabled value={unavailableModelKey}>
-                    {`Unavailable · ${unavailableModelKey}`}
-                  </option>
-                ) : null}
-                {modelOptions.map((option) => (
-                  <option key={option.key} value={option.key}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
-            <div className="grid gap-1.5">
-              <Label htmlFor="prompt-builder-source">Source URL</Label>
-              <Input
-                id="prompt-builder-source"
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, sourceUrl: event.target.value }))
-                }
-                placeholder="Optional provenance"
-                type="url"
-                value={draft.sourceUrl}
-              />
-            </div>
-            <label className="flex h-10 cursor-pointer items-center gap-2 rounded-md border border-input px-3 text-sm">
-              <input
-                checked={draft.isFavorite}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, isFavorite: event.target.checked }))
-                }
-                type="checkbox"
-              />
-              <Star aria-hidden="true" className="size-3.5" /> Favorite
-            </label>
-          </div>
-
-          {error ? (
-            <p
-              className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive text-xs"
-              role="alert"
-            >
-              {error}
-            </p>
-          ) : null}
-
-          <DialogFooter>
-            <Button onClick={onClose} type="button" variant="ghost">
-              Cancel
-            </Button>
-            <Button disabled={saving || !draft.content.trim()} type="submit">
-              {saving ? 'Saving…' : item ? 'Save changes' : 'Save prompt'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -1162,6 +900,7 @@ export function PromptWorkbenchPanel({
         isFavorite: draft.isFavorite,
         kind: draft.kind,
         modelKey: draft.modelKey || null,
+        modelSettings: buildPromptModelSettings(draft.modelSettings, builderItem?.modelSettings),
         sourceUrl: draft.sourceUrl || null,
         tags: tagsFromDraft(draft.tags),
         title: draft.title,
@@ -1172,11 +911,10 @@ export function PromptWorkbenchPanel({
             ...common,
             expectedRevision: builderItem.revision,
             id: builderItem.id,
-            modelSettings: builderItem.modelSettings,
             note: 'Edited in Prompt Workbench',
             rating: builderItem.rating,
           } satisfies UpdatePromptItemInput)
-        : await repository.create({ ...common, modelSettings: null, rating: null });
+        : await repository.create({ ...common, rating: null });
       updateItems((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
       await notifyLibraryChanged();
     },

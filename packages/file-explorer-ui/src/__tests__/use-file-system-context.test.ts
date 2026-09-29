@@ -1,4 +1,4 @@
-import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileSystemWatchBatchMetadata } from '@brainstrike/file-system';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { FileSystemChange } from '@brainstrike/types';
@@ -6,6 +6,7 @@ import { useToast } from '@brainstrike/ui';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useOptionalTokenCacheContext } from '../indexing/token-cache-context';
 import { INJECT_ROOT_HANDLE_EVENT } from '../inject-root-handle-event';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import {
@@ -15,7 +16,38 @@ import {
 } from '../shell/file-explorer-refresh-event';
 import { RootDataDeletionProvider } from '../shell/root-data-deletion-context';
 import { useFileSystemInstance as useFileSystem } from '../shell/use-file-system-context';
-import { FileExplorerTestWrapper } from './test-helpers';
+import { createDeletionTestWrapper, FileExplorerTestWrapper } from './test-helpers';
+import { createTokenCacheTestWrapper } from './token-cache-test-helpers';
+
+// File-wide (vi.mock is hoisted above these imports and applies to every
+// test in this file, not just the one below): only the M2 test currently
+// mounts a TokenCacheProvider, but any future test that does will also get
+// this stub pool + fake worker URL. Real worker creation fails in jsdom (no
+// Worker global) and the worker-url resolver uses a Vite-only `?worker&url`
+// asset import, so TokenCacheProvider's `isOperational` would never flip
+// without these two mocks. Everything else (FileHasher, TokenCacheStore,
+// useTokenCache, the reducer/memo wiring under test) stays real — only the
+// two environment-incompatible boundary calls are stubbed.
+vi.mock('@brainstrike/token-cache/cache-runtime', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/token-cache/cache-runtime')>();
+  return {
+    ...actual,
+    createTokenCacheWorkerPool: vi.fn(() =>
+      Promise.resolve({
+        exec: vi.fn().mockResolvedValue({
+          contentHash: '',
+          id: '__warmup__',
+          mode: 'heuristic',
+          tokenCount: 0,
+        }),
+        terminate: vi.fn().mockResolvedValue(undefined),
+      })
+    ),
+  };
+});
+vi.mock('../indexing/resolve-token-cache-worker-url', () => ({
+  resolveTokenCacheWorkerUrlHref: vi.fn(() => 'file:///mock-token-cache-worker.js'),
+}));
 
 function useExposed() {
   const fs = useFileSystem();
@@ -611,6 +643,92 @@ describe('useFileSystem context hook', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Memo identity (BST-1446): useFileSystemInstance's returned object is a
+// useMemo with a dependency list that must be BOTH complete (every value the
+// factory closes over is listed) and stable (none of those values churn on
+// an unrelated re-render). These tests pin both halves of that contract —
+// see the deps-array comment in use-file-system-context.ts for the audit.
+// ---------------------------------------------------------------------------
+
+describe('useFileSystem — return-object memo identity', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('keeps the same object reference across a re-render with no file-system-relevant change', () => {
+    const { result, rerender } = renderHook(() => useExposed(), {
+      wrapper: FileExplorerTestWrapper,
+    });
+
+    const before = result.current.fs;
+
+    // Re-invoking the hook (an "unrelated" parent re-render — no store
+    // mutation, no coreApi state change) must not churn the memo: every
+    // local wrapper function (clearRootDirectory, selectRootDirectory,
+    // removeRootDirectory, registerRestoredHandles, setRootHandle) is
+    // useCallback-stabilized specifically so this holds.
+    act(() => {
+      rerender();
+    });
+
+    expect(result.current.fs).toBe(before);
+  });
+
+  it('publishes a new object whose value reflects a genuine data change (isAccessLoading)', () => {
+    const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });
+
+    const before = result.current.fs;
+    expect(before.isAccessLoading).toBe(false);
+
+    // Calling setAccessLoading(true) exercises coreApi.isAccessLoading — one
+    // of the FOUR ORIGINAL data deps already in the memo before this PR, not
+    // one of the newly-added entries (coreApi.setAccessLoading itself is a
+    // useCallback(..., []) in the core hook, so its identity never changes
+    // and adding it to deps is unobservable here). This is a "the fix didn't
+    // over-stabilize the memo into ignoring real changes" guard, not
+    // dedicated coverage for a previously-omitted dep.
+    act(() => {
+      result.current.fs.setAccessLoading(true);
+    });
+
+    expect(result.current.fs).not.toBe(before);
+    expect(result.current.fs.isAccessLoading).toBe(true);
+  });
+
+  it('holds fs identity across a token-cache-driven re-render (BST-1446 H1/M2)', async () => {
+    // Regression coverage for H1: removeRootDirectory used to depend on the
+    // WHOLE tokenCacheContext object, whose own memo chains to
+    // countTextTokens/isOperational/workerReady/etc — values that change on
+    // every file token-count and on worker warmup. That churned the outer
+    // return-object memo on every count. Narrowed to tokenCacheContext.store
+    // (the stable inner store), so a token-cache-only re-render — worker
+    // warmup flipping isOperational false→true, with NOTHING file-system-
+    // relevant changing — must not touch fs's identity.
+    function useExposedWithTokenCache() {
+      const fs = useFileSystem();
+      const store = useFileExplorerStoreContext();
+      const tokenCache = useOptionalTokenCacheContext();
+      return { fs, store, tokenCache };
+    }
+
+    const Wrapper = createTokenCacheTestWrapper();
+
+    const { result } = renderHook(() => useExposedWithTokenCache(), { wrapper: Wrapper });
+
+    expect(result.current.tokenCache?.isOperational).toBe(false);
+    const before = result.current.fs;
+
+    // Worker warmup resolves asynchronously (db=null uses the in-memory
+    // store + real worker pool) and republishes the token-cache context
+    // value at least once as isOperational flips true — this is the
+    // "token-cache-driven re-render" the H1 fix must survive.
+    await waitFor(() => expect(result.current.tokenCache?.isOperational).toBe(true));
+
+    expect(result.current.fs).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Debounce tests for handleWatcherChanges
 // These tests verify that multiple rapid file-system change notifications are
 // collapsed into a single FILE_EXPLORER_REFRESH_EVENT dispatch (300ms trailing
@@ -706,6 +824,89 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
             changes,
             rootId: 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff',
             rootPath: '/debounce-root',
+          },
+        ],
+        scope: 'incremental',
+        source: 'watcher',
+      });
+    } finally {
+      refreshCapture.cleanup();
+    }
+  });
+
+  it('merges filtered boundaries with visible changes under one explicit cap', async () => {
+    const refreshCapture = captureFileExplorerRefreshEvents();
+    let capturedCallback:
+      | ((changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void)
+      | null = null;
+    const handle: DirectoryHandle = {
+      kind: 'directory',
+      name: 'filtered-root',
+      path: '/filtered-omitted-root',
+      platform: 'web',
+      rootId: 'filtered-root-id',
+    } as DirectoryHandle;
+    const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
+      restoreLastFolder: vi.fn(async () => handle),
+      watchDirectory: vi.fn(
+        (
+          _handle: DirectoryHandle,
+          callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void
+        ) => {
+          capturedCallback = callback;
+          return vi.fn();
+        }
+      ),
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        FileExplorerTestWrapper,
+        {
+          mockFileSystemAdapter: adapterWithWatch,
+        },
+        children
+      );
+
+    try {
+      renderHook(() => useExposed(), { wrapper });
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+      if (!capturedCallback) {
+        throw new Error('watchDirectory callback was not registered');
+      }
+      const callback = capturedCallback as (
+        changes: FileSystemChange[],
+        metadata?: FileSystemWatchBatchMetadata
+      ) => void;
+      const visibleChange: FileSystemChange = {
+        kind: 'file',
+        path: '/filtered-omitted-root/src/visible.ts',
+        type: 'modified',
+      };
+      const firstBoundaries = Array.from({ length: 40 }, (_, index) => `repo-${index}/dist`);
+      const secondBoundaries = Array.from({ length: 40 }, (_, index) => `repo-${index + 32}/build`);
+
+      act(() => {
+        callback([], {
+          filteredChangeBoundaries: firstBoundaries,
+        });
+        callback([visibleChange]);
+        callback([], {
+          filteredChangeBoundaries: secondBoundaries,
+        });
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(refreshCapture.events).toHaveLength(1);
+      expect(refreshCapture.events[0]?.detail).toEqual({
+        roots: [
+          {
+            changes: [visibleChange],
+            filteredChangeBoundaries: [...firstBoundaries, ...secondBoundaries.slice(0, 24)],
+            filteredChangeBoundariesOverflow: true,
+            rootId: expect.any(String),
+            rootPath: '/filtered-omitted-root',
           },
         ],
         scope: 'incremental',
@@ -1319,6 +1520,40 @@ describe('useFileSystem — cascade delete (Phase 6)', () => {
 
     // No seam → fail loudly and keep the root connected (never silent no-op).
     expect(result.current.fs.rootDirectoryHandles).toHaveLength(1);
+  });
+
+  it('removeRootDirectory picks up a genuinely-changed deleteRootData instead of a stale closure (BST-1446 M1)', async () => {
+    // Regression coverage for the exhaustive-deps audit: removeRootDirectory
+    // is a local wrapper stabilized via useCallback([deleteRootData, ...]).
+    // Pre-fix it was a plain function omitted from the outer return-object
+    // memo's deps, so swapping the RootDataDeletionProvider's callback alone
+    // (nothing else the memo tracked changed) left `fs.removeRootDirectory`
+    // pointing at the FIRST render's closure — the wrong deleteRootData ran.
+    const storage = new MemoryStorageAdapter();
+    const deleteA = vi.fn().mockResolvedValue(undefined);
+    const deleteB = vi.fn().mockResolvedValue(undefined);
+    let activeDeleteRootData: typeof deleteA = deleteA;
+
+    const Wrapper = createDeletionTestWrapper(storage, () => activeDeleteRootData);
+
+    const { result, rerender } = renderHook(() => useExposed(), { wrapper: Wrapper });
+    const rootId = await addRoot(result);
+
+    // Swap to a genuinely different callback identity, then force a re-render
+    // that touches NOTHING else the memo tracks (no new root, no loading-state
+    // change) — this isolates the stale-closure failure mode from any other
+    // dep already covered elsewhere.
+    activeDeleteRootData = deleteB;
+    act(() => {
+      rerender();
+    });
+
+    await act(async () => {
+      await result.current.fs.removeRootDirectory(rootId, { deleteData: true });
+    });
+
+    expect(deleteB).toHaveBeenCalledExactlyOnceWith(rootId);
+    expect(deleteA).not.toHaveBeenCalled();
   });
 });
 

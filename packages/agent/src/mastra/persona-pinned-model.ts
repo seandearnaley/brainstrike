@@ -13,28 +13,38 @@
  */
 
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
+import { findProviderDefinition } from '@brainstrike/assistant-contract/provider-registry';
 import type { MastraModelConfig } from '@mastra/core/llm';
+import { apiKeyAuthInput, type ProviderAuthInput } from '../providers/provider-auth-input';
 import type { RuntimeData } from '../types';
 
 /**
- * Providers whose pins never need a bearer token. `local` is handled
- * separately (it needs the llm-host CLIENT, not a key); `ollama`/`lmstudio`
- * are local servers reached via `runtime.providerOptions` base URLs.
+ * Providers whose pins never need a bearer token — derived from the registry
+ * (`authType: 'none'`, BST-1349), never hand-listed. `local` is handled
+ * separately (it needs the llm-host CLIENT, not a key); the local servers
+ * are reached via `runtime.providerOptions` base URLs.
  * Exported so the desktop server's key-resolution loop shares one source.
  */
-export const PERSONA_PIN_KEYLESS_PROVIDERS: ReadonlySet<string> = new Set([
-  'local',
-  'ollama',
-  'lmstudio',
-]);
+export const PERSONA_PIN_KEYLESS_PROVIDERS: ReadonlySet<string> = new Set(
+  listProviders()
+    .filter((provider) => provider.authType === 'none')
+    .map((provider) => provider.id)
+);
 
 export interface CreatePersonaPinnedModelResolverParams {
-  /** The parent provider's resolved API key (reused for same-provider pins). */
-  readonly apiKey: string | undefined;
+  /**
+   * The parent provider's resolved auth input (reused for same-provider pins
+   * — BST-1352: the FULL input, so custom_fetch/aws pins stay intact).
+   */
+  readonly auth: ProviderAuthInput | undefined;
+  readonly inheritedModel?:
+    | { readonly name: string; readonly model: MastraModelConfig }
+    | undefined;
   /** Model instantiation seam (production: `createProvider`). */
   readonly instantiate: (
     provider: string,
-    apiKey: string | undefined,
+    auth: ProviderAuthInput | undefined,
     modelName: string,
     runtime: RuntimeData | undefined
   ) => MastraModelConfig;
@@ -60,12 +70,35 @@ export function createPersonaPinnedModelResolver(
     }
 
     if (pin.provider === params.parentProvider) {
-      return params.instantiate(pin.provider, params.apiKey, pin.modelId, params.runtime);
+      if (params.inheritedModel?.name === pin.modelId) {
+        return params.inheritedModel.model;
+      }
+      return params.instantiate(pin.provider, params.auth, pin.modelId, params.runtime);
+    }
+
+    if (findProviderDefinition(pin.provider)?.authType === 'aws') {
+      // Cross-provider pin keys are bearer STRINGS (personaProviderApiKeys)
+      // with no region seat, so an aws-authType pin (Bedrock) cannot be
+      // built even when a bearer is mapped — a region-less api_key input
+      // would only fail later and less legibly in the factory. Personas
+      // cannot pin Bedrock until BST-1353/BST-1358 design region-carrying
+      // pins (PR #2522 review, finding 5). Same-provider pins above DO work:
+      // they reuse the parent's full aws auth input, region included.
+      throw new Error(
+        `pinned provider '${pin.provider}' uses AWS auth, which persona pins cannot carry a region for yet (BST-1353/BST-1358); persona '${persona.id}' is skipped`
+      );
     }
 
     const mappedKey = params.runtime?.personaProviderApiKeys?.[pin.provider];
     if (mappedKey) {
-      return params.instantiate(pin.provider, mappedKey, pin.modelId, params.runtime);
+      // Cross-provider pin keys stay bearer strings (server-resolved from the
+      // secrets bridge); wrap through the ONE string→union adapter.
+      return params.instantiate(
+        pin.provider,
+        apiKeyAuthInput(mappedKey),
+        pin.modelId,
+        params.runtime
+      );
     }
 
     if (pin.provider === 'local') {

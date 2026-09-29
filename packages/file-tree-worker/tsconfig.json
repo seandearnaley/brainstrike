@@ -13,7 +13,12 @@
     "types": [
       "node"
     ],
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
+    ]
   },
   "include": [
     "src/**/*"
@@ -26,6 +31,9 @@
   "references": [
     {
       "path": "../worker-runtime"
+    },
+    {
+      "path": "../effect-kit"
     }
   ]
 }

@@ -1,11 +1,12 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
 vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({
-    thread: () => ({ append: vi.fn().mockResolvedValue(undefined) }),
+    thread: () => ({ append: vi.fn() }),
   }),
   useAuiState: (selector: (state: { thread: { messages: readonly unknown[] } }) => unknown) =>
     selector({ thread: { messages: [] } }),
@@ -56,10 +57,9 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ),
 }));
 
-import {
-  APPROVAL_PREVIEW_CHAR_CAP,
-  AssistantToolApprovalNotice,
-} from '../assistant-tool-approval-notice';
+import { APPROVAL_PREVIEW_CHAR_CAP } from '../approval-preview';
+import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
+import { expandApprovalRow } from './approval-row-helpers';
 
 beforeAll(() => {
   global.ResizeObserver = class {
@@ -97,8 +97,9 @@ describe('AssistantToolApprovalNotice diff preview', () => {
     expect(diff.getAttribute('data-original')).toBe('const answer = 0;');
     expect(diff.getAttribute('data-modified')).toBe('const answer = 42;');
     expect(diff.getAttribute('data-filename')).toBe('src/answer.ts');
-    expect(screen.getByText('src/answer.ts')).toBeInTheDocument();
-    expect(screen.getByText('workspace')).toBeInTheDocument();
+    expect(screen.getByTestId('approval-file-target-summary')).toHaveTextContent(
+      'Path: src/answer.ts · Workspace root: workspace'
+    );
     // Raw-JSON expander remains available as a secondary view.
     expect(
       screen.getByRole('button', { name: /expand tool approval details/i })
@@ -111,6 +112,7 @@ describe('AssistantToolApprovalNotice diff preview', () => {
       args: {
         content: 'export const x = 1;\n',
         path: 'src/new-file.ts',
+        root: 'workspace',
       },
       toolName: 'brainstrike.writeWorkspaceFile',
     });
@@ -119,7 +121,29 @@ describe('AssistantToolApprovalNotice diff preview', () => {
     expect(preview.getAttribute('data-value')).toBe('export const x = 1;\n');
     expect(preview.getAttribute('data-path')).toBe('src/new-file.ts');
     expect(screen.getByText(/Creates or overwrites/i)).toBeInTheDocument();
-    expect(screen.getByText('src/new-file.ts')).toBeInTheDocument();
+    expect(screen.getByTestId('approval-file-target-summary')).toHaveTextContent(
+      'Creates or overwrites · Path: src/new-file.ts · Workspace root: workspace'
+    );
+  });
+
+  it('visually bounds a long workspace root without shortening its semantic text', () => {
+    const longRoot = `workspace-${'a'.repeat(480)}`;
+    renderNotice({
+      ...baseRequest,
+      args: {
+        newStr: 'const answer = 42;',
+        oldStr: 'const answer = 0;',
+        path: 'src/answer.ts',
+        root: longRoot,
+      },
+      toolName: 'brainstrike.stringReplaceWorkspaceFile',
+    });
+
+    const rootLabel = screen.getByTestId('approval-workspace-root');
+    const rootValue = screen.getByTestId('approval-workspace-root-value');
+    expect(rootLabel).toHaveTextContent(`Workspace root: ${longRoot}`);
+    expect(rootValue).toHaveTextContent(longRoot);
+    expect(rootValue).toHaveAttribute('title', longRoot);
   });
 
   it('falls back to a visible note when file-tool args fail narrowing', () => {
@@ -262,6 +286,9 @@ describe('AssistantToolApprovalNotice execute command preview', () => {
     expect(screen.getByTestId('approval-command-cwd')).toHaveTextContent('packages/ui');
     expect(screen.getByTestId('approval-command-root')).toHaveTextContent('brainstrike');
     expect(screen.getByTestId('approval-command-timeout')).toHaveTextContent('240000 ms');
+    expect(screen.getByTestId('approval-command-root').closest('dl')).toHaveTextContent(
+      /Working directory\s*packages\/ui\s*Workspace\s*brainstrike\s*Timeout\s*240000 ms/
+    );
     expect(screen.queryByText('Selected workspace root (default)')).toBeNull();
   });
 
@@ -379,4 +406,45 @@ describe('AssistantToolApprovalNotice skill script preview', () => {
     expect(screen.queryByTestId('approval-skill-script-summary')).toBeNull();
     expect(screen.getByTestId('approval-preview-parse-error')).toBeInTheDocument();
   });
+});
+
+describe('durable delegated approval recovery', () => {
+  it.each(['claimed', 'consumed', 'interrupted', 'cancelled', 'unknown', undefined])(
+    'keeps the original tool preview but blocks a %s decision',
+    async (decisionState) => {
+      renderNotice({
+        ...baseRequest,
+        args: { command: 'pnpm build' },
+        decisionState,
+        delegation: {
+          path: [
+            {
+              childRuntimeRunId: 'child',
+              parentRuntimeRunId: baseRequest.runId,
+              parentToolCallId: baseRequest.toolCallId,
+              personaId: 'worker',
+            },
+          ],
+          toolCallId: 'leaf',
+        },
+        stale: true,
+        suspendedAt: '2026-09-10T00:00:00Z',
+        toolName: 'brainstrike.executeCommand',
+      });
+      // Every case carries a `decisionState` own key (the `undefined` one reads
+      // as 'invalid'), so the notice is locked and collapses into a row; the
+      // preview and buttons live in its expanded body.
+      await expandApprovalRow(userEvent.setup());
+      expect(screen.getByTestId('approval-command-code')).toHaveTextContent('pnpm build');
+      expect(
+        screen.queryByRole('button', { name: 'Approve brainstrike.executeCommand' })
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Decline brainstrike.executeCommand' })
+      ).not.toBeInTheDocument();
+      expect(screen.getByText('Tool decision')).toBeInTheDocument();
+      expect(screen.getByTestId('delegated-decision-recovery-status')).toBeInTheDocument();
+      expect(screen.queryByText(/re-running it may be safer/i)).not.toBeInTheDocument();
+    }
+  );
 });

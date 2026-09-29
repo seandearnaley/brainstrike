@@ -1,3 +1,4 @@
+import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { type Mock, vi } from 'vitest';
 
 /**
@@ -25,6 +26,8 @@ import { type Mock, vi } from 'vitest';
 
 interface MockSecretsService {
   deleteKey: Mock<(provider: string) => Promise<boolean>>;
+  /** BST-1352: the assistant POST + memory paths read the TYPED credential. */
+  getCredential: Mock<(provider: string) => Promise<{ key: string; type: 'api_key' } | null>>;
   getKey: Mock<(provider: string) => Promise<string | null>>;
   listProviders: Mock<() => Promise<string[]>>;
   saveKey: Mock<(provider: string, value: string) => Promise<boolean>>;
@@ -32,6 +35,9 @@ interface MockSecretsService {
 
 export const mockSecretsService: MockSecretsService = {
   deleteKey: vi.fn<(provider: string) => Promise<boolean>>(),
+  getCredential: vi.fn<(provider: string) => Promise<{ key: string; type: 'api_key' } | null>>(
+    (_provider: string) => Promise.resolve({ key: 'test-api-key', type: 'api_key' })
+  ),
   getKey: vi.fn<(provider: string) => Promise<string | null>>((_provider: string) =>
     Promise.resolve('test-api-key')
   ),
@@ -186,6 +192,8 @@ export function makePgliteMastraMemoryMock() {
         workflows: {},
       })
     ),
+    // The run-critical database wrapper reads it to classify snapshot reads.
+    MASTRA_WORKFLOW_TABLE,
   };
 }
 

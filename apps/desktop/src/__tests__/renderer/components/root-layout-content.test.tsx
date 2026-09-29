@@ -120,6 +120,17 @@ vi.mock('../../../renderer/components/terminal-page-content', () => ({
   default: () => <div data-testid="terminal-page-content" />,
 }));
 
+// The Worktrees Map surface is capability-gated the same way (default false =
+// web-safe).
+const worktreesBridgeAvailableMock = vi.fn(() => false);
+vi.mock('@brainstrike/app-shell/worktrees/availability', () => ({
+  isWorktreesBridgeAvailable: () => worktreesBridgeAvailableMock(),
+}));
+
+vi.mock('../../../renderer/components/worktree-map-page-content', () => ({
+  WorktreeMapPageContent: () => <div data-testid="worktree-map-page-content" />,
+}));
+
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   RootLayoutContent: (props: {
     contextExplorerPageContent: React.ReactNode;
@@ -127,6 +138,7 @@ vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
     navigationItems?: Array<{ name: string; path: string }>;
     promptsPageContent?: React.ReactNode;
     terminalPageContent?: React.ReactNode;
+    worktreeMapPageContent?: React.ReactNode;
   }) => {
     sharedRootLayoutCapture.props = props as Record<string, unknown>;
     const { contextExplorerPageContent, gitPageContent, navigationItems, terminalPageContent } =
@@ -231,10 +243,11 @@ describe('RootLayoutContent', () => {
     homeMountCount = 0;
     vi.clearAllMocks();
     sharedRootLayoutCapture.props = null;
-    // Default: Git + Terminal bridges unavailable (web-safe). clearAllMocks wiped
-    // the impls.
+    // Default: Git + Terminal + Worktrees bridges unavailable (web-safe).
+    // clearAllMocks wiped the impls.
     gitBridgeAvailableMock.mockReturnValue(false);
     terminalBridgeAvailableMock.mockReturnValue(false);
+    worktreesBridgeAvailableMock.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -311,6 +324,18 @@ describe('RootLayoutContent', () => {
     const terminalSlot = screen.getByTestId('terminal-page-slot');
     expect(terminalSlot).toBeInTheDocument();
     expect(within(terminalSlot).getByTestId('terminal-page-content')).toBeInTheDocument();
+  });
+
+  it('does NOT surface the Worktrees tab when window.worktrees is absent (web-safe gate)', () => {
+    worktreesBridgeAvailableMock.mockReturnValue(false);
+    render(<RootLayoutContent />);
+    expect(sharedRootLayoutCapture.props?.['worktreeMapPageContent']).toBeUndefined();
+  });
+
+  it('passes the Worktrees Map surface WITHOUT a nav item when window.worktrees is available (BST-1392)', () => {
+    worktreesBridgeAvailableMock.mockReturnValue(true);
+    render(<RootLayoutContent />);
+    expect(sharedRootLayoutCapture.props?.['worktreeMapPageContent']).toBeDefined();
   });
 
   it('keeps home content mounted while the database becomes available', async () => {

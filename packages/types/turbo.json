@@ -1,0 +1,55 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "topo": {
+      // BST-1773 guarded pilot: executable private specs do not affect
+      // downstream packages. Only executable test/spec filenames are excluded;
+      // helper modules in __tests__ remain hashed. Shared fixtures must live
+      // outside these filename patterns and
+      // remain in $TURBO_DEFAULT$; verify-private-test-input-locality rejects
+      // cross-package imports and filesystem reads before an exclusion is safe.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.test.*",
+        "!**/*.spec.*"
+      ]
+    },
+    "build": {
+      // tsconfig.json compiles src/**/*.ts only. Match topo's guarded private
+      // spec exclusion so build-only exception edges cannot carry a spec edit
+      // back into downstream test hashes.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.test.*",
+        "!**/*.spec.*"
+      ]
+    },
+    "test": {
+      // vitest.config.mts loads ../test-utils/vitest-lost-file-reporter.mjs (the
+      // BST-1221 lost-test-file reporter) by RELATIVE path rather than through a
+      // package dependency. Historically, declaring @brainstrike/test-utils
+      // here made turbo's graph cyclic while test-utils depended on types; the
+      // fixture extraction removed that reverse dependency, but the narrow
+      // file carrier remains the truthful dependency for this config read.
+      //
+      // That leaves a CROSS-PACKAGE file outside this package's input hash, so
+      // an edit to the reporter would replay a stale cached green here — the
+      // exact gap scripts/verify-config-load-hash-coverage.mjs flags (it failed
+      // on this during development). $TURBO_DEFAULT$ keeps the normal inputs;
+      // the extra entry folds the reporter into the hash. Mirrors
+      // packages/app-shell/turbo.json, the precedent that guard names.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/test-utils/vitest-lost-file-reporter.mjs"
+      ]
+    },
+    "test:coverage": {
+      // Same cross-package input as `test`: the coverage lane loads the same
+      // vitest.config.mts and therefore the same reporter file.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/test-utils/vitest-lost-file-reporter.mjs"
+      ]
+    }
+  }
+}

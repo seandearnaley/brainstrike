@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cleanupOldFolderStates,
   createNewFolderState,
+  getFocusedSelectionCount,
   saveFolderState,
 } from '../file-explorer-utils';
 
@@ -53,6 +54,7 @@ describe('file-explorer-utils', () => {
         isFiltersExpanded: true,
         lastActiveTab: 'files',
         maxSelectionCount: 50,
+        persistenceRecoveryNotice: null,
         querySelectionManifest: null,
         quickFilter: '',
         rootDescriptors: {},
@@ -143,6 +145,7 @@ describe('file-explorer-utils', () => {
         isFiltersExpanded: true,
         lastActiveTab: 'search',
         maxSelectionCount: 75,
+        persistenceRecoveryNotice: null,
         querySelectionManifest: null,
         quickFilter: '',
         rootDescriptors: {},
@@ -176,6 +179,93 @@ describe('file-explorer-utils', () => {
           viewFilterPresetId: null,
         },
       });
+    });
+    it('materializes descriptor overrides when saving a query-backed forest root', () => {
+      const mockState: FileExplorerData = {
+        activeRootIds: ['folder-a', 'folder-b'],
+        currentFolderId: 'folder-a',
+        devInlineFixtureEnabled: false,
+        disabledExcludeFilters: new Set<string>(),
+        disabledIncludeFilters: new Set<string>(),
+        excludeFilters: [],
+        expandedDirectoryPaths: new Set<string>(),
+        explorerScrollTop: 0,
+        fileContents: {},
+        folderAccessOrder: [],
+        folderStates: {
+          'folder-b': createNewFolderState(1000),
+        },
+        folderSummaryThreshold: DEFAULT_FOLDER_SUMMARY_THRESHOLD,
+        includeFilters: [],
+        includeProjectTree: true,
+        isAccessLoading: false,
+        isFilterChipsVisible: true,
+        isFiltersExpanded: true,
+        lastActiveTab: 'files',
+        maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
+        persistenceRecoveryNotice: null,
+        querySelectionManifest: {
+          directoryCounts: new Map<string, number>(),
+          errorMessage: null,
+          filePaths: ['a.ts'],
+          fingerprint: 'fingerprint-a',
+          pathSet: new Set(['a.ts']),
+          snapshotId: 'snapshot-a',
+          status: 'ready',
+        },
+        quickFilter: '',
+        rootDescriptors: {},
+        selectedFilePaths: new Set<string>(),
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: null,
+          materializedPaths: new Set(['a.ts']),
+          mode: 'query',
+          queryDescriptor: {
+            coveredDirectoryPaths: [],
+            excludedPaths: [],
+            excludeFilters: [],
+            folderId: 'folder-a',
+            includedPaths: ['b.ts'],
+            includeFilters: [],
+            kind: 'recursive-select-all',
+            manifestFingerprint: 'fingerprint-a',
+            manifestSnapshotId: 'snapshot-a',
+            rootPath: null,
+            totalSelectedCount: 2,
+            useRegex: false,
+          },
+        },
+        selectionVersion: 0,
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
+        useRegex: false,
+        viewFilterPresetId: null,
+      };
+
+      expect(getFocusedSelectionCount(mockState)).toBe(2);
+
+      const savedState = saveFolderState(mockState, 'folder-a', 2000);
+
+      expect(savedState['folder-a']?.selectedFilePaths).toEqual(
+        new Set(['folder-a|@|a.ts', 'folder-a|@|b.ts'])
+      );
+
+      for (const status of ['loading', 'error'] as const) {
+        mockState.querySelectionManifest = {
+          directoryCounts: new Map<string, number>(),
+          errorMessage: status === 'error' ? 'snapshot unavailable' : null,
+          filePaths: [],
+          fingerprint: 'fingerprint-a',
+          pathSet: new Set<string>(),
+          snapshotId: 'snapshot-a',
+          status,
+        };
+
+        expect(getFocusedSelectionCount(mockState)).toBe(2);
+        expect(saveFolderState(mockState, 'folder-a', 2000)['folder-a']?.selectedFilePaths).toEqual(
+          new Set(['folder-a|@|a.ts', 'folder-a|@|b.ts'])
+        );
+      }
     });
   });
 

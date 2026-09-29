@@ -12,6 +12,7 @@ import type {
   AnthropicEffort,
   AssistantProviderSettings,
   AssistantProviderSettingsUpdate,
+  BedrockReasoningEffort,
   GoogleThinkingLevel,
   OpenAiReasoningEffort,
 } from '@brainstrike/types';
@@ -33,6 +34,19 @@ export const OPENAI_EFFORT_LABELS: Record<OpenAiReasoningEffort, string> = {
 };
 
 export const ANTHROPIC_EFFORT_LABELS: Record<AnthropicEffort, string> = {
+  high: 'High',
+  low: 'Low',
+  max: 'Max',
+  medium: 'Medium',
+  xhigh: 'Extra',
+};
+
+/**
+ * Same words as the Anthropic ladder, kept as its own record because the two
+ * mirror independent upstream enums — an addition to either must not silently
+ * relabel the other's menu.
+ */
+export const BEDROCK_EFFORT_LABELS: Record<BedrockReasoningEffort, string> = {
   high: 'High',
   low: 'Low',
   max: 'Max',
@@ -62,6 +76,72 @@ export interface EffortControlModel {
   /** The radio value currently in effect ('auto' when unset). */
   currentValue: string;
   options: EffortOption[];
+}
+
+/**
+ * Bedrock's Effort submenu (BST-1354).
+ *
+ * Extracted rather than inlined in the family switch because Bedrock's ladder
+ * is PER MODEL, so it carries a case the other families do not: a persisted
+ * effort that this route does not offer. `buildBedrockOptions` declines to send
+ * such a value, so presenting it as the current selection would claim a
+ * reasoning depth the run does not have. The trigger therefore reads "Auto" —
+ * what actually runs — while the stale value stays visible as an explicitly
+ * unsupported option, because silently dropping a setting the user chose is its
+ * own small lie.
+ */
+function buildBedrockEffortControlModel(
+  efforts: readonly BedrockReasoningEffort[],
+  settings: AssistantProviderSettings
+): EffortControlModel {
+  const current = settings.bedrockEffort;
+  const isOffered = current !== undefined && efforts.includes(current);
+  const options: EffortOption[] = efforts.map((effort) => ({
+    isModelDefault: false,
+    label: BEDROCK_EFFORT_LABELS[effort],
+    value: effort,
+  }));
+  if (current !== undefined && !isOffered) {
+    options.push({
+      isModelDefault: false,
+      label: `${BEDROCK_EFFORT_LABELS[current]} (unsupported)`,
+      value: current,
+    });
+  }
+  return {
+    // Its own settings key, not `anthropicEffort` — Bedrock has no
+    // thinking-budget control, so the Anthropic pair would leave a toggle
+    // writing state the Bedrock request builder drops.
+    buildUpdate: (value) => ({
+      bedrockEffort: value === 'auto' ? undefined : (value as BedrockReasoningEffort),
+    }),
+    currentLabel: isOffered && current ? BEDROCK_EFFORT_LABELS[current] : 'Auto',
+    currentValue: isOffered && current ? current : 'auto',
+    options,
+  };
+}
+
+function buildGoogleThinkingLevelControlModel(
+  levels: readonly GoogleThinkingLevel[],
+  settings: AssistantProviderSettings
+): EffortControlModel {
+  const current = settings.googleThinkingLevel;
+  const isOffered = current !== undefined && levels.includes(current);
+  const options: EffortOption[] = levels.map((level) => ({
+    isModelDefault: false,
+    label: GOOGLE_THINKING_LEVEL_LABELS[level],
+    value: level,
+  }));
+  return {
+    // This model-aware control is the sole writer for `googleThinkingLevel`;
+    // the provider settings panel owns only the separate Include thoughts switch.
+    buildUpdate: (value) => ({
+      googleThinkingLevel: value === 'auto' ? undefined : (value as GoogleThinkingLevel),
+    }),
+    currentLabel: isOffered && current ? GOOGLE_THINKING_LEVEL_LABELS[current] : 'Auto',
+    currentValue: isOffered && current ? current : 'auto',
+    options,
+  };
 }
 
 /**
@@ -111,7 +191,15 @@ export function buildEffortControlModel(
       };
     }
     case 'anthropic': {
-      const current = settings.anthropicEffort;
+      if (availability.efforts.length === 0) {
+        return;
+      }
+      // Match the request guard: persisted efforts outside this model's
+      // offered ladder are absent, never an active selection or slider stop.
+      const current =
+        settings.anthropicEffort && availability.efforts.includes(settings.anthropicEffort)
+          ? settings.anthropicEffort
+          : undefined;
       return {
         // Parity with AnthropicReasoningSection's effort select.
         buildUpdate: (value) => ({
@@ -120,28 +208,16 @@ export function buildEffortControlModel(
         currentLabel: current ? ANTHROPIC_EFFORT_LABELS[current] : 'Auto',
         currentValue: current ?? 'auto',
         options: availability.efforts.map((effort) => ({
-          isModelDefault: false,
+          isModelDefault: availability.defaultEffort === effort,
           label: ANTHROPIC_EFFORT_LABELS[effort],
           value: effort,
         })),
       };
     }
-    case 'google': {
-      const current = settings.googleThinkingLevel;
-      return {
-        // Parity with GoogleThinkingSection's level select.
-        buildUpdate: (value) => ({
-          googleThinkingLevel: value === 'auto' ? undefined : (value as GoogleThinkingLevel),
-        }),
-        currentLabel: current ? GOOGLE_THINKING_LEVEL_LABELS[current] : 'Auto',
-        currentValue: current ?? 'auto',
-        options: availability.levels.map((level) => ({
-          isModelDefault: false,
-          label: GOOGLE_THINKING_LEVEL_LABELS[level],
-          value: level,
-        })),
-      };
-    }
+    case 'bedrock':
+      return buildBedrockEffortControlModel(availability.efforts, settings);
+    case 'google':
+      return buildGoogleThinkingLevelControlModel(availability.levels, settings);
     case 'local':
       return;
     default: {
@@ -253,6 +329,12 @@ export function buildThinkingToggleModel(
   }
 
   if (availability.family === 'anthropic') {
+    // BST-1706: always-on thinking has no off state, so a toggle that claims
+    // to switch it off must not render — the effort ladder above stays as the
+    // only control, matching what the vendor makes configurable.
+    if (availability.mandatory) {
+      return;
+    }
     const thinkingValue = clampNumber(
       settings.anthropicThinkingBudgetTokens ?? ANTHROPIC_THINKING_DEFAULT,
       ANTHROPIC_THINKING_MIN,
@@ -260,7 +342,7 @@ export function buildThinkingToggleModel(
     );
     return {
       // The toggle is authoritative for "is Claude thinking at all". An effort
-      // alone now implies adaptive thinking, so switching off must clear the
+      // on the offered ladder implies adaptive thinking, so switching off clears the
       // effort too — otherwise the runtime keeps requesting thinking while the
       // switch reads unchecked.
       buildUpdate: (checked) =>
@@ -269,7 +351,9 @@ export function buildThinkingToggleModel(
           : { anthropicEffort: undefined, anthropicThinkingBudgetTokens: undefined },
       checked:
         typeof settings.anthropicThinkingBudgetTokens === 'number' ||
-        Boolean(settings.anthropicEffort),
+        Boolean(
+          settings.anthropicEffort && availability.efforts.includes(settings.anthropicEffort)
+        ),
     };
   }
 

@@ -35,17 +35,26 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 });
 
 import { AssistantInvalidJsonError } from '@brainstrike/agent/hosted-web';
+import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
 import type { ScopedLogger } from '@brainstrike/logging';
+import type { ProviderCredentialReader } from '../ports';
+import {
+  createProviderApiKeyReader,
+  UnsupportedCredentialTypeError,
+} from '../provider-credential-projection';
 import {
   AssistantFilterPayloadError,
+  hydrateRuntimeDataWithLocalRuntimeToken,
   type PrepareAssistantPostRequestResult,
   prepareAssistantPostRequest,
 } from '../request';
 
-const resolveProviderApiKey = vi.fn<(provider: string) => Promise<string | undefined>>();
+const resolveProviderCredential = vi.fn<ProviderCredentialReader>();
 
 beforeEach(() => {
-  resolveProviderApiKey.mockReset().mockResolvedValue('test-api-key');
+  resolveProviderCredential
+    .mockReset()
+    .mockResolvedValue({ key: 'test-api-key', source: 'env', type: 'api_key' });
   logger.debug.mockReset();
   logger.fatal.mockReset();
   logger.trace.mockReset();
@@ -67,11 +76,60 @@ async function prepare(body: string): Promise<PrepareAssistantPostRequestResult>
   return await prepareAssistantPostRequest({
     logger,
     readBody: async () => body,
-    resolveProviderApiKey,
+    resolveProviderCredential,
   });
 }
 
+it('retains the exact accepted user input and parent edge for live replay discovery', async () => {
+  const result = await prepare(
+    JSON.stringify({
+      data: { provider: 'openai' },
+      inputParentMessageId: 'prior-assistant',
+      messages: [{ content: [{ text: 'Continue', type: 'text' }], id: 'new-user', role: 'user' }],
+    })
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.request.inputParentMessageId).toBe('prior-assistant');
+    expect(result.request.finalInputMessage).toMatchObject({
+      id: 'new-user',
+      parts: [{ text: 'Continue', type: 'text' }],
+      role: 'user',
+    });
+  }
+});
+
 describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
+  it('publishes parsed scope before slow credential resolution begins', async () => {
+    const credential =
+      Promise.withResolvers<Awaited<ReturnType<typeof resolveProviderCredential>>>();
+    let scopeRegistered = false;
+    resolveProviderCredential.mockImplementationOnce(async () => {
+      expect(scopeRegistered).toBe(true);
+      return credential.promise;
+    });
+    const pending = prepareAssistantPostRequest({
+      filterPayload: (payload) => {
+        expect(payload.data?.memory).toMatchObject({
+          resourceId: 'workspace',
+          threadId: 'thread-1',
+        });
+        scopeRegistered = true;
+        return payload;
+      },
+      logger,
+      readBody: async () =>
+        JSON.stringify({
+          data: { memory: { resourceId: 'workspace', threadId: 'thread-1' }, provider: 'openai' },
+          messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+        }),
+      resolveProviderCredential,
+    });
+    await vi.waitFor(() => expect(resolveProviderCredential).toHaveBeenCalled());
+    expect(scopeRegistered).toBe(true);
+    credential.resolve({ key: 'test-api-key', source: 'env', type: 'api_key' });
+    await pending;
+  });
   it('runs AFTER envelope parsing: the hook receives the parsed payload', async () => {
     const seen: unknown[] = [];
     await prepareAssistantPostRequest({
@@ -85,7 +143,7 @@ describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
           data: { provider: 'openai' },
           messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
         }),
-      resolveProviderApiKey,
+      resolveProviderCredential,
     });
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ data: { provider: 'openai' } });
@@ -103,7 +161,7 @@ describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
       filterPayload,
       logger,
       readBody: async () => '{"messages":[',
-      resolveProviderApiKey,
+      resolveProviderCredential,
     });
     expect(result.ok).toBe(false);
     expect(filterPayload).not.toHaveBeenCalled();
@@ -123,7 +181,7 @@ describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
           data: { provider: 'openai' },
           messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
         }),
-      resolveProviderApiKey,
+      resolveProviderCredential,
     });
     expect(result.ok).toBe(false);
     if (result.ok) {
@@ -144,7 +202,7 @@ describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
           messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
           runConfig: { custom: { 'not-a-valid-shape': { bogus: true } } },
         }),
-      resolveProviderApiKey,
+      resolveProviderCredential,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -169,7 +227,7 @@ describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
           data: { provider: 'openai' },
           messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
         }),
-      resolveProviderApiKey,
+      resolveProviderCredential,
     });
     await expect(promise).rejects.toBeInstanceOf(AssistantFilterPayloadError);
     await promise.catch((error: unknown) => {
@@ -331,7 +389,7 @@ describe('prepareAssistantPostRequest rejections', () => {
   });
 
   it('rejects a request when the provider API key is missing', async () => {
-    resolveProviderApiKey.mockResolvedValueOnce(undefined);
+    resolveProviderCredential.mockResolvedValueOnce(undefined);
 
     const result = await prepare(
       JSON.stringify({
@@ -361,7 +419,7 @@ describe('prepareAssistantPostRequest rejections', () => {
       { code: 'encryption_unavailable', provider: 'openrouter' }
     );
     secretReadError.name = 'SecretReadError';
-    resolveProviderApiKey.mockRejectedValueOnce(secretReadError);
+    resolveProviderCredential.mockRejectedValueOnce(secretReadError);
 
     const result = await prepare(
       JSON.stringify({
@@ -456,7 +514,7 @@ describe('prepareAssistantPostRequest rejections', () => {
       readBody: async () => {
         throw new AssistantRequestBodyTooLargeError();
       },
-      resolveProviderApiKey,
+      resolveProviderCredential,
     });
 
     expect(result.ok).toBe(false);
@@ -496,5 +554,422 @@ describe('prepareAssistantPostRequest rejections', () => {
         toolIdentifiers: ['unknown.tool', expect.stringMatching(/^sha256:[0-9a-f]{12}$/)],
       })
     );
+  });
+});
+
+describe('registry-derived keyless auth (BST-1349)', () => {
+  const providers = listProviders();
+
+  it('the registry derives exactly local, ollama, and lmstudio as keyless', () => {
+    const keyless = providers
+      .filter((provider) => provider.authType === 'none')
+      .map((provider) => provider.id)
+      .sort();
+    expect(keyless).toEqual(['lmstudio', 'local', 'ollama']);
+  });
+
+  it('accepts a keyless-provider request without any api key', async () => {
+    for (const provider of providers) {
+      if (provider.authType !== 'none') {
+        continue;
+      }
+      resolveProviderCredential.mockResolvedValueOnce(undefined);
+      const result = await prepare(
+        JSON.stringify({
+          data: { provider: provider.id },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        })
+      );
+      expect(result.ok, `${provider.id} must not require a key`).toBe(true);
+    }
+  });
+
+  it('rejects every api_key-provider request without a key', async () => {
+    for (const provider of providers) {
+      if (provider.authType !== 'api_key') {
+        continue;
+      }
+      resolveProviderCredential.mockResolvedValueOnce(undefined);
+      const result = await prepare(
+        JSON.stringify({
+          data: { provider: provider.id },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        })
+      );
+      expect(result.ok, `${provider.id} must require a key`).toBe(false);
+      if (result.ok) {
+        throw new Error('expected rejection');
+      }
+      expect(result.rejection.payload.error).toBe('missing_api_key');
+    }
+  });
+
+  it.each(['ollama', 'lmstudio'] as const)(
+    'proceeds keyless when the OPTIONAL %s token read fails with a SecretReadError',
+    async (provider) => {
+      // PR #2513 review, finding 3: a keyless provider's stored token is
+      // optional — an unreadable keychain entry must not 400 the run.
+      const secretReadError = Object.assign(new Error(`Secret for "${provider}" is unreadable.`), {
+        code: 'encryption_unavailable',
+        provider,
+      });
+      secretReadError.name = 'SecretReadError';
+      resolveProviderCredential.mockRejectedValueOnce(secretReadError);
+
+      const result = await prepare(
+        JSON.stringify({
+          data: { provider },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        })
+      );
+
+      expect(result.ok, `${provider} must proceed keyless`).toBe(true);
+      if (!result.ok) {
+        throw new Error('expected success');
+      }
+      expect(result.request.apiKey).toBe('');
+      // Never silent: the failed optional read is warn-logged.
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('token'),
+        expect.objectContaining({ provider })
+      );
+    }
+  );
+
+  it('still fetches and injects a READABLE optional token for local-runtime servers', async () => {
+    resolveProviderCredential.mockResolvedValueOnce({
+      key: 'stored-ollama-token',
+      source: 'stored',
+      type: 'api_key',
+    });
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'ollama' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected success');
+    }
+    expect(result.request.runtimeData.providerOptions?.['ollama']).toEqual({
+      apiToken: 'stored-ollama-token',
+    });
+  });
+
+  it('never calls the key reader for the in-browser local provider', async () => {
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'local' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(true);
+    expect(resolveProviderCredential).not.toHaveBeenCalled();
+  });
+
+  it('injects the optional bearer token only for local-runtime servers', () => {
+    for (const provider of providers) {
+      const hydrated = hydrateRuntimeDataWithLocalRuntimeToken(
+        { provider: provider.id },
+        provider.id,
+        'runtime-token'
+      );
+      if (provider.runtime === 'local') {
+        expect(hydrated.providerOptions?.[provider.id], provider.id).toEqual({
+          apiToken: 'runtime-token',
+        });
+      } else {
+        expect(hydrated.providerOptions, provider.id).toBeUndefined();
+      }
+    }
+  });
+});
+
+describe('typed credential seam (BST-1352)', () => {
+  it('resolves an api_key credential to the same prepared apiKey and exposes the credential', async () => {
+    resolveProviderCredential.mockResolvedValueOnce({
+      key: 'typed-key',
+      source: 'stored',
+      type: 'api_key',
+    });
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'openai' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected success');
+    }
+    expect(result.request.apiKey).toBe('typed-key');
+    expect(result.request.credential).toEqual({
+      key: 'typed-key',
+      source: 'stored',
+      type: 'api_key',
+    });
+  });
+
+  it('rejects a stored non-api_key credential as api_key_unreadable — NEVER missing_api_key', async () => {
+    // Regression pin: pre-BST-1352 the desktop getKey threw
+    // SecretReadError('credential_type_unsupported') for a stored oauth
+    // credential; the typed reader now RETURNS it and preparation must map it
+    // onto the exact same wire failure.
+    resolveProviderCredential.mockResolvedValueOnce({
+      access: 'a',
+      expires: 1,
+      refresh: 'r',
+      source: 'stored',
+      type: 'oauth',
+    });
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'anthropic' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error('expected rejection');
+    }
+    expect(result.rejection.status).toBe(400);
+    expect(result.rejection.payload).toMatchObject({
+      code: 'credential_type_unsupported',
+      error: 'api_key_unreadable',
+      provider: 'anthropic',
+    });
+    expect(result.rejection.payload.error).not.toBe('missing_api_key');
+  });
+
+  it('accepts a stored aws bearer credential for bedrock (BST-1350)', async () => {
+    resolveProviderCredential.mockResolvedValueOnce({
+      bearerKey: 'stored-bedrock-bearer',
+      mode: 'bearer',
+      region: 'us-east-1',
+      source: 'stored',
+      type: 'aws',
+    });
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'bedrock' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected success');
+    }
+    // The bearer key satisfies the missing_api_key gate; the region rides the
+    // exposed credential into the aws auth-input projection downstream.
+    expect(result.request.apiKey).toBe('stored-bedrock-bearer');
+    expect(result.request.credential).toEqual({
+      bearerKey: 'stored-bedrock-bearer',
+      mode: 'bearer',
+      region: 'us-east-1',
+      source: 'stored',
+      type: 'aws',
+    });
+  });
+
+  // BST-1353: preparation classifies a profile_chain credential the SAME way
+  // the host that will consume it does. Without a chain capability (Hosted
+  // Web) it is a hard rejection; with one (desktop) it prepares keyless.
+  it('rejects a stored aws profile_chain credential when NO chain capability is supplied', async () => {
+    resolveProviderCredential.mockResolvedValueOnce({
+      mode: 'profile_chain',
+      region: 'us-east-1',
+      source: 'stored',
+      type: 'aws',
+    });
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'bedrock' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error('expected rejection');
+    }
+    expect(result.rejection.status).toBe(400);
+    expect(result.rejection.payload).toMatchObject({
+      code: 'credential_type_unsupported',
+      error: 'api_key_unreadable',
+      provider: 'bedrock',
+    });
+    expect(result.rejection.payload.message).toContain('desktop');
+  });
+
+  it('PREPARES a stored aws profile_chain credential when the chain capability IS supplied', async () => {
+    resolveProviderCredential.mockResolvedValueOnce({
+      mode: 'profile_chain',
+      profile: 'work',
+      region: 'us-east-1',
+      source: 'stored',
+      type: 'aws',
+    });
+    const result = await prepareAssistantPostRequest({
+      awsCredentialChain: () => async () => ({ accessKeyId: 'AKIA', secretAccessKey: 'sec' }),
+      logger,
+      readBody: async () =>
+        JSON.stringify({
+          data: { provider: 'bedrock' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+      resolveProviderCredential,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected preparation to succeed');
+    }
+    // A chain has no bearer string: preparation proceeds KEYLESS and hands the
+    // typed credential on for the host to project into a credentialProvider.
+    expect(result.request.apiKey).toBeFalsy();
+    expect(result.request.credential).toMatchObject({ mode: 'profile_chain', type: 'aws' });
+  });
+
+  it('proceeds keyless (with a warn) when a keyless provider stores a non-api_key credential', async () => {
+    resolveProviderCredential.mockResolvedValueOnce({
+      access: 'a',
+      expires: 1,
+      refresh: 'r',
+      source: 'stored',
+      type: 'oauth',
+    });
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'ollama' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected success');
+    }
+    expect(result.request.apiKey).toBe('');
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('token'),
+      expect.objectContaining({ provider: 'ollama' })
+    );
+  });
+});
+
+describe('createProviderApiKeyReader adapter (BST-1352 migration shim)', () => {
+  it('projects api_key credentials to their key string', async () => {
+    const reader = createProviderApiKeyReader(async () => ({
+      key: 'adapted-key',
+      source: 'env',
+      type: 'api_key',
+    }));
+    await expect(reader('openai')).resolves.toBe('adapted-key');
+  });
+
+  it('passes through not-configured as undefined', async () => {
+    const reader = createProviderApiKeyReader(async () => undefined);
+    await expect(reader('openai')).resolves.toBeUndefined();
+  });
+
+  it('throws a SecretReadError-shaped typed error on an oauth credential (never stringifies)', async () => {
+    const reader = createProviderApiKeyReader(async () => ({
+      access: 'secret-access-token',
+      expires: 1,
+      refresh: 'secret-refresh-token',
+      source: 'stored',
+      type: 'oauth',
+    }));
+    let thrown: unknown;
+    try {
+      await reader('anthropic');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(UnsupportedCredentialTypeError);
+    const shaped = thrown as UnsupportedCredentialTypeError;
+    expect(shaped.name).toBe('SecretReadError');
+    expect(shaped.code).toBe('credential_type_unsupported');
+    expect(shaped.provider).toBe('anthropic');
+    // The credential value must never leak through the error message.
+    expect(shaped.message).not.toContain('secret-access-token');
+    expect(shaped.message).not.toContain('secret-refresh-token');
+  });
+});
+
+describe('managed idle-child continuation admission', () => {
+  const childFollowup = {
+    id: 'child-request',
+    text: 'Continue the existing work',
+    threadId: 'owned-child',
+  };
+  it('prepares a typed child followup without manufacturing another root user prompt', async () => {
+    const result = await prepare(
+      JSON.stringify({
+        data: { memory: { resourceId: 'owner', threadId: 'root' }, provider: 'openai' },
+        messages: [],
+        runConfig: { custom: { brainstrikeChildFollowup: childFollowup } },
+      })
+    );
+    expect(result).toMatchObject({ ok: true, request: { childFollowupAction: childFollowup } });
+  });
+
+  it('admits image-only child input without adding images to the parent prompt', async () => {
+    const action = {
+      ...childFollowup,
+      attachments: [{ data: 'data:image/png;base64,AQID', mediaType: 'image/png', type: 'file' }],
+      text: '',
+    };
+    const result = await prepare(
+      JSON.stringify({
+        data: { model: 'z-ai/glm-5.3', provider: 'openrouter' },
+        messages: [{ content: [{ text: '', type: 'text' }], role: 'user' }],
+        runConfig: { custom: { brainstrikeChildFollowup: action } },
+      })
+    );
+    expect(result).toMatchObject({ ok: true, request: { childFollowupAction: action } });
+    if (!result.ok) {
+      throw new Error('Image-only child action was rejected');
+    }
+    expect(JSON.stringify(result.request.messages)).not.toContain('data:image');
+  });
+
+  it.each([
+    { ...childFollowup, threadId: '' },
+    { ...childFollowup, resourceId: 'borrowed-owner' },
+    { ...childFollowup, text: '' },
+  ])(
+    'rejects invalid child continuation identity or caller-supplied authority %#',
+    async (action) => {
+      const result = await prepare(
+        JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [],
+          runConfig: { custom: { brainstrikeChildFollowup: action } },
+        })
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        rejection: { payload: { error: 'invalid_child_followup_action' }, status: 400 },
+      });
+    }
+  );
+
+  it('rejects mixed child input and pending decision actions', async () => {
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'openai' },
+        messages: [],
+        runConfig: {
+          custom: {
+            brainstrikeChildFollowup: childFollowup,
+            brainstrikeToolApproval: { action: 'approve', runId: 'run', toolCallId: 'call' },
+          },
+        },
+      })
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      rejection: { payload: { error: 'conflicting_tool_continuation_actions' }, status: 400 },
+    });
   });
 });
