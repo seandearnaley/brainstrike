@@ -38,6 +38,9 @@ describe('desktop diagnostics IPC', () => {
         })),
       },
       database: { getDiagnostics: vi.fn(async () => ({ hasDatabaseHandle: true })) },
+      databaseIntegrity: {
+        getSnapshot: vi.fn(() => ({ revision: 0, state: { kind: 'healthy' } })),
+      },
       databaseScheduler: { getSnapshot: vi.fn(() => ({ activeCount: 0 })) },
       embeddingHost: {
         getPlatformStatus: vi.fn(() => ({
@@ -106,6 +109,7 @@ describe('desktop diagnostics IPC', () => {
     expect(handler).toBeDefined();
     await expect(handler?.()).resolves.toMatchObject({
       database: { hasDatabaseHandle: true },
+      databaseIntegrity: { revision: 0, state: { kind: 'healthy' } },
       indexing: { activeBackfills: [] },
       reset: { userDataPath: '<redacted>' },
       telemetry: {

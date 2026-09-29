@@ -17,6 +17,15 @@ describe('desktop platform diagnostics', () => {
       lastRuntimeCorruptionContext: 'db:query',
       runtimeCorruptionRecoveryCount: 1,
     };
+    const databaseIntegrity = {
+      revision: 1,
+      state: {
+        context: 'db:query' as const,
+        kind: 'contained' as const,
+        signal: { message: 'invalid page in block 3', sqlstate: 'XX001' as const },
+        since: '2026-05-20T18:01:00.000Z',
+      },
+    };
     const priorityStats = {
       completed: 0,
       lastCompletedLabel: null,
@@ -179,6 +188,7 @@ describe('desktop platform diagnostics', () => {
     const snapshot = await collectDesktopPlatformDiagnostics({
       crashRecovery: { getSnapshot: vi.fn(() => crashRecovery) },
       database: { getDiagnostics: vi.fn(async () => databaseDiagnostics) },
+      databaseIntegrity: { getSnapshot: vi.fn(() => databaseIntegrity) },
       databaseScheduler: { getSnapshot: vi.fn(() => schedulerSnapshot) },
       embeddingHost: {
         getPlatformStatus: vi.fn(() => embeddingHostStatus),
@@ -208,6 +218,7 @@ describe('desktop platform diagnostics', () => {
     expect(snapshot).toMatchObject({
       crashRecovery,
       database: databaseDiagnostics,
+      databaseIntegrity,
       databaseScheduler: schedulerSnapshot,
       embeddingHost: embeddingHostStatus,
       errors: {},
@@ -248,6 +259,9 @@ describe('desktop platform diagnostics', () => {
         }),
       },
       database: { getDiagnostics: vi.fn(async () => ({ initializationAttemptCount: 1 })) },
+      databaseIntegrity: {
+        getSnapshot: vi.fn(() => ({ revision: 0, state: { kind: 'healthy' as const } })),
+      },
       databaseScheduler: {
         getSnapshot: vi.fn(() => {
           throw new Error('scheduler unavailable');
@@ -314,6 +328,7 @@ describe('desktop platform diagnostics', () => {
     });
     expect(snapshot.telemetry.processCounters).toEqual({ installedAt: null, samples: [] });
     expect(snapshot.databaseScheduler).toBeNull();
+    expect(snapshot.databaseIntegrity).toEqual({ revision: 0, state: { kind: 'healthy' } });
     expect(snapshot.indexing.activeBackfills).toEqual([]);
     expect(snapshot.indexing.dimensionIndexMaintenance).toEqual({
       maintenance: [],
