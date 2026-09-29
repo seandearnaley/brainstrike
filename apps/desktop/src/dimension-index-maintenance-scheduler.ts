@@ -3,6 +3,7 @@ import {
   type DimensionIndexMaintenanceStrategy,
   estimateEmbeddedRowCount,
   hnswParams,
+  isBackgroundDatabaseWorkAdmitted,
   type RunDimensionIndexMaintenanceOptions,
   type RunDimensionIndexMaintenanceResult,
   runNextDimensionIndexMaintenance,
@@ -10,6 +11,7 @@ import {
 } from '@brainstrike/db';
 import type { WorkspaceIndexingPowerSnapshot } from '@brainstrike/indexing-contract/workspace-indexing-power-snapshot';
 import type { Effect, Scope } from 'effect';
+import type { DesktopDatabaseIntegrity } from './database-integrity-state';
 import type { DimensionIndexBuildStrategy } from './dimension-index-maintenance-capabilities';
 import {
   createSustainedIdleObserver,
@@ -57,6 +59,7 @@ interface MaintenanceLogger {
 export type DesktopDimensionIndexMaintenanceSkipReason =
   | 'already-running'
   | 'assistant-work-in-flight'
+  | 'database-integrity-contained'
   | 'database-scheduler-busy'
   | 'database-scheduler-recently-busy'
   | 'power-not-ac'
@@ -85,6 +88,11 @@ export interface DesktopDimensionIndexMaintenanceSchedulerOptions {
   readonly getPowerSnapshot: () => WorkspaceIndexingPowerSnapshot;
   readonly getSchedulerSnapshot: () => MaintenanceSchedulerSnapshot;
   readonly initialDelayMs?: number;
+  /**
+   * Required, never defaulted: a build must not run while background database
+   * work is paused by an integrity error (BST-1870).
+   */
+  readonly integrity: Pick<DesktopDatabaseIntegrity, 'contain' | 'getSnapshot'>;
   readonly intervalMs?: number;
   readonly logger: MaintenanceLogger;
   readonly now?: () => Date;
@@ -239,6 +247,16 @@ export function createDesktopDimensionIndexMaintenanceScheduler(
   const runOnce = async (): Promise<DesktopDimensionIndexMaintenanceRunResult> => {
     if (maintenanceInFlight) {
       return createSkippedResult('already-running');
+    }
+
+    // Containment pauses background writes; skip before reading anything.
+    const integritySnapshot = options.integrity.getSnapshot();
+    if (!isBackgroundDatabaseWorkAdmitted(integritySnapshot.state)) {
+      options.logger.info(
+        { integrityState: integritySnapshot.state.kind, revision: integritySnapshot.revision },
+        'Skipped dimension index maintenance because database integrity containment is active'
+      );
+      return createSkippedResult('database-integrity-contained');
     }
 
     const snapshot = options.getSchedulerSnapshot();

@@ -13,6 +13,7 @@ import {
   type GpuMemoryReclaimConfig,
   type GpuMemoryReclaimMode,
 } from './backfill-maintenance-coordinator';
+import { assertBackgroundDatabaseWorkAdmitted } from './database-integrity-state';
 import { getDatabase } from './db-main';
 import { isDesktopShuttingDown, isExpectedBackfillTeardown } from './desktop-shutdown-state';
 import {
@@ -327,6 +328,10 @@ export async function runDesktopEmbeddingBackfill(params: {
     onDetachedFailure,
     source,
   } = params;
+  // Backfills are background database work: while an integrity error is
+  // contained, refuse before the host starts or an in-flight entry exists.
+  // Runs already in flight were canceled at the transition.
+  assertBackgroundDatabaseWorkAdmitted();
   const inFlightBackfill = embeddingBackfillsInFlight.get(normalizedEmbeddingSetId);
   if (inFlightBackfill) {
     if (source === 'background-indexing') {
