@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createWorktreeScopedProfile,
   type DatabaseLocationInput,
+  joinProfileDirectory,
   PACKAGED_PRODUCT_DIR_NAME,
   resolveDatabaseLocation,
   sanitizeProfileSegment,
@@ -407,5 +408,13 @@ describe('PACKAGED_PRODUCT_DIR_NAME', () => {
     ) as { build: { productName: string } };
 
     expect(PACKAGED_PRODUCT_DIR_NAME).toBe(packageJson.build.productName);
+  });
+});
+
+describe('joinProfileDirectory', () => {
+  it('places a profile under <root>/profiles, the one layout main and the DB host share', () => {
+    expect(joinProfileDirectory('/data/root', 'default')).toBe(
+      path.join('/data/root', 'profiles', 'default')
+    );
   });
 });

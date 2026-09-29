@@ -160,8 +160,9 @@ describe('db-main lifecycle', () => {
     vi.clearAllMocks();
     installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
-    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
-    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_ROOT_PATH');
+    // The utility-process host receives both fields from main; it derives nothing.
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/mock/documents';
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
     existsSyncMock.mockReturnValue(true);
     // clearAllMocks() resets call history but NOT implementations, so without this
@@ -358,24 +359,9 @@ describe('db-main lifecycle', () => {
     await expect(initializeMainDatabase()).rejects.toThrow(/migrations failed/i);
   });
 
-  it('computes production data dir when NODE_ENV=production', async () => {
-    process.env['NODE_ENV'] = 'production';
-    existsSyncMock.mockImplementation(() => false);
-    const { initializeMainDatabase } = await import('../../db-main');
-    await initializeMainDatabase();
-    const expectedPath = path.join(
-      '/mock/documents',
-      'BrainStrike',
-      'profiles',
-      'default',
-      'pgdata'
-    );
-    expect(mkdirSyncMock).not.toHaveBeenCalledWith(expect.not.stringContaining('BrainStrike-dev'));
-    expect(mkdirSyncMock).toHaveBeenCalledWith(expectedPath, { recursive: true });
-  });
-
   it('uses profile-scoped data directory in development mode', async () => {
     process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = path.join('/mock/documents', 'BrainStrike-dev');
     process.env['BRAINSTRIKE_DB_PROFILE'] = 'feature-branch';
     existsSyncMock.mockImplementation(() => false);
 
@@ -387,47 +373,6 @@ describe('db-main lifecycle', () => {
     expect(diagnostics.dataDir).toBe(
       path.join('/mock/documents', 'BrainStrike-dev', 'profiles', 'feature-branch', 'pgdata')
     );
-  });
-
-  it('derives a worktree-scoped profile when no explicit profile is set', async () => {
-    process.env['NODE_ENV'] = 'development';
-    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
-
-    const worktreeRoot = '/repo/worktrees/wt-a';
-    const gitPointerPath = path.join(worktreeRoot, '.git');
-    const resolvedGitDir = '/repo/main/.git/worktrees/wt-a';
-    const gitHeadPath = path.join(resolvedGitDir, 'HEAD');
-    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(worktreeRoot);
-
-    existsSyncMock.mockImplementation(
-      (candidate: string) => candidate === gitPointerPath || candidate === gitHeadPath
-    );
-    lstatSyncMock.mockImplementation((candidate: string) => ({
-      isDirectory: () => false,
-      isFile: () => candidate === gitPointerPath,
-    }));
-    readFileSyncMock.mockImplementation((candidate: string) => {
-      if (candidate === gitPointerPath) {
-        return `gitdir: ${resolvedGitDir}`;
-      }
-      if (candidate === gitHeadPath) {
-        return 'ref: refs/heads/feature/awesome';
-      }
-      return '';
-    });
-
-    try {
-      const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
-      await initializeMainDatabase();
-
-      const diagnostics = getDatabaseDiagnostics();
-      expect(diagnostics.databaseProfile).toMatch(/^branch-feature-awesome-wt-[a-f0-9]{8}$/);
-      expect(diagnostics.dataDir).toContain(
-        path.join('profiles', diagnostics.databaseProfile ?? '', 'pgdata')
-      );
-    } finally {
-      cwdSpy.mockRestore();
-    }
   });
 
   it('fails fast with concurrency category when lock is held by another process', async () => {
@@ -762,6 +707,7 @@ describe('db-main lifecycle', () => {
 
   it('resetLocalDatabase deletes parent app data directory', async () => {
     process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = path.join('/mock/documents', 'BrainStrike-dev');
     process.env['BRAINSTRIKE_DB_PROFILE'] = 'test-profile';
     vi.resetModules();
 
@@ -793,6 +739,7 @@ describe('db-main lifecycle', () => {
 
   it('prunes stale profile backups during reset', async () => {
     process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = path.join('/mock/documents', 'BrainStrike-dev');
     process.env['BRAINSTRIKE_DB_PROFILE'] = 'test-profile';
     vi.resetModules();
     readdirSyncMock.mockReturnValueOnce([
