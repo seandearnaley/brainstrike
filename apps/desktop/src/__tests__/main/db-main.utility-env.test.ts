@@ -52,6 +52,8 @@ describe('db-main utility process environment', () => {
   });
 
   afterEach(() => {
+    // Restores the cwd spy even when an assertion failed first.
+    vi.restoreAllMocks();
     vi.resetModules();
     restoreParentPort();
     restoreEnvValue('BRAINSTRIKE_DB_ROOT_PATH', originalDbRootPath);
@@ -77,7 +79,6 @@ describe('db-main utility process environment', () => {
 
     expect(() => getDatabaseDiagnostics()).toThrow(/BRAINSTRIKE_DB_PROFILE must be set/u);
     expect(cwdSpy).not.toHaveBeenCalled();
-    cwdSpy.mockRestore();
   });
 
   it.each(['BRAINSTRIKE_DB_ROOT_PATH', 'BRAINSTRIKE_DB_PROFILE'])(
@@ -90,13 +91,15 @@ describe('db-main utility process environment', () => {
     }
   );
 
-  it.each(['BRAINSTRIKE_DB_ROOT_PATH', 'BRAINSTRIKE_DB_PROFILE'])(
-    'treats a blank or literal "undefined" %s as missing',
-    async (name) => {
-      process.env[name] = 'undefined';
-      const { getDatabaseDiagnostics } = await import('../../db-main');
+  it.each([
+    ['BRAINSTRIKE_DB_ROOT_PATH', 'undefined'],
+    ['BRAINSTRIKE_DB_ROOT_PATH', '   '],
+    ['BRAINSTRIKE_DB_PROFILE', 'undefined'],
+    ['BRAINSTRIKE_DB_PROFILE', '   '],
+  ])('treats %s set to %j as missing', async (name, value) => {
+    process.env[name] = value;
+    const { getDatabaseDiagnostics } = await import('../../db-main');
 
-      expect(() => getDatabaseDiagnostics()).toThrow(new RegExp(`${name} must be set`, 'u'));
-    }
-  );
+    expect(() => getDatabaseDiagnostics()).toThrow(new RegExp(`${name} must be set`, 'u'));
+  });
 });
