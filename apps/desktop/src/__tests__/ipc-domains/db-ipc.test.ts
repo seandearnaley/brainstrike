@@ -64,7 +64,6 @@ vi.mock('../../db-main', () => ({
     },
   })),
   handleRuntimeCorruption: vi.fn(),
-  isCorruptionError: () => false,
 }));
 vi.mock('../../db-host-manager', () => ({
   getDbHostManager: vi.fn(() => dbHostManagerMock),

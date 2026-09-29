@@ -25,6 +25,7 @@ import type {
 } from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { app } from 'electron';
+import { isCorruptionError } from './database-corruption-classifier';
 import type { RemoteDbClient } from './db-host-manager';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
 import {
@@ -764,60 +765,12 @@ function releaseDatabaseProcessLock(): void {
   }
 }
 
-/**
- * Known PostgreSQL error codes that indicate index/data corruption requiring full reset.
- *
- * NOTE: We intentionally exclude XX000 (internal_error) as it's too broad and used for
- * many non-corruption failures (e.g., internal bugs, unsupported features). Including it
- * would cause false positives that wipe user data unnecessarily.
- *
- * We rely on specific error codes and message pattern matching to identify true corruption.
- */
-const CORRUPTION_ERROR_CODES = [
-  'XX002', // Index corruption (e.g., "right sibling's left-link doesn't match")
-  // XX000 deliberately excluded - too generic, causes false positives
-  // XX001 (data_corrupted) is rare but specific enough to include
-  'XX001', // Data corruption
-] as const;
-
-/**
- * Error messages that indicate corruption even without error codes
- */
-const CORRUPTION_ERROR_PATTERNS = [
-  "right sibling's left-link doesn't match",
-  'could not locate a valid checkpoint record',
-  'invalid resource manager ID',
-  'database system was interrupted',
-  'invalid page in block',
-  'page verification failed',
-] as const;
-
 const WASM_ABORT_ERROR_PATTERNS = [
   'aborted(). build with -sassertions for more info.',
   'aborted()',
   'runtimeerror: unreachable',
   'wasm trap',
 ] as const;
-
-/**
- * Check if an error indicates database corruption that requires a full reset
- */
-export function isCorruptionError(error: unknown): boolean {
-  if (!error) {
-    return false;
-  }
-
-  const errorObj = error as { code?: string; message?: string };
-  const code = errorObj.code;
-  const message = errorObj.message ?? String(error);
-
-  if (code && CORRUPTION_ERROR_CODES.includes(code as (typeof CORRUPTION_ERROR_CODES)[number])) {
-    return true;
-  }
-
-  const lowerMessage = message.toLowerCase();
-  return CORRUPTION_ERROR_PATTERNS.some((pattern) => lowerMessage.includes(pattern.toLowerCase()));
-}
 
 export function isWasmAbortError(error: unknown): boolean {
   if (!error) {

@@ -1,5 +1,6 @@
 import type { DatabaseWorkScheduler, DimensionIndexMaintenanceStrategy } from '@brainstrike/db';
 import { ipcMain } from 'electron';
+import { isCorruptionError } from '../database-corruption-classifier';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import {
   EMBEDDING_BACKFILL_CANCELED_MESSAGE,
@@ -44,7 +45,6 @@ async function withCorruptionRecovery<T>(
   try {
     return await operation();
   } catch (error) {
-    const { isCorruptionError } = await import('../db-main');
     if (!isCorruptionError(error)) {
       throw error;
     }
@@ -57,7 +57,6 @@ async function handleDetachedFailure(
   context: string,
   onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler
 ): Promise<void> {
-  const { isCorruptionError } = await import('../db-main');
   if (!isCorruptionError(error)) {
     return;
   }

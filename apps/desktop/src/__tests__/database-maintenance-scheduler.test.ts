@@ -4,11 +4,11 @@ import type {
   ScheduledDatabaseMaintenanceResult,
 } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
+import { isCorruptionError } from '../database-corruption-classifier';
 import {
   createDesktopDatabaseMaintenanceScheduler,
   type DesktopDatabaseMaintenanceSchedulerOptions,
 } from '../database-maintenance-scheduler';
-import { isCorruptionError } from '../db-main';
 
 const COMPLETED_MAINTENANCE_RESULT: ScheduledDatabaseMaintenanceResult = {
   activeJobs: 0,
