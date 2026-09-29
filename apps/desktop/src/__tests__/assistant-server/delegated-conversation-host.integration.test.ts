@@ -632,6 +632,88 @@ describe('desktop delegated conversation authority', () => {
     });
   });
 
+  it.each([1, 2])(
+    'binds approval display to the persisted child event at depth %s across resume legs',
+    async (depth) => {
+      const host = createBudgetedHost(database, 'initial-leg');
+      await host.persist(identity);
+      await host.bindRun(run);
+      let target = run;
+      if (depth === 2) {
+        const descendant = {
+          ...identity,
+          childResourceId: 'native-sibling-owner',
+          childThreadId: 'sibling',
+          parentResourceId: identity.childResourceId,
+          parentRuntimeRunId: run.childRuntimeRunId,
+          parentThreadId: identity.childThreadId,
+          parentToolCallId: 'recursive-call',
+        };
+        target = {
+          ...run,
+          childRuntimeRunId: 'grandchild-native-run',
+          parentRuntimeRunId: descendant.parentRuntimeRunId,
+          parentToolCallId: descendant.parentToolCallId,
+        };
+        await host.persist(descendant);
+        await host.bindRun(target);
+      }
+      const displayIds = new Set<string>();
+      for (const hostRunId of ['initial-leg', 'resume-leg']) {
+        async function* source(): AsyncIterable<StreamChunk> {
+          yield {
+            chunk: {
+              event: {
+                ...childStarted,
+                id: `pause-${hostRunId}`,
+                kind: 'tool.approval.requested',
+                metadata: { toolCallId: 'call_0' },
+              },
+              type: 'run-event',
+            },
+            identity: target,
+            messageId: 'native-pause-message',
+            type: 'delegated-conversation-chunk',
+          };
+          yield {
+            chunk: {
+              runId: target.childRuntimeRunId,
+              toolCallId: 'call_0',
+              toolName: 'brainstrike.readWorkspaceFile',
+              type: 'tool-approval-required',
+            },
+            identity: target,
+            messageId: 'native-pause-message',
+            type: 'delegated-conversation-chunk',
+          };
+        }
+        const output: StreamChunk[] = [];
+        for await (const chunk of observeDesktopAssistantRunEvents(
+          source(),
+          hostRunId,
+          [],
+          async () => database
+        )) {
+          output.push(chunk);
+        }
+        const records = await database.query<{ run_id: string }>(
+          'SELECT run_id FROM brainstrike_assistant_run_events WHERE id = $1',
+          [`pause-${hostRunId}`]
+        );
+        const displayId = records.rows[0]?.run_id;
+        expect(displayId).toBeDefined();
+        expect(displayId).not.toBe(hostRunId);
+        expect(displayId).not.toBe(target.childRuntimeRunId);
+        expect(output[0]).toMatchObject({ chunk: { event: { runId: displayId } } });
+        expect(output[1]).toMatchObject({ chunk: { hostRunId, timelineRunId: displayId } });
+        if (displayId) {
+          displayIds.add(displayId);
+        }
+      }
+      expect(displayIds.size).toBe(2);
+    }
+  );
+
   it('uses the existing usage writer for one cumulative row across host resume legs', async () => {
     const host = createBudgetedHost(database, 'initial-leg');
     await host.persist(identity);

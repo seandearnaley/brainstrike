@@ -97,3 +97,53 @@ durations and shell output correlate by call id across the message; each
 group's elapsed fallback uses only its own tool events. The turn-wide task
 list renders once, in the group holding the
 message's first activity part.
+
+## Separate approval cards (2026-09-29)
+
+The ACTIVITY GROUPS contract gives each approval one presentation owner.
+A card can appear in a separate message, while the original resultless tool
+part retains `requires-action`. Searching only that original message left its
+group animated after the card showed Approved. `approval-history.ts` also
+matches the recorded `tool.approval.requested` event's durable host leg and
+surface call against the thread's existing approval index. The incremental
+index stores these display keys once, and clears them when history rewrites.
+The card owns the decision history; no execution result is invented. A group
+with other work remains, while an empty duplicate approval wrapper disappears.
+
+The first reproduction incorrectly gave the event and approval the same run ID.
+Review caught that desktop events use host-leg IDs while approvals retain native
+Mastra IDs. The corrected fixture failed, then passed after correlating against
+the request's existing `hostRunId`. A bare call ID, native run ID, another host
+leg and child leaf ID cannot substitute for the host binding. Rediscovered
+requests without a host binding do not invent one; ordinary settled hydration
+and same-message card ownership retain their existing behavior.
+
+Guards: `approval-history.test.ts`, `answered-approvals-index.test.ts`,
+`assistant-activity-parts.test.tsx`, and `approval-group-history.browser.test.tsx`
+in `packages/assistant-ui/src/__tests__/`. The browser test starts with separate
+native/host IDs, clicks Approve through the real assistant-ui local runtime,
+receives an acknowledgement, and checks static Approved history and one adapter
+execution without the stale waiting group or shimmer. This is renderer coverage,
+not a claim of a live-model desktop end-to-end run. Existing host stamping and
+mapper-forwarding tests cover production of `hostRunId`.
+
+### Delegated display owner correction (2026-09-29)
+
+The desktop observer intentionally stamps the root `hostRunId` on child notices:
+the root owns the decision echo and its history anchor. Child timeline persistence
+uses `delegatedHostRunId`, so the second candidate still could not match a separate
+child card. A real native two-child fan-out reproduced that mismatch.
+
+Approval notices now carry display-only `timelineRunId`, assigned by the same
+canonical host identity functions as event persistence and forwarded by the shared
+mapper. The UI index uses that explicit owner plus the surface call; native
+`runId`, decision `hostRunId`, and the full delegated action identity keep their
+original jobs. A missing display owner creates no inferred cross-message match.
+Managed child continuations use `continuationProjectionId` for both live event
+and notice display, matching their existing durable writer without adding a root
+message anchor or persisting twice.
+
+Proof includes the native two-child approval suite; persisted child and grandchild
+events across two resume legs; continuation persistence/live parity; mapper field
+transport; and Chromium clicks on separate cards with distinct root/child display
+owners. Resolved approval history stays static; no tool result is fabricated.

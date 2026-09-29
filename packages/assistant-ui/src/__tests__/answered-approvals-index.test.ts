@@ -87,14 +87,27 @@ describe('advanceAnsweredApprovalsIndex', () => {
   it('rebuilds from scratch when the thread is rewritten', () => {
     const index = createMutableApprovalsIndex();
     const cursor = advanceAnsweredApprovalsIndex(
-      [{ content: [answered], id: 'm1' }],
+      [
+        {
+          content: [
+            answered,
+            {
+              ...request,
+              data: { ...request.data, hostRunId: 'host-root', timelineRunId: 'host-root' },
+            },
+          ],
+          id: 'm1',
+        },
+      ],
       { keys: [], scanned: [] },
       index
     ).cursor;
     expect(index.answers.size).toBe(1);
+    expect(index.cardedSurfaceCalls.size).toBe(1);
     const rewound = advanceAnsweredApprovalsIndex([{ content: [], id: 'other' }], cursor, index);
     expect(rewound.changed).toBe(true);
     expect(index.answers.size).toBe(0);
+    expect(index.cardedSurfaceCalls.size).toBe(0);
     expect(rewound.cursor).toEqual({ keys: ['other'], scanned: [0] });
   });
 
