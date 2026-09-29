@@ -379,13 +379,14 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   stop and other close failures stay visible. Why: plain `server.close()` waits
   for every in-flight response.
 - The DB host is closed, not killed: close envelope → SIGTERM → awaited `exit` → SIGKILL on timeout
-  (logged as a crash). A close is clean only if the host acknowledged it; an exit code, even 0, is
-  never proof. No host forks, and no close succeeds, while a previous host may be alive: only its
-  observed `exit` proves it gone, and a failed close keeps it across manager replacement. Admission
-  waits ≤0.5 s, then rejects `DbHostUnavailableError` (also while closing or at shutdown). A close
-  or sync failure rejects, keeps the process lock and aborts factory and developer reset before any
-  deletion. A clean close writes `<profile>/.db-clean-shutdown` atomically; opening removes it, so
-  its absence means unclean.
+  (logged as a crash). A close is clean only if the host acknowledged it or, after exit,
+  `<profile>/.db-clean-shutdown` names that host's pid; an exit code, even 0, is never proof. No
+  host forks, and no close succeeds, while a previous host may be alive: only its observed `exit`
+  proves it gone, and a failed close keeps it across manager replacement. Admission waits ≤0.5 s,
+  then rejects `DbHostUnavailableError` (also while closing or at shutdown). A close or sync failure
+  rejects, keeps the process lock and aborts factory and developer reset before any deletion. A
+  clean close writes the marker atomically; opening removes it, so its absence means the last
+  session was unclean.
 
 Settled: admission retirement precedes host stops, and each timeout sits under
 the application deadline. Evidence:

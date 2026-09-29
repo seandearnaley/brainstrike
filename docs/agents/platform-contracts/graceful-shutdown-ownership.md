@@ -105,13 +105,17 @@ exit after SIGKILL 0.5 s):
 
 - ack ok: SIGTERM, await `exit` (any code is fine, the database is closed); no exit in
   time: SIGKILL, then `exit-timeout` if that still does not end it.
-- exit before ack: always `exited-unclean`, carrying the code.
-- ack timeout: SIGTERM, then any exit is always `exited-unclean` (carrying the code); no exit:
-  SIGKILL and `killed`.
+- exit before ack: `exited-unclean`, carrying the code, unless the marker proves the close
+  (below).
+- ack timeout: SIGTERM, then an exit is `exited-unclean` (carrying the code) unless the
+  marker proves the close; no exit: SIGKILL, then `killed` unless the marker proves it.
 - ack error (the host's close failed): SIGKILL, `close-failed`.
 
-The rule: a close is clean only when the host acknowledged it. The exit code is never
-proof. Measured with the repo's Electron 44.4.5 on macOS (`utilityProcess.fork` of a
+The rule: a close is clean iff the host acknowledged it, or, after exit, the clean-shutdown
+marker `<profile>/.db-clean-shutdown` exists and its `pid` equals the exited host's pid
+(remembered while the process was alive: Electron clears `pid` at exit; the path is
+db-main's `getAppDataPath()`, the one main already uses). The exit code is never proof. An
+unreadable marker is logged at error and counts as no proof. Measured with the repo's Electron 44.4.5 on macOS (`utilityProcess.fork` of a
 trivial child; 2026-09-29):
 
 | child | terminated by | exit `code` |
