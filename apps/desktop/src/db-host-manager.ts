@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import { app, utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
+import { cleanShutdownMarkerNamesPid } from './db-clean-shutdown-marker';
 import {
   DB_HOST_CLOSE_ACK_TIMEOUT_MS,
   DB_HOST_EXIT_AFTER_KILL_TIMEOUT_MS,
@@ -29,6 +30,7 @@ import {
   type RequestTimeoutDiagnostics,
 } from './db-host-request-diagnostics';
 import { DbHostRequestTimeoutError } from './db-host-timeout-error';
+import { getAppDataPath } from './db-main';
 import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
 import { isDesktopShuttingDown } from './desktop-shutdown-state';
 import {
@@ -430,6 +432,7 @@ class DefaultDbHostManager implements DbHostManager {
     const closing = closeDbHostProcess(host, {
       acknowledge: async () => await this.send({ kind: 'close' }),
       ackTimeoutMs: this.#closeTimeoutMs,
+      confirmCleanExit: (pid) => cleanShutdownMarkerNamesPid(getAppDataPath(), pid),
       detach: () => this.#detachHost(new Error('DB host closed.')),
     }).finally(() => {
       // Cleared before close() settles, so a caller resuming from it forks at once.

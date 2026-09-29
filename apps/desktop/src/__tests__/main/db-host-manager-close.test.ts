@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 import {
   DB_HOST_CLOSE_ACK_TIMEOUT_MS,
@@ -101,9 +104,27 @@ async function openManager(options: { readonly requestTimeoutMs?: number } = {})
 }
 
 describe('DbHostManager close ladder', () => {
+  const originalDbRootPath = process.env['BRAINSTRIKE_DB_ROOT_PATH'];
+  let appDataDir: string;
   let killSpy: MockInstance<typeof process.kill>;
 
+  // The profile directory the manager reads the clean-shutdown marker from (db-main's app data path).
+  const seedMarker = async (contents: { readonly pid: number }): Promise<void> => {
+    const { writeCleanShutdownMarker } = await import('../../db-clean-shutdown-marker');
+    writeCleanShutdownMarker(appDataDir, { closedAt: '2026-09-29T00:00:00.000Z', ...contents });
+  };
+
+  // A real host's `pid` is undefined once it has exited: the proof must use the pid seen at close.
+  const exitHost = (host: FakeUtilityProcess, code: number): void => {
+    host.pid = undefined;
+    host.emit('exit', code);
+  };
+
   beforeEach(() => {
+    const rootPath = mkdtempSync(path.join(tmpdir(), 'brainstrike-db-host-close-'));
+    appDataDir = path.join(rootPath, 'profiles', 'test');
+    mkdirSync(appDataDir, { recursive: true });
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = rootPath;
     vi.resetModules();
     vi.useFakeTimers();
     forkMock.mockReset().mockImplementation(() => new FakeUtilityProcess());
@@ -115,6 +136,12 @@ describe('DbHostManager close ladder', () => {
   afterEach(() => {
     killSpy.mockRestore();
     vi.useRealTimers();
+    rmSync(path.dirname(path.dirname(appDataDir)), { force: true, recursive: true });
+    if (originalDbRootPath === undefined) {
+      Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_ROOT_PATH');
+    } else {
+      process.env['BRAINSTRIKE_DB_ROOT_PATH'] = originalDbRootPath;
+    }
   });
 
   it('budgets the whole ladder as the sum of its rungs', () => {
@@ -257,6 +284,76 @@ describe('DbHostManager close ladder', () => {
       host.emit('exit', 137);
 
       expect(await closing.outcome).toMatchObject({ name: 'DbHostCloseError', outcome: 'killed' });
+    });
+  });
+
+  describe('the clean-shutdown marker proves a close the host did not acknowledge', () => {
+    it('accepts an exit before the acknowledgement when the marker names the host pid', async () => {
+      const { host, manager } = await openManager();
+      await seedMarker({ pid: 42 });
+      const closing = observe(manager.close());
+      exitHost(host, 0);
+
+      expect(await closing.outcome).toBe('resolved');
+      expect(killSpy).not.toHaveBeenCalled();
+    });
+
+    it('accepts an exit after SIGTERM when the acknowledgement timed out and the marker names the host pid', async () => {
+      const { host, manager } = await openManager();
+      const closing = observe(manager.close());
+      await vi.advanceTimersByTimeAsync(DB_HOST_CLOSE_ACK_TIMEOUT_MS);
+      await seedMarker({ pid: 42 });
+      exitHost(host, 0);
+
+      expect(await closing.outcome).toBe('resolved');
+      expect(host.kill).toHaveBeenCalledTimes(1);
+      expect(killSpy).not.toHaveBeenCalled();
+    });
+
+    it('accepts an exit after SIGKILL when the marker shows the close had already completed', async () => {
+      const { host, manager } = await openManager();
+      const closing = observe(manager.close());
+      await vi.advanceTimersByTimeAsync(
+        DB_HOST_CLOSE_ACK_TIMEOUT_MS + DB_HOST_EXIT_AFTER_TERM_TIMEOUT_MS
+      );
+      expect(killSpy).toHaveBeenCalledWith(42, 'SIGKILL');
+      await seedMarker({ pid: 42 });
+      exitHost(host, 137);
+
+      expect(await closing.outcome).toBe('resolved');
+    });
+
+    it.each([
+      { name: 'there is no marker', seed: async () => undefined },
+      { name: 'the marker names another pid', seed: async () => await seedMarker({ pid: 4242 }) },
+      {
+        name: 'the marker is unreadable',
+        seed: async () => writeFileSync(path.join(appDataDir, '.db-clean-shutdown'), '{'),
+      },
+    ])('rejects exited-unclean when $name, even with exit code 0', async ({ seed }) => {
+      const { host, manager } = await openManager();
+      const closing = observe(manager.close());
+      await seed();
+      exitHost(host, 0);
+
+      expect(await closing.outcome).toMatchObject({
+        exitCode: 0,
+        name: 'DbHostCloseError',
+        outcome: 'exited-unclean',
+      });
+    });
+
+    it('logs an unreadable marker and treats the close as unproven', async () => {
+      const { host, manager } = await openManager();
+      writeFileSync(path.join(appDataDir, '.db-clean-shutdown'), '{');
+      const closing = observe(manager.close());
+      exitHost(host, 0);
+
+      await closing.outcome;
+      expect(loggerErrorMock).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(Error) }),
+        'Could not read the clean-shutdown marker; treating the close as unproven'
+      );
     });
   });
 

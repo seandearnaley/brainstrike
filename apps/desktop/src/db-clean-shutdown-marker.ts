@@ -3,6 +3,7 @@ import {
   existsSync,
   fsyncSync,
   openSync,
+  readFileSync,
   renameSync,
   unlinkSync,
   writeSync,
@@ -67,6 +68,28 @@ export function writeCleanShutdownMarker(
 
 export function hasCleanShutdownMarker(appDataDir: string): boolean {
   return existsSync(getMarkerPath(appDataDir));
+}
+
+/**
+ * Whether the marker was written by process `pid`: proof that host closed its database cleanly.
+ * No marker is `false`; an unreadable or malformed one throws, so the caller can say so.
+ */
+export function cleanShutdownMarkerNamesPid(appDataDir: string, pid: number | undefined): boolean {
+  let contents: string;
+  try {
+    contents = readFileSync(getMarkerPath(appDataDir), 'utf8');
+  } catch (error) {
+    if (isNoEntry(error)) {
+      return false;
+    }
+    throw error;
+  }
+  const marker: unknown = JSON.parse(contents);
+  const recordedPid = (marker as { pid?: unknown } | null)?.pid;
+  if (typeof recordedPid !== 'number') {
+    throw new Error('The clean-shutdown marker does not record a pid.');
+  }
+  return pid !== undefined && recordedPid === pid;
 }
 
 /** Removes the marker, durably. An absent marker is fine; any other failure throws. */

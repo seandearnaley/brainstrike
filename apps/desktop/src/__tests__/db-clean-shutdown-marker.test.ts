@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  cleanShutdownMarkerNamesPid,
   hasCleanShutdownMarker,
   removeCleanShutdownMarker,
   writeCleanShutdownMarker,
@@ -71,6 +72,29 @@ describe('clean-shutdown marker', () => {
 
     expect(() => removeCleanShutdownMarker(appDataDir)).toThrow();
     expect(existsSync(markerPath())).toBe(true);
+  });
+
+  describe('proving who closed cleanly', () => {
+    it('names the pid that wrote the marker', () => {
+      writeCleanShutdownMarker(appDataDir, { closedAt: 'now', pid: 4242 });
+
+      expect(cleanShutdownMarkerNamesPid(appDataDir, 4242)).toBe(true);
+      expect(cleanShutdownMarkerNamesPid(appDataDir, 1)).toBe(false);
+      expect(cleanShutdownMarkerNamesPid(appDataDir, undefined)).toBe(false);
+    });
+
+    it('is false, not an error, when there is no marker', () => {
+      expect(cleanShutdownMarkerNamesPid(appDataDir, 4242)).toBe(false);
+    });
+
+    it.each(['{', '{"closedAt":"now"}', 'null'])(
+      'throws for an unreadable marker: %s',
+      (contents) => {
+        writeFileSync(markerPath(), contents);
+
+        expect(() => cleanShutdownMarkerNamesPid(appDataDir, 4242)).toThrow();
+      }
+    );
   });
 
   it('surfaces a write failure', () => {

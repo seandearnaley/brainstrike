@@ -512,7 +512,7 @@ function getDatabaseRootPath(): string {
   return path.join(app.getPath('documents'), dbDirName);
 }
 
-function getAppDataPath(): string {
+export function getAppDataPath(): string {
   if (isIsolatedDesktopTestRun()) {
     return path.join(getDatabaseRootPath(), PROFILES_DIRECTORY_NAME, getDatabaseProfile());
   }
