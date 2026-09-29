@@ -676,8 +676,9 @@ function registerShutdownSignalHandlers(): void {
   if (process.env['NODE_ENV'] === 'test' && !isElectronE2ETestMode()) {
     return;
   }
-  // Loud, but never a boot failure: the boot `catch` below quits the app, and without these
-  // handlers the first signal still quits through Electron's own (`before-quit`).
+  // Loud, but never a boot failure: the boot `catch` below quits the app. A signal whose listeners
+  // were not yet removed still quits through Electron's own handler (`before-quit`); one whose
+  // listeners were removed takes its default action and skips the graceful run.
   try {
     installShutdownSignalHandlers({
       logger,
@@ -690,7 +691,7 @@ function registerShutdownSignalHandlers(): void {
   } catch (error) {
     try {
       logger.error(
-        'Failed to install the shutdown signal handlers; the first signal quits through Electron',
+        'Failed to install the shutdown signal handlers; a signal may skip the graceful shutdown',
         { error }
       );
     } catch {

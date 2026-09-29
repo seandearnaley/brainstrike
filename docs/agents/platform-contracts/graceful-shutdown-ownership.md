@@ -399,5 +399,6 @@ shutdown completed` (`trigger: signal`), exit 0. A signal before ready still rea
 handler (quit through `before-quit`); a second one before ready cannot be caught. Linux and Windows
 are unmeasured: if the re-arm fails there, the first signal still quits through `before-quit`.
 A failure while installing the handlers is logged at error (through a guard, so a throwing logger
-cannot escape) and never stops boot: without them the first signal still quits through Electron's
-own handler (`before-quit`), the same graceful run.
+cannot escape) and never stops boot. A signal whose listeners the install had not yet removed still
+quits through Electron's own handler (`before-quit`, the graceful run); one whose listeners it had
+removed takes its default action and skips the graceful run, which the error log says.
