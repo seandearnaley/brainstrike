@@ -61,6 +61,7 @@ describe('hidden renderer preload contract', () => {
     expect(source).toContain("from './ipc-domains/database.contract'");
     expect(source).toContain("from './ipc-domains/storage-preferences.contract'");
     expect(source).toContain('createIpcBridge(ipcRenderer, vectorPreferencesContract)');
+    expect(source).toContain('createIpcBridge(ipcRenderer, databaseIntegrityContract)');
     const manifestChannels = Object.values(DESKTOP_IPC_CHANNELS).flatMap((group) =>
       Object.values(group)
     );

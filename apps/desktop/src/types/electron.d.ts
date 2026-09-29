@@ -20,6 +20,7 @@ import type { changesContract } from '../ipc-domains/changes.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
 import type { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
+import type { databaseIntegrityContract } from '../ipc-domains/database.contract';
 import type { forgeContract } from '../ipc-domains/forge.contract';
 import type { gitContract } from '../ipc-domains/git.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
@@ -123,6 +124,13 @@ declare global {
      * to `ContextFilesBridge` in `@brainstrike/assistant-contract`.
      */
     contextFiles?: Bridge<typeof contextFilesContract>;
+    /**
+     * Desktop-only database integrity state (BST-1870), derived from its pure IPC
+     * contract, which is itself pinned to `DesktopDatabaseIntegrityBridge` in
+     * `@brainstrike/db`. Held by the visible UI and the embedding host; absent on
+     * web and in the other hidden hosts.
+     */
+    databaseIntegrity?: Bridge<typeof databaseIntegrityContract>;
     desktopDiagnostics?: {
       getSnapshot: () => Promise<DesktopPlatformDiagnosticsSnapshot>;
       readMainLogWindow: (request: MainLogWindowRequest) => Promise<MainLogWindowResult>;

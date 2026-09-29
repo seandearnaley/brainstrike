@@ -3,6 +3,7 @@ import {
   databaseChunkingContract,
   databaseContract,
   databaseEmbeddingContract,
+  databaseIntegrityContract,
   databaseLiveContract,
   databasePathContract,
 } from '../../ipc-domains/database.contract';
@@ -81,6 +82,21 @@ describe('database IPC contracts', () => {
       envelope: 'raw',
       roles: ['visible-ui'],
     });
+  });
+
+  it('binds the integrity contract to the db manifest: one enveloped read and one push', () => {
+    expect(Object.keys(databaseIntegrityContract).sort()).toEqual(['getState', 'onChanged']);
+    expect(databaseIntegrityContract.getState).toMatchObject({
+      channel: DESKTOP_IPC_CHANNELS.db.integrityState,
+      envelope: 'ipc-result',
+      kind: 'invoke',
+      roles: ['embedding-host', 'visible-ui'],
+    });
+    expect(databaseIntegrityContract.onChanged).toEqual({
+      channel: DESKTOP_IPC_CHANNELS.db.integrityChanged,
+      kind: 'push',
+    });
+    expect(databaseIntegrityContract.getState.parseArgs([])).toEqual([]);
   });
 
   it('normalizes public chunk arguments into the canonical tuple without moving validation', () => {
