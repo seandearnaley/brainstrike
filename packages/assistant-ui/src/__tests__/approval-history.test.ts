@@ -34,3 +34,31 @@ it('never hides activity for malformed, unknown, or absent approval cards', () =
     ]).size
   ).toBe(0);
 });
+
+const indexed = new Map([['approval', { decided: false, request }]]);
+function pause(runId: string | undefined, toolCallId: string) {
+  return {
+    data: {
+      id: 'pause',
+      kind: 'tool.approval.requested',
+      label: 'Approval requested',
+      status: 'running',
+      timestamp: '2026-09-28T19:03:00Z',
+      ...(runId === undefined ? {} : { runId }),
+      metadata: { toolCallId },
+    },
+    name: 'brainstrike.run-event',
+    type: 'data',
+  };
+}
+it('finds a separate card using the recorded run and surface call', () => {
+  expect([...approvalCardToolCallIds([pause('root', 'delegate')], indexed)]).toEqual(['delegate']);
+});
+it.each([
+  ['another run', 'other', 'delegate'],
+  ['another call', 'root', 'other-call'],
+  ['a child leaf', 'root', 'call_0'],
+  ['an unscoped pause', undefined, 'delegate'],
+] as const)('does not replace %s with an unrelated approval card', (_, runId, toolCallId) => {
+  expect(approvalCardToolCallIds([pause(runId, toolCallId)], indexed).size).toBe(0);
+});

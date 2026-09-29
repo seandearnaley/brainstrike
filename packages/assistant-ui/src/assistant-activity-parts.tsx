@@ -15,6 +15,7 @@ import { deriveStepMeta } from './activity-step-meta';
 import { StepRowHeader } from './activity-step-row';
 import { ActivityTrace, type ActivityTraceProps } from './activity-trace';
 import { deriveActivitySteps, summarizeActivity } from './activity-trace-model';
+import { useAnsweredApprovals } from './answered-approvals-context';
 import { approvalCardToolCallIds } from './approval-history';
 import {
   ACTIVITY_GROUP_KEY,
@@ -220,6 +221,7 @@ function ActivityReasoningBlock({
 }
 
 interface ActivityGroupProps {
+  readonly cardedCalls: ReadonlySet<string>;
   readonly children: ReactNode;
   readonly indices: readonly number[];
   readonly status: MessagePartStatus | ToolCallMessagePartStatus;
@@ -250,13 +252,12 @@ function toIncompleteReason(
  * the group body renders `children` directly — tool cards and reasoning
  * blocks interleaved in part order.
  */
-function ActivityGroup({ children, indices, status }: ActivityGroupProps): ReactNode {
+function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroupProps): ReactNode {
   const messageParts = useAuiState((state) => state.message.parts);
   const messageId = useAuiState((state) => (state.message as { id?: string }).id ?? '');
   const isMessageRunning = useAuiState(
     (state) => state.message.role === 'assistant' && state.message.status.type === 'running'
   );
-  const cardedCalls = useMemo(() => approvalCardToolCallIds(messageParts), [messageParts]);
   const groupParts = useMemo(
     () =>
       indices
@@ -409,7 +410,11 @@ function ActivityGroup({ children, indices, status }: ActivityGroupProps): React
  */
 export function AssistantActivityParts(): ReactNode {
   const messageParts = useAuiState((state) => state.message.parts);
-  const cardedCalls = useMemo(() => approvalCardToolCallIds(messageParts), [messageParts]);
+  const { requests } = useAnsweredApprovals();
+  const cardedCalls = useMemo(
+    () => approvalCardToolCallIds(messageParts, requests),
+    [messageParts, requests]
+  );
   const trailingGroupHoldsActivity = useAuiState((state) =>
     trailingGroupHasActivity(state.message.parts)
   );
@@ -422,7 +427,7 @@ export function AssistantActivityParts(): ReactNode {
         switch (part.type) {
           case ACTIVITY_GROUP_KEY:
             return (
-              <ActivityGroup indices={part.indices} status={part.status}>
+              <ActivityGroup cardedCalls={cardedCalls} indices={part.indices} status={part.status}>
                 {children}
               </ActivityGroup>
             );

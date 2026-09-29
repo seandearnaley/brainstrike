@@ -721,6 +721,66 @@ it('uses the approval card as the single pause surface, without a second waiting
   expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-state', 'done');
 });
 
+it.each([false, true])(
+  'settles a separate acknowledged approval while retaining earlier work: %s',
+  async (hasEarlierWork) => {
+    const request = {
+      runId: 'run',
+      toolCallId: 'paused-call',
+      toolName: 'brainstrike.readWorkspaceFile',
+    };
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: [
+              ...(hasEarlierWork ? [completedReasoning, tool('finished-call')] : []),
+              tool('paused-call', { result: undefined, toolName: request.toolName }),
+              runEventPart({
+                id: 'pause',
+                kind: 'tool.approval.requested',
+                runId: request.runId,
+                timestamp: '2026-09-28T19:03:00Z',
+                toolCallId: request.toolCallId,
+              }),
+            ],
+            role: 'assistant',
+            status: { reason: 'interrupt', type: 'requires-action' },
+          },
+          {
+            content: [
+              { data: request, name: 'brainstrike.tool-approval', type: 'data' },
+              {
+                data: { ...request, decision: 'approve', reason: 'user' },
+                name: 'brainstrike.tool-approval-answered',
+                type: 'data',
+              },
+            ],
+            role: 'assistant',
+          },
+        ]}
+      >
+        {(content) => (
+          <AnsweredApprovalsProvider>
+            <AssistantDataRendererRegistration />
+            {content}
+          </AnsweredApprovalsProvider>
+        )}
+      </Harness>
+    );
+    expect(await screen.findByText('Approved', { exact: true })).toBeInTheDocument();
+    expect(screen.queryAllByText('Waiting for approval')).toHaveLength(0);
+    expect(document.querySelector('[data-live="true"]')).toBeNull();
+    expect(screen.queryByText('Approval requested')).toBeNull();
+    if (hasEarlierWork) {
+      expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-state', 'done');
+    } else {
+      expect(screen.queryByTestId('assistant-activity-group')).toBeNull();
+    }
+  }
+);
+
 it('retains the foreground child card when its approval replaces the waiting wrapper', () => {
   render(
     <Harness
