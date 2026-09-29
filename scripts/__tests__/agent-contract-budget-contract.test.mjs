@@ -115,7 +115,10 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1870 L2b raised it from 908 (+10): the integrity-containment
   // background pause is a new scheduler rule with its guards. L4 rewrote the
   // maintenance bullet in place, so the count is unchanged.
-  'database.md': 918,
+  // BST-1871 (part b) raised it from 918 (+6): the crash-sensitive index rule replaces the
+  // one-bullet pointer with what an agent must obey before adding an index access method;
+  // its measurements went to `database/pg-textsearch-qualification.md`.
+  'database.md': 924,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.
@@ -141,13 +144,15 @@ const CONTRACT_LINE_BUDGETS = {
   // BST-1870 L4 replaced the runtime-recovery section with DATABASE INTEGRITY CONTAINMENT
   // (the recovery order and its history moved to evidence), a net -4 lines.
   // BST-1870 L4b: the Guard line names the containment E2E, one more line.
-  // BST-1872 L2a added 6, to 974: the DB host closes itself on SIGINT/SIGTERM/SIGHUP (a failed
+  // BST-1874 raised it from 968 (+3): one bullet states that the app shell shows a notice for
+  // every non-healthy integrity state, and its guard joins the section's list.
+  // BST-1872 L2a added 6, to 977: the DB host closes itself on SIGINT/SIGTERM/SIGHUP (a failed
   // close exits 1 with no marker and no retry); main forks no replacement for a host whose close
   // was announced or proven by the marker, and a lost announcement is named as the known gap.
-  // BST-1872 L2b added 8 more, to 982: the shutdown-ownership first bullet names the reserved
+  // BST-1872 L2b added 8 more, to 985: the shutdown-ownership first bullet names the reserved
   // database-close slice (+1) and main's persistent signal listeners installed after ready (+7,
   // with why a listener added earlier never runs).
-  'platform-contracts.md': 982,
+  'platform-contracts.md': 985,
   'README.md': 70,
   'triage-labels.md': 35,
   // BST-1805 raised this from 608: the FLOATING LAYER STACKING table gained a

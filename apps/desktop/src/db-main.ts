@@ -17,6 +17,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { BrainstrikePglite, createBrainstrikePglite } from '@brainstrike/db/pglite-factory';
 import { createLogger } from '@brainstrike/logging';
 import type {
+  DatabaseCrashRecoveryIndexRebuildResult,
   DatabaseDiagnosticsSnapshot,
   DatabaseInitFailureCategory,
   DatabaseInitFailureSnapshot,
@@ -184,9 +185,9 @@ function getErrorDetails(error: unknown): ErrorDetails {
 
 // This subpath imports only PGlite and its extensions, safe in the Node DB host.
 const getPGlite = async () => {
-  const { createBrainstrikePglite } = await import('@brainstrike/db/pglite-factory');
-  const { migrate } = await import('@brainstrike/db');
-  return { createBrainstrikePglite, migrate };
+  const [{ createBrainstrikePglite }, { migrate, rebuildCrashSensitiveIndexes }] =
+    await Promise.all([import('@brainstrike/db/pglite-factory'), import('@brainstrike/db')]);
+  return { createBrainstrikePglite, migrate, rebuildCrashSensitiveIndexes };
 };
 
 // Database instance for main process
@@ -208,6 +209,7 @@ interface DatabaseMutableState {
   // Set when a live handle could not be closed; it may still own the data directory, so nothing
   // reopens, resets or reports a close until the process exits. No API clears it.
   closeFailure: DatabaseCloseError | null;
+  crashRecoveryIndexRebuild: DatabaseCrashRecoveryIndexRebuildResult | null;
   dbProcessLockPath: string | null;
   initializationAttemptCount: number;
   lastInitializationFailure: DatabaseInitFailureSnapshot | null;
@@ -218,6 +220,7 @@ interface DatabaseMutableState {
 
 const mutableState: DatabaseMutableState = {
   closeFailure: null,
+  crashRecoveryIndexRebuild: null,
   dbProcessLockPath: null,
   initializationAttemptCount: 0,
   lastInitializationFailure: null,
@@ -716,6 +719,14 @@ function classifyInitializationFailure(
     return 'filesystem';
   }
 
+  // An index that cannot be rebuilt after a crash is an integrity failure, whatever its
+  // SQLSTATE, unless the rebuild ran out of disk: a full disk is not damage.
+  if (stage === 'index-rebuild') {
+    return details.code === 'ENOSPC' || message.includes('no space left on device')
+      ? 'filesystem'
+      : 'corruption';
+  }
+
   if (stage === 'migration' || message.includes('migrations failed')) {
     return 'migration';
   }
@@ -760,6 +771,11 @@ function formatOpenDatabaseFailureMessage(
   return `Desktop database failed to initialize via PGlite: ${details}.`;
 }
 
+function formatIndexRebuildFailureMessage(details: string): string {
+  const detail = details.replace(/\.+$/u, '');
+  return `The desktop database could not rebuild its search index after an unexpected shutdown: ${detail}. BrainStrike did not delete or replace it.`;
+}
+
 function formatMigrationFailureMessage(
   category: DatabaseInitFailureCategory | undefined,
   details: string
@@ -776,6 +792,7 @@ export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
     closeFailure: mutableState.closeFailure
       ? { message: mutableState.closeFailure.message, stage: mutableState.closeFailure.stage }
       : null,
+    crashRecoveryIndexRebuild: mutableState.crashRecoveryIndexRebuild,
     databaseLockHeld: mutableState.dbProcessLockPath !== null,
     databaseLockPath: mutableState.dbProcessLockPath,
     databaseProfile: getDatabaseProfile(),
@@ -808,6 +825,7 @@ export function __resetDatabaseModuleStateForTests(): void {
   mutableState.lastInitializationSucceededAt = null;
   mutableState.lastInitializationFailure = null;
   mutableState.previousShutdown = null;
+  mutableState.crashRecoveryIndexRebuild = null;
   resetDesktopDatabaseLocationForTests();
 }
 
@@ -1061,6 +1079,7 @@ async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
       // lock is held, so we never touch a data dir another process is using.
       const movedAsideBackup = reconcileIncompatiblePgDataDir(dataDir);
       mutableState.previousShutdown = consumePreviousShutdown(appDataDir, dataDir);
+      mutableState.crashRecoveryIndexRebuild = null;
 
       readyDatabase = await createVectorDatabase(loadedPGlite.createBrainstrikePglite, dataDir);
       db = readyDatabase;
@@ -1102,6 +1121,34 @@ async function initializeMainDatabaseInternal(): Promise<DesktopDatabase> {
       throw new Error(
         formatOpenDatabaseFailureMessage(mutableState.lastInitializationFailure?.category, msg)
       );
+    }
+
+    // WAL crash recovery does not restore some index access methods (BM25), so the first open
+    // after an unclean shutdown rebuilds them. Before migrations, so a migration that writes to
+    // an indexed table never allocates from stale index state. A failure fails the open and
+    // resets nothing: no marker is written, so the next open reads as unclean and retries.
+    if (mutableState.previousShutdown === 'unclean') {
+      let rebuild: DatabaseCrashRecoveryIndexRebuildResult;
+      try {
+        rebuild = await loadedPGlite.rebuildCrashSensitiveIndexes(readyDatabase);
+      } catch (err) {
+        recordInitializationFailure('index-rebuild', err);
+        releaseInitializationLockOnce();
+        await closeAfterFailedInitialization();
+
+        const msg = getErrorDetails(err).message;
+        logger.error('Failed to rebuild crash-sensitive indexes after an unclean shutdown', {
+          appDataDir,
+          dataDir,
+          failure: mutableState.lastInitializationFailure,
+        });
+        throw new Error(formatIndexRebuildFailureMessage(msg), { cause: err });
+      }
+      mutableState.crashRecoveryIndexRebuild = rebuild;
+      logger.warn('Rebuilt crash-sensitive indexes after an unclean shutdown', {
+        rebuilt: rebuild.rebuilt,
+        totalDurationMs: rebuild.totalDurationMs,
+      });
     }
 
     // Run migrations while the serialized CI bootstrap lock is still held. PGlite's
