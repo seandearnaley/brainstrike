@@ -432,6 +432,27 @@ Guard: `packages/db/__tests__/reset-table-registry.test.tsx`,
 
 Evidence: `database/managed-worktree-ledger.md`.
 
+## TABLE DURABILITY CLASSES
+
+- `table-durability-registry.ts` classifies every table as `precious`, `derived`,
+  `operational` or `schema-ledger`; `getTableDurability` throws for an unregistered table
+  and never guesses. Class is per TABLE, decided by what a row means, not who wrote it.
+- `precious` (user or user-intent state, LLM output that costs a model call, suspended
+  runs, user toggles) is never truncated by automated repair and is in every portable
+  export. `derived` may be truncated and rebuilt; `operational` may be truncated without
+  a rebuild; `schema-ledger` is never truncated and always exported.
+- `derived` requires `rebuildOwner` (`path/to/file.ts#symbol`), an existing automatic rebuild
+  path the union type enforces and the guard resolves; none, not derived.
+- Before truncating ANY non-precious table, repair names to the user each scope it cannot
+  rebuild and any user-visible pending work it would drop, never silently; `reason` records it.
+- A new table is classified in the same change; the integration guard fails otherwise.
+- No foreign key runs from a precious table to a non-precious one. Why: `TRUNCATE ... CASCADE`
+  empties every referencing table whatever its rule, and `SET NULL` rewrites precious rows.
+
+Evidence: `database/table-durability-classes.md`.
+Guard: `packages/db/__tests__/table-durability-registry.integration.test.ts`,
+`table-durability-registry.test.ts`.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the
