@@ -32,6 +32,20 @@ describe('TABLE_DURABILITY_REGISTRY shape', () => {
     }
   });
 
+  it('discloses the managed-collection-only rebuild on every table the workspace import rebuilds', () => {
+    // Repair surfaces `reason` per truncated table, so the limit cannot live
+    // only on the cascade root (`file_records`).
+    const importRebuilt = TABLE_DURABILITY_REGISTRY.filter((entry) =>
+      entry.rebuildOwner?.endsWith('#runRootFolderCacheImport')
+    );
+    expect(importRebuilt.map((entry) => entry.table)).toEqual(
+      expect.arrayContaining(['file_chunks', 'file_records', 'file_symbol_refs', 'file_symbols'])
+    );
+    for (const entry of importRebuilt) {
+      expect(entry.reason, entry.table).toContain('manual imports need a re-import');
+    }
+  });
+
   it('gives every entry a one-line reason', () => {
     for (const entry of TABLE_DURABILITY_REGISTRY) {
       expect(entry.reason.trim().length, entry.table).toBeGreaterThan(0);

@@ -282,7 +282,7 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
   derived(
     'file_chunks',
     SYNC_IMPORT_OWNER,
-    'Chunks and embeddings of indexed files; rebuilt by re-indexing (re-embedding costs provider calls on hosted models).'
+    'Chunks and embeddings of indexed files; rebuilt by re-indexing the managed collection (manual imports need a re-import; re-embedding costs provider calls on hosted models).'
   ),
   derived(
     'file_records',
@@ -296,12 +296,12 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
   derived(
     'file_symbol_refs',
     SYNC_IMPORT_OWNER,
-    'Symbol references extracted from indexed files; rebuilt together with file_records.'
+    'Symbol references extracted from indexed files; rebuilt together with file_records (manual imports need a re-import).'
   ),
   derived(
     'file_symbols',
     SYNC_IMPORT_OWNER,
-    'Symbols extracted from indexed files; rebuilt together with file_records.'
+    'Symbols extracted from indexed files; rebuilt together with file_records (manual imports need a re-import).'
   ),
   operational(
     'file_tags',

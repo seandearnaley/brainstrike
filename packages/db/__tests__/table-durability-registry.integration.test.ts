@@ -161,6 +161,8 @@ describe('table durability registry (real migrated database)', () => {
   });
 
   it('catches a precious table that references a non-precious parent by a non-cascade rule', async () => {
+    // The probe FKs need `job_queue_metrics.queue` to stay its primary key; if it
+    // ever stops being one, the ALTER throws and this test fails loudly.
     await db.exec(`
       ALTER TABLE brainstrike_assistant_thread_groups
         ADD COLUMN probe_no_action text REFERENCES job_queue_metrics(queue);
