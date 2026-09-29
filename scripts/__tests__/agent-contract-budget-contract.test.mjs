@@ -112,10 +112,12 @@ const CONTRACT_LINE_BUDGETS = {
   // changing a location, the precedence or the host handoff must meet those
   // rules first. The incident, the vendor citations and the open points went
   // to `database/desktop-database-location.md`.
-  // BST-1871 (part b) raised it from 908 (+6): the crash-sensitive index rule replaces the
+  // BST-1870 L2b raised it from 908 (+10): the integrity-containment
+  // background pause is a new scheduler rule with its guards; L4 re-pins.
+  // BST-1871 (part b) raised it from 918 (+6): the crash-sensitive index rule replaces the
   // one-bullet pointer with what an agent must obey before adding an index access method;
   // its measurements went to `database/pg-textsearch-qualification.md`.
-  'database.md': 914,
+  'database.md': 924,
   'domain.md': 37,
   // A new contract that grows with each ADR-0004 phase; each addition is a
   // rule with its guard, and the record lives in effect-boundary/*.md.

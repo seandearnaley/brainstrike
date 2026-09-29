@@ -287,6 +287,30 @@ describe('db-main close and open', () => {
       }
     );
 
+    it.each([
+      { failure: 'syncToFs', owns: false, words: /database sync failed.*restart BrainStrike/ },
+      { failure: 'close', owns: true, words: /database close failed.*may still own/ },
+    ] as const)(
+      'refuses a later open after a failed $failure with the message for that stage',
+      async ({ failure, owns, words }) => {
+        const { closeDatabase, getDatabase, initializeMainDatabase } = await import(
+          '../../db-main'
+        );
+        await initializeMainDatabase();
+        engine[failure].mockRejectedValueOnce(new Error(`${failure} failed`));
+        await expect(closeDatabase()).rejects.toMatchObject({ name: 'DatabaseCloseError' });
+
+        const reopen = await getDatabase().then(
+          () => null,
+          (error: unknown) => error as Error
+        );
+
+        expect(reopen?.message).toMatch(words);
+        // After a failed sync the close itself succeeded: the handle no longer owns anything.
+        expect(reopen?.message.includes('may still own')).toBe(owns);
+      }
+    );
+
     it('reports the close stage when both the sync and the close fail', async () => {
       const { closeDatabase, initializeMainDatabase } = await import('../../db-main');
       await initializeMainDatabase();
