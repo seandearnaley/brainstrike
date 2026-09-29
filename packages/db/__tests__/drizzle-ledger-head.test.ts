@@ -22,6 +22,27 @@ describe('getBundledLedgerHead', () => {
   });
 });
 
+describe('the bundled ledger is fixed at load', () => {
+  it('does not move when the exported customMigrations array is appended to afterwards', () => {
+    const head = getBundledLedgerHead();
+    customMigrations.push({
+      hash: 'custom-999-appended-later',
+      name: 'x',
+      sql: '',
+      version: '999',
+    });
+    try {
+      expect(getBundledLedgerHead()).toBe(head);
+      expect(computeLedgerHead(new Set(['custom-999-appended-later']))).toEqual({
+        head: null,
+        unknown: 1,
+      });
+    } finally {
+      customMigrations.pop();
+    }
+  });
+});
+
 describe('computeLedgerHead', () => {
   it('reports the last applied hash in apply order, whatever order the set was built in', () => {
     const applied = new Set([APPLY_ORDER[5], APPLY_ORDER[2], APPLY_ORDER[0]] as string[]);

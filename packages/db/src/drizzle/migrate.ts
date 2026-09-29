@@ -135,17 +135,20 @@ function deriveCustomMigrations(source: readonly Migration[]): DrizzleMigration[
 
 export const customMigrations: DrizzleMigration[] = deriveCustomMigrations(migrations);
 
-/** Every bundled ledger hash in the order `runMigrations` applies it: the drizzle manifest, then the custom ones. */
-function bundledLedgerHashesInApplyOrder(): readonly string[] {
-  return [
-    ...(migrationsManifest as MigrationManifest).migrations.map((migration) => migration.hash),
-    ...customMigrations.map((migration) => migration.hash),
-  ];
-}
+/**
+ * Every bundled ledger hash in the order `runMigrations` applies it (the drizzle
+ * manifest, then the custom ones), fixed once at load like `customMigrations`
+ * itself, so the head and the known set always describe the same bundle.
+ */
+const BUNDLED_LEDGER_HASHES: readonly string[] = [
+  ...(migrationsManifest as MigrationManifest).migrations.map((migration) => migration.hash),
+  ...customMigrations.map((migration) => migration.hash),
+];
+const KNOWN_LEDGER_HASHES: ReadonlySet<string> = new Set(BUNDLED_LEDGER_HASHES);
 
 /** The newest migration this build ships: the ledger head a fully migrated database reports. */
 export function getBundledLedgerHead(): string {
-  const head = bundledLedgerHashesInApplyOrder().at(-1);
+  const head = BUNDLED_LEDGER_HASHES.at(-1);
   if (head === undefined) {
     throw new Error('This build bundles no migrations, so it has no ledger head.');
   }
@@ -162,10 +165,8 @@ export function computeLedgerHead(applied: ReadonlySet<string>): {
   head: string | null;
   unknown: number;
 } {
-  const order = bundledLedgerHashesInApplyOrder();
-  const known = new Set(order);
-  const head = order.findLast((hash) => applied.has(hash)) ?? null;
-  return { head, unknown: [...applied].filter((hash) => !known.has(hash)).length };
+  const head = BUNDLED_LEDGER_HASHES.findLast((hash) => applied.has(hash)) ?? null;
+  return { head, unknown: [...applied].filter((hash) => !KNOWN_LEDGER_HASHES.has(hash)).length };
 }
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
