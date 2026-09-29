@@ -342,5 +342,6 @@ makes the open unclean. Nothing is deleted, and the never-opened case changed no
 Loss is not rare: `DB host received <signal>` is posted over the same port in the same tick just
 before `closing`, and one E2E run in four lacked that line, so `closing` was most likely lost in
 those runs too; their database was open, so the marker proved the clean close. Accepting `closed`
-and `close-failed`, posted later, gives main a second chance (`db-host-manager-close.test.ts`).
+and `close-failed` as well (`db-host-manager-close.test.ts`) helps only against an isolated loss:
+they are posted later, closer to the exit, so a loss at exit takes them before it takes `closing`.
 Not closed, because nothing else tells this exit apart from a crash; the exit code is never proof.
