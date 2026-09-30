@@ -249,6 +249,14 @@ async function applySessionConfig(config: SandboxRuntimeConfig): Promise<void> {
   SandboxManager.updateConfig(config);
 }
 
+async function releaseSession(): Promise<void> {
+  activeSessions -= 1;
+  if (activeSessions === 0 && sessionInitialized) {
+    sessionInitialized = false;
+    await SandboxManager.reset();
+  }
+}
+
 /**
  * The caller is bounded even if an upstream initialization never settles. The
  * serialized task retains the lock until late work and cleanup have joined:
@@ -257,7 +265,6 @@ async function applySessionConfig(config: SandboxRuntimeConfig): Promise<void> {
  */
 async function acquireReadySession(callerSignal?: AbortSignal): Promise<void> {
   const controller = new AbortController();
-  const deadline = Date.now() + FENCE_READINESS_TIMEOUT_MS;
   const signal = callerSignal
     ? AbortSignal.any([callerSignal, controller.signal])
     : controller.signal;
@@ -268,13 +275,17 @@ async function acquireReadySession(callerSignal?: AbortSignal): Promise<void> {
   });
   const onAbort = (): void => rejectAborted(signal.reason);
   signal.addEventListener('abort', onAbort, { once: true });
-  const timer = setTimeout(
-    () => controller.abort(fenceReadinessTimeout()),
-    FENCE_READINESS_TIMEOUT_MS
-  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const pending = runExclusive(async () => {
     try {
       signal.throwIfAborted();
+      // A busy executor does not make this host unready. The caller's signal
+      // bounds queue wait; the probe ceiling starts only after acquisition.
+      timer = setTimeout(
+        () => controller.abort(fenceReadinessTimeout()),
+        FENCE_READINESS_TIMEOUT_MS
+      );
+      const deadline = Date.now() + FENCE_READINESS_TIMEOUT_MS;
       assertNoSurvivingProcessGroups();
       await probeFenceReadiness({
         applyConfig: applySessionConfig,
@@ -286,6 +297,7 @@ async function acquireReadySession(callerSignal?: AbortSignal): Promise<void> {
       signal.throwIfAborted();
       activeSessions += 1;
     } catch (error) {
+      let failure = fenceReadinessFailure(error);
       // Even failed initialize() can leave singleton resources. Never reset
       // another live executor's session, and never race a still-running probe.
       if (activeSessions === 0) {
@@ -294,21 +306,31 @@ async function acquireReadySession(callerSignal?: AbortSignal): Promise<void> {
           await SandboxManager.reset();
         } catch (cleanupError) {
           logger.error('Failed to reset sandbox after readiness failure', { error: cleanupError });
-          throw fenceReadinessFailure(
-            new AggregateError([error, cleanupError], 'Sandbox readiness cleanup failed')
-          );
+          failure = fenceReadinessFailure(failure, [cleanupError]);
         }
       }
       if (signal.aborted) {
         throw signal.reason;
       }
-      const failure = fenceReadinessFailure(error);
       logger.warn('Sandbox readiness failed', { error: failure, reason: failure.reason });
       throw failure;
     }
   });
   try {
     await Promise.race([pending, interrupted]);
+  } catch (error) {
+    // An abort can win after pending acquired a lease but before its promise
+    // reaches the caller. Release only a successful late acquisition, under
+    // the same lock; a rejected probe owns no lease to decrement.
+    void pending
+      .then(
+        () => runExclusive(releaseSession),
+        () => {}
+      )
+      .catch((cleanupError: unknown) => {
+        logger.error('Failed to release abandoned sandbox session', { error: cleanupError });
+      });
+    throw error;
   } finally {
     clearTimeout(timer);
     signal.removeEventListener('abort', onAbort);
@@ -943,13 +965,7 @@ export async function createFenceExecutor(
       return;
     }
     disposed = true;
-    await runExclusive(async () => {
-      activeSessions -= 1;
-      if (activeSessions === 0 && sessionInitialized) {
-        sessionInitialized = false;
-        await SandboxManager.reset();
-      }
-    });
+    await runExclusive(releaseSession);
   };
 
   return { capabilities, dispose, execute };

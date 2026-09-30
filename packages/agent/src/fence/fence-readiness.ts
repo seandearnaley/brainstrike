@@ -22,7 +22,16 @@ export function fenceReadinessTimeout(): FenceReadinessError {
   );
 }
 
-export function fenceReadinessFailure(error: unknown): FenceReadinessError {
+export function fenceReadinessFailure(
+  error: unknown,
+  cleanupErrors: readonly unknown[] = []
+): FenceReadinessError {
+  if (cleanupErrors.length > 0) {
+    const primary = fenceReadinessFailure(error);
+    return new FenceReadinessError(primary.reason, primary.message, {
+      cause: new AggregateError([error, ...cleanupErrors], 'Sandbox readiness cleanup failed'),
+    });
+  }
   if (error instanceof FenceReadinessError) {
     return error;
   }
@@ -71,16 +80,18 @@ export async function probeFenceReadiness(options: FenceReadinessProbeOptions): 
       `Sandbox dependencies are missing: ${dependencies.errors.join(', ').slice(0, 1024)}. No user code ran. Ask your administrator to install the required sandbox tools (on Linux: bubblewrap, socat and ripgrep), then retry.`
     );
   }
-  // srt reports missing seccomp as a warning and otherwise silently weakens
-  // the fence. A successful shell command cannot prove that missing layer.
+  // Missing seccomp is currently a warning that silently weakens the fence.
+  // Refuse all warnings conservatively, but report the actual bounded warning
+  // so future runtime advisories are not misdiagnosed as missing seccomp.
   if (dependencies.warnings.length > 0) {
     throw new FenceReadinessError(
       'sandbox_unsupported_runtime',
-      'This runtime cannot provide the complete OS sandbox (including Linux seccomp/Unix-socket isolation). No user code ran. Use a supported runtime with all sandbox components available; ask your administrator to check the Brainstrike installation.'
+      `This runtime cannot confirm the complete OS sandbox. Sandbox runtime warnings: ${dependencies.warnings.join(', ').slice(0, 1024)}. No user code ran. Use a supported runtime with all sandbox components available; ask your administrator to check the Brainstrike installation.`
     );
   }
 
   const scratch = await mkdtemp(join(tmpdir(), 'brainstrike-fence-readiness-'));
+  let failure: { error: unknown } | undefined;
   try {
     signal.throwIfAborted();
     const cwd = await realpathNative(scratch);
@@ -116,11 +127,26 @@ export async function probeFenceReadiness(options: FenceReadinessProbeOptions): 
         new Error(result.stderr || 'The sandbox probe did not complete successfully.')
       );
     }
-  } finally {
-    try {
-      SandboxManager.cleanupAfterCommand();
-    } finally {
-      await rm(scratch, { force: true, recursive: true });
-    }
+  } catch (error) {
+    failure = { error };
+  }
+  const cleanupErrors: unknown[] = [];
+  try {
+    SandboxManager.cleanupAfterCommand();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  try {
+    await rm(scratch, { force: true, recursive: true });
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  if (failure) {
+    throw cleanupErrors.length > 0
+      ? fenceReadinessFailure(failure.error, cleanupErrors)
+      : failure.error;
+  }
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(cleanupErrors, 'Sandbox readiness cleanup failed');
   }
 }

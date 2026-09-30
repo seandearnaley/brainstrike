@@ -17,17 +17,24 @@ teardown and a temporary scratch directory. Python is not invoked or checked
 by this probe. Successful exit and the exact fixed marker are both required.
 A missing seccomp component is also a refusal: sandbox-runtime reports it as a
 warning, but running the probe without that layer would prove a weaker fence.
+All dependency warnings fail closed; the bounded actual warning is included
+in the diagnostic rather than assuming every warning concerns seccomp.
 
-The five-second ceiling includes queue wait, dependency checks, initialization,
-wrapping and probe execution. The tool's shorter remaining deadline or Stop
-signal can interrupt construction too. Upstream initialization has no abort
+The five-second probe ceiling starts after acquiring the global lock and covers
+dependency checks, initialization, wrapping and probe execution. Queue wait is
+bounded by the caller's tool deadline or Stop signal, so a concurrent long
+execution cannot falsely diagnose the host as unready. Upstream initialization has no abort
 API; when a caller times out, the pending operation retains the process-global
 lock until it settles and cleanup joins. A permanently hung operation therefore
 keeps the process fail-closed; restarting the app is recovery. Timing out does
 not reset the singleton concurrently with late initialization. No failed
-construction increments the executor refcount; failures are not cached, and a
-new construction can retry after cleanup. Successful readiness is checked anew
-on every construction, rather than trusting a stale positive cache.
+construction retains an executor refcount; an abort that wins the handoff race
+releases any late successful lease under the lock. Failures are not cached, and
+a new construction can retry after cleanup. Successful readiness is checked
+anew on every construction: the added probe latency deliberately avoids trusting
+a stale positive result when host permissions or dependencies have changed.
+Cleanup failures preserve the primary typed reason and aggregate both errors
+for diagnostics. A successful probe with failed cleanup still fails closed.
 
 Missing dependencies, namespace denial, unsupported/degraded runtime, timeout
 and unexpected failure have separate typed unavailable reasons. Detail reaches
@@ -44,6 +51,13 @@ AppArmor/sysctl workaround, or Electron sandbox relaxation is introduced.
   construction, unavailable dependencies, namespace denial, unavailable
   seccomp, timeout in initialization/wrapping, cancellation, late cleanup,
   refcounts, retry, no script execution, no fallback and the bundle boundary.
+- Review regressions cover construction queued behind a six-second execution,
+  caller cancellation while queued, the microtask handoff window, an unrelated
+  dependency warning, and simultaneous probe/cleanup failures. The UI keeps
+  actionable backend detail once, using curated remediation only as a fallback.
+- Vitest 5.0.2 defaults to `clearMocks: true`; module state deliberately remains
+  intact so leaked leases break lifecycle assertions. `realpath.native` is
+  retained per the seam's OS-canonical path contract.
 - The real-fence/escape-resistance integration setup now awaits construction;
   the required Linux lane's existing dependency and namespace prerequisites
   still apply. Its success evidence must come from an actual unskipped run.

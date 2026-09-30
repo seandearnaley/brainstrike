@@ -331,31 +331,35 @@ describe('gate refusal reasons (BST-1097)', () => {
 describe('sandbox readiness refusals (BST-1317)', () => {
   it.each([
     {
-      detail: 'Missing required sandbox tools: bubblewrap (bwrap), socat, ripgrep (rg).',
+      detail:
+        'Missing required sandbox tools: bubblewrap (bwrap), socat, ripgrep (rg). Ask an administrator to install the missing tools.',
       headline: /required sandbox tools are missing/i,
       reason: 'sandbox_dependencies_missing',
       remediation: /administrator to install the missing tools/i,
     },
     {
-      detail: 'The host refused the sandbox namespace probe.',
+      detail:
+        "The host refused the sandbox namespace probe. Ask an administrator to check the host's sandbox support.",
       headline: /computer blocks the isolation the sandbox needs/i,
       reason: 'sandbox_namespace_blocked',
       remediation: /administrator to check the host.*sandbox support/i,
     },
     {
-      detail: 'The sandbox runtime does not support this host.',
+      detail: 'The sandbox runtime does not support this host. Use a supported host.',
       headline: /operating system or runtime isn't supported/i,
       reason: 'sandbox_unsupported_runtime',
       remediation: /use a supported host/i,
     },
     {
-      detail: 'Sandbox readiness did not finish within 5000 ms.',
+      detail:
+        'Sandbox readiness did not finish within 5000 ms. The time limit expired before your code could run.',
       headline: /sandbox readiness check reached its time limit/i,
       reason: 'sandbox_readiness_timeout',
       remediation: /time limit expired before your code could run/i,
     },
     {
-      detail: 'The sandbox readiness probe exited with code 1.',
+      detail:
+        "The sandbox readiness probe exited with code 1. Ask an administrator to check this host's sandbox setup.",
       headline: /sandbox couldn't confirm it was ready to isolate your code/i,
       reason: 'sandbox_readiness_failed',
       remediation: /administrator to check this host.*sandbox setup/i,
@@ -378,6 +382,13 @@ describe('sandbox readiness refusals (BST-1317)', () => {
       );
     }
   );
+
+  it('keeps curated remediation when a readiness result has no backend detail', () => {
+    renderRunPython({ detail: '', kind: 'unavailable', reason: 'sandbox_namespace_blocked' });
+    expect(
+      screen.getByText(/administrator to check the host.*sandbox support/i)
+    ).toBeInTheDocument();
+  });
 
   it('keeps interpreter preparation failures distinct from sandbox readiness failures', () => {
     renderRunPython({

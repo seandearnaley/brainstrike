@@ -107,7 +107,6 @@ construction-time probe that actually spawns through bwrap. **Filed as BST-1317
 with the two candidate shapes** (throw at construction vs. report it as a
 capability); deliberately not fixed alongside the CI lane.
 
-
 ## Product readiness follow-up (2026-09-30)
 
 BST-1317 replaces the deferred-construction behavior above with a bounded real

@@ -319,12 +319,11 @@ function resolveSurfaceModel(result: RunPythonDisplayResult): RunPythonSurfaceMo
       };
     case 'unavailable': {
       const copy = unavailableCopy(result.reason);
-      const secondaryLines = copy?.sub ? [copy.sub] : [];
-      // Readiness diagnostics name the missing tools or failed probe, so keep
-      // them alongside the curated remediation. Unknown reasons retain their
-      // original detail rather than inventing a diagnosis.
-      if (!copy || copy.showDetail) {
-        secondaryLines.push(result.detail);
+      // Readiness detail already includes remediation and names the missing
+      // tools or warning. Show it once; curated copy covers an empty detail.
+      let secondaryLines = copy?.sub ? [copy.sub] : [];
+      if ((!copy || copy.showDetail) && result.detail.trim()) {
+        secondaryLines = [result.detail];
       }
       return {
         secondaryLines,

@@ -267,9 +267,9 @@ Evidence: `code-execution/permission-engine-ux-design.md`.
   the script is written there `mode: 0o600` and removed after the run.
 - Serialize readiness, execution and disposal under one process-wide lock.
   Initialize once; `updateConfig` and `cleanupAfterCommand` per probe/run.
-  Refcount executors; last disposal resets. Readiness has a five-second total
-  ceiling (queue included), bounded output, process-tree teardown and scratch
-  cleanup. Late setup holds the lock through cleanup; failures retain no session.
+  Refcount executors; last disposal resets. Probe ceiling: five seconds after
+  lock acquisition; caller signal/budget bounds queue wait. Bound output and
+  join teardown/cleanup under the lock; abandoned handoffs release their session.
 - The deadline starts when `execute()` is entered, not at spawn. If the budget
   elapses while queued, nothing spawns and `FenceQueueTimeoutError` is thrown —
   never a fabricated `ExecResult` for code that did not run.
