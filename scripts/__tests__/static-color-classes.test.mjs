@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { staticColorClasses } from '../lib/static-color-classes.mjs';
+import { staticClassStrings, staticColorClasses } from '../lib/static-color-classes.mjs';
 
 it('reads literals, conditional branches and static template segments, excluding comments/prose', () => {
   const source = [
@@ -38,4 +38,34 @@ it('parses TypeScript generics as TypeScript in non-JSX source files', () => {
     ).map(({ utility }) => utility),
     ['text-red-500']
   );
+});
+
+it('associates literal class names with current JSX elements and direct ancestors only', () => {
+  const records = staticClassStrings(
+    '<section className="bg-black"><><div><p className={"text-slate-200"} title="text-red-200" /></div></></section>'
+  );
+  const foreground = records.find(({ literal }) => literal === 'text-slate-200');
+  assert.deepEqual(
+    foreground.jsxPath.map(({ element, literal }) => [element, literal]),
+    [
+      ['p', 'text-slate-200'],
+      ['div', ''],
+      ['section', 'bg-black'],
+    ]
+  );
+  assert.deepEqual(records.find(({ literal }) => literal === 'text-red-200').jsxPath, []);
+});
+
+it('marks dynamic classes, inline styles and spreads as unresolved paint metadata', () => {
+  for (const attributes of [
+    'className={classes}',
+    'style={{ background: "white" }}',
+    '{...props}',
+  ]) {
+    const records = staticClassStrings(
+      `<div ${attributes}><span className="text-slate-200" /></div>`
+    );
+    const foreground = records.find(({ literal }) => literal === 'text-slate-200');
+    assert.equal(foreground.jsxPath[1].unresolved, true, attributes);
+  }
 });

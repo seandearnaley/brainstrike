@@ -21,8 +21,6 @@ const OMITTED_DIRECTORIES = new Set([
   '__tests__',
   '__fixtures__',
   '__mocks__',
-  'tests',
-  'test',
 ]);
 // Synthetic files opened in the editor, never mounted as application UI.
 export const NON_UI_SOURCE_FILES = ['packages/file-system/src/fixtures/dev-inline-fixture.ts'];
@@ -86,11 +84,31 @@ function describeViolation(path, line, violation) {
   return `${path}:${line} ${violation.utility}:${measurement}${violation.preferSemantic ? ' Use text-warning for warning foregrounds.' : ' Use a measured semantic foreground.'}`;
 }
 
+function hasAssociatedBackdrop(record, exception) {
+  for (const paint of record.jsxPath) {
+    // Custom components, dynamic classes, style and spread props cannot prove
+    // a DOM paint here. No CSS/runtime inference is part of this exception gate.
+    if (paint.unresolved || !/^[a-z][a-z\d-]*$/.test(paint.element)) {
+      return false;
+    }
+    const hasBackground = paint.literal
+      .split(/\s+/)
+      .some((utility) => /(?:^|:)!?(?:bg-|\[(?:background(?:-color|-image)?):)/.test(utility));
+    if (hasBackground) {
+      // Stop at the nearest paint, even a tint/variant/transparent background.
+      // It needs its own exact measurement; an outer dark panel proves nothing.
+      return exception.anchors?.some(({ literal }) => literal === paint.literal) ?? false;
+    }
+  }
+  return false;
+}
+
 /**
  * Static palette-foreground policy, not computed-style accessibility coverage.
  * Surface exceptions substitute an explicitly painted backdrop. The two documented
  * redundant, aria-hidden decorations are excluded from text/indicator semantics.
- * Each is exact-path + exact-literal + utility + count, with live source anchors.
+ * Each is exact-path + exact-literal + utility + count. Measured surfaces also
+ * require the nearest statically known JSX paint to be a live backdrop anchor.
  */
 export function auditForegroundSources({ sources, palette, surfaces, exceptions = [] }) {
   const errors = [];
@@ -132,7 +150,8 @@ export function auditForegroundSources({ sources, palette, surfaces, exceptions 
     }
   }
   for (const [path, strings] of records) {
-    for (const { literal, line, element, ariaHidden } of strings) {
+    for (const record of strings) {
+      const { literal, line, element, ariaHidden } = record;
       for (const { utility } of readUtilityColors(literal)) {
         const matching = exceptions.filter(
           (entry) => entry.path === path && entry.literal === literal && entry.utility === utility
@@ -145,6 +164,11 @@ export function auditForegroundSources({ sources, palette, surfaces, exceptions 
               `stale foreground surface exception: ${path} ${utility} no longer needs an exception`
             );
           }
+          if (!(exception.decorative || hasAssociatedBackdrop(record, exception))) {
+            errors.push(
+              `${path}:${line} ${utility} needs an associated JSX backdrop anchor with no intervening or unresolved paint`
+            );
+          }
           if (exception.decorative && (!ariaHidden || element !== exception.element)) {
             errors.push(
               `${path}:${line} decorative exception needs its aria-hidden ${exception.element} element`
@@ -154,7 +178,10 @@ export function auditForegroundSources({ sources, palette, surfaces, exceptions 
         if (matching[0]?.decorative && !natural.some(({ preferSemantic }) => preferSemantic)) {
           continue;
         }
-        const measured = matching[0]?.surfaces;
+        const measured =
+          matching[0] && hasAssociatedBackdrop(record, matching[0])
+            ? matching[0].surfaces
+            : undefined;
         const violations =
           measured && Object.keys(measured).length
             ? collectForegroundViolations({ palette, surfaces: measured, text: utility })

@@ -193,8 +193,8 @@ describe('QueueStatusPopover', () => {
 
       renderPopover();
 
-      // CheckCircle2 icon should be present (green)
-      const icon = document.querySelector('.text-success');
+      // CheckCircle2 icon indicates the successful idle state
+      const icon = document.querySelector('svg.text-success');
       expect(icon).toBeInTheDocument();
     });
 
@@ -216,8 +216,8 @@ describe('QueueStatusPopover', () => {
 
       renderPopover();
 
-      // Zap icon should be present (blue, animated)
-      const icon = document.querySelector('.text-info.animate-pulse');
+      // Animated Zap icon indicates active processing
+      const icon = document.querySelector('svg.text-info.animate-pulse');
       expect(icon).toBeInTheDocument();
     });
 
@@ -239,8 +239,8 @@ describe('QueueStatusPopover', () => {
 
       renderPopover();
 
-      // AlertTriangle icon should be present (yellow)
-      const icon = document.querySelector('.text-warning');
+      // AlertTriangle icon indicates the warning state
+      const icon = document.querySelector('svg.text-warning');
       expect(icon).toBeInTheDocument();
     });
 
@@ -267,8 +267,8 @@ describe('QueueStatusPopover', () => {
 
       renderPopover();
 
-      // AlertTriangle icon should be present (yellow)
-      const icon = document.querySelector('.text-warning');
+      // AlertTriangle icon indicates the warning state
+      const icon = document.querySelector('svg.text-warning');
       expect(icon).toBeInTheDocument();
     });
   });
@@ -516,7 +516,7 @@ describe('QueueStatusPopover', () => {
       renderPopover();
 
       // Warning icon should appear (has errors)
-      const icon = document.querySelector('.text-warning');
+      const icon = document.querySelector('svg.text-warning');
       expect(icon).toBeInTheDocument();
     });
   });

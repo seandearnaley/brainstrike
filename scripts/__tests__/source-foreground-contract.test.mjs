@@ -99,6 +99,92 @@ it('requires measured exceptions tied to exact source occurrences and live backd
   );
 });
 
+it('requires the measured backdrop on the foreground element or its JSX ancestors', () => {
+  const foreground = '<span className="text-slate-200">Text</span>';
+  const anchored = {
+    ...exception,
+    anchors: [{ count: 1, literal: 'bg-black' }],
+    literal: 'text-slate-200',
+  };
+  assert.deepEqual(
+    audit([source(`<div className="bg-black"><><div>${foreground}</div></></div>`)], [anchored]),
+    []
+  );
+  for (const text of [
+    `<><div className="bg-black" />${foreground}</>`,
+    `const unused = "bg-black"; const view = ${foreground};`,
+    '<div className="bg-black" title="text-slate-200" />',
+    '<div className="bg-black">{"text-slate-200"}</div>',
+  ]) {
+    assert.match(audit([source(text)], [anchored]).join('\n'), /associated JSX backdrop/);
+  }
+});
+
+it('rejects intervening paints and unresolved JSX paint boundaries', () => {
+  const foreground = '<span className="text-slate-200">Text</span>';
+  const anchored = {
+    ...exception,
+    anchors: [{ count: 1, literal: 'bg-black' }],
+    literal: 'text-slate-200',
+  };
+  for (const attributes of [
+    'className="bg-white"',
+    'className="hover:bg-white"',
+    'className="dark:!bg-white"',
+    'className="bg-white!"',
+    'className="[background:white]"',
+    'className={classes}',
+    'className={cn("p-1", classes)}',
+    'style={{ background: "white" }}',
+    '{...props}',
+  ]) {
+    assert.match(
+      audit(
+        [source(`<div className="bg-black"><div ${attributes}>${foreground}</div></div>`)],
+        [anchored]
+      ).join('\n'),
+      /associated JSX backdrop/,
+      attributes
+    );
+  }
+  assert.match(
+    audit(
+      [source(`<div className="bg-black"><Panel>${foreground}</Panel></div>`)],
+      [anchored]
+    ).join('\n'),
+    /associated JSX backdrop/
+  );
+  assert.match(
+    audit(
+      [
+        source(
+          '<div className="bg-black" style={{ background: "white" }}><span className="text-slate-200" /></div>'
+        ),
+      ],
+      [anchored]
+    ).join('\n'),
+    /associated JSX backdrop/
+  );
+});
+
+it('fails a moved real bootstrap label even when all exact literal and anchor counts survive', () => {
+  const path = 'apps/desktop/src/renderer/main.tsx';
+  const original = readFileSync(join(root, path), 'utf8');
+  const label = '<p className="mt-3 text-slate-200 text-sm">{validation.message}</p>';
+  assert.ok(original.includes(label));
+  const moved = original
+    .replace(label, '')
+    .replace('      </div>\n    </div>', `      </div>\n      ${label}\n    </div>`);
+  const entries = FOREGROUND_SURFACE_EXCEPTIONS.filter((entry) => entry.path === path);
+  assert.deepEqual(audit([source(original, path)], entries), []);
+  const errors = audit([source(moved, path)], entries);
+  assert.match(errors.join('\n'), /associated JSX backdrop/);
+  assert.ok(
+    errors.every((error) => !/expected|stale/.test(error)),
+    errors.join('\n')
+  );
+});
+
 it('does not waive contrast or warning semantics just because an exception exists', () => {
   assert.match(
     audit([darkPanel], [{ ...exception, surfaces: { white: [1, 1, 1] } }]).join('\n'),
@@ -143,6 +229,13 @@ it('allows only precisely documented aria-hidden decorations, never a status gly
     /aria-hidden/
   );
   assert.match(
+    audit(
+      [source(decoration.source.replace('aria-hidden="true"', 'aria-hidden={false}'))],
+      [decorativeException]
+    ).join('\n'),
+    /aria-hidden/
+  );
+  assert.match(
     audit([source(decoration.source.replace('Sparkles', 'Check'))], [decorativeException]).join(
       '\n'
     ),
@@ -158,9 +251,14 @@ it('includes new production files without enumerating them and omits non-product
       'apps/new-app/src/new.tsx',
       'packages/new-package/src/nested/new.ts',
       'packages/new-package/src/new.jsx',
+      'packages/new-package/src/test/card.tsx',
+      'packages/new-package/src/tests/card.tsx',
       'packages/new-package/src/new.test.tsx',
       'packages/new-package/src/__fixtures__/sample.ts',
       'packages/new-package/src/__tests__/sample.tsx',
+      'packages/new-package/src/__mocks__/sample.tsx',
+      'packages/new-package/src/test/card.spec.tsx',
+      'packages/new-package/src/tests/card.stories.tsx',
     ];
     for (const path of paths) {
       mkdirSync(join(directory, path, '..'), { recursive: true });
@@ -168,8 +266,12 @@ it('includes new production files without enumerating them and omits non-product
     }
     assert.deepEqual(
       productionSources(directory).map(({ path }) => path),
-      paths.slice(0, 3).sort()
+      paths.slice(0, 5).sort((left, right) => left.localeCompare(right))
     );
+    const errors = audit(productionSources(directory));
+    assert.equal(errors.length, 5);
+    assert.ok(errors.some((error) => error.includes('/src/test/card.tsx:')));
+    assert.ok(errors.some((error) => error.includes('/src/tests/card.tsx:')));
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }

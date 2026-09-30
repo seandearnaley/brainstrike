@@ -97,3 +97,38 @@ definitions and known same-token fills are measured separately; consumers with
 different compositions still need rendered checks in both themes/contrast
 modes. Defaulting unknown text/icon roles to 4.5:1 is intentionally conservative;
 `aria-hidden` alone never creates an automatic exemption.
+
+## 2026-09-30: measured-surface association and guard review
+
+BST-1618's review found that a live backdrop literal elsewhere in a file did
+not prove the foreground painted on that backdrop. The guard now additionally
+requires a literal `className` on the foreground's current JSX element and a
+matching anchor on the nearest statically visible background-bearing element,
+including that current element. Direct intrinsic-element ancestors and JSX
+fragments are supported. Moving a real bootstrap label outside its panel fails
+even when every foreground and anchor literal/count is unchanged; the real
+bootstrap panels and same-element terminal background remain positive controls.
+
+The association gate stops at any intervening `bg-*` utility or arbitrary
+`background`, `background-color` or `background-image` property, including
+variant/important forms. Even a transparent fill or tint needs its own qualified
+measurement. Inline styles, spread props, dynamic class names and custom
+component boundaries fail closed on the path to the anchor. Expressions,
+callbacks, portals and reusable class constants cannot establish ancestry.
+This is bounded JSX evidence, not a CSS engine: custom stylesheet selectors,
+ancestor opacity and runtime DOM/paint remain rendered-check responsibilities.
+The exact exception literals, counts, measured ratios and decorative-role
+requirements are unchanged, including rejection of `aria-hidden={false}`.
+
+Production discovery excludes conventional `__tests__`, `__fixtures__` and
+`__mocks__` directories and test/spec/story filenames, but does not infer that
+bare `src/test` or `src/tests` directories contain only tests. Negative controls
+put low-contrast production TSX in both directories and require discovery and
+audit failures. The explicit non-UI fixture exclusion remains exact.
+
+The separate filled-variant guard intentionally rejects important modifiers on
+background utilities, with an explicit unsupported-paint diagnostic. Leading
+and trailing `!`, variant and alpha forms are tested through both destructive
+fill helpers before theme filtering. Other-family background overrides still
+fail qualification. This narrower guard does not change the palette-foreground
+parser's support for important foreground modifiers.
