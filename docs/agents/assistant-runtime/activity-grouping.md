@@ -182,3 +182,41 @@ renderer hydration retains reasoning and calls without invoking a model.
 matches. These are rendered Chromium and helper guards, not native database
 hydration or a packaged desktop end-to-end proof. The reproduced missing-local-
 pause condition is fixed; its attribution to the exact screenshot remains open.
+
+## Chained approval resume history — 2026-09-30
+
+The shared renderer suppresses only a resultless `requires-action` duplicate whose
+original approval card is proven. It retains running execution and completed tool
+results. A host answer denotes admission, never completion.
+
+The live thread debug snapshot at 15:22:52Z showed three already approved glob
+calls still rendering Waiting with shimmer while later model work ran. A resume
+leg seeds the approved invocation again under host H1, answers the original native
+run/call, then can pause on another call. Its original card belongs to host H0.
+The installed assistant-ui normalizer applies the new message's requires-action
+status to every resultless call, so exact H1-vs-H0 timeline matching cannot remove
+that stale replay.
+
+`approvalCardToolCallIds` therefore also reads host answers in the SAME message
+and requires the view's original addressable card, exact native run, surface call,
+tool name, continuation and every delegation edge. The thread-wide answer index
+alone cannot prove which message owns a replay. A shared leaf key cannot prove a
+root/child surface match. Bare tool-call IDs are reusable across native steps.
+
+Guard: `approval-group-history.browser.test.tsx` reproduces H0 card A, H1 synthetic
+start/answer A plus actionable B, then H2 execution and further model reasoning.
+Before the fix it fails with an active Waiting group in H1. After the fix B remains
+actionable, Approved B stays executing until its result, and later reasoning stays
+live. `approval-history.test.ts` rejects missing original cards, foreign native
+runs, changed tool/continuation/full ancestry and child/root aliases sharing one
+leaf key. This proves renderer projection, not packaged desktop lifecycle parity.
+
+Review added a same-message duplicate-call negative control: tool parts do not
+carry native ancestry, so two parts with the same call ID remain visible rather
+than applying one proven answer to both. Comparator controls explicitly exercise
+both shared-key lookup and surface comparison. Browser assertions re-query the
+connected timeline after updates. A shared decision-key index collision between
+root and child views fails closed; it cannot authorize cross-surface suppression.
+Native desktop acceptance on adea913 individually approved two sequential reads,
+kept only the second request actionable, completed both reads with static groups
+and a conclusion outside them, and retained completed groups after reload.
