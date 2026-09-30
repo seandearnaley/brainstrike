@@ -278,7 +278,7 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
   const OPEN_CANARY = 'bst-1071-open-canary-is-readable';
   const DOTENV_CANARY = 'bst-1071-dotenv-canary';
 
-  beforeAll(() => {
+  beforeAll(async () => {
     scratchDir = mkdtempSync(join(tmpdir(), 'bst-redteam-scratch-'));
     outsideDir = mkdtempSync(join(tmpdir(), 'bst-redteam-outside-'));
     secretsRoot = mkdtempSync(join(tmpdir(), 'bst-redteam-secrets-'));
@@ -296,13 +296,13 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
     mkdirSync(join(scratchDir, 'nested'));
     symlinkSync(join(scratchDir, 'nested'), join(scratchDir, 'link-to-inside'));
 
-    executor = createFenceExecutor({
+    executor = await createFenceExecutor({
       interpreters: { python: { command: pythonPath as string, scriptExtension: 'py' } },
     });
   });
 
   afterAll(async () => {
-    await executor.dispose();
+    await executor?.dispose();
     for (const dir of [scratchDir, outsideDir, secretsRoot]) {
       rmSync(dir, { force: true, recursive: true });
     }

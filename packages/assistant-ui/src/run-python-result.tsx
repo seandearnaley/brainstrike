@@ -50,7 +50,9 @@ interface RunPythonCleanupDisplay {
  * switch, not a keyed record: the reasons are snake_case wire values, not
  * identifiers.)
  */
-function unavailableCopy(reason: string): { headline: string; sub?: string } | null {
+function unavailableCopy(
+  reason: string
+): { headline: string; showDetail?: boolean; sub?: string } | null {
   switch (reason) {
     case 'approval_confirmation_unavailable':
       return {
@@ -76,6 +78,36 @@ function unavailableCopy(reason: string): { headline: string; sub?: string } | n
     case 'interpreter_unavailable':
       return {
         headline: "Nothing ran — the sandbox's Python couldn't be prepared on this machine.",
+      };
+    case 'sandbox_dependencies_missing':
+      return {
+        headline: 'Nothing ran — required sandbox tools are missing on this computer.',
+        showDetail: true,
+        sub: "Ask an administrator to install the missing tools listed below using your system's supported packages.",
+      };
+    case 'sandbox_namespace_blocked':
+      return {
+        headline: 'Nothing ran — this computer blocks the isolation the sandbox needs.',
+        showDetail: true,
+        sub: "Ask an administrator to check the host's sandbox support, or use a supported host.",
+      };
+    case 'sandbox_unsupported_runtime':
+      return {
+        headline: "Nothing ran — this operating system or runtime isn't supported by the sandbox.",
+        showDetail: true,
+        sub: 'Use a supported host with the required sandbox tools, or ask an administrator for help.',
+      };
+    case 'sandbox_readiness_timeout':
+      return {
+        headline: 'Nothing ran — the sandbox readiness check reached its time limit.',
+        showDetail: true,
+        sub: "The time limit expired before your code could run. Try again; if it keeps timing out, ask an administrator to check this host's sandbox support.",
+      };
+    case 'sandbox_readiness_failed':
+      return {
+        headline: "Nothing ran — the sandbox couldn't confirm it was ready to isolate your code.",
+        showDetail: true,
+        sub: "Ask an administrator to check this host's sandbox setup, or use a supported host.",
       };
     case 'language_unsupported':
       return { headline: "Nothing ran — this sandbox can't run Python." };
@@ -287,10 +319,14 @@ function resolveSurfaceModel(result: RunPythonDisplayResult): RunPythonSurfaceMo
       };
     case 'unavailable': {
       const copy = unavailableCopy(result.reason);
+      // Readiness detail already includes remediation and names the missing
+      // tools or warning. Show it once; curated copy covers an empty detail.
+      let secondaryLines = copy?.sub ? [copy.sub] : [];
+      if ((!copy || copy.showDetail) && result.detail.trim()) {
+        secondaryLines = [result.detail];
+      }
       return {
-        // A recognised reason gets its curated sub-line; an unrecognised one
-        // gets the tool's own detail — never both, never an invented line.
-        secondaryLines: copy ? (copy.sub ? [copy.sub] : []) : [result.detail],
+        secondaryLines,
         stderr: '',
         stderrLeads: false,
         stderrOmittedBytes: 0,

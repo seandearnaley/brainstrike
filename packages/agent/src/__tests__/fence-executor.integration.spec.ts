@@ -108,16 +108,16 @@ describe.skipIf(skipReason !== undefined)('FenceExecutor against the real OS fen
   let scratchDir: string;
   let outsideDir: string;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     scratchDir = mkdtempSync(join(tmpdir(), 'bst-fence-scratch-'));
     outsideDir = mkdtempSync(join(tmpdir(), 'bst-fence-outside-'));
-    executor = createFenceExecutor({
+    executor = await createFenceExecutor({
       interpreters: { python: { command: pythonPath as string, scriptExtension: 'py' } },
     });
   });
 
   afterAll(async () => {
-    await executor.dispose();
+    await executor?.dispose();
     rmSync(scratchDir, { force: true, recursive: true });
     rmSync(outsideDir, { force: true, recursive: true });
   });
@@ -335,7 +335,7 @@ describe.skipIf(skipReason !== undefined)('FenceExecutor against the real OS fen
   });
 
   it('passes through the interpreter env a caller explicitly declared', async () => {
-    const declared = createFenceExecutor({
+    const declared = await createFenceExecutor({
       interpreters: {
         python: {
           command: pythonPath as string,

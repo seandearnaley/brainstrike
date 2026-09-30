@@ -106,3 +106,10 @@ field says "this host cannot build a namespace". Closing it needs a
 construction-time probe that actually spawns through bwrap. **Filed as BST-1317
 with the two candidate shapes** (throw at construction vs. report it as a
 capability); deliberately not fixed alongside the CI lane.
+
+## Product readiness follow-up (2026-09-30)
+
+BST-1317 replaces the deferred-construction behavior above with a bounded real
+fence probe. See `fence-readiness.md` for its lifecycle and unmodified-host
+measurements. CI provisioning remains unchanged; a development host refusal
+is not evidence that the successful real-fence integration suite ran.
