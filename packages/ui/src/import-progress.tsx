@@ -32,7 +32,7 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-sm">
             {isComplete ? (
-              <CheckCircle aria-hidden="true" className="h-4 w-4 text-green-600" />
+              <CheckCircle aria-hidden="true" className="h-4 w-4 text-success" />
             ) : (
               <div
                 aria-hidden="true"
@@ -97,7 +97,7 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
             ) : (
               <ChevronRight aria-hidden="true" className="mr-2 h-3 w-3" />
             )}
-            <AlertTriangle aria-hidden="true" className="mr-2 h-3 w-3 text-amber-600" />
+            <AlertTriangle aria-hidden="true" className="mr-2 h-3 w-3 text-warning" />
             <span className="text-xs">
               View {errors.length} error{errors.length === 1 ? '' : 's'}
             </span>

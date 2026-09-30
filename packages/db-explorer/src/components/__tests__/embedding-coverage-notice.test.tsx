@@ -55,7 +55,7 @@ describe('EmbeddingCoverageNotice', () => {
     const message = screen.getByText(/needs re-indexing/i);
     // Warning text must NOT read as the muted/healthy tone (WCAG: don't rely on
     // a tiny icon's color alone to signal an actionable state).
-    expect(message.className).toMatch(/text-amber/);
+    expect(message.className).toMatch(/text-warning/);
     expect(message.className).not.toMatch(/text-muted-foreground/);
   });
 

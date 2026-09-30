@@ -8,7 +8,7 @@ describe('ErrorFallback', () => {
     expect(getByText('Something went wrong.')).toBeInTheDocument();
     const root = container.firstChild as HTMLElement;
     expect(root).toHaveClass('p-4');
-    expect(root).toHaveClass('text-red-500');
+    expect(root).toHaveClass('text-destructive');
   });
 
   it('renders custom message', () => {

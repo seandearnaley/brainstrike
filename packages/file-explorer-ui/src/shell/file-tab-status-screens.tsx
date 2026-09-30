@@ -22,7 +22,7 @@ export function PermissionRequiredScreen({
       <div aria-live="polite" className="sr-only">
         File access required for {path}. Click the tab to restore access.
       </div>
-      <LockKeyhole aria-hidden="true" className="mb-4 h-12 w-12 text-amber-500" />
+      <LockKeyhole aria-hidden="true" className="mb-4 h-12 w-12 text-warning" />
       <p className="font-semibold text-lg">File Access Required</p>
       <p className="mt-2 max-w-md text-muted-foreground text-sm">
         Click the tab again to restore access to this file. Your browser requires permission to read

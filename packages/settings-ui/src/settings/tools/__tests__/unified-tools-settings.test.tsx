@@ -1995,8 +1995,7 @@ describe('UnifiedToolsSettings', () => {
       }
       expect(matrix).not.toHaveTextContent(/BST-|implementation ticket/u);
       expect(within(matrix).getByTestId('mcp-support-status-core:2026-07-28-tools')).toHaveClass(
-        'text-emerald-700',
-        'dark:text-emerald-300'
+        'text-success'
       );
       for (const gate of [
         'MIME declaration',

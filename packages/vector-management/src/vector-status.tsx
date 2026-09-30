@@ -905,7 +905,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
               <span>Jobs/min</span>
               <Sparkline
                 ariaLabel="Queue throughput trend"
-                className="text-emerald-500 dark:text-emerald-400"
+                className="text-success"
                 height={16}
                 values={throughputTrend}
                 width={56}
@@ -928,7 +928,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
               <span>Latency (ms)</span>
               <Sparkline
                 ariaLabel="Queue latency trend"
-                className="text-sky-500 dark:text-sky-400"
+                className="text-info"
                 height={12}
                 values={latencyTrend}
                 width={56}

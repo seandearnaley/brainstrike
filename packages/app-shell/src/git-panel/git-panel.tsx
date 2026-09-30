@@ -109,7 +109,7 @@ export function GitPanel(): ReactElement {
         switchBranch={panel.switchBranch}
       />
       {repository.scope === 'workspace' ? (
-        <div className="shrink-0 border-amber-500/25 border-b bg-amber-500/8 px-3 py-1.5 text-amber-700 text-xs dark:text-amber-300">
+        <div className="shrink-0 border-amber-500/25 border-b bg-amber-500/8 px-3 py-1.5 text-warning text-xs">
           Showing changes for{' '}
           {formatWorkspaceScope(repository.openedRoot, repository.currentWorktree.path)} only.
         </div>

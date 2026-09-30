@@ -40,7 +40,7 @@ describe('NodeIcon', () => {
 
     const svg = container.querySelector('svg');
     expect(svg).toBeInTheDocument();
-    expect(svg).toHaveClass('text-gray-500');
+    expect(svg).toHaveClass('text-muted-foreground');
   });
 
   it('renders folder icon when directory is collapsed', () => {
@@ -50,7 +50,7 @@ describe('NodeIcon', () => {
 
     const svg = container.querySelector('svg');
     expect(svg).toBeInTheDocument();
-    expect(svg).toHaveClass('text-blue-500');
+    expect(svg).toHaveClass('text-blue-800', 'dark:text-blue-300');
   });
 
   it('renders open folder icon when directory is expanded', () => {
@@ -60,7 +60,7 @@ describe('NodeIcon', () => {
 
     const svg = container.querySelector('svg');
     expect(svg).toBeInTheDocument();
-    expect(svg).toHaveClass('text-blue-500');
+    expect(svg).toHaveClass('text-blue-800', 'dark:text-blue-300');
   });
 
   it('renders null for unknown node type', () => {

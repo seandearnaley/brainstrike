@@ -22,12 +22,12 @@ import { useUnseenDiagnosticsCount } from '../diagnostics/use-unseen-diagnostics
  *     open settings while the status bar looks clean.
  *   - a live-query error is likewise never rendered as 0.
  *
- * Both surface in the same amber warning tone with an honest label. The
+ * Both surface in the same semantic warning tone with an honest label. The
  * disabled-sink state outranks a non-zero count too, because that count is
  * frozen and stale — reporting it as live would be its own small lie.
  */
 
-const AMBER_TONE_CLASSNAME = 'text-amber-800 dark:text-amber-300';
+const WARNING_TONE_CLASSNAME = 'text-warning';
 
 function formatCountLabel(count: number, singular: 'error' | 'warning'): string {
   return `${count.toLocaleString()} ${count === 1 ? singular : `${singular}s`}`;
@@ -128,7 +128,7 @@ export function DiagnosticsStatusItem() {
       >
         <span
           aria-hidden="true"
-          className={`flex items-center gap-1.5 whitespace-nowrap font-medium ${AMBER_TONE_CLASSNAME}`}
+          className={`flex items-center gap-1.5 whitespace-nowrap font-medium ${WARNING_TONE_CLASSNAME}`}
           data-testid="diagnostics-status-item"
         >
           {display.visibleLabel}

@@ -259,7 +259,7 @@ function DownloadControl({ row }: { readonly row: CatalogRow }) {
     return (
       <span
         aria-label={`${row.name} downloaded`}
-        className="inline-flex items-center text-green-600 dark:text-green-400"
+        className="inline-flex items-center text-success"
         role="img"
         title="Downloaded"
       >

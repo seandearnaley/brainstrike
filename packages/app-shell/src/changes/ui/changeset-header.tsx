@@ -489,9 +489,7 @@ export function ChangesetHeader({
           className="flex flex-col items-start gap-1.5"
           data-testid="changeset-header-inventory-error"
         >
-          <p className="text-[11px] text-amber-700 dark:text-amber-300">
-            Repository list unavailable: {inventoryError}
-          </p>
+          <p className="text-[11px] text-warning">Repository list unavailable: {inventoryError}</p>
           {onRetryInventory ? (
             <Button onClick={onRetryInventory} size="sm" type="button" variant="outline">
               <RefreshCw aria-hidden="true" className="size-3.5" />

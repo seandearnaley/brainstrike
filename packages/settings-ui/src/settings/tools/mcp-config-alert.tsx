@@ -48,10 +48,10 @@ export function McpConfigAlert({
       className="flex items-start gap-3 rounded-lg border border-yellow-500/50 bg-yellow-500/5 p-3"
       data-testid="mcp-config-alert"
     >
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600 dark:text-yellow-500" />
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
 
       <div className="min-w-0 flex-1">
-        <p className="text-sm text-yellow-800 dark:text-yellow-200">
+        <p className="text-sm text-warning">
           MCP config not found
           {configInfo.path && (
             <code className="ml-1.5 rounded bg-yellow-500/10 px-1 py-0.5 font-mono text-[11px]">

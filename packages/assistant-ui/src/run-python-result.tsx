@@ -7,7 +7,7 @@
  * - `killed` is a REAL state (`exitCode: null, timedOut: false` — segfault,
  *   OOM), rendered as neither completed nor "nothing ran";
  * - a non-zero exit code is NOT a tool failure — the tool did its job, the
- *   script returned 1: amber "finished with an error", never the destructive
+ *   script returned 1: warning "finished with an error", never the destructive
  *   didn't-run chrome (destructive is reserved for `unavailable`);
  * - cancelled never renders as success and never renders as empty — the
  *   partial streams exist precisely so neither lie is necessary;
@@ -147,10 +147,7 @@ function RunPythonStreamPane({
         </section>
       ) : null}
       {omittedBytes > 0 ? (
-        <p
-          className="mt-1 text-amber-700 text-xs dark:text-amber-400"
-          data-testid={`${testId}-omitted`}
-        >
+        <p className="mt-1 text-warning text-xs" data-testid={`${testId}-omitted`}>
           {/* The seam reports a count, not a position — never claim WHERE the
               drop happened. */}
           Output was too long — {formatOmittedBytes(omittedBytes)} wasn't captured.
@@ -167,12 +164,12 @@ interface RunPythonHeaderSpec {
 }
 
 function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
-  const amber = 'size-4 text-amber-700 dark:text-amber-400';
+  const warningIconClass = 'size-4 text-warning';
   switch (result.kind) {
     case 'completed': {
       if (result.exitCode !== 0) {
         return {
-          icon: <AlertCircle className={amber} />,
+          icon: <AlertCircle className={warningIconClass} />,
           state: 'completed-nonzero',
           text: `Finished with an error (exit code ${result.exitCode}).`,
         };
@@ -183,20 +180,20 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
         result.stdoutOmittedBytes === 0 &&
         result.stderrOmittedBytes === 0;
       return {
-        icon: <CheckCircle className="size-4 text-green-600 dark:text-green-500" />,
+        icon: <CheckCircle className="size-4 text-success" />,
         state: 'completed',
         text: silent ? "Finished — the script didn't print anything." : 'Finished',
       };
     }
     case 'timed_out':
       return {
-        icon: <Timer className={amber} />,
+        icon: <Timer className={warningIconClass} />,
         state: 'timed_out',
         text: `Stopped after ${formatRunDuration(result.timeoutMs)} — the script was still running.`,
       };
     case 'killed':
       return {
-        icon: <AlertCircle className={amber} />,
+        icon: <AlertCircle className={warningIconClass} />,
         state: 'killed',
         text: 'The script was stopped by the system before it finished.',
       };
@@ -378,10 +375,7 @@ export function RunPythonResultSurface({
         </>
       )}
       {cleanupDir ? (
-        <p
-          className="px-2 pb-1.5 text-amber-700 text-xs dark:text-amber-400"
-          data-testid="run-python-cleanup-failed"
-        >
+        <p className="px-2 pb-1.5 text-warning text-xs" data-testid="run-python-cleanup-failed">
           The run's temporary folder couldn't be deleted:{' '}
           <span className="font-mono [overflow-wrap:anywhere]">{cleanupDir}</span>
         </p>

@@ -107,35 +107,35 @@ function getDisplayStatus(args: {
   ) {
     return {
       busy: false,
-      toneClassName: 'text-amber-800 dark:text-amber-300',
+      toneClassName: 'text-warning',
       value: 'Blocked',
     };
   }
   if (snapshot.status === 'error' || managedStats.status === 'error') {
     return {
       busy: false,
-      toneClassName: 'text-amber-800 dark:text-amber-300',
+      toneClassName: 'text-warning',
       value: 'Issue',
     };
   }
   if (paused || syncStatus.state === 'paused' || snapshot.status === 'paused') {
-    return { busy: false, toneClassName: 'text-red-800 dark:text-red-300', value: 'Paused' };
+    return { busy: false, toneClassName: 'text-destructive', value: 'Paused' };
   }
   if (snapshot.activeBackfills.some((backfill) => backfill.source === 'manual')) {
     return {
       busy: true,
-      toneClassName: 'text-sky-800 dark:text-sky-300',
+      toneClassName: 'text-info',
       value: 'Backfilling',
     };
   }
   const syncValue = formatSyncState(syncStatus.state);
   if (syncValue) {
-    return { busy: true, toneClassName: 'text-sky-800 dark:text-sky-300', value: syncValue };
+    return { busy: true, toneClassName: 'text-info', value: syncValue };
   }
   if (snapshot.status === 'active') {
     return {
       busy: true,
-      toneClassName: 'text-sky-800 dark:text-sky-300',
+      toneClassName: 'text-info',
       value: formatSnapshotActivity(snapshot),
     };
   }
@@ -156,7 +156,7 @@ function getDisplayStatus(args: {
   }
   return {
     busy: false,
-    toneClassName: 'text-emerald-800 dark:text-emerald-300',
+    toneClassName: 'text-success',
     value: 'Ready',
   };
 }

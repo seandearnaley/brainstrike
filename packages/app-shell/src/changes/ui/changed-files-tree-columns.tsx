@@ -7,7 +7,7 @@
  * labels, and keeps every cell renderer file-local since nothing outside
  * this module needs them individually.
  */
-import type { ChangedFileEntry, ChangedFileStatus } from '@brainstrike/types';
+import type { ChangedFileEntry } from '@brainstrike/types';
 import {
   Badge,
   Tooltip,
@@ -18,26 +18,11 @@ import {
 } from '@brainstrike/ui';
 import { AlertTriangle } from 'lucide-react';
 import type { ReactElement } from 'react';
+import { CHANGED_FILE_STATUS_PRESENTATION } from '../../git-status-presentation';
 import type {
   ChangedFilesTreeNodeData,
   ChangedFilesWorktreeNodeData,
 } from './changed-files-tree-model';
-
-const STATUS_LABEL: Record<ChangedFileStatus, string> = {
-  added: 'A',
-  deleted: 'D',
-  modified: 'M',
-  renamed: 'R',
-  untracked: '?',
-};
-
-const STATUS_COLOR_CLASS: Record<ChangedFileStatus, string> = {
-  added: 'text-emerald-500',
-  deleted: 'text-red-500',
-  modified: 'text-amber-500',
-  renamed: 'text-sky-500',
-  untracked: 'text-emerald-500',
-};
 
 /** Last path segment for a display label. Never applied to a `WorktreeDescriptor.path` — that one is canonicalized and must use `descriptor.name` instead (see `changed-files-tree.tsx`'s module doc comment). */
 export function lastPathSegment(path: string): string {
@@ -49,20 +34,10 @@ export function lastPathSegment(path: string): string {
 function ChangeStatsCell({ entry }: { readonly entry: ChangedFileEntry }): ReactElement {
   return (
     <span className="flex items-center justify-end gap-1.5 font-mono text-[11px] tabular-nums">
-      <span
-        className={
-          entry.additions === null
-            ? 'text-muted-foreground'
-            : 'text-emerald-600 dark:text-emerald-400'
-        }
-      >
+      <span className={entry.additions === null ? 'text-muted-foreground' : 'text-success'}>
         {entry.additions === null ? '—' : `+${entry.additions}`}
       </span>
-      <span
-        className={
-          entry.deletions === null ? 'text-muted-foreground' : 'text-red-600 dark:text-red-400'
-        }
-      >
+      <span className={entry.deletions === null ? 'text-muted-foreground' : 'text-destructive'}>
         {entry.deletions === null ? '—' : `-${entry.deletions}`}
       </span>
     </span>
@@ -70,15 +45,17 @@ function ChangeStatsCell({ entry }: { readonly entry: ChangedFileEntry }): React
 }
 
 function FileNameCell({ entry }: { readonly entry: ChangedFileEntry }): ReactElement {
+  const presentation = CHANGED_FILE_STATUS_PRESENTATION[entry.status];
   const displayPath =
     entry.status === 'renamed' && entry.oldPath ? `${entry.oldPath} → ${entry.path}` : entry.path;
   return (
     <span className="flex min-w-0 items-center gap-2">
       <span
-        aria-hidden="true"
-        className={`w-4 shrink-0 text-center font-mono font-semibold text-[10px] ${STATUS_COLOR_CLASS[entry.status]}`}
+        aria-label={presentation.label}
+        className={`w-4 shrink-0 text-center font-mono font-semibold text-[10px] ${presentation.className}`}
+        role="img"
       >
-        {STATUS_LABEL[entry.status]}
+        {presentation.glyph}
       </span>
       <span className="truncate text-xs" title={displayPath}>
         {displayPath}
@@ -96,7 +73,7 @@ function WorktreeTrustBadge({
     <Tooltip>
       <TooltipTrigger asChild>
         <Badge
-          className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-300"
+          className="gap-1 border-amber-500/40 text-warning"
           data-testid="changed-files-worktree-trust-badge"
           variant="outline"
         >

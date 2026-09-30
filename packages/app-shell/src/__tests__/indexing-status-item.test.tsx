@@ -177,14 +177,14 @@ describe('IndexingStatusItem', () => {
 
     const status = screen.getByTestId('indexing-status-item');
     expect(status).toHaveTextContent('Workspace IndexReady');
-    expect(status).toHaveClass('text-emerald-800', 'dark:text-emerald-300');
+    expect(status).toHaveClass('text-success');
 
     act(() => {
       useBackgroundIndexingPreferencesStore.setState({ paused: true });
     });
 
     expect(status).toHaveTextContent('Workspace IndexPaused');
-    expect(status).toHaveClass('text-red-800', 'dark:text-red-300');
+    expect(status).toHaveClass('text-destructive');
   });
 
   it('unifies managed counts, sync progress, queue activity, and diagnostics', async () => {
@@ -270,10 +270,7 @@ describe('IndexingStatusItem', () => {
     expect(screen.getByTestId('indexing-status-item')).toHaveTextContent(
       'Workspace IndexBackfilling'
     );
-    expect(screen.getByTestId('indexing-status-item')).toHaveClass(
-      'text-sky-800',
-      'dark:text-sky-300'
-    );
+    expect(screen.getByTestId('indexing-status-item')).toHaveClass('text-info');
     await userEvent.click(screen.getByTestId('indexing-status-trigger'));
 
     const popover = await screen.findByTestId('indexing-status-popover');
@@ -378,10 +375,7 @@ describe('IndexingStatusItem', () => {
     render(<IndexingStatusItem />);
 
     expect(screen.getByTestId('indexing-status-item')).toHaveTextContent('Workspace IndexBlocked');
-    expect(screen.getByTestId('indexing-status-item')).toHaveClass(
-      'text-amber-800',
-      'dark:text-amber-300'
-    );
+    expect(screen.getByTestId('indexing-status-item')).toHaveClass('text-warning');
     await userEvent.click(screen.getByTestId('indexing-status-trigger'));
 
     const activityRegion = await screen.findByTestId('indexing-activity-region');

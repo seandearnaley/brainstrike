@@ -42,7 +42,7 @@ export function CopyTextButton({
   if (isFailed) {
     icon = <X aria-hidden="true" className="h-3.5 w-3.5 text-destructive" />;
   } else if (isCopied) {
-    icon = <Check aria-hidden="true" className="h-3.5 w-3.5 text-green-600" />;
+    icon = <Check aria-hidden="true" className="h-3.5 w-3.5 text-success" />;
   } else {
     icon = <Copy aria-hidden="true" className="h-3.5 w-3.5" />;
   }

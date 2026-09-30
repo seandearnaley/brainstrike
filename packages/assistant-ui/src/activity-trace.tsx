@@ -45,9 +45,7 @@ function PhaseGlyph({ phase }: { readonly phase: TracePhase }): ReactNode {
   if (phase === 'failed') {
     return <AlertCircle className="bs-trace-phase-icon size-4 text-destructive" />;
   }
-  return (
-    <CheckCircle className="bs-trace-phase-icon size-4 text-emerald-600 dark:text-emerald-500" />
-  );
+  return <CheckCircle className="bs-trace-phase-icon size-4 text-success" />;
 }
 
 function LiveSummary({

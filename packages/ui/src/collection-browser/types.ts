@@ -89,28 +89,28 @@ export interface NodeTypeConfig {
  */
 export const NODE_TYPE_CONFIG: Record<CollectionNodeType, NodeTypeConfig> = {
   chunk: {
-    color: 'text-orange-500',
+    color: 'text-orange-800 dark:text-orange-300',
     icon: 'FileText',
     label: 'Chunk',
     pluralLabel: 'Chunks',
     type: 'chunk',
   },
   collection: {
-    color: 'text-blue-500',
+    color: 'text-blue-800 dark:text-blue-300',
     icon: 'FolderOpen',
     label: 'Collection',
     pluralLabel: 'Collections',
     type: 'collection',
   },
   embedding: {
-    color: 'text-purple-500',
+    color: 'text-purple-800 dark:text-purple-300',
     icon: 'Sparkles',
     label: 'Embedding',
     pluralLabel: 'Embeddings',
     type: 'embedding',
   },
   file: {
-    color: 'text-green-500',
+    color: 'text-green-800 dark:text-green-300',
     icon: 'File',
     label: 'File',
     pluralLabel: 'Files',
@@ -274,13 +274,13 @@ export const EMBEDDING_STATUS_CONFIG: Record<EmbeddingStatus | 'all', EmbeddingS
     status: 'all',
   },
   complete: {
-    color: 'text-green-500',
+    color: 'text-success',
     icon: 'CheckCircle',
     label: 'Complete',
     status: 'complete',
   },
   failed: {
-    color: 'text-red-500',
+    color: 'text-destructive',
     icon: 'XCircle',
     label: 'Failed',
     status: 'failed',
@@ -292,13 +292,13 @@ export const EMBEDDING_STATUS_CONFIG: Record<EmbeddingStatus | 'all', EmbeddingS
     status: 'none',
   },
   pending: {
-    color: 'text-yellow-500',
+    color: 'text-warning',
     icon: 'Clock',
     label: 'Pending',
     status: 'pending',
   },
   processing: {
-    color: 'text-blue-500',
+    color: 'text-info',
     icon: 'Loader2',
     label: 'Processing',
     status: 'processing',
