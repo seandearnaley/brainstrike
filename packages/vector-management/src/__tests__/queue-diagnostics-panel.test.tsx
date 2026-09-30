@@ -336,8 +336,8 @@ describe('QueueDiagnosticsPanel', () => {
       });
       renderPanel(metrics);
 
-      // The CheckCircle2 icon should be present (green success state)
-      const icon = document.querySelector('.text-green-500');
+      // The CheckCircle2 icon should be present (semantic success state)
+      const icon = document.querySelector('svg.text-success');
       expect(icon).toBeInTheDocument();
     });
 
@@ -353,8 +353,8 @@ describe('QueueDiagnosticsPanel', () => {
       });
       renderPanel(metrics);
 
-      // The AlertTriangle icon should be present (yellow warning state)
-      const icon = document.querySelector('.text-yellow-500');
+      // The AlertTriangle icon should be present (semantic warning state)
+      const icon = document.querySelector('svg.text-warning');
       expect(icon).toBeInTheDocument();
     });
 
@@ -382,8 +382,8 @@ describe('QueueDiagnosticsPanel', () => {
       });
       renderPanel(metrics);
 
-      // The Zap icon should be present (blue active state)
-      const icon = document.querySelector('.text-blue-500');
+      // The Zap icon should be present (semantic informational state)
+      const icon = document.querySelector('svg.text-info');
       expect(icon).toBeInTheDocument();
     });
   });

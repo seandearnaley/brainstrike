@@ -202,7 +202,10 @@ const CONTRACT_LINE_BUDGETS = {
   // is UNKNOWN and never zero, and the marker is written before the reload. The
   // research, the capability citation and the known limits went to
   // ui-conventions/app-reload.md.
-  'ui-conventions.md': 705,
+  // BST-1618 adds a new colour/contrast policy area (+24), with only its
+  // enforceable foreground, surface and exception rules here; measurements,
+  // corrected ticket assumptions and static limits live in colour-contrast.md.
+  'ui-conventions.md': 729,
   'workspace-context.md': 1071,
 };
 

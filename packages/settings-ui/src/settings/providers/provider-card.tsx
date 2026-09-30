@@ -176,9 +176,8 @@ function VerdictChip({
       className={cn(
         'h-5 px-1.5 text-[10px]',
         presentation.tone === 'danger' && 'border-destructive/40 text-destructive',
-        presentation.tone === 'warning' && 'border-amber-500/40 text-amber-700 dark:text-amber-500',
-        presentation.tone === 'success' &&
-          'border-emerald-500/40 text-emerald-700 dark:text-emerald-500'
+        presentation.tone === 'warning' && 'border-amber-500/40 text-warning',
+        presentation.tone === 'success' && 'border-emerald-500/40 text-success'
       )}
       data-status={status}
       data-testid={`provider-verdict-chip-${providerId}`}

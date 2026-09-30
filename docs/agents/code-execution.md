@@ -101,8 +101,8 @@ Guard: `packages/agent/src/__tests__/code-execution.spec.ts`.
 - Factory presence is not evidence of isolation: the resolver also asserts
   `capabilities().maxIsolationTier === REQUIRED_ISOLATION_TIER[kind]` and
   throws `ExecutorTierMismatchError`.
-- A backend that cannot apply its platform sandbox throws at construction
-  rather than returning a weaker executor.
+- Await backend construction, forwarding the optional abort signal; a backend
+  that cannot apply its sandbox rejects before returning an executor.
 - The caller owns the returned executor and MUST `dispose()` it: each call
   invokes the factory and yields a NEW executor.
 
@@ -233,18 +233,15 @@ Evidence: `code-execution/permission-engine-ux-design.md`.
   `Unit (agent-1)` / `Unit (agent-2)` rows; macOS is always a local run, and a
   CI runner has no credential stores, so the `~/.ssh` cases get their
   full-strength form there. The bump log names the platforms that actually ran.
-- Platforms are darwin and linux only: `isFenceSupported()` is the probe and
-  `createFenceExecutorFactory()` returns `undefined` elsewhere.
-- Keep the explicit `platform === 'darwin' || platform === 'linux'` allow-list
-  in `isFenceSupported()` — do not "simplify" it away.
-  `SandboxManager.isSupportedPlatform()` returns TRUE on Windows, so that line
-  is the entire gate.
-- Windows stays gated OFF: srt's Windows filesystem scope is session-level, so
-  the initialize-once/`updateConfig`-per-execution lifecycle below is
-  inexpressible there and no capability field can advertise the gap.
-- Interpreters are injected; this module never guesses a binary path.
-  `capabilities().languages` is exactly the injected key set, and an
-  un-injected language throws `FenceUnsupportedLanguageError`.
+- Platforms are darwin and linux only: `isFenceSupported()` is an OS/runtime
+  gate, not readiness; `createFenceExecutorFactory()` omits other platforms.
+- Keep the explicit darwin/linux allow-list: srt reports Windows supported,
+  but its session-level filesystem scope cannot express per-run policy.
+- Windows stays OFF until per-execution filesystem policy is expressible;
+  no capability field can advertise that gap away.
+- Interpreters are injected, never guessed; `capabilities().languages` is
+  exactly that key set. Refuse un-injected languages. Await construction: its
+  fixed offline shell probe uses the real fence before advertising readiness.
 - The desktop composition root resolves the bundled CPython once
   (`resolveDesktopPythonExecutable()`, `apps/desktop/src/python-runtime/`) and
   injects the absolute path; this package never imports it. It unpacks under
@@ -268,11 +265,11 @@ Evidence: `code-execution/permission-engine-ux-design.md`.
   pointless if `AWS_SECRET_ACCESS_KEY` rides in on the environment.
 - `scratchDir` is always writable and listed first in `filesystem.allowWrite`;
   the script is written there `mode: 0o600` and removed after the run.
-- Initialize `SandboxManager` ONCE per process and `updateConfig` per
-  execution — both, because the singleton proxy reads module-level config at
-  request time. That global state is why executions are SERIALIZED
-  process-wide and executors refcounted: `dispose()` resets only when the last
-  goes away, and `cleanupAfterCommand()` runs after every execution.
+- Serialize readiness, execution and disposal under one process-wide lock.
+  Initialize once; `updateConfig` and `cleanupAfterCommand` per probe/run.
+  Refcount executors; last disposal resets. Probe ceiling: five seconds after
+  lock acquisition; caller signal/budget bounds queue wait. Bound output and
+  join teardown/cleanup under the lock; abandoned handoffs release their session.
 - The deadline starts when `execute()` is entered, not at spawn. If the budget
   elapses while queued, nothing spawns and `FenceQueueTimeoutError` is thrown —
   never a fabricated `ExecResult` for code that did not run.
@@ -301,12 +298,15 @@ Evidence: `code-execution/permission-engine-ux-design.md`.
   ways: without it the allow-list test fails RED on a restricted-egress host
   AND its network-deny sibling passes VACUOUSLY.
 
-Settled: Windows off; a root-wide `allowRead` refused; `EPERM` polls on.
+Settled: Windows off; no degraded seccomp; `EPERM` polls on. Readiness failures
+are typed/actionable and distinct from interpreter availability; never change
+host security settings or recommend disabling them to make a probe pass.
 Evidence: `code-execution/srt-version-pin.md`,
 `code-execution/windows-fence-gate.md`,
 `code-execution/fence-policy-refusals.md`,
-`code-execution/process-tree-teardown.md`.
-Guard: `packages/agent/src/__tests__/fence-policy.spec.ts`,
+`code-execution/process-tree-teardown.md`, `code-execution/fence-readiness.md`.
+Guard: `packages/agent/src/__tests__/fence-executor.spec.ts`,
+`packages/agent/src/__tests__/run-python-readiness.spec.ts`, `packages/agent/src/__tests__/fence-policy.spec.ts`,
 `packages/agent/src/__tests__/fence-executor.integration.spec.ts`.
 
 #### Where the Linux half actually comes from
@@ -330,9 +330,9 @@ Guard: `packages/agent/src/__tests__/fence-policy.spec.ts`,
   and confirm the escape-resistance suite RAN rather than printing
   `SUITE SKIPPED`.
 
-Settled: an unreachable probe host reds the lane rather than skipping quietly;
-`isFenceSupported()` still cannot tell a host's kernel forbids a namespace
-(BST-1317). Evidence: `code-execution/linux-fence-lane.md`.
+Settled: an unreachable probe host reds the lane rather than skipping quietly.
+Dependency checks alone never prove host readiness; construction probes it.
+Evidence: `code-execution/linux-fence-lane.md`.
 Guard: `scripts/__tests__/linux-fence-lane-contract.test.mjs`.
 
 #### Escape-resistance suite

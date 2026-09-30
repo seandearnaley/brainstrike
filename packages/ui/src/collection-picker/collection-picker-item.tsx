@@ -244,7 +244,7 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
                   className={cn(
                     'flex cursor-default items-center gap-1 rounded-sm border-0 bg-transparent p-0 text-left',
                     collection.embeddingCount >= collection.chunkCount && collection.chunkCount > 0
-                      ? 'text-emerald-600 dark:text-emerald-400'
+                      ? 'text-success'
                       : ''
                   )}
                 >

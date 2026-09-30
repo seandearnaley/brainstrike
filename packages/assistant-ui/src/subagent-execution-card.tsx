@@ -93,12 +93,7 @@ const ROW_ICONS: Record<SubAgentToolRowStatus, ReactElement> = {
       data-live="true"
     />
   ),
-  success: (
-    <CheckCircle
-      aria-hidden="true"
-      className="size-3.5 shrink-0 text-green-600 dark:text-green-500"
-    />
-  ),
+  success: <CheckCircle aria-hidden="true" className="size-3.5 shrink-0 text-success" />,
 };
 
 /**

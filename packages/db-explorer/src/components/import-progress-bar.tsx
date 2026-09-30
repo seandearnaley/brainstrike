@@ -58,7 +58,7 @@ export function ImportProgressBar({
       {/* Status indicator */}
       <div className="flex items-center gap-2">
         {isComplete ? (
-          <CheckCircle aria-hidden="true" className="h-4 w-4 text-emerald-500" />
+          <CheckCircle aria-hidden="true" className="h-4 w-4 text-success" />
         ) : isCancelling ? (
           <div aria-hidden="true" className="h-4 w-4 animate-pulse rounded-full bg-amber-500/50" />
         ) : (

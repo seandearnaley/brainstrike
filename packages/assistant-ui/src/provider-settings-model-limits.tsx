@@ -60,9 +60,7 @@ export function OpenRouterModelLimitsCard({
         </p>
       ) : null}
       {limits.warning ? (
-        <p className="text-amber-700 dark:text-amber-300">
-          Stale metadata warning: {limits.warning}
-        </p>
+        <p className="text-warning">Stale metadata warning: {limits.warning}</p>
       ) : null}
     </div>
   );

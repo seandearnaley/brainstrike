@@ -23,10 +23,10 @@ export interface StatusBarItemProps {
 }
 
 const statusClasses: Record<StatusBarItemStatus, string> = {
-  connected: 'text-emerald-700 dark:text-emerald-300',
-  disconnected: 'text-red-700 dark:text-red-300',
+  connected: 'text-success',
+  disconnected: 'text-destructive',
   loading: 'text-muted-foreground',
-  warning: 'text-amber-700 dark:text-amber-300',
+  warning: 'text-warning',
 };
 
 /**
