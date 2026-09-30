@@ -332,6 +332,19 @@ describe('db-main close and open', () => {
       expect(existsSync(lockPath())).toBe(true);
     });
 
+    it('deletes the init attempt record with the profile, so both resets clear a stop', async () => {
+      const { initializeMainDatabase, resetLocalDatabase } = await import('../../db-main');
+      await initializeMainDatabase();
+      seedDatabaseDirectory({ marker: false });
+      // Main's record of repeated init timeouts lives in the profile directory, next to the marker.
+      const attemptRecordPath = path.join(appDataDir, '.db-init-attempt.json');
+      writeFileSync(attemptRecordPath, '{"version":1}');
+
+      await resetLocalDatabase();
+
+      expect(existsSync(attemptRecordPath)).toBe(false);
+    });
+
     it('resets normally once the close is clean', async () => {
       const { initializeMainDatabase, resetLocalDatabase } = await import('../../db-main');
       await initializeMainDatabase();

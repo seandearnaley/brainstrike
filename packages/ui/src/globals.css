@@ -47,7 +47,7 @@
   --bs-accent-foreground: 25 20% 14%; /* #2D2520 - Warm text */
 
   /* Destructive - Warm terracotta red, desaturated to match palette */
-  --bs-destructive: 8 55% 50%; /* #C25A4A - Muted terracotta */
+  --bs-destructive: 8 55% 39%; /* Deep terracotta; AA on neutral surfaces and 10% error tints */
   --bs-destructive-foreground: 0 0% 100%; /* #FFFFFF - White on red */
 
   /* Borders & Inputs - Subtle warm borders */
@@ -76,11 +76,11 @@
   --bs-sidebar-ring: 25 12% 38%; /* Warm graphite focus ring */
 
   /* Semantic Status Colors */
-  --bs-success: 152 55% 41%; /* #2F9E6E - Green */
+  --bs-success: 152 55% 26%; /* Deep green; AA on neutral surfaces and 10% status tints */
   --bs-success-foreground: 0 0% 100%; /* White */
-  --bs-warning: 30 90% 34%; /* Deep amber; 4.66:1 against the light muted surface */
+  --bs-warning: 30 90% 29%; /* Deep amber; AA even on accent with a 10% warning tint */
   --bs-warning-foreground: 0 0% 100%; /* White text on deep amber */
-  --bs-info: 215 50% 50%; /* #4080B3 - Muted blue */
+  --bs-info: 215 50% 38%; /* Deep slate blue; AA on neutral surfaces and 10% status tints */
   --bs-info-foreground: 0 0% 100%; /* White */
 
   /* Radius - Slightly larger for modern feel */
@@ -115,6 +115,10 @@
   --accent-foreground: var(--bs-accent-foreground);
   --destructive: var(--bs-destructive);
   --destructive-foreground: var(--bs-destructive-foreground);
+  --success: var(--bs-success);
+  --success-foreground: var(--bs-success-foreground);
+  --info: var(--bs-info);
+  --info-foreground: var(--bs-info-foreground);
   --warning: var(--bs-warning);
   --warning-foreground: var(--bs-warning-foreground);
   --border: var(--bs-border);
@@ -174,8 +178,8 @@
   --bs-accent-foreground: 30 10% 93%; /* #F0EEEB - Light text */
 
   /* Destructive - Lighter terracotta for dark mode */
-  --bs-destructive: 8 50% 60%; /* #CC7A6B - Light terracotta */
-  --bs-destructive-foreground: 0 0% 100%; /* #FFFFFF - White text */
+  --bs-destructive: 8 50% 75%; /* Light terracotta; AA through the accent surface */
+  --bs-destructive-foreground: 30 8% 9%; /* Dark text on the light destructive fill */
 
   /* Borders & Inputs - Warm subtle borders */
   --bs-border: 30 5% 20%; /* #353230 - Warm dark border */
@@ -203,12 +207,12 @@
   --bs-sidebar-ring: 30 8% 70%; /* Warm neutral focus ring */
 
   /* Semantic Status Colors - Adjusted for dark mode */
-  --bs-success: 152 50% 50%; /* Brighter green */
+  --bs-success: 152 50% 62%; /* Light green; AA through the accent surface */
   --bs-success-foreground: 30 8% 9%; /* Dark text */
-  --bs-warning: 38 88% 55%; /* Brighter amber */
+  --bs-warning: 38 88% 60%; /* Light amber; AA through the accent surface */
   --bs-warning-foreground: 30 8% 9%; /* Dark text */
-  --bs-info: 215 45% 60%; /* Muted blue for dark mode */
-  --bs-info-foreground: 0 0% 100%; /* White text */
+  --bs-info: 215 45% 74%; /* Light slate blue; AA through the accent surface */
+  --bs-info-foreground: 30 8% 9%; /* Dark text on the light info fill */
 
   --bs-radius: 0.5rem;
 
@@ -238,6 +242,10 @@
   --accent-foreground: var(--bs-accent-foreground);
   --destructive: var(--bs-destructive);
   --destructive-foreground: var(--bs-destructive-foreground);
+  --success: var(--bs-success);
+  --success-foreground: var(--bs-success-foreground);
+  --info: var(--bs-info);
+  --info-foreground: var(--bs-info-foreground);
   --warning: var(--bs-warning);
   --warning-foreground: var(--bs-warning-foreground);
   --border: var(--bs-border);
@@ -264,7 +272,8 @@
 /* ============================================================================
  * HIGH CONTRAST MODE
  * ============================================================================
- * WCAG AAA compliant (7:1 contrast ratio) for users who need maximum clarity.
+ * Higher-contrast neutral surfaces for users who need maximum clarity.
+ * Status text and filled status pairs meet WCAG AA (4.5:1), including tints.
  * Activated when user has prefers-contrast: more set in their OS.
  */
 @media (prefers-contrast: more) {
@@ -283,7 +292,13 @@
     --bs-muted-foreground: 0 0% 20%;
     --bs-accent: 0 0% 85%;
     --bs-accent-foreground: 0 0% 0%;
-    --bs-destructive: 354 100% 40%; /* High contrast red */
+    --bs-success: 152 65% 22%;
+    --bs-success-foreground: 0 0% 100%;
+    --bs-info: 215 65% 31%;
+    --bs-info-foreground: 0 0% 100%;
+    --bs-warning: 30 95% 25%;
+    --bs-warning-foreground: 0 0% 100%;
+    --bs-destructive: 8 65% 33%; /* Deep high-contrast terracotta */
     --bs-destructive-foreground: 0 0% 100%;
     --bs-border: 0 0% 0%; /* Black borders */
     --bs-panel-divider: 0 0% 0%; /* High-contrast: panel divider matches border (black) for max visibility */
@@ -310,7 +325,13 @@
     --bs-muted-foreground: 0 0% 80%;
     --bs-accent: 0 0% 25%;
     --bs-accent-foreground: 0 0% 100%;
-    --bs-destructive: 354 100% 65%; /* Bright red */
+    --bs-success: 152 55% 75%;
+    --bs-success-foreground: 0 0% 0%;
+    --bs-info: 215 55% 82%;
+    --bs-info-foreground: 0 0% 0%;
+    --bs-warning: 38 90% 75%;
+    --bs-warning-foreground: 0 0% 0%;
+    --bs-destructive: 8 65% 82%; /* Light high-contrast terracotta */
     --bs-destructive-foreground: 0 0% 0%;
     --bs-border: 0 0% 100%; /* White borders */
     --bs-panel-divider: 0 0% 100%; /* High-contrast dark: panel divider matches border (white) for max visibility */

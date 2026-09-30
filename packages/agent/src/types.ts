@@ -496,7 +496,7 @@ export interface ToolCallTelemetrySample {
   /** BST-1247: candidate-set cap hit in the search substrate (not output clipping). */
   readonly candidatesTruncated: boolean;
   /** Live-pass engine for search tools; absent for non-search tools. */
-  readonly engine?: 'js-walk' | 'ripgrep' | 'skipped';
+  readonly engine?: 'js-files' | 'js-walk' | 'ripgrep' | 'skipped';
   readonly isPaginationFollowup: boolean;
   readonly modelFacingChars: number;
   readonly occurredAt: number;
