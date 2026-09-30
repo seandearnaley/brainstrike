@@ -51,7 +51,7 @@ const TokenStatusBadge = memo<TokenStatusBadgeProps>(function TokenStatusBadge({
           variant={isAccurate ? 'secondary' : 'outline'}
         >
           <CheckCircle2
-            className={`size-3 ${isAccurate ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}
+            className={`size-3 ${isAccurate ? 'text-success' : 'text-muted-foreground'}`}
           />
           {isAccurate
             ? 'WASM'
@@ -82,9 +82,7 @@ const BudgetStatus = memo<BudgetStatusProps>(function BudgetStatus({ remaining, 
   return (
     <div
       className={`flex items-center gap-1 rounded-md px-2 py-0.5 font-medium text-xs ${
-        isOverBudget
-          ? 'bg-destructive/10 text-destructive'
-          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+        isOverBudget ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-success'
       }`}
     >
       <span className="tabular-nums">{Math.abs(remaining).toLocaleString()}</span>

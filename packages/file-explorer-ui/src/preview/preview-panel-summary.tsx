@@ -91,9 +91,9 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
   const delta = latest - previous;
   let deltaColorClassName = 'text-muted-foreground';
   if (delta > 0) {
-    deltaColorClassName = 'text-amber-600 dark:text-amber-400';
+    deltaColorClassName = 'text-warning';
   } else if (delta < 0) {
-    deltaColorClassName = 'text-emerald-600 dark:text-emerald-400';
+    deltaColorClassName = 'text-success';
   }
 
   return (
@@ -411,7 +411,7 @@ const CompactSummaryControls = memo<CompactSummaryControlsProps>(function Compac
           onBudgetChange={onTokenBudgetChange}
         />
         <span
-          className={`rounded px-2 py-1 font-medium text-[11px] tabular-nums ${tokenUsage.isOverBudget ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'}`}
+          className={`rounded px-2 py-1 font-medium text-[11px] tabular-nums ${tokenUsage.isOverBudget ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-success'}`}
         >
           {tokenUsage.remainingLabel}
         </span>

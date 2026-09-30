@@ -7,7 +7,7 @@
  * - `killed` is a REAL state (`exitCode: null, timedOut: false` — segfault,
  *   OOM), rendered as neither completed nor "nothing ran";
  * - a non-zero exit code is NOT a tool failure — the tool did its job, the
- *   script returned 1: amber "finished with an error", never the destructive
+ *   script returned 1: warning "finished with an error", never the destructive
  *   didn't-run chrome (destructive is reserved for `unavailable`);
  * - cancelled never renders as success and never renders as empty — the
  *   partial streams exist precisely so neither lie is necessary;
@@ -50,7 +50,9 @@ interface RunPythonCleanupDisplay {
  * switch, not a keyed record: the reasons are snake_case wire values, not
  * identifiers.)
  */
-function unavailableCopy(reason: string): { headline: string; sub?: string } | null {
+function unavailableCopy(
+  reason: string
+): { headline: string; showDetail?: boolean; sub?: string } | null {
   switch (reason) {
     case 'approval_confirmation_unavailable':
       return {
@@ -76,6 +78,36 @@ function unavailableCopy(reason: string): { headline: string; sub?: string } | n
     case 'interpreter_unavailable':
       return {
         headline: "Nothing ran — the sandbox's Python couldn't be prepared on this machine.",
+      };
+    case 'sandbox_dependencies_missing':
+      return {
+        headline: 'Nothing ran — required sandbox tools are missing on this computer.',
+        showDetail: true,
+        sub: "Ask an administrator to install the missing tools listed below using your system's supported packages.",
+      };
+    case 'sandbox_namespace_blocked':
+      return {
+        headline: 'Nothing ran — this computer blocks the isolation the sandbox needs.',
+        showDetail: true,
+        sub: "Ask an administrator to check the host's sandbox support, or use a supported host.",
+      };
+    case 'sandbox_unsupported_runtime':
+      return {
+        headline: "Nothing ran — this operating system or runtime isn't supported by the sandbox.",
+        showDetail: true,
+        sub: 'Use a supported host with the required sandbox tools, or ask an administrator for help.',
+      };
+    case 'sandbox_readiness_timeout':
+      return {
+        headline: 'Nothing ran — the sandbox readiness check reached its time limit.',
+        showDetail: true,
+        sub: "The time limit expired before your code could run. Try again; if it keeps timing out, ask an administrator to check this host's sandbox support.",
+      };
+    case 'sandbox_readiness_failed':
+      return {
+        headline: "Nothing ran — the sandbox couldn't confirm it was ready to isolate your code.",
+        showDetail: true,
+        sub: "Ask an administrator to check this host's sandbox setup, or use a supported host.",
       };
     case 'language_unsupported':
       return { headline: "Nothing ran — this sandbox can't run Python." };
@@ -147,10 +179,7 @@ function RunPythonStreamPane({
         </section>
       ) : null}
       {omittedBytes > 0 ? (
-        <p
-          className="mt-1 text-amber-700 text-xs dark:text-amber-400"
-          data-testid={`${testId}-omitted`}
-        >
+        <p className="mt-1 text-warning text-xs" data-testid={`${testId}-omitted`}>
           {/* The seam reports a count, not a position — never claim WHERE the
               drop happened. */}
           Output was too long — {formatOmittedBytes(omittedBytes)} wasn't captured.
@@ -167,12 +196,12 @@ interface RunPythonHeaderSpec {
 }
 
 function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
-  const amber = 'size-4 text-amber-700 dark:text-amber-400';
+  const warningIconClass = 'size-4 text-warning';
   switch (result.kind) {
     case 'completed': {
       if (result.exitCode !== 0) {
         return {
-          icon: <AlertCircle className={amber} />,
+          icon: <AlertCircle className={warningIconClass} />,
           state: 'completed-nonzero',
           text: `Finished with an error (exit code ${result.exitCode}).`,
         };
@@ -183,20 +212,20 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
         result.stdoutOmittedBytes === 0 &&
         result.stderrOmittedBytes === 0;
       return {
-        icon: <CheckCircle className="size-4 text-green-600 dark:text-green-500" />,
+        icon: <CheckCircle className="size-4 text-success" />,
         state: 'completed',
         text: silent ? "Finished — the script didn't print anything." : 'Finished',
       };
     }
     case 'timed_out':
       return {
-        icon: <Timer className={amber} />,
+        icon: <Timer className={warningIconClass} />,
         state: 'timed_out',
         text: `Stopped after ${formatRunDuration(result.timeoutMs)} — the script was still running.`,
       };
     case 'killed':
       return {
-        icon: <AlertCircle className={amber} />,
+        icon: <AlertCircle className={warningIconClass} />,
         state: 'killed',
         text: 'The script was stopped by the system before it finished.',
       };
@@ -290,10 +319,14 @@ function resolveSurfaceModel(result: RunPythonDisplayResult): RunPythonSurfaceMo
       };
     case 'unavailable': {
       const copy = unavailableCopy(result.reason);
+      // Readiness detail already includes remediation and names the missing
+      // tools or warning. Show it once; curated copy covers an empty detail.
+      let secondaryLines = copy?.sub ? [copy.sub] : [];
+      if ((!copy || copy.showDetail) && result.detail.trim()) {
+        secondaryLines = [result.detail];
+      }
       return {
-        // A recognised reason gets its curated sub-line; an unrecognised one
-        // gets the tool's own detail — never both, never an invented line.
-        secondaryLines: copy ? (copy.sub ? [copy.sub] : []) : [result.detail],
+        secondaryLines,
         stderr: '',
         stderrLeads: false,
         stderrOmittedBytes: 0,
@@ -378,10 +411,7 @@ export function RunPythonResultSurface({
         </>
       )}
       {cleanupDir ? (
-        <p
-          className="px-2 pb-1.5 text-amber-700 text-xs dark:text-amber-400"
-          data-testid="run-python-cleanup-failed"
-        >
+        <p className="px-2 pb-1.5 text-warning text-xs" data-testid="run-python-cleanup-failed">
           The run's temporary folder couldn't be deleted:{' '}
           <span className="font-mono [overflow-wrap:anywhere]">{cleanupDir}</span>
         </p>

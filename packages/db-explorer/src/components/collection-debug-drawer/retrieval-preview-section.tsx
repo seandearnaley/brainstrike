@@ -135,7 +135,7 @@ export function RetrievalPreviewSection({
     >
       {refusal ? (
         <div
-          className="flex items-start gap-1.5 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-amber-700 text-xs dark:text-amber-400"
+          className="flex items-start gap-1.5 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-warning text-xs"
           data-testid="collection-debug-retrieval-refusal"
           role="alert"
         >

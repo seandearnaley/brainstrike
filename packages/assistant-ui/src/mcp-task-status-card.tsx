@@ -141,11 +141,11 @@ function statusIcon(status: McpTaskPresentation['status']): ReactElement {
     case 'cancelled':
       return <XCircle aria-hidden="true" className="size-3.5" />;
     case 'completed':
-      return <CircleCheck aria-hidden="true" className="size-3.5 text-green-600" />;
+      return <CircleCheck aria-hidden="true" className="size-3.5 text-success" />;
     case 'failed':
       return <AlertCircle aria-hidden="true" className="size-3.5 text-destructive" />;
     case 'input_required':
-      return <CirclePause aria-hidden="true" className="size-3.5 text-amber-600" />;
+      return <CirclePause aria-hidden="true" className="size-3.5 text-warning" />;
     case 'working':
       return <CircleDashed aria-hidden="true" className="size-3.5" />;
   }

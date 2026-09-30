@@ -303,6 +303,12 @@ describe('SearchConfigPanel', () => {
     );
     expect(screen.getByText('Cosine')).toBeInTheDocument();
     expect(screen.getByText('⚠')).toBeInTheDocument();
+    const explanation = screen.getByText(
+      'Metric mismatch: collection uses l2; search uses cosine.'
+    );
+    expect(explanation).toBeVisible();
+    expect(explanation).not.toHaveClass('sr-only');
+    expect(screen.getByRole('combobox')).toHaveAccessibleDescription(explanation.textContent ?? '');
   });
 
   it('does not show the mismatch warning when metrics match', () => {
@@ -315,6 +321,7 @@ describe('SearchConfigPanel', () => {
       />
     );
     expect(screen.queryByText('⚠')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Metric mismatch:/)).not.toBeInTheDocument();
   });
 
   it('applies a custom className', () => {

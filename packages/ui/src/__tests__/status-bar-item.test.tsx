@@ -29,20 +29,17 @@ describe('StatusBarItem', () => {
 
   it('applies connected status styling', () => {
     render(<StatusBarItem label="Connected" status="connected" testId="test-item" />);
-    expect(screen.getByTestId('test-item')).toHaveClass(
-      'text-emerald-700',
-      'dark:text-emerald-300'
-    );
+    expect(screen.getByTestId('test-item')).toHaveClass('text-success');
   });
 
   it('applies disconnected status styling', () => {
     render(<StatusBarItem label="Disconnected" status="disconnected" testId="test-item" />);
-    expect(screen.getByTestId('test-item')).toHaveClass('text-red-700', 'dark:text-red-300');
+    expect(screen.getByTestId('test-item')).toHaveClass('text-destructive');
   });
 
   it('applies warning status styling', () => {
     render(<StatusBarItem label="Warning" status="warning" testId="test-item" />);
-    expect(screen.getByTestId('test-item')).toHaveClass('text-amber-700', 'dark:text-amber-300');
+    expect(screen.getByTestId('test-item')).toHaveClass('text-warning');
   });
 
   it('animates only the loading icon and respects reduced motion', () => {
@@ -55,10 +52,7 @@ describe('StatusBarItem', () => {
 
   it('defaults to connected status when not specified', () => {
     render(<StatusBarItem label="Default" testId="test-item" />);
-    expect(screen.getByTestId('test-item')).toHaveClass(
-      'text-emerald-700',
-      'dark:text-emerald-300'
-    );
+    expect(screen.getByTestId('test-item')).toHaveClass('text-success');
   });
 
   it('keeps compact labels and values on one truncatable line', () => {

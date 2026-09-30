@@ -52,7 +52,7 @@ const BranchGlyphs = ({
     <span className="truncate">{label}</span>
     {ahead ? <span className="shrink-0 tabular-nums">{ahead}</span> : null}
     {behind ? <span className="shrink-0 tabular-nums">{behind}</span> : null}
-    {checkout.dirty ? <span className="shrink-0 text-amber-600 dark:text-amber-400">●</span> : null}
+    {checkout.dirty ? <span className="shrink-0 text-warning">●</span> : null}
   </>
 );
 

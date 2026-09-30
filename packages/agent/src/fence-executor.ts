@@ -28,3 +28,9 @@ export {
   FencePolicyError,
   isFencePolicyError,
 } from './fence/fence-policy';
+
+export {
+  FenceReadinessError,
+  type FenceReadinessReason,
+  isFenceReadinessError,
+} from './fence/fence-readiness-error';

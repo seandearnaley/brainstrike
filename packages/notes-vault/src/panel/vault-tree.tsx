@@ -163,10 +163,7 @@ export function VaultTree({ store }: VaultTreeProps): React.ReactNode {
           if (data.kind === 'folder') {
             return (
               <span className="flex min-w-0 items-center gap-2">
-                <Folder
-                  aria-hidden="true"
-                  className="h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400"
-                />
+                <Folder aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="truncate text-sm">{data.node.name}</span>
                 <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
                   {data.node.noteCount}
