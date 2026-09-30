@@ -79,6 +79,54 @@ afterEach(async () => {
 });
 
 describe('grepSearch hybrid — FRESHNESS (the point)', () => {
+  it('retains indexed matches with a visible stale-index note when a selected file cannot be read', async () => {
+    const root = await makeWorkspace({ 'src/blocked.ts': 'TOKEN\n' });
+    const canonicalBlocked = await fsPromises.realpath(path.join(root, 'src/blocked.ts'));
+    queryMock.mockResolvedValue({
+      rows: [{ content: 'TOKEN\n', path: 'src/blocked.ts', start_line: 1 }],
+    });
+    const readFile = fsPromises.readFile.bind(fsPromises);
+    const denied = vi.spyOn(fsPromises, 'readFile').mockImplementation(async (...args) => {
+      if (args[0] === canonicalBlocked) {
+        throw Object.assign(new Error('selected read denied'), { code: 'EACCES' });
+      }
+      return readFile(...args);
+    });
+    try {
+      const result = await runGrepSearch(
+        { filePaths: ['src/blocked.ts'], outputMode: 'content', pattern: 'TOKEN' },
+        singleRoot(root)
+      );
+      if (result.outputMode !== 'content') {
+        throw new Error('expected content result');
+      }
+      expect(result.matches).toHaveLength(1);
+      expect(result.matches[0]).toMatchObject({ path: 'src/blocked.ts', source: 'index' });
+      expect(result.liveEngine).toBe('skipped');
+      expect(result.liveNote).toMatch(/index only.*may be stale/);
+      expect(projectGrepSearchModelOutput(result).value).toMatch(/index only.*may be stale/);
+    } finally {
+      denied.mockRestore();
+    }
+  });
+
+  it('projects an exact-file live result with the direct-file engine', async () => {
+    const root = await makeWorkspace({
+      'src/fresh.ts': 'SCOPED_TOKEN\n',
+      'src/unrelated.ts': 'SCOPED_TOKEN\n',
+    });
+    indexEmpty();
+    const result = await runGrepSearch(
+      { filePaths: ['src/fresh.ts'], outputMode: 'content', pattern: 'SCOPED_TOKEN' },
+      singleRoot(root)
+    );
+    expect(result.liveEngine).toBe('js-files');
+    expect(result.liveNote).toBeUndefined();
+    const projection = projectGrepSearchModelOutput(result).value;
+    expect(projection).toContain('src/fresh.ts');
+    expect(projection).not.toContain('src/unrelated.ts');
+  });
+
   it('returns just-written content the index does NOT have, labelled live', async () => {
     // A file that exists on disk but is NOT in the index (simulating a file the
     // agent just edited/created before re-indexing caught up).

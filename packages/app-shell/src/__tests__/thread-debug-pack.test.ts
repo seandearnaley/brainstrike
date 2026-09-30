@@ -22,6 +22,40 @@ const HOST_NOT_UNDER_TEST: ThreadDebugHostEvidence = {
 };
 
 describe('thread debug pack format', () => {
+  it('preserves bounded native startup diagnostics and host log evidence', () => {
+    const context = {
+      causeCategory: 'unclassified',
+      code: 'subagent_delegation_failed',
+      frameworkErrorIds: ['AGENT_STREAM_FAILED'],
+      httpStatus: 503,
+      parentRuntimeRunId: 'parent-run',
+      parentToolCallId: 'startup-persist',
+      personaId: 'worker',
+      startupBoundary: 'child-input-started',
+    };
+    const pack = JSON.parse(
+      formatThreadDebugPack(
+        {
+          capturedAt: '2026-09-29T00:00:00Z',
+          rootThreadId: 'root',
+          sections: { diagnostics: [{ code: context.code, context }], toolOutputs: [] },
+          threadId: 'root',
+        },
+        {
+          hostLog: {
+            status: 'included',
+            value: {
+              lines: [{ message: 'Subagent delegation failed', ...structuredClone(context) }],
+            },
+          },
+          processCounters: HOST_NOT_UNDER_TEST.processCounters,
+          window: null,
+        }
+      )
+    );
+    expect(pack.sections.diagnostics[0].context).toEqual(context);
+    expect(pack.sections.hostLog.lines[0]).toMatchObject(context);
+  });
   it('redacts multiline secrets and reports corrupt artifacts without losing the pack', () => {
     const privateKey = [
       '-----BEGIN',

@@ -518,7 +518,7 @@ describe('workspace search model projections', () => {
         value: 'grep files | page=empty@offset=0/0',
       })
     ).toThrow(
-      'grepSearch model projection rejected liveEngine: expected "ripgrep", "js-walk", or "skipped", received undefined'
+      'grepSearch model projection rejected liveEngine: expected "ripgrep", "js-walk", "js-files", or "skipped", received undefined'
     );
   });
 

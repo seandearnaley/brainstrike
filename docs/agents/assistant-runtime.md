@@ -103,9 +103,9 @@ the Mastra error-processor layer.
   classification as root results; native `isError` alone cannot classify a
   guarded failure.
 - Keep a redacted `tool_failed` message for a generic exception (it may carry host
-  paths or secrets). A trusted `ToolInputError` keeps its bounded,
-  model-correctable message as `tool_input_invalid`; only application-owned
-  validation code constructs that error.
+  paths or secrets). Only application-owned validation constructs `ToolInputError`:
+  preserve its bounded remedy as `tool_input_invalid`, including rejected file-read
+  ranges/handles. Evidence and guard: `assistant-runtime/cursor-input-errors.md`.
 - **The budget is PER CALL, not one flat ceiling.** A native tool declares
   `executionBudget: { defaultMs, maxMs }` on its `defineNativeTool()` definition
   (validated at definition time).
