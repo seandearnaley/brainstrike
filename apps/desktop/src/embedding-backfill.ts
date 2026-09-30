@@ -1252,6 +1252,8 @@ export async function enqueueEmbeddingBackfill(
   let dimensionIndexSuspended = false;
 
   try {
+    // This is a readiness snapshot, not a lock: another scope may later drop
+    // the index. Its durable suspension/recovery owner remains authoritative.
     if (await dimensionIndexIsReady(db, metadata.expectedDimension)) {
       logger.info('Retained dimension HNSW index for incremental embedding backfill', {
         dimension: metadata.expectedDimension,

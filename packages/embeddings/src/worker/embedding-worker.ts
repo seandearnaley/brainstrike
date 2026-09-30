@@ -171,6 +171,7 @@ function createStopAwareStreamOptions(
 
 const DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS = 5000;
 const DEFAULT_STATS_REFRESH_COMPLETED_CHUNK_THRESHOLD = 512;
+const MAX_COMPLETION_CHUNKS_PER_STATEMENT = 64;
 const EMBED_REINIT_EVERY_ENV = 'EMBED_REINIT_EVERY';
 const WORKER_METRICS_INTERVAL_MS_ENV = 'WORKER_METRICS_INTERVAL_MS';
 
@@ -1203,13 +1204,59 @@ export async function startEmbeddingWorker(
     completedJobIds: Set<string>,
     onJobsCompleted?: (jobIds: Set<string>) => Promise<void>
   ): Promise<void> {
-    const newlyCompleted = await completeBatch(toProcess, embeddings, onJobsCompleted);
-    for (const id of newlyCompleted) {
-      completedJobIds.add(id);
+    if (toProcess.length !== embeddings.length) {
+      throw new Error(
+        `Batch size mismatch: ${toProcess.length} items vs ${embeddings.length} embeddings.`
+      );
     }
-    metrics.jobsProcessed += newlyCompleted.size;
-    processedSinceInit += newlyCompleted.size;
-    consecutiveFailures = 0;
+    interface Completion {
+      embedding: number[];
+      item: LoadedChunkItem;
+    }
+    const groups = new Map<string, Completion[]>();
+    for (let index = 0; index < toProcess.length; index++) {
+      const item = toProcess[index];
+      const embedding = embeddings[index];
+      if (!(item && embedding)) {
+        throw new Error(`Missing item or embedding at index ${index} in batch.`);
+      }
+      const group = groups.get(item.chunk.id);
+      if (group) {
+        group.push({ embedding, item });
+      } else {
+        groups.set(item.chunk.id, [{ embedding, item }]);
+      }
+    }
+    const complete = async (batch: Completion[]): Promise<void> => {
+      const newlyCompleted = await completeBatch(
+        batch.map(({ item }) => item),
+        batch.map(({ embedding }) => embedding),
+        onJobsCompleted
+      );
+      // Settle the committed turn before another statement can fail: the group
+      // failure handler must see only unfinished leases, and heartbeat must
+      // stop renewing succeeded jobs. Queue completion itself remains atomic.
+      for (const id of newlyCompleted) {
+        completedJobIds.add(id);
+      }
+      metrics.jobsProcessed += newlyCompleted.size;
+      processedSinceInit += newlyCompleted.size;
+      consecutiveFailures = 0;
+    };
+    let batch: Completion[] = [];
+    let chunks = 0;
+    for (const group of groups.values()) {
+      batch.push(...group);
+      chunks += 1;
+      if (chunks === MAX_COMPLETION_CHUNKS_PER_STATEMENT) {
+        await complete(batch);
+        batch = [];
+        chunks = 0;
+      }
+    }
+    if (batch.length > 0) {
+      await complete(batch);
+    }
   }
 
   function estimateEmbeddingBytes(embeddings: readonly number[][]): number {

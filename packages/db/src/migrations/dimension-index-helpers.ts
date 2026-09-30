@@ -609,6 +609,9 @@ export function createDeferredDimensionIndexBuilder(options: {
 /**
  * Physical catalogue readiness, not authority to build or resume an index.
  * Retaining this index does not mutate an existing suspension/maintenance owner.
+ * Exact pg_get_expr strings match createDimensionIndex on the supported engine.
+ * An engine deparser change reads as noncanonical; the real-engine guard must
+ * fail during an upgrade rather than weakening this catalogue identity check.
  */
 export async function dimensionIndexIsReady(
   db: Pick<DimensionIndexDb, 'query'>,

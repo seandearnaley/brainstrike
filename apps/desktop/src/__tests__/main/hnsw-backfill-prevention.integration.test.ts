@@ -1,17 +1,15 @@
 import {
+  createDatabaseWorkScheduler,
+  createScheduledDbHandle,
   dimensionIndexIsReady,
+  EmbeddingSetsRepository,
+  JobQueue,
   migrate,
   precreateEmptyDimensionIndex,
   wasmLoader,
 } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  createDatabaseWorkScheduler,
-  createScheduledDbHandle,
-} from '../../../../../packages/db/src/database-work-scheduler';
-import { JobQueue } from '../../../../../packages/db/src/queue/job-queue';
-import { EmbeddingSetsRepository } from '../../../../../packages/db/src/repositories/embedding-sets-repository';
 import { enqueueEmbeddingBackfill } from '../../embedding-backfill';
 
 let db: PGlite;
@@ -50,20 +48,18 @@ function vector(index: number): number[] {
 }
 
 describe('HNSW backfill prevention', () => {
-  for (const transport of ['raw'] as const) {
-    it(`creates an empty index before a ${transport} embedding-set caller can populate it`, async () => {
-      await db.exec('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_1536');
-      const repo = new EmbeddingSetsRepository(db);
-      await repo.getOrCreateSet(
-        'openai::text-embedding-3-small',
-        'text-embedding-3-small',
-        1536,
-        'cosine'
-      );
-      expect(await indexOid(1536)).not.toBeNull();
-      await repo.waitForPendingDimensionIndexBuilds();
-    });
-  }
+  it('creates an empty index before a raw embedding-set caller can populate it', async () => {
+    await db.exec('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_1536');
+    const repo = new EmbeddingSetsRepository(db);
+    await repo.getOrCreateSet(
+      'openai::text-embedding-3-small',
+      'text-embedding-3-small',
+      1536,
+      'cosine'
+    );
+    expect(await indexOid(1536)).not.toBeNull();
+    await repo.waitForPendingDimensionIndexBuilds();
+  });
   it('keeps populated-table recovery explicit and refuses a noncanonical index', async () => {
     await seedChunks(1);
     await db.exec('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_1536');
@@ -155,86 +151,48 @@ describe('HNSW backfill prevention', () => {
     );
     expect((await db.query(search, params)).rows).toEqual([{ id: 'chunk-1' }]);
   });
-  it('admits foreground work between indexed lease-guarded completion batches', async () => {
-    const count = 130;
-    const setId = await seedChunks(count);
+  it('keeps direct queue completion atomic when one vector in a large input is invalid', async () => {
+    const setId = await seedChunks(130);
     const queue = new JobQueue(db);
     await queue.enqueueBatch(
-      Array.from({ length: count }, (_, index) => ({
+      Array.from({ length: 130 }, (_, index) => ({
         jobType: 'embed_chunk' as const,
         payload: { chunkId: `chunk-${index + 1}`, embeddingSetId: setId },
         queue: 'embeddings',
       }))
     );
-    const claimed = await queue.claimMany({ leaseMs: 60_000, limit: count, queue: 'embeddings' });
-    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
-    const statements: number[] = [];
-    const graphNodes: number[] = [];
-    const order: string[] = [];
-    let foreground: Promise<unknown> | undefined;
-    const tracked = {
-      query: async <T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> => {
-        if (sql.includes('updated_chunks AS')) {
-          const ids = params?.[1];
-          if (!Array.isArray(ids)) {
-            throw new Error('Completion statement must carry job IDs.');
-          }
-          const chunks = params?.[3];
-          if (!Array.isArray(chunks)) {
-            throw new Error('Completion statement must carry chunk IDs.');
-          }
-          graphNodes.push(new Set(chunks).size);
-          const size = ids.length;
-          statements.push(size);
-          order.push(`background:${size}`);
-          foreground ??= scheduler.run(
-            () => {
-              order.push('foreground');
-              return db.query('SELECT 1');
-            },
-            { priority: 'foreground' }
-          );
-        }
-        return await db.query<T>(sql, params);
-      },
-    };
-    const background = createScheduledDbHandle(tracked, scheduler, 'background');
-    const completions = claimed.map((job, index) => ({
-      chunkId: `chunk-${index + 1}`,
-      embedding: vector(index),
-      embeddingHash: `hash-${index}`,
-      embeddingSetId: setId,
-      id: job.id,
-      leaseToken: job.lease_token,
-    }));
-    const first = completions[0];
-    if (!first) {
-      throw new Error('Fixture requires claimed jobs.');
-    }
-    // A stale duplicate placed beyond the first batch must neither overwrite
-    // its owned chunk nor split the competing leases across statements.
-    completions.push({
-      ...first,
-      embedding: vector(999),
-      embeddingHash: 'stale',
-      leaseToken: 'stale',
+    const claimed = await queue.claimMany({ leaseMs: 60_000, limit: 130, queue: 'embeddings' });
+    const completions = claimed.map((job) => {
+      const payload = job.payload;
+      if (
+        typeof payload !== 'object' ||
+        payload === null ||
+        !('chunkId' in payload) ||
+        typeof payload.chunkId !== 'string'
+      ) {
+        throw new Error('Fixture chunk ID required');
+      }
+      return {
+        chunkId: payload.chunkId,
+        embedding: vector(1),
+        embeddingHash: 'hash',
+        embeddingSetId: setId,
+        id: job.id,
+        leaseToken: job.lease_token,
+      };
     });
-    const completed = await new JobQueue(background).completeEmbeddingChunkBatch(completions);
-    await foreground;
-    expect(statements).toEqual([65, 64, 2]);
-    expect(graphNodes).toEqual([64, 64, 2]);
+    const last = completions.at(-1);
+    if (!last) {
+      throw new Error('Fixture completion required');
+    }
+    last.embedding[0] = Number.NaN;
+    await expect(queue.completeEmbeddingChunkBatch(completions)).rejects.toThrow();
     expect(
-      (await db.query('SELECT embedding_hash FROM file_chunks WHERE id = $1', ['chunk-1'])).rows
-    ).toEqual([{ embedding_hash: 'hash-0' }]);
-    expect(order).toEqual(['background:65', 'foreground', 'background:64', 'background:2']);
-    expect(completed).toHaveLength(count);
+      (await db.query('SELECT COUNT(*)::int AS count FROM file_chunks WHERE embedding IS NOT NULL'))
+        .rows
+    ).toEqual([{ count: 0 }]);
     expect(
-      (
-        await db.query<{ count: number }>(
-          'SELECT count(*)::int AS count FROM file_chunks WHERE embedding IS NOT NULL'
-        )
-      ).rows[0]?.count
-    ).toBe(count);
-    expect(scheduler.getSnapshot().priorityStats.foreground.completed).toBe(1);
+      (await db.query('SELECT state,COUNT(*)::int AS count FROM job_queue GROUP BY state')).rows
+    ).toEqual([{ count: 130, state: 'running' }]);
   });
 });

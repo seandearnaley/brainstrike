@@ -60,7 +60,7 @@ Guard: `vector-preferences-store.hidden-host.test.ts`,
   those whose chunk/model identity cannot be proven.
 - Desktop backfill admission bounds queued/running jobs by target `embedding_set_id`,
   takes earliest runnable jobs, and stays single-flight per set at IPC; the runtime budget is global.
-- Count and settle already embedded completions and ordinary batch failures only from
+- Settle each worker completion (at most 64 distinct chunks) before the next; count already embedded completions and failures only from
   rows returned by token-guarded `completeBatch`/`failBatch`, never stale leases.
 
 Evidence: `local-inference/job-queue-input-hash.md`.

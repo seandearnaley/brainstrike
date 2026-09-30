@@ -23,10 +23,9 @@ hardware, dimensions, graph sizes or transaction owners.
 
 The paired real PGlite test first failed against base: set creation returned
 before its empty index existed, backfill changed the index OID, and completion
-wrote 130 vectors in one statement. With prevention it verifies precreation
+lost committed-prefix accounting after a later statement failed. With prevention it verifies precreation
 before return, a real 130-chunk backfill with the same OID and nearest content,
-HNSW selection, and actual scheduler order [64-chunk background, foreground,
-64-chunk background, 2-chunk background]. Existing cancellation, containment,
+HNSW selection, and worker-owned scheduler turns of at most 64 chunks. Existing cancellation, containment,
 scoped recovery and stale-lease tests remain required.
 
 Physical readiness is separate from build ownership. The retained-index branch
@@ -61,7 +60,7 @@ already atomically enqueues their durable embedding jobs. Managed-cache mutation
 also contain no vector assignment. No formerly
 supported import was rejected and no atomic transaction was split in prevention.
 The embedding worker's default claim size is 50; larger configured completion
-batches now get the 64-distinct-chunk statement bound unless an outer transaction
+batches now get the worker-owned 64-distinct-chunk statement bound unless an outer transaction
 owns the work.
 
 A populated missing-index repair needs an independently indexed derived relation
@@ -97,3 +96,35 @@ profile/database was opened. The repository integration test is the enduring
 regression guard; private probes are investigation evidence.
 
 Sources: https://pglite.dev/docs/api and https://github.com/pgvector/pgvector#hnsw.
+
+## Review remediation (2026-09-30)
+
+Empty-table precreation is a readiness prerequisite: a DO statement failure
+rejects set creation/bootstrap visibly. It is not caught and silently routed to
+eventual maintenance. Paired raw/Drizzle failure tests cover workspace and
+collection callers, assert no deferred CREATE, and prove workspace retry remains
+usable. Metadata already written is not falsely claimed to have rolled back.
+Populated-table no-precreate and its existing logged deferred maintenance remain
+a separate established path; those tests now name that scope explicitly.
+
+A real 130-job worker proof failed on the original prevention candidate: after
+64 jobs committed, failure of the second completion passed all 130 jobs to the
+failure handler and lost successful-prefix accounting. The database lease guard
+protected succeeded rows, but worker accounting was incomplete. The bound now
+belongs to the sole production completion caller, the worker. It groups competing
+leases, calls the atomic queue method for at most 64 distinct chunks, and records
+returned completion IDs/heartbeat settlement/metrics before the next statement.
+No callback claims a caller transaction committed and no bespoke error carries
+a prefix. Direct queue completion retains whole-input atomicity and remains an
+explicit unbounded API; returned SQL job order is not a caller contract.
+
+The enduring worker test includes 260 jobs for 130 chunks (competing leases), injects failure of the second real SQL completion,
+checks that only 132 unfinished jobs enter retry, that all 260 job completions are
+accounted for, and that an actual PostgreSQL trigger observes each vector written
+exactly once. It also admits foreground between the first two completion turns.
+The direct queue test supplies an invalid vector late in a 130-chunk input and
+asserts zero vector/job commits. Public package imports guard the test boundary.
+
+Readiness is a catalogue snapshot, not ownership or a lock; another scope may
+subsequently drop the index. Exact deparse matching is tied to the supported
+engine by the real canonical-index test. Populated-index recovery remains open.

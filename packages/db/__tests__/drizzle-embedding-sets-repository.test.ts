@@ -168,7 +168,44 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       });
     });
 
-    it('keeps workspace index bootstrap usable when dimension index creation fails', async () => {
+    it.each(['workspace', 'collection'] as const)(
+      'rejects an empty-table %s precreate failure instead of scheduling silent recovery',
+      async (kind) => {
+        const originalExec = client.exec.bind(client);
+        const error = new Error('fixture empty-index precreate failure');
+        const exec = vi.spyOn(client, 'exec').mockImplementation(async (sql: string) => {
+          if (sql.startsWith('DO $precreate_dimension_index$')) {
+            throw error;
+          }
+          return originalExec(sql);
+        });
+        await expect(
+          kind === 'workspace'
+            ? repository.getOrCreateWorkspaceIndexSet()
+            : repository.getOrCreateSet(
+                'openai::text-embedding-3-small',
+                'text-embedding-3-small',
+                1536,
+                'cosine'
+              )
+        ).rejects.toBe(error);
+        await repository.waitForPendingDimensionIndexBuilds();
+        expect(exec.mock.calls.some(([sql]) => sql.trimStart().startsWith('CREATE INDEX'))).toBe(
+          false
+        );
+        expect((await client.query('SELECT COUNT(*)::int AS count FROM file_chunks')).rows).toEqual(
+          [{ count: 0 }]
+        );
+        exec.mockRestore();
+        if (kind === 'workspace') {
+          await expect(repository.getOrCreateWorkspaceIndexSet()).resolves.toMatchObject({
+            systemRole: 'workspace-index',
+          });
+        }
+      }
+    );
+
+    it('keeps populated-table bootstrap usable when deferred dimension index creation fails', async () => {
       await client.exec(
         "INSERT INTO file_records (id, name, path, size) VALUES ('occupied-file', 'occupied', 'occupied', 1); INSERT INTO file_chunks (id, file_record_id, chunk_index, content) VALUES ('occupied-chunk', 'occupied-file', 0, 'occupied'); DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_384"
       );
