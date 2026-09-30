@@ -1,4 +1,5 @@
 import './embedding-host-runtime-fixture';
+import { recordEmbeddingTelemetryFailure } from '@brainstrike/embedding-worker';
 import { act, render, waitFor } from '@testing-library/react';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { configureDesktopRendererTarget } from '../../../desktop-renderer-target';
@@ -233,43 +234,54 @@ describe('embedding host public database initialization readiness', () => {
     expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(1);
   });
 
-  it('disposes a model initialized after its database owner was replaced', async () => {
-    const manager = createConnectedManager();
-    await manager.ensureStarted({ waitForRunning: false });
-    const view = render(<EmbeddingHostRuntime />);
-    onTestFinished(() => view.unmount());
-    await waitFor(() => expect(manager.getStatus().state).toBe('running'));
-    const initialized = Promise.withResolvers<void>();
-    initializeWithModelMock.mockImplementationOnce(() => initialized.promise);
-    const controller = new AbortController();
-    const oldQuery = manager.queryEmbedding(QUERY, { signal: controller.signal });
-    const oldResult = oldQuery.then(
-      () => null,
-      (error: unknown) => error
-    );
-    onTestFinished(async () => {
-      controller.abort();
-      await oldResult;
-    });
-    await waitFor(() => expect(initializeWithModelMock).toHaveBeenCalledTimes(1));
-    const oldService = initializeWithModelMock.mock.contexts[0];
-    currentDbRef.current = null;
-    view.rerender(<EmbeddingHostRuntime />);
-    currentDbRef.current = dbHandle;
-    await act(async () => {
+  it.each(['disposed', 'failed'] as const)(
+    'disposes a model initialized after its database owner was replaced (%s)',
+    async (disposal) => {
+      const manager = createConnectedManager();
+      await manager.ensureStarted({ waitForRunning: false });
+      const view = render(<EmbeddingHostRuntime />);
+      onTestFinished(() => view.unmount());
+      await waitFor(() => expect(manager.getStatus().state).toBe('running'));
+      const initialized = Promise.withResolvers<void>();
+      initializeWithModelMock.mockImplementationOnce(() => initialized.promise);
+      const controller = new AbortController();
+      const oldQuery = manager.queryEmbedding(QUERY, { signal: controller.signal });
+      const oldResult = oldQuery.then(
+        () => null,
+        (error: unknown) => error
+      );
+      onTestFinished(async () => {
+        controller.abort();
+        await oldResult;
+      });
+      await waitFor(() => expect(initializeWithModelMock).toHaveBeenCalledTimes(1));
+      const oldService = initializeWithModelMock.mock.contexts[0];
+      currentDbRef.current = null;
       view.rerender(<EmbeddingHostRuntime />);
-    });
-    await waitFor(() => expect(manager.getStatus().state).toBe('running'));
-    await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
-    const currentService = initializeWithModelMock.mock.contexts[1];
-    initialized.resolve();
-    expect(await oldResult).toMatchObject({
-      message: 'Embedding host query runtime is no longer available.',
-    });
-    expect(disposeQueryEmbeddingServiceMock.mock.contexts).toContain(oldService);
-    expect(disposeQueryEmbeddingServiceMock.mock.contexts).not.toContain(currentService);
-    expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(1);
-  });
+      currentDbRef.current = dbHandle;
+      await act(async () => {
+        view.rerender(<EmbeddingHostRuntime />);
+      });
+      await waitFor(() => expect(manager.getStatus().state).toBe('running'));
+      await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
+      const currentService = initializeWithModelMock.mock.contexts[1];
+      if (disposal === 'failed') {
+        disposeQueryEmbeddingServiceMock.mockRejectedValueOnce(
+          new Error('Fixture disposal failed.')
+        );
+      }
+      initialized.resolve();
+      expect(await oldResult).toMatchObject({
+        message:
+          disposal === 'failed'
+            ? 'Fixture disposal failed.'
+            : 'Embedding host query runtime is no longer available.',
+      });
+      expect(disposeQueryEmbeddingServiceMock.mock.contexts).toContain(oldService);
+      expect(disposeQueryEmbeddingServiceMock.mock.contexts).not.toContain(currentService);
+      expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it('keeps replacement query activity and service intact when old inference completes', async () => {
     const manager = createConnectedManager();
@@ -328,6 +340,75 @@ describe('embedding host public database initialization readiness', () => {
     );
     await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
     expect(initializeWithModelMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps new query activity after same-database reset when old inference finishes', async () => {
+    const manager = createConnectedManager();
+    await manager.ensureStarted({ waitForRunning: false });
+    const view = render(<EmbeddingHostRuntime />);
+    onTestFinished(() => view.unmount());
+    await waitFor(() => expect(manager.getStatus().state).toBe('running'));
+    // Establish real runtime metadata so the public telemetry publisher reads activity.
+    await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
+    type Generated = Awaited<ReturnType<typeof generateQueryEmbeddingMock>>;
+    const generated: Generated = {
+      embedding: [0.1, 0.2],
+      runtime: { device: 'webgpu', dtype: 'fp32', fallbackApplied: false },
+    };
+    const oldInference = Promise.withResolvers<Generated>();
+    const newInference = Promise.withResolvers<Generated>();
+    generateQueryEmbeddingMock
+      .mockImplementationOnce(() => oldInference.promise)
+      .mockImplementationOnce(() => newInference.promise);
+    const oldController = new AbortController();
+    const newController = new AbortController();
+    const oldRuntimeId = manager.getStatus().runtimeId;
+    const oldQuery = manager.queryEmbedding(QUERY, { signal: oldController.signal });
+    const oldResult = oldQuery.catch((error: unknown) => error);
+    onTestFinished(async () => {
+      oldController.abort();
+      newController.abort();
+      oldInference.resolve(generated);
+      newInference.resolve(generated);
+      await oldResult;
+    });
+    await waitFor(() => expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(2));
+    await expect(manager.reset()).resolves.toMatchObject({ state: 'running' });
+    expect(currentDbRef.current).toBe(dbHandle);
+    expect(manager.getStatus().runtimeId).not.toBe(oldRuntimeId);
+    expect(await oldResult).toMatchObject({
+      message: expect.stringContaining(
+        'Embedding host reset while query embedding requests were in flight.'
+      ),
+    });
+    const newQuery = manager.queryEmbedding(QUERY, { signal: newController.signal });
+    const newResult = newQuery.catch((error: unknown) => error);
+    onTestFinished(async () => {
+      newController.abort();
+      await newResult;
+    });
+    await waitFor(() => expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(3));
+    oldInference.resolve(generated);
+    await waitFor(() =>
+      expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({ runtimeId: oldRuntimeId, type: 'error' })
+      )
+    );
+    vi.useFakeTimers();
+    await act(async () => {
+      recordEmbeddingTelemetryFailure('fixture telemetry publication');
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(reportStatusMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ active: true, state: 'running' })
+    );
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
+    vi.useRealTimers();
+    newInference.resolve(generated);
+    await expect(newQuery).resolves.toEqual([0.1, 0.2]);
+    expect(reportStatusMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ active: false, state: 'running' })
+    );
   });
 
   it('keeps selected Stop authoritative when held query inference completes', async () => {

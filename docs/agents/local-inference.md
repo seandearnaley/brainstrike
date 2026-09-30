@@ -168,7 +168,7 @@ Evidence: `local-inference/embedding-queue-load-verification.md`.
   scheduler's monotonic snapshots; the claim starvation bypass uses renderer
   `performance.now()`. Wall-clock corrections must not extend either wait.
 - Keep one mounted-host query listener; retrieval/hybrid signals reach both embedding transports.
-  DB-unavailable requests fail explicitly; DB generations own query service/activity and exclude stale completions.
+  DB-unavailable requests fail explicitly; DB/run generations own query service/activity; stale completions cannot decrement current activity.
   Local cancellation releases pending requests and ignores late replies; running inference has no cancel command.
   Timeout/interruption logs include provider, stage, elapsed time; never query text, endpoints, credentials, or vectors.
 

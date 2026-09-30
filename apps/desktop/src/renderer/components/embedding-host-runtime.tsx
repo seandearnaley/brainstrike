@@ -367,7 +367,6 @@ async function handleQueryEmbeddingRequest(options: {
     serviceStateRef,
   } = options;
 
-  assertQueryEmbeddingRuntimeCurrent(isCurrent);
   queryEmbeddingActiveCountRef.current += 1;
   reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
     active: true,
@@ -429,8 +428,8 @@ async function handleQueryEmbeddingRequest(options: {
     });
     reportQueryEmbeddingResponse(createEmbeddingHostQueryEmbeddingErrorReport(request, error));
   } finally {
-    queryEmbeddingActiveCountRef.current = Math.max(queryEmbeddingActiveCountRef.current - 1, 0);
     if (isCurrent()) {
+      queryEmbeddingActiveCountRef.current = Math.max(queryEmbeddingActiveCountRef.current - 1, 0);
       reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
         active: activeRef.current || queryEmbeddingActiveCountRef.current > 0,
         embeddingRuntime: embeddingRuntimeRef.current,
