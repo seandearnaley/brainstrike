@@ -71,7 +71,8 @@
         }
       ]
     },
-    "allowMissingDependencies": false
+    "allowMissingDependencies": false,
+    "beforePack": "./scripts/prepare-python-runtime-before-pack.mjs"
   },
   "dependencies": {
     "@brainstrike/agent": "workspace:*",
@@ -179,6 +180,7 @@
     "remark-gfm": "catalog:",
     "shiki": "catalog:",
     "tailwindcss": "catalog:",
+    "tar": "7.5.22",
     "tiktoken": "catalog:",
     "vite": "catalog:",
     "vite-plugin-static-copy": "catalog:",
@@ -188,8 +190,7 @@
     "wait-on": "^9.1.0",
     "xvfb-maybe": "^0.2.1",
     "xxhash-wasm": "catalog:",
-    "zustand": "catalog:",
-    "tar": "7.5.22"
+    "zustand": "catalog:"
   },
   "engines": {
     "node": ">=26.8.2 <27"
@@ -202,7 +203,7 @@
     "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build && node ../../scripts/verify-no-cross-chunk-cycles.mjs dist/renderer/assets",
     "clean:db": "node ../../scripts/clean-desktop-indexeddb.mjs",
-    "fetch:python-runtime": "node scripts/fetch-python-runtime.mjs",
+    "fetch:python-runtime": "node scripts/fetch-python-runtime.mjs --all",
     "prebuild": "node ../../scripts/run-turbo-command.mjs --skip-under-turbo -- run build --filter=@brainstrike/assistant-service --filter=@brainstrike/assistant-ui --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/mcp-app-host-ui --filter=@brainstrike/ui --filter=@brainstrike/platform-utils",
     "predev": "node ../../scripts/ensure-desktop-dev-deps.mjs",
     "agent-debug:mcp-config": "node scripts/start-agent-devtools-session.mjs --print-config",
@@ -212,12 +213,12 @@
     "dev:main": "node scripts/build-main.mjs",
     "dev:renderer": "vite",
     "dev:runtime": "concurrently --kill-others \"pnpm dev:renderer\" \"pnpm dev:electron\"",
-    "dist": "pnpm fetch:python-runtime && pnpm build && electron-builder",
+    "dist": "pnpm build && electron-builder",
     "lint": "biome check .",
     "lint:fix": "biome check . --write",
-    "pack": "pnpm fetch:python-runtime && pnpm build && electron-builder --dir",
+    "pack": "pnpm build && electron-builder --dir",
     "postinstall": "node scripts/chmod-pty-spawn-helper.mjs",
-    "start": "pnpm fetch:python-runtime && pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
+    "start": "node scripts/fetch-python-runtime.mjs --platform=host && pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "start:dev": "pnpm dev:main && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "test": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --exclude \"**/*.integration.test.*\"",
     "test:packaged-python-layout": "node ../../scripts/run-env.mjs ELECTRON_RUN_AS_NODE=1 -- ./release/linux-unpacked/brainstrike-desktop src/__tests__/fixtures/packaged-python-fence-probe.cjs --layout-only",

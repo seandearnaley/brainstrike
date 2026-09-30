@@ -312,6 +312,53 @@ describe('trusted Linux seccomp helper injection', () => {
     expect(sandbox.initialize).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['errors', 'warnings'] as const)(
+    'preserves a live session and restores its helper and policy after dependency %s',
+    async (diagnostic) => {
+      const first = await create({ interpreters, linuxSeccompApplyPath: firstPath });
+      const input = request(['example.com']);
+      await first.execute(input);
+      const firstConfig = runtime.config;
+      const wrapperCalls = sandbox.wrapWithSandboxArgv.mock.calls.length;
+      const spawns = spawnProbe.mock.calls.length;
+      sandbox.checkDependenciesAsync.mockImplementationOnce(async () => {
+        expect(runtime.config?.seccomp).toEqual({ applyPath: secondPath });
+        expect(runtime.config?.network.allowedDomains).toEqual([]);
+        return {
+          errors: diagnostic === 'errors' ? ['dependency unavailable'] : [],
+          warnings: diagnostic === 'warnings' ? ['runtime capability unavailable'] : [],
+        };
+      });
+
+      await expect(
+        create({ interpreters, linuxSeccompApplyPath: secondPath })
+      ).rejects.toMatchObject({
+        reason:
+          diagnostic === 'errors' ? 'sandbox_dependencies_missing' : 'sandbox_unsupported_runtime',
+      });
+      expect(sandbox.reset).not.toHaveBeenCalled();
+      expect(sandbox.initialize).toHaveBeenCalledTimes(1);
+      expect(sandbox.wrapWithSandboxArgv).toHaveBeenCalledTimes(wrapperCalls);
+      expect(spawnProbe).toHaveBeenCalledTimes(spawns);
+      // Failure retains a restrictive policy, never another executor's old
+      // allow-list. A live lease owns the session resources until disposal.
+      expect(runtime.config?.seccomp).toEqual({ applyPath: secondPath });
+      expect(runtime.config?.network.allowedDomains).toEqual([]);
+
+      await first.execute(input);
+      expect(runtime.config).toEqual(firstConfig);
+      expect(sandbox.wrapWithSandboxArgv.mock.lastCall?.[2]).toEqual(firstConfig);
+      expect(runtime.config?.seccomp).toEqual({ applyPath: firstPath });
+      expect(runtime.config?.network.allowedDomains).toEqual(['example.com']);
+      expect(spawnProbe).toHaveBeenCalledTimes(spawns + 1);
+      expect(sandbox.initialize).toHaveBeenCalledTimes(1);
+      expect(sandbox.reset).not.toHaveBeenCalled();
+
+      await first.dispose();
+      expect(sandbox.reset).toHaveBeenCalledTimes(1);
+    }
+  );
+
   it('retains the global lock after cancellation until the configured dependency check joins', async () => {
     const entered = Promise.withResolvers<void>();
     const stalled = Promise.withResolvers<void>();

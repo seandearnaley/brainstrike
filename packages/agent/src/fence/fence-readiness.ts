@@ -125,6 +125,11 @@ export async function probeFenceReadiness(options: FenceReadinessProbeOptions): 
     // checkDependenciesAsync reads the singleton's CURRENT config. Install
     // this exact restrictive probe policy before checking, under the same
     // global lock, so it cannot inspect another executor's helper or policy.
+    // In srt 0.0.75, updateConfig only clones config and resolves parent proxy
+    // settings on Darwin/Linux; it needs no initialized native resources.
+    // The restrictive config may remain after refusal: the caller owns reset
+    // decisions and must preserve another live executor's session. Each later
+    // probe/run installs its own config under this lock before using it.
     SandboxManager.updateConfig(config);
     const dependencies = await SandboxManager.checkDependenciesAsync();
     signal.throwIfAborted();

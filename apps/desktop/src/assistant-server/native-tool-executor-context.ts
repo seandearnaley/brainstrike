@@ -36,6 +36,8 @@ export interface DesktopAssistantToolDependencies {
    * bounded by the tool call's own timeout/Stop (PR #2205 review).
    */
   resolvePythonExecutable?: ((signal?: AbortSignal) => Promise<string>) | undefined;
+  /** Trusted desktop helper capability; the default resolves the physical packaged helper. */
+  resolveSeccompApplyPath?: (() => string | undefined) | undefined;
   /**
    * Request-scoped shell correlation (BST-1392). Absent means no correlation,
    * which is the honest state for a session with no worktree/forge service:

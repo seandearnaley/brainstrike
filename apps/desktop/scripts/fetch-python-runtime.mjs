@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // BST-1061: build-time fetch of the pinned python-build-standalone CPython
 // tarballs into resources/python-runtime/, verified against the checksums in
-// manifest.json. Runs from the desktop `build` script — deliberately NOT
+// manifest.json. Prepares the host for start, or a packaging target from
+// electron-builder beforePack. Explicit --all prepares every target; deliberately NOT
 // `postinstall` (Electron 42 removed its own postinstall for supply-chain
 // reasons; this repo matches that posture). A hash or size mismatch deletes
 // the download and fails the build loudly; there is no skip flag.
@@ -20,6 +21,47 @@ const defaultResourcesDir = path.resolve(import.meta.dirname, '../resources/pyth
 // (a CI job timeout, if any) instead of failing fast with a clear message.
 // 25MB over any non-broken connection finishes in well under this.
 const DEFAULT_FETCH_TIMEOUT_MS = 120_000;
+
+const PLATFORM_TARGETS = {
+  darwin: ['aarch64-apple-darwin', 'x86_64-apple-darwin'],
+  linux: ['x86_64-unknown-linux-gnu'],
+  // Windows packaging remains supported without bundled Python.
+  win32: [],
+};
+
+/** @param {string} platform */
+function targetsForPlatform(platform) {
+  if (platform === 'all') {
+    return;
+  }
+  if (!Object.hasOwn(PLATFORM_TARGETS, platform)) {
+    throw new Error(`Unsupported python-runtime preparation platform "${platform}".`);
+  }
+  return PLATFORM_TARGETS[platform];
+}
+
+/**
+ * @param {string[]} args
+ * @param {string} [hostPlatform]
+ * @returns {{ platform: string }}
+ */
+export function parsePythonRuntimeArgs(args, hostPlatform = process.platform) {
+  let platform;
+  if (args.length === 0 || (args.length === 1 && args[0] === '--platform=host')) {
+    platform = hostPlatform;
+  } else if (args.length === 1 && args[0] === '--all') {
+    platform = 'all';
+  } else if (args.length === 1 && args[0].startsWith('--platform=')) {
+    platform = args[0].slice('--platform='.length);
+    if (platform === 'all') {
+      throw new Error('python-runtime: use --all to prepare every target.');
+    }
+  } else {
+    throw new Error('python-runtime: expected --all or --platform=host|darwin|linux|win32.');
+  }
+  targetsForPlatform(platform);
+  return { platform };
+}
 
 async function fetchWithTimeout(fetchImpl, url, timeoutMs) {
   const controller = new AbortController();
@@ -142,15 +184,41 @@ async function prepareDerivedArchive({ entry, resourcesDir, sourcePath, log }) {
   );
 }
 
+/**
+ * @typedef {object} FetchPythonRuntimeOptions
+ * @property {typeof fetch} [fetchImpl]
+ * @property {number} [fetchTimeoutMs]
+ * @property {(message: string) => void} [log]
+ * @property {string} [resourcesDir]
+ * @property {string} [platform] Runtime-validated platform selector, including explicit 'all'.
+ */
+
+/** @param {FetchPythonRuntimeOptions} [options] */
 export async function fetchPythonRuntime({
   fetchImpl = fetch,
   fetchTimeoutMs = DEFAULT_FETCH_TIMEOUT_MS,
   log = (message) => console.error(message),
   resourcesDir = defaultResourcesDir,
+  platform = process.platform,
 } = {}) {
+  const requestedTargets = targetsForPlatform(platform);
   const manifestPath = path.join(resourcesDir, 'manifest.json');
   const manifest = JSON.parse(await fsPromises.readFile(manifestPath, 'utf8'));
-  for (const { entry, target } of loadManifestTargets(manifest, manifestPath)) {
+  const manifestTargets = loadManifestTargets(manifest, manifestPath);
+  if (requestedTargets) {
+    for (const target of requestedTargets) {
+      if (!manifestTargets.some((candidate) => candidate.target === target)) {
+        throw new Error(`python-runtime: manifest is missing requested target "${target}".`);
+      }
+    }
+  }
+  const selectedTargets = requestedTargets
+    ? manifestTargets.filter(({ target }) => requestedTargets.includes(target))
+    : manifestTargets;
+  if (selectedTargets.length === 0) {
+    log(`python-runtime: no bundled runtime for ${platform}; skipping preparation.`);
+  }
+  for (const { entry, target } of selectedTargets) {
     const url = renderAssetUrl(manifest, target);
     const fileName = new URL(url).pathname.split('/').at(-1);
     if (!fileName) {
@@ -182,8 +250,10 @@ export async function fetchPythonRuntime({
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  fetchPythonRuntime().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  });
+  Promise.resolve()
+    .then(() => fetchPythonRuntime(parsePythonRuntimeArgs(process.argv.slice(2))))
+    .catch((error) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
 }

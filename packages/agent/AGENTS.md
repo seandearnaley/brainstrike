@@ -304,6 +304,8 @@ omitted-byte counts. Execute-risk and approval-gated; a registered suspending
 tool, so it is storage-gated and excluded for the built-in local provider.
 The host-only `linuxSeccompApplyPath` option pins a physical executable helper
 outside ASAR; readiness and each run validate it, and missing helpers fail closed.
+Import typed readiness diagnostics from `@brainstrike/agent/code-execution`
+without loading the sandbox runtime; keep executor construction lazy.
 Full contract and packaged-host example: `docs/agents/code-execution.md` and
 `apps/desktop/src/__tests__/fixtures/packaged-python-fence-probe.cjs`.
 

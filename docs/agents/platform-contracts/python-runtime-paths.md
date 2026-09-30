@@ -48,7 +48,6 @@ read and the result is the typed `python_unsupported_platform` condition with
 no PATH-Python fallback (pinned by the fixture-less unsupported-platform case
 in `apps/desktop/src/__tests__/main/resolve-python-binary.test.ts`).
 
-
 ## Linux x64 extension (2026-09-30)
 
 The resolver now maps Linux x64 to `x86_64-unknown-linux-gnu`; Linux arm64

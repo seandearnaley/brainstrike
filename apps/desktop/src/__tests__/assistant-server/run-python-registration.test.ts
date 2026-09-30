@@ -1,5 +1,6 @@
 import type { RuntimeData } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { app } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { requireTool } from './_tool-test-helpers';
@@ -186,6 +187,56 @@ describe('run_python registration', () => {
 });
 
 describe('run_python sandbox availability wiring', () => {
+  it('maps invalid injected helper paths to the typed unavailable result', async () => {
+    const actual = await vi.importActual<typeof import('../../sandbox-runtime-path')>(
+      '../../sandbox-runtime-path'
+    );
+    fenceSupport.factory.mockClear();
+    const tool = requireRunPythonTool(
+      buildDesktopAssistantTools(runtimeData, {
+        resolvePythonExecutable: vi.fn(async () => '/injected/python3'),
+        resolveSeccompApplyPath: () =>
+          actual.resolveDesktopSeccompApplyPath(true, 'relative', 'linux', 'x64'),
+      })
+    );
+    await expect(tool.execute({ code: 'print(1)' }, undefined)).resolves.toMatchObject({
+      kind: 'unavailable',
+      reason: 'sandbox_unsupported_runtime',
+    });
+    expect(fenceSupport.factory).not.toHaveBeenCalled();
+  });
+
+  it('uses injected host capabilities without reading Electron application state', async () => {
+    const original = Object.getOwnPropertyDescriptor(app, 'isPackaged');
+    const readPackagedState = vi.fn(() => {
+      throw new Error('The injected tool must not read Electron state.');
+    });
+    Object.defineProperty(app, 'isPackaged', { configurable: true, get: readPackagedState });
+    const resolveSeccompApplyPath = vi.fn(() => '/injected/physical/apply-seccomp');
+    fenceSupport.factory.mockClear();
+    try {
+      const tool = requireRunPythonTool(
+        buildDesktopAssistantTools(runtimeData, {
+          resolvePythonExecutable: vi.fn(async () => '/injected/python3'),
+          resolveSeccompApplyPath,
+        })
+      );
+      await tool.execute({ code: 'print(1)' }, undefined);
+      expect(resolveSeccompApplyPath).toHaveBeenCalledExactlyOnceWith();
+      expect(readPackagedState).not.toHaveBeenCalled();
+      expect(fenceSupport.factory).toHaveBeenCalledExactlyOnceWith({
+        interpreters: { python: { command: '/injected/python3', scriptExtension: 'py' } },
+        linuxSeccompApplyPath: '/injected/physical/apply-seccomp',
+      });
+    } finally {
+      if (original) {
+        Object.defineProperty(app, 'isPackaged', original);
+      } else {
+        Reflect.deleteProperty(app, 'isPackaged');
+      }
+    }
+  });
+
   it('injects the desktop physical helper into the actual fence factory options', async () => {
     fenceSupport.factory.mockClear();
     const tool = requireRunPythonTool(toolsFor());

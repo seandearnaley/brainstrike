@@ -29,6 +29,11 @@ describe('packaged Linux seccomp helper path', () => {
     ['/resources', '../x64'],
     ['/resources', 'ia32'],
   ])('rejects invalid packaged inputs %s/%s', (resources, arch) => {
-    expect(() => resolveDesktopSeccompApplyPath(true, resources, 'linux', arch)).toThrow();
+    expect(() => resolveDesktopSeccompApplyPath(true, resources, 'linux', arch)).toThrowError(
+      expect.objectContaining({
+        code: 'fence_readiness_unavailable',
+        reason: 'sandbox_unsupported_runtime',
+      })
+    );
   });
 });

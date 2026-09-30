@@ -10,7 +10,10 @@ const manifest = JSON.parse(
   readFileSync(path.join(desktopDir, 'resources/python-runtime/manifest.json'), 'utf8')
 ) as PythonRuntimeManifest;
 const packageJson = JSON.parse(readFileSync(path.join(desktopDir, 'package.json'), 'utf8')) as {
-  build: Record<string, { asarUnpack?: string[]; extraResources?: ResourceRule[] }>;
+  build: Record<string, { asarUnpack?: string[]; extraResources?: ResourceRule[] }> & {
+    beforePack?: string;
+  };
+  scripts: Record<string, string>;
 };
 const LINUX_TARGET = 'x86_64-unknown-linux-gnu';
 const UPSTREAM_ARCHIVE = `cpython-3.13.14+20260728-${LINUX_TARGET}-install_only.tar.gz`;
@@ -31,6 +34,18 @@ function includes(rule: ResourceRule | undefined, filename: string): boolean {
 }
 
 describe('bundled Python resource packaging', () => {
+  it('prepares packaging resources for the builder target and starts with host-only preparation', () => {
+    expect(packageJson.build.beforePack).toBe('./scripts/prepare-python-runtime-before-pack.mjs');
+    expect(packageJson.scripts['pack']).toBe('pnpm build && electron-builder --dir');
+    expect(packageJson.scripts['dist']).toBe('pnpm build && electron-builder');
+    expect(packageJson.scripts['start']).toBe(
+      'node scripts/fetch-python-runtime.mjs --platform=host && pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built'
+    );
+    expect(packageJson.scripts['fetch:python-runtime']).toBe(
+      'node scripts/fetch-python-runtime.mjs --all'
+    );
+  });
+
   it('explicitly unpacks the matching Linux seccomp helper without changing macOS rules', () => {
     const rule =
       // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder expands this literal architecture macro.

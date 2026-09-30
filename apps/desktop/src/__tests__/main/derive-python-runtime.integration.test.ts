@@ -135,9 +135,19 @@ describe.skipIf(process.platform === 'win32')(
       const fetchImpl = vi.fn(() => {
         throw new Error('offline');
       });
-      await fetchPythonRuntime({ fetchImpl, log: () => undefined, resourcesDir: root });
+      await fetchPythonRuntime({
+        fetchImpl,
+        log: () => undefined,
+        platform: 'linux',
+        resourcesDir: root,
+      });
       expect(await integrity(output)).toEqual(expected);
-      await fetchPythonRuntime({ fetchImpl, log: () => undefined, resourcesDir: root });
+      await fetchPythonRuntime({
+        fetchImpl,
+        log: () => undefined,
+        platform: 'linux',
+        resourcesDir: root,
+      });
       expect(fetchImpl).not.toHaveBeenCalled();
     });
 
@@ -147,7 +157,12 @@ describe.skipIf(process.platform === 'win32')(
       await writeDerivedManifest(root, source, output, true);
       await fs.rm(output);
       await expect(
-        fetchPythonRuntime({ fetchImpl: vi.fn(), log: () => undefined, resourcesDir: root })
+        fetchPythonRuntime({
+          fetchImpl: vi.fn(),
+          log: () => undefined,
+          platform: 'linux',
+          resourcesDir: root,
+        })
       ).rejects.toThrow('sha256 mismatch');
       await expect(fs.access(output)).rejects.toThrow();
       expect((await fs.readdir(root)).some((name) => name.includes('.derive-'))).toBe(false);

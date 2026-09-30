@@ -25,7 +25,12 @@ implicit gzip lookup before this correction.
 Linux electron-builder resources include only the manifest and derived Linux archive,
 plus the upstream component notices. The macOS filter is narrowed to Darwin
 archives so adding Linux does not inflate every Mac package by 118 MB. Windows
-is unchanged. The common build fetcher still fetches all supported targets.
+is unchanged. Review refined the initial all-target fetch: normal start now
+prepares only the host platform. Packaging uses
+`beforePack` and electron-builder's actual target, so cross-host Linux packaging
+still prepares Linux while Darwin packaging never derives Linux. Both Darwin
+archives remain available for universal builds. The explicit `fetch:python-runtime`
+command retains all-target preparation for audits.
 
 The approved Linux-only `no-dbm-v1` archive is separately pinned under the
 Linux target's `derived` field. The build verifies the original input first,
@@ -124,7 +129,6 @@ Guards: `apps/desktop/src/__tests__/main/python-runtime-linux.test.ts`,
 `resolve-python-binary-resources.test.ts`, `desktop-factory-reset.test.ts`,
 `derive-python-runtime.integration.test.ts`, `python-derived-payloads.integration.test.ts`.
 
-
 Byte-pinned notice text uses directory-local Git `-text` attributes so Windows
 `core.autocrlf=true` checkouts preserve the upstream bytes. Guard:
 `scripts/__tests__/python-license-eol-contract.test.mjs`; its negative control
@@ -147,7 +151,18 @@ execution revalidates it and passes the canonical physical path. Missing,
 non-executable, or ASAR paths fail closed. SRT 0.0.75 itself falls back when an
 explicit helper is missing, so host validation is required before calling it.
 The original execution deadline and cancellation precedence survive validation.
-Darwin and development lookup are unchanged.
+Darwin and development lookup are unchanged. Electron state is read only by the
+host capability wrapper; tools accept an injected helper resolver alongside the
+Python resolver. Invalid helper inputs use runtime-free typed fence diagnostics.
+
+SRT 0.0.75's `updateConfig` does not require initialization on Linux or Darwin;
+its `initialize` also assigns config before checking dependencies. This is
+source-level ordering evidence, not native Darwin qualification. After a refused
+probe, a restrictive config may remain while another executor owns the session.
+Do not reset that live owner's resources: every subsequent probe/run installs
+its own policy under the lock. SRT's reset itself does not clear the config.
+Guards cover errors and warnings with a live sentinel executor, policy/helper
+restoration, and exactly one reset on the final owner's disposal.
 
 After a normal Linux x64 `pack`, run `pnpm --filter @brainstrike/desktop
 run test:packaged-python` on a host permitting the real OS fence, with its
@@ -164,3 +179,28 @@ execution. Both layout and full-fence qualification were run manually; this PR
 adds no CI workflow invocation or namespace-host policy setup. Existing CI gates
 are unchanged. Unit guards cover command safety, desktop path/wiring and
 per-executor configuration, warnings, helper removal, cancellation, and deadlines.
+
+## Review: compression and bytecode metadata
+
+The tested derivation recipe is Linux x64, Node 26.8.2, Node zlib
+`1.3.2.1-motley-5eb4d7e`, tar 7.5.22 and minizlib 3.1.0. Portable tar/gzip headers
+normalize metadata; they do not replace Node's compressor. Cross-version or
+cross-architecture deflate equivalence is not claimed. Linux-target builders
+must reproduce the pinned compressed SHA and size or fail closed. Host/target
+selection prevents unrelated Darwin start/package paths from requiring those
+Linux compressed bytes; cross-host Linux packaging still enforces both pins.
+
+An exact streamed audit found 4,514 upstream entries with mtime 1704067200 and
+4,513 derived entries with mtime 0. Both contain only three `.pyc` files:
+`encodings`' `__init__`, `aliases` and `utf_8`. Their unchanged headers use
+flags 0 (timestamp validation), timestamp 1784818192 and matching source sizes.
+They are already stale in upstream, so mtime normalization introduces no new
+valid-to-stale cache transition for this pin. `ssl`, `json` and `sqlite3` have
+no bundled bytecode caches; dropping `noMtime` would not repair either case.
+
+The exact runtime also accepted previously regenerated epoch-timestamp caches
+with writes disabled (`-I -B -v`); epoch mtimes do not inherently defeat reuse.
+Read-only fencing can prevent writing new caches for upstream and derived bytes
+alike. Preserve the current payload pin rather than imply a performance repair.
+`python-derived-payloads.integration.test.ts` audits the deliberate timestamp and
+bytecode-header behavior alongside unchanged payloads and exact module removal.

@@ -221,9 +221,9 @@ Evidence: `code-execution/permission-engine-ux-design.md`.
 
 ### FenceExecutor
 
-`packages/agent/src/fence/` — the Node-only subpath
-`@brainstrike/agent/fence-executor`, never the root, `client` or
-`browser-safe` entries; srt stays `external` in tsup.
+`@brainstrike/agent/fence-executor` is Node-only, never root/client/browser-safe;
+srt stays external in tsup. Runtime-free readiness diagnostics are exported by
+`@brainstrike/agent/code-execution`; importing them must not load srt.
 
 - `@anthropic-ai/sandbox-runtime` is pinned EXACTLY, no caret, in the
   `pnpm-workspace.yaml` catalog, and the escape-resistance suite asserts that
@@ -242,12 +242,12 @@ Evidence: `code-execution/permission-engine-ux-design.md`.
 - Interpreters are injected, never guessed; `capabilities().languages` is
   exactly that key set. Refuse un-injected languages. Await construction: its
   fixed offline shell probe uses the real fence before advertising readiness.
-- The desktop composition root resolves the bundled CPython once
-  (`resolveDesktopPythonExecutable()`, `apps/desktop/src/python-runtime/`) for
-  macOS arm64/x64 or Linux glibc x64 (no `_dbm`) and injects its absolute path. It unpacks
-  under `userData/python-runtime/`, outside always-deny stores. This package never
-  imports it; its typed `python_*` errors stay disjoint from seam/fence codes.
-  No runtime download/PATH fallback; Linux tar/gzip and packaged seccomp paths are absolute. Validate physical helpers before probe/run; no alternate helper. Evidence: `code-execution/bundled-linux-python.md`.
+- Desktop injects Python's absolute path via `resolveDesktopPythonExecutable()`; agent code
+  never imports `apps/desktop/src/python-runtime/`. Hosts: macOS arm64/x64 or Linux glibc x64 (no `_dbm`).
+  It unpacks under `userData/python-runtime/`, outside always-deny stores; keep typed
+  `python_*` errors separate from fence codes. Never download or guess PATH interpreters.
+  Use absolute Linux tar/gzip and validated physical helpers via the injected host capability.
+  No alternate helper. Evidence: `code-execution/bundled-linux-python.md`.
 - `ALWAYS_DENY_READ_PATHS` applies on top of every policy, resolved to ABSOLUTE
   paths from `os.homedir()` rather than handed to srt as `~/…`, and stays
   literal. srt's glob-deny handling is version-dependent and is NOT relied on.

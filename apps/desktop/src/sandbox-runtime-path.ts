@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { FenceReadinessError } from '@brainstrike/agent/code-execution';
 
 /** Native helpers must be OS-visible, never Electron's virtual ASAR paths. */
 export function resolveDesktopSeccompApplyPath(
@@ -11,8 +12,9 @@ export function resolveDesktopSeccompApplyPath(
     return;
   }
   if (!(path.isAbsolute(resourcesPath) && ['x64', 'arm64'].includes(arch))) {
-    throw new Error(
-      'Packaged Linux seccomp requires an absolute resources path and supported architecture.'
+    throw new FenceReadinessError(
+      'sandbox_unsupported_runtime',
+      'Packaged Linux seccomp requires an absolute resources path and supported architecture. No user code ran; no alternate helper is used.'
     );
   }
   return path.join(
