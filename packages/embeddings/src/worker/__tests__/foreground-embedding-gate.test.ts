@@ -147,20 +147,24 @@ describe('runCoordinatedQueryEmbedding', () => {
     expect(gate.isActive()).toBe(false);
   });
 
-  it('calls onDrainTimeout but still generates when drain times out', async () => {
+  it('rejects without generating when background drain times out', async () => {
     const gate = createForegroundEmbeddingGate({ reopenDelayMs: 1 });
     const onDrainTimeout = vi.fn();
+    const generate = vi.fn(async () => 7);
     const pending = runCoordinatedQueryEmbedding({
       drainTimeoutMs: 20,
       gate,
-      generate: async () => 7,
+      generate,
       isWorkerActive: () => true, // never drains
       onDrainTimeout,
       pollMs: 5,
     });
+    const result = pending.catch((error: unknown) => error);
     await vi.advanceTimersByTimeAsync(20);
-    const result = await pending;
-    expect(result).toBe(7);
+    expect(await result).toMatchObject({
+      message: 'Background embedding inference did not drain before the foreground query deadline.',
+    });
+    expect(generate).not.toHaveBeenCalled();
     expect(gate.isActive()).toBe(true);
     await vi.advanceTimersByTimeAsync(1);
     expect(gate.isActive()).toBe(false);

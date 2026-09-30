@@ -182,6 +182,9 @@ export async function runCoordinatedQueryEmbedding<T>(
     const { drained } = await waitForWorkerIdle(idleOptions);
     if (!drained) {
       options.onDrainTimeout?.();
+      throw new Error(
+        'Background embedding inference did not drain before the foreground query deadline.'
+      );
     }
     return await options.generate();
   } finally {

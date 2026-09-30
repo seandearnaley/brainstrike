@@ -312,6 +312,17 @@ describe('embedding host public database initialization readiness', () => {
     await act(async () => {
       view.rerender(<EmbeddingHostRuntime />);
     });
+    await act(async () => {});
+    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(1);
+    const generated: Generated = {
+      embedding: [0.1, 0.2],
+      runtime: { device: 'webgpu', dtype: 'fp32', fallbackApplied: false },
+    };
+    oldInference.resolve(generated);
+    expect(await oldResult).toMatchObject({
+      message: 'Embedding host query runtime is no longer available.',
+    });
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
     const newQuery = manager.queryEmbedding(QUERY, { signal: controller.signal });
     const newResult = newQuery.then(
@@ -323,14 +334,7 @@ describe('embedding host public database initialization readiness', () => {
       await newResult;
     });
     await waitFor(() => expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(2));
-    const generated: Generated = {
-      embedding: [0.1, 0.2],
-      runtime: { device: 'webgpu', dtype: 'fp32', fallbackApplied: false },
-    };
-    oldInference.resolve(generated);
-    expect(await oldResult).toMatchObject({
-      message: 'Embedding host query runtime is no longer available.',
-    });
+
     expect(manager.getStatus().active).toBe(true);
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
     newInference.resolve(generated);
@@ -373,7 +377,12 @@ describe('embedding host public database initialization readiness', () => {
       await oldResult;
     });
     await waitFor(() => expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(2));
-    await expect(manager.reset()).resolves.toMatchObject({ state: 'running' });
+    const resetting = manager.reset();
+    await act(async () => {});
+    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    expect(manager.getStatus().state).toBe('starting');
+    oldInference.resolve(generated);
+    await expect(resetting).resolves.toMatchObject({ state: 'running' });
     expect(currentDbRef.current).toBe(dbHandle);
     expect(manager.getStatus().runtimeId).not.toBe(oldRuntimeId);
     expect(await oldResult).toMatchObject({
@@ -388,7 +397,6 @@ describe('embedding host public database initialization readiness', () => {
       await newResult;
     });
     await waitFor(() => expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(3));
-    oldInference.resolve(generated);
     await waitFor(() =>
       expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
         expect.objectContaining({ runtimeId: oldRuntimeId, type: 'error' })
@@ -431,7 +439,10 @@ describe('embedding host public database initialization readiness', () => {
       await result;
     });
     await waitFor(() => expect(generateQueryEmbeddingMock).toHaveBeenCalledOnce());
-    await expect(manager.stop()).resolves.toMatchObject({ state: 'stopped' });
+    const stopping = manager.stop();
+    await act(async () => {});
+    expect(manager.getStatus().state).toBe('stopping');
+    expect(disposeQueryEmbeddingServiceMock).not.toHaveBeenCalled();
     expect(await result).toMatchObject({
       message: expect.stringContaining(
         'Embedding host stopped while query embedding requests were in flight.'
@@ -442,6 +453,7 @@ describe('embedding host public database initialization readiness', () => {
       embedding: [0.1, 0.2],
       runtime: { device: 'webgpu', dtype: 'fp32', fallbackApplied: false },
     });
+    await expect(stopping).resolves.toMatchObject({ state: 'stopped' });
     await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalled());
     expect(manager.getStatus().state).toBe('stopped');
     expect(reportStatusMock).not.toHaveBeenCalledWith(

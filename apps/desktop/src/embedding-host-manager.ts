@@ -291,6 +291,7 @@ export class EmbeddingHostManager {
       }
       return status;
     } catch (error) {
+      this.lifecycle.destroyHostWindow();
       const message = error instanceof Error ? error.message : String(error);
       this.lifecycle.setStatus(
         EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
