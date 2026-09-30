@@ -10,6 +10,7 @@ const {
   getEmbeddingQueueMock,
   createEmbeddingCacheRepositoryMock,
   detectDeviceCapabilitiesMock,
+  disposeQueryEmbeddingServiceMock,
   ensureVectorPreferencesHydratedMock,
   generateQueryEmbeddingMock,
   initializeWithModelMock,
@@ -30,6 +31,7 @@ const {
   },
   dbHandle: { query: vi.fn() },
   detectDeviceCapabilitiesMock: vi.fn(),
+  disposeQueryEmbeddingServiceMock: vi.fn(async () => {}),
   embeddingCacheRepository: {
     get: vi.fn(),
     getBatch: vi.fn(),
@@ -150,7 +152,7 @@ vi.mock('@brainstrike/embeddings/service', () => ({
   SimpleEmbeddingService: class {
     initializeWithModel = initializeWithModelMock;
     generateQueryEmbedding = generateQueryEmbeddingMock;
-    dispose = vi.fn(async () => {});
+    dispose = disposeQueryEmbeddingServiceMock;
   },
 }));
 
@@ -241,6 +243,7 @@ export {
   currentDbRef,
   dbHandle,
   detectDeviceCapabilitiesMock,
+  disposeQueryEmbeddingServiceMock,
   embeddingCacheRepository,
   embeddingQueueBootstrapMock,
   ensureVectorPreferencesHydratedMock,

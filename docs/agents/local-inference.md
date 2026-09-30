@@ -167,12 +167,12 @@ Evidence: `local-inference/embedding-queue-load-verification.md`.
 - Foreground DB-pressure permits age scheduler quiet/latency windows from the
   scheduler's monotonic snapshots; the claim starvation bypass uses renderer
   `performance.now()`. Wall-clock corrections must not extend either wait.
-- Retrieval/hybrid signals reach hosted embeddings and the hidden-host request channel.
-  Local cancellation releases pending requests and ignores late replies;
-  running renderer inference has no cancel command.
+- Keep one mounted-host query listener; retrieval/hybrid signals reach both embedding transports.
+  DB-unavailable requests fail explicitly; DB/run generations own query service/activity; stale completions cannot decrement current activity.
+  Local cancellation releases pending requests and ignores late replies; running inference has no cancel command.
   Timeout/interruption logs include provider, stage, elapsed time; never query text, endpoints, credentials, or vectors.
 
-Evidence: `local-inference/foreground-query-coordination.md`.
+Evidence: `local-inference/foreground-query-coordination.md`, `local-inference/query-listener-readiness.md`; guard: `embedding-host-reinitialization-readiness.test.tsx`.
 
 ### Workspace indexing QoS ownership
 
