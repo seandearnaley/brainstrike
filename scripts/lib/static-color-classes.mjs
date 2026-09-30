@@ -1,6 +1,55 @@
 import ts from 'typescript';
 import { readUtilityColors } from './foreground-contrast.mjs';
 
+function jsxPaint(element, file) {
+  const attributes = element.attributes.properties;
+  const classes = attributes.filter(
+    (attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(file) === 'className'
+  );
+  const initializer = classes[0]?.initializer;
+  const value =
+    initializer && ts.isJsxExpression(initializer) ? initializer.expression : initializer;
+  const isLiteral = value && ts.isStringLiteralLike(value);
+  return {
+    element: element.tagName.getText(file),
+    literal: isLiteral ? value.text : '',
+    unresolved:
+      classes.length > 1 ||
+      (classes.length > 0 && !isLiteral) ||
+      attributes.some(
+        (attribute) =>
+          ts.isJsxSpreadAttribute(attribute) ||
+          (ts.isJsxAttribute(attribute) && attribute.name.getText(file) === 'style')
+      ),
+  };
+}
+
+// Only a literal className owns paint. Do not attach title strings, prose,
+// reusable constants or dynamic class fragments to a coincidental ancestor.
+function jsxPaintPath(node, file) {
+  const initializer = ts.isJsxExpression(node.parent) ? node.parent : node;
+  const attribute = initializer.parent;
+  if (!(ts.isJsxAttribute(attribute) && attribute.name.getText(file) === 'className')) {
+    return [];
+  }
+  const opening = attribute.parent.parent;
+  if (!(ts.isJsxOpeningElement(opening) || ts.isJsxSelfClosingElement(opening))) {
+    return [];
+  }
+  const path = [];
+  let element = ts.isJsxOpeningElement(opening) ? opening.parent : opening;
+  while (ts.isJsxElement(element) || ts.isJsxSelfClosingElement(element)) {
+    path.push(jsxPaint(ts.isJsxElement(element) ? element.openingElement : element, file));
+    element = element.parent;
+    // Fragments preserve direct JSX ancestry. Expressions/functions/components
+    // may mount elsewhere, so they cannot establish a measured ancestor surface.
+    while (ts.isJsxFragment(element)) {
+      element = element.parent;
+    }
+  }
+  return path;
+}
+
 /** Inspect complete static string tokens; never regex across comments or JSX prose. */
 export function staticClassStrings(source, path = 'component.tsx') {
   const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
@@ -43,6 +92,7 @@ export function staticClassStrings(source, path = 'component.tsx') {
       result.push({
         ariaHidden,
         element: element?.tagName.getText(file),
+        jsxPath: jsxPaintPath(node, file),
         line: file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1,
         literal,
       });
