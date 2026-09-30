@@ -54,6 +54,7 @@ import {
 } from '@brainstrike/settings-ui/settings-page-content';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
+import { DESKTOP_IPC_CHANNELS } from '../../../platform/desktop-ipc-channels';
 import { DesktopLoggingSettings } from './logging-settings';
 import { useWorktreeSettings } from './use-worktree-settings';
 
@@ -92,6 +93,30 @@ function getNativeToolsAsDisplayMetadata(
  */
 function getToolDescription(toolId: string): string {
   return getNativeToolDescription(toolId) ?? `Native tool: ${toolId}`;
+}
+
+async function changeMcpToolPreferences(ids: string[], enabled: boolean): Promise<void> {
+  const mcp = window.mcp;
+  try {
+    if (enabled) {
+      await mcp?.enableTools?.(ids);
+    } else {
+      await mcp?.disableTools?.(ids);
+    }
+  } catch (error) {
+    // Strip only this channel's exact transport wrapper. Fault attribution stays
+    // with the caller's pre-action stats, never a racy post-failure stats read.
+    if (error instanceof Error) {
+      const channel = enabled
+        ? DESKTOP_IPC_CHANNELS.mcp.toolsEnable
+        : DESKTOP_IPC_CHANNELS.mcp.toolsDisable;
+      const prefix = `Error invoking remote method '${channel}': Error: `;
+      if (error.message.startsWith(prefix)) {
+        throw new Error(error.message.slice(prefix.length), { cause: error });
+      }
+    }
+    throw error;
+  }
 }
 
 export default function SettingsPageContent() {
@@ -210,6 +235,9 @@ export default function SettingsPageContent() {
         readMcpResource: async (request: McpReadResourceRequest) =>
           await window.mcp.readResource(request),
       }),
+      ...(window.mcp?.reloadToolPreferences && {
+        reloadToolPreferences: async () => await window.mcp.reloadToolPreferences(),
+      }),
       disableTools: async (ids: string[]) => {
         const nativeToolIds = ids.filter((id) => isNativeTool(id));
         const mcpToolIds = ids.filter((id) => !isNativeTool(id));
@@ -218,7 +246,7 @@ export default function SettingsPageContent() {
           useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, false);
         }
         if (mcpToolIds.length > 0) {
-          await window.mcp?.disableTools?.(mcpToolIds);
+          await changeMcpToolPreferences(mcpToolIds, false);
         }
       },
       enableTools: async (ids: string[]) => {
@@ -229,7 +257,7 @@ export default function SettingsPageContent() {
           useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, true);
         }
         if (mcpToolIds.length > 0) {
-          await window.mcp?.enableTools?.(mcpToolIds);
+          await changeMcpToolPreferences(mcpToolIds, true);
         }
       },
       getMcpServerStatus: async () => {

@@ -239,7 +239,7 @@ async function readMergeBaseStates(userDataDir: string): Promise<Map<string, boo
     const cause =
       stored.status === 'invalid' ? 'the file is corrupt' : 'the file could not be read';
     throw new Error(
-      `MCP tool preferences could not be read from ${stored.path} — ${cause} (${stored.reason}). Your tool change was not saved; the file is left untouched so your saved choices can be recovered. Reset tool preferences to discard the broken file, or repair it and restart the app.`
+      `MCP tool preferences could not be read from ${stored.path} — ${cause} (${stored.reason}). Your tool change was not saved; the file is left untouched so your saved choices can be recovered. Reset tool preferences to discard the broken file, or repair or remove it and choose Reload tool preferences in Settings.`
     );
   }
 
@@ -264,11 +264,8 @@ async function readMergeBaseStates(userDataDir: string): Promise<Map<string, boo
  * that split is what keeps the two write paths from drifting.
  *
  * `replace` (a reset) preserves nothing by definition, so it never reads the
- * file and is never refused. That is the point: reset is the ONLY in-app
- * remediation for a corrupt preferences file, and gating it on a readable file
- * would leave a user whose file is broken with every remediation blocked and
- * nothing but "go edit JSON in userData by hand" (BST-1620 records that there
- * is no other in-session recovery).
+ * file and is never refused. Reset deliberately discards saved choices;
+ * read-only reload is the separate in-session recovery for a repaired file.
  *
  * The read happens BEFORE `mutation()` so a refused write cannot leave the live
  * registry changed. `filterEnabledServerTools` consults that registry for
@@ -380,6 +377,24 @@ export type ToolPreferenceProjection =
    * tools would un-block writes over a file still known to be broken.
    */
   | { status: 'not-read' };
+
+/** Read-only recovery: no retirement, rewrite, timestamp update or file creation. */
+export async function loadToolPreferencesForRecovery(): Promise<ToolPreferenceProjection> {
+  const result = await loadToolPreferences(app.getPath('userData'));
+  if (result.status === 'invalid' || result.status === 'unreadable') {
+    return { kind: result.status, path: result.path, reason: result.reason, status: 'unavailable' };
+  }
+  if (result.status === 'absent') {
+    return { disabledTools: [], enabledTools: [], status: 'available' };
+  }
+  const { disabledTools, enabledTools } = result.preferences;
+  const disabled = new Set(disabledTools);
+  return {
+    disabledTools,
+    enabledTools: enabledTools.filter((id) => !disabled.has(id)),
+    status: 'available',
+  };
+}
 
 /**
  * Projects saved tool preferences onto the tools discovered this run.

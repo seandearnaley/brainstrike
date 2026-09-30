@@ -192,6 +192,11 @@ export const mcpContract = {
     parseArgs: parseNoArgs,
     roles: VISIBLE_UI,
   }),
+  reloadToolPreferences: rawChannel<[], void>({
+    channel: DESKTOP_IPC_CHANNELS.mcp.toolsReloadPreferences,
+    parseArgs: parseNoArgs,
+    roles: VISIBLE_UI,
+  }),
   resetTools: rawChannel<[], void>({
     channel: DESKTOP_IPC_CHANNELS.mcp.toolsReset,
     parseArgs: parseNoArgs,

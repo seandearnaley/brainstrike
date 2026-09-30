@@ -242,6 +242,7 @@ export const DESKTOP_IPC_CHANNELS = {
     toolsEnableServer: 'mcp:tools:enableServer',
     toolsGetStats: 'mcp:tools:getStats',
     toolsList: 'mcp:tools:list',
+    toolsReloadPreferences: 'mcp:tools:reloadPreferences',
     toolsReset: 'mcp:tools:reset',
     toolsUpdated: 'mcp:tools:updated',
   },
