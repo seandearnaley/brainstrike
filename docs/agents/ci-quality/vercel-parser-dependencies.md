@@ -21,6 +21,11 @@ overrides in `pnpm-workspace.yaml`. No major-line replacement or release-age
 exception was introduced. Regeneration's unrelated package and peer refreshes
 were excluded; the focused graph passed normal frozen installation.
 
+The full root suite caught the catalog guard interpreting the `>` comparator
+in the initial YAML selector as a parent separator. The final selector uses
+the equivalent standard semver hyphen range `4.0.0 - 4.3.1`; the graph stays
+unchanged and the catalog guard stays strict.
+
 ### Advisory evidence checked live
 
 - TOML: [comment stack exhaustion](https://github.com/advisories/GHSA-v3rj-xjv7-4jmq)
