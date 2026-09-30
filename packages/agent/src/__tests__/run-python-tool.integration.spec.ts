@@ -85,10 +85,11 @@ if (skipReason) {
 
 function fenceHost(): CodeExecutorHostCapabilities {
   return {
-    fence: () =>
-      createFenceExecutor({
-        interpreters: { python: { command: pythonPath as string, scriptExtension: 'py' } },
-      }),
+    fence: (signal) =>
+      createFenceExecutor(
+        { interpreters: { python: { command: pythonPath as string, scriptExtension: 'py' } } },
+        signal
+      ),
   };
 }
 

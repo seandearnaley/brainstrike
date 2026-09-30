@@ -43,6 +43,13 @@ import {
   execInputSchema,
 } from '../code-execution';
 import { buildSandboxRuntimeConfig } from './fence-policy';
+import {
+  FENCE_READINESS_TIMEOUT_MS,
+  fenceReadinessFailure,
+  fenceReadinessTimeout,
+  probeFenceReadiness,
+} from './fence-readiness';
+import { FenceReadinessError } from './fence-readiness-error';
 
 /** Grace period between the SIGTERM and the SIGKILL sent to the process tree. */
 const KILL_GRACE_MS = 500;
@@ -105,12 +112,13 @@ export interface FenceExecutorOptions {
   readonly interpreters: FenceInterpreterMap;
 }
 
-export class FenceUnsupportedPlatformError extends Error {
-  readonly code = 'fence_unsupported_platform' as const;
+export class FenceUnsupportedPlatformError extends FenceReadinessError {
+  override readonly code = 'fence_unsupported_platform' as const;
 
   constructor(hostPlatform: string) {
     super(
-      `The OS fence requires macOS (Seatbelt) or Linux (bubblewrap); this host reports '${hostPlatform}'. The host must not offer a fence factory here.`
+      'sandbox_unsupported_runtime',
+      `The OS fence requires a supported macOS (Seatbelt) or Linux (bubblewrap) runtime; this host reports '${hostPlatform}' and cannot provide it. No user code ran. Use a supported host; no weaker execution mode is available.`
     );
     this.name = 'FenceUnsupportedPlatformError';
   }
@@ -239,6 +247,72 @@ async function applySessionConfig(config: SandboxRuntimeConfig): Promise<void> {
   // process initialized first, and the network proxy reads this config at
   // request time. Without it a run could silently inherit another policy.
   SandboxManager.updateConfig(config);
+}
+
+/**
+ * The caller is bounded even if an upstream initialization never settles. The
+ * serialized task retains the lock until late work and cleanup have joined:
+ * timing out must not let another execution race a late global config update.
+ * Only successful construction retains a session; failed attempts can retry.
+ */
+async function acquireReadySession(callerSignal?: AbortSignal): Promise<void> {
+  const controller = new AbortController();
+  const deadline = Date.now() + FENCE_READINESS_TIMEOUT_MS;
+  const signal = callerSignal
+    ? AbortSignal.any([callerSignal, controller.signal])
+    : controller.signal;
+  signal.throwIfAborted();
+  let rejectAborted: (error: unknown) => void = () => {};
+  const interrupted = new Promise<never>((_resolve, reject) => {
+    rejectAborted = reject;
+  });
+  const onAbort = (): void => rejectAborted(signal.reason);
+  signal.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(
+    () => controller.abort(fenceReadinessTimeout()),
+    FENCE_READINESS_TIMEOUT_MS
+  );
+  const pending = runExclusive(async () => {
+    try {
+      signal.throwIfAborted();
+      assertNoSurvivingProcessGroups();
+      await probeFenceReadiness({
+        applyConfig: applySessionConfig,
+        deadline,
+        signal,
+        spawn: (options) =>
+          spawnFenced({ ...options, env: buildSandboxEnv(options.env, undefined) }),
+      });
+      signal.throwIfAborted();
+      activeSessions += 1;
+    } catch (error) {
+      // Even failed initialize() can leave singleton resources. Never reset
+      // another live executor's session, and never race a still-running probe.
+      if (activeSessions === 0) {
+        sessionInitialized = false;
+        try {
+          await SandboxManager.reset();
+        } catch (cleanupError) {
+          logger.error('Failed to reset sandbox after readiness failure', { error: cleanupError });
+          throw fenceReadinessFailure(
+            new AggregateError([error, cleanupError], 'Sandbox readiness cleanup failed')
+          );
+        }
+      }
+      if (signal.aborted) {
+        throw signal.reason;
+      }
+      const failure = fenceReadinessFailure(error);
+      logger.warn('Sandbox readiness failed', { error: failure, reason: failure.reason });
+      throw failure;
+    }
+  });
+  try {
+    await Promise.race([pending, interrupted]);
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', onAbort);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -749,7 +823,10 @@ function currentExecPlatform(): ExecPlatform {
  * fence capability and `resolveCodeExecutor('fence', host)` throws the seam's
  * own typed error.
  */
-export function createFenceExecutor(options: FenceExecutorOptions): CodeExecutor {
+export async function createFenceExecutor(
+  options: FenceExecutorOptions,
+  signal?: AbortSignal
+): Promise<CodeExecutor> {
   if (!isFenceSupported()) {
     throw new FenceUnsupportedPlatformError(platform);
   }
@@ -763,7 +840,7 @@ export function createFenceExecutor(options: FenceExecutorOptions): CodeExecutor
 
   const execPlatform = currentExecPlatform();
   let disposed = false;
-  activeSessions += 1;
+  await acquireReadySession(signal);
 
   const capabilities = (): ExecutorCapabilities => ({
     languages,
@@ -879,9 +956,9 @@ export function createFenceExecutor(options: FenceExecutorOptions): CodeExecutor
 }
 
 /**
- * Capability probe for host wiring: a factory on a host that can fence,
- * `undefined` on one that cannot. Absence is the signal — the host omits the
- * `fence` capability and the seam refuses the mode instead of degrading it.
+ * OS/runtime gate for host wiring. A returned factory still awaits actual
+ * readiness on every construction; presence alone is never evidence that the
+ * host permits its sandbox. Unsupported hosts omit the capability entirely.
  */
 export function createFenceExecutorFactory(
   options: FenceExecutorOptions
@@ -889,5 +966,5 @@ export function createFenceExecutorFactory(
   if (!isFenceSupported()) {
     return;
   }
-  return () => createFenceExecutor(options);
+  return (signal) => createFenceExecutor(options, signal);
 }

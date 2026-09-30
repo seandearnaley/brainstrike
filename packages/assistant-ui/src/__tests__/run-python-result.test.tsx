@@ -328,6 +328,79 @@ describe('gate refusal reasons (BST-1097)', () => {
   });
 });
 
+describe('sandbox readiness refusals (BST-1317)', () => {
+  it.each([
+    {
+      detail: 'Missing required sandbox tools: bubblewrap (bwrap), socat, ripgrep (rg).',
+      headline: /required sandbox tools are missing/i,
+      reason: 'sandbox_dependencies_missing',
+      remediation: /administrator to install the missing tools/i,
+    },
+    {
+      detail: 'The host refused the sandbox namespace probe.',
+      headline: /computer blocks the isolation the sandbox needs/i,
+      reason: 'sandbox_namespace_blocked',
+      remediation: /administrator to check the host.*sandbox support/i,
+    },
+    {
+      detail: 'The sandbox runtime does not support this host.',
+      headline: /operating system or runtime isn't supported/i,
+      reason: 'sandbox_unsupported_runtime',
+      remediation: /use a supported host/i,
+    },
+    {
+      detail: 'Sandbox readiness did not finish within 5000 ms.',
+      headline: /sandbox readiness check reached its time limit/i,
+      reason: 'sandbox_readiness_timeout',
+      remediation: /check stopped before your code could run/i,
+    },
+    {
+      detail: 'The sandbox readiness probe exited with code 1.',
+      headline: /sandbox couldn't confirm it was ready to isolate your code/i,
+      reason: 'sandbox_readiness_failed',
+      remediation: /administrator to check this host.*sandbox setup/i,
+    },
+  ])(
+    'explains $reason and preserves actionable backend detail',
+    ({ detail, headline, reason, remediation }) => {
+      renderRunPython({ detail, kind: 'unavailable', reason });
+
+      const header = screen.getByTestId('run-python-result-header');
+      expect(header).toHaveTextContent(/^Nothing ran/);
+      expect(header).toHaveTextContent(headline);
+      expect(screen.getByText(remediation)).toBeInTheDocument();
+      expect(screen.getByText(detail)).toBeInTheDocument();
+      expect(screen.getByRole('img', { name: 'Failed' })).toBeInTheDocument();
+      expect(screen.queryByTestId('run-python-stdout')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('run-python-stderr')).not.toBeInTheDocument();
+      expect(screen.getByTestId('run-python-result-state')).not.toHaveTextContent(
+        /disable.*security|unsandboxed|unsafe fallback/i
+      );
+    }
+  );
+
+  it('keeps interpreter preparation failures distinct from sandbox readiness failures', () => {
+    renderRunPython({
+      detail: 'Python installation could not be completed.',
+      kind: 'unavailable',
+      reason: 'interpreter_unavailable',
+    });
+
+    expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(
+      "Nothing ran — the sandbox's Python couldn't be prepared on this machine."
+    );
+    expect(screen.queryByText(/required sandbox tools are missing/i)).not.toBeInTheDocument();
+  });
+
+  it('retains generic detail for a reason this renderer does not recognize', () => {
+    const detail = 'A future backend reported a new readiness condition.';
+    renderRunPython({ detail, kind: 'unavailable', reason: 'future_backend_reason' });
+
+    expect(screen.getByTestId('run-python-result-header')).toHaveTextContent(/^Nothing ran\.$/);
+    expect(screen.getByText(detail)).toBeInTheDocument();
+  });
+});
+
 describe('declined (Gate A, BST-1097)', () => {
   it("renders the user's decline honestly — Stopped card, no panes, no failure chrome", () => {
     renderRunPython({ kind: 'declined' });
