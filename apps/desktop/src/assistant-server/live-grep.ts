@@ -6,6 +6,7 @@ import { collectGrepMatchesInContent } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
 import { createAgentIgnoreGuard } from './agent-ignore-guard';
+import { resolveScopedGrepFile } from './live-grep-files';
 import { buildLiveNote } from './live-grep-note';
 import {
   PROBE_RIPGREP_TIMEOUT_MS,
@@ -80,10 +81,11 @@ export interface LiveGrepResult {
   /**
    * The engine that produced the candidate file set:
    * - 'ripgrep'  — `rg` prefilter ran.
+   * - 'js-files' — the exact requested files were resolved directly.
    * - 'js-walk'  — `rg` was absent/errored/timed out; bounded JS file-walk used.
    * - 'skipped'  — the live pass could not run at all (e.g. no readable roots).
    */
-  engine: 'ripgrep' | 'js-walk' | 'skipped';
+  engine: 'ripgrep' | 'js-walk' | 'js-files' | 'skipped';
   /** Authoritative matches found fresh on disk (same shape as the indexed path). */
   matches: GrepMatch[];
   /**
@@ -183,21 +185,31 @@ async function resolveCandidate(args: {
 async function matchCandidate(
   candidate: LiveCandidate,
   matcher: LineMatcher,
-  contextLines: number
+  contextLines: number,
+  exactScope = false
 ): Promise<GrepMatch[]> {
   let stat: import('node:fs').Stats;
   try {
     stat = await fsPromises.stat(candidate.absolutePath);
-  } catch {
+  } catch (error) {
+    if (exactScope && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
     return [];
   }
   if (stat.size > MAX_READ_FILE_BYTES) {
+    if (exactScope) {
+      throw new Error('A selected live grep file exceeds the bounded read size.');
+    }
     return [];
   }
   let content: string;
   try {
     content = await fsPromises.readFile(candidate.absolutePath, 'utf8');
   } catch (error) {
+    if (exactScope) {
+      throw error;
+    }
     logger.debug('live grep: unreadable candidate skipped', {
       error,
       path: candidate.relativePath,
@@ -247,13 +259,6 @@ async function collectRipgrepCandidates(args: {
   caseSensitive: boolean;
   /** Remaining global candidate budget — STOP resolving once this is reached. */
   maxCandidates: number;
-  /**
-   * Optional exact-path allowlist (workspace-relative). When set, ONLY requested
-   * paths are resolved + counted toward the cap, so a huge prefilter match set
-   * can never crowd the requested files out of the budget (which previously
-   * dropped requested files and reported a false `truncated`).
-   */
-  filePathAllow: ReadonlySet<string> | null;
 }): Promise<{
   candidates: LiveCandidate[];
   prefilterTruncated: boolean;
@@ -270,13 +275,6 @@ async function collectRipgrepCandidates(args: {
   const candidates: LiveCandidate[] = [];
   let capHit = false;
   for (const relativePath of run.candidatePaths) {
-    // When an exact-path allowlist is requested, skip non-requested paths BEFORE
-    // they consume the cap — otherwise a huge prefilter match set fills the
-    // budget with irrelevant files and the requested ones are dropped (the
-    // allowlist used to be applied only AFTER the cap).
-    if (args.filePathAllow && !args.filePathAllow.has(relativePath)) {
-      continue;
-    }
     // Bound the realpath+stat syscall burst by the SAME cap as the reads: a very
     // common literal in a huge repo can make rg emit tens of thousands of
     // candidate paths, so stop resolving once the budget is spent (surfaced via
@@ -374,6 +372,7 @@ function isExcludedPathProbeCandidate(args: {
 
 async function countExcludedCandidateMatches(args: {
   canonicalRootPath: string;
+  canonicalTarget?: string;
   matcher: LineMatcher;
   relativePath: string;
   root: RuntimeWorkspaceRoot;
@@ -383,8 +382,9 @@ async function countExcludedCandidateMatches(args: {
     return 0;
   }
   try {
-    const absolutePath = path.join(args.canonicalRootPath, args.relativePath);
-    const canonicalTarget = await fsPromises.realpath(absolutePath);
+    const absolutePath =
+      args.canonicalTarget ?? path.join(args.canonicalRootPath, args.relativePath);
+    const canonicalTarget = args.canonicalTarget ?? (await fsPromises.realpath(absolutePath));
     const stat = await fsPromises.stat(absolutePath);
     if (
       !(isWithinRoot(args.canonicalRootPath, canonicalTarget) && stat.isFile()) ||
@@ -537,11 +537,72 @@ async function probeExcludedRoot(args: {
   return mergeExcludedPathProbeResults(candidateResults);
 }
 
+async function probeScopedExcludedRoot(args: {
+  root: RuntimeWorkspaceRoot;
+  filePaths: readonly string[];
+  matcher: LineMatcher;
+  signal: AbortSignal;
+}): Promise<ExcludedPathProbeRootResult> {
+  const empty = { matchCount: 0 };
+  if (args.signal.aborted) {
+    return empty;
+  }
+  try {
+    const canonicalRootPath = await fsPromises.realpath(args.root.path);
+    const guard = createAgentIgnoreGuard(canonicalRootPath);
+    const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
+    const results: ExcludedPathProbeRootResult[] = [];
+    let checked = 0;
+    for (const relativePath of new Set(args.filePaths)) {
+      if (args.signal.aborted || checked >= PROBE_EXCLUDED_PATH_MAX_CANDIDATE_FILES) {
+        break;
+      }
+      if (!isExcludedPathProbeCandidate({ filePathAllow: null, policy, relativePath })) {
+        continue;
+      }
+      const absolutePath = await resolveScopedGrepFile({
+        canonicalRootPath,
+        includeExcluded: true,
+        relativePath,
+      });
+      if (absolutePath === null) {
+        continue;
+      }
+      const candidate = {
+        absolutePath,
+        relativePath,
+        rootId: args.root.rootId,
+        rootName: args.root.displayName,
+      };
+      if ((await dropAgentIgnored(canonicalRootPath, [candidate], guard)).length === 0) {
+        continue;
+      }
+      checked += 1;
+      const matchCount = await countExcludedCandidateMatches({
+        canonicalRootPath,
+        canonicalTarget: absolutePath,
+        matcher: args.matcher,
+        relativePath,
+        root: args.root,
+        signal: args.signal,
+      });
+      results.push({ matchCount, ...(matchCount > 0 ? { examplePaths: [relativePath] } : {}) });
+    }
+    return args.signal.aborted ? empty : mergeExcludedPathProbeResults(results);
+  } catch (error) {
+    logger.warn('excluded-path grep probe: selected files could not be matched', {
+      error: redactErrorForLog(error),
+      rootId: args.root.rootId,
+    });
+    return empty;
+  }
+}
+
 /**
  * Count authoritative matches only in files the balanced indexing policy would
- * exclude. This optional steering pass is intentionally ripgrep-only and
- * bounded much more tightly than the normal live pass; absence of a safe rg
- * prefilter is an honest miss rather than a reason to walk the workspace.
+ * exclude. Exact file scopes resolve directly; root-wide probing uses only a
+ * safe ripgrep prefilter. Both are bounded more tightly than the live pass.
+ * A missing root-wide prefilter never triggers a workspace walk.
  */
 export async function probeExcludedPathMatches(
   options: ExcludedPathProbeOptions,
@@ -559,6 +620,14 @@ export async function probeExcludedPathMatches(
   }
 
   try {
+    if (options.filePaths !== undefined) {
+      const rootResults = await Promise.all(
+        options.roots.map((root) =>
+          probeScopedExcludedRoot({ filePaths: options.filePaths ?? [], matcher, root, signal })
+        )
+      );
+      return mergeExcludedPathProbeResults(rootResults);
+    }
     const ripgrepPath = await resolveRipgrepPath();
     const prefilterLiteral = resolveRipgrepPrefilterLiteral({
       isRegex: options.isRegex,
@@ -568,7 +637,7 @@ export async function probeExcludedPathMatches(
       return empty;
     }
 
-    const filePathAllow = options.filePaths === undefined ? null : new Set(options.filePaths);
+    const filePathAllow = null;
     const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
 
     // Each root is a distinct filesystem tree with its own ripgrep process and
@@ -608,8 +677,8 @@ export async function probeExcludedPathMatches(
  * Run a LIVE grep over the on-disk workspace roots, returning fresh matches the
  * indexed path may miss (just-edited / unindexed / not-yet-reindexed content).
  *
- * Two-phase, mirroring the indexed path: a FAST prefilter (ripgrep, or a bounded
- * JS file-walk) finds candidate files, then each candidate is read and run
+ * Exact scopes resolve requested files directly. Otherwise a FAST prefilter
+ * (ripgrep, or a bounded JS file-walk) finds candidates. Each is read and run
  * through the SAME authoritative JS matcher the indexed service uses — so live
  * and indexed matches are shaped identically.
  *
@@ -653,6 +722,39 @@ interface CandidateGatherState {
   scanLimited: boolean;
 }
 
+async function gatherScopedCandidates(args: {
+  canonicalRootPath: string;
+  root: RuntimeWorkspaceRoot;
+  filePathAllow: ReadonlySet<string>;
+  state: CandidateGatherState;
+}): Promise<void> {
+  const guard = createAgentIgnoreGuard(args.canonicalRootPath);
+  for (const relativePath of args.filePathAllow) {
+    const absolutePath = await resolveScopedGrepFile({
+      canonicalRootPath: args.canonicalRootPath,
+      relativePath,
+    });
+    if (absolutePath === null) {
+      continue;
+    }
+    const candidate = {
+      absolutePath,
+      relativePath,
+      rootId: args.root.rootId,
+      rootName: args.root.displayName,
+    };
+    const permitted = await dropAgentIgnored(args.canonicalRootPath, [candidate], guard);
+    if (permitted.length === 0) {
+      continue;
+    }
+    if (args.state.candidates.length >= maxLiveCandidateFiles) {
+      args.state.candidateCapHit = true;
+      return;
+    }
+    args.state.candidates.push(...permitted);
+  }
+}
+
 /** Gather candidate files for ONE root, mutating `state` (ripgrep-then-walk fallback). */
 async function gatherRootCandidates(args: {
   root: RuntimeWorkspaceRoot;
@@ -666,7 +768,7 @@ async function gatherRootCandidates(args: {
   prefilterLiteral: string | null;
   caseSensitive: boolean;
   state: CandidateGatherState;
-  /** Exact-path allowlist threaded into the rg cap (see collectRipgrepCandidates). */
+  /** Exact paths resolved directly before any root-wide candidate work. */
   filePathAllow: ReadonlySet<string> | null;
 }): Promise<void> {
   const { root, ripgrepPath, prefilterLiteral, caseSensitive, state, filePathAllow } = args;
@@ -682,6 +784,11 @@ async function gatherRootCandidates(args: {
   }
   state.anyRootAccessible = true;
 
+  if (filePathAllow !== null) {
+    await gatherScopedCandidates({ canonicalRootPath, filePathAllow, root, state });
+    return;
+  }
+
   // rg is usable only when it is present, has not already failed, AND a safe
   // superset literal exists. A regex with no extractable literal takes the JS
   // walk (it scans candidate files directly, which the authoritative matcher
@@ -692,7 +799,6 @@ async function gatherRootCandidates(args: {
         await collectRipgrepCandidates({
           canonicalRootPath,
           caseSensitive,
-          filePathAllow,
           // Remaining global budget so per-root resolve never overshoots the cap.
           maxCandidates: Math.max(0, maxLiveCandidateFiles - state.candidates.length),
           prefilterLiteral,
@@ -734,14 +840,23 @@ async function gatherRootCandidates(args: {
  */
 async function dropAgentIgnored(
   canonicalRootPath: string,
-  candidates: readonly LiveCandidate[]
+  candidates: readonly LiveCandidate[],
+  guard = createAgentIgnoreGuard(canonicalRootPath)
 ): Promise<LiveCandidate[]> {
   if (candidates.length === 0) {
     return [];
   }
-  const guard = createAgentIgnoreGuard(canonicalRootPath);
   const verdicts = await Promise.all(
-    candidates.map((candidate) => guard.ignoresFile(candidate.relativePath))
+    candidates.map(async (candidate) => {
+      const targetRelative = path
+        .relative(canonicalRootPath, candidate.absolutePath)
+        .split(path.sep)
+        .join('/');
+      return (
+        (await guard.ignoresFile(candidate.relativePath)) ||
+        (await guard.ignoresFile(targetRelative))
+      );
+    })
   );
   return candidates.filter((_candidate, index) => verdicts[index] !== true);
 }
@@ -777,7 +892,7 @@ export async function runLiveGrep(
   // filter", which is what makes "one list, one meaning" actually true.
   const filePathAllow = options.filePaths === undefined ? null : new Set(options.filePaths);
 
-  const ripgrepPath = await resolveRipgrepPath();
+  const ripgrepPath = filePathAllow === null ? await resolveRipgrepPath() : null;
   const rgPresent = ripgrepPath !== null;
   // The fixed-string SUPERSET literal rg prefilters on. For a regex this is the
   // longest guaranteed-present literal (the SAME extraction the indexed path uses
@@ -824,7 +939,8 @@ export async function runLiveGrep(
     };
   }
 
-  const engine: LiveGrepResult['engine'] = state.degradedToWalk || !rgUsed ? 'js-walk' : 'ripgrep';
+  const engine: LiveGrepResult['engine'] =
+    filePathAllow === null ? (state.degradedToWalk || !rgUsed ? 'js-walk' : 'ripgrep') : 'js-files';
 
   // Apply the optional exact-path allowlist and the global candidate cap. The
   // per-root resolve loop already STOPS at the cap (so the realpath+stat burst
@@ -840,7 +956,12 @@ export async function runLiveGrep(
 
   const matches: GrepMatch[] = [];
   for (const candidate of capped) {
-    const fileMatches = await matchCandidate(candidate, matcher, options.contextLines);
+    const fileMatches = await matchCandidate(
+      candidate,
+      matcher,
+      options.contextLines,
+      filePathAllow !== null
+    );
     matches.push(...fileMatches);
   }
 
@@ -849,6 +970,7 @@ export async function runLiveGrep(
     candidateTruncated,
     degradedToWalk: state.degradedToWalk,
     degradeReason: state.degradeReason,
+    exactScope: filePathAllow !== null,
     partialReadErrors: state.partialReadErrors,
     prefilterTruncated: state.prefilterTruncated,
     regexNoLiteralPrefilter,

@@ -79,6 +79,23 @@ afterEach(async () => {
 });
 
 describe('grepSearch hybrid — FRESHNESS (the point)', () => {
+  it('projects an exact-file live result with the direct-file engine', async () => {
+    const root = await makeWorkspace({
+      'src/fresh.ts': 'SCOPED_TOKEN\n',
+      'src/unrelated.ts': 'SCOPED_TOKEN\n',
+    });
+    indexEmpty();
+    const result = await runGrepSearch(
+      { filePaths: ['src/fresh.ts'], outputMode: 'content', pattern: 'SCOPED_TOKEN' },
+      singleRoot(root)
+    );
+    expect(result.liveEngine).toBe('js-files');
+    expect(result.liveNote).toBeUndefined();
+    const projection = projectGrepSearchModelOutput(result).value;
+    expect(projection).toContain('src/fresh.ts');
+    expect(projection).not.toContain('src/unrelated.ts');
+  });
+
   it('returns just-written content the index does NOT have, labelled live', async () => {
     // A file that exists on disk but is NOT in the index (simulating a file the
     // agent just edited/created before re-indexing caught up).
