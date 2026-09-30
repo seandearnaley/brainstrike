@@ -120,9 +120,15 @@ test('decoded canvas pause and acknowledged resume leave static history', async 
     );
     await userEvent.type(screen.getByRole('textbox', { name: 'Message' }), 'Create the report.');
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
-    await userEvent.click(
-      await screen.findByRole('button', { name: `Approve ${request.toolName}` })
-    );
+    const approve = await screen.findByRole('button', { name: `Approve ${request.toolName}` });
+    const bodies = screen.getAllByTestId('assistant-activity-body');
+    expect(bodies.length).toBeGreaterThan(0);
+    for (const body of bodies) {
+      expect(body).toHaveAttribute('hidden');
+    }
+    expect(approve.closest('.bs-activity-body')).toBeNull();
+    expect(approve).toBeVisible();
+    await userEvent.click(approve);
     await screen.findByText('Canvas created.');
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
     expect(screen.queryAllByText('Waiting for approval')).toHaveLength(0);

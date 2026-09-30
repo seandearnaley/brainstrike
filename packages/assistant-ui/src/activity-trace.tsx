@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle, ChevronRight, Square } from 'lucide-react';
-import { type ReactNode, useId, useState } from 'react';
+import { Activity, type ReactNode, useId, useState } from 'react';
 import {
   announcementFor,
   headlineFor,
@@ -25,6 +25,8 @@ export interface ActivityTraceProps {
   readonly fallbackMs: number | undefined;
   readonly incompleteReason: TraceIncompleteReason | undefined;
   readonly isActive: boolean;
+  /** Host sessions remain mounted when their disclosure is hidden. */
+  readonly preserveBodyEffects?: boolean;
   /** Model-written summary seam; null today. */
   readonly restingOverride: string | null;
   readonly summary: ActivitySummary;
@@ -215,7 +217,9 @@ function TraceCollapse({
   bodyId,
   children,
   expanded,
+  preserveBodyEffects,
 }: {
+  readonly preserveBodyEffects: boolean;
   readonly bodyId: string;
   readonly children: ReactNode;
   readonly expanded: boolean;
@@ -229,7 +233,11 @@ function TraceCollapse({
           hidden={!expanded}
           id={bodyId}
         >
-          {children}
+          {preserveBodyEffects ? (
+            children
+          ) : (
+            <Activity mode={expanded ? 'visible' : 'hidden'}>{children}</Activity>
+          )}
         </div>
       </div>
     </div>
@@ -253,6 +261,7 @@ export function ActivityTrace({
   fallbackMs,
   incompleteReason,
   isActive,
+  preserveBodyEffects = false,
   restingOverride,
   summary,
 }: ActivityTraceProps): ReactNode {
@@ -320,7 +329,7 @@ export function ActivityTrace({
         {announcement}
       </span>
       <TraceDetailLine detail={detail} isActive={isActive} />
-      <TraceCollapse bodyId={bodyId} expanded={expanded}>
+      <TraceCollapse bodyId={bodyId} expanded={expanded} preserveBodyEffects={preserveBodyEffects}>
         {children}
       </TraceCollapse>
     </div>

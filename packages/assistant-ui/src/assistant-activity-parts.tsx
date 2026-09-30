@@ -35,6 +35,10 @@ import { isSubagentDelegationToolName } from './subagent-tool-cards';
 import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { ToolDurationProvider } from './tool-duration-context';
 import { useChainActivityDerivations } from './use-chain-activity-derivations';
+import {
+  toolResultPreservesEffectsWhenHidden,
+  useToolResultRenderers,
+} from './use-tool-result-renderers';
 
 /**
  * ACTIVITY PARTS (phase 1 of the activity-trace overhaul; spec
@@ -253,6 +257,7 @@ function toIncompleteReason(
  * blocks interleaved in part order.
  */
 function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroupProps): ReactNode {
+  const renderers = useToolResultRenderers();
   const messageParts = useAuiState((state) => state.message.parts);
   const messageId = useAuiState((state) => (state.message as { id?: string }).id ?? '');
   const isMessageRunning = useAuiState(
@@ -273,6 +278,12 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
             )
         ),
     [indices, messageParts, cardedCalls]
+  );
+  const preserveBodyEffects = groupParts.some(
+    (part) =>
+      part.type === 'tool-call' &&
+      !isSubagentDelegationToolName(part.toolName) &&
+      toolResultPreservesEffectsWhenHidden(renderers, part.result)
   );
   const hasActivityParts = groupParts.some(isActivityPart);
   // A group's own member statuses can all already read "complete" (e.g. a
@@ -366,6 +377,7 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
               fallbackMs={activityFallbackMs}
               incompleteReason={incompleteReason}
               isActive={isActivityActive}
+              preserveBodyEffects={preserveBodyEffects}
               restingOverride={restingOverride}
               summary={summary}
             >

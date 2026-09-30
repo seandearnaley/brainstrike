@@ -843,11 +843,11 @@ The library's legacy `components.ChainOfThought` path is gone and must not retur
 - **COLLAPSED BY DEFAULT at ALL times** — `ActivityTrace`'s `expanded` derivation
   is `userExpanded ?? false`, never `?? isActive`. An explicit user toggle sticks
   for the life of the mounted trace.
-- `ActivityTrace` (`activity-trace.tsx`) owns the MARKUP only: the phase and every
-  string derived from it live in `activity-trace-labels.ts`, and its two hooks in
-  `use-activity-trace-clock.ts` / `use-label-enter-class.ts`. A `.tsx` file in this
-  package exports components and nothing else, or Vite's Fast Refresh loses the
-  boundary.
+- `ActivityTrace` owns markup; phase/strings stay in `activity-trace-labels.ts`, hooks in
+  `use-activity-trace-clock.ts` / `use-label-enter-class.ts`; `.tsx` exports only components.
+- Wrap ordinary body children in React `Activity`; keep approval cards and claimed
+  renderers declaring `preserveEffectsWhenHidden` outside it, preserving app sessions and consent.
+  Guards: `activity-trace.browser.test.tsx`, `mcp-app-tool-result.test.tsx`; evidence: `assistant-runtime/collapsed-body-activity.md`.
 - The header is two rows: a status row (glyph, label, elapsed) and, only while
   active, a fixed-height one-line detail row (`bs-trace-detail`) entirely removed
   from the DOM once the group finishes — never a zero-height placeholder.

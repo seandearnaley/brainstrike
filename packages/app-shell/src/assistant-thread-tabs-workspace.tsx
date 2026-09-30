@@ -503,8 +503,8 @@ function ThreadPanels({
       {mountedThreadIds.map((threadId) => {
         const isOpen = openIds.has(threadId);
         return (
-          // Keep-alive via `hidden`, never <Activity>: this panel's effects own
-          // `subscribeAssistantToolUpdates`, which a background run still needs.
+          // Keep runtime ownership mounted: this wrapper owns tool updates.
+          // Only the panel's presentation subtree may pause in an Activity.
           // A retained panel has no tab, so it claims no tabpanel role.
           <div
             {...(isOpen ? { 'aria-labelledby': getTabId(threadId), role: 'tabpanel' } : {})}
@@ -517,6 +517,7 @@ function ThreadPanels({
             {/* No resetKey: inside key={threadId} it could never change; "Reload tab" resets. */}
             <TabPanelBoundary label={threadById.get(threadId)?.title ?? threadId}>
               <AssistantUiPanelWrapper
+                isVisible={isOpen && threadId === activeThreadId}
                 {...(fixedProviderModels ? { fixedProviderModels } : {})}
                 {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                 {...(providerKeySources ? { providerKeySources } : {})}

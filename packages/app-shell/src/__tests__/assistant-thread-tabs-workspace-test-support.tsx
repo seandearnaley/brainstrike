@@ -24,6 +24,7 @@ import {
  */
 const harness = vi.hoisted(() => ({
   assistantWrapperProps: [] as Array<{
+    isVisible?: boolean;
     memoryResourceId?: string;
     memoryThreadId?: string;
     onRunningChange?: (threadId: string, running: boolean) => void;
@@ -133,6 +134,7 @@ document.head.append(scrollerOverflow);
 
 vi.mock('../assistant-ui-panel-wrapper', () => ({
   AssistantUiPanelWrapper: (props: {
+    isVisible?: boolean;
     memoryResourceId?: string;
     memoryThreadId?: string;
     onRunningChange?: (threadId: string, running: boolean) => void;
@@ -151,7 +153,11 @@ vi.mock('../assistant-ui-panel-wrapper', () => ({
         harness.wrapperLifecycle.push(`unmount:${threadId}`);
       };
     }, [threadId]);
-    return <div data-testid="assistant-thread-wrapper">{props.memoryThreadId}</div>;
+    return (
+      <div data-is-visible={props.isVisible} data-testid="assistant-thread-wrapper">
+        {props.memoryThreadId}
+      </div>
+    );
   },
 }));
 

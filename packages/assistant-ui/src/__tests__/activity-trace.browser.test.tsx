@@ -1,6 +1,7 @@
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState, useSyncExternalStore } from 'react';
 import { expect, test } from 'vitest';
 import { ActivityTrace } from '../activity-trace';
 import { mustFind, px } from './browser-dom';
@@ -312,4 +313,63 @@ test('the live label composes its entrance with the shimmer: shimmer alone on fi
   const changed = getComputedStyle(mustFind(container, '.bs-activity-live-label')).animationName;
   expect(changed).toContain('bs-thinking-shimmer');
   expect(changed).toContain('bs-trace-label-enter');
+});
+
+test('collapsed activity releases display subscriptions and restores manual detail state with the latest output', async () => {
+  const listeners = new Set<() => void>();
+  let value = 0;
+  let callbacks = 0;
+  const subscribe = (listener: () => void): (() => void) => {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  };
+  const getSnapshot = (): number => value;
+  function SubscribedDetail() {
+    const current = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    const [expanded, setExpanded] = useState(false);
+    return (
+      <button
+        aria-expanded={expanded}
+        data-value={current}
+        onClick={() => setExpanded(!expanded)}
+        type="button"
+      >
+        Tool detail
+      </button>
+    );
+  }
+  render(
+    <ActivityTrace
+      detail={null}
+      fallbackMs={undefined}
+      incompleteReason={undefined}
+      isActive={false}
+      restingOverride={null}
+      summary={done}
+    >
+      <SubscribedDetail />
+    </ActivityTrace>
+  );
+  await waitFor(() => expect(listeners.size).toBe(0));
+  fireEvent.click(screen.getByRole('button', { name: 'Expand activity' }));
+  const detail = await screen.findByRole('button', { name: 'Tool detail' });
+  await waitFor(() => expect(listeners.size).toBe(1));
+  fireEvent.click(detail);
+  expect(detail).toHaveAttribute('aria-expanded', 'true');
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse activity' }));
+  await waitFor(() => expect(listeners.size).toBe(0));
+  for (let index = 1; index <= 20; index++) {
+    value = index;
+    for (const listener of listeners) {
+      callbacks++;
+      listener();
+    }
+  }
+  expect(callbacks).toBe(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Expand activity' }));
+  expect(await screen.findByRole('button', { name: 'Tool detail' })).toBe(detail);
+  expect(detail).toHaveAttribute('aria-expanded', 'true');
+  expect(detail).toHaveAttribute('data-value', '20');
 });

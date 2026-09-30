@@ -1,10 +1,12 @@
 import '@testing-library/jest-dom/vitest';
+import { type ThreadMessageLike, useExternalStoreRuntime } from '@assistant-ui/react';
 import type { McpAppBridge, McpAppOrigin } from '@brainstrike/assistant-contract';
 import { createMcpAppToolInvocationResult } from '@brainstrike/assistant-contract';
+import { AssistantConversationPanel, ToolResultRendererProvider } from '@brainstrike/assistant-ui';
 import { TooltipProvider } from '@brainstrike/ui';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { type ReactElement, StrictMode } from 'react';
+import { createContext, type ReactElement, StrictMode, use } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { McpAppBridgeProvider } from '../mcp-app-bridge-context';
 import {
@@ -498,4 +500,211 @@ describe('MCP App tool result', () => {
     expect(screen.queryByTestId('mcp-app-host-note')).not.toBeInTheDocument();
     expect(test.bridge.readResource).not.toHaveBeenCalled();
   });
+});
+
+const AppTestRuntimeContext = createContext<{
+  readonly onSessionChange: (session: McpAppMountedSession | undefined) => void;
+  readonly test: Harness;
+} | null>(null);
+
+function InstrumentedAppResult(props: Parameters<typeof McpAppToolResult>[0]): ReactElement {
+  const binding = use(AppTestRuntimeContext);
+  if (!binding) {
+    throw new Error('Instrumented app renderer requires its test runtime.');
+  }
+  return (
+    <McpAppToolResult
+      {...props}
+      onSessionChange={binding.onSessionChange}
+      ports={binding.test.ports}
+    />
+  );
+}
+
+const APP_TEST_RENDERERS = [{ ...mcpAppToolResultRenderer, Component: InstrumentedAppResult }];
+
+function GroupedApp({
+  messages,
+  onSessionChange,
+  isVisible = true,
+  test,
+}: {
+  messages: readonly ThreadMessageLike[];
+  onSessionChange: (session: McpAppMountedSession | undefined) => void;
+  isVisible?: boolean;
+  test: ReturnType<typeof harness>;
+}) {
+  const runtime = useExternalStoreRuntime({
+    convertMessage: (message: ThreadMessageLike) => message,
+    messages,
+    onNew: async () => {
+      throw new Error('Viewing the MCP App must not start a model');
+    },
+  });
+  return (
+    <AppTestRuntimeContext.Provider value={{ onSessionChange, test }}>
+      <TooltipProvider>
+        <McpAppBridgeProvider bridge={test.bridge}>
+          <ToolResultRendererProvider renderers={APP_TEST_RENDERERS}>
+            <div hidden={!isVisible}>
+              <AssistantConversationPanel
+                isVisible={isVisible}
+                label="MCP lifecycle"
+                runtime={runtime}
+                threadKey="thread-a"
+              />
+            </div>
+          </ToolResultRendererProvider>
+        </McpAppBridgeProvider>
+      </TooltipProvider>
+    </AppTestRuntimeContext.Provider>
+  );
+}
+
+it('keeps the grouped MCP App session, pending consent and iframe when activity collapses', async () => {
+  const test = harness('ask');
+  let session: McpAppMountedSession | undefined;
+  const onSessionChange = (next: McpAppMountedSession | undefined): void => {
+    if (next) {
+      session = next;
+    }
+  };
+  const messages: readonly ThreadMessageLike[] = [
+    {
+      content: [
+        { text: 'Open the editor.', type: 'reasoning' },
+        {
+          args: {},
+          argsText: '{}',
+          result: APP_RESULT,
+          toolCallId: TOOL_CALL.toolCallId,
+          toolName: TOOL_CALL.toolName,
+          type: 'tool-call',
+        },
+      ],
+      role: 'assistant',
+      status: { reason: 'stop', type: 'complete' },
+    },
+  ];
+  render(<GroupedApp messages={messages} onSessionChange={onSessionChange} test={test} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Expand activity' }));
+  await waitFor(() => expect(session).toBeDefined());
+  if (!session) {
+    throw new Error('MCP App session did not connect');
+  }
+  const originalSession = session;
+  act(() => test.target.dispatch(test.frame, INITIALIZE));
+  await waitFor(() =>
+    expect(originalSession.frameBridge.snapshot.phase).toBe('awaiting-initialized')
+  );
+  act(() => test.target.dispatch(test.frame, INITIALIZED));
+  await waitFor(() => expect(originalSession.frameBridge.snapshot.phase).toBe('ready'));
+  const originalFrame = screen.getByTitle('create_issue app');
+  act(() =>
+    test.target.dispatch(test.frame, {
+      id: 'collapse-call',
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { arguments: {}, name: 'create_issue' },
+    })
+  );
+  await screen.findByRole('alertdialog');
+  expect(originalSession.authority.snapshot.pendingApprovals).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse activity' }));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(originalSession.authority.snapshot.phase).toBe('open');
+  expect(test.release).not.toHaveBeenCalled();
+  expect(test.revoked).toEqual([]);
+  fireEvent.click(screen.getByRole('button', { name: 'Expand activity' }));
+  expect(await screen.findByTitle('create_issue app')).toBe(originalFrame);
+  expect(test.created).toHaveLength(1);
+  await userEvent.click(await screen.findByRole('button', { name: 'Allow create_issue once' }));
+  await waitFor(() => expect(test.execute).toHaveBeenCalledTimes(1));
+  await waitFor(() =>
+    expect(test.frame.sent.at(-1)).toMatchObject({
+      id: 'collapse-call',
+      result: { content: [{ text: 'done', type: 'text' }] },
+    })
+  );
+});
+
+it('keeps the full-pane MCP App authority, pending consent and iframe when the pane is hidden', async () => {
+  const test = harness('ask');
+  let session: McpAppMountedSession | undefined;
+  const onSessionChange = (next: McpAppMountedSession | undefined): void => {
+    session = next ?? session;
+  };
+  const messages: readonly ThreadMessageLike[] = [
+    {
+      content: [
+        {
+          args: {},
+          argsText: '{}',
+          result: APP_RESULT,
+          toolCallId: TOOL_CALL.toolCallId,
+          toolName: TOOL_CALL.toolName,
+          type: 'tool-call',
+        },
+      ],
+      role: 'assistant',
+      status: { reason: 'stop', type: 'complete' },
+    },
+  ];
+  const tree = (isVisible: boolean): ReactElement => (
+    <GroupedApp
+      isVisible={isVisible}
+      messages={messages}
+      onSessionChange={onSessionChange}
+      test={test}
+    />
+  );
+  const view = render(tree(true));
+  fireEvent.click(await screen.findByRole('button', { name: 'Expand activity' }));
+  await waitFor(() => expect(session).toBeDefined());
+  if (!session) {
+    throw new Error('MCP App session did not connect.');
+  }
+  const originalSession = session;
+  act(() => test.target.dispatch(test.frame, INITIALIZE));
+  await waitFor(() =>
+    expect(originalSession.frameBridge.snapshot.phase).toBe('awaiting-initialized')
+  );
+  act(() => test.target.dispatch(test.frame, INITIALIZED));
+  await waitFor(() => expect(originalSession.frameBridge.snapshot.phase).toBe('ready'));
+  const originalFrame = screen.getByTitle('create_issue app');
+  act(() =>
+    test.target.dispatch(test.frame, {
+      id: 'pane-call',
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { arguments: {}, name: 'create_issue' },
+    })
+  );
+  await screen.findByRole('alertdialog');
+  expect(originalSession.authority.snapshot.pendingCalls).toBe(1);
+  view.rerender(tree(false));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(originalFrame).not.toBeVisible();
+  expect(originalSession.authority.snapshot.phase).toBe('open');
+  expect(originalSession.frameBridge.snapshot.phase).toBe('ready');
+  expect(originalSession.authority.snapshot.pendingCalls).toBe(1);
+  expect(originalSession.authority.snapshot.pendingApprovals).toHaveLength(1);
+  expect(test.release).not.toHaveBeenCalled();
+  expect(test.revoked).toEqual([]);
+  view.rerender(tree(true));
+  expect(session).toBe(originalSession);
+  expect(await screen.findByTitle('create_issue app')).toBe(originalFrame);
+  expect(test.created).toHaveLength(1);
+  await userEvent.click(await screen.findByRole('button', { name: 'Allow create_issue once' }));
+  await waitFor(() => expect(test.execute).toHaveBeenCalledTimes(1));
+  await waitFor(() =>
+    expect(test.frame.sent.at(-1)).toMatchObject({
+      id: 'pane-call',
+      result: { content: [{ text: 'done', type: 'text' }] },
+    })
+  );
 });

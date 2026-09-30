@@ -50,6 +50,10 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
     const panel = screen.getByTestId('assistant-thread-panel-thread-b');
     expect(panel).toHaveAttribute('hidden');
     expect(within(panel).getByTestId('assistant-thread-wrapper')).toBeInTheDocument();
+    expect(within(panel).getByTestId('assistant-thread-wrapper')).toHaveAttribute(
+      'data-is-visible',
+      'false'
+    );
     // No tab labels it, so it must not claim to be one's tabpanel.
     expect(panel).not.toHaveAttribute('aria-labelledby');
     // The wrapper never unmounted: its run was never handed an abort.
@@ -77,6 +81,10 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
     expect(reopened).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByTestId('assistant-thread-panel-thread-b')).toBe(panel);
     expect(panel).toBeVisible();
+    expect(within(panel).getByTestId('assistant-thread-wrapper')).toHaveAttribute(
+      'data-is-visible',
+      'true'
+    );
     expect(panel).toHaveAttribute('aria-labelledby', reopened.id);
     expect(wrapperLifecycle.filter((entry) => entry.endsWith(':thread-b'))).toEqual([
       'mount:thread-b',

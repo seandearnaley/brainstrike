@@ -140,6 +140,7 @@ import { WorkspaceBarHost } from './workspace-bar/workspace-bar-host';
 export interface AssistantUiPanelWrapperProps {
   className?: string;
   fixedProviderModels?: FixedProviderModels;
+  isVisible?: boolean;
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
@@ -160,6 +161,7 @@ declare global {
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
 export function AssistantUiPanelWrapper({
+  isVisible = true,
   fixedProviderModels,
   loadLocalLlmBackend,
   memoryResourceId: memoryResourceIdOverride,
@@ -210,7 +212,6 @@ export function AssistantUiPanelWrapper({
     providers: configuredProviders,
   } = useConfiguredAssistantProviders();
 
-  // Load model registry from DB for local provider models
   useEnsureModelRegistry();
   const registryModels = useModelRegistryStore((state) => state.models);
   const registryProviders = useModelRegistryStore((state) => state.providers);
@@ -594,9 +595,7 @@ export function AssistantUiPanelWrapper({
     [pathToClientRootId, setTapestryRangesForKey]
   );
 
-  // Selection write-back bridge (BST-1652): one subscription over every
-  // available channel instead of four copy-pasted effects. See
-  // `assistant-panel/tool-update-subscriptions.ts`.
+  // Tool-update subscription ownership: assistant-panel/tool-update-subscriptions.ts.
   useEffect(
     () =>
       subscribeAssistantToolUpdates({
@@ -1337,6 +1336,7 @@ export function AssistantUiPanelWrapper({
             <DebugBundleProvider value={debugBundleBinding}>
               <BudgetGuardrailProvider value={budgetGuardrailBinding}>
                 <AssistantUiPanel
+                  isVisible={isVisible}
                   {...delegatedPanelBinding}
                   composerDraftCommand={composerDraft.command}
                   {...(onRunningChange ? { onRunningChange } : {})}

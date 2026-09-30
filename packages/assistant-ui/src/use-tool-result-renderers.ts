@@ -26,6 +26,8 @@ export interface ToolResultRenderer {
   /** Stable identity for diagnostics and provider de-duplication. */
   readonly kind: string;
   readonly matches: (result: unknown) => boolean;
+  /** The mounted surface owns sessions or work that hiding must not tear down. */
+  readonly preserveEffectsWhenHidden?: boolean;
 }
 
 const EMPTY_RENDERERS: readonly ToolResultRenderer[] = Object.freeze([]);
@@ -41,4 +43,15 @@ export const ToolResultRendererContext =
 /** The renderers this host registered, in provider order (first match wins). */
 export function useToolResultRenderers(): readonly ToolResultRenderer[] {
   return use(ToolResultRendererContext);
+}
+
+/** Honor the same first matching descriptor as the tool result router. */
+export function toolResultPreservesEffectsWhenHidden(
+  renderers: readonly ToolResultRenderer[],
+  result: unknown
+): boolean {
+  return (
+    result !== undefined &&
+    renderers.find((renderer) => renderer.matches(result))?.preserveEffectsWhenHidden === true
+  );
 }
