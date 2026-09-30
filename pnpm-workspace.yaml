@@ -151,6 +151,11 @@ catalog:
   zod: ^4.6.5
   zustand: ^5.0.15
 overrides:
+  # BST-884: these Vercel owners pin TOML 1.5.2; 1.8.0 fixes both parser DoS
+  # advisories. Retire each edge when its owner admits smol-toml >=1.7.1.
+  'vercel@58.4.4>smol-toml': 1.8.0
+  '@vercel/python-analysis@0.12.0>smol-toml': 1.8.0
+  '@vercel/rust@1.4.0>smol-toml': 1.8.0
   # BST-879: python-analysis 0.12.0 pins vulnerable minimatch 10.1.1.
   # Use the vendor's patched 10.x API; remove when the owner admits >=10.2.3.
   # https://github.com/isaacs/minimatch/security/advisories/GHSA-23c5-xmqv-rm74

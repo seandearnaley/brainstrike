@@ -308,6 +308,9 @@ catalogs:
       version: 5.0.15
 
 overrides:
+  vercel@58.4.4>smol-toml: 1.8.0
+  '@vercel/python-analysis@0.12.0>smol-toml': 1.8.0
+  '@vercel/rust@1.4.0>smol-toml': 1.8.0
   '@vercel/python-analysis@0.12.0>minimatch': 10.2.6
   react: ^19.3.0
   react-dom: ^19.3.0
@@ -14083,10 +14086,6 @@ packages:
     resolution: {integrity: sha512-94hK0Hh8rPqQl2xXc3HsaBoOXKV20MToPkcXvwbISWLEs+64sBq5kFgn2kJDHb1Pry9yrP0dxrCI9RRci7RXKg==}
     engines: {node: '>= 6.0.0', npm: '>= 3.0.0'}
 
-  smol-toml@1.5.2:
-    resolution: {integrity: sha512-QlaZEqcAH3/RtNyet1IPIYPsEWAaYyXXv1Krsi+1L/QHppjX4Ifm8MQsBISz9vE8cHicIq3clogsheili5vhaQ==}
-    engines: {node: '>= 18'}
-
   smol-toml@1.8.0:
     resolution: {integrity: sha512-kCZr2V3ch9i00x8zXRhjUNVcjG9ijES5dDudkXvUVCT5QlJNQWElSJdZqyPemffHoLNUYwOcou0Fy+ojN0uHSQ==}
     engines: {node: '>= 18'}
@@ -20608,7 +20607,7 @@ snapshots:
       fs-extra: 11.1.1
       js-yaml: 4.1.1
       minimatch: 10.2.6
-      smol-toml: 1.5.2
+      smol-toml: 1.8.0
       zod: 3.22.4
 
   '@vercel/python@6.54.1':
@@ -20645,7 +20644,7 @@ snapshots:
     dependencies:
       execa: 5.1.1
       get-port: 5.1.1
-      smol-toml: 1.5.2
+      smol-toml: 1.8.0
 
   '@vercel/sandbox@2.4.0':
     dependencies:
@@ -25785,8 +25784,6 @@ snapshots:
 
   smart-buffer@4.2.0: {}
 
-  smol-toml@1.5.2: {}
-
   smol-toml@1.8.0: {}
 
   socks-proxy-agent@8.0.5(supports-color@10.2.2):
@@ -26495,7 +26492,7 @@ snapshots:
       jsonc-parser: 3.3.1
       luxon: 3.7.2
       sandbox: 3.4.0(supports-color@10.2.2)
-      smol-toml: 1.5.2
+      smol-toml: 1.8.0
       undici: 5.29.0
       zod: 4.1.11
     transitivePeerDependencies:
