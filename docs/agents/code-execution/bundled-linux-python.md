@@ -129,3 +129,38 @@ Byte-pinned notice text uses directory-local Git `-text` attributes so Windows
 `core.autocrlf=true` checkouts preserve the upstream bytes. Guard:
 `scripts/__tests__/python-license-eol-contract.test.mjs`; its negative control
 removes the attributes and observes changed bytes through Git's real checkout filter.
+
+## Packaged seccomp helper boundary
+
+A workspace-native fence is not proof of the packaged executor. Electron's
+patched filesystem reports the SRT helper under `app.asar` as present, while
+`original-fs` and the OS cannot execute that virtual path. A real packaged
+probe reproduced `apply-seccomp: Not a directory` at readiness, before Python
+could run, despite the physical helper already existing in `app.asar.unpacked`.
+
+Linux packaging now explicitly unpacks the target architecture's vendored
+`apply-seccomp`. The desktop composition root injects its physical path through
+the trusted `linuxSeccompApplyPath` option. This is not user policy and exposes
+no weaker-sandbox or multicall setting. Readiness installs its restrictive
+config before SRT's dependency check so the check sees that same helper; every
+execution revalidates it and passes the canonical physical path. Missing,
+non-executable, or ASAR paths fail closed. SRT 0.0.75 itself falls back when an
+explicit helper is missing, so host validation is required before calling it.
+The original execution deadline and cancellation precedence survive validation.
+Darwin and development lookup are unchanged.
+
+After a normal Linux x64 `pack`, run `pnpm --filter @brainstrike/desktop
+run test:packaged-python` on a host permitting the real OS fence, with its
+normal bwrap/socat/ripgrep dependencies. This retained, fail-loud test uses the
+actual packaged Electron in supported Node mode and loads the executor from
+`app.asar`; it uses only disposable data. It verifies the physical executable
+helper, pinned Python, missing-helper refusal, writable-host/outside-scratch
+denial, and an unfenced/fenced `AF_UNIX` socket-creation control. No real socket
+service or credential store is contacted, and no sandbox-disabling flag is used.
+
+The optional manual `test:packaged-python-layout` command verifies OS-visible
+helper executability and Python resource integrity but does **not** claim fence
+execution. Both layout and full-fence qualification were run manually; this PR
+adds no CI workflow invocation or namespace-host policy setup. Existing CI gates
+are unchanged. Unit guards cover command safety, desktop path/wiring and
+per-executor configuration, warnings, helper removal, cancellation, and deadlines.

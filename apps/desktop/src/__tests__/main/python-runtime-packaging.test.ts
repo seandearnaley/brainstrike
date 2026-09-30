@@ -10,7 +10,7 @@ const manifest = JSON.parse(
   readFileSync(path.join(desktopDir, 'resources/python-runtime/manifest.json'), 'utf8')
 ) as PythonRuntimeManifest;
 const packageJson = JSON.parse(readFileSync(path.join(desktopDir, 'package.json'), 'utf8')) as {
-  build: Record<string, { extraResources?: ResourceRule[] }>;
+  build: Record<string, { asarUnpack?: string[]; extraResources?: ResourceRule[] }>;
 };
 const LINUX_TARGET = 'x86_64-unknown-linux-gnu';
 const UPSTREAM_ARCHIVE = `cpython-3.13.14+20260728-${LINUX_TARGET}-install_only.tar.gz`;
@@ -31,6 +31,14 @@ function includes(rule: ResourceRule | undefined, filename: string): boolean {
 }
 
 describe('bundled Python resource packaging', () => {
+  it('explicitly unpacks the matching Linux seccomp helper without changing macOS rules', () => {
+    const rule =
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder expands this literal architecture macro.
+      '**/node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp/${arch}/apply-seccomp';
+    expect(packageJson.build['linux']?.asarUnpack).toContain(rule);
+    expect(packageJson.build['mac']?.asarUnpack).toBeUndefined();
+  });
+
   it('pins the verified upstream Linux x64 install-only asset', () => {
     expect(manifest.supportedTargets).toContain(LINUX_TARGET);
     expect(manifest.targets[LINUX_TARGET]).toMatchObject({

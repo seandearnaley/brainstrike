@@ -24,7 +24,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { platform } from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
@@ -48,6 +48,7 @@ import {
   fenceReadinessFailure,
   fenceReadinessTimeout,
   probeFenceReadiness,
+  withLinuxSeccompApplyPath,
 } from './fence-readiness';
 import { FenceReadinessError } from './fence-readiness-error';
 
@@ -110,6 +111,13 @@ export type FenceInterpreterMap = Readonly<Partial<Record<ExecLanguage, FenceInt
 
 export interface FenceExecutorOptions {
   readonly interpreters: FenceInterpreterMap;
+  /**
+   * Trusted host-owned path to the Linux apply-seccomp helper, outside ASAR.
+   * Must be absolute and name a physical executable file. Readiness and every
+   * run validate it; an unavailable explicit helper never falls back. Ignored
+   * on macOS. This is not model-authored policy or a weaker-sandbox switch.
+   */
+  readonly linuxSeccompApplyPath?: string;
 }
 
 export class FenceUnsupportedPlatformError extends FenceReadinessError {
@@ -263,7 +271,10 @@ async function releaseSession(): Promise<void> {
  * timing out must not let another execution race a late global config update.
  * Only successful construction retains a session; failed attempts can retry.
  */
-async function acquireReadySession(callerSignal?: AbortSignal): Promise<void> {
+async function acquireReadySession(
+  linuxSeccompApplyPath: string | undefined,
+  callerSignal?: AbortSignal
+): Promise<void> {
   const controller = new AbortController();
   const signal = callerSignal
     ? AbortSignal.any([callerSignal, controller.signal])
@@ -290,6 +301,7 @@ async function acquireReadySession(callerSignal?: AbortSignal): Promise<void> {
       await probeFenceReadiness({
         applyConfig: applySessionConfig,
         deadline,
+        linuxSeccompApplyPath,
         signal,
         spawn: (options) =>
           spawnFenced({ ...options, env: buildSandboxEnv(options.env, undefined) }),
@@ -866,9 +878,21 @@ export async function createFenceExecutor(
     );
   }
 
+  const helperPath = options.linuxSeccompApplyPath;
+  if (
+    helperPath !== undefined &&
+    (typeof helperPath !== 'string' || !isAbsolute(helperPath) || helperPath.includes('\0'))
+  ) {
+    throw new FenceInvalidRequestError(
+      'linuxSeccompApplyPath must be an absolute, NUL-free path to the trusted sandbox helper.'
+    );
+  }
+  // Snapshot the trusted option so later caller mutation cannot swap helpers
+  // between readiness and execution. Darwin never receives a Linux override.
+  const linuxSeccompApplyPath = platform === 'linux' ? helperPath : undefined;
   const execPlatform = currentExecPlatform();
   let disposed = false;
-  await acquireReadySession(signal);
+  await acquireReadySession(linuxSeccompApplyPath, signal);
 
   const capabilities = (): ExecutorCapabilities => ({
     languages,
@@ -933,19 +957,37 @@ export async function createFenceExecutor(
       // Do not install another run's process-global policy while that group may
       // still be alive; a later call may proceed once ESRCH proves it is gone.
       assertNoSurvivingProcessGroups();
+      // Validate after queue acquisition: the helper may have disappeared
+      // while waiting. srt otherwise falls back from a missing explicit path.
+      const executionConfig = await withLinuxSeccompApplyPath(config, linuxSeccompApplyPath).catch(
+        (error: unknown) => {
+          if (input.signal.aborted) {
+            throw new ExecAbortedError({ processStarted: false });
+          }
+          throw error;
+        }
+      );
+      if (input.signal.aborted) {
+        throw new ExecAbortedError({ processStarted: false });
+      }
+      if (deadline <= Date.now()) {
+        // Helper validation is async and shares the request's original budget.
+        // Never turn an expired pre-spawn check into a new one-millisecond run.
+        throw new FenceQueueTimeoutError(input.timeoutMs);
+      }
       // 0o600: this module does not own scratchDir, and a shared or
       // group-writable one would otherwise leave a window where another local
       // user can read or replace the script that is about to run.
       await writeFile(scriptPath, input.code, { encoding: 'utf8', mode: 0o600 });
       try {
-        await applySessionConfig(config);
+        await applySessionConfig(executionConfig);
         const command = [interpreter.command, ...(interpreter.args ?? []), scriptPath]
           .map(shellQuote)
           .join(' ');
         const { argv, env } = await SandboxManager.wrapWithSandboxArgv(
           command,
           undefined,
-          config,
+          executionConfig,
           undefined,
           input.scratchDir
         );

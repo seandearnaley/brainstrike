@@ -302,7 +302,10 @@ carrying `exitCode`, so a signal kill can never read as exit 0 — and both the
 executor cap and the model-facing projection are reported as UTF-8
 omitted-byte counts. Execute-risk and approval-gated; a registered suspending
 tool, so it is storage-gated and excluded for the built-in local provider.
-Full contract: `docs/agents/code-execution.md`.
+The host-only `linuxSeccompApplyPath` option pins a physical executable helper
+outside ASAR; readiness and each run validate it, and missing helpers fail closed.
+Full contract and packaged-host example: `docs/agents/code-execution.md` and
+`apps/desktop/src/__tests__/fixtures/packaged-python-fence-probe.cjs`.
 
 ### `brainstrike.runSkillScript` tool
 

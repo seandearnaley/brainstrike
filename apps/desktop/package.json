@@ -47,6 +47,9 @@
       "icon": "build/icon.ico"
     },
     "linux": {
+      "asarUnpack": [
+        "**/node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp/${arch}/apply-seccomp"
+      ],
       "executableName": "brainstrike-desktop",
       "target": "AppImage",
       "icon": "build/icons",
@@ -217,6 +220,8 @@
     "start": "pnpm fetch:python-runtime && pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "start:dev": "pnpm dev:main && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "test": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --exclude \"**/*.integration.test.*\"",
+    "test:packaged-python-layout": "node ../../scripts/run-env.mjs ELECTRON_RUN_AS_NODE=1 -- ./release/linux-unpacked/brainstrike-desktop src/__tests__/fixtures/packaged-python-fence-probe.cjs --layout-only",
+    "test:packaged-python": "node ../../scripts/run-env.mjs ELECTRON_RUN_AS_NODE=1 -- ./release/linux-unpacked/brainstrike-desktop src/__tests__/fixtures/packaged-python-fence-probe.cjs",
     "test:integration": "vitest run --config vitest.integration.config.mts --pool=forks --maxWorkers=1 --no-file-parallelism",
     "test:coverage": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:e2e": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --workers=1 --retries=0",

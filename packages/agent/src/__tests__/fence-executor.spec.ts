@@ -269,28 +269,47 @@ describe.skipIf(!supported)('construction-time fence readiness', () => {
     expect(spawnProbe).not.toHaveBeenCalled();
   });
 
-  it.each([
-    'bwrap: Creating new namespace failed: Operation not permitted',
-    'bwrap: setting up uid map: Permission denied',
-    'bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted',
-    'bwrap: loopback: Failed to create NETLINK_ROUTE socket: Operation not permitted',
-  ])('rejects a namespace denied by the host: %s', async (diagnostic) => {
-    spawnProbe.mockImplementation(() => {
-      const child = Object.assign(new EventEmitter(), {
-        stderr: new EventEmitter(),
-        stdout: new EventEmitter(),
+  // BST-1900: simulated bubblewrap diagnostics must not inherit the test host OS.
+  describe.each(['linux', 'darwin'] as const)('%s namespace classification', (targetPlatform) => {
+    it.each([
+      'bwrap: Creating new namespace failed: Operation not permitted',
+      'bwrap: setting up uid map: Permission denied',
+      'bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted',
+      'bwrap: loopback: Failed to create NETLINK_ROUTE socket: Operation not permitted',
+    ])('classifies the simulated bubblewrap diagnostic: %s', async (diagnostic) => {
+      vi.resetModules();
+      vi.doMock('node:process', async () => {
+        const actual = await vi.importActual<typeof import('node:process')>('node:process');
+        return { ...actual, default: actual, platform: targetPlatform };
       });
-      queueMicrotask(() => {
-        child.stderr.emit('data', Buffer.from(diagnostic));
-        child.emit('exit', 1, null);
-        child.emit('close', 1, null);
+      vi.doMock('@anthropic-ai/sandbox-runtime', () => ({ SandboxManager: sandbox }));
+      const { createFenceExecutor: createPlatformFenceExecutor } = await import(
+        '../fence/fence-executor'
+      );
+      spawnProbe.mockImplementation(() => {
+        const child = Object.assign(new EventEmitter(), {
+          stderr: new EventEmitter(),
+          stdout: new EventEmitter(),
+        });
+        queueMicrotask(() => {
+          child.stderr.emit('data', Buffer.from(diagnostic));
+          child.emit('exit', 1, null);
+          child.emit('close', 1, null);
+        });
+        return child;
       });
-      return child;
+      try {
+        await expect(createPlatformFenceExecutor({ interpreters })).rejects.toMatchObject({
+          reason:
+            targetPlatform === 'linux' ? 'sandbox_namespace_blocked' : 'sandbox_readiness_failed',
+        });
+        expect(sandbox.reset).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.doUnmock('node:process');
+        vi.doUnmock('@anthropic-ai/sandbox-runtime');
+        vi.resetModules();
+      }
     });
-    await expect(createFenceExecutor({ interpreters })).rejects.toMatchObject({
-      reason: 'sandbox_namespace_blocked',
-    });
-    expect(sandbox.reset).toHaveBeenCalledTimes(1);
   });
 });
 

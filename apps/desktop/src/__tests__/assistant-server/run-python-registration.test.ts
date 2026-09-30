@@ -4,9 +4,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { requireTool } from './_tool-test-helpers';
 
-const fenceSupport = vi.hoisted(() => ({ isSupported: vi.fn(() => true) }));
+const fenceSupport = vi.hoisted(() => ({
+  factory: vi.fn(() => undefined),
+  isSupported: vi.fn(() => true),
+}));
+const helperPath = vi.hoisted(() =>
+  vi.fn(() => '/resources/app.asar.unpacked/seccomp/apply-seccomp')
+);
+vi.mock('../../sandbox-runtime-path', () => ({ resolveDesktopSeccompApplyPath: helperPath }));
 vi.mock('@brainstrike/agent/fence-executor', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/agent/fence-executor')>()),
+  createFenceExecutorFactory: fenceSupport.factory,
   isFenceSupported: fenceSupport.isSupported,
 }));
 
@@ -178,6 +186,16 @@ describe('run_python registration', () => {
 });
 
 describe('run_python sandbox availability wiring', () => {
+  it('injects the desktop physical helper into the actual fence factory options', async () => {
+    fenceSupport.factory.mockClear();
+    const tool = requireRunPythonTool(toolsFor());
+    await tool.execute({ code: 'print(1)' }, undefined);
+    expect(fenceSupport.factory).toHaveBeenCalledExactlyOnceWith({
+      interpreters: { python: { command: '/bundled/python3', scriptExtension: 'py' } },
+      linuxSeccompApplyPath: '/resources/app.asar.unpacked/seccomp/apply-seccomp',
+    });
+  });
+
   it('reports an unsupported runtime before preparing Python', async () => {
     fenceSupport.isSupported.mockReturnValueOnce(false);
     const resolvePythonExecutable = vi.fn(async () => '/bundled/python3');

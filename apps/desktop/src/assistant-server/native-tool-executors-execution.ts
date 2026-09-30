@@ -19,7 +19,9 @@ import {
   resolveSelfApprovalDecision,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import { app } from 'electron';
 import { resolveDesktopPythonExecutable } from '../python-runtime';
+import { resolveDesktopSeccompApplyPath } from '../sandbox-runtime-path';
 import {
   INSPECT_COMMAND_SESSIONS_TRANSFORM,
   MANAGE_COMMAND_SESSION_TRANSFORM,
@@ -176,7 +178,12 @@ export const EXECUTION_TOOL_EXECUTORS = executorGroup({
             const command = await (
               dependencies.resolvePythonExecutable ?? resolveDesktopPythonExecutable
             )(signal);
+            const linuxSeccompApplyPath = resolveDesktopSeccompApplyPath(
+              app.isPackaged,
+              process.resourcesPath
+            );
             const fence = createFenceExecutorFactory({
+              ...(linuxSeccompApplyPath === undefined ? {} : { linuxSeccompApplyPath }),
               interpreters: { python: { command, scriptExtension: 'py' } },
             });
             // `undefined` on a host with no OS fence (Windows today). Under
