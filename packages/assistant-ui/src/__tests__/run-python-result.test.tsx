@@ -352,7 +352,7 @@ describe('sandbox readiness refusals (BST-1317)', () => {
       detail: 'Sandbox readiness did not finish within 5000 ms.',
       headline: /sandbox readiness check reached its time limit/i,
       reason: 'sandbox_readiness_timeout',
-      remediation: /check stopped before your code could run/i,
+      remediation: /time limit expired before your code could run/i,
     },
     {
       detail: 'The sandbox readiness probe exited with code 1.',
