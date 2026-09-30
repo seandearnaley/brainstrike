@@ -79,6 +79,37 @@ afterEach(async () => {
 });
 
 describe('grepSearch hybrid — FRESHNESS (the point)', () => {
+  it('retains indexed matches with a visible stale-index note when a selected file cannot be read', async () => {
+    const root = await makeWorkspace({ 'src/blocked.ts': 'TOKEN\n' });
+    const canonicalBlocked = await fsPromises.realpath(path.join(root, 'src/blocked.ts'));
+    queryMock.mockResolvedValue({
+      rows: [{ content: 'TOKEN\n', path: 'src/blocked.ts', start_line: 1 }],
+    });
+    const readFile = fsPromises.readFile.bind(fsPromises);
+    const denied = vi.spyOn(fsPromises, 'readFile').mockImplementation(async (...args) => {
+      if (args[0] === canonicalBlocked) {
+        throw Object.assign(new Error('selected read denied'), { code: 'EACCES' });
+      }
+      return readFile(...args);
+    });
+    try {
+      const result = await runGrepSearch(
+        { filePaths: ['src/blocked.ts'], outputMode: 'content', pattern: 'TOKEN' },
+        singleRoot(root)
+      );
+      if (result.outputMode !== 'content') {
+        throw new Error('expected content result');
+      }
+      expect(result.matches).toHaveLength(1);
+      expect(result.matches[0]).toMatchObject({ path: 'src/blocked.ts', source: 'index' });
+      expect(result.liveEngine).toBe('skipped');
+      expect(result.liveNote).toMatch(/index only.*may be stale/);
+      expect(projectGrepSearchModelOutput(result).value).toMatch(/index only.*may be stale/);
+    } finally {
+      denied.mockRestore();
+    }
+  });
+
   it('projects an exact-file live result with the direct-file engine', async () => {
     const root = await makeWorkspace({
       'src/fresh.ts': 'SCOPED_TOKEN\n',

@@ -207,7 +207,7 @@ async function matchCandidate(
   try {
     content = await fsPromises.readFile(candidate.absolutePath, 'utf8');
   } catch (error) {
-    if (exactScope) {
+    if (exactScope && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw error;
     }
     logger.debug('live grep: unreadable candidate skipped', {
@@ -854,7 +854,7 @@ async function dropAgentIgnored(
         .join('/');
       return (
         (await guard.ignoresFile(candidate.relativePath)) ||
-        (await guard.ignoresFile(targetRelative))
+        (targetRelative !== candidate.relativePath && (await guard.ignoresFile(targetRelative)))
       );
     })
   );

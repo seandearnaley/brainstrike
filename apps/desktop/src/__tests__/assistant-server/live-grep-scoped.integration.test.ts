@@ -4,20 +4,24 @@ import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { createGrepLineMatcher } from '@brainstrike/db';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE } from '@brainstrike/utils';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   probeExcludedPathMatches,
   resetRipgrepAvailabilityForTests,
   runLiveGrep,
   setMaxLiveCandidateFilesForTests,
 } from '../../assistant-server/live-grep';
+import * as ripgrep from '../../assistant-server/live-grep-ripgrep';
 import { MAX_FILES_WALKED_PER_ROOT } from '../../assistant-server/workspace-file-walk';
 
 const temporaryRoots: string[] = [];
 
-async function workspace(): Promise<RuntimeWorkspaceRoot> {
+async function workspace(cleanAfterEach = true): Promise<RuntimeWorkspaceRoot> {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'brainstrike-scoped-grep-'));
-  temporaryRoots.push(directory);
+  if (cleanAfterEach) {
+    temporaryRoots.push(directory);
+  }
   return { displayName: 'scoped', path: directory, rootId: 'scoped-root' };
 }
 
@@ -39,7 +43,7 @@ afterEach(async () => {
 describe('explicit-file live grep candidate scope', () => {
   let largeRoot: RuntimeWorkspaceRoot;
   beforeAll(async () => {
-    largeRoot = await workspace();
+    largeRoot = await workspace(false);
     const root = largeRoot;
     await write(root, 'a-unrelated/seed.ts', 'value = 12345\n');
     await write(root, 'z-selected/keep.ts', 'selected = 98765\n');
@@ -53,6 +57,9 @@ describe('explicit-file live grep candidate scope', () => {
         linkSync(seed, path.join(directory, `entry-${index}.ts`));
       }
     }
+  });
+  afterAll(async () => {
+    await fs.rm(largeRoot.path, { recursive: true });
   });
 
   it('finds a selected file beyond the root visit cap without enumerating unrelated files', async () => {
@@ -87,6 +94,7 @@ describe('explicit-file live grep candidate scope', () => {
     expect(result.matches.map((match) => match.path)).toEqual(['z-selected/keep.ts']);
     expect(result.scanLimited).toBe(false);
     expect(result.truncated).toBe(false);
+    expect(result.note).toBeUndefined();
     expect(listing).not.toHaveBeenCalled();
   });
 
@@ -94,8 +102,8 @@ describe('explicit-file live grep candidate scope', () => {
     const root = await workspace();
     await write(root, 'src/keep.ts', 'SCOPED_TOKEN\n');
     await write(root, 'node_modules/dep/index.ts', 'SCOPED_TOKEN\n');
-    const stat = fs.stat.bind(fs);
-    const discovery = vi.spyOn(fs, 'stat').mockImplementation(async (...args) => stat(...args));
+    const discovery = vi.spyOn(ripgrep, 'resolveRipgrepPath');
+    const execution = vi.spyOn(ripgrep, 'runRipgrep');
     const options = {
       caseSensitive: false,
       contextLines: 0,
@@ -113,10 +121,8 @@ describe('explicit-file live grep candidate scope', () => {
       matcher
     );
     expect(probe.matchCount).toBe(1);
-    const discovered = discovery.mock.calls.filter(
-      ([target]) => typeof target === 'string' && /[/\\]rg(?:\.exe)?$/.test(target)
-    );
-    expect(discovered).toEqual([]);
+    expect(discovery).not.toHaveBeenCalled();
+    expect(execution).not.toHaveBeenCalled();
   });
 
   it('keeps empty and missing scopes empty without a tree scan', async () => {
@@ -168,6 +174,8 @@ describe('explicit-file live grep candidate scope', () => {
           'src/secret.ts',
           'dist/artifact.ts',
           '.git/private.ts',
+          '.GIT/private.ts',
+          'src/SECRET.ts',
           'inside.ts',
           'alias.ts',
           'git-alias.ts',
@@ -181,6 +189,100 @@ describe('explicit-file live grep candidate scope', () => {
       createGrepLineMatcher('TOKEN', false, false)
     );
     expect(result.matches.map((match) => match.path)).toEqual(['src/keep.ts', 'inside.ts']);
+  });
+
+  it('uses the same candidate size policy as the root walk', async () => {
+    const root = await workspace();
+    await write(root, 'src/large.ts', '12345\n');
+    await fs.truncate(
+      path.join(root.path, 'src/large.ts'),
+      DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE + 1
+    );
+    const options = {
+      caseSensitive: false,
+      contextLines: 0,
+      isRegex: true,
+      pattern: '\\d{5}',
+      roots: [root],
+    };
+    const matcher = createGrepLineMatcher(options.pattern, true, false);
+    const broad = await runLiveGrep(options, matcher);
+    const scoped = await runLiveGrep({ ...options, filePaths: ['src/large.ts'] }, matcher);
+    expect(broad.engine).toBe('js-walk');
+    expect(broad.matches).toHaveLength(1);
+    expect(scoped.matches).toEqual(broad.matches);
+  });
+
+  it.each(['stat', 'read', 'oversize'] as const)(
+    'refuses a selected file at the authoritative %s guard',
+    async (failure) => {
+      const root = await workspace();
+      await write(root, 'src/keep.ts', 'TOKEN\n');
+      const canonicalKeep = await fs.realpath(path.join(root.path, 'src/keep.ts'));
+      const stat = fs.stat.bind(fs);
+      const readFile = fs.readFile.bind(fs);
+      let targetStatCalls = 0;
+      vi.spyOn(fs, 'stat').mockImplementation(async (...args) => {
+        if (args[0] === canonicalKeep) {
+          targetStatCalls += 1;
+          if (failure === 'stat' && targetStatCalls === 2) {
+            throw Object.assign(new Error('match stat denied'), { code: 'EACCES' });
+          }
+        }
+        return stat(...args);
+      });
+      vi.spyOn(fs, 'readFile').mockImplementation(async (...args) => {
+        if (failure === 'read' && args[0] === canonicalKeep) {
+          throw Object.assign(new Error('match read denied'), { code: 'EACCES' });
+        }
+        return readFile(...args);
+      });
+      if (failure === 'oversize') {
+        await fs.truncate(canonicalKeep, 2 * 1024 * 1024 + 1);
+      }
+      await expect(
+        runLiveGrep(
+          {
+            caseSensitive: false,
+            contextLines: 0,
+            filePaths: ['src/keep.ts'],
+            isRegex: false,
+            pattern: 'TOKEN',
+            roots: [root],
+          },
+          createGrepLineMatcher('TOKEN', false, false)
+        )
+      ).rejects.toThrow(
+        failure === 'oversize' ? 'exceeds the bounded read size' : `match ${failure} denied`
+      );
+      expect(targetStatCalls).toBe(2);
+    }
+  );
+
+  it('treats a selected file deleted between stat and read as missing', async () => {
+    const root = await workspace();
+    await write(root, 'src/keep.ts', 'TOKEN\n');
+    const canonicalKeep = await fs.realpath(path.join(root.path, 'src/keep.ts'));
+    const readFile = fs.readFile.bind(fs);
+    vi.spyOn(fs, 'readFile').mockImplementation(async (...args) => {
+      if (args[0] === canonicalKeep) {
+        await fs.unlink(canonicalKeep);
+      }
+      return readFile(...args);
+    });
+    const result = await runLiveGrep(
+      {
+        caseSensitive: false,
+        contextLines: 0,
+        filePaths: ['src/keep.ts'],
+        isRegex: false,
+        pattern: 'TOKEN',
+        roots: [root],
+      },
+      createGrepLineMatcher('TOKEN', false, false)
+    );
+    expect(result.matches).toEqual([]);
+    expect(result.note).toBeUndefined();
   });
 
   it('counts only eligible selected candidates and reports an actual scope overflow', async () => {

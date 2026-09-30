@@ -46,3 +46,33 @@ does not claim that stale indexed coverage is complete.
 
 Guards: `apps/desktop/src/__tests__/assistant-server/live-grep-scoped.integration.test.ts`
 and the exact-file parser/projection case in `grep-search-hybrid.integration.test.ts`.
+
+## PR #3427 review follow-up
+
+The real filesystem reproduced one missing-file race: deletion between the
+authoritative stat and read threw `ENOENT`, although deletion before stat was an
+empty live miss. Both now report the same absence. Separate regressions reach
+the authoritative second-stat, read-denial and oversized-file guards; genuine
+read failures still refuse the live pass. The tool wrapper preserves indexed
+matches and projects its explicit index-only, potentially-stale note.
+
+The review's size-parity premise did not match the source: both `recordFile`
+in the walk and `resolveCandidate` in ripgrep pass unknown candidate size to the
+balanced policy, as the scoped resolver does. A real file one byte above the
+policy's 750KiB indexing limit still matches identically in walk and exact scope;
+the common content-read bound is 2MiB. Supplying actual size only to exact scope
+would create the divergence the review sought to avoid.
+
+On the actual case-insensitive macOS test filesystem, `realpath` resolves
+`.GIT/private.ts` to `.git/private.ts` and `src/SECRET.ts` to `src/secret.ts`.
+The existing canonical `.git` and hard-ignore guards reject both. On a
+case-sensitive filesystem those differently cased requests are normally missing;
+the fixture does not prove Windows `realpath` casing behavior. The local result
+supports retaining the canonical guard without a new path-casing policy.
+Identical requested and canonical paths now require only one hard-ignore lookup.
+
+The shared large fixture lives until `afterAll`. Spies on the ripgrep resolver
+and runner directly prove neither is called for exact live or excluded scopes;
+the no-literal regex case also asserts that it emits no file-walk note.
+The excluded probe's existing bound counts eligible file reads, while metadata
+validation remains proportional to the caller's exact file list.
