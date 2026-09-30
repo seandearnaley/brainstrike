@@ -37,3 +37,23 @@ literals, and bounds empty-group, nested-group, comma-parser and rewrite
 probes. Subprocess timeouts are safety bounds, not complexity proofs.
 An initial escaped-literal expectation was corrected against existing public
 behavior; that ordinary compatibility check is not counted as security RED.
+
+### UUID in the top-level-await plugin
+
+`vite-plugin-top-level-await@1.6.0` pins UUID 10.0.0 and only invokes the
+CommonJS `v5(seed, namespace)` string API. There is no patched 10.x release.
+The narrowly scoped lift to 11.1.1 retains CommonJS and the same deterministic
+v5 output. The [vendor changelog](https://github.com/uuidjs/uuid/blob/v11.1.1/CHANGELOG.md)
+identifies v1/v7 state changes, TypeScript conversion and Node support as the
+v11 breaking changes; those stateful APIs are unused by this owner. The
+[buffer-bounds fix](https://github.com/advisories/GHSA-w5hq-g745-h8pq) is
+backported in 11.1.1. Other UUID owners stay on their existing versions.
+
+Guard: `scripts/__tests__/uuid-dependency-security.test.mjs`. RED fails the
+full-graph floor and rejects neither owner's short output buffer. GREEN
+rejects invalid ranges before any write, preserves the RFC v5 result and valid
+buffer canaries, and executes two real Vite/plugin chunks in each app with the
+exported initialization promise awaited. The fixture preserves entry exports
+explicitly; the default application-entry tree shaking would remove the
+otherwise unobserved test export. That fixture correction is compatibility
+setup, not security RED.

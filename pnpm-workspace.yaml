@@ -151,6 +151,9 @@ catalog:
   zod: ^4.6.5
   zustand: ^5.0.15
 overrides:
+  # BST-888: v11 keeps the plugin's CommonJS v5 API and patches bounds checks.
+  # v1/v7 state changes are unused here; remove when this owner admits >=11.1.1.
+  'vite-plugin-top-level-await@1.6.0>uuid': 11.1.1
   # BST-874: compatible patches for all installed brace-expansion majors.
   # Remove when every minimatch owner resolves these advisory floors unaided.
   'brace-expansion@1.0.0 - 1.1.20': 1.1.21
