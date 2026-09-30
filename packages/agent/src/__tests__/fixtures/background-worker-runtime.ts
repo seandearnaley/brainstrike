@@ -289,11 +289,13 @@ export async function createBackgroundFixture(
 ): Promise<BackgroundFixture> {
   const database = await createEnginePglite();
   const scope = { resourceId: 'background-owner', threadId: 'background-root' };
-  const observer = scriptedAgentModel((options) =>
-    textParts(
-      `<observations>\n- ${JSON.stringify(options.prompt).includes('CHILD_FINAL_EVIDENCE') ? 'Children returned CHILD_FINAL_EVIDENCE.' : 'Evidence requested; results pending.'}\n</observations>`
-    )
-  );
+  let observerCall = 0;
+  const observer = scriptedAgentModel((options) => {
+    observerCall += 1;
+    return textParts(
+      `<observations>\n- Observation ${observerCall}: ${JSON.stringify(options.prompt).includes('CHILD_FINAL_EVIDENCE') ? 'Children returned CHILD_FINAL_EVIDENCE.' : 'Evidence requested; results pending.'}\n</observations>`
+    );
+  });
   const backing = await createPgliteMastraMemory({
     backgroundTaskScope: scope,
     backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),

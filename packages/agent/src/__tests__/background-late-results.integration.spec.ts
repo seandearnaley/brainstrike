@@ -180,12 +180,22 @@ it.each([false, true])(
         if (!om) {
           throw new Error('Missing enabled native observational memory');
         }
-        expect(await om.getObservations(scope.threadId, scope.resourceId)).toEqual(
-          expect.stringMatching(
-            /Evidence requested; results pending\.|Children returned CHILD_FINAL_EVIDENCE\./
-          )
-        );
         expect(fixture.observer.prompts.length).toBeGreaterThan(0);
+        const observations = await om.getObservations(scope.threadId, scope.resourceId);
+        if (typeof observations !== 'string') {
+          throw new Error('Native observation omitted stored observations.');
+        }
+        const recordedSummaries = [...observations.matchAll(/^- Observation (\d+): (.+)$/gm)];
+        expect(recordedSummaries.length).toBeGreaterThan(0);
+        for (const summary of recordedSummaries) {
+          const observedInput = fixture.observer.prompts[Number(summary[1]) - 1]?.prompt;
+          expect(observedInput).toBeDefined();
+          expect(summary[2]).toBe(
+            JSON.stringify(observedInput).includes('CHILD_FINAL_EVIDENCE')
+              ? 'Children returned CHILD_FINAL_EVIDENCE.'
+              : 'Evidence requested; results pending.'
+          );
+        }
         expect(fixture.rootWrite).toHaveBeenCalledTimes(1);
         expect(tasks?.tasks.map((task) => task.toolCallId).sort()).toEqual([
           'background-child-1',

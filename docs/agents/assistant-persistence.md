@@ -1865,9 +1865,9 @@ competing transitions cannot overwrite each other.
   store's task-only operation, which locks the terminal task and reads current
   parent rows in that transaction instead of writing a recalled whole-message
   snapshot, so a callback cannot erase newer parent text or metadata.
-- Progressive snapshots may repeat one call under fresh ids; update each row, preserving content.
-  Remove inherited suffix references without a local invocation only after exact sealed
-  owner proof in the same conversation and transaction; suffix saves never acknowledge delivery.
+- Update every matching progressive row, preserving content. Remove inherited suffix
+  references without local calls only after exact sealed assistant owner proof in
+  the same conversation and transaction; suffix saves never acknowledge delivery.
   Duplicate calls in one row, mismatched pairs, foreign owners and missing tasks fail closed.
 - Delegated `subagent.*` history events carrying their originating turn attach only
   to that turn's exact tool call. An absent retained call never redirects the event

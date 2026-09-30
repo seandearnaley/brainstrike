@@ -74,20 +74,42 @@ function parentMessage(): MastraDBMessage {
 
 let database: PGlite;
 
+beforeEach(async () => {
+  database = await createEnginePglite();
+});
+
+afterEach(async () => {
+  await database.close();
+});
+
 it.each([
   { batch: false, progressive: false },
   { batch: false, progressive: true },
   { batch: true, progressive: false },
   { batch: true, progressive: false, rotations: 2 },
+  { batch: false, malformedUnrelated: true, progressive: false },
 ])(
   'persists the native observation suffix without moving its sealed parent invocations ($progressive/$batch)',
-  async ({ progressive, batch, rotations }) => {
+  async ({ progressive, batch, rotations, malformedUnrelated }) => {
     const backing = await createPgliteMastraMemory({
       backgroundTaskScope: scope,
       backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
       database: port(database),
       memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
     });
+    if (malformedUnrelated) {
+      await backing.store.saveMessages({
+        messages: [null, [], 42, 'malformed'].map((value, index) => ({
+          ...parentMessage(),
+          content: {
+            format: 2,
+            metadata: { backgroundTasks: value },
+            parts: [{ text: 'Unrelated retained content.', type: 'text' }],
+          },
+          id: `unrelated-${index}`,
+        })),
+      });
+    }
     const tasks = await backing.storage.getStore('backgroundTasks');
     if (!tasks) {
       throw new Error('Missing background task store');
@@ -190,14 +212,6 @@ it.each([
   }
 );
 
-beforeEach(async () => {
-  database = await createEnginePglite();
-});
-
-afterEach(async () => {
-  await database.close();
-});
-
 it.each([
   'missing-owner',
   'foreign-owner',
@@ -205,6 +219,9 @@ it.each([
   'unsealed-owner',
   'unsealed-suffix',
   'incoming-unsealed-owner',
+  'malformed-owner',
+  'non-assistant-owner',
+  'non-assistant-suffix',
 ])(
   'rejects an unproven observation suffix (%s) without delivery or content mutation',
   async (failure) => {
@@ -246,6 +263,12 @@ it.each([
       await database.exec('DELETE FROM mastra_messages');
     } else if (failure === 'foreign-owner') {
       await database.exec(`UPDATE mastra_messages SET "resourceId" = 'foreign'`);
+    } else if (failure === 'malformed-owner') {
+      await database.exec(
+        "UPDATE mastra_messages SET content = jsonb_set(content, '{metadata,backgroundTasks}', 'null'::jsonb)"
+      );
+    } else if (failure === 'non-assistant-owner') {
+      await database.exec("UPDATE mastra_messages SET role = 'user'");
     } else if (failure === 'duplicate-owner-call') {
       const invocation = parent.content.parts[1];
       if (!invocation) {
@@ -259,6 +282,9 @@ it.each([
     await database.exec('UPDATE mastra_background_tasks SET delivered_at = NULL');
     const suffix = structuredClone(parent);
     suffix.id = 'unproven-suffix';
+    if (failure === 'non-assistant-suffix') {
+      suffix.role = 'user';
+    }
     suffix.createdAt = new Date(parent.createdAt.getTime() + 1);
     suffix.content.parts = [{ text: 'Ordinary continuation.', type: 'text' }];
     suffix.content.metadata = {

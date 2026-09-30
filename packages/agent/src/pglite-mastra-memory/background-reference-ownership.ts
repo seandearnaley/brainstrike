@@ -14,7 +14,10 @@ export function removeInheritedBackgroundReference(
   toolCallId: string,
   owners: readonly MastraDBMessage[]
 ): void {
-  if (record(message.content.metadata?.['mastra'])?.['sealed'] !== true) {
+  if (
+    message.role !== 'assistant' ||
+    record(message.content.metadata?.['mastra'])?.['sealed'] !== true
+  ) {
     throw new Error('Background parent invocation is missing or ambiguous.');
   }
   let sealedOwner = false;
@@ -28,6 +31,7 @@ export function removeInheritedBackgroundReference(
         : []
     );
     if (
+      owner.role !== 'assistant' ||
       owner.threadId !== message.threadId ||
       owner.resourceId !== message.resourceId ||
       invocationIndexes.length > 1

@@ -726,7 +726,9 @@ export class PgliteMemoryStore extends MemoryStorage {
             `SELECT id, thread_id AS "threadId", content, role, type, "createdAt", "resourceId"
            FROM ${MASTRA_MEMORY_TABLES.messages}
            WHERE thread_id = $1 AND "resourceId" = $2
-             AND EXISTS (SELECT 1 FROM jsonb_each(content #> '{metadata,backgroundTasks}') reference
+             AND EXISTS (SELECT 1 FROM jsonb_each(CASE
+               WHEN jsonb_typeof(content #> '{metadata,backgroundTasks}') = 'object'
+               THEN content #> '{metadata,backgroundTasks}' ELSE '{}'::jsonb END) reference
                WHERE reference.value ->> 'taskId' = ANY($3::text[]))
            FOR UPDATE`,
             [scope.threadId, scope.resourceId, inheritedReferences.map(({ taskId }) => taskId)]

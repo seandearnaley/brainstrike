@@ -71,7 +71,6 @@ human history turns. Render their format-2 `parts`, split assistant groups at th
 human input, and retain normal branch topology. Notification/state signals must
 not be reclassified as human messages.
 
-
 ## Native observation suffix ownership (2026-09-30, BST-1894)
 
 The captured root failure followed two completed native children and an approved
@@ -113,3 +112,15 @@ boundary also passed: that fixture qualifies native lifecycle compatibility but
 does not independently reproduce the captured inherited-reference failure. The
 causal RED/GREEN remains the public `MessageList` split at the actual PGlite save
 boundary. No desktop or GLM-provider acceptance is claimed here.
+
+
+The initial PR review hardened owner enumeration with an explicit JSON object
+CASE: unrelated null, array and scalar task metadata does not poison a valid
+suffix, while a missing or malformed actual owner still fails closed. Owner
+proof requires assistant roles for both owner and suffix. Real PGlite regressions
+cover both rules. The observer numbers its responses so every stored summary
+compares to the exact recorded request that produced it, including accumulated
+observation cycles. This allows observation before child completion without
+claiming a completed summary. Caller input is already isolated: `saveMessages`
+clones within the transaction before reconciliation; `updateMessages` builds
+merged rows and delegates to that same clone boundary before rereading storage.
