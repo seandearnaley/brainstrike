@@ -1,3 +1,4 @@
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import {
   ReadWorkspaceFileCursorRegistry,
@@ -66,5 +67,31 @@ describe('ReadWorkspaceFileCursorRegistry', () => {
     registry.issue(SCOPE, STATE);
     registry.clear();
     expect(() => registry.resolve(HANDLE, SCOPE)).toThrow(/unknown or no longer available/i);
+  });
+
+  it.each([
+    { handle: 'malformed', scope: SCOPE },
+    { handle: `${HANDLE.slice(0, -1)}w`, scope: SCOPE },
+    { handle: HANDLE, scope: { ...SCOPE, resourceId: 'workspace-b' } },
+    { handle: HANDLE, scope: { ...SCOPE, threadId: 'thread-b' } },
+  ])('types only safe handle input refusals (%j)', ({ handle, scope }) => {
+    const registry = new ReadWorkspaceFileCursorRegistry({ createHandle: () => HANDLE });
+    registry.issue(SCOPE, STATE);
+    expect(() => registry.resolve(handle, scope)).toThrow(ToolInputError);
+    expect(() => registry.resolve(handle, scope)).toThrow(/Start a new read without cursor/);
+    expect(registry.resolve(HANDLE, SCOPE)).toEqual(STATE);
+  });
+
+  it('keeps registry capacity and generation failures as internal faults', () => {
+    const fullRegistry = new ReadWorkspaceFileCursorRegistry({
+      createHandle: () => HANDLE,
+      maxEntries: 1,
+    });
+    fullRegistry.issue(SCOPE, STATE);
+    const invalidRegistry = new ReadWorkspaceFileCursorRegistry({ createHandle: () => 'invalid' });
+    for (const registry of [fullRegistry, invalidRegistry]) {
+      expect(() => registry.issue(SCOPE, STATE)).toThrow(Error);
+      expect(() => registry.issue(SCOPE, STATE)).not.toThrow(ToolInputError);
+    }
   });
 });
