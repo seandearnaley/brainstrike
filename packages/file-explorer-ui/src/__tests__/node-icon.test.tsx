@@ -50,7 +50,7 @@ describe('NodeIcon', () => {
 
     const svg = container.querySelector('svg');
     expect(svg).toBeInTheDocument();
-    expect(svg).toHaveClass('text-info');
+    expect(svg).toHaveClass('text-blue-800', 'dark:text-blue-300');
   });
 
   it('renders open folder icon when directory is expanded', () => {
@@ -60,7 +60,7 @@ describe('NodeIcon', () => {
 
     const svg = container.querySelector('svg');
     expect(svg).toBeInTheDocument();
-    expect(svg).toHaveClass('text-info');
+    expect(svg).toHaveClass('text-blue-800', 'dark:text-blue-300');
   });
 
   it('renders null for unknown node type', () => {

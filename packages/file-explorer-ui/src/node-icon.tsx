@@ -20,9 +20,9 @@ export function NodeIcon({ node, isExpanded, isLoading }: NodeIconProps) {
 
   if (node.type === 'directory') {
     return isExpanded ? (
-      <FolderOpen className="text-info" size={16} />
+      <FolderOpen className="text-blue-800 dark:text-blue-300" size={16} />
     ) : (
-      <Folder className="text-info" size={16} />
+      <Folder className="text-blue-800 dark:text-blue-300" size={16} />
     );
   }
 

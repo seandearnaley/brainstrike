@@ -154,7 +154,7 @@ describe('DiagnosticsStatusItem', () => {
     );
   });
 
-  it('uses the amber warning tone for both the counted and error states', () => {
+  it('uses the semantic warning tone for both the counted and error states', () => {
     mockLiveQueryResult([{ errorCount: 1, warningCount: 0 }]);
     const { rerender } = render(<DiagnosticsStatusItem />);
     expect(screen.getByTestId('diagnostics-status-item')).toHaveClass('text-warning');

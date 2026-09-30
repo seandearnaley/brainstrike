@@ -44,9 +44,9 @@ function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIco
   }
   if (nodeType === 'directory') {
     if (isExpanded) {
-      return <FolderOpen className="text-info" size={16} />;
+      return <FolderOpen className="text-blue-800 dark:text-blue-300" size={16} />;
     }
-    return <Folder className="text-info" size={16} />;
+    return <Folder className="text-blue-800 dark:text-blue-300" size={16} />;
   }
   return null;
 }
@@ -192,7 +192,7 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
           : { className: 'flex min-w-0 flex-1 items-center' })}
       >
         {fileNode.isSymbolicLink && (
-          <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-info" />
+          <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-800 dark:text-blue-300" />
         )}
         <span
           className={

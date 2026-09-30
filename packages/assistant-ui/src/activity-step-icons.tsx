@@ -39,12 +39,12 @@ function renderStateIcon(state: StepGlyphState): ReactNode {
     case 'waiting':
       return <CircleDashed aria-hidden="true" className="size-4 text-muted-foreground" />;
     case 'truncated':
-      // Amber check: the delegation completed and its findings are real, but
+      // Warning check: the delegation completed and its findings are real, but
       // the summary was cut at the synthesis budget — expect gaps.
       return <CheckCircle aria-hidden="true" className="size-4 text-warning" />;
     case 'no-answer':
     case 'rejected':
-      // Amber like no-answer: nothing broke, the delegation never ran.
+      // Warning like no-answer: nothing broke, the delegation never ran.
       return <AlertCircle aria-hidden="true" className="size-4 text-warning" />;
     default:
       // Compile-time exhaustiveness as its OWN statement, so the runtime

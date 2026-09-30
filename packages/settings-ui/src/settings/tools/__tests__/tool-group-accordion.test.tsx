@@ -221,7 +221,7 @@ describe('ToolGroupAccordion', () => {
       );
 
       const indicators = screen.getAllByTestId('mcp-status-indicator');
-      // Should have green indicator for connected status
+      // Should have the success indicator for connected status
       expect(indicators[0]).toHaveClass('fill-success');
     });
 

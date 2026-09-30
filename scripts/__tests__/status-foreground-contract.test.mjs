@@ -7,10 +7,14 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { it } from 'node:test';
-import { contrastRatio, hslToRgb } from '../lib/color-contrast.mjs';
-import { collectForegroundViolations, parsePalette } from '../lib/foreground-contrast.mjs';
+import { composite, contrastRatio, hslToRgb } from '../lib/color-contrast.mjs';
+import {
+  collectForegroundViolations,
+  parsePalette,
+  readUtilityColors,
+} from '../lib/foreground-contrast.mjs';
 import { themeModes } from '../lib/semantic-theme-contract.mjs';
-import { staticColorClasses } from '../lib/static-color-classes.mjs';
+import { staticClassStrings, staticColorClasses } from '../lib/static-color-classes.mjs';
 
 const root = join(import.meta.dirname, '..', '..');
 const require = createRequire(join(root, 'packages/ui/package.json'));
@@ -138,4 +142,51 @@ it('keeps non-status collection categories distinct and contrast-qualified in ev
       }
     }
   }
+});
+
+it('keeps prompt-kind categories distinct and readable on their actual tinted backgrounds', () => {
+  const path = 'packages/app-shell/src/prompt-workbench-panel.tsx';
+  const groups = staticClassStrings(readFileSync(join(root, path), 'utf8'), path).filter(
+    ({ literal }) =>
+      /border-(?:sky|amber|emerald)-500\/25/.test(literal) &&
+      /bg-(?:sky|amber|emerald)-500\/10/.test(literal)
+  );
+  assert.equal(groups.length, 3);
+  const modes = themeModes(readFileSync(join(root, 'packages/ui/src/globals.css'), 'utf8'));
+  const families = new Set();
+  for (const { literal } of groups) {
+    assert.doesNotMatch(literal, /text-(?:info|warning|success|destructive)\b/);
+    const colors = readUtilityColors(literal);
+    assert.equal(colors.length, 2);
+    families.add(colors[0].color.split('-')[0]);
+    const backgrounds = literal.split(/\s+/).filter((utility) => /(?:^|:)bg-/.test(utility));
+    assert.equal(backgrounds.length, 1, 'A background override needs an explicit paint model');
+    const tint = backgrounds[0].match(/^bg-([a-z]+-\d+)\/10$/);
+    assert.ok(tint);
+    for (const [mode, tokens] of Object.entries(modes)) {
+      const foreground = colors.find((paint) => paint.dark === mode.endsWith('dark'));
+      assert.ok(foreground);
+      for (const surface of [
+        'background',
+        'card',
+        'popover',
+        'muted',
+        'secondary',
+        'accent',
+        'sidebar',
+        'sidebar-accent',
+      ]) {
+        const base = hslToRgb(
+          tokens.get(`--bs-${surface}`).replaceAll('%', '').split(/\s+/).map(Number)
+        );
+        const background = composite(palette.get(tint[1]), base, 0.1);
+        const ratio = contrastRatio(palette.get(foreground.color), background);
+        assert.ok(
+          ratio >= 4.5,
+          `${mode}/${surface} ${foreground.utility} on ${backgrounds[0]}: ${ratio.toFixed(4)}:1`
+        );
+      }
+    }
+  }
+  assert.equal(families.size, 3);
 });

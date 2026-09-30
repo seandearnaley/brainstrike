@@ -244,9 +244,11 @@ function PromptKindMark({ kind }: { readonly kind: PromptItemKind }) {
     <span
       className={cn(
         'inline-flex size-7 shrink-0 items-center justify-center rounded-lg border',
-        kind === 'prompt' && 'border-sky-500/25 bg-sky-500/10 text-info',
-        kind === 'snippet' && 'border-amber-500/25 bg-amber-500/10 text-warning',
-        kind === 'fragment' && 'border-emerald-500/25 bg-emerald-500/10 text-success'
+        kind === 'prompt' && 'border-sky-500/25 bg-sky-500/10 text-sky-800 dark:text-sky-300',
+        kind === 'snippet' &&
+          'border-amber-500/25 bg-amber-500/10 text-orange-800 dark:text-orange-300',
+        kind === 'fragment' &&
+          'border-emerald-500/25 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300'
       )}
     >
       <Icon aria-hidden="true" className="size-3.5" />
