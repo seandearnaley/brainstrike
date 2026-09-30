@@ -32,15 +32,21 @@ test('every UUID copy clears the buffer-bounds advisory, with negative controls'
     assert.throws(() => assertPatched({ packages: { [`uuid@${version}`]: {} } }));
   }
   assertPatched({
-    packages: { 'uuid@11.1.1': {}, 'uuid@12.0.1': {}, 'uuid@13.0.1': {}, 'uuid@14.0.1': {} },
+    packages: {
+      'uuid@11.1.1': {},
+      'uuid@12.0.1': {},
+      'uuid@13.0.1': {},
+      'uuid@14.0.0': {},
+      'uuid@14.0.1': {},
+    },
   });
   assert.throws(() => assertPatched({ packages: {} }), /expected uuid/);
 });
 
 for (const app of ['web', 'desktop']) {
   const appRequire = createRequire(path.join(root, 'apps', app, 'package.json'));
-  const pluginRequire = createRequire(appRequire.resolve('vite-plugin-top-level-await'));
   test(`${app} plugin UUID v5 rejects partial writes and preserves valid IDs`, () => {
+    const pluginRequire = createRequire(appRequire.resolve('vite-plugin-top-level-await'));
     const { v5, parse: parseUuid } = pluginRequire('uuid');
     const expected = '2ed6657d-e927-568b-95e1-2665a8aea6a2';
     assert.equal(v5('www.example.com', namespace), expected);

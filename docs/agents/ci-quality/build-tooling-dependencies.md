@@ -90,3 +90,20 @@ and exercises both Vercel owners' TS CommonJS/ESM loading. The repository's
 production schema, migration ledger and local database profiles are untouched.
 The lock graph proves patched Windows coverage; no Windows exploit execution
 or packaged desktop test is claimed from the macOS-local checks.
+
+### Review closeout
+
+Root `test:scripts` is Node's explicit `scripts/__tests__/*.test.mjs` runner,
+used by Static; it has no cached Vitest unit/integration partition. These
+security/configuration guards intentionally remain there, matching the
+existing owner-resolved minimatch guards. The build fixtures take roughly
+one second combined locally and brace probes roughly two seconds; their
+subprocess ceilings bound hangs rather than assert a performance budget.
+
+Owner-package resolution occurs inside named tests so package removal or
+export changes cannot suppress the independent graph guards. A Drizzle
+owner upgrade names the override/guard requiring review. Actual tsup/tsx
+resolutions use advisory floors rather than exact patch equality. UUID
+14.0.0 is an explicit positive control: the live GHSA affects <11.1.1 and
+12.0.0/13.0.0; the [14.0.0 source](https://raw.githubusercontent.com/uuidjs/uuid/v14.0.0/src/v35.ts)
+already validates bounds before writes, preceding the older-line backports.

@@ -62,14 +62,18 @@ const owners = [
   ['apps/desktop', ['electron-builder', 'app-builder-lib', 'minimatch']],
 ];
 
-for (const [base, chain] of owners) {
+function requireOwner(base, chain) {
   let ownerRequire = createRequire(path.join(root, base, 'package.json'));
   for (const name of chain) {
     ownerRequire = createRequire(ownerRequire.resolve(`${name}/package.json`));
   }
+  return ownerRequire;
+}
+
+for (const [base, chain] of owners) {
   const label = chain.join(' > ');
   test(`${label} preserves public glob expansion`, () => {
-    const { braceExpand } = ownerRequire('minimatch');
+    const { braceExpand } = requireOwner(base, chain)('minimatch');
     assert.deepEqual(braceExpand('src/{api,ui}/file.{ts,tsx}'), [
       'src/api/file.ts',
       'src/api/file.tsx',
@@ -80,6 +84,7 @@ for (const [base, chain] of owners) {
     assert.deepEqual(braceExpand('literal\\{a,b\\}'), ['literal{a,b}']);
   });
   test(`${label} bounds reported brace attack shapes`, () => {
+    const ownerRequire = requireOwner(base, chain);
     const result = spawnSync(
       process.execPath,
       [

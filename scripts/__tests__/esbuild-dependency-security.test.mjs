@@ -9,8 +9,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse } from 'yaml';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const dbRequire = createRequire(path.join(root, 'packages/db/package.json'));
-const kitRequire = createRequire(dbRequire.resolve('drizzle-kit'));
 
 function assertPatched(lock) {
   const versions = Object.keys(lock.packages)
@@ -39,11 +37,15 @@ test('every esbuild copy clears both development-server advisories', async () =>
 });
 
 test('Drizzle omits its unused deprecated loader and retains its TypeScript APIs', async () => {
+  const dbRequire = createRequire(path.join(root, 'packages/db/package.json'));
+  const kitRequire = createRequire(dbRequire.resolve('drizzle-kit'));
   const lock = parse(await readFile(path.join(root, 'pnpm-lock.yaml'), 'utf8'));
-  assert.equal(
-    lock.snapshots['drizzle-kit@0.31.10'].dependencies['@esbuild-kit/esm-loader'],
-    undefined
+  const snapshot = lock.snapshots['drizzle-kit@0.31.10'];
+  assert.ok(
+    snapshot?.dependencies,
+    'Review the drizzle-kit@0.31.10 overrides and this guard after an owner upgrade'
   );
+  assert.equal(snapshot.dependencies['@esbuild-kit/esm-loader'], undefined);
   for (const file of ['bin.cjs', 'api.js', 'api.mjs', 'utils.js', 'utils.mjs']) {
     const source = await readFile(
       path.join(path.dirname(dbRequire.resolve('drizzle-kit')), file),
@@ -92,10 +94,10 @@ test('Drizzle omits its unused deprecated loader and retains its TypeScript APIs
 
 for (const owner of ['agent', 'assistant-service']) {
   const ownerRequire = createRequire(path.join(root, 'packages', owner, 'package.json'));
-  const tsupRequire = createRequire(ownerRequire.resolve('tsup'));
   test(`${owner} tsup preserves TypeScript, ESM/CJS, splitting and source maps`, async () => {
     const fixture = await mkdtemp(path.join(os.tmpdir(), 'bst-875-tsup-'));
     try {
+      const tsupRequire = createRequire(ownerRequire.resolve('tsup'));
       await writeFile(path.join(fixture, 'package.json'), '{"type":"module"}');
       await writeFile(path.join(fixture, 'dep.ts'), 'export const value: number = 41;');
       const entry = path.join(fixture, 'entry.ts');
@@ -120,18 +122,18 @@ for (const owner of ['agent', 'assistant-service']) {
       assert.equal(await cjs.answer(), 42);
       const map = JSON.parse(await readFile(path.join(fixture, 'out/entry.js.map'), 'utf8'));
       assert.ok(map.sources.some((source) => source.endsWith('/entry.ts')));
-      assert.equal(tsupRequire('esbuild').version, '0.28.2');
+      assertPatched({ packages: { [`esbuild@${tsupRequire('esbuild').version}`]: {} } });
     } finally {
       await rm(fixture, { force: true, recursive: true });
     }
   });
 }
 
-const rootRequire = createRequire(path.join(root, 'package.json'));
-const vercelRequire = createRequire(rootRequire.resolve('vercel/package.json'));
 for (const owner of ['@vercel/node', '@vercel/backends']) {
-  const ownerRequire = createRequire(vercelRequire.resolve(owner));
   test(`${owner} preserves tsx CommonJS and ESM TypeScript loading`, async () => {
+    const rootRequire = createRequire(path.join(root, 'package.json'));
+    const vercelRequire = createRequire(rootRequire.resolve('vercel/package.json'));
+    const ownerRequire = createRequire(vercelRequire.resolve(owner));
     const fixture = await mkdtemp(path.join(os.tmpdir(), 'bst-875-tsx-'));
     try {
       const cjs = path.join(fixture, 'config.cts');
@@ -142,7 +144,9 @@ for (const owner of ['@vercel/node', '@vercel/backends']) {
       const { tsImport } = ownerRequire('tsx/esm/api');
       assert.equal(requireTs(cjs, import.meta.url).value, 42);
       assert.equal((await tsImport(esm, import.meta.url)).value, 42);
-      assert.equal(ownerRequire('tsx/package.json').version, '4.23.12');
+      assert.match(ownerRequire('tsx/package.json').version, /^4\.\d+\.\d+$/);
+      const tsxRequire = createRequire(ownerRequire.resolve('tsx/cjs/api'));
+      assertPatched({ packages: { [`esbuild@${tsxRequire('esbuild').version}`]: {} } });
     } finally {
       await rm(fixture, { force: true, recursive: true });
     }
