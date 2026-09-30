@@ -1,0 +1,2 @@
+# Preserve byte-pinned upstream notice text under every checkout EOL setting.
+*.txt -text

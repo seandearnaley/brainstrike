@@ -47,3 +47,13 @@ manifest I/O — off darwin no target triple exists, so the manifest is never
 read and the result is the typed `python_unsupported_platform` condition with
 no PATH-Python fallback (pinned by the fixture-less unsupported-platform case
 in `apps/desktop/src/__tests__/main/resolve-python-binary.test.ts`).
+
+## Linux x64 extension (2026-09-30)
+
+The resolver now maps Linux x64 to `x86_64-unknown-linux-gnu`; Linux arm64
+and other unsupported architectures still fail before manifest I/O. The
+installation remains under userData on both platforms. The real-archive
+integration test invokes `resetDesktopApplicationData` against a temporary
+profile, observes deletion of the installed binary, and resolves and executes
+it again from the immutable resource archive without fetch or PATH Python.
+See `docs/agents/code-execution/bundled-linux-python.md` for provenance and limits.

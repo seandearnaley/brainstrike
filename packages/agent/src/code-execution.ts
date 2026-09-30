@@ -24,6 +24,13 @@ import {
 } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { z } from 'zod';
 
+// Host capability resolvers need typed refusals without importing the native
+// fence-executor bundle. This diagnostics module has no runtime dependencies.
+export {
+  FenceReadinessError,
+  type FenceReadinessReason,
+  isFenceReadinessError,
+} from './fence/fence-readiness-error';
 // The policy domain grammar and its limits live on the browser-safe side of the
 // Mastra boundary (BST-1646) because the run_python INPUT schema needs them;
 // this seam re-exports them so its public API is unchanged.

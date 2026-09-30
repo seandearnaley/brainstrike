@@ -40,7 +40,7 @@
           "to": "python-runtime",
           "filter": [
             "manifest.json",
-            "*.tar.gz"
+            "*-apple-darwin-install_only.tar.gz"
           ]
         }
       ]
@@ -50,11 +50,32 @@
       "icon": "build/icon.ico"
     },
     "linux": {
+      "asarUnpack": [
+        "**/node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp/${arch}/apply-seccomp"
+      ],
       "executableName": "brainstrike-desktop",
       "target": "AppImage",
-      "icon": "build/icons"
+      "icon": "build/icons",
+      "extraResources": [
+        {
+          "from": "resources/python-runtime",
+          "to": "python-runtime",
+          "filter": [
+            "manifest.json",
+            "*-x86_64-unknown-linux-gnu-brainstrike-no-dbm-v1.tar.gz"
+          ]
+        },
+        {
+          "from": "licenses/python-linux-x64",
+          "to": "python-runtime/licenses",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ]
     },
-    "allowMissingDependencies": false
+    "allowMissingDependencies": false,
+    "beforePack": "./scripts/prepare-python-runtime-before-pack.mjs"
   },
   "dependencies": {
     "@brainstrike/agent": "workspace:*",
@@ -162,6 +183,7 @@
     "remark-gfm": "catalog:",
     "shiki": "catalog:",
     "tailwindcss": "catalog:",
+    "tar": "7.5.22",
     "tiktoken": "catalog:",
     "vite": "catalog:",
     "vite-plugin-static-copy": "catalog:",
@@ -184,7 +206,7 @@
     "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build && node ../../scripts/verify-no-cross-chunk-cycles.mjs dist/renderer/assets",
     "clean:db": "node ../../scripts/clean-desktop-indexeddb.mjs",
-    "fetch:python-runtime": "node scripts/fetch-python-runtime.mjs",
+    "fetch:python-runtime": "node scripts/fetch-python-runtime.mjs --all",
     "prebuild": "node ../../scripts/run-turbo-command.mjs --skip-under-turbo -- run build --filter=@brainstrike/assistant-service --filter=@brainstrike/assistant-ui --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/mcp-app-host-ui --filter=@brainstrike/ui --filter=@brainstrike/platform-utils",
     "predev": "node ../../scripts/ensure-desktop-dev-deps.mjs",
     "agent-debug:mcp-config": "node scripts/start-agent-devtools-session.mjs --print-config",
@@ -194,14 +216,16 @@
     "dev:main": "node scripts/build-main.mjs",
     "dev:renderer": "vite",
     "dev:runtime": "concurrently --kill-others \"pnpm dev:renderer\" \"pnpm dev:electron\"",
-    "dist": "pnpm fetch:python-runtime && pnpm build && electron-builder",
+    "dist": "pnpm build && electron-builder",
     "lint": "biome check .",
     "lint:fix": "biome check . --write",
-    "pack": "pnpm fetch:python-runtime && pnpm build && electron-builder --dir",
+    "pack": "pnpm build && electron-builder --dir",
     "postinstall": "node scripts/chmod-pty-spawn-helper.mjs",
-    "start": "pnpm fetch:python-runtime && pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
+    "start": "node scripts/fetch-python-runtime.mjs --platform=host && pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "start:dev": "pnpm dev:main && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "test": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --exclude \"**/*.integration.test.*\"",
+    "test:packaged-python-layout": "node ../../scripts/run-env.mjs ELECTRON_RUN_AS_NODE=1 -- ./release/linux-unpacked/brainstrike-desktop src/__tests__/fixtures/packaged-python-fence-probe.cjs --layout-only",
+    "test:packaged-python": "node ../../scripts/run-env.mjs ELECTRON_RUN_AS_NODE=1 -- ./release/linux-unpacked/brainstrike-desktop src/__tests__/fixtures/packaged-python-fence-probe.cjs",
     "test:integration": "vitest run --config vitest.integration.config.mts --pool=forks --maxWorkers=1 --no-file-parallelism",
     "test:coverage": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:e2e": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --workers=1 --retries=0",

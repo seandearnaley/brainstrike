@@ -4,11 +4,16 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchPythonRuntime } from '../../../scripts/fetch-python-runtime.mjs';
+import {
+  fetchPythonRuntime,
+  parsePythonRuntimeArgs,
+} from '../../../scripts/fetch-python-runtime.mjs';
 
-const TARGET_A = 'aarch64-apple-darwin';
+const TARGET_A = 'x86_64-unknown-linux-gnu';
 const TARGET_B = 'x86_64-apple-darwin';
-const PAYLOAD_A = 'payload-for-aarch64';
+const TARGET_C = 'aarch64-apple-darwin';
+const PAYLOAD_C = 'payload-for-arm64';
+const PAYLOAD_A = 'payload-for-linux-x64';
 const PAYLOAD_B = 'payload-for-x86-64';
 
 function sha256Of(content: string): string {
@@ -18,6 +23,7 @@ function sha256Of(content: string): string {
 const cleanupPaths: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   await Promise.all(
     cleanupPaths.splice(0).map((target) => fsPromises.rm(target, { force: true, recursive: true }))
   );
@@ -37,13 +43,14 @@ async function createResourcesDir(overrides?: {
       'https://example.invalid/download/{releaseTag}/cpython-{pythonVersion}+{releaseTag}-{target}-{variant}.tar.gz',
     pythonVersion: '3.13.14',
     releaseTag: '20260728',
-    supportedTargets: [TARGET_A, TARGET_B],
+    supportedTargets: [TARGET_A, TARGET_B, TARGET_C],
     targets: {
       [TARGET_A]: {
         bytes: overrides?.bytesA ?? PAYLOAD_A.length,
         sha256: overrides?.sha256A ?? sha256Of(PAYLOAD_A),
       },
       [TARGET_B]: { bytes: PAYLOAD_B.length, sha256: sha256Of(PAYLOAD_B) },
+      [TARGET_C]: { bytes: PAYLOAD_C.length, sha256: sha256Of(PAYLOAD_C) },
     },
     variant: 'install_only',
   };
@@ -51,9 +58,21 @@ async function createResourcesDir(overrides?: {
   return resourcesDir;
 }
 
-function fakeFetchByTarget(): (url: string) => Promise<Response> {
-  return (url: string) => {
-    const payload = url.includes(TARGET_A) ? PAYLOAD_A : PAYLOAD_B;
+function requestUrl(input: string | URL | { url: string }): string {
+  if (typeof input === 'string') {
+    return input;
+  }
+  return input instanceof URL ? input.href : input.url;
+}
+
+function fakeFetchByTarget(): typeof fetch {
+  return (input) => {
+    const url = requestUrl(input);
+    const payload = url.includes(TARGET_A)
+      ? PAYLOAD_A
+      : url.includes(TARGET_B)
+        ? PAYLOAD_B
+        : PAYLOAD_C;
     return Promise.resolve(new Response(payload, { status: 200 }));
   };
 }
@@ -63,12 +82,116 @@ function archivePath(resourcesDir: string, target: string): string {
 }
 
 describe('fetch-python-runtime script', () => {
+  it('fetches both Darwin architectures without downloading or deriving Linux', async () => {
+    const resourcesDir = await createResourcesDir();
+    const manifestPath = path.join(resourcesDir, 'manifest.json');
+    const manifest = JSON.parse(await fsPromises.readFile(manifestPath, 'utf8'));
+    manifest.targets[TARGET_A].derived = {
+      archiveFileName: 'cpython-linux-brainstrike-no-dbm-v1.tar.gz',
+      bytes: 1,
+      sha256: 'a'.repeat(64),
+      variant: 'no-dbm-v1',
+    };
+    await fsPromises.writeFile(manifestPath, JSON.stringify(manifest));
+    const fetchImpl = vi.fn(fakeFetchByTarget());
+    await fetchPythonRuntime({ fetchImpl, log: () => undefined, platform: 'darwin', resourcesDir });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(
+      fetchImpl.mock.calls.every(([input]) => requestUrl(input).includes('apple-darwin'))
+    ).toBe(true);
+    await expect(fsPromises.access(archivePath(resourcesDir, TARGET_A))).rejects.toThrow();
+    await expect(fsPromises.readFile(archivePath(resourcesDir, TARGET_B), 'utf8')).resolves.toBe(
+      PAYLOAD_B
+    );
+    await expect(fsPromises.readFile(archivePath(resourcesDir, TARGET_C), 'utf8')).resolves.toBe(
+      PAYLOAD_C
+    );
+  });
+
+  it('defaults direct preparation to the current host instead of every target', async () => {
+    const resourcesDir = await createResourcesDir();
+    const fetchImpl = vi.fn(fakeFetchByTarget());
+    vi.stubGlobal('process', { ...process, platform: 'darwin' });
+    await fetchPythonRuntime({ fetchImpl, log: () => undefined, resourcesDir });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(
+      fetchImpl.mock.calls.every(([input]) => requestUrl(input).includes('apple-darwin'))
+    ).toBe(true);
+  });
+
+  it.each([
+    { overrides: { sha256A: 'a'.repeat(64) }, reason: 'sha256 mismatch' },
+    { overrides: { bytesA: PAYLOAD_A.length + 1 }, reason: 'bytes' },
+  ])(
+    'keeps selected-target upstream integrity fail-closed: $reason',
+    async ({ overrides, reason }) => {
+      const resourcesDir = await createResourcesDir(overrides);
+      const fetchImpl = vi.fn(fakeFetchByTarget());
+      await expect(
+        fetchPythonRuntime({ fetchImpl, log: () => undefined, platform: 'linux', resourcesDir })
+      ).rejects.toThrow(reason);
+      await expect(fsPromises.access(archivePath(resourcesDir, TARGET_A))).rejects.toThrow();
+      expect(
+        (await fsPromises.readdir(resourcesDir)).some((name) => name.includes('.download-'))
+      ).toBe(false);
+    }
+  );
+
+  it('fetches only Linux when Linux is the requested packaging target', async () => {
+    const resourcesDir = await createResourcesDir();
+    const fetchImpl = vi.fn(fakeFetchByTarget());
+    await fetchPythonRuntime({ fetchImpl, log: () => undefined, platform: 'linux', resourcesDir });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0]?.[0]).toContain(TARGET_A);
+  });
+
+  it('leaves Windows without a bundled Python download', async () => {
+    const resourcesDir = await createResourcesDir();
+    const fetchImpl = vi.fn(fakeFetchByTarget());
+    await fetchPythonRuntime({ fetchImpl, log: () => undefined, platform: 'win32', resourcesDir });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('rejects unknown platforms and missing requested targets before downloading', async () => {
+    const resourcesDir = await createResourcesDir();
+    const fetchImpl = vi.fn(fakeFetchByTarget());
+    await expect(
+      fetchPythonRuntime({ fetchImpl, platform: 'darwn', resourcesDir })
+    ).rejects.toThrow('Unsupported');
+    const manifestPath = path.join(resourcesDir, 'manifest.json');
+    const manifest = JSON.parse(await fsPromises.readFile(manifestPath, 'utf8'));
+    manifest.supportedTargets = [TARGET_A, TARGET_B];
+    await fsPromises.writeFile(manifestPath, JSON.stringify(manifest));
+    await expect(
+      fetchPythonRuntime({ fetchImpl, platform: 'darwin', resourcesDir })
+    ).rejects.toThrow(TARGET_C);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('parses host/default, explicit cross-platform, and all-target preparation without guessing', () => {
+    expect(parsePythonRuntimeArgs([], 'darwin')).toEqual({ platform: 'darwin' });
+    expect(parsePythonRuntimeArgs(['--platform=host'], 'darwin')).toEqual({ platform: 'darwin' });
+    expect(parsePythonRuntimeArgs(['--platform=linux'], 'darwin')).toEqual({ platform: 'linux' });
+    expect(parsePythonRuntimeArgs(['--all'], 'darwin')).toEqual({ platform: 'all' });
+    expect(() => parsePythonRuntimeArgs([], 'freebsd')).toThrow('Unsupported');
+    for (const args of [
+      ['--linux'],
+      ['--platform=darwn'],
+      ['--all', '--platform=host'],
+      ['--all', '--all'],
+      ['--platform=all'],
+    ]) {
+      expect(() => parsePythonRuntimeArgs(args, 'darwin')).toThrow();
+    }
+  });
+
   it('downloads, verifies, and installs every supported target', async () => {
     const resourcesDir = await createResourcesDir();
     const fetchImpl = vi.fn(fakeFetchByTarget());
     await fetchPythonRuntime({
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl,
       log: () => undefined,
+      platform: 'all',
       resourcesDir,
     });
     await expect(fsPromises.readFile(archivePath(resourcesDir, TARGET_A), 'utf8')).resolves.toBe(
@@ -77,17 +200,19 @@ describe('fetch-python-runtime script', () => {
     await expect(fsPromises.readFile(archivePath(resourcesDir, TARGET_B), 'utf8')).resolves.toBe(
       PAYLOAD_B
     );
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
   it('skips targets whose archive already verifies, without touching the network', async () => {
     const resourcesDir = await createResourcesDir();
     writeFileSync(archivePath(resourcesDir, TARGET_A), PAYLOAD_A);
     writeFileSync(archivePath(resourcesDir, TARGET_B), PAYLOAD_B);
+    writeFileSync(archivePath(resourcesDir, TARGET_C), PAYLOAD_C);
     const fetchImpl = vi.fn(fakeFetchByTarget());
     await fetchPythonRuntime({
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl,
       log: () => undefined,
+      platform: 'all',
       resourcesDir,
     });
     expect(fetchImpl).not.toHaveBeenCalled();
@@ -97,10 +222,12 @@ describe('fetch-python-runtime script', () => {
     const resourcesDir = await createResourcesDir();
     writeFileSync(archivePath(resourcesDir, TARGET_A), 'corrupted-bytes');
     writeFileSync(archivePath(resourcesDir, TARGET_B), PAYLOAD_B);
+    writeFileSync(archivePath(resourcesDir, TARGET_C), PAYLOAD_C);
     const fetchImpl = vi.fn(fakeFetchByTarget());
     await fetchPythonRuntime({
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl,
       log: () => undefined,
+      platform: 'all',
       resourcesDir,
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -114,8 +241,9 @@ describe('fetch-python-runtime script', () => {
     const fetchImpl = vi.fn(fakeFetchByTarget());
     await expect(
       fetchPythonRuntime({
-        fetchImpl: fetchImpl as unknown as typeof fetch,
+        fetchImpl,
         log: () => undefined,
+        platform: 'all',
         resourcesDir,
       })
     ).rejects.toThrow(/sha256/i);
@@ -126,8 +254,9 @@ describe('fetch-python-runtime script', () => {
     const resourcesDir = await createResourcesDir({ bytesA: PAYLOAD_A.length + 1 });
     await expect(
       fetchPythonRuntime({
-        fetchImpl: vi.fn(fakeFetchByTarget()) as unknown as typeof fetch,
+        fetchImpl: vi.fn(fakeFetchByTarget()),
         log: () => undefined,
+        platform: 'all',
         resourcesDir,
       })
     ).rejects.toThrow(/bytes/i);
@@ -137,7 +266,7 @@ describe('fetch-python-runtime script', () => {
     const resourcesDir = await createResourcesDir();
     const fetchImpl = vi.fn(() => Promise.resolve(new Response('nope', { status: 404 })));
     await expect(
-      fetchPythonRuntime({ fetchImpl, log: () => undefined, resourcesDir })
+      fetchPythonRuntime({ fetchImpl, log: () => undefined, platform: 'all', resourcesDir })
     ).rejects.toThrow(/404/);
   });
 
@@ -147,8 +276,8 @@ describe('fetch-python-runtime script', () => {
     // instead of failing fast. A short `fetchTimeoutMs` keeps this test
     // itself fast rather than relying on fake timers.
     const resourcesDir = await createResourcesDir();
-    const fetchImpl = vi.fn(
-      (_url: string, options?: { signal?: AbortSignal }) =>
+    const fetchImpl = vi.fn<typeof fetch>(
+      (_input, options) =>
         new Promise<Response>((_resolve, reject) => {
           options?.signal?.addEventListener('abort', () => {
             const abortError = new Error('The operation was aborted');
@@ -159,9 +288,10 @@ describe('fetch-python-runtime script', () => {
     );
     await expect(
       fetchPythonRuntime({
-        fetchImpl: fetchImpl as unknown as typeof fetch,
+        fetchImpl,
         fetchTimeoutMs: 20,
         log: () => undefined,
+        platform: 'all',
         resourcesDir,
       })
     ).rejects.toThrow(/timed out/i);

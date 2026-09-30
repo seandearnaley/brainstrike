@@ -1,5 +1,5 @@
-import { realpath } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { constants, realpath } from 'node:fs';
+import { access, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { platform } from 'node:process';
@@ -54,9 +54,48 @@ export function fenceReadinessFailure(
   );
 }
 
+/**
+ * srt 0.0.75 falls back to discovered helpers when an explicit path is missing.
+ * Check the host-owned override ourselves before srt sees it, on every probe
+ * and run. Native realpath plus an ASAR-component refusal avoids Electron's
+ * virtual fs reporting an archived binary as a usable native executable.
+ */
+export async function withLinuxSeccompApplyPath(
+  config: SandboxRuntimeConfig,
+  applyPath: string | undefined
+): Promise<SandboxRuntimeConfig> {
+  if (applyPath === undefined) {
+    return config;
+  }
+  let physicalPath: string;
+  try {
+    if (applyPath.split('/').some((component) => component.toLowerCase().endsWith('.asar'))) {
+      throw new Error('The sandbox helper must be outside ASAR archives.');
+    }
+    physicalPath = await realpathNative(applyPath);
+    if (physicalPath.split('/').some((component) => component.toLowerCase().endsWith('.asar'))) {
+      throw new Error('The sandbox helper must resolve outside ASAR archives.');
+    }
+    if (!(await stat(physicalPath)).isFile()) {
+      throw new Error('The sandbox helper must be a regular file.');
+    }
+    await access(physicalPath, constants.X_OK);
+  } catch (cause) {
+    throw new FenceReadinessError(
+      'sandbox_dependencies_missing',
+      'The configured Linux sandbox helper is unavailable or is not an executable physical file. No user code ran. Reinstall Brainstrike or ask your administrator to check its sandbox installation; no alternate helper or weaker sandbox will be used.',
+      { cause }
+    );
+  }
+  // Pin the validated target rather than asking srt to follow the original
+  // symlink again after validation.
+  return { ...config, seccomp: { applyPath: physicalPath } };
+}
+
 interface FenceReadinessProbeOptions {
   readonly applyConfig: (config: SandboxRuntimeConfig) => Promise<void>;
   readonly deadline: number;
+  readonly linuxSeccompApplyPath: string | undefined;
   readonly signal: AbortSignal;
   readonly spawn: (options: {
     argv: readonly string[];
@@ -72,31 +111,44 @@ interface FenceReadinessProbeOptions {
 export async function probeFenceReadiness(options: FenceReadinessProbeOptions): Promise<void> {
   const { signal } = options;
   signal.throwIfAborted();
-  const dependencies = await SandboxManager.checkDependenciesAsync();
-  signal.throwIfAborted();
-  if (dependencies.errors.length > 0) {
-    throw new FenceReadinessError(
-      'sandbox_dependencies_missing',
-      `Sandbox dependencies are missing: ${dependencies.errors.join(', ').slice(0, 1024)}. No user code ran. Ask your administrator to install the required sandbox tools (on Linux: bubblewrap, socat and ripgrep), then retry.`
-    );
-  }
-  // Missing seccomp is currently a warning that silently weakens the fence.
-  // Refuse all warnings conservatively, but report the actual bounded warning
-  // so future runtime advisories are not misdiagnosed as missing seccomp.
-  if (dependencies.warnings.length > 0) {
-    throw new FenceReadinessError(
-      'sandbox_unsupported_runtime',
-      `This runtime cannot confirm the complete OS sandbox. Sandbox runtime warnings: ${dependencies.warnings.join(', ').slice(0, 1024)}. No user code ran. Use a supported runtime with all sandbox components available; ask your administrator to check the Brainstrike installation.`
-    );
-  }
 
   const scratch = await mkdtemp(join(tmpdir(), 'brainstrike-fence-readiness-'));
   let failure: { error: unknown } | undefined;
   try {
     signal.throwIfAborted();
     const cwd = await realpathNative(scratch);
-    const config = await buildSandboxRuntimeConfig({ allowedDomains: [], allowWrite: [cwd] }, cwd);
+    const config = await withLinuxSeccompApplyPath(
+      await buildSandboxRuntimeConfig({ allowedDomains: [], allowWrite: [cwd] }, cwd),
+      options.linuxSeccompApplyPath
+    );
     signal.throwIfAborted();
+    // checkDependenciesAsync reads the singleton's CURRENT config. Install
+    // this exact restrictive probe policy before checking, under the same
+    // global lock, so it cannot inspect another executor's helper or policy.
+    // In srt 0.0.75, updateConfig only clones config and resolves parent proxy
+    // settings on Darwin/Linux; it needs no initialized native resources.
+    // The restrictive config may remain after refusal: the caller owns reset
+    // decisions and must preserve another live executor's session. Each later
+    // probe/run installs its own config under this lock before using it.
+    SandboxManager.updateConfig(config);
+    const dependencies = await SandboxManager.checkDependenciesAsync();
+    signal.throwIfAborted();
+    if (dependencies.errors.length > 0) {
+      throw new FenceReadinessError(
+        'sandbox_dependencies_missing',
+        `Sandbox dependencies are missing: ${dependencies.errors.join(', ').slice(0, 1024)}. No user code ran. Ask your administrator to install the required sandbox tools (on Linux: bubblewrap, socat and ripgrep), then retry.`
+      );
+    }
+    // Missing seccomp is currently a warning that silently weakens the fence.
+    // Refuse all warnings conservatively, but report the actual bounded warning
+    // so future runtime advisories are not misdiagnosed as missing seccomp.
+    if (dependencies.warnings.length > 0) {
+      throw new FenceReadinessError(
+        'sandbox_unsupported_runtime',
+        `This runtime cannot confirm the complete OS sandbox. Sandbox runtime warnings: ${dependencies.warnings.join(', ').slice(0, 1024)}. No user code ran. Use a supported runtime with all sandbox components available; ask your administrator to check the Brainstrike installation.`
+      );
+    }
+
     await options.applyConfig(config);
     signal.throwIfAborted();
     // Fixed shell builtin, independent of Python and of any caller-supplied

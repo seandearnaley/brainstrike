@@ -2,8 +2,12 @@
   "releaseTag": "20260728",
   "pythonVersion": "3.13.14",
   "variant": "install_only",
-  "scope": "macOS (darwin) only for BST-1061. Windows and Linux are deliberately absent from supportedTargets below, not an oversight: a build/resolver for a target not listed here must throw a typed unsupported-platform error rather than silently omitting the bundled interpreter or falling back to a PATH python.",
-  "supportedTargets": ["aarch64-apple-darwin", "x86_64-apple-darwin"],
+  "scope": "macOS arm64/x64 and Linux glibc x64 (derived no-dbm-v1; no _dbm/dbm.ndbm). Other platforms and architectures are deliberately absent: the resolver throws a typed unsupported-platform error with no runtime download or PATH Python fallback.",
+  "supportedTargets": [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu"
+  ],
   "assetUrlTemplate": "https://github.com/astral-sh/python-build-standalone/releases/download/{releaseTag}/cpython-{pythonVersion}+{releaseTag}-{target}-{variant}.tar.gz",
   "targets": {
     "aarch64-apple-darwin": {
@@ -13,6 +17,16 @@
     "x86_64-apple-darwin": {
       "sha256": "1cae8109be20b827cf39abe76f0ef6fdb5cfc621ab1791beda77abf8ea7bb75e",
       "bytes": 25020800
+    },
+    "x86_64-unknown-linux-gnu": {
+      "sha256": "ad6966bfa717f2da83c55eb9e0412bca4039f5501f2c7b42b43079a6052321fd",
+      "bytes": 118178436,
+      "derived": {
+        "archiveFileName": "cpython-3.13.14+20260728-x86_64-unknown-linux-gnu-brainstrike-no-dbm-v1.tar.gz",
+        "bytes": 116873543,
+        "sha256": "95bbf77a6164defde416c51c1eada4481fbd2f2c1b6d9a63353c9d38bf0d7560",
+        "variant": "no-dbm-v1"
+      }
     }
   }
 }
