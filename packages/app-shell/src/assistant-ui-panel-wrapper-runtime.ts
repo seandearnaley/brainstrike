@@ -1031,6 +1031,26 @@ export function addValuesToSet(target: Set<string>, values: Iterable<string>): v
   }
 }
 
+/** Merge downloaded preference and registry ids in their existing selection order. */
+export function getEnabledBuiltInLocalModelIds(
+  downloadedModels: Parameters<typeof getEnabledBuiltInLocalRegistryModelIds>[0],
+  enabledModelsByProvider: Parameters<typeof getBuiltInLocalPreferenceModelIds>[0],
+  registryModels: Parameters<typeof getEnabledBuiltInLocalRegistryModelIds>[1]
+): string[] {
+  const modelIds = new Set<string>();
+  addValuesToSet(
+    modelIds,
+    getBuiltInLocalPreferenceModelIds(enabledModelsByProvider).filter(
+      (modelId) => downloadedModels[modelId] === true
+    )
+  );
+  addValuesToSet(
+    modelIds,
+    getEnabledBuiltInLocalRegistryModelIds(downloadedModels, registryModels)
+  );
+  return [...modelIds];
+}
+
 export function getBuiltInLocalPreferenceModelIds(
   enabledModelsByProvider: Record<SupportedProvider, string[]>
 ): string[] {

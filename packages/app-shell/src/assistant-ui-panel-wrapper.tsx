@@ -76,7 +76,6 @@ import {
   resolveWriteBackFolderId,
 } from './assistant-selection-write-back';
 import {
-  addValuesToSet,
   buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,
   buildEnabledModelIdSet,
@@ -85,8 +84,7 @@ import {
   copyProviderSettingsMap,
   type FixedProviderModels,
   formatToolLabel,
-  getBuiltInLocalPreferenceModelIds,
-  getEnabledBuiltInLocalRegistryModelIds,
+  getEnabledBuiltInLocalModelIds,
   getRuntimeProviderLlmModels,
   getToolDescription,
   type LlmProviderModelDefinition,
@@ -140,6 +138,7 @@ import { WorkspaceBarHost } from './workspace-bar/workspace-bar-host';
 export interface AssistantUiPanelWrapperProps {
   className?: string;
   fixedProviderModels?: FixedProviderModels;
+  isVisible?: boolean;
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
@@ -160,6 +159,7 @@ declare global {
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
 export function AssistantUiPanelWrapper({
+  isVisible = true,
   fixedProviderModels,
   loadLocalLlmBackend,
   memoryResourceId: memoryResourceIdOverride,
@@ -270,20 +270,10 @@ export function AssistantUiPanelWrapper({
       shouldFallbackToPreferences,
     ]
   );
-  const enabledBuiltInLocalModelIds = useMemo(() => {
-    const modelIds = new Set<string>();
-    addValuesToSet(
-      modelIds,
-      getBuiltInLocalPreferenceModelIds(enabledModelsByProvider).filter(
-        (modelId) => downloadedModels[modelId] === true
-      )
-    );
-    addValuesToSet(
-      modelIds,
-      getEnabledBuiltInLocalRegistryModelIds(downloadedModels, registryModels)
-    );
-    return [...modelIds];
-  }, [downloadedModels, enabledModelsByProvider, registryModels]);
+  const enabledBuiltInLocalModelIds = useMemo(
+    () => getEnabledBuiltInLocalModelIds(downloadedModels, enabledModelsByProvider, registryModels),
+    [downloadedModels, enabledModelsByProvider, registryModels]
+  );
 
   const runtimeLlmModelsByProvider = useMemo<
     Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>
@@ -1337,6 +1327,7 @@ export function AssistantUiPanelWrapper({
             <DebugBundleProvider value={debugBundleBinding}>
               <BudgetGuardrailProvider value={budgetGuardrailBinding}>
                 <AssistantUiPanel
+                  isVisible={isVisible}
                   {...delegatedPanelBinding}
                   composerDraftCommand={composerDraft.command}
                   {...(onRunningChange ? { onRunningChange } : {})}

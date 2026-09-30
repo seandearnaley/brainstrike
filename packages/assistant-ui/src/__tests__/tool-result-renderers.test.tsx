@@ -2,10 +2,15 @@ import '@testing-library/jest-dom/vitest';
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS } from '../todo-progress';
 import { ToolResultRendererProvider } from '../tool-result-renderer-context';
-import type { ToolResultRenderer, ToolResultRendererProps } from '../use-tool-result-renderers';
+import {
+  type ToolResultRenderer,
+  type ToolResultRendererProps,
+  toolResultPartPreservesEffectsWhenHidden,
+  toolResultPreservesEffectsWhenHidden,
+} from '../use-tool-result-renderers';
 
 const TOOL_CALL = {
   args: {},
@@ -51,4 +56,42 @@ describe('tool result renderer seam', () => {
     renderFallback([], { widget: true });
     expect(screen.queryByTestId('widget')).not.toBeInTheDocument();
   });
+});
+
+it('preserves effects only for the first matching host renderer that declares ownership', () => {
+  const lifecycle = { ...widgetRenderer, preserveEffectsWhenHidden: true };
+  expect(toolResultPreservesEffectsWhenHidden([lifecycle], { widget: true })).toBe(true);
+  expect(toolResultPreservesEffectsWhenHidden([lifecycle], { ok: true })).toBe(false);
+  expect(toolResultPreservesEffectsWhenHidden([lifecycle], undefined)).toBe(false);
+  expect(toolResultPreservesEffectsWhenHidden([widgetRenderer, lifecycle], { widget: true })).toBe(
+    false
+  );
+  expect(toolResultPreservesEffectsWhenHidden([], { widget: true })).toBe(false);
+});
+
+it('shares nondelegation ownership and never asks a renderer to claim a delegation or other part', () => {
+  const matches = vi.fn(widgetRenderer.matches);
+  const lifecycle = { ...widgetRenderer, matches, preserveEffectsWhenHidden: true };
+  expect(
+    toolResultPartPreservesEffectsWhenHidden([lifecycle], {
+      result: { widget: true },
+      type: 'text',
+    })
+  ).toBe(false);
+  expect(
+    toolResultPartPreservesEffectsWhenHidden([lifecycle], {
+      result: { widget: true },
+      toolName: 'agent-custom',
+      type: 'tool-call',
+    })
+  ).toBe(false);
+  expect(matches).not.toHaveBeenCalled();
+  expect(
+    toolResultPartPreservesEffectsWhenHidden([lifecycle], {
+      result: { widget: true },
+      toolName: 'render_widget',
+      type: 'tool-call',
+    })
+  ).toBe(true);
+  expect(matches).toHaveBeenCalledTimes(1);
 });

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
+export const ACTIVITY_TRACE_CLOCK_INTERVAL_MS = 100;
+
 /**
  * Live elapsed timer. While `isActive`, ticks every 100ms, SEEDED from the
  * turn's already-elapsed run-event span so it continues from there instead of
@@ -32,7 +34,10 @@ export function useElapsedMs(
     // Anchor the clock to the turn's real start: now − elapsed-so-far.
     const start = Date.now() - Math.max(seedRef.current ?? 0, accumulatedRef.current);
     setMeasuredMs(Date.now() - start);
-    const intervalId = setInterval(() => setMeasuredMs(Date.now() - start), 100);
+    const intervalId = setInterval(
+      () => setMeasuredMs(Date.now() - start),
+      ACTIVITY_TRACE_CLOCK_INTERVAL_MS
+    );
     return () => {
       accumulatedRef.current = Date.now() - start;
       setMeasuredMs(accumulatedRef.current);

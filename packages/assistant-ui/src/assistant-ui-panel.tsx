@@ -20,7 +20,16 @@ import type {
   LocalLlmBackendFactory,
   OpenRouterModelMetadataLookup,
 } from '@brainstrike/assistant-contract';
-import { type ReactNode, use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Activity,
+  type ReactNode,
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { AnsweredApprovalsProvider } from './answered-approvals-index';
 import { ApprovalRanksProvider } from './approval-presentation-context';
 import { ApprovalQueueStrip } from './approval-queue-strip';
@@ -29,10 +38,11 @@ import type { AssistantStreamCallbacks } from './assistant-stream-callbacks';
 import { SubagentInvocationIndexProvider } from './subagent-invocation-index';
 import { useAssistantEndpointApi } from './use-assistant-endpoint-api';
 import { useAssistantThreadRuntimeAdapters } from './use-assistant-thread-runtime-adapters';
+import { useThreadPresentationActivityMode } from './use-thread-presentation-activity-mode';
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import type { ModelPickerModel, ModelPickerProvider } from '@brainstrike/ui';
-import { Button, cn } from '@brainstrike/ui';
+import { cn } from '@brainstrike/ui';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { agentColorStyle } from './agent-color-style';
 import { AssistantActionBar } from './assistant-action-bar';
@@ -49,7 +59,7 @@ import {
   ThreadScrollToBottom,
 } from './assistant-thread-messages';
 import { BranchPicker } from './branch-picker';
-import { BudgetGuardrailControl, useBudgetSendGate } from './budget-guardrail-control';
+import { BudgetGuardrailControl } from './budget-guardrail-control';
 import { ChangesReviewLink } from './changes-review-link';
 import { CheckpointTurnRevert } from './checkpoint-turn-revert';
 import { CompactionSummaryCard } from './compaction-summary-card';
@@ -64,6 +74,7 @@ import { ComposerEffortControl } from './composer-effort-control';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
 import { ComposerModelPicker, modelIdFromCompositeKey } from './composer-model-picker';
 import { CopyDebugBundleButton } from './copy-debug-bundle-button';
+import { EditComposer } from './edit-composer';
 import { RewindComposerBridge } from './message-rewind-action';
 import { MetadataProviders } from './openrouter-model-metadata-context';
 import { ThreadDebugPackButton } from './thread-debug-pack-button';
@@ -261,6 +272,8 @@ export interface AssistantUiPanelProps
    * out-of-band mutations never touches it.
    */
   historyGeneration?: number;
+  /** Pauses presentation effects while the owning runtime remains mounted. */
+  isVisible?: boolean;
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   /**
    * Transport for the built-in local provider. 'data-stream' routes local
@@ -418,6 +431,7 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
   disabledReason: string | undefined;
   effectiveInputBudget?: number | undefined;
   fileMentions: readonly FileMention[];
+  isVisible: boolean;
   loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   omSegment?: OmMeterState | undefined;
@@ -468,6 +482,7 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps, AssistantStre
  * Uses useLocalRuntime with LocalLlmBackend via transformers.js.
  */
 const LocalRuntimeChat = ({
+  isVisible,
   onRuntimeReady,
   composerDraftCommand,
   contextWindow,
@@ -578,6 +593,7 @@ const LocalRuntimeChat = ({
           fileMentions={fileMentions}
           hasGroupedProviders={hasGroupedProviders}
           isComposerDisabled={isComposerDisabled}
+          isVisible={isVisible}
           localLoadingState={localLoadingState}
           omSegment={omSegment}
           onComposerDraftCommandApplied={onComposerDraftCommandApplied}
@@ -614,6 +630,7 @@ const LocalRuntimeChat = ({
  * Uses useDataStreamRuntime for API-based inference.
  */
 const DataStreamRuntimeChat = ({
+  isVisible,
   onRuntimeReady,
   composerDraftCommand,
   contextWindow,
@@ -770,6 +787,7 @@ const DataStreamRuntimeChat = ({
             hasGroupedProviders={hasGroupedProviders}
             isComposerDisabled={isComposerDisabled || recoveryBlocked}
             isReattaching={recoveryBlocked || serverRunSession.activeRunSession !== undefined}
+            isVisible={isVisible}
             localLoadingState={localLoadingState}
             omSegment={omSegment}
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
@@ -821,6 +839,7 @@ const DataStreamRuntimeChat = ({
  * Extracted to avoid duplication between local and data stream runtimes.
  */
 export const ChatThreadUI = ({
+  isVisible = true,
   composerDraftCommand,
   contextWindow,
   cumulativeUsage,
@@ -859,6 +878,7 @@ export const ChatThreadUI = ({
   threadKey,
   toolMenu,
 }: {
+  isVisible?: boolean;
   composerDraftCommand?: ComposerDraftCommand | undefined;
   contextWindow?: number | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
@@ -900,6 +920,7 @@ export const ChatThreadUI = ({
   workspaceBar?: ReactNode | undefined;
 }) => {
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
+  const presentationMode = useThreadPresentationActivityMode(isVisible);
   const composerDisabled = isComposerDisabled || isHistoryLoading;
 
   // Slash-command "/" menu: derive the library adapter + icon lookup from the
@@ -966,127 +987,129 @@ export const ChatThreadUI = ({
             (Amendment 2). Mounted here rather than on the message, whose own
             button is unmounted by the rewind that hides it. */}
               <RewindComposerBridge />
-              {/**
-               * Messages viewport + scroll region + jump-to-latest button, all owned by
-               * the two-tier thread renderer (assistant-thread-messages.tsx). It picks
-               * between the CSS-containment tier and the end-anchored virtualized tier
-               * by message count and publishes the choice as `data-thread-render-tier`.
-               * Both tiers render THIS components map, so message markup never forks.
-               *
-               * See: packages/assistant-ui/src/overrides.css
-               */}
-              <SubagentInvocationIndexProvider key={`invocations:${threadKey}`}>
-                <ThreadMessagesRegion
-                  components={THREAD_MESSAGE_COMPONENTS}
-                  {...(disabledReason ? { disabledReason } : {})}
-                  {...(threadKey ? { threadKey } : {})}
-                />
-              </SubagentInvocationIndexProvider>
+              <Activity mode={presentationMode}>
+                {/**
+                 * Messages viewport + scroll region + jump-to-latest button, all owned by
+                 * the two-tier thread renderer (assistant-thread-messages.tsx). It picks
+                 * between the CSS-containment tier and the end-anchored virtualized tier
+                 * by message count and publishes the choice as `data-thread-render-tier`.
+                 * Both tiers render THIS components map, so message markup never forks.
+                 *
+                 * See: packages/assistant-ui/src/overrides.css
+                 */}
+                <SubagentInvocationIndexProvider key={`invocations:${threadKey}`}>
+                  <ThreadMessagesRegion
+                    components={THREAD_MESSAGE_COMPONENTS}
+                    {...(disabledReason ? { disabledReason } : {})}
+                    {...(threadKey ? { threadKey } : {})}
+                  />
+                </SubagentInvocationIndexProvider>
 
-              {/**
-               * Composer: Fixed at bottom of thread
-               *
-               * STRUCTURE: This is a SIBLING to the viewport, not a child
-               *
-               * LAYOUT:
-               * - flex-shrink-0: Never shrinks, always maintains its height
-               * - Viewport above is flex-1: Grows/shrinks to fill available space
-               * - This pattern ensures composer stays at bottom regardless of message content
-               *
-               * LIBRARY DIFFERENCE:
-               * The @assistant-ui library expects the composer INSIDE the viewport as:
-               *   <ThreadPrimitive.Viewport>
-               *     <Messages />
-               *     <div className="aui-thread-viewport-footer" style="position: sticky">
-               *       <Composer />
-               *     </div>
-               *   </ThreadPrimitive.Viewport>
-               *
-               * We extracted it outside to avoid scrolling with messages.
-               * This required aggressive CSS overrides (see overrides.css).
-               */}
-              <div className="bs-composer-shell" data-testid="assistant-composer-shell">
-                {/* Composer workspace bar (folder · branch) — an app-shell-rendered
+                {/**
+                 * Composer: Fixed at bottom of thread
+                 *
+                 * STRUCTURE: This is a SIBLING to the viewport, not a child
+                 *
+                 * LAYOUT:
+                 * - flex-shrink-0: Never shrinks, always maintains its height
+                 * - Viewport above is flex-1: Grows/shrinks to fill available space
+                 * - This pattern ensures composer stays at bottom regardless of message content
+                 *
+                 * LIBRARY DIFFERENCE:
+                 * The @assistant-ui library expects the composer INSIDE the viewport as:
+                 *   <ThreadPrimitive.Viewport>
+                 *     <Messages />
+                 *     <div className="aui-thread-viewport-footer" style="position: sticky">
+                 *       <Composer />
+                 *     </div>
+                 *   </ThreadPrimitive.Viewport>
+                 *
+                 * We extracted it outside to avoid scrolling with messages.
+                 * This required aggressive CSS overrides (see overrides.css).
+                 */}
+                <div className="bs-composer-shell" data-testid="assistant-composer-shell">
+                  {/* Composer workspace bar (folder · branch) — an app-shell-rendered
             SLOT, a SIBLING at the top of the composer stack (never nested
             inside ThreadContextMeter, which is being reworked separately).
             app-shell renders the bar host; assistant-ui stays store-free. */}
-                {workspaceBar ?? null}
-                <ThreadContextMeter
-                  contextWindow={contextWindow}
-                  cumulativeUsage={cumulativeUsage}
-                  effectiveInputBudget={effectiveInputBudget}
-                  omSegment={omSegment}
-                  threadKey={threadKey}
-                />
-                {/* Last-24h budget burn-down + over-cap send notice (owned module,
+                  {workspaceBar ?? null}
+                  <ThreadContextMeter
+                    contextWindow={contextWindow}
+                    cumulativeUsage={cumulativeUsage}
+                    effectiveInputBudget={effectiveInputBudget}
+                    omSegment={omSegment}
+                    threadKey={threadKey}
+                  />
+                  {/* Last-24h budget burn-down + over-cap send notice (owned module,
             budget-guardrail-control.tsx); renders nothing without a binding. */}
-                <BudgetGuardrailControl />
-                {localLoadingState && <LocalModelStatus state={localLoadingState} />}
-                <FollowUpQueueChips threadKey={threadKey} />
-                <ApprovalQueueStrip key={threadKey} />
-                <ComposerPrimitive.Root
-                  className="aui-composer-root"
-                  onSubmitCapture={onThreadRunStart}
-                >
-                  {/* The composer input row, optionally wrapped in a shared
+                  <BudgetGuardrailControl />
+                  {localLoadingState && <LocalModelStatus state={localLoadingState} />}
+                  <FollowUpQueueChips threadKey={threadKey} />
+                  <ApprovalQueueStrip key={threadKey} />
+                  <ComposerPrimitive.Root
+                    className="aui-composer-root"
+                    onSubmitCapture={onThreadRunStart}
+                  >
+                    {/* The composer input row, optionally wrapped in a shared
               `Unstable_TriggerPopoverRoot` (see `ComposerInputWithTriggers`).
               Each popover declares its own trigger char ("/" vs "@") and both
               read the same composer text via that shared root, coexisting as
               siblings. A feature is mounted ONLY when its seam is present —
               an unmounted popover means the trigger char does nothing special
               (never an empty menu). Send / Cancel are unchanged. */}
-                  {/* Mounted on PRESENCE (enabled or disabled): a staged image keeps
+                    {/* Mounted on PRESENCE (enabled or disabled): a staged image keeps
               its preview + Remove button after a switch to a text-only model. */}
-                  {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
-                  <ComposerInputWithTriggers
-                    hideDefaultCancel={hideDefaultCancel}
-                    isComposerDisabled={composerDisabled}
-                    queueControl={
-                      <ComposerRunControls
-                        onSteerActiveRun={onSteerActiveRun}
-                        threadKey={threadKey}
-                      />
-                    }
-                    {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
-                    {...(planMode ? { planMode } : {})}
-                    {...(hasSlashCommands
-                      ? {
-                          slashPopover: (
-                            <ComposerTriggerPopover
-                              action={slashAction}
-                              adapter={slashAdapter}
-                              iconMap={slashIconMap}
-                            />
-                          ),
-                        }
-                      : {})}
-                    {...(hasFileMentions && fileMentionAdapter
-                      ? {
-                          mentionPopover: (
-                            <ComposerMentionPopover
-                              adapter={fileMentionAdapter}
-                              fileById={fileMentionById}
-                            />
-                          ),
-                        }
-                      : {})}
-                  />
-                  {hasGroupedProviders && (
-                    <ProviderModelHeader
-                      groups={providerGroups}
-                      onEnableModel={onEnableModel}
-                      onModelChange={onModelChange}
-                      onProviderSettingsChange={onProviderSettingsChange}
-                      pickerModels={pickerModels}
-                      providerSettings={providerSettings}
-                      recentModels={recentModels}
-                      selectedModel={selectedModel}
-                      selectedProvider={selectedProvider}
-                      toolMenu={toolMenu}
+                    {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
+                    <ComposerInputWithTriggers
+                      hideDefaultCancel={hideDefaultCancel}
+                      isComposerDisabled={composerDisabled}
+                      queueControl={
+                        <ComposerRunControls
+                          onSteerActiveRun={onSteerActiveRun}
+                          threadKey={threadKey}
+                        />
+                      }
+                      {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
+                      {...(planMode ? { planMode } : {})}
+                      {...(hasSlashCommands
+                        ? {
+                            slashPopover: (
+                              <ComposerTriggerPopover
+                                action={slashAction}
+                                adapter={slashAdapter}
+                                iconMap={slashIconMap}
+                              />
+                            ),
+                          }
+                        : {})}
+                      {...(hasFileMentions && fileMentionAdapter
+                        ? {
+                            mentionPopover: (
+                              <ComposerMentionPopover
+                                adapter={fileMentionAdapter}
+                                fileById={fileMentionById}
+                              />
+                            ),
+                          }
+                        : {})}
                     />
-                  )}
-                </ComposerPrimitive.Root>
-              </div>
+                    {hasGroupedProviders && (
+                      <ProviderModelHeader
+                        groups={providerGroups}
+                        onEnableModel={onEnableModel}
+                        onModelChange={onModelChange}
+                        onProviderSettingsChange={onProviderSettingsChange}
+                        pickerModels={pickerModels}
+                        providerSettings={providerSettings}
+                        recentModels={recentModels}
+                        selectedModel={selectedModel}
+                        selectedProvider={selectedProvider}
+                        toolMenu={toolMenu}
+                      />
+                    )}
+                  </ComposerPrimitive.Root>
+                </div>
+              </Activity>
             </ApprovalRanksProvider>
           </AnsweredApprovalsProvider>
         </ThreadPrimitive.Root>
@@ -1097,6 +1120,7 @@ export const ChatThreadUI = ({
 
 // Pure UI layer: state management and data wiring live in app-shell wrapper(s).
 export const AssistantUiPanel = ({
+  isVisible = true,
   onRuntimeReady,
   className,
   agentColor,
@@ -1230,6 +1254,7 @@ export const AssistantUiPanel = ({
             disabledReason={disabledReason}
             effectiveInputBudget={effectiveInputBudget}
             fileMentions={fileMentions}
+            isVisible={isVisible}
             key={threadKey ? `local:${threadKey}` : 'local'}
             loadLocalLlmBackend={loadLocalLlmBackend}
             localLoadingState={localLoadingState}
@@ -1278,6 +1303,7 @@ export const AssistantUiPanel = ({
             effectiveInputBudget={effectiveInputBudget}
             fileMentions={fileMentions}
             historyAdapter={historyAdapter}
+            isVisible={isVisible}
             // `historyGeneration` and `stopGeneration` are in the key because
             // hydration runs once per MOUNT: an out-of-band change to this
             // thread's durable history (Conversation Rewind) or its pauses (a
@@ -1335,37 +1361,6 @@ export const AssistantUiPanel = ({
 };
 
 // ===== Message Components =====
-
-const EditComposer = () => {
-  // Editing a past user message RE-SENDS it, so the last-24h budget gate must
-  // cover this path too — otherwise edit-resend silently bypasses the cap. The
-  // gate is never silent: the BudgetGuardrailControl notice in the composer
-  // shell explains the block and offers the explicit session override.
-  const budgetSendBlocked = useBudgetSendGate();
-  return (
-    <ComposerPrimitive.Root className="my-4 flex w-full flex-col gap-2 rounded-xl bg-muted">
-      {/* disabled mirrors ComposerInputRow: the Input submits on Enter, so a
-          gate on the Send button alone leaves a keyboard bypass (review #1714). */}
-      <ComposerPrimitive.Input
-        className="flex h-8 w-full resize-none bg-transparent p-4 pb-0 text-foreground outline-none"
-        disabled={budgetSendBlocked}
-      />
-
-      <div className="mx-3 mb-3 flex items-center justify-center gap-2 self-end">
-        <ComposerPrimitive.Cancel asChild>
-          <Button size="sm" variant="ghost">
-            Cancel
-          </Button>
-        </ComposerPrimitive.Cancel>
-        <ComposerPrimitive.Send asChild>
-          <Button disabled={budgetSendBlocked} size="sm">
-            Send
-          </Button>
-        </ComposerPrimitive.Send>
-      </div>
-    </ComposerPrimitive.Root>
-  );
-};
 
 const AssistantMessage = () => {
   const messageId = useAuiState((state) => state.message.id);

@@ -1,5 +1,6 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { type ComponentProps, type ComponentType, createContext, use } from 'react';
+import { isSubagentDelegationToolName } from './subagent-tool-cards';
 
 /**
  * Everything the chain-of-thought tool fallback receives for one tool part,
@@ -26,6 +27,8 @@ export interface ToolResultRenderer {
   /** Stable identity for diagnostics and provider de-duplication. */
   readonly kind: string;
   readonly matches: (result: unknown) => boolean;
+  /** The mounted surface owns sessions or work that hiding must not tear down. */
+  readonly preserveEffectsWhenHidden?: boolean;
 }
 
 const EMPTY_RENDERERS: readonly ToolResultRenderer[] = Object.freeze([]);
@@ -41,4 +44,27 @@ export const ToolResultRendererContext =
 /** The renderers this host registered, in provider order (first match wins). */
 export function useToolResultRenderers(): readonly ToolResultRenderer[] {
   return use(ToolResultRendererContext);
+}
+
+/** Honor the same first matching descriptor as the tool result router. */
+export function toolResultPreservesEffectsWhenHidden(
+  renderers: readonly ToolResultRenderer[],
+  result: unknown
+): boolean {
+  return (
+    result !== undefined &&
+    renderers.find((renderer) => renderer.matches(result))?.preserveEffectsWhenHidden === true
+  );
+}
+
+/** Delegation cards route before registered result surfaces in both presentations. */
+export function toolResultPartPreservesEffectsWhenHidden(
+  renderers: readonly ToolResultRenderer[],
+  part: { readonly type: string; readonly toolName?: string | undefined; readonly result?: unknown }
+): boolean {
+  return (
+    part.type === 'tool-call' &&
+    !isSubagentDelegationToolName(part.toolName) &&
+    toolResultPreservesEffectsWhenHidden(renderers, part.result)
+  );
 }

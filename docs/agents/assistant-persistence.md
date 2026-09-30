@@ -1589,8 +1589,8 @@ Open tab order is durable workspace-scoped state in `assistant-thread-store.ts`;
 `reorderThreadTabs` persists the complete ordered id list atomically.
 
 - The shared `TabStrip` (manual activation; `ui-conventions.md` TAB STRIPS), badged by the
-  Threads panel's run-state projections via `ThreadIdentityMark`. Inactive panels stay mounted
-  (`hidden`, never `<Activity>`) so a background run keeps its tool-update subscription.
+  Threads panel's run-state projections via `ThreadIdentityMark`. Keep inactive runtime panels
+  mounted (`hidden`); pause only message/composer presentation, except declared tool surface owners.
 - Closing the tab of a thread whose run is in flight HIDES it, on web and desktop: its panel
   stays mounted (`hidden`, no `tabpanel` role) outside the strip. Why: the panel owns the run
   (web aborts it on unmount) and, on web, the only copy of the conversation.
@@ -1625,7 +1625,7 @@ Guard: `packages/assistant-data/src/__tests__/assistant-thread-store.test.ts`; i
 `assistant-thread-tabs-workspace*.test.tsx`, `use-assistant-thread-root-binding.test.ts`,
 `assistant-ui-panel-wrapper-running-change.test.tsx`, `use-retained-thread-panels.test.ts`,
 `use-assistant-thread-run-completion-sync*.test.ts` (the SQL runs on real PGlite);
-`packages/assistant-ui/src/__tests__/running-state-bridge.behavior.test.tsx`; live E2E:
+`packages/assistant-ui/src/__tests__/{running-state-bridge.behavior,hidden-thread-presentation.browser}.test.tsx`; live E2E:
 `apps/web/e2e/assistant-ui-panel.test.ts` (customize and reload),
 `apps/web/e2e/assistant-thread-tab-runs.test.ts` and
 `apps/desktop/e2e/assistant-thread-tab-close-running.desktop.test.ts` (close = hide).

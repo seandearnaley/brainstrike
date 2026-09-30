@@ -11,4 +11,5 @@ export const mcpAppToolResultRenderer: ToolResultRenderer = Object.freeze({
   Component: McpAppToolResult,
   kind: 'mcp-app',
   matches: (result: unknown) => readMcpAppToolInvocationResult(result) !== undefined,
+  preserveEffectsWhenHidden: true,
 });

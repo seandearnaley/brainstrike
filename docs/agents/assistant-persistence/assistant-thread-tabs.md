@@ -159,3 +159,25 @@ Findings recorded before the change:
   (`useAssistantThreadRunCompletionSync`) refreshes the list on both platforms;
   the ledger's callback refresh is gone. The retained set is now reconciled while
   rendering (a reopen drops the id, a resource change resets it).
+
+## 2026-09-30: inactive presentation effects
+
+The runtime wrapper remains mounted while hidden: its tool-update subscription,
+runtime, notification, running-state, draft-command, rewind and follow-up queue
+bridges stay outside the presentation Activity. React Activity pauses the message
+and composer effects while preserving their DOM and state.
+
+The public renderer descriptor's `preserveEffectsWhenHidden` declaration protects
+tool surfaces owning work or sessions. The first result-shape match determines
+ownership, using the same helper as the collapsed activity body. Such a pane stays
+CSS-hidden with its owned effects live; tool names never determine that choice.
+
+The browser guard reproduces two live activity clocks under CSS hiding, then
+proves that only the visible clock remains while both public stream adapters keep
+running. Hidden read approval and terminal notifications arrive, a sibling keeps
+producing output, and a hidden queued follow-up starts from its existing runtime.
+An 80-message transcript preserves DOM identities, draft, disclosure and a 160px
+reader scroll position. The real MCP App consent/frame lifecycle guard proves
+that universal Activity hiding closes its authority; the descriptor exception
+preserves the same authority and pending consent and permits approval on return.
+These bounded tests establish effect ownership, not the original 13-second freeze.
