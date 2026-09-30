@@ -39,3 +39,12 @@ test('the retained real probe verifies physical layout and distinct filesystem/s
   }
   assert(probe.includes("fenceExecution: 'not-run'"));
 });
+
+test('the native filesystem stays an explained Electron built-in, not an npm dependency', () => {
+  assert.match(
+    probe,
+    /\/\/ @boundaries-ignore .{20,}\nconst originalFs = require\('original-fs'\);/
+  );
+  assert(!Object.hasOwn(pkg.dependencies ?? {}, 'original-fs'));
+  assert(!Object.hasOwn(pkg.devDependencies ?? {}, 'original-fs'));
+});
