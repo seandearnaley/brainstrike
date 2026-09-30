@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "build": {
     "appId": "com.brainstrike.desktop",
+    "appImage": {
+      "executableArgs": []
+    },
     "productName": "BrainStrike Desktop",
     "directories": {
       "output": "release"
