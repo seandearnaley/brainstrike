@@ -57,6 +57,7 @@ describe('desktop enabled native-tool availability diagnostics', () => {
   it.each(['openai', 'local'])(
     'warns at default logging level when a %s runtime unexpectedly omits an enabled tool',
     (provider) => {
+      expect(LOCAL_DESKTOP_NATIVE_TOOL_IDS).toContain(NATIVE_TOOL_ID.readWorkspaceFile);
       vi.spyOn(NATIVE_TOOL_EXECUTORS, NATIVE_TOOL_ID.readWorkspaceFile).mockReturnValue(undefined);
       const tools = buildDesktopAssistantTools({
         enabledNativeToolIds: [

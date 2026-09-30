@@ -1,5 +1,12 @@
 import type { RuntimeData } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import {
+  addLogListener,
+  configureLogger,
+  LogLevel,
+  type LogRecord,
+  resetLogger,
+} from '@brainstrike/logging';
 import { app } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -187,6 +194,44 @@ describe('run_python registration', () => {
 });
 
 describe('run_python sandbox availability wiring', () => {
+  it('keeps enabled hosted Python registered without probing an unavailable fence or warning', async () => {
+    fenceSupport.isSupported.mockClear().mockReturnValueOnce(false);
+    fenceSupport.factory.mockClear();
+    const resolvePythonExecutable = vi.fn(async () => '/bundled/python3');
+    const records: LogRecord[] = [];
+    configureLogger({ console: false, level: LogLevel.INFO });
+    const stop = addLogListener((record) => {
+      if (record.scope === 'DesktopAssistantTools') {
+        records.push(record);
+      }
+    });
+    try {
+      const tools = buildDesktopAssistantTools(
+        { ...runtimeData, enabledNativeToolIds: [NATIVE_TOOL_ID.runPython], provider: 'openai' },
+        { resolvePythonExecutable }
+      );
+      const tool = requireRunPythonTool(tools);
+      expect(Object.keys(tools)).toEqual([NATIVE_TOOL_ID.runPython]);
+      expect(fenceSupport.isSupported).not.toHaveBeenCalled();
+      expect(fenceSupport.factory).not.toHaveBeenCalled();
+      expect(resolvePythonExecutable).not.toHaveBeenCalled();
+      expect(records).toEqual([]);
+
+      // Prove the same false probe is wired in, but only consulted at execution.
+      await expect(tool.execute({ code: 'print(1)' }, undefined)).resolves.toMatchObject({
+        kind: 'unavailable',
+        reason: 'sandbox_unsupported_runtime',
+      });
+      expect(fenceSupport.isSupported).toHaveBeenCalledExactlyOnceWith();
+      expect(fenceSupport.factory).not.toHaveBeenCalled();
+      expect(resolvePythonExecutable).not.toHaveBeenCalled();
+    } finally {
+      fenceSupport.isSupported.mockReset().mockReturnValue(true);
+      stop();
+      resetLogger();
+    }
+  });
+
   it('maps invalid injected helper paths to the typed unavailable result', async () => {
     const actual = await vi.importActual<typeof import('../../sandbox-runtime-path')>(
       '../../sandbox-runtime-path'
