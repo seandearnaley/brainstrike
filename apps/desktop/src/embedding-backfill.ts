@@ -1,6 +1,7 @@
 import {
   createDimensionIndex,
   type DimensionIndexMaintenanceStrategy,
+  dimensionIndexIsReady,
   dropDimensionIndex,
   hnswParams,
   type IDatabase,
@@ -1251,8 +1252,17 @@ export async function enqueueEmbeddingBackfill(
   let dimensionIndexSuspended = false;
 
   try {
-    await suspendBackfillDimensionIndex(db, embeddingSetId, metadata.expectedDimension, now);
-    dimensionIndexSuspended = true;
+    // This is a readiness snapshot, not a lock: another scope may later drop
+    // the index. Its durable suspension/recovery owner remains authoritative.
+    if (await dimensionIndexIsReady(db, metadata.expectedDimension)) {
+      logger.info('Retained dimension HNSW index for incremental embedding backfill', {
+        dimension: metadata.expectedDimension,
+        embeddingSetId,
+      });
+    } else {
+      await suspendBackfillDimensionIndex(db, embeddingSetId, metadata.expectedDimension, now);
+      dimensionIndexSuspended = true;
+    }
     await repairScopedEmbeddingBackfillQueue(jobQueue, embeddingSetId);
     const existingPending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
     const drainedExisting = await drainExistingScopedBackfillJobs({
@@ -1279,17 +1289,19 @@ export async function enqueueEmbeddingBackfill(
       total,
     });
     if (candidates === 0 && drainedExisting) {
-      dimensionIndexSuspended = await completeBackfillDimensionIndexMaintenance(
-        db,
-        embeddingSetId,
-        metadata.expectedDimension,
-        now,
-        createCompleteBackfillDimensionIndexMaintenanceOptions({
-          dimensionIndexMaintenanceStrategy,
-          rebuildDimensionIndexOnCompletion,
-          requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
-        })
-      );
+      if (dimensionIndexSuspended) {
+        dimensionIndexSuspended = await completeBackfillDimensionIndexMaintenance(
+          db,
+          embeddingSetId,
+          metadata.expectedDimension,
+          now,
+          createCompleteBackfillDimensionIndexMaintenanceOptions({
+            dimensionIndexMaintenanceStrategy,
+            rebuildDimensionIndexOnCompletion,
+            requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
+          })
+        );
+      }
       onProgress(done, total);
       return finalizeBackfillCounts(embeddingSetId, total, done, drainedExisting.counts);
     }
@@ -1330,17 +1342,19 @@ export async function enqueueEmbeddingBackfill(
       );
     }
     onProgress(total, total);
-    dimensionIndexSuspended = await completeBackfillDimensionIndexMaintenance(
-      db,
-      embeddingSetId,
-      metadata.expectedDimension,
-      now,
-      createCompleteBackfillDimensionIndexMaintenanceOptions({
-        dimensionIndexMaintenanceStrategy,
-        rebuildDimensionIndexOnCompletion,
-        requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
-      })
-    );
+    if (dimensionIndexSuspended) {
+      dimensionIndexSuspended = await completeBackfillDimensionIndexMaintenance(
+        db,
+        embeddingSetId,
+        metadata.expectedDimension,
+        now,
+        createCompleteBackfillDimensionIndexMaintenanceOptions({
+          dimensionIndexMaintenanceStrategy,
+          rebuildDimensionIndexOnCompletion,
+          requestDimensionIndexMaintenance: requestDimensionIndexMaintenanceForBackfill,
+        })
+      );
+    }
     logger.info('Backfill complete', { done, embeddingSetId, total });
     return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
   } catch (error) {

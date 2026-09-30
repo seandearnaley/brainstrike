@@ -70,6 +70,7 @@ function isEmbeddingSetCapacityQuery(sql: string): boolean {
 
 function isDimensionIndexMaintenanceQuery(sql: string): boolean {
   return (
+    sql.includes('FROM pg_index i') ||
     sql.includes('embedding_dimension_index_suspensions') ||
     sql.includes('DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_') ||
     sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_')
@@ -79,7 +80,8 @@ function isDimensionIndexMaintenanceQuery(sql: string): boolean {
 type EmbeddingBackfillDatabase = Parameters<typeof enqueueEmbeddingBackfill>[0];
 
 function withMaintenanceExec<T extends object>(
-  db: T
+  db: T,
+  dimensionIndexReady = false
 ): T &
   EmbeddingBackfillDatabase & {
     maintenance: { exec: (sql: string, params?: readonly unknown[]) => Promise<unknown> };
@@ -94,6 +96,12 @@ function withMaintenanceExec<T extends object>(
     maintenance: {
       exec: vi.fn((sql: string, params?: readonly unknown[]) => query(sql, params)),
     },
+    // Existing recovery fixtures represent a missing index; real catalog and
+    // retention behavior are exercised by the paired PGlite integration suite.
+    query: (sql: string, params?: readonly unknown[]) =>
+      sql.includes('FROM pg_index i')
+        ? Promise.resolve({ rows: [{ ready: dimensionIndexReady }] })
+        : query(sql, params),
   } as unknown as T &
     EmbeddingBackfillDatabase & {
       maintenance: { exec: (sql: string, params?: readonly unknown[]) => Promise<unknown> };
@@ -505,7 +513,40 @@ describe('embedding-backfill', () => {
     expect(counts).toEqual({ failed: 0, queued: 0, running: 0, succeeded: 4 });
   });
 
-  it('suspends dimension HNSW maintenance during scoped backfill and rebuilds after drain', async () => {
+  it('retains a healthy index without taking or clearing an existing maintenance owner', async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (
+          sql.includes('embedding_dimension_index_suspensions') ||
+          sql.includes('embedding_dimension_index_maintenance')
+        ) {
+          throw new Error('Retaining an index must not take or clear the durable owner.');
+        }
+        if (sql.includes('FROM embedding_sets')) {
+          return { rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql) || isBackfillCandidateCountQuery(sql)) {
+          return { rows: [{ count: 0 }] };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return { rows: [{ failed: 0, queued: 0, running: 0, succeeded: 0 }] };
+        }
+        throw new Error(`Unexpected retention query: ${sql}`);
+      }),
+    };
+    const maintenanceDb = withMaintenanceExec(db, true);
+    const queue = withQueueRepair({ enqueueBatch: vi.fn() });
+    await enqueueEmbeddingBackfill(maintenanceDb, queue, 'new-set', () => undefined);
+    expect(maintenanceDb.maintenance.exec).not.toHaveBeenCalled();
+    expect(queue.enqueueBatch).not.toHaveBeenCalled();
+    expect(
+      db.query.mock.calls.some(([sql]) =>
+        /DROP INDEX|CREATE INDEX|embedding_dimension_index_/u.test(sql)
+      )
+    ).toBe(false);
+  });
+
+  it('suspends missing dimension HNSW maintenance during scoped backfill and rebuilds after drain', async () => {
     const queryOrder: string[] = [];
     let pendingCountCalls = 0;
     const db = {

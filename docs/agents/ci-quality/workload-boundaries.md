@@ -66,6 +66,17 @@ and checks completion in `afterAll`; without the hook, all 11 test bodies pass
 but the lifecycle suite fails. This is a separate fixture fix from the
 minimatch dependency resolution.
 
+The September30 performance PR gates exposed two further owners: ThreadsPanel's
+View options/folder popovers and WorktreeMapSurface's card menu. Both Unit heavy
+runs passed276files/3094assertions, then failed with the deferred Radix/jsdom
+Event-brand exception. New lifetime guards fail on baseline191769e without
+local teardown. The card menu closes with Escape; the popover closes through its
+actual expanded trigger because a toast may own Escape. Both await Radix's real
+trigger focus before RTL cleanup. Changed fixtures pass124assertions; the full
+local suite passes276files/3096assertions. The unchanged local baseline also
+passes, so the exact Linux exception was not reproduced locally. No Event
+replacement, timer cancellation, sleep, or error suppression was added.
+
 ## Draft-to-ready does not rerun Test; plain workflows, no planner
 
 Draft PRs already run the full Test workflow on opened/synchronize. Marking a

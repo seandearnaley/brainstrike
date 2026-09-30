@@ -151,21 +151,21 @@ Guard: `packages/db/__tests__/managed-cache-batch-parameter-limit.test.ts`.
   run an unbounded maintenance statement. The desktop process-counter sampler is the
   one recurring non-maintenance consumer, and it skips a tick whose previous sample is
   still outstanding rather than queueing another.
-- Both desktop maintenance schedulers gate through
-  `apps/desktop/src/maintenance-admission.ts`:
-  - A pass begins only after the work scheduler has been CONTINUOUSLY idle for
-    `quietPeriodMs` (default 15 s, via `subscribeToSchedulerSnapshots`), and
-    `start()` seeds the window as busy so booting never counts as quiet. The HNSW
-    scheduler requires the subscription; there is no single-sample mode.
-  - Inside the background lane, immediately before the statement,
-    `readInFlightAssistantWork` runs: any `brainstrike_assistant_thread_runs` row in
-    `running`/`cancelling`, or `mastra_background_tasks` row in `pending`/`running`,
-    skips the pass with reason `assistant-work-in-flight`, logged at info so a stuck
-    row stays visible. A malformed read throws; it never reads as idle. A task
-    suspended on the user does not block.
-  - The gate reads those rows across EVERY thread, so the desktop startup reaper
-    (`reapOrphanedThreadRuns`, `assistant-persistence.md`) is part of this contract,
-    and the background sweep runs after the native-decision repair.
+- Both desktop maintenance schedulers gate through `apps/desktop/src/maintenance-admission.ts`:
+  - Require CONTINUOUS scheduler idle for `quietPeriodMs` (default 15 s, via
+    `subscribeToSchedulerSnapshots`); `start()` seeds busy so boot never counts as quiet.
+    HNSW requires the subscription; a single idle sample cannot admit a pass.
+  - Inside the background lane, immediately before the statement, `readInFlightAssistantWork`
+    skips any `running`/`cancelling` thread run or `pending`/`running` background task with
+    reason `assistant-work-in-flight`, logged at info. Malformed reads throw; tasks
+    suspended on the user do not block.
+  - Read EVERY thread; the startup reaper (`reapOrphanedThreadRuns`, `assistant-persistence.md`)
+    is part of this contract, and the background sweep follows native-decision repair.
+- Precreate HNSW before returning a new set only when the entire chunk table is empty; check emptiness/suspension and CREATE in one statement; precreate errors reject the caller, never silently schedule recovery.
+- Backfill retains only ready, valid canonical halfvec-cosine indexes; retention never builds, resumes or changes a durable maintenance owner.
+- The worker settles at most 64 distinct chunks per atomic completion, keeping competing leases together and recording returned jobs before the next turn; direct queue batches stay wholly atomic and an outer transaction still owns its turn.
+- These work-count bounds do not solve populated missing/new-dimension indexes or vector-bearing bulk/direct-queue API transactions; never split atomicity or claim a latency ceiling.
+  Evidence: `database/hnsw-incremental-prevention.md`. Guard: `apps/desktop/src/__tests__/main/hnsw-backfill-prevention.integration.test.ts`.
 - On exclusive desktop boot, before maintenance triggers start, reclaim persisted
   `running` HNSW maintenance as pending; routine ticks must not reset live-owner rows.
 - Run-scoped work must be ON the scheduler, so a run started during a statement waits there instead of timing out at the host.

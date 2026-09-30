@@ -12,6 +12,7 @@ import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import {
   createDeferredDimensionIndexBuilder,
   type DeferredDimensionIndexBuilder,
+  precreateEmptyDimensionIndex,
 } from '../../migrations/dimension-index-helpers.js';
 import {
   type EmbeddingDistance,
@@ -129,6 +130,10 @@ export class DrizzleEmbeddingSetsRepository {
       return selected;
     });
 
+    await precreateEmptyDimensionIndex(
+      this.createQueryAdapter(),
+      WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions
+    );
     this.dimensionIndexBuilder.schedule(WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
 
     return this.readEmbeddingSet(row);
@@ -181,6 +186,7 @@ export class DrizzleEmbeddingSetsRepository {
       );
     }
 
+    await precreateEmptyDimensionIndex(this.createQueryAdapter(), dimensions);
     this.dimensionIndexBuilder.schedule(dimensions);
 
     this.logger.info('Created new embedding set', {

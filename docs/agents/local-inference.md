@@ -60,7 +60,7 @@ Guard: `vector-preferences-store.hidden-host.test.ts`,
   those whose chunk/model identity cannot be proven.
 - Desktop backfill admission bounds queued/running jobs by target `embedding_set_id`,
   takes earliest runnable jobs, and stays single-flight per set at IPC; the runtime budget is global.
-- Count and settle already embedded completions and ordinary batch failures only from
+- Settle each worker completion (at most 64 distinct chunks) before the next; count already embedded completions and failures only from
   rows returned by token-guarded `completeBatch`/`failBatch`, never stale leases.
 
 Evidence: `local-inference/job-queue-input-hash.md`.
@@ -84,9 +84,9 @@ Guard: `packages/embeddings/src/__tests__/embedding-worker-already-completed-lea
   not become silent success.
 - `enqueueManagedBackfill` re-checks the backfill signal once the enqueue resolves, so
   at least one cancel is ordered after the run exists.
-- A backfill suspends the dimension HNSW index before enqueueing; interruptions
-  restore it after the scoped set drains or schedule deferred recovery. Shutdown, or
-  integrity containment (`database.md`), stops deferred polling and leaves the durable suspension for maintenance.
+- Retain ready canonical HNSW indexes through bounded completions; never clear another maintenance owner. Missing/invalid indexes use scoped-drain recovery.
+  Interruptions restore after drain or defer recovery; shutdown/integrity containment
+  stops polling and leaves the durable suspension for maintenance (`database.md`).
 - Renderer queue-health writes carry the completed poll's wall-clock time, kept apart
   from the deduped count snapshot; diagnostics read that timestamp rather than
   synthesizing freshness during render.
