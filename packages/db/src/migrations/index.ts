@@ -305,9 +305,11 @@ export const baseMigrations: Migration[] = [
 // the root index previously bypassed this barrel for them).
 export {
   createDimensionIndex,
+  dimensionIndexIsReady,
   dropDimensionIndex,
   estimateEmbeddedRowCount,
   hnswParams,
+  precreateEmptyDimensionIndex,
   resolveIndexBuildMaintenanceWorkMemMb,
   resumeDimensionIndexBuilds,
   suspendDimensionIndexBuilds,

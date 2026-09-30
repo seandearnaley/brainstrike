@@ -279,9 +279,12 @@ describe('EmbeddingSetsRepository', () => {
   });
 
   it('keeps workspace index bootstrap usable when dimension index creation fails', async () => {
+    await db.exec(
+      "INSERT INTO file_records (id, name, path, size) VALUES ('occupied-file', 'occupied', 'occupied', 1); INSERT INTO file_chunks (id, file_record_id, chunk_index, content) VALUES ('occupied-chunk', 'occupied-file', 0, 'occupied'); DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_384"
+    );
     const trackedDb = {
       exec: vi.fn(async (sql: string): Promise<void> => {
-        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
+        if (sql.trimStart().startsWith('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
           throw new Error('transient index creation failure');
         }
         await db.exec(sql);
@@ -305,6 +308,9 @@ describe('EmbeddingSetsRepository', () => {
   });
 
   it('returns from set creation without waiting for the dimension index build', async () => {
+    await db.exec(
+      "INSERT INTO file_records (id, name, path, size) VALUES ('occupied-file', 'occupied', 'occupied', 1); INSERT INTO file_chunks (id, file_record_id, chunk_index, content) VALUES ('occupied-chunk', 'occupied-file', 0, 'occupied'); DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_384"
+    );
     let releaseIndexBuild: (() => void) | null = null;
     const indexBuildStarted = vi.fn();
     const indexBuildGate = new Promise<void>((resolve) => {
@@ -312,7 +318,7 @@ describe('EmbeddingSetsRepository', () => {
     });
     const trackedDb = {
       exec: vi.fn(async (sql: string): Promise<void> => {
-        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_')) {
+        if (sql.trimStart().startsWith('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_')) {
           indexBuildStarted();
           await indexBuildGate; // hangs until the test releases it
           return;

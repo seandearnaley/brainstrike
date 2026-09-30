@@ -3,6 +3,7 @@ import { generateUUID } from '@brainstrike/utils';
 import {
   createDeferredDimensionIndexBuilder,
   type DeferredDimensionIndexBuilder,
+  precreateEmptyDimensionIndex,
 } from '../migrations/dimension-index-helpers.js';
 import {
   type EmbeddingDistance,
@@ -139,10 +140,15 @@ export class EmbeddingSetsRepository {
       if (!row) {
         throw new Error('Failed to create or load the workspace index embedding set.');
       }
+      await precreateEmptyDimensionIndex(
+        this.db,
+        WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions
+      );
       this.dimensionIndexBuilder.schedule(WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
       return this.readEmbeddingSet(row as Record<string, unknown>);
     }
 
+    await precreateEmptyDimensionIndex(this.db, WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
     this.dimensionIndexBuilder.schedule(WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS.dimensions);
 
     return this.readEmbeddingSet(result.rows[0] as Record<string, unknown>);
@@ -221,6 +227,7 @@ export class EmbeddingSetsRepository {
       );
     }
 
+    await precreateEmptyDimensionIndex(this.db, dimensions);
     this.dimensionIndexBuilder.schedule(dimensions);
 
     this.logger.info('Created new embedding set', {

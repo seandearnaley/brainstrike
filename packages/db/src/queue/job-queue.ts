@@ -45,6 +45,8 @@ export interface ClaimedJob extends Job {
 
 const logger = createLogger('JobQueue');
 
+const MAX_EMBEDDING_COMPLETION_CHUNKS_PER_STATEMENT = 64;
+
 /**
  * Telemetry adapter identifier for the durable DB-backed JobQueue.
  */
@@ -902,6 +904,40 @@ export class JobQueue {
    * A stale worker must not persist a vector after losing ownership of its job.
    */
   async completeEmbeddingChunkBatch(jobs: CompleteEmbeddingChunkParams[]): Promise<Job[]> {
+    // Keep all competing leases for a chunk in one statement, preserving the
+    // deterministic owned-job winner and atomic vector/job update. Each turn
+    // inserts at most 64 HNSW graph nodes; scheduled handles admit foreground
+    // work between committed batches rather than inside a held transaction.
+    const groups = new Map<string, CompleteEmbeddingChunkParams[]>();
+    for (const job of jobs) {
+      const group = groups.get(job.chunkId);
+      if (group) {
+        group.push(job);
+      } else {
+        groups.set(job.chunkId, [job]);
+      }
+    }
+    const completed: Job[] = [];
+    let batch: CompleteEmbeddingChunkParams[] = [];
+    let chunks = 0;
+    for (const group of groups.values()) {
+      batch.push(...group);
+      chunks += 1;
+      if (chunks === MAX_EMBEDDING_COMPLETION_CHUNKS_PER_STATEMENT) {
+        completed.push(...(await this.completeEmbeddingChunkStatement(batch)));
+        batch = [];
+        chunks = 0;
+      }
+    }
+    if (batch.length > 0) {
+      completed.push(...(await this.completeEmbeddingChunkStatement(batch)));
+    }
+    return completed;
+  }
+
+  private async completeEmbeddingChunkStatement(
+    jobs: CompleteEmbeddingChunkParams[]
+  ): Promise<Job[]> {
     if (jobs.length === 0) {
       return [];
     }

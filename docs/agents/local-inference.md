@@ -84,9 +84,9 @@ Guard: `packages/embeddings/src/__tests__/embedding-worker-already-completed-lea
   not become silent success.
 - `enqueueManagedBackfill` re-checks the backfill signal once the enqueue resolves, so
   at least one cancel is ordered after the run exists.
-- A backfill suspends the dimension HNSW index before enqueueing; interruptions
-  restore it after the scoped set drains or schedule deferred recovery. Shutdown, or
-  integrity containment (`database.md`), stops deferred polling and leaves the durable suspension for maintenance.
+- Retain ready canonical HNSW indexes through bounded completions; never clear another maintenance owner. Missing/invalid indexes use scoped-drain recovery.
+  Interruptions restore after drain or defer recovery; shutdown/integrity containment
+  stops polling and leaves the durable suspension for maintenance (`database.md`).
 - Renderer queue-health writes carry the completed poll's wall-clock time, kept apart
   from the deduped count snapshot; diagnostics read that timestamp rather than
   synthesizing freshness during render.

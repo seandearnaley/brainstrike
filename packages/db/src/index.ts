@@ -102,11 +102,13 @@ export type { Migration } from './migrations/index.js';
 // New migration system
 export {
   createDimensionIndex,
+  dimensionIndexIsReady,
   dropDimensionIndex,
   estimateEmbeddedRowCount,
   hnswParams,
   MigrationRunner,
   migrations,
+  precreateEmptyDimensionIndex,
   resolveIndexBuildMaintenanceWorkMemMb,
   resumeDimensionIndexBuilds,
   suspendDimensionIndexBuilds,

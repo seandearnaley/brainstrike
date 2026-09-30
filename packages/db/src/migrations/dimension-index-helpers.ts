@@ -607,6 +607,75 @@ export function createDeferredDimensionIndexBuilder(options: {
 }
 
 /**
+ * Physical catalogue readiness, not authority to build or resume an index.
+ * Retaining this index does not mutate an existing suspension/maintenance owner.
+ */
+export async function dimensionIndexIsReady(
+  db: Pick<DimensionIndexDb, 'query'>,
+  dimension: number
+): Promise<boolean> {
+  validateDimensionForSql(dimension, 'dimensionIndexIsReady');
+  const result = await db.query(
+    `SELECT COALESCE(i.indisvalid AND i.indisready
+       AND am.amname = 'hnsw' AND opc.opcname = 'halfvec_cosine_ops' AND i.indnatts = 1
+       AND pg_get_expr(i.indexprs, i.indrelid) = $2
+       AND pg_get_expr(i.indpred, i.indrelid) = $3, FALSE) AS ready
+     FROM pg_index i
+     JOIN pg_class c ON c.oid = i.indexrelid
+     JOIN pg_am am ON am.oid = c.relam
+     JOIN pg_opclass opc ON opc.oid = i.indclass[0]
+     WHERE i.indexrelid = to_regclass($1)
+       AND i.indrelid = to_regclass('file_chunks')`,
+    [
+      indexName(dimension),
+      `(embedding)::halfvec(${dimension})`,
+      `(vector_dims(embedding) = ${dimension})`,
+    ]
+  );
+  const row = result.rows[0];
+  if (row === undefined) {
+    return false;
+  }
+  if (
+    typeof row !== 'object' ||
+    row === null ||
+    !('ready' in row) ||
+    typeof row.ready !== 'boolean'
+  ) {
+    throw new TypeError('Dimension index readiness row must contain a boolean ready value.');
+  }
+  return row.ready;
+}
+
+/**
+ * Build before first population, using one statement so another writer cannot
+ * enter between the empty-table check and CREATE INDEX. Never build a graph
+ * from populated data here; that remains explicit durable maintenance.
+ */
+export async function precreateEmptyDimensionIndex(
+  db: Pick<DimensionIndexDb, 'exec'>,
+  dimension: number
+): Promise<void> {
+  validateDimensionForSql(dimension, 'precreateEmptyDimensionIndex');
+  if (dimension > MAX_HNSW_DIMENSION) {
+    return;
+  }
+  const params = hnswParams();
+  validateHnswParamsForSql(params, 'precreateEmptyDimensionIndex');
+  await db.exec(`DO $precreate_dimension_index$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM file_chunks LIMIT 1)
+         AND NOT EXISTS (SELECT 1 FROM embedding_dimension_index_suspensions WHERE dimension = ${dimension}) THEN
+        CREATE INDEX IF NOT EXISTS ${indexName(dimension)} ON file_chunks
+        USING hnsw ((embedding::halfvec(${dimension})) halfvec_cosine_ops)
+        WITH (m=${params.m}, ef_construction=${params.ef})
+        WHERE vector_dims(embedding) = ${dimension};
+      END IF;
+    END
+    $precreate_dimension_index$`);
+}
+
+/**
  * Check if an HNSW index exists for a given dimension.
  *
  * @param db - PGlite database instance

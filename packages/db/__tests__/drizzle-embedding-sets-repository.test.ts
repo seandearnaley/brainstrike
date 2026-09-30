@@ -46,7 +46,7 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       expect(result.name).toBe('text-embedding-3-small (1536D)');
     });
 
-    it('builds the dimension index off the foreground path, observable via the awaitable', async () => {
+    it('precreates the empty dimension index before returning the set', async () => {
       await repository.getOrCreateSet(
         'openai::text-embedding-3-small',
         'text-embedding-3-small',
@@ -54,8 +54,7 @@ describe('DrizzleEmbeddingSetsRepository', () => {
         'cosine'
       );
 
-      // The build is deferred; draining it must materialize the HNSW index.
-      await repository.waitForPendingDimensionIndexBuilds();
+      // No caller can populate the set before its empty-table index exists.
 
       const indexes = await client.query<{ indexname: string }>(
         "SELECT indexname FROM pg_indexes WHERE indexname = 'idx_file_chunks_emb_hnsw_1536'"
@@ -170,9 +169,12 @@ describe('DrizzleEmbeddingSetsRepository', () => {
     });
 
     it('keeps workspace index bootstrap usable when dimension index creation fails', async () => {
+      await client.exec(
+        "INSERT INTO file_records (id, name, path, size) VALUES ('occupied-file', 'occupied', 'occupied', 1); INSERT INTO file_chunks (id, file_record_id, chunk_index, content) VALUES ('occupied-chunk', 'occupied-file', 0, 'occupied'); DROP INDEX IF EXISTS idx_file_chunks_emb_hnsw_384"
+      );
       const originalExec = client.exec.bind(client);
       const exec = vi.spyOn(client, 'exec').mockImplementation(async (sql: string) => {
-        if (sql.includes('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
+        if (sql.trimStart().startsWith('CREATE INDEX IF NOT EXISTS idx_file_chunks_emb_hnsw_384')) {
           throw new Error('transient index creation failure');
         }
         return await originalExec(sql);
