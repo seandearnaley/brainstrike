@@ -14,8 +14,8 @@ export interface ToolCallTelemetryMetadata {
    * failure it cannot influence.
    */
   readonly candidatesTruncated?: boolean;
-  /** Live-pass engine for search tools ('ripgrep' | 'js-walk' | 'skipped'). */
-  readonly engine?: 'js-walk' | 'ripgrep' | 'skipped';
+  /** Live-pass engine for search tools ('ripgrep' | 'js-walk' | 'js-files' | 'skipped'). */
+  readonly engine?: 'js-files' | 'js-walk' | 'ripgrep' | 'skipped';
   readonly isPaginationFollowup: boolean;
   readonly scanLimited?: boolean;
   readonly truncated: boolean;
