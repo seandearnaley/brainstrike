@@ -1,13 +1,12 @@
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@brainstrike/ui';
 import { ChevronDown, FolderGit2 } from 'lucide-react';
-import { type ReactElement, useState } from 'react';
+import type { ReactElement } from 'react';
 import { GitFolderMenu } from './git-folder-menu';
 
 /** Orientation stays mounted through no-folder, loading, non-repo and error states. */
 export function GitFocusedFolder(): ReactElement {
   const { rootDirectoryHandle } = useFileSystem();
-  const [open, setOpen] = useState(false);
 
   return (
     <div
@@ -21,7 +20,7 @@ export function GitFocusedFolder(): ReactElement {
           {rootDirectoryHandle?.path ?? 'No folder focused'}
         </div>
       </div>
-      <DropdownMenu onOpenChange={setOpen} open={open}>
+      <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             aria-label="Switch repository or focused folder"
@@ -37,8 +36,8 @@ export function GitFocusedFolder(): ReactElement {
           align="end"
           className="max-h-96 w-96 max-w-[calc(100vw-2rem)] overflow-y-auto"
         >
-          {/* Discovery is mounted only by this explicit gesture, never by the Git panel. */}
-          {open ? <GitFolderMenu /> : null}
+          {/* Radix mounts on open and retains content through its exit animation. */}
+          <GitFolderMenu />
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

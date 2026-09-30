@@ -1,6 +1,7 @@
 import { Button } from '@brainstrike/ui';
 import { RefreshCw } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
+import type { GitRepository, GitStatus } from './git-bridge';
 import { GitChangesView } from './git-changes-view';
 import { GitFocusedFolder } from './git-focused-folder';
 import { GitHistoryView } from './git-history-view';
@@ -36,23 +37,35 @@ function CenteredMessage({
   );
 }
 
+function MissingFocusedRoot({ panel }: { readonly panel: UseGitPanelResult }): ReactElement {
+  if (panel.isRestoringFolders) {
+    return (
+      <CenteredMessage testId="git-panel-restoring">
+        {panel.focusedFolder ? 'Waiting for focused folder…' : 'Restoring workspace folders…'}
+      </CenteredMessage>
+    );
+  }
+  if (panel.focusedFolder) {
+    return (
+      <CenteredMessage testId="git-panel-folder-unavailable">
+        This folder's identity is unavailable. Switch to another folder or reopen this folder to use
+        Git.
+      </CenteredMessage>
+    );
+  }
+  return (
+    <CenteredMessage testId="git-panel-no-root">
+      Open a workspace folder to review and commit changes with Git.
+    </CenteredMessage>
+  );
+}
+
 /** Desktop-only, local-first Git workbench for changes, commits, branches and history. */
 function GitPanelContent({ panel }: { readonly panel: UseGitPanelResult }): ReactElement {
   const [tab, setTab] = useState<GitWorkbenchTab>('changes');
 
   if (!panel.activeRootId) {
-    if (panel.isRestoringFolders || panel.focusedFolder) {
-      return (
-        <CenteredMessage>
-          {panel.focusedFolder ? 'Waiting for focused folder…' : 'Restoring workspace folders…'}
-        </CenteredMessage>
-      );
-    }
-    return (
-      <CenteredMessage testId="git-panel-no-root">
-        Open a workspace folder to review and commit changes with Git.
-      </CenteredMessage>
-    );
+    return <MissingFocusedRoot panel={panel} />;
   }
 
   if (panel.statusError) {
@@ -99,7 +112,30 @@ function GitPanelContent({ panel }: { readonly panel: UseGitPanelResult }): Reac
     return <CenteredMessage>Loading Git workbench…</CenteredMessage>;
   }
 
-  const { repository, status } = panel;
+  return (
+    <GitRepositoryPanel
+      panel={panel}
+      repository={panel.repository}
+      setTab={setTab}
+      status={panel.status}
+      tab={tab}
+    />
+  );
+}
+
+function GitRepositoryPanel({
+  panel,
+  repository,
+  status,
+  tab,
+  setTab,
+}: {
+  readonly panel: UseGitPanelResult;
+  readonly repository: GitRepository;
+  readonly status: GitStatus;
+  readonly tab: GitWorkbenchTab;
+  readonly setTab: (tab: GitWorkbenchTab) => void;
+}): ReactElement {
   const viewKey = `${panel.activeRootId ?? 'no-root'}:${repository.currentWorktree.branch ?? 'detached'}:${repository.currentWorktree.head ?? 'unborn'}`;
   return (
     <div

@@ -1777,6 +1777,7 @@ describe('GitPanel', () => {
   });
 
   it('keeps the folder path visible while restored root identity is pending', () => {
+    mockRoot.isAccessLoading = true;
     mockRoot.handle = {
       kind: 'directory',
       name: 'restored',
@@ -1787,8 +1788,30 @@ describe('GitPanel', () => {
     render(<GitPanel />);
 
     expect(screen.getByTestId('git-focused-folder')).toHaveTextContent('/abs/restored');
-    expect(screen.getByText('Waiting for focused folder…')).toBeInTheDocument();
+    expect(screen.getByTestId('git-panel-restoring')).toHaveTextContent(
+      'Waiting for focused folder…'
+    );
     expect(screen.queryByTestId('git-panel-no-root')).not.toBeInTheDocument();
+    expect(bridge.status).not.toHaveBeenCalled();
+  });
+
+  it('offers recovery when folder restoration finishes without a usable identity', () => {
+    mockRoot.handle = {
+      kind: 'directory',
+      name: 'restored',
+      path: '/abs/restored',
+      platform: 'electron',
+    };
+    mockRoot.isAccessLoading = true;
+    const bridge = installBridge({});
+    const view = render(<GitPanel />);
+    mockRoot.isAccessLoading = false;
+    view.rerender(<GitPanel />);
+    expect(screen.getByTestId('git-panel-folder-unavailable')).toHaveTextContent(
+      'Switch to another folder or reopen this folder'
+    );
+    expect(screen.queryByText('Waiting for focused folder…')).not.toBeInTheDocument();
+    expect(screen.getByTestId('git-focused-folder')).toHaveTextContent('/abs/restored');
     expect(bridge.status).not.toHaveBeenCalled();
   });
 

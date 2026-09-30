@@ -11,12 +11,14 @@ const fixture = vi.hoisted(() => ({
   focused: null as DirectoryHandle | null,
   ids: new Map<string, string>(),
   inventory: vi.fn(),
+  isAccessLoading: false,
   result: {} as UseGitInventoryResult,
   roots: [] as DirectoryHandle[],
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileSystem: () => ({
+    isAccessLoading: fixture.isAccessLoading,
     rootDirectoryHandle: fixture.focused,
     rootDirectoryHandles: fixture.roots,
     rootIdByPath: fixture.ids,
@@ -83,6 +85,7 @@ describe('GitFocusedFolder', () => {
     ];
     fixture.focused = fixture.roots[0] ?? null;
     fixture.ids = new Map();
+    fixture.isAccessLoading = false;
     fixture.result = {
       available: true,
       error: null,
@@ -259,6 +262,7 @@ describe('GitFocusedFolder', () => {
       path: '/second/repo',
       platform: 'electron',
     };
+    fixture.isAccessLoading = true;
     fixture.roots = [fixture.roots[1] as DirectoryHandle, unresolved];
     fixture.ids.set(unresolved.path, 'mapped-but-not-mounted');
     render(<GitFocusedFolder />);
@@ -270,5 +274,75 @@ describe('GitFocusedFolder', () => {
       screen.getByRole('menuitemradio', { name: 'Focus folder repo: /second/repo' })
     ).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByText('Folder is still being restored.')).toBeInTheDocument();
+  });
+
+  it('marks the actual focused handle even when a mapped ID cannot authorize switching', async () => {
+    const unresolved: DirectoryHandle = {
+      kind: 'directory',
+      name: 'restored',
+      path: '/workspace/restored',
+      platform: 'electron',
+    };
+    fixture.focused = unresolved;
+    fixture.roots = [unresolved];
+    fixture.ids.set(unresolved.path, 'mapped-but-not-mounted');
+    render(<GitFocusedFolder />);
+    const user = await openMenu();
+    const choice = screen.getByRole('menuitemradio', {
+      name: 'Focus folder restored: /workspace/restored',
+    });
+    expect(choice).toHaveAttribute('aria-checked', 'true');
+    expect(choice).toHaveAttribute('aria-disabled', 'true');
+    expect(choice).toHaveTextContent(
+      'Folder identity is unavailable. Reopen this folder to switch.'
+    );
+    await user.click(choice);
+    expect(fixture.focus).not.toHaveBeenCalled();
+  });
+
+  it('matches Windows repository hints across separators and casing without adding a disabled duplicate', async () => {
+    fixture.roots = [root('repo', 'C:\\Repo', 'windows-id')];
+    fixture.focused = fixture.roots[0] ?? null;
+    fixture.result = { ...fixture.result, inventory: inventory([worktree('c:/repo/')]) };
+    render(<GitFocusedFolder />);
+    await openMenu();
+    expect(screen.getByRole('menuitemradio')).toHaveTextContent('Git repository');
+    expect(
+      screen.queryByText('Other discovered repositories and worktrees')
+    ).not.toBeInTheDocument();
+  });
+
+  it('deduplicates unmounted repository display paths using the same normalized key', async () => {
+    fixture.result = {
+      ...fixture.result,
+      inventory: inventory([worktree('C:\\Other\\Repo'), worktree('c:/other/repo/')]),
+    };
+    render(<GitFocusedFolder />);
+    await openMenu();
+    expect(
+      screen
+        .getAllByRole('menuitem')
+        .filter((item) => item.getAttribute('aria-disabled') === 'true')
+    ).toHaveLength(1);
+  });
+
+  it('does not confuse a Windows drive root with a drive-relative path', async () => {
+    fixture.roots = [root('drive', 'C:\\', 'drive-id')];
+    fixture.focused = fixture.roots[0] ?? null;
+    fixture.result = { ...fixture.result, inventory: inventory([worktree('C:')]) };
+    render(<GitFocusedFolder />);
+    await openMenu();
+    expect(screen.getByRole('menuitemradio')).toHaveTextContent('Connected folder');
+    expect(screen.getByText('Other discovered repositories and worktrees')).toBeInTheDocument();
+  });
+
+  it('keeps POSIX case-sensitive repository paths distinct', async () => {
+    fixture.roots = [root('repo', '/workspace/Repo', 'case-sensitive-id')];
+    fixture.focused = fixture.roots[0] ?? null;
+    fixture.result = { ...fixture.result, inventory: inventory([worktree('/workspace/repo')]) };
+    render(<GitFocusedFolder />);
+    await openMenu();
+    expect(screen.getByRole('menuitemradio')).toHaveTextContent('Connected folder');
+    expect(screen.getByText('Other discovered repositories and worktrees')).toBeInTheDocument();
   });
 });
