@@ -161,9 +161,8 @@ export const EXECUTION_TOOL_EXECUTORS = executorGroup({
             // `node:fs` without a `.native`). Loading it only when a
             // run_python call actually needs an executor is what the seam's
             // Node-only subpath posture intends.
-            const { createFenceExecutorFactory, isFenceSupported } = await import(
-              '@brainstrike/agent/fence-executor'
-            );
+            const { createFenceExecutorFactory, FenceUnsupportedPlatformError, isFenceSupported } =
+              await import('@brainstrike/agent/fence-executor');
             // Fence FIRST, interpreter second. On a host with no OS fence
             // (Windows today) the missing half is the sandbox, and resolving
             // the interpreter first would report a python_* failure there —
@@ -172,7 +171,7 @@ export const EXECUTION_TOOL_EXECUTORS = executorGroup({
             // "which half is missing" distinction the error mapping exists
             // to preserve. It also skips a pointless first-run unpack.
             if (!isFenceSupported()) {
-              return {};
+              throw new FenceUnsupportedPlatformError(process.platform);
             }
             const command = await (
               dependencies.resolvePythonExecutable ?? resolveDesktopPythonExecutable

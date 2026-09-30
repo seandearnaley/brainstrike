@@ -116,7 +116,7 @@ export const TokenMeter = memo<TokenMeterProps>(function TokenMeter({
             {isOverBudget ? 'Over:' : 'Remaining:'}
           </span>
           <span
-            className={`border-border border-t pt-0.5 font-medium tabular-nums ${isOverBudget ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400'}`}
+            className={`border-border border-t pt-0.5 font-medium tabular-nums ${isOverBudget ? 'text-destructive' : 'text-success'}`}
           >
             {Math.abs(remaining).toLocaleString()}
           </span>

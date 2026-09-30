@@ -208,7 +208,13 @@ const CONTRACT_LINE_BUDGETS = {
   // change). Every stylesheet, theme file and the ThemeProvider must meet its rules first:
   // full-value `--bs-*` tokens consumed as `var(--x)`, mode and palette as orthogonal axes,
   // generated-theme selectors and the high-contrast ordering above every palette.
-  'ui-conventions.md': 760,
+  //
+  // BST-1618 adds a new colour/contrast policy area (+24), with only its
+  // enforceable foreground, surface and exception rules here; measurements,
+  // corrected ticket assumptions and static limits live in colour-contrast.md.
+  // The two areas are independent additions to the same contract, so the pin is their
+  // sum: 705 + 55 + 24 = 784 (re-measured with `content.split('\n').length`).
+  'ui-conventions.md': 784,
   'workspace-context.md': 1071,
 };
 

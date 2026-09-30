@@ -18,6 +18,7 @@ import {
   MAX_EXEC_OUTPUT_BYTES,
   resolveCodeExecutor,
 } from '../code-execution';
+import { type FenceReadinessReason, isFenceReadinessError } from '../fence/fence-readiness-error';
 import { NATIVE_TOOL_RESULT_CHAR_BUDGET } from '../stream/tool-output-limits';
 // Single source with the approval-context derivation (BST-1070): the timeout
 // the card displays and the timeout this tool enforces must be the same
@@ -50,6 +51,7 @@ const OUTPUT_ENVELOPE_CHARS = 1200;
 const RUN_PYTHON_MAX_OUTPUT_BYTES = Math.min(4 * 1024 * 1024, MAX_EXEC_OUTPUT_BYTES);
 
 export type RunPythonUnavailableReason =
+  | FenceReadinessReason
   | 'approval_confirmation_unavailable'
   | 'executor_kind_unavailable'
   | 'executor_tier_mismatch'
@@ -315,6 +317,9 @@ function toUnavailableResult(error: unknown): RunPythonResult {
     };
   }
   if (isExecCapabilityMismatchError(error)) {
+    return { detail: error.message, kind: 'unavailable', reason: error.reason };
+  }
+  if (isFenceReadinessError(error)) {
     return { detail: error.message, kind: 'unavailable', reason: error.reason };
   }
   if (isInterpreterUnavailableError(error)) {
@@ -665,11 +670,31 @@ export function createRunPythonTool(options: RunPythonToolOptions) {
       const startedAt = Date.now();
       const resolveSignal = AbortSignal.any([callerSignal, AbortSignal.timeout(timeoutMs)]);
 
-      let executor: ReturnType<typeof resolveCodeExecutor>;
+      let executor: Awaited<ReturnType<typeof resolveCodeExecutor>>;
       try {
         const host = await options.resolveHost(resolveSignal);
-        executor = resolveCodeExecutor('fence', host);
+        executor = await resolveCodeExecutor('fence', host, resolveSignal);
       } catch (error) {
+        // Only the failure belonging to this resolution signal is an abort.
+        // An unrelated construction error must remain visible even if Stop
+        // or the shared deadline happened to fire at the same time.
+        if (resolveSignal.aborted && error === resolveSignal.reason) {
+          if (callerSignal.aborted) {
+            return {
+              kind: 'cancelled',
+              partialStderr: '',
+              partialStdout: '',
+              processStarted: false,
+              stderrOmittedBytes: 0,
+              stdoutOmittedBytes: 0,
+            };
+          }
+          return {
+            detail: `Resolving the Python sandbox used the whole ${timeoutMs}ms budget, so the code was not run.`,
+            kind: 'unavailable',
+            reason: 'resolve_timed_out',
+          };
+        }
         return toUnavailableResult(error);
       }
 

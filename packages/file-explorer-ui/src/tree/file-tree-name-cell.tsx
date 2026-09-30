@@ -33,24 +33,20 @@ interface TreeNodeIconProps {
 function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIconProps) {
   if (isLoading) {
     return (
-      <Loader2
-        aria-label={`Loading ${nodeName}`}
-        className="animate-spin text-blue-500 dark:text-blue-400"
-        size={16}
-      />
+      <Loader2 aria-label={`Loading ${nodeName}`} className="animate-spin text-info" size={16} />
     );
   }
   if (nodeType === 'truncated') {
-    return <InfoIcon className="text-gray-400 dark:text-gray-500" size={16} />;
+    return <InfoIcon className="text-muted-foreground" size={16} />;
   }
   if (nodeType === 'file' || nodeType === 'loadMore') {
-    return <FileIcon className="text-gray-500 dark:text-gray-400" size={16} />;
+    return <FileIcon className="text-muted-foreground" size={16} />;
   }
   if (nodeType === 'directory') {
     if (isExpanded) {
-      return <FolderOpen className="text-blue-500 dark:text-blue-400" size={16} />;
+      return <FolderOpen className="text-blue-800 dark:text-blue-300" size={16} />;
     }
-    return <Folder className="text-blue-500 dark:text-blue-400" size={16} />;
+    return <Folder className="text-blue-800 dark:text-blue-300" size={16} />;
   }
   return null;
 }
@@ -146,7 +142,7 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
           {rowData.isLoadingForSelection ? (
             <Loader2
               aria-label={`Loading ${fileNode.name} for selection`}
-              className="h-4 w-4 animate-spin text-blue-500"
+              className="h-4 w-4 animate-spin text-info"
             />
           ) : (
             // No DOM id: the same path renders in multiple tree surfaces
@@ -196,19 +192,19 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
           : { className: 'flex min-w-0 flex-1 items-center' })}
       >
         {fileNode.isSymbolicLink && (
-          <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
+          <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-800 dark:text-blue-300" />
         )}
         <span
           className={
             fileNode.type === 'truncated'
-              ? 'truncate text-gray-400 text-sm italic leading-4 dark:text-gray-500'
+              ? 'truncate text-muted-foreground text-sm italic leading-4'
               : 'truncate text-sm leading-4 group-hover/file-row:underline'
           }
         >
           {fileNode.name}
         </span>
         {fileNode.type === 'directory' && fileNode.isDepthTruncated && (
-          <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-gray-500" />
+          <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
         )}
       </div>
     </div>

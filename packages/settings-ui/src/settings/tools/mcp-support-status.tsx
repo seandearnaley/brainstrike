@@ -449,7 +449,7 @@ export function McpServerCatalog({
         {featureRows.map(([label, supported]) => (
           <span className="text-muted-foreground" key={label}>
             {label}{' '}
-            <span className={supported ? 'text-emerald-700 dark:text-emerald-300' : ''}>
+            <span className={supported ? 'text-success' : ''}>
               {supported ? 'Supported' : 'Unsupported'}
             </span>
           </span>
@@ -636,11 +636,7 @@ export function McpSupportMatrix({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-medium">{entry.label}</span>
                 <span
-                  className={
-                    status === 'supported'
-                      ? 'text-emerald-700 dark:text-emerald-300'
-                      : 'text-muted-foreground'
-                  }
+                  className={status === 'supported' ? 'text-success' : 'text-muted-foreground'}
                   data-testid={`mcp-support-status-${entry.id}`}
                 >
                   {SUPPORT_STATUS_LABELS[status]}

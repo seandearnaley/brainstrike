@@ -470,7 +470,7 @@ export function GitWorkbenchHeader({
                       </span>
                       {disabledReason ? (
                         <span
-                          className="mt-0.5 block text-[10px] text-amber-700 dark:text-amber-300"
+                          className="mt-0.5 block text-[10px] text-warning"
                           data-testid="git-workbench-worktree-disabled-reason"
                         >
                           {disabledReason}

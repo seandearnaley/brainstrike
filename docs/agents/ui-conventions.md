@@ -603,6 +603,30 @@ at all. Evidence: `ui-conventions/tailwind-source-coverage.md`.
 Guard: `scripts/__tests__/tailwind-source-coverage.test.mjs` (`pnpm test:scripts`,
 the Static CI job).
 
+### Colour tokens and contrast
+
+- Prefer semantic foregrounds: `text-success`, `text-info`, `text-warning`,
+  `text-destructive`, `text-muted-foreground`; use each status's `-foreground`
+  counterpart on its filled background. New colours need a complete `--bs-*` value
+  in `themes/*.css`, its `--x` alias and one `--color-x` mapping in shared `theme.css`.
+- Require unrounded 4.5:1 for small text and sole-signal status glyphs; other
+  meaningful non-text indicators need 3:1. A redundant, aria-hidden ornament
+  needs an exact, documented role exception; `aria-hidden` alone proves nothing.
+- Measure against the worst plausible surface in both themes and contrast
+  modes, including composited opacity/tints. A shade number is never a guarantee.
+- Keep pale raw `bg-*`/`border-*` tints when measured; a deep semantic foreground
+  used as a tint can LOWER contrast. Same-token 5%/10% fills have numeric guards.
+- Static checks cover numbered palette foregrounds, variants and numeric alpha
+  across app/package source. Runtime-built classes, arbitrary colours, inherited
+  opacity and custom/gradient surfaces still need rendered checks.
+- Keep exceptions exact to an occurrence, role or measured painted surface,
+  with reasons and stale-entry tests; never baseline a failing status or text.
+
+Evidence: `ui-conventions/colour-contrast.md`.
+Guard: `scripts/__tests__/source-foreground-contract.test.mjs`,
+`semantic-status-contrast.test.mjs`, `semantic-theme-contract.test.mjs`
+(`pnpm test:scripts`, required Static job).
+
 ---
 
 ## VIEW SWITCHERS (Tabs)

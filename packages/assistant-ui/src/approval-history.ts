@@ -10,10 +10,14 @@ export function approvalCardToolCallIds(
 ): ReadonlySet<string> {
   const ids = new Set<string>();
   for (const part of parts) {
-    // A card can be in a separate message. Match the recorded pause's HOST
-    // leg and surface call, never its native Mastra run ID or a child leaf.
+    // A separate card matches the invocation's recorded HOST leg and surface
+    // call, even when the pause event lives elsewhere. Never infer a native
+    // Mastra run ID or a child leaf.
     const event = cardedSurfaceCalls?.size ? readAssistantRunEventDataPart(part) : undefined;
-    if (event?.kind === 'tool.approval.requested' && event.runId) {
+    if (
+      (event?.kind === 'tool.approval.requested' || event?.kind === 'tool.started') &&
+      event.runId
+    ) {
       const callId = event.metadata?.['toolCallId'];
       if (
         typeof callId === 'string' &&

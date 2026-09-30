@@ -52,18 +52,43 @@ function destructiveVariant(path) {
   return found[0].split(/\s+/);
 }
 
+function destructiveBackgrounds(classes) {
+  // Qualify every background utility, not only the expected token family.
+  // New background images/positions or arbitrary colors need an explicit paint model.
+  // Leading/trailing ! is deliberately unsupported: this model does not resolve cascade priority.
+  const backgrounds = classes.filter((utility) =>
+    /(?:^|:)!?(?:bg-|\[(?:background(?:-color|-image)?):)/.test(utility)
+  );
+  for (const utility of backgrounds) {
+    assert.ok(
+      !/(?:^|:)!(?:bg-|\[(?:background(?:-color|-image)?):)|!$/.test(utility),
+      `Unsupported important background utility: ${utility}; qualify its cascade before measuring contrast`
+    );
+    assert.match(
+      utility,
+      /(?:^|:)bg-destructive(?:\/\d+)?$/,
+      `Unqualified destructive background override: ${utility}`
+    );
+  }
+  return backgrounds;
+}
+
+function destructiveFillAlphas(classes, mode) {
+  return destructiveBackgrounds(classes).flatMap((utility) => {
+    if (utility.startsWith('dark:') && !mode.endsWith('dark')) {
+      return [];
+    }
+    const match = utility.match(/(?:^|:)bg-destructive(?:\/(\d+))?$/);
+    return match ? [match[1] ? Number(match[1]) / 100 : 1] : [];
+  });
+}
+
 for (const path of ['packages/ui/src/button.tsx', 'packages/ui/src/badge.tsx']) {
   it(`${path} keeps its actual filled variants legible, including dark and hover alpha`, () => {
     const classes = destructiveVariant(path);
     assert.ok(classes.includes('text-destructive-foreground'));
     for (const [mode, tokens] of Object.entries(modes)) {
-      const alphas = classes.flatMap((utility) => {
-        if (utility.startsWith('dark:') && !mode.endsWith('dark')) {
-          return [];
-        }
-        const match = utility.match(/(?:^|:)bg-destructive(?:\/(\d+))?$/);
-        return match ? [match[1] ? Number(match[1]) / 100 : 1] : [];
-      });
+      const alphas = destructiveFillAlphas(classes, mode);
       assert.ok(alphas.length > 0);
       for (const surface of surfaces) {
         for (const alpha of alphas) {
@@ -111,7 +136,7 @@ function toastCloseClasses() {
 }
 
 function requireOpaqueToastFill(classes) {
-  const fills = classes.filter((utility) => /(?:^|:)bg-destructive(?:\/.*)?$/.test(utility));
+  const fills = destructiveBackgrounds(classes);
   assert.deepEqual(
     fills,
     ['bg-destructive'],
@@ -127,6 +152,33 @@ it('rejects an alpha or theme override in the actual Toast fill contract', () =>
     /opaque destructive fill/
   );
 });
+
+for (const utility of [
+  '!bg-destructive',
+  'bg-destructive!',
+  'hover:!bg-destructive/90',
+  'hover:bg-destructive/90!',
+  'dark:!bg-destructive/60',
+  'dark:bg-destructive/60!',
+  'dark:hover:!bg-destructive/90',
+  'dark:hover:bg-destructive/90!',
+  '!bg-red-700',
+  'bg-red-700!',
+  'hover:!bg-info',
+  'hover:bg-info!',
+]) {
+  it(`explicitly rejects unsupported important background ${utility} before measuring fills`, () => {
+    const classes = ['bg-destructive', utility];
+    const expected = {
+      message: `Unsupported important background utility: ${utility}; qualify its cascade before measuring contrast`,
+    };
+    assert.throws(() => destructiveBackgrounds(classes), expected);
+    assert.throws(() => requireOpaqueToastFill(classes), expected);
+    for (const mode of Object.keys(modes)) {
+      assert.throws(() => destructiveFillAlphas(classes, mode), expected);
+    }
+  });
+}
 
 function closePaint(tokens, color) {
   if (color === 'destructive-foreground') {
@@ -177,3 +229,60 @@ it('the live destructive ToastClose glyph clears 3:1 at resting and hover opacit
     }
   }
 });
+
+for (const path of [
+  'packages/ui/src/button.tsx',
+  'packages/ui/src/badge.tsx',
+  'packages/ui/src/toast.tsx',
+]) {
+  for (const property of [
+    'background:red',
+    'background-color:red',
+    'background-image:linear-gradient(red,blue)',
+  ]) {
+    for (const [override, important] of [
+      [`[${property}]`, false],
+      [`hover:[${property}]`, false],
+      [`[&:hover]:[${property}]`, false],
+      [`![${property}]`, true],
+      [`dark:![${property}]`, true],
+      [`dark:[&:hover]:[${property}]!`, true],
+    ]) {
+      it(`${path} rejects arbitrary background property ${override}`, () => {
+        const classes = [...destructiveVariant(path), override];
+        const expected = {
+          message: important
+            ? `Unsupported important background utility: ${override}; qualify its cascade before measuring contrast`
+            : `Unqualified destructive background override: ${override}`,
+        };
+        if (path.endsWith('/toast.tsx')) {
+          assert.throws(() => requireOpaqueToastFill(classes), expected);
+        } else {
+          for (const mode of Object.keys(modes)) {
+            assert.throws(() => destructiveFillAlphas(classes, mode), expected);
+          }
+        }
+      });
+    }
+  }
+
+  it(`${path} rejects a different background family instead of measuring the wrong fill`, () => {
+    const classes = destructiveVariant(path);
+    for (const override of [
+      'bg-red-700',
+      'dark:bg-red-700',
+      'hover:bg-info',
+      'bg-[black]',
+      'dark:!bg-red-700',
+    ]) {
+      const changed = [...classes, override];
+      if (path.endsWith('/toast.tsx')) {
+        assert.throws(() => requireOpaqueToastFill(changed), /background|fill/);
+      } else {
+        for (const mode of Object.keys(modes)) {
+          assert.throws(() => destructiveFillAlphas(changed, mode), /background|fill/);
+        }
+      }
+    }
+  });
+}
