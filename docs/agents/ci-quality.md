@@ -144,10 +144,9 @@ Guard: `scripts/__tests__/check-open-pr-linear-conformance.test.mjs`.
 
 - Actual AppImage release qualification uses `docs/linux-appimage-qualification.md`;
   unpacked CI is not mounted/upgrade proof. Guard: `scripts/__tests__/qualify-linux-appimage.test.mjs`.
-- `pnpm install` never provisions Electron. Each job that launches it downloads
-  the release zip to `${RUNNER_TEMP:-/tmp}/electron.zip` right before use, with no
-  Actions cache; `Native Electron Package` hands that same verified zip to
-  electron-builder via `--config.electronDist`.
+- `pnpm install` never provisions Electron. Each launch job downloads a fresh
+  `${RUNNER_TEMP:-/tmp}/electron.zip`, without an Actions cache; packaging reuses
+  that verified zip via `--config.electronDist`.
 - That job packages once (`VITE_MCP_TASK_HARNESS=1`, never set for release), then
   runs `test:e2e:lane:packaged-mcp-apps-bridge`, `test:e2e:lane:packaged-mcp-tasks`,
   `test:e2e:lane:packaged-mcp-apps`, the packaged native checks, then
@@ -156,8 +155,8 @@ Guard: `scripts/__tests__/check-open-pr-linear-conformance.test.mjs`.
   the launcher forwards an explicit env allowlist, never ambient CI env. The
   harness injects into the REAL main window (production preload, default session,
   production header CSP) — never a private-partition harness window.
-- A proof's diagnostic branch reads text and never clicks; both `Promise.race` racers are `.catch`-handled. Do not widen the core lane to hide
-  skip-on-failure MCP discovery.
+- Diagnostic branches read text, never click; `.catch` both `Promise.race` racers.
+  Never widen the core lane to hide skip-on-failure MCP discovery.
 - Memory specs launch with `--enable-precise-memory-info` **and**
   `--js-flags=--expose-gc`, and read working set from `app.getAppMetrics()`; a
   missing PID metric fails. Changing a fixture, window, ceiling, or memory source
@@ -166,6 +165,7 @@ Guard: `scripts/__tests__/check-open-pr-linear-conformance.test.mjs`.
   never replaces or routes a required PR check.
 - AI Tools settings specs stay in both required PR smoke lanes and in nightly.
 - E2E collection selection waits for the named picker or loaded single-set label, never unrelated text or pending rows.
+
 Evidence: `ci-quality/desktop-electron-provisioning.md`,
 `ci-quality/packaged-mcp-lanes.md`, `ci-quality/desktop-memory-calibration.md`,
 `ci-quality/ai-tools-smoke-lanes.md`, `ci-quality/electron-collection-readiness.md`.

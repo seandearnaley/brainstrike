@@ -15,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { shutdownChildProcessTree } from '../../apps/desktop/scripts/start-agent-devtools-session.mjs';
+import * as qualification from '../qualify-linux-appimage.mjs';
 import {
   buildAppImageLaunch,
   main,
@@ -92,11 +93,14 @@ test('launch preserves security and isolates all writable profile paths', () => 
     artifact: '/tmp/candidate.AppImage',
     inherited: {
       DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/test',
+      DESKTOP_SESSION: 'plasma',
       DISPLAY: ':1',
       ELECTRON_DISABLE_SANDBOX: '1',
       HOME: '/home/real-user',
+      KDE_SESSION_VERSION: '6',
       NODE_OPTIONS: '--require malicious.js',
       OPENAI_API_KEY: 'must-not-inherit',
+      XDG_SESSION_TYPE: 'wayland',
     },
     port: 9237,
     root: '/tmp/appimage-qa-unique',
@@ -115,6 +119,9 @@ test('launch preserves security and isolates all writable profile paths', () => 
   assert.equal(mounted.env.ELECTRON_DISABLE_SANDBOX, undefined);
   assert.equal(mounted.env.ELECTRON_IS_E2E_TEST, undefined);
   assert.equal(mounted.env.DBUS_SESSION_BUS_ADDRESS, base.inherited.DBUS_SESSION_BUS_ADDRESS);
+  for (const key of ['DESKTOP_SESSION', 'KDE_SESSION_VERSION', 'XDG_SESSION_TYPE']) {
+    assert.equal(mounted.env[key], base.inherited[key]);
+  }
   assert.equal(mounted.env.BRAINSTRIKE_AGENT_DEVTOOLS_HOST, '127.0.0.1');
   assert.equal(mounted.env.BRAINSTRIKE_AGENT_DEVTOOLS_PORT, '9237');
   const extracted = buildAppImageLaunch({ ...base, mode: 'extract' });
@@ -210,7 +217,7 @@ function qualificationArgs(root) {
 function successfulDependencies() {
   return {
     inspectArtifact: async (filename) => ({ bytes: 100, path: filename, sha256: filename }),
-    inspectMetadata: async () => ({ desktop: { version: '0.1.0' } }),
+    inspectMetadata: async () => ({ desktop: { disablesSandbox: false, version: '0.1.0' } }),
     qualifyLifecycle: async ({ report }) => {
       for (const name of [
         'first-launch',
@@ -363,9 +370,9 @@ test('unconfirmed process cleanup retains its profile rather than deleting live 
       throw new Error('process still running');
     },
   });
+  t.after(() => rm(report.retainedTemporaryAlias, { force: true, recursive: true }));
   assert.equal(report.status, 'failed');
   assert.ok((await readdir(root)).some((name) => name.startsWith('appimage-qa-')));
-  t.after(() => rm(report.retainedTemporaryAlias, { force: true, recursive: true }));
 });
 
 test('bounded success leaves manual clean-desktop and database gates visibly open', async (t) => {
@@ -552,7 +559,7 @@ test('live sandbox check proves CDP process ownership and rejects injected bypas
   }
 });
 
-test('credential-at-rest check rejects raw and base64-encoded plaintext', () => {
+test('credential-at-rest check requires Linux keyring ciphertext, never plaintext or basic_text', () => {
   const marker = 'synthetic-test-value';
   const wrap = (value) => JSON.stringify({ secrets: { 'appimage-qualification': value } });
   assert.throws(() => assertEncryptedCredential(wrap(marker), marker), /plaintext/);
@@ -562,8 +569,23 @@ test('credential-at-rest check rejects raw and base64-encoded plaintext', () => 
   );
   assert.throws(() => assertEncryptedCredential('{}', marker));
   assert.throws(() => assertEncryptedCredential(wrap('not base64!'), marker));
-  assert.doesNotThrow(() =>
-    assertEncryptedCredential(wrap(Buffer.from([1, 2, 3, 255]).toString('base64')), marker)
+  for (const bytes of [
+    Buffer.from(`v10${'x'.repeat(16)}`),
+    Buffer.from([1, 2, 3, 255]),
+    Buffer.from('v11'),
+    Buffer.from('v11short'),
+  ]) {
+    assert.throws(
+      () => assertEncryptedCredential(wrap(bytes.toString('base64')), marker),
+      /Linux keyring/
+    );
+  }
+  assert.deepEqual(
+    assertEncryptedCredential(
+      wrap(Buffer.concat([Buffer.from('v11'), Buffer.alloc(16, 0xa5)]).toString('base64')),
+      marker
+    ),
+    { ciphertextFormat: 'linux-os-crypt-v11' }
   );
 });
 
@@ -595,6 +617,10 @@ test('long report paths use short socket paths backed by the same isolated disk 
 });
 
 test('graceful shutdown signals Electron main without killing the AppImage wrapper', async (t) => {
+  if (process.platform !== 'linux') {
+    t.skip('Linux /proc ownership contract');
+    return;
+  }
   const mainCode =
     "process.on('SIGTERM', () => process.exit(0)); process.stdout.write('ready'); setInterval(() => {}, 1000);";
   const wrapperCode = `const { spawn } = require('node:child_process');
@@ -631,4 +657,71 @@ test('durable failure reports retain primary and teardown causes without synthet
     ['lost [synthetic credential]', 'teardown failed']
   );
   assert.ok(!JSON.stringify(durable).includes('synthetic-appimage-qa-aabbcc-1234'));
+});
+
+test('candidate desktop sandbox bypass or missing verification fails before any launch', async (t) => {
+  for (const disablesSandbox of [true, undefined]) {
+    const root = await temporary(t);
+    let launched = false;
+    const report = await main(qualificationArgs(root), {
+      ...successfulDependencies(),
+      inspectMetadata: async () => ({ desktop: { disablesSandbox, version: '0.1.0' } }),
+      qualifyLifecycle: async () => {
+        launched = true;
+      },
+    });
+    assert.equal(report.status, 'failed');
+    assert.equal(report.failure.phase, 'artifact-metadata');
+    assert.match(report.failure.message, /Candidate desktop entry/);
+    assert.equal(launched, false);
+    const durable = JSON.parse(await readFile(path.join(root, 'report.json'), 'utf8'));
+    assert.equal(durable.status, 'failed');
+    assert.deepEqual(await readdir(root), ['report.json']);
+  }
+});
+
+test('historical desktop sandbox flag is recorded without rejecting safe candidate replacement', async (t) => {
+  const root = await temporary(t);
+  const report = await main(qualificationArgs(root), {
+    ...successfulDependencies(),
+    inspectMetadata: async ({ artifact }) => ({
+      desktop: { disablesSandbox: artifact.endsWith('previous.AppImage'), version: '0.1.0' },
+    }),
+  });
+  assert.equal(report.status, 'passed-bounded-lifecycle');
+  assert.equal(report.previous.metadata.desktop.disablesSandbox, true);
+  assert.equal(report.candidate.metadata.desktop.disablesSandbox, false);
+});
+
+test('host identity prefers etc os-release, falls back to usr lib, and tolerates absent metadata', async () => {
+  const calls = [];
+  const missing = Object.assign(new Error('missing'), { code: 'ENOENT' });
+  const read = async (filename) => {
+    calls.push(filename);
+    if (filename === '/etc/os-release') {
+      throw missing;
+    }
+    return 'ID=test\nVERSION_ID=13\nPRETTY_NAME=Test Linux\nIGNORED=extra\n';
+  };
+  assert.deepEqual(await qualification.readOsRelease(read), [
+    'ID=test',
+    'VERSION_ID=13',
+    'PRETTY_NAME=Test Linux',
+  ]);
+  assert.deepEqual(calls, ['/etc/os-release', '/usr/lib/os-release']);
+  assert.deepEqual(
+    await qualification.readOsRelease(async () => {
+      throw missing;
+    }),
+    []
+  );
+  let preferredReads = 0;
+  assert.deepEqual(
+    await qualification.readOsRelease(async () => {
+      preferredReads++;
+      return 'ID=preferred';
+    }),
+    ['ID=preferred']
+  );
+  assert.equal(preferredReads, 1);
 });

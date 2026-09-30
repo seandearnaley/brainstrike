@@ -25,7 +25,9 @@ The pinned electron-builder 26.17.0 has two relevant behaviors:
 
 - Its default legacy AppImage desktop entry contains `--no-sandbox`.
   `build.appImage.executableArgs: []` explicitly removes that default. The
-  embedded desktop metadata must be inspected on the **actual output** too
+  harness rejects sandbox-bypass flags in the candidate's **actual output**
+  desktop entry before launch. A historical previous entry is recorded only;
+  every direct lifecycle launch still passes the live argument checks
 - Its generated `AppRun` adds `--no-sandbox` when `unshare -Ur true` fails,
   including with its newer toolset. The harness therefore requires that probe
   to succeed **before executing AppRun** and checks the live main process's
@@ -97,11 +99,16 @@ opted in on loopback only, without enabling E2E/test semantics. The sequence is:
 2. Close gracefully, restart previous, read both values without reseeding
 3. Close gracefully, launch candidate, read the same values without reseeding
 4. Close gracefully, restart candidate, verify both again
-5. After shutdown, verify the encrypted credential record exists and the
-   synthetic plaintext marker is absent from its on-disk file
+5. After shutdown, verify the credential record has Linux keyring-derived
+   OSCrypt `v11` ciphertext and the synthetic plaintext marker is absent.
+   `v10` (hardcoded-key fallback), malformed and unknown formats fail closed
 
 Read the complete report. Exit 0 / `passed-bounded-lifecycle` covers only this
-sequence. A failed stage, missing keyring, early process exit, timeout, abort,
+sequence. The encrypted-at-rest check records its validated format, not a
+backend name or independent cryptographic attestation. KDE/desktop session
+selection variables are preserved; no basic password-store override is used.
+Host identity reads `/etc/os-release`, then `/usr/lib/os-release`, and records an
+empty list if neither is readable. A failed stage, missing keyring, early process exit, timeout, abort,
 failed cleanup, or report-write error is nonzero. Primary and teardown failures
 stay separate in the report; messages redact the synthetic marker. No app logs or credential
 values are included in the report. The owned process group is stopped before

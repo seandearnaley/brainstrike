@@ -27,3 +27,31 @@ after exhaustion, verifies the extracted executable is non-empty and runnable,
 and passes that same zip to electron-builder through
 `config.electronDist`. This keeps one bounded, observable download boundary and
 does not restore the obsolete `~/.cache/electron` Actions cache.
+
+## Actual Linux AppImage qualification (BST-1898, 2026-09-30)
+
+Unpacked native CI did not exercise the AppImage runtime, embedded desktop
+launcher, or replacement of two artifact byte streams. The procedure in
+`docs/linux-appimage-qualification.md` and its script guard fill that bounded
+gap without claiming a mounted/clean-desktop or released-version migration pass.
+
+The pinned builder's embedded desktop entry defaulted to `--no-sandbox`.
+The package config removes that default; the harness also inspects actual output
+and rejects an unsafe candidate entry before any lifecycle launch. An older
+baseline's desktop entry remains recorded for provenance. Its direct AppImage
+launch still has to pass the same namespace and live process-argument checks.
+An AppRun mentioning its conditional fallback is not itself rejected: the
+prelaunch probe and live process checks establish whether the fallback ran.
+
+The production secrets service already rejects `basic_text`, but arbitrary
+older artifacts need independent evidence too. The credential-file check now
+requires Linux synchronous OSCrypt's `v11` envelope and rejects the hardcoded-key
+`v10` fallback, malformed data and unknown formats. See the
+[Chromium format rationale](https://codereview.chromium.org/1973483002/) and
+[Electron Linux semantics](https://www.electronjs.org/docs/latest/api/safe-storage).
+This is format evidence combined with successful production bridge reads after
+restarts, not cryptographic validation of arbitrary supplied ciphertext.
+Desktop/session-selection variables are forwarded so KDE's wallet selection
+retains the real session context. No new product IPC or password-store override
+is introduced. Changes to the synchronous storage format require explicit
+requalification rather than silently accepting a new prefix.

@@ -379,8 +379,8 @@ export async function qualifyAppImageLifecycle({ options, root, report, buildLau
     path.join(root, 'profile', 'brainstrike-secrets.json'),
     'utf8'
   );
-  assertEncryptedCredential(encryptedFile, marker);
-  report.checks.push({ name: 'encrypted-at-rest', status: 'passed' });
+  const evidence = assertEncryptedCredential(encryptedFile, marker);
+  report.checks.push({ evidence, name: 'encrypted-at-rest', status: 'passed' });
 }
 
 export function assertEncryptedCredential(source, marker) {
@@ -399,4 +399,13 @@ export function assertEncryptedCredential(source, marker) {
     !ciphertext.includes(Buffer.from(marker)),
     'Synthetic credential was only base64-encoded plaintext.'
   );
+  // Linux synchronous OSCrypt v10 uses a hardcoded key; only v11 uses the OS
+  // secret store. Unknown formats fail closed until explicitly qualified.
+  assert.ok(
+    ciphertext.subarray(0, 3).equals(Buffer.from('v11')) &&
+      ciphertext.length > 3 &&
+      (ciphertext.length - 3) % 16 === 0,
+    'Expected Linux keyring-backed v11 ciphertext; basic_text or unknown formats are unqualified.'
+  );
+  return { ciphertextFormat: 'linux-os-crypt-v11' };
 }

@@ -19,6 +19,9 @@ const INHERITED_KEYS = [
   'XAUTHORITY',
   'XDG_RUNTIME_DIR',
   'XDG_CURRENT_DESKTOP',
+  'DESKTOP_SESSION',
+  'KDE_SESSION_VERSION',
+  'XDG_SESSION_TYPE',
   'LANG',
   'LC_ALL',
   'PATH',
@@ -104,6 +107,19 @@ async function requireHost() {
   }
 }
 
+export async function readOsRelease(read = readFile) {
+  for (const filename of ['/etc/os-release', '/usr/lib/os-release']) {
+    try {
+      return (await read(filename, 'utf8'))
+        .split('\n')
+        .filter((line) => /^(?:ID|VERSION_ID|PRETTY_NAME)=/u.test(line));
+    } catch {
+      // Reporting metadata is best effort, not a launch prerequisite.
+    }
+  }
+  return [];
+}
+
 export function requireDisplay(env) {
   if (!(env.DISPLAY || env.WAYLAND_DISPLAY)) {
     throw new Error(
@@ -166,9 +182,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
   try {
     await output.writeFile(`${JSON.stringify(report, null, 2)}\n`);
     await (dependencies.requireHost ?? requireHost)();
-    report.host.osRelease = (await readFile('/etc/os-release', 'utf8'))
-      .split('\n')
-      .filter((line) => /^(?:ID|VERSION_ID|PRETTY_NAME)=/u.test(line));
+    report.host.osRelease = await readOsRelease();
     phase = 'artifact-identity';
     report.previous = await (dependencies.inspectArtifact ?? inspectArtifact)(options.previous);
     report.candidate = await (dependencies.inspectArtifact ?? inspectArtifact)(options.candidate);
@@ -209,6 +223,11 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
         env,
         signal: controller.signal,
       });
+    }
+    if (report.candidate.metadata.desktop?.disablesSandbox !== false) {
+      throw new Error(
+        'Candidate desktop entry must be verified free of sandbox-bypass flags. No app launch was attempted.'
+      );
     }
     phase = 'launch-prerequisites';
     if (options.mode === 'mounted') {
