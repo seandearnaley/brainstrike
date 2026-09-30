@@ -142,10 +142,11 @@ Guard: `scripts/__tests__/check-open-pr-linear-conformance.test.mjs`.
 
 ### Desktop Electron provisioning
 
-- `pnpm install` never provisions Electron. Each job that launches it downloads
-  the release zip to `${RUNNER_TEMP:-/tmp}/electron.zip` right before use, with no
-  Actions cache; `Native Electron Package` hands that same verified zip to
-  electron-builder via `--config.electronDist`.
+- Actual AppImage release qualification uses `docs/linux-appimage-qualification.md`;
+  unpacked CI is not mounted/upgrade proof. Guard: `scripts/__tests__/qualify-linux-appimage.test.mjs`.
+- `pnpm install` never provisions Electron. Each launch job downloads a fresh
+  `${RUNNER_TEMP:-/tmp}/electron.zip`, without an Actions cache; packaging reuses
+  that verified zip via `--config.electronDist`.
 - That job packages once (`VITE_MCP_TASK_HARNESS=1`, never set for release), then
   runs `test:e2e:lane:packaged-mcp-apps-bridge`, `test:e2e:lane:packaged-mcp-tasks`,
   `test:e2e:lane:packaged-mcp-apps`, the packaged native checks, then
@@ -154,9 +155,8 @@ Guard: `scripts/__tests__/check-open-pr-linear-conformance.test.mjs`.
   the launcher forwards an explicit env allowlist, never ambient CI env. The
   harness injects into the REAL main window (production preload, default session,
   production header CSP) — never a private-partition harness window.
-- A proof's diagnostic branch reads text and never clicks; both racers of its
-  `Promise.race` are `.catch`-handled. Do not widen the core lane to hide
-  skip-on-failure MCP discovery.
+- Diagnostic branches read text, never click; `.catch` both `Promise.race` racers.
+  Never widen the core lane to hide skip-on-failure MCP discovery.
 - Memory specs launch with `--enable-precise-memory-info` **and**
   `--js-flags=--expose-gc`, and read working set from `app.getAppMetrics()`; a
   missing PID metric fails. Changing a fixture, window, ceiling, or memory source
