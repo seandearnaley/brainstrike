@@ -1905,18 +1905,15 @@ Purpose-built projections:
 Native-tool catalog ownership — ONE `defineNativeTool` declaration per tool,
 everything else derived:
 
-- `packages/assistant-contract/src/native-tools/definitions/*.ts` holds one file
-  per tool, `native-tools/index.ts` is the ONLY list (`NATIVE_TOOLS`), and
-  `deriveNativeToolRegistries` produces every registry from it under its
-  historical export name. `defineNativeTool` throws on an undeterminable risk
-  bucket, a deferred tool without a namespace, or a critical tool with one.
-- `NATIVE_TOOL_SCHEMAS` is DERIVED from each definition's `inputSchema` by
-  `native-tools/display.ts` using the same conversion the provider wrapper runs,
-  so parameter names, types, required-ness, enum options, defaults and bounds
-  cannot drift from the wire. A parameter's prose is its `.describe()` text; a
-  `display` map adds inspector-only prose and throws on a key naming no
-  parameter. **`NATIVE_TOOL_SCHEMAS` is NEVER an execution or provider-schema
-  source.**
+- `packages/assistant-contract/src/native-tools/definitions/*.ts` declares each
+  tool; `native-tools/index.ts` is the ONLY list (`NATIVE_TOOLS`). Every registry
+  derives through `deriveNativeToolRegistries` under its historical export name.
+  `defineNativeTool` rejects undetermined risk, deferred tools without a namespace, or critical tools with one.
+- `NATIVE_TOOL_SCHEMAS` derives from each `inputSchema` via `native-tools/display.ts`
+  using the provider conversion, so parameter names, types, required-ness, enum
+  options, defaults and bounds cannot drift. Prose comes from `.describe()`; a
+  `display` map adds inspector-only prose and rejects nonexistent parameters.
+  **`NATIVE_TOOL_SCHEMAS` is NEVER an execution or provider-schema source.**
 - `packages/agent/src/tools/schemas.ts` exports `NATIVE_TOOL_INPUT_SCHEMAS`
   derived from the desktop definitions' `inputSchema` objects; the Zod modules
   live in `packages/assistant-contract/src/native-tools/schemas/` — edit the
@@ -1943,10 +1940,13 @@ everything else derived:
   normalize optional fields into required ones. Do not repair that by stripping
   zero, null or empty arguments — they may be meaningful server inputs.
 - Adding or renaming a native tool is one `defineNativeTool` file plus one entry
-  in the desktop executor map; a definition with no entry, or an entry with no
-  definition, is a compile error. The catalog's inline snapshot is the only
-  hand-listed id set, so there is no stale, missing or extra key to drift — and
-  no fallback alias or partially registered tool.
+  in the desktop executor map; either half missing is a compile error. The
+  catalog's inline snapshot is the only hand-listed id set: no stale, missing
+  or extra keys, fallback aliases, or partially registered tools.
+- At the desktop enabled-id boundary, warn `enabled_native_tools_unavailable` for
+  missing known ids; emit only the fixed code and deduplicated catalog ids.
+  Suppress only catalog-declared local omissions and absent skill/artifact
+  capabilities. Guard: `assistant-tools-availability.test.ts`.
 
 Desktop-only native tools:
 

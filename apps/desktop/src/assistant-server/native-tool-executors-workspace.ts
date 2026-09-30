@@ -96,7 +96,7 @@ export const WORKSPACE_TOOL_EXECUTORS = executorGroup({
   }),
   // Present only when the request carries a scoped artifact reader: without
   // one there is nothing to page, and the id's absence is the capability
-  // result (the enabled-id filter in assistant-tools.ts logs it as such).
+  // result (the enabled-id filter in assistant-tools.ts keeps it silent).
   [NATIVE_TOOL_ID.readToolOutputArtifact]: ({ dependencies, resolveActiveDomainCharBudget }) => {
     const toolOutputArtifactReader = dependencies.toolOutputArtifactReader;
     if (!toolOutputArtifactReader) {

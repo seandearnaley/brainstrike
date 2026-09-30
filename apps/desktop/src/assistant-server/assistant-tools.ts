@@ -6,6 +6,7 @@ import {
 import {
   DESKTOP_NATIVE_TOOL_IDS,
   isDesktopNativeToolId,
+  LOCAL_DESKTOP_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
@@ -22,6 +23,7 @@ import { applyToolProjectionRewriteRecording } from './tool-projection-rewrite-r
 export type { DesktopAssistantToolDependencies } from './native-tool-executor-context';
 
 const logger = createLogger('DesktopAssistantTools');
+const localNativeToolIds: ReadonlySet<string> = new Set(LOCAL_DESKTOP_NATIVE_TOOL_IDS);
 
 /**
  * Builds the Mastra ToolsInput for the desktop assistant server: a fold of
@@ -71,17 +73,17 @@ export function buildDesktopAssistantTools(
   const unavailableToolIds = Array.from(enabledSet).filter(
     (toolId) =>
       tools[toolId] === undefined &&
-      // Skill execution is capability-gated by the trusted per-request scan
-      // engine. A persisted preference may still name it while Skills are
-      // disabled; omission is the explicit capability result, not corruption.
-      toolId !== NATIVE_TOOL_ID.runSkillScript &&
-      // run_python is capability-gated twice over: absent for the built-in
-      // local provider, and `createFenceExecutorFactory` yields undefined on
-      // a host with no OS fence. Omission is the explicit capability result.
-      toolId !== NATIVE_TOOL_ID.runPython
+      // The catalog declares the built-in local surface; a raw preference
+      // list may still include hosted-only tools. Do not duplicate that list.
+      (!context.isLocalProvider || localNativeToolIds.has(toolId)) &&
+      // Suppress capability absence, not an unexpectedly missing registration
+      // when the request actually supplies the skill/artifact capability.
+      !(toolId === NATIVE_TOOL_ID.runSkillScript && !dependencies.skillScriptResolver) &&
+      !(toolId === NATIVE_TOOL_ID.readToolOutputArtifact && !dependencies.toolOutputArtifactReader)
   );
   if (unavailableToolIds.length > 0) {
-    logger.debug('Enabled native tool ids unavailable in the current runtime', {
+    logger.warn('Enabled native tool ids unavailable in the current runtime', {
+      code: 'enabled_native_tools_unavailable',
       toolIds: unavailableToolIds,
     });
   }

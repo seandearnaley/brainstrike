@@ -104,3 +104,30 @@ JSON Schema validation still required before tools/call. The captured real
 Mastra/OpenAI request in `mcp-optional-inputs.spec.ts` pins explicit non-strict
 generation, required-field preservation, omission at execution, and continued
 input validation; `mcp-runtime-client.spec.ts` pins explicit strict opt-in.
+
+## Enabled native-tool availability diagnostics (BST-1616, 2026-09-30)
+
+`buildDesktopAssistantTools` previously reported enabled tools missing from its
+runtime registry only at debug level, so a genuinely unexpected omission was
+invisible at the default INFO level and to the warn+ diagnostics sinks. Its
+unconditional skill-script and Python exclusions also hid registration defects.
+
+The warning now contains only `enabled_native_tools_unavailable` and the known,
+deduplicated catalog ids. Unknown ids still fail preference validation before
+logging; no runtime payload, provider options, workspace identity, or credentials
+enter this diagnostic. Tool filtering and execution behavior are unchanged.
+
+Expected omissions remain silent: the built-in local surface derives from
+`LOCAL_DESKTOP_NATIVE_TOOL_IDS`, and skill-script/artifact tools are exempt only
+when their request-scoped resolver/reader is absent. A supplied capability with a
+missing registration is a warning. Hosted Python is registered with lazy host
+resolution; unsupported sandbox configuration is an execution-time failure, not
+a registration-time exemption.
+
+The ordinary local UI already filters its enabled preferences to the local
+catalog, so it is not a reproduction of the old broad-preference mismatch. The
+regression covers both that real advertised catalog and raw clients retaining
+desktop-wide preferences, alongside injected unexpected omissions for hosted and
+local runtimes. `assistant-tools-availability.test.ts` observes the real logger at
+INFO, pins the warning's complete metadata, and proves healthy capability gates
+stay silent.
