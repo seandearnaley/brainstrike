@@ -151,6 +151,14 @@ catalog:
   zod: ^4.6.5
   zustand: ^5.0.15
 overrides:
+  # BST-880: patch pinned Vercel route parsers without crossing API majors.
+  # Retire each edge when its owner admits >=6.3.0 or >=8.4.0 respectively.
+  '@vercel/node@5.9.3>path-to-regexp': 6.3.0
+  '@vercel/remix-builder@5.9.1>path-to-regexp': 6.3.0
+  '@vercel/backends@0.8.30>path-to-regexp': 8.4.2
+  '@vercel/express@0.1.121>path-to-regexp': 8.4.2
+  '@vercel/hono@0.2.110>path-to-regexp': 8.4.2
+  '@vercel/fun@1.3.0>path-to-regexp': 8.4.2
   # BST-878: keep YAML on its owner's major; 4.3.2 also fixes empty merge
   # sources. Retire when every 4.x owner resolves >=4.3.2 without this floor.
   'js-yaml@>=4.0.0 <4.3.2': 4.3.2
