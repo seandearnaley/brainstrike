@@ -184,6 +184,95 @@ describe('createElectronIpcTransport', () => {
     });
   });
 
+  describe('when main stopped retrying after repeated init timeouts', () => {
+    const initStop = {
+      budgetMs: 372_000,
+      consecutiveTimeouts: 2,
+      hostPid: 4242,
+      lastTimeoutAt: '2026-09-29T18:00:00.000Z',
+      phaseKey: 'index-rebuild:public.idx_file_chunks_content_bm25',
+      report: {
+        index: {
+          accessMethod: 'bm25',
+          heapBytes: 137_363_456,
+          index: 'idx_file_chunks_content_bm25',
+          indexBytes: 33_685_504,
+          schema: 'public',
+          table: 'file_chunks',
+          toastBytes: 221_249_536,
+        },
+        phase: 'index-rebuild',
+      },
+      version: 1,
+    };
+    const openWith = (diagnostics: Record<string, unknown>) => {
+      installBridge(
+        createBridge({
+          diagnostics: vi.fn(() => Promise.resolve(diagnostics)),
+          query: vi.fn(() => Promise.reject(new Error('Desktop database failed to initialize'))),
+        })
+      );
+      return createElectronIpcTransport({ isEnabled: () => true }).open();
+    };
+
+    it('says so, and that nothing was deleted, instead of blaming the pgvector extension', async () => {
+      // Main answers diagnostics from its own record and forks no host, so the snapshot carries
+      // no failure: the stop must be read first or the person is told the wrong thing.
+      await expect(openWith({ initStop, lastInitializationFailure: null })).rejects.toMatchObject({
+        message:
+          'BrainStrike stopped retrying the database start: rebuilding the search index timed out twice (last budget 372 s). Nothing was deleted or replaced.',
+      });
+    });
+
+    it('reads the stop before any recorded failure', async () => {
+      await expect(
+        openWith({
+          initStop,
+          lastInitializationFailure: {
+            category: 'corruption',
+            message: 'boom',
+            stage: 'open-database',
+          },
+        })
+      ).rejects.toMatchObject({ message: expect.stringContaining('stopped retrying') });
+    });
+
+    it('names a timeout before the first phase report by what was starting', async () => {
+      await expect(
+        openWith({
+          initStop: { ...initStop, budgetMs: 90_000, phaseKey: 'init:first-report', report: null },
+        })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining(
+          'starting the database process timed out twice (last budget 90 s)'
+        ),
+      });
+    });
+
+    it('names a phase this renderer does not know generically, never as "undefined"', async () => {
+      // Main and renderer can be out of sync, and the IPC payload is not validated.
+      const unknownPhase = { ...initStop, report: { phase: 'defragment' } };
+
+      const error = await openWith({ initStop: unknownPhase }).then(
+        () => null,
+        (rejection: unknown) => rejection as Error
+      );
+
+      expect(error?.message).not.toContain('undefined');
+      expect(error?.message).toContain(
+        'a step of starting the database timed out twice (last budget 372 s)'
+      );
+    });
+
+    it('leaves the other messages alone when there is no stop', async () => {
+      await expect(
+        openWith({ initStop: null, lastInitializationFailure: null })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('pgvector extension is required for desktop'),
+      });
+    });
+  });
+
   it('rejects purgeAndClose rather than reporting a purge the renderer cannot perform', async () => {
     // Unreachable through the runtime now that `hardReset()` throws instead of
     // returning false — kept as the assertion that keeps it unreachable.

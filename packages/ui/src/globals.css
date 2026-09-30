@@ -28,6 +28,10 @@
   --accent-foreground: var(--bs-accent-foreground);
   --destructive: var(--bs-destructive);
   --destructive-foreground: var(--bs-destructive-foreground);
+  --success: var(--bs-success);
+  --success-foreground: var(--bs-success-foreground);
+  --info: var(--bs-info);
+  --info-foreground: var(--bs-info-foreground);
   --warning: var(--bs-warning);
   --warning-foreground: var(--bs-warning-foreground);
   --border: var(--bs-border);
@@ -54,7 +58,8 @@
 /* ============================================================================
  * HIGH CONTRAST MODE
  * ============================================================================
- * WCAG AAA compliant (7:1 contrast ratio) for users who need maximum clarity.
+ * Higher-contrast neutral surfaces for users who need maximum clarity.
+ * Status text and filled status pairs meet WCAG AA (4.5:1), including tints.
  * Activated when user has prefers-contrast: more set in their OS.
  */
 @media (prefers-contrast: more) {
@@ -73,7 +78,13 @@
     --bs-muted-foreground: hsl(0 0% 20%);
     --bs-accent: hsl(0 0% 85%);
     --bs-accent-foreground: hsl(0 0% 0%);
-    --bs-destructive: hsl(354 100% 40%); /* High contrast red */
+    --bs-success: hsl(152 65% 22%);
+    --bs-success-foreground: hsl(0 0% 100%);
+    --bs-info: hsl(215 65% 31%);
+    --bs-info-foreground: hsl(0 0% 100%);
+    --bs-warning: hsl(30 95% 25%);
+    --bs-warning-foreground: hsl(0 0% 100%);
+    --bs-destructive: hsl(8 65% 33%); /* Deep high-contrast terracotta */
     --bs-destructive-foreground: hsl(0 0% 100%);
     --bs-border: hsl(0 0% 0%); /* Black borders */
     --bs-panel-divider: hsl(0 0% 0%); /* High-contrast: panel divider matches border (black) for max visibility */
@@ -100,7 +111,13 @@
     --bs-muted-foreground: hsl(0 0% 80%);
     --bs-accent: hsl(0 0% 25%);
     --bs-accent-foreground: hsl(0 0% 100%);
-    --bs-destructive: hsl(354 100% 65%); /* Bright red */
+    --bs-success: hsl(152 55% 75%);
+    --bs-success-foreground: hsl(0 0% 0%);
+    --bs-info: hsl(215 55% 82%);
+    --bs-info-foreground: hsl(0 0% 0%);
+    --bs-warning: hsl(38 90% 75%);
+    --bs-warning-foreground: hsl(0 0% 0%);
+    --bs-destructive: hsl(8 65% 82%); /* Light high-contrast terracotta */
     --bs-destructive-foreground: hsl(0 0% 0%);
     --bs-border: hsl(0 0% 100%); /* White borders */
     --bs-panel-divider: hsl(0 0% 100%); /* High-contrast dark: panel divider matches border (white) for max visibility */

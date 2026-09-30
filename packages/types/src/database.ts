@@ -56,6 +56,46 @@ export type DatabaseInitFailureCategory =
 
 export type DatabaseInitStage = 'load-extensions' | 'open-database' | 'index-rebuild' | 'migration';
 
+/**
+ * What the DB host is about to do, posted to its manager BEFORE each long synchronous phase of
+ * `init`. The host answers nothing while it runs one, so this is the manager's only chance to
+ * derive that phase's deadline. `phase` is a subset of {@link DatabaseInitStage}, so the failure
+ * classifier and this vocabulary cannot drift apart.
+ */
+export type DatabaseInitPhaseReport =
+  | {
+      readonly phase: Extract<DatabaseInitStage, 'open-database'>;
+      /** Bytes of `pg_wal` segments on disk: an O(1) upper bound of the crash-recovery redo. */
+      readonly pgWalBytes: number;
+    }
+  | {
+      readonly index: DatabaseCrashSensitiveIndex;
+      readonly phase: Extract<DatabaseInitStage, 'index-rebuild'>;
+    }
+  | { readonly phase: Extract<DatabaseInitStage, 'migration'> };
+
+/**
+ * Main's record of an init that timed out, `<profile>/.db-init-attempt.json`. It counts
+ * consecutive timeouts in one phase; two of them stop the DB host manager from forking a third
+ * host. Owned by main only: the host never reads or writes it, and a reset deletes it with the
+ * profile.
+ */
+export interface DatabaseInitAttemptRecord {
+  /** The budget that expired, in milliseconds. */
+  readonly budgetMs: number;
+  /** Consecutive timeouts in `phaseKey` with no successful init between them. */
+  readonly consecutiveTimeouts: number;
+  /** The host process that was killed, when its pid was known. */
+  readonly hostPid: number | null;
+  /** ISO time of the latest of them, on main's clock. */
+  readonly lastTimeoutAt: string;
+  /** The phase whose budget expired: `init:first-report`, `open-database`, `migration` or `index-rebuild:<schema>.<index>`. */
+  readonly phaseKey: string;
+  /** The report that started that phase; null when the timeout came before the first report. */
+  readonly report: DatabaseInitPhaseReport | null;
+  readonly version: 1;
+}
+
 export interface DatabaseInitFailureSnapshot {
   category: DatabaseInitFailureCategory;
   code?: string;
@@ -74,15 +114,23 @@ export interface DatabaseInitFailureSnapshot {
 export type DatabasePreviousShutdown = 'clean' | 'unclean' | 'new-database';
 
 /**
- * One index the crash-recovery pass rebuilt. Mirrors `CrashSensitiveIndexRebuild` in
- * `@brainstrike/db`, which this package cannot import (the dependency points the other way).
+ * A crash-sensitive index with the O(1) catalog sizes the crash-recovery pass reports. Mirrors
+ * `CrashSensitiveIndex` in `@brainstrike/db`, which this package cannot import (the dependency
+ * points the other way).
  */
-export interface DatabaseCrashRecoveryIndexRebuild {
+export interface DatabaseCrashSensitiveIndex {
   readonly accessMethod: string;
-  readonly durationMs: number;
+  readonly heapBytes: number;
   readonly index: string;
+  readonly indexBytes: number;
   readonly schema: string;
   readonly table: string;
+  readonly toastBytes: number;
+}
+
+/** One index the crash-recovery pass rebuilt. Mirrors `CrashSensitiveIndexRebuild` in `@brainstrike/db`. */
+export interface DatabaseCrashRecoveryIndexRebuild extends DatabaseCrashSensitiveIndex {
+  readonly durationMs: number;
 }
 
 /** Mirrors `CrashSensitiveIndexRebuildResult` in `@brainstrike/db`. */
@@ -107,6 +155,12 @@ export interface DatabaseDiagnosticsSnapshot {
   hasDatabaseHandle: boolean;
   initializationAttemptCount: number;
   initializationInFlight: boolean;
+  /**
+   * Set by the desktop DB host manager (never by the host) when init timed out twice in one phase
+   * and main stopped retrying. A consumer must read it before any other field: the rest of the
+   * snapshot then describes a process that never opened the database.
+   */
+  initStop?: DatabaseInitAttemptRecord | null;
   lastInitializationFailure: DatabaseInitFailureSnapshot | null;
   lastInitializationStartedAt: string | null;
   lastInitializationSucceededAt: string | null;
