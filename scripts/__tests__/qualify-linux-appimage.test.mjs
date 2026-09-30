@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { chmod, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,6 +9,7 @@ import {
   buildAppImageLaunch,
   main,
   parseAppImageQualificationArgs,
+  requireDisplay,
 } from '../qualify-linux-appimage.mjs';
 import {
   inspectArtifact,
@@ -15,7 +18,9 @@ import {
   validateAppImageHeader,
 } from '../qualify-linux-appimage-artifact.mjs';
 import {
+  assertEncryptedCredential,
   inspectProfile,
+  inspectSandboxArguments,
   runLifecycleStages,
   waitForDebugEndpoint,
 } from '../qualify-linux-appimage-lifecycle.mjs';
@@ -206,6 +211,7 @@ function successfulDependencies() {
         report.checks.push({ name, status: 'passed' });
       }
     },
+    requireDisplay: () => {},
     requireHost: async () => {},
     requireUserNamespaces: async () => {},
   };
@@ -402,10 +408,26 @@ test('production bridge contract requires methods and reuses rather than reseeds
     await inspectProfile(page, { marker: 'synthetic', root: '/qa', seed: false });
     assert.equal(writes, 2);
     assert.equal(disposed, 2);
+    data.clear();
+    globalThis.secrets = {
+      getKey: async () => null,
+      saveKey: async () => ({ error: 'encryption_unavailable', ok: false }),
+    };
+    await assert.rejects(
+      inspectProfile(page, { marker: 'synthetic', root: '/qa', seed: true }),
+      /supported OS keyring/
+    );
+    globalThis.secrets.getKey = async () => {
+      throw new Error('synthetic-private-detail');
+    };
+    await assert.rejects(
+      inspectProfile(page, { marker: 'synthetic', root: '/qa', seed: false }),
+      /Production profile bridge operation failed/
+    );
     globalThis.secrets = {};
     await assert.rejects(
       inspectProfile(page, { marker: 'synthetic', root: '/qa', seed: false }),
-      /bridge operation failed/
+      /Production storage and secrets bridges/
     );
   } finally {
     globalThis.electronAPI = previousApi;
@@ -463,5 +485,71 @@ test('lifecycle retains both the preservation error and shutdown error', async (
     (error) =>
       error instanceof AggregateError &&
       error.errors.map((part) => part.message).join(',') === 'state lost,close failed'
+  );
+});
+
+test('no display session is an actionable prelaunch failure', () => {
+  assert.throws(() => requireDisplay({}), /desktop display session/);
+  assert.doesNotThrow(() => requireDisplay({ DISPLAY: ':1' }));
+  assert.doesNotThrow(() => requireDisplay({ WAYLAND_DISPLAY: 'wayland-0' }));
+});
+
+test('live sandbox check proves CDP process ownership and rejects injected bypass flags', async (t) => {
+  if (process.platform !== 'linux') {
+    t.skip('Linux /proc ownership contract');
+    return;
+  }
+  for (const flag of ['', '--no-sandbox', '--disable-setuid-sandbox']) {
+    const child = spawn(
+      process.execPath,
+      ['-e', 'setInterval(() => {}, 1000)', '--', ...(flag ? [flag] : [])],
+      { detached: true, stdio: 'ignore' }
+    );
+    await once(child, 'spawn');
+    let detached = 0;
+    const browser = {
+      newBrowserCDPSession: async () => ({
+        detach: async () => {
+          detached++;
+        },
+        send: async () => ({ processInfo: [{ id: child.pid, type: 'browser' }] }),
+      }),
+    };
+    try {
+      if (flag) {
+        await assert.rejects(
+          inspectSandboxArguments(browser, child),
+          /disabled Chromium sandboxing/
+        );
+      } else {
+        assert.deepEqual(await inspectSandboxArguments(browser, child), {
+          sandboxBypassArguments: false,
+        });
+      }
+      await assert.rejects(
+        inspectSandboxArguments(browser, { pid: child.pid + 1 }),
+        /does not belong/
+      );
+      assert.equal(detached, 2);
+    } finally {
+      const stopped = once(child, 'exit');
+      child.kill('SIGTERM');
+      await stopped;
+    }
+  }
+});
+
+test('credential-at-rest check rejects raw and base64-encoded plaintext', () => {
+  const marker = 'synthetic-test-value';
+  const wrap = (value) => JSON.stringify({ secrets: { 'appimage-qualification': value } });
+  assert.throws(() => assertEncryptedCredential(wrap(marker), marker), /plaintext/);
+  assert.throws(
+    () => assertEncryptedCredential(wrap(Buffer.from(marker).toString('base64')), marker),
+    /plaintext/
+  );
+  assert.throws(() => assertEncryptedCredential('{}', marker));
+  assert.throws(() => assertEncryptedCredential(wrap('not base64!'), marker));
+  assert.doesNotThrow(() =>
+    assertEncryptedCredential(wrap(Buffer.from([1, 2, 3, 255]).toString('base64')), marker)
   );
 });

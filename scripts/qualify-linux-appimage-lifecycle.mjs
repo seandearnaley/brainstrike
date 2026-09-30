@@ -104,7 +104,7 @@ async function bounded(operation, milliseconds, signal) {
     signal?.addEventListener('abort', abort, { once: true });
   });
   try {
-    return await Promise.race([operation, timeout]);
+    return await Promise.race([operation(), timeout]);
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', abort);
@@ -120,7 +120,7 @@ async function stopProcess(child, report) {
     const exited = once(child, 'exit');
     signalProcessGroup(child.pid, 'SIGTERM');
     try {
-      const [code] = await bounded(exited, 20_000);
+      const [code] = await bounded(() => exited, 20_000);
       graceful = code === 0;
     } catch {
       graceful = false;
@@ -212,7 +212,22 @@ export async function inspectProfile(page, { seed, marker, root }) {
       const write = operation();
       const completion = write.then(
         (value) => ({ ok: true, value }),
-        () => ({ message: 'Production profile bridge operation failed.', ok: false })
+        (error) => {
+          const message = error instanceof Error ? error.message : '';
+          const safeMessages = new Set([
+            'Production storage and secrets bridges are required.',
+            'Application profile isolation was not honored.',
+            'First launch did not start with empty qualification state.',
+            'Secure credential persistence unavailable; unlock a supported OS keyring.',
+            'Application data or synthetic credential was not preserved.',
+          ]);
+          return {
+            message: safeMessages.has(message)
+              ? message
+              : 'Production profile bridge operation failed.',
+            ok: false,
+          };
+        }
       );
       return { completion, write };
     },
@@ -264,13 +279,15 @@ async function launchSession({
   });
   let browser;
   const close = async () => {
+    const exitedBeforeClose = child.exitCode !== null || child.signalCode !== null;
     try {
       if (browser) {
-        await bounded(browser.close(), 5000);
+        await bounded(() => browser.close(), 5000);
       }
     } finally {
       await stopProcess(child, report);
     }
+    assert.ok(!exitedBeforeClose, 'AppImage exited before intentional close.');
   };
   try {
     const endpoint = await waitForDebugEndpoint(child, port, {
@@ -278,7 +295,7 @@ async function launchSession({
       spawnError: () => spawnFailure,
     });
     browser = await chromium.connectOverCDP(endpoint, { timeout: 15_000 });
-    await inspectSandboxArguments(browser, child);
+    await bounded(() => inspectSandboxArguments(browser, child), 15_000, signal);
     const context = browser.contexts()[0];
     assert.ok(context, 'AppImage browser context is missing.');
     let page;
@@ -304,7 +321,7 @@ async function launchSession({
     }
     assert.ok(page, 'AppImage main navigation did not become ready.');
     return {
-      check: (seed) => bounded(inspectProfile(page, { marker, root, seed }), 30_000, signal),
+      check: (seed) => bounded(() => inspectProfile(page, { marker, root, seed }), 30_000, signal),
       close,
     };
   } catch (error) {
@@ -335,7 +352,25 @@ export async function qualifyAppImageLifecycle({ options, root, report, buildLau
     path.join(root, 'profile', 'brainstrike-secrets.json'),
     'utf8'
   );
-  assert.ok(!encryptedFile.includes(marker), 'Synthetic credential was stored in plaintext.');
-  assert.ok(JSON.parse(encryptedFile).secrets[PROVIDER], 'Encrypted credential was not persisted.');
+  assertEncryptedCredential(encryptedFile, marker);
   report.checks.push({ name: 'encrypted-at-rest', status: 'passed' });
+}
+
+export function assertEncryptedCredential(source, marker) {
+  assert.ok(!source.includes(marker), 'Synthetic credential was stored in plaintext.');
+  const encoded = JSON.parse(source).secrets?.[PROVIDER];
+  assert.ok(
+    typeof encoded === 'string' && encoded.length > 0,
+    'Encrypted credential was not persisted.'
+  );
+  const ciphertext = Buffer.from(encoded, 'base64');
+  assert.equal(
+    ciphertext.toString('base64'),
+    encoded,
+    'Encrypted credential is not canonical base64.'
+  );
+  assert.ok(
+    !ciphertext.includes(Buffer.from(marker)),
+    'Synthetic credential was only base64-encoded plaintext.'
+  );
 }

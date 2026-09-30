@@ -90,6 +90,14 @@ async function requireHost() {
   }
 }
 
+export function requireDisplay(env) {
+  if (!(env.DISPLAY || env.WAYLAND_DISPLAY)) {
+    throw new Error(
+      'A desktop display session (DISPLAY or WAYLAND_DISPLAY) is required. No app launch was attempted.'
+    );
+  }
+}
+
 async function requireFuse() {
   await access('/dev/fuse', constants.R_OK | constants.W_OK).catch(() => {
     throw new Error(
@@ -176,6 +184,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
       env,
       signal: controller.signal,
     });
+    (dependencies.requireDisplay ?? requireDisplay)(env);
     phase = 'lifecycle';
     await (dependencies.qualifyLifecycle ?? qualifyAppImageLifecycle)({
       buildLaunch: buildAppImageLaunch,
