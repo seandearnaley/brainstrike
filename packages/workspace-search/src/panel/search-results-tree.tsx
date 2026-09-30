@@ -148,7 +148,7 @@ function FileRow({
   // Checkbox lives on TreeTable via the pluggable API (file = only tri-state).
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <FileIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400" />
+      <FileIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
       <span className="truncate font-medium text-sm">{file.path}</span>
       <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
         {file.children.length} {file.children.length === 1 ? 'match' : 'matches'}

@@ -27,12 +27,12 @@ interface StatusIndicatorIconProps {
 
 function StatusIndicatorIcon({ hasErrors, isActive }: StatusIndicatorIconProps): ReactElement {
   if (hasErrors) {
-    return <AlertTriangle className="h-3 w-3 text-yellow-500" />;
+    return <AlertTriangle className="h-3 w-3 text-warning" />;
   }
   if (isActive) {
-    return <Zap className="h-3 w-3 animate-pulse text-blue-500" />;
+    return <Zap className="h-3 w-3 animate-pulse text-info" />;
   }
-  return <CheckCircle2 className="h-3 w-3 text-green-500" />;
+  return <CheckCircle2 className="h-3 w-3 text-success" />;
 }
 
 interface MetricBadgeProps {
@@ -46,7 +46,7 @@ function MetricBadge({ label, value, variant = 'default' }: MetricBadgeProps): R
     variant === 'error'
       ? 'text-destructive'
       : variant === 'active'
-        ? 'text-blue-500'
+        ? 'text-info'
         : 'text-foreground';
 
   return (

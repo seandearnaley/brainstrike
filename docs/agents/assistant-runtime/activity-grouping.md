@@ -147,3 +147,38 @@ Proof includes the native two-child approval suite; persisted child and grandchi
 events across two resume legs; continuation persistence/live parity; mapper field
 transport; and Chromium clicks on separate cards with distinct root/child display
 owners. Resolved approval history stays static; no tool result is fabricated.
+
+### Canvas approval invocation owner (2026-09-30, BST-1895)
+
+The screenshot showed a waiting activity box beside Approved history, completed
+canvas and working-memory steps, then a terminal observation error. The user
+confirmed the running app was built and launched from main
+`33a4273ae40f93427d4751715ce5b545196aa9cd`. The private debug pack retained the
+resultless native canvas call and journal start/pause/completion events, but no
+live renderer message projection. It therefore cannot establish why the local
+pause event was unavailable in the animated message.
+
+The initial captured-order replay with an inline notice or a local pause event
+passed on that commit. The separate-notice replay without a local pause event
+failed after acknowledgement: the original requires-action message retained
+Waiting for approval and live/shimmer chrome despite Approved history. Its
+exact host-leg tool.started event identified the same surface call. Expanding
+only that ownership predicate made the same browser assertions pass. A known
+card now matches either the exact invocation start or pause; a bare call ID,
+native run ID, different host leg, missing display owner or child leaf cannot
+establish ownership. No execution result is invented, and other work remains.
+
+`canvas-approval-history.browser.test.tsx` preserves the sanitized renderer order:
+reasoning and text boundaries around six completed reads, final reasoning/text,
+canvas call/start, and an inline or separate approval notice. It drives the public
+local runtime and real answer index through Approve, host acknowledgement,
+completed, failed and explicitly stopped resume states. A running sibling keeps
+its live mark and shimmer; a reused call on another host stays animated. An
+approved execution on the same host leg and call also remains live until its
+result arrives; only the older requires-action group loses pause chrome. The
+public data-stream adapter also decodes an approval/resume sequence. Settled
+renderer hydration retains reasoning and calls without invoking a model.
+`approval-history.test.ts` pins positive start/pause identity and negative owner
+matches. These are rendered Chromium and helper guards, not native database
+hydration or a packaged desktop end-to-end proof. The reproduced missing-local-
+pause condition is fixed; its attribution to the exact screenshot remains open.

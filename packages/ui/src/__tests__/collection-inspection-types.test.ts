@@ -9,6 +9,15 @@ import {
 
 describe('collection inspection types', () => {
   describe('NODE_TYPE_CONFIG', () => {
+    it('keeps node categories distinct without assigning status meanings', () => {
+      const colors = Object.values(NODE_TYPE_CONFIG).map(({ color }) => color);
+      expect(new Set(colors).size).toBe(4);
+      for (const color of colors) {
+        expect(color).not.toMatch(/text-(?:success|info|warning|destructive)\b/);
+        expect(color).toMatch(/dark:text-/);
+      }
+    });
+
     it('defines configuration for collection nodes', () => {
       expect(NODE_TYPE_CONFIG.collection).toBeDefined();
       expect(NODE_TYPE_CONFIG.collection.label).toBe('Collection');

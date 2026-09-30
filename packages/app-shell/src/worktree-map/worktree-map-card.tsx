@@ -70,7 +70,7 @@ function StatusGlyphs({ status }: { readonly status: WorktreeCheckoutStatusState
       ) : (
         <span
           aria-label="Uncommitted changes"
-          className="inline-flex items-center gap-1.5 text-amber-700 dark:text-amber-400"
+          className="inline-flex items-center gap-1.5 text-warning"
           role="img"
           title="Uncommitted changes"
         >

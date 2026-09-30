@@ -45,7 +45,7 @@ interface MetricCardProps {
 const VARIANT_STYLES: Record<NonNullable<MetricCardProps['variant']>, string> = {
   default: 'text-foreground',
   error: 'text-destructive',
-  success: 'text-green-600 dark:text-green-400',
+  success: 'text-success',
   warning: 'text-warning',
 };
 
@@ -138,12 +138,12 @@ function StatusIndicator({
 }: StatusIndicatorProps): ReactElement {
   const getIcon = () => {
     if (hasErrors) {
-      return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+      return <AlertTriangle className="h-4 w-4 text-warning" />;
     }
     if (totalActive > 0) {
-      return <Zap className="h-4 w-4 text-blue-500" />;
+      return <Zap className="h-4 w-4 text-info" />;
     }
-    return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+    return <CheckCircle2 className="h-4 w-4 text-success" />;
   };
 
   const getMessage = () => {

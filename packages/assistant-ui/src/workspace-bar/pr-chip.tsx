@@ -154,10 +154,7 @@ export const PrChip = ({ forge }: { readonly forge: WorkspaceBarForge }): ReactE
         </span>
         <span className="truncate">{summary.text}</span>
         {stale ? (
-          <span
-            className="shrink-0 text-amber-600 dark:text-amber-400"
-            data-testid="workspace-bar-pr-stale-glyph"
-          >
+          <span className="shrink-0 text-warning" data-testid="workspace-bar-pr-stale-glyph">
             ◌
           </span>
         ) : null}

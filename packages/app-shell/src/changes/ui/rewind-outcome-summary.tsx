@@ -46,10 +46,7 @@ export function RewindOutcomeSummary({
             >
               <span className="font-medium text-foreground">{root.rootLabel ?? root.rootId}</span>
               {root.rootPath === null ? (
-                <span className="text-amber-700 dark:text-amber-300">
-                  {' '}
-                  (not connected — nothing could be written)
-                </span>
+                <span className="text-warning"> (not connected — nothing could be written)</span>
               ) : null}
               <span>
                 {' '}

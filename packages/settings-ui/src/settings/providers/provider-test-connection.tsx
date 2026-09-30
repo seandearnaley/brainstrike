@@ -23,8 +23,8 @@ export type ProviderVerificationHook = (providerId: string | undefined) => {
 const TONE_CLASSES: Record<ProviderVerificationTone, string> = {
   danger: 'text-destructive',
   neutral: 'text-muted-foreground',
-  success: 'text-emerald-600 dark:text-emerald-500',
-  warning: 'text-amber-700 dark:text-amber-500',
+  success: 'text-success',
+  warning: 'text-warning',
 };
 
 const TONE_ICONS: Record<ProviderVerificationTone, LucideIcon> = {

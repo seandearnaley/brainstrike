@@ -2,8 +2,11 @@ import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { addLogListener, createLogger, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { logRecordToDiagnosticEvent } from '@brainstrike/utils/diagnostics';
+import { MessageList } from '@mastra/core/agent';
 import { ErrorCategory, ErrorDomain, MastraError } from '@mastra/core/error';
+import { RequestContext } from '@mastra/core/request-context';
 import { describe, expect, it } from 'vitest';
+import { createDelegatedConversationBinding } from '../delegated-conversation-binding';
 import { summarizeDelegationFailure } from '../delegation-failure-diagnostic';
 import { createDelegationConfig, createDelegationOutcomeCapture } from '../subagent-delegation';
 
@@ -17,6 +20,276 @@ const persona: AssistantPersonaDefinition = {
 };
 
 describe('delegation failure diagnostics', () => {
+  it.each([
+    { admitFirst: false, ownerAbort: false },
+    { admitFirst: false, ownerAbort: true },
+    { admitFirst: true, ownerAbort: false },
+  ])(
+    'preserves persist fault and admission evidence (owner abort=$ownerAbort, prior admission=$admitFirst)',
+    async ({ admitFirst, ownerAbort }) => {
+      const stop = new AbortController();
+      const attempt = new AbortController();
+      const stopRun = () => {
+        stop.abort(new Error('selected Stop'));
+        attempt.abort(stop.signal.reason);
+      };
+      let persistCalls = 0;
+      const binding = createDelegatedConversationBinding(async () => {
+        persistCalls += 1;
+        if (admitFirst && persistCalls === 1) {
+          return;
+        }
+        if (ownerAbort) {
+          stopRun();
+          throw new Error('wrapped Stop', { cause: stop.signal.reason });
+        }
+        throw Object.assign(new Error('independent private persist fault'), { statusCode: 503 });
+      });
+      const outcomes = createDelegationOutcomeCapture();
+      const config = createDelegationConfig({
+        abortSignal: attempt.signal,
+        conversationBinding: binding,
+        delegationOutcomes: outcomes,
+        externalStopSignal: stop.signal,
+        logger: createLogger('DelegationDiagnosticTest'),
+        personasById: new Map([['explore', persona]]),
+        subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+      });
+      const context = {
+        iteration: 1,
+        messages: [],
+        params: {},
+        parentAgentId: 'parent',
+        parentAgentName: 'Parent',
+        primitiveId: 'explore',
+        primitiveType: 'agent' as const,
+        prompt: 'private',
+        requestContext: new RequestContext(),
+        resourceId: 'owner',
+        runId: 'run-1',
+        threadId: 'root',
+        toolCallId: 'failed-call',
+      };
+      await config.onDelegationStart?.(context);
+      context.requestContext.set('MastraMemory', {
+        resourceId: 'child-owner',
+        thread: { id: 'child' },
+      });
+      const processInput = () =>
+        binding.inputProcessor.processInput?.({
+          abort(reason): never {
+            throw new Error(reason);
+          },
+          messageList: new MessageList(),
+          messages: [],
+          requestContext: context.requestContext,
+          retryCount: 0,
+          state: {},
+          systemMessages: [],
+        });
+      if (admitFirst) {
+        await processInput();
+        await binding.hooks?.afterToolCall?.({
+          context: { threadId: 'root', toolCallId: 'failed-call' },
+          input: { prompt: 'private' },
+          output: undefined,
+          toolName: 'agent-explore',
+        });
+        context.requestContext = new RequestContext();
+        await config.onDelegationStart?.(context);
+        context.requestContext.set('MastraMemory', {
+          resourceId: 'child-owner',
+          thread: { id: 'child' },
+        });
+      }
+      await expect(processInput()).rejects.toThrow();
+      stopRun();
+      const result = await config.onDelegationComplete?.({
+        bail: () => undefined,
+        duration: 1,
+        error: stop.signal.reason,
+        iteration: 1,
+        messages: [],
+        parentAgentId: 'parent',
+        parentAgentName: 'Parent',
+        primitiveId: 'explore',
+        primitiveType: 'agent',
+        prompt: 'private',
+        result: { text: '' },
+        runId: 'run-1',
+        success: false,
+        toolCallId: 'failed-call',
+      });
+      expect(
+        binding.readStartupEvidence?.({
+          parentRuntimeRunId: 'run-1',
+          parentToolCallId: 'failed-call',
+        })?.failureIsOwnerAbort
+      ).toBe(ownerAbort);
+      expect(outcomes.failed('failed-call', 'run-1')).toBe(!ownerAbort);
+      if (ownerAbort) {
+        expect(result).toBeUndefined();
+      } else {
+        expect(result?.feedback).toContain(
+          admitFirst
+            ? 'Any partial results remain in its child conversation'
+            : 'No admitted child conversation was observed'
+        );
+      }
+    }
+  );
+  it('retains an observed binding failure when native completion omits its error', () => {
+    const observed = summarizeDelegationFailure(
+      Object.assign(new Error('Trusted delegated context exceeds its 64 KiB budget.'), {
+        statusCode: 503,
+      })
+    );
+    expect(summarizeDelegationFailure(undefined, observed)).toEqual(observed);
+  });
+
+  it('does not let a raced Stop replace an observed internal binding failure', async () => {
+    const stop = new AbortController();
+    const attempt = new AbortController();
+    stop.abort(new Error('selected Stop'));
+    attempt.abort(stop.signal.reason);
+    const outcomes = createDelegationOutcomeCapture();
+    const config = createDelegationConfig({
+      abortSignal: attempt.signal,
+      conversationBinding: {
+        ...createDelegatedConversationBinding(async () => undefined),
+        readStartupEvidence: () => ({
+          failure: summarizeDelegationFailure(
+            new Error('Trusted delegated context exceeds its 64 KiB budget.')
+          ),
+          startupBoundary: 'child-input-started',
+        }),
+      },
+      delegationOutcomes: outcomes,
+      externalStopSignal: stop.signal,
+      logger: createLogger('DelegationDiagnosticTest'),
+      personasById: new Map([['explore', persona]]),
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+    });
+    const result = await config.onDelegationComplete?.({
+      bail: () => undefined,
+      duration: 1,
+      error: stop.signal.reason,
+      iteration: 1,
+      messages: [],
+      parentAgentId: 'parent',
+      parentAgentName: 'Parent',
+      primitiveId: 'explore',
+      primitiveType: 'agent',
+      prompt: 'private',
+      result: { text: '' },
+      runId: 'run-1',
+      success: false,
+      toolCallId: 'failed-call',
+    });
+    expect(outcomes.failed('failed-call', 'run-1')).toBe(true);
+    expect(result?.feedback).toContain('No admitted child conversation was observed');
+  });
+  it('preserves safe evidence around hostile getters and stops cyclic/deep causes', () => {
+    const error = Object.assign(new Error('private'), {
+      id: 'AGENT_STREAM_FAILED',
+      statusCode: 502,
+    });
+    Object.defineProperty(error, 'message', {
+      get: () => {
+        throw new Error('private getter');
+      },
+    });
+    Object.defineProperty(error, 'cause', { get: () => error });
+    expect(summarizeDelegationFailure(error)).toEqual({
+      causeCategory: 'unclassified',
+      frameworkErrorIds: ['AGENT_STREAM_FAILED'],
+      httpStatus: 502,
+    });
+    let deep: Error = Object.assign(new Error('private'), { statusCode: 401 });
+    for (let index = 0; index < 5; index += 1) {
+      deep = new Error('private', { cause: deep });
+    }
+    expect(summarizeDelegationFailure(deep)).toEqual({ causeCategory: 'unclassified' });
+  });
+  it('retains only allowlisted framework identifiers and observed HTTP status', () => {
+    const cause = Object.assign(new Error('secret provider response'), { statusCode: 429 });
+    const error = new MastraError(
+      {
+        category: ErrorCategory.USER,
+        domain: ErrorDomain.AGENT,
+        id: 'AGENT_INPUT_PROCESSOR_ERROR',
+        text: 'secret input',
+      },
+      cause
+    );
+    expect(summarizeDelegationFailure(error)).toEqual({
+      causeCategory: 'unclassified',
+      frameworkErrorIds: ['AGENT_INPUT_PROCESSOR_ERROR'],
+      httpStatus: 429,
+    });
+    expect(
+      summarizeDelegationFailure(
+        Object.assign(new Error('private'), {
+          id: 'AGENT_SECRET_CREDENTIAL',
+          statusCode: 700,
+        })
+      )
+    ).toEqual({ causeCategory: 'unclassified' });
+  });
+
+  it.each([
+    { expected: 'Child admission could not be established', observer: 'native-only' },
+    { expected: 'Child admission could not be established', observer: 'binding-no-observer' },
+    { expected: 'No admitted child conversation was observed', observer: 'binding-observer' },
+  ])('reports only observed child admission ($observer)', async ({ expected, observer }) => {
+    const binding = createDelegatedConversationBinding(async () => undefined);
+    const config = createDelegationConfig({
+      abortSignal: new AbortController().signal,
+      ...(observer === 'native-only'
+        ? {}
+        : {
+            conversationBinding:
+              observer === 'binding-observer'
+                ? binding
+                : {
+                    endStalledExecution: binding.endStalledExecution,
+                    inputProcessor: binding.inputProcessor,
+                    prepare: binding.prepare,
+                  },
+          }),
+      logger: createLogger('DelegationDiagnosticTest'),
+      personasById: new Map([['explore', persona]]),
+      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+    });
+    const result = await config.onDelegationComplete?.({
+      bail: () => undefined,
+      duration: 1,
+      error: new Error('private'),
+      iteration: 1,
+      messages: [],
+      parentAgentId: 'parent',
+      parentAgentName: 'Parent',
+      primitiveId: 'explore',
+      primitiveType: 'agent',
+      prompt: 'private',
+      result: { subAgentThreadId: 'native-allocated-thread', text: '' },
+      runId: 'run-1',
+      success: false,
+      toolCallId: 'failed-call',
+    });
+    expect(result?.resultText).toContain(expected);
+    expect(result?.resultText).not.toContain('partial results remain');
+  });
+  it.each([
+    { expected: 502, status: 502, statusCode: '503' },
+    { expected: 503, status: 503, statusCode: 700 },
+    { expected: 429, status: 503, statusCode: 429 },
+  ])('retains the first valid numeric status ($statusCode/$status)', (fields) => {
+    expect(summarizeDelegationFailure(Object.assign(new Error('private'), fields))).toEqual({
+      causeCategory: 'unclassified',
+      httpStatus: fields.expected,
+    });
+  });
   it.each([401, 403])(
     'recognizes nested embedding access failure %i and returns fixed supervisor feedback',
     async (statusCode) => {
@@ -45,6 +318,11 @@ describe('delegation failure diagnostics', () => {
       expect(summarizeDelegationFailure(wrapped)).toEqual({
         causeCategory: 'known-internal',
         causeReason: 'memory-embedding-access-denied',
+        frameworkErrorIds: [
+          'AGENT_AGENT_TOOL_EXECUTION_FAILED',
+          'MASTRA_MEMORY_GET_EMBEDDING_DIMENSION_FAILED',
+        ],
+        httpStatus: statusCode,
       });
       const config = createDelegationConfig({
         abortSignal: new AbortController().signal,
@@ -98,6 +376,7 @@ describe('delegation failure diagnostics', () => {
     expect(summarizeDelegationFailure(wrapped)).toEqual({
       causeCategory: 'known-internal',
       causeReason: 'memory-embedding-probe-failed',
+      frameworkErrorIds: ['AGENT_STREAM_FAILED', 'MASTRA_MEMORY_GET_EMBEDDING_DIMENSION_FAILED'],
     });
     const config = createDelegationConfig({
       abortSignal: new AbortController().signal,
@@ -144,6 +423,8 @@ describe('delegation failure diagnostics', () => {
     expect(summarizeDelegationFailure(unrelatedOuter)).toEqual({
       causeCategory: 'known-internal',
       causeReason: 'memory-embedding-probe-failed',
+      frameworkErrorIds: ['MASTRA_MEMORY_GET_EMBEDDING_DIMENSION_FAILED'],
+      httpStatus: 401,
     });
   });
 

@@ -15,6 +15,11 @@ import { readToolCallId, readToolExecutionThreadId } from '../tools/read-tool-ca
 import type { ChildContinuationHostPort } from './child-continuation-host-port';
 import type { PrepareChildInputContext } from './child-input-context';
 import type { DelegatedRunIdentity } from './delegated-run-publication';
+import {
+  type DelegationStartupEvidence,
+  hasErrorCause,
+  summarizeDelegationFailure,
+} from './delegation-failure-diagnostic';
 import type { LiveDecisionRequest } from './live-decision-channel';
 
 /** Observed native identities; the host separately supplies and verifies root ownership. */
@@ -231,6 +236,10 @@ export interface DelegatedConversationBinding {
    * leg resumed a native run no host leg mapped, rather than guess.
    */
   readonly readBackgroundGeneration?: () => Promise<BackgroundGeneration>;
+  /** Observed diagnostic facts only; never runtime or admission authority. */
+  readonly readStartupEvidence?: (
+    identity: DelegatedCancellationTarget
+  ) => DelegationStartupEvidence | undefined;
   /**
    * `recordLiveDecision`, `recordPromptManifest` and `recordWakeup` write
    * debug-pack evidence (migration 139): host-owned, append-only, never runtime
@@ -323,6 +332,13 @@ function requireIdentity(value: string | undefined): string {
   return value;
 }
 
+function preparedStartupEvidence(
+  previous: DelegationStartupEvidence | undefined
+): DelegationStartupEvidence {
+  const childThreadId = previous?.childThreadId;
+  return { startupBoundary: 'delegation-prepared', ...(childThreadId ? { childThreadId } : {}) };
+}
+
 /**
  * Correlate concurrent native calls without copying RuntimeData into RequestContext.
  * Requires parent and child memory scope. Configuration must be structured-cloneable.
@@ -334,6 +350,7 @@ export function createDelegatedConversationBinding(
 ): DelegatedConversationBinding {
   const scopes = new WeakMap<DelegationStartContext['requestContext'], ParentIdentity>();
   const inputs = new Map<string, DelegatedOriginalToolCall>();
+  const startup = new Map<string, DelegationStartupEvidence>();
   // Native completion can precede downstream projection. Retain cancellation
   // authority for this runtime-owned binding, including already queued output.
   const controllers = new Map<string, AbortController>();
@@ -465,11 +482,33 @@ export function createDelegatedConversationBinding(
         if (!parent) {
           throw new Error('Delegated conversation has no trusted parent binding.');
         }
+        const key = invocationKey(parent);
+        const admittedChild = startup.get(key)?.childThreadId;
+        const childEvidence = admittedChild ? { childThreadId: admittedChild } : {};
+        startup.set(key, { ...childEvidence, startupBoundary: 'child-input-started' });
         const child = parseMemoryRequestContext(requestContext);
-        await persist({
-          ...parent,
-          childResourceId: requireIdentity(child?.resourceId),
+        try {
+          await persist({
+            ...parent,
+            childResourceId: requireIdentity(child?.resourceId),
+            childThreadId: requireIdentity(child?.thread?.id),
+          });
+        } catch (error) {
+          // Native stream wrappers can discard the original cause. Retain only
+          // the privacy allowlist at the observed host persistence boundary.
+          const ownerSignal = requestContext ? signals.get(requestContext) : undefined;
+          startup.set(key, {
+            ...childEvidence,
+            failure: summarizeDelegationFailure(error),
+            failureIsOwnerAbort:
+              ownerSignal?.aborted === true && hasErrorCause(error, ownerSignal.reason),
+            startupBoundary: 'child-input-started',
+          });
+          throw error;
+        }
+        startup.set(key, {
           childThreadId: requireIdentity(child?.thread?.id),
+          startupBoundary: 'child-admitted',
         });
         return messages;
       },
@@ -531,6 +570,8 @@ export function createDelegatedConversationBinding(
         parentToolCallId: requireIdentity(context.toolCallId),
         personaId: requireIdentity(context.primitiveId),
       });
+      startup.set(nativeKey, preparedStartupEvidence(startup.get(nativeKey)));
     },
+    readStartupEvidence: (identity) => startup.get(invocationKey(identity)),
   };
 }

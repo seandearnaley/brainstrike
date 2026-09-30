@@ -344,10 +344,7 @@ function NoticeShell({
       role={role}
     >
       <div className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3 px-4 py-3">
-        <div
-          aria-hidden="true"
-          className={failed ? 'pt-0.5 text-destructive' : 'pt-0.5 text-sky-700 dark:text-sky-400'}
-        >
+        <div aria-hidden="true" className={failed ? 'pt-0.5 text-destructive' : 'pt-0.5 text-info'}>
           {icon}
         </div>
         <div className="min-w-0">

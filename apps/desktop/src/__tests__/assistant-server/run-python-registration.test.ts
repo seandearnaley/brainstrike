@@ -4,6 +4,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { requireTool } from './_tool-test-helpers';
 
+const fenceSupport = vi.hoisted(() => ({ isSupported: vi.fn(() => true) }));
+vi.mock('@brainstrike/agent/fence-executor', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/agent/fence-executor')>()),
+  isFenceSupported: fenceSupport.isSupported,
+}));
+
 interface RegisteredRunPythonTool {
   execute: (input: unknown, options: unknown) => Promise<unknown>;
   id?: unknown;
@@ -168,5 +174,21 @@ describe('run_python registration', () => {
     expect(
       tool.inputSchema?.safeParse({ allowedDomains: ['pypi.org'], code: 'print(1)' }).success
     ).toBe(true);
+  });
+});
+
+describe('run_python sandbox availability wiring', () => {
+  it('reports an unsupported runtime before preparing Python', async () => {
+    fenceSupport.isSupported.mockReturnValueOnce(false);
+    const resolvePythonExecutable = vi.fn(async () => '/bundled/python3');
+    const tool = requireRunPythonTool(
+      buildDesktopAssistantTools(runtimeData, { resolvePythonExecutable })
+    );
+    await expect(tool.execute({ code: 'print(1)' }, undefined)).resolves.toMatchObject({
+      detail: expect.stringContaining('No user code ran'),
+      kind: 'unavailable',
+      reason: 'sandbox_unsupported_runtime',
+    });
+    expect(resolvePythonExecutable).not.toHaveBeenCalled();
   });
 });

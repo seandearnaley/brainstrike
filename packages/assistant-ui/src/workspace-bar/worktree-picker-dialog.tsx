@@ -52,7 +52,7 @@ const PickerRow = ({
         </p>
         {option.disabledReason ? (
           <p
-            className="mt-1 text-[11px] text-amber-700 leading-snug dark:text-amber-300"
+            className="mt-1 text-[11px] text-warning leading-snug"
             data-testid={`worktree-picker-reason-${optionId}`}
           >
             {option.disabledReason}
