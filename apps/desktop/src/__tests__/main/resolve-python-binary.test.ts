@@ -97,11 +97,11 @@ describe('resolvePythonBinary', () => {
     );
   });
 
-  it('throws a typed unsupported-platform error off darwin, without a PATH fallback', async () => {
+  it('throws a typed unsupported-platform error on Linux arm64, without a PATH fallback', async () => {
     const { resourcesDir, userDataDir } = await createFixtureDirs();
     const { isPythonRuntimeError, resolvePythonBinary } = await loadModule();
     const attempt = resolvePythonBinary({
-      arch: 'x64',
+      arch: 'arm64',
       platform: 'linux',
       resourcesDir,
       userDataDir,

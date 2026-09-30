@@ -12,6 +12,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
+import { derivePythonRuntimeArchive } from './derive-python-runtime.mjs';
 
 const defaultResourcesDir = path.resolve(import.meta.dirname, '../resources/python-runtime');
 // PR #2205 review: the original call had no AbortSignal/timeout at all, so a
@@ -97,8 +98,48 @@ function loadManifestTargets(manifest, manifestPath) {
         `Malformed python-runtime manifest at ${manifestPath}: bad entry for "${target}".`
       );
     }
+    if (entry.derived !== undefined) {
+      const derived = entry.derived;
+      if (
+        target !== 'x86_64-unknown-linux-gnu' ||
+        derived?.variant !== 'no-dbm-v1' ||
+        typeof derived.archiveFileName !== 'string' ||
+        !/^cpython-[a-zA-Z0-9+._-]+\.tar\.gz$/.test(derived.archiveFileName) ||
+        !/^[0-9a-f]{64}$/.test(derived.sha256 ?? '') ||
+        !Number.isSafeInteger(derived.bytes) ||
+        derived.bytes <= 0
+      ) {
+        throw new Error(`Malformed python-runtime derived archive for "${target}".`);
+      }
+    }
     return { entry, target };
   });
+}
+
+async function prepareDerivedArchive({ entry, resourcesDir, sourcePath, log }) {
+  if (!entry.derived) {
+    return;
+  }
+  const derived = entry.derived;
+  const destPath = path.join(resourcesDir, derived.archiveFileName);
+  if (destPath === sourcePath) {
+    throw new Error('python-runtime: derived archive must not overwrite its upstream source.');
+  }
+  if (await archiveAlreadyVerifies({ destPath, entry: derived })) {
+    log(`python-runtime: ${derived.archiveFileName} already verified; skipping derivation.`);
+    return;
+  }
+  const tempPath = `${destPath}.derive-${process.pid}`;
+  try {
+    await derivePythonRuntimeArchive(sourcePath, tempPath);
+    await verifyArchive({ entry: derived, filePath: tempPath, label: 'python-runtime no-dbm-v1' });
+    await fsPromises.rename(tempPath, destPath);
+  } finally {
+    await fsPromises.rm(tempPath, { force: true });
+  }
+  log(
+    `python-runtime: verified and installed ${derived.archiveFileName} (${derived.bytes} bytes).`
+  );
 }
 
 export async function fetchPythonRuntime({
@@ -118,6 +159,7 @@ export async function fetchPythonRuntime({
     const destPath = path.join(resourcesDir, fileName);
     if (await archiveAlreadyVerifies({ destPath, entry })) {
       log(`python-runtime: ${fileName} already present and verified; skipping download.`);
+      await prepareDerivedArchive({ entry, log, resourcesDir, sourcePath: destPath });
       continue;
     }
     log(`python-runtime: fetching ${url}`);
@@ -135,6 +177,7 @@ export async function fetchPythonRuntime({
       throw error;
     }
     log(`python-runtime: verified and installed ${fileName} (${entry.bytes} bytes).`);
+    await prepareDerivedArchive({ entry, log, resourcesDir, sourcePath: destPath });
   }
 }
 

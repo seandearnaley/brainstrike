@@ -6,9 +6,9 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchPythonRuntime } from '../../../scripts/fetch-python-runtime.mjs';
 
-const TARGET_A = 'aarch64-apple-darwin';
+const TARGET_A = 'x86_64-unknown-linux-gnu';
 const TARGET_B = 'x86_64-apple-darwin';
-const PAYLOAD_A = 'payload-for-aarch64';
+const PAYLOAD_A = 'payload-for-linux-x64';
 const PAYLOAD_B = 'payload-for-x86-64';
 
 function sha256Of(content: string): string {

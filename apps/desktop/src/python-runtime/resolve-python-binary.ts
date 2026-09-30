@@ -100,9 +100,18 @@ export interface ResolvePythonBinaryOptions {
 
 const SENTINEL_FILE_NAME = '.brainstrike-python-runtime-ok';
 const SHA256_HEX = /^[0-9a-f]{64}$/;
-const manifestTargetSchema = Schema.Struct({
+const archiveIntegrityFields = {
   bytes: Schema.Int.check(Schema.isGreaterThan(0)),
   sha256: Schema.String.check(Schema.isPattern(SHA256_HEX)),
+};
+const derivedArchiveSchema = Schema.Struct({
+  ...archiveIntegrityFields,
+  archiveFileName: Schema.String.check(Schema.isPattern(/^cpython-[a-zA-Z0-9+._-]+\.tar\.gz$/)),
+  variant: Schema.Literal('no-dbm-v1'),
+});
+const manifestTargetSchema = Schema.Struct({
+  ...archiveIntegrityFields,
+  derived: Schema.optionalKey(derivedArchiveSchema),
 });
 // Keep the old error priority: required strings precede both collection fields.
 const manifestStringFields = {
@@ -122,8 +131,8 @@ export type PythonRuntimeManifest = typeof manifestSchema.Type;
 /**
  * Absolute on purpose: this binary unpacks interpreter code that later runs
  * inside the fence, so it must not be resolvable via a caller-controlled PATH.
- * Reachable only on darwin (the manifest's `supportedTargets` gate), where
- * /usr/bin/tar is part of the OS.
+ * Used on macOS and Linux glibc x64; a missing OS tar is a typed unpack
+ * failure, never a PATH-based fallback.
  */
 const TAR_BINARY = '/usr/bin/tar';
 
@@ -133,6 +142,9 @@ function resolveTargetTriple(platform: string, arch: string): string | undefined
   }
   if (platform === 'darwin' && arch === 'x64') {
     return 'x86_64-apple-darwin';
+  }
+  if (platform === 'linux' && arch === 'x64') {
+    return 'x86_64-unknown-linux-gnu';
   }
   return;
 }
@@ -457,10 +469,16 @@ async function resolvePythonBinaryUncached(options: ResolvePythonBinaryOptions):
     throw new PythonUnsupportedPlatformError(
       `The bundled Python runtime does not support ${platform}/${arch}` +
         `${triple ? ` (target "${triple}" is not in the manifest)` : ''}. ` +
-        'BST-1061 ships macOS only; there is deliberately no fallback to a PATH python.'
+        'Bundled targets are macOS arm64/x64 and Linux glibc x64; there is no fallback to a PATH python.'
     );
   }
 
+  if (targetEntry.derived && triple !== 'x86_64-unknown-linux-gnu') {
+    throw new PythonManifestInvalidError(
+      'The no-dbm-v1 derived runtime is supported for Linux x64 only.'
+    );
+  }
+  const runtimeEntry = targetEntry.derived ?? targetEntry;
   const installDir = path.join(
     options.userDataDir,
     'python-runtime',
@@ -470,11 +488,12 @@ async function resolvePythonBinaryUncached(options: ResolvePythonBinaryOptions):
   const binaryPath = path.join(installDir, binaryRelativePath);
   const sentinelPath = path.join(installDir, SENTINEL_FILE_NAME);
 
-  if (await isUsableInstall(sentinelPath, binaryPath, targetEntry.sha256)) {
+  if (await isUsableInstall(sentinelPath, binaryPath, runtimeEntry.sha256)) {
     return assertAbsolute(binaryPath);
   }
 
-  const archiveFileName = renderPythonRuntimeAssetFileName(manifest, triple);
+  const archiveFileName =
+    targetEntry.derived?.archiveFileName ?? renderPythonRuntimeAssetFileName(manifest, triple);
   const archivePath = path.join(options.resourcesDir, archiveFileName);
   try {
     await fsPromises.access(archivePath, fsConstants.R_OK);
@@ -488,10 +507,10 @@ async function resolvePythonBinaryUncached(options: ResolvePythonBinaryOptions):
 
   options.signal?.throwIfAborted();
   const actualSha256 = await hashFileSha256(archivePath, options.signal);
-  if (actualSha256 !== targetEntry.sha256) {
+  if (actualSha256 !== runtimeEntry.sha256) {
     throw new PythonChecksumMismatchError(
       `The bundled Python runtime archive at ${archivePath} failed checksum verification ` +
-        `(expected sha256 ${targetEntry.sha256}, got ${actualSha256}). Refusing to unpack it.`
+        `(expected sha256 ${runtimeEntry.sha256}, got ${actualSha256}). Refusing to unpack it.`
     );
   }
 
@@ -500,7 +519,7 @@ async function resolvePythonBinaryUncached(options: ResolvePythonBinaryOptions):
   await unpackArchive({
     archivePath,
     binaryRelativePath,
-    expectedSha256: targetEntry.sha256,
+    expectedSha256: runtimeEntry.sha256,
     installDir,
     signal: options.signal,
   });

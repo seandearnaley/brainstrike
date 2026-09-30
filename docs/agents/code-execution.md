@@ -243,11 +243,11 @@ Evidence: `code-execution/permission-engine-ux-design.md`.
   exactly that key set. Refuse un-injected languages. Await construction: its
   fixed offline shell probe uses the real fence before advertising readiness.
 - The desktop composition root resolves the bundled CPython once
-  (`resolveDesktopPythonExecutable()`, `apps/desktop/src/python-runtime/`) and
-  injects the absolute path; this package never imports it. It unpacks under
-  `userData/python-runtime/`, a SIBLING of every always-deny store, and fails
-  with a typed `python_*` family disjoint from the seam's and fence's codes.
-  There is no PATH-python fallback in any state.
+  (`resolveDesktopPythonExecutable()`, `apps/desktop/src/python-runtime/`) for
+  macOS arm64/x64 or Linux glibc x64 (no `_dbm`) and injects its absolute path. It unpacks
+  under `userData/python-runtime/`, outside always-deny stores. This package never
+  imports it; its typed `python_*` errors stay disjoint from seam/fence codes.
+  No runtime download or PATH fallback. Evidence: `code-execution/bundled-linux-python.md`.
 - `ALWAYS_DENY_READ_PATHS` applies on top of every policy, resolved to ABSOLUTE
   paths from `os.homedir()` rather than handed to srt as `~/…`, and stays
   literal. srt's glob-deny handling is version-dependent and is NOT relied on.

@@ -37,7 +37,7 @@
           "to": "python-runtime",
           "filter": [
             "manifest.json",
-            "*.tar.gz"
+            "*-apple-darwin-install_only.tar.gz"
           ]
         }
       ]
@@ -49,7 +49,24 @@
     "linux": {
       "executableName": "brainstrike-desktop",
       "target": "AppImage",
-      "icon": "build/icons"
+      "icon": "build/icons",
+      "extraResources": [
+        {
+          "from": "resources/python-runtime",
+          "to": "python-runtime",
+          "filter": [
+            "manifest.json",
+            "*-x86_64-unknown-linux-gnu-brainstrike-no-dbm-v1.tar.gz"
+          ]
+        },
+        {
+          "from": "licenses/python-linux-x64",
+          "to": "python-runtime/licenses",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ]
     },
     "allowMissingDependencies": false
   },
@@ -168,7 +185,8 @@
     "wait-on": "^9.1.0",
     "xvfb-maybe": "^0.2.1",
     "xxhash-wasm": "catalog:",
-    "zustand": "catalog:"
+    "zustand": "catalog:",
+    "tar": "7.5.22"
   },
   "engines": {
     "node": ">=26.8.2 <27"
