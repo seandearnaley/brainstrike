@@ -3,6 +3,7 @@ import {
   type DelegatedBudgetPort,
   DelegatedOutputReservationExceededError,
 } from '@brainstrike/assistant-contract';
+import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import {
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
   type RuntimeSubagentSettings,
@@ -171,9 +172,11 @@ interface BackgroundFixture {
    * one per continuation.
    */
   nativeRootRuns: readonly string[];
+  observer: ReturnType<typeof scriptedAgentModel>;
   /** Delegation call ids the host recorded as answered without a claim, in order. */
   policyAnswers: string[];
   release: PromiseWithResolvers<void>;
+  rootWrite: ReturnType<typeof vi.fn>;
   runtime: Awaited<ReturnType<typeof createMastraAgentRuntime>>;
   runtimeData: RuntimeData & { memory: { resourceId: string; threadId: string } };
   scope: { resourceId: string; threadId: string };
@@ -210,6 +213,7 @@ export async function createBackgroundFixture(
     /** Gate the child's read through the ROOT permission policy instead of the tool flag. */
     readonly permissionPolicy?: PermissionToolGateSnapshot;
     readonly workingMemory?: boolean;
+    readonly observationalMemory?: boolean;
     /** Dispatch this many independent children in one root step (`background-child-<n>`). */
     readonly siblings?: number;
     /** Admit every sibling concurrently; otherwise the two-slot refusal guard remains active. */
@@ -285,6 +289,11 @@ export async function createBackgroundFixture(
 ): Promise<BackgroundFixture> {
   const database = await createEnginePglite();
   const scope = { resourceId: 'background-owner', threadId: 'background-root' };
+  const observer = scriptedAgentModel((options) =>
+    textParts(
+      `<observations>\n- ${JSON.stringify(options.prompt).includes('CHILD_FINAL_EVIDENCE') ? 'Children returned CHILD_FINAL_EVIDENCE.' : 'Evidence requested; results pending.'}\n</observations>`
+    )
+  );
   const backing = await createPgliteMastraMemory({
     backgroundTaskScope: scope,
     backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
@@ -303,6 +312,21 @@ export async function createBackgroundFixture(
       generateTitle: false,
       workingMemory: { enabled: fanout.workingMemory ?? false },
     },
+    ...(fanout.observationalMemory
+      ? {
+          memorySettings: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+            observationalMemory: {
+              ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+              enabled: true,
+              messageTokens: 10,
+              modelTarget: 'test/observer',
+              observationTokens: 40_000,
+            },
+          },
+          observationalMemoryModel: observer.model,
+        }
+      : {}),
   });
   const release = Promise.withResolvers<void>();
   const hold = Promise.withResolvers<void>();
@@ -347,6 +371,7 @@ export async function createBackgroundFixture(
       subscription[Symbol.dispose]();
     }
   });
+  const rootWrite = vi.fn(async () => ({ written: true }));
   const siblings = fanout.siblings ?? 1;
   const delegationArgs = {
     // Omission preserves the production default in existing background cases.
@@ -357,6 +382,36 @@ export async function createBackgroundFixture(
   let rootCalls = 0;
   const model = scriptedAgentModel((options) => {
     if (options.tools?.some((tool) => tool.name === 'agent-explore')) {
+      if (fanout.observationalMemory) {
+        // Native observation legitimately replaces prior raw tool results.
+        // A provider emits each scripted call once across that compaction.
+        rootCalls += 1;
+        if (rootCalls === 1) {
+          return parallelToolCallParts(
+            Array.from({ length: siblings }, (_, index) => ({
+              args: { ...delegationArgs, prompt: `Read background evidence ${index + 1}` },
+              toolCallId: `background-child-${index + 1}`,
+              toolName: 'agent-explore',
+            }))
+          );
+        }
+        if (rootCalls === 2) {
+          return toolCallParts('brainstrike_writeWorkspaceFile', 'root-write', {
+            pattern: 'report',
+          });
+        }
+        if (
+          !(
+            JSON.stringify(options.prompt).includes('CHILD_FINAL_EVIDENCE') &&
+            hasToolResult(options, 'brainstrike_writeWorkspaceFile')
+          )
+        ) {
+          throw new Error(
+            'Observed root resume omitted canonical child evidence or approved write.'
+          );
+        }
+        return textParts('PARENT_FINAL_OUTCOME');
+      }
       if (fanout.rootRedelegates !== undefined) {
         rootCalls += 1;
         if (rootCalls % 2 === 0) {
@@ -821,7 +876,7 @@ export async function createBackgroundFixture(
         ? {
             'brainstrike.writeWorkspaceFile': createTool({
               description: 'Write the report',
-              execute: async () => ({ written: true }),
+              execute: rootWrite,
               id: 'brainstrike.writeWorkspaceFile',
               inputSchema: z.object({ pattern: z.string() }),
               requireApproval: true,
@@ -898,8 +953,10 @@ export async function createBackgroundFixture(
     liveDecisions,
     model,
     nativeRootRuns,
+    observer,
     policyAnswers,
     release,
+    rootWrite,
     runtime,
     runtimeData,
     scope,

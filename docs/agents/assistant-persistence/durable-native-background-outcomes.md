@@ -71,3 +71,45 @@ human history turns. Render their format-2 `parts`, split assistant groups at th
 human input, and retain normal branch topology. Notification/state signals must
 not be reclassified as human messages.
 
+
+## Native observation suffix ownership (2026-09-30, BST-1894)
+
+The captured root failure followed two completed native children and an approved
+root write. The stored parent retained each exact invocation once, while native
+observation sealing had marked its metadata and last part. Private debug-pack
+contents remain local; the regression uses synthetic tasks and ordinary text.
+
+Installed Mastra core 1.71.0's public `MessageList` rotates a sealed assistant
+message to a fresh suffix id when response parts extend it. The suffix contains
+only new parts but inherits message metadata, including adapter-owned
+`backgroundTasks`. The PGlite adapter previously treated those inherited joins
+as local invocation ownership and threw the captured missing/ambiguous error.
+This is an adapter adaptation to native sealing, not a vendor defect.
+
+At the commit boundary, inherited references require the exact retained task and
+call in the same conversation, a distinct canonical row with exactly one call,
+and a seal at or after that call. Stored and incoming batch rows participate;
+an incoming row overrides the stored row of the same id. Valid unsealed
+progressive copies remain supported. Only inherited task references are removed;
+ordinary suffix parts and other metadata remain intact. Suffix-only saves cannot
+acknowledge delivery, and outcome projection plus delivery remains transactional.
+
+`pglite-background-result-reconciliation.integration.spec.ts` reproduces the
+exact error using the public native split. It covers suffix-only saves, first
+atomic parent/suffix batches, progressive copies, absent/foreign/unsealed owners,
+duplicate calls, and reload. Its existing controls retain stale-save repair,
+canonical outcomes, cancellation, and rollback. The enabled native
+approval case runs observation at a ten-token threshold, completes two concurrent
+children, reconstructs the root for approval, and proves both canonical outcomes,
+the sealed assistant owner, one root write, and final output. The scripted root
+emits each call once even when observation removes raw tool results; selecting
+redispatch by raw tool-result absence was a fixture artifact that native usage
+ownership correctly rejected. Observer output uses the native XML sections and
+derives its summary from observed synthetic input.
+
+The paired reconciliation, approval and outcome-recovery command passed 24 tests.
+A control run of the enabled native approval case against the original storage
+boundary also passed: that fixture qualifies native lifecycle compatibility but
+does not independently reproduce the captured inherited-reference failure. The
+causal RED/GREEN remains the public `MessageList` split at the actual PGlite save
+boundary. No desktop or GLM-provider acceptance is claimed here.

@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import { backgroundTaskReferences, record } from '../background-result-projection';
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
 import {
   createStreamIteratorFromRuntime,
@@ -15,147 +16,212 @@ import { createBackgroundFixture } from './fixtures/background-worker-runtime';
 // late-results wakeup, and are restored into memory after the resumed
 // run's stale save. See docs/agents/assistant-subagents.md.
 
-it("the root's own pause ends the leg once its children return: one card, no continuation on the parked run", async () => {
-  // Run 6 of the live-app verifier (2026-09-15): the root paused on its canvas
-  // write while a child's wakeup was still queued; the host loop ran that
-  // wakeup as a continuation ON the parked run, the root proposed the write
-  // again, and the thread carried two canvas cards, one orphaned for good. A
-  // parked parent is on the user; the leg closes when nothing runs, and the
-  // approval leg finds the child's result in the root's own history.
-  const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
-    rootGate: true,
-  });
-  const { backing, runtime, runtimeData, entered, release, database, model, effect } = fixture;
-  const { discoveryOptions, scope } = fixture;
-  const rootPauses = (chunks: readonly StreamChunk[]) =>
-    chunks.flatMap((chunk) => (chunk.type === 'tool-approval-required' ? [chunk.toolCallId] : []));
-  const failures = (chunks: readonly StreamChunk[]) =>
-    chunks.filter((chunk) => chunk.type === 'run-event' && chunk.event.kind === 'run.failed');
-  let consuming: Promise<void> | undefined;
-  let resumed: Awaited<ReturnType<typeof createMastraAgentRuntime>> | undefined;
-  try {
-    const iterator = await createStreamIteratorFromRuntime({
-      memory: backing.memory,
-      messages: [{ id: 'root-gate', parts: [{ text: 'Report', type: 'text' }], role: 'user' }],
-      runtime,
-      runtimeData,
+it.each([false, true])(
+  "the root's own pause ends the leg once its children return: one card, no continuation on the parked run (OM %s)",
+  async (observationalMemory) => {
+    // Run 6 of the live-app verifier (2026-09-15): the root paused on its canvas
+    // write while a child's wakeup was still queued; the host loop ran that
+    // wakeup as a continuation ON the parked run, the root proposed the write
+    // again, and the thread carried two canvas cards, one orphaned for good. A
+    // parked parent is on the user; the leg closes when nothing runs, and the
+    // approval leg finds the child's result in the root's own history.
+    const fixture = await createBackgroundFixture(false, undefined, false, undefined, false, 1, {
+      concurrentSiblings: observationalMemory,
+      observationalMemory,
+      rootGate: true,
+      ...(observationalMemory ? { siblings: 2 } : {}),
     });
-    const chunks: StreamChunk[] = [];
-    consuming = (async () => {
-      for await (const chunk of iterator) {
-        chunks.push(chunk);
-      }
-    })();
-    consuming.catch(() => {});
-    await entered.promise;
-    // The root proposes its write while the child is still inside its read;
-    // its card is held until the leg ends (the KNOWN LIMIT: a root pause with
-    // children running is not live-deliverable), so wait for the call itself.
-    await vi.waitFor(
-      () =>
-        expect(
-          chunks.some(
-            (chunk) =>
-              chunk.type === 'run-event' &&
-              chunk.event.kind === 'tool.started' &&
-              chunk.event.metadata?.['toolCallId'] === 'root-write'
-          )
-        ).toBe(true),
-      { timeout: 10_000 }
-    );
-    release.resolve();
-    await consuming;
-    expect(failures(chunks), JSON.stringify(failures(chunks))).toEqual([]);
-    expect(rootPauses(chunks)).toEqual(['root-write']);
-    // Dispatch, then the step that read the acknowledgement and proposed the
-    // write: the child's wakeup never ran a third prompt on the parked run.
-    const parentPrompts = model.prompts.filter((prompt) =>
-      prompt.tools?.some((tool) => tool.name === 'agent-explore')
-    );
-    expect(parentPrompts, JSON.stringify(parentPrompts.map((p) => p.prompt))).toHaveLength(2);
-    expect(effect).toHaveBeenCalledTimes(1);
-    const tasks = await runtime.backgroundTaskManager?.listTasks({});
-    expect(tasks?.tasks.map((task) => task.status)).toEqual(['completed']);
-    const completedResult = tasks?.tasks[0]?.result;
-    const subAgentThreadId = (completedResult as { subAgentThreadId?: unknown } | undefined)
-      ?.subAgentThreadId;
-    if (typeof subAgentThreadId !== 'string') {
-      throw new Error('Completed background result omitted its child thread identity');
-    }
-    // Approving the write resumes the parked root, which already holds the
-    // child's returned result and reports without any wakeup.
-    const rediscovered = await listSuspendedMastraRuns(scope, discoveryOptions);
-
-    const approval = rediscovered.approvals.find(
-      (entry) => entry.toolCallId === 'root-write' && entry.delegation === undefined
-    );
-    if (!approval) {
-      throw new Error('No pending root approval for root-write');
-    }
-    const promptsBeforeApproval = model.prompts.length;
-    resumed = await createMastraAgentRuntime(discoveryOptions);
-    const second: StreamChunk[] = [];
-    for await (const chunk of await createToolApprovalIteratorFromRuntime({
-      action: { action: 'approve', runId: approval.runId, toolCallId: approval.toolCallId },
-      memory: backing.memory,
-      runtime: resumed,
-      runtimeData,
-    })) {
-      second.push(chunk);
-    }
-    expect(failures(second), JSON.stringify(failures(second))).toEqual([]);
-    expect(rootPauses(second)).toEqual([]);
-    // Mastra's `approveToolCall` restores the message list snapshotted AT THE
-    // PAUSE (the dispatch acknowledgement only): the host overlays the child's
-    // late result onto that acknowledgement at the provider boundary, and the
-    // resumed run reports from it.
-    const resumedText = second
-      .flatMap((chunk) => (chunk.type === 'text-delta' ? [chunk.value] : []))
-      .join('');
-    expect(resumedText).toBe('PARENT_FINAL_OUTCOME');
-    const resumedProviderPrompt = JSON.stringify(model.prompts.at(-1)?.prompt);
-    expect(resumedProviderPrompt).toContain('CHILD_FINAL_EVIDENCE');
-    expect(resumedProviderPrompt).not.toContain(subAgentThreadId);
-    expect(resumedProviderPrompt).not.toContain('BACKGROUND_EVIDENCE');
-    // The resumed run's final save wrote its stale acknowledgement back; the
-    // leg restored the delivered result from the task row.
-    const history = await backing.memory.recall({
-      perPage: false,
-      resourceId: scope.resourceId,
-      threadId: scope.threadId,
-    });
-    const invocation = history.messages
-      .flatMap((message) => message.content.parts)
-      .find(
-        (part) =>
-          part.type === 'tool-invocation' && part.toolInvocation.toolCallId === 'background-child'
+    const { backing, runtime, runtimeData, entered, release, database, model, effect } = fixture;
+    const { discoveryOptions, scope } = fixture;
+    const rootPauses = (chunks: readonly StreamChunk[]) =>
+      chunks.flatMap((chunk) =>
+        chunk.type === 'tool-approval-required' ? [chunk.toolCallId] : []
       );
-    expect(JSON.stringify(invocation)).toContain('CHILD_FINAL_EVIDENCE');
-    // Debug-pack evidence (swarm diagnostics): the parked first leg recorded its
-    // deferral, and the root's resume recorded the late overlay BEFORE its
-    // inference ran. MUTATION: recording the overlay after the resumed stream
-    // starts moves `promptsAtRecord` past the approval's first prompt.
-    expect(fixture.wakeups.map((row) => row.kind)).toEqual(['deferred', 'late-overlay']);
-    expect(fixture.wakeups[0]?.directive).toContain('Parked parent leg closed');
-    expect(
-      fixture.wakeups[0]?.invocations.map((entry) => [entry.outcome, entry.toolCallId])
-    ).toEqual([['deferred', 'background-child']]);
-    expect(
-      fixture.wakeups[1]?.invocations.map((entry) => [
-        entry.outcome,
-        entry.toolCallId,
-        entry.toolName,
-      ])
-    ).toEqual([['late', 'background-child', 'agent-explore']]);
-    expect(fixture.wakeups[1]?.promptsAtRecord).toBe(promptsBeforeApproval);
-  } finally {
-    release.resolve();
-    await Promise.allSettled([consuming]);
-    await resumed?.dispose();
-    await runtime.dispose();
-    await database.close();
+    const failures = (chunks: readonly StreamChunk[]) =>
+      chunks.filter((chunk) => chunk.type === 'run-event' && chunk.event.kind === 'run.failed');
+    let consuming: Promise<void> | undefined;
+    let resumed: Awaited<ReturnType<typeof createMastraAgentRuntime>> | undefined;
+    try {
+      const iterator = await createStreamIteratorFromRuntime({
+        memory: backing.memory,
+        messages: [{ id: 'root-gate', parts: [{ text: 'Report', type: 'text' }], role: 'user' }],
+        runtime,
+        runtimeData,
+      });
+      const chunks: StreamChunk[] = [];
+      consuming = (async () => {
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+        }
+      })();
+      consuming.catch(() => {});
+      await entered.promise;
+      // The root proposes its write while the child is still inside its read;
+      // its card is held until the leg ends (the KNOWN LIMIT: a root pause with
+      // children running is not live-deliverable), so wait for the call itself.
+      await vi.waitFor(
+        () =>
+          expect(
+            chunks.some(
+              (chunk) =>
+                chunk.type === 'run-event' &&
+                chunk.event.kind === 'tool.started' &&
+                chunk.event.metadata?.['toolCallId'] === 'root-write'
+            )
+          ).toBe(true),
+        { timeout: 10_000 }
+      );
+      release.resolve();
+      await consuming;
+      expect(failures(chunks), JSON.stringify(failures(chunks))).toEqual([]);
+      expect(rootPauses(chunks)).toEqual(['root-write']);
+      // Dispatch, then the step that read the acknowledgement and proposed the
+      // write: the child's wakeup never ran a third prompt on the parked run.
+      const parentPrompts = model.prompts.filter((prompt) =>
+        prompt.tools?.some((tool) => tool.name === 'agent-explore')
+      );
+      expect(parentPrompts, JSON.stringify(parentPrompts.map((p) => p.prompt))).toHaveLength(2);
+      expect(effect).toHaveBeenCalledTimes(observationalMemory ? 2 : 1);
+      const tasks = await runtime.backgroundTaskManager?.listTasks({});
+      expect(tasks?.tasks.map((task) => task.status)).toEqual(
+        observationalMemory ? ['completed', 'completed'] : ['completed']
+      );
+      const completedResult = tasks?.tasks[0]?.result;
+      const subAgentThreadId = (completedResult as { subAgentThreadId?: unknown } | undefined)
+        ?.subAgentThreadId;
+      if (typeof subAgentThreadId !== 'string') {
+        throw new Error('Completed background result omitted its child thread identity');
+      }
+      // Approving the write resumes the parked root, which already holds the
+      // child's returned result and reports without any wakeup.
+      const rediscovered = await listSuspendedMastraRuns(scope, discoveryOptions);
+
+      const approval = rediscovered.approvals.find(
+        (entry) => entry.toolCallId === 'root-write' && entry.delegation === undefined
+      );
+      if (!approval) {
+        throw new Error('No pending root approval for root-write');
+      }
+      const promptsBeforeApproval = model.prompts.length;
+      resumed = await createMastraAgentRuntime(discoveryOptions);
+      const second: StreamChunk[] = [];
+      for await (const chunk of await createToolApprovalIteratorFromRuntime({
+        action: { action: 'approve', runId: approval.runId, toolCallId: approval.toolCallId },
+        memory: backing.memory,
+        runtime: resumed,
+        runtimeData,
+      })) {
+        second.push(chunk);
+      }
+      expect(failures(second), JSON.stringify(failures(second))).toEqual([]);
+      expect(rootPauses(second)).toEqual([]);
+      // Mastra's `approveToolCall` restores the message list snapshotted AT THE
+      // PAUSE (the dispatch acknowledgement only): the host overlays the child's
+      // late result onto that acknowledgement at the provider boundary, and the
+      // resumed run reports from it.
+      const resumedText = second
+        .flatMap((chunk) => (chunk.type === 'text-delta' ? [chunk.value] : []))
+        .join('');
+      expect(resumedText).toBe('PARENT_FINAL_OUTCOME');
+      const resumedProviderPrompt = JSON.stringify(model.prompts.at(-1)?.prompt);
+      expect(resumedProviderPrompt).toContain('CHILD_FINAL_EVIDENCE');
+      expect(resumedProviderPrompt).not.toContain(subAgentThreadId);
+      expect(resumedProviderPrompt).not.toContain('BACKGROUND_EVIDENCE');
+      // The resumed run's final save wrote its stale acknowledgement back; the
+      // leg restored the delivered result from the task row.
+      const history = await backing.memory.recall({
+        perPage: false,
+        resourceId: scope.resourceId,
+        threadId: scope.threadId,
+      });
+      const invocation = history.messages
+        .flatMap((message) => message.content.parts)
+        .find(
+          (part) =>
+            part.type === 'tool-invocation' &&
+            part.toolInvocation.toolCallId ===
+              (observationalMemory ? 'background-child-1' : 'background-child')
+        );
+      expect(JSON.stringify(invocation)).toContain('CHILD_FINAL_EVIDENCE');
+      // Debug-pack evidence (swarm diagnostics): the parked first leg recorded its
+      // deferral, and the root's resume recorded the late overlay BEFORE its
+      // inference ran. MUTATION: recording the overlay after the resumed stream
+      // starts moves `promptsAtRecord` past the approval's first prompt.
+      expect(fixture.wakeups.map((row) => row.kind)).toEqual(['deferred', 'late-overlay']);
+      expect(fixture.wakeups[0]?.directive).toContain('Parked parent leg closed');
+      expect(
+        fixture.wakeups[0]?.invocations.map((entry) => [entry.outcome, entry.toolCallId])
+      ).toEqual(
+        observationalMemory
+          ? [
+              ['deferred', 'background-child-1'],
+              ['deferred', 'background-child-2'],
+            ]
+          : [['deferred', 'background-child']]
+      );
+      expect(
+        fixture.wakeups[1]?.invocations.map((entry) => [
+          entry.outcome,
+          entry.toolCallId,
+          entry.toolName,
+        ])
+      ).toEqual(
+        observationalMemory
+          ? [
+              ['late', 'background-child-1', 'agent-explore'],
+              ['late', 'background-child-2', 'agent-explore'],
+            ]
+          : [['late', 'background-child', 'agent-explore']]
+      );
+      expect(fixture.wakeups[1]?.promptsAtRecord).toBe(promptsBeforeApproval);
+      if (observationalMemory) {
+        await backing.memory.settled();
+        const om = await backing.memory.omEngine;
+        if (!om) {
+          throw new Error('Missing enabled native observational memory');
+        }
+        expect(await om.getObservations(scope.threadId, scope.resourceId)).toEqual(
+          expect.stringMatching(
+            /Evidence requested; results pending\.|Children returned CHILD_FINAL_EVIDENCE\./
+          )
+        );
+        expect(fixture.observer.prompts.length).toBeGreaterThan(0);
+        expect(fixture.rootWrite).toHaveBeenCalledTimes(1);
+        expect(tasks?.tasks.map((task) => task.toolCallId).sort()).toEqual([
+          'background-child-1',
+          'background-child-2',
+        ]);
+        for (const task of tasks?.tasks ?? []) {
+          const terminal = history.messages
+            .flatMap((message) => message.content.parts)
+            .filter(
+              (part) =>
+                part.type === 'tool-invocation' &&
+                part.toolInvocation.toolCallId === task.toolCallId
+            );
+          expect(terminal.length).toBeGreaterThan(0);
+          expect(
+            terminal.every((part) => JSON.stringify(part).includes('CHILD_FINAL_EVIDENCE'))
+          ).toBe(true);
+        }
+        expect(
+          history.messages.some(
+            (message) =>
+              backgroundTaskReferences(message).size === 2 &&
+              record(message.content.metadata?.['mastra'])?.['sealed'] === true
+          )
+        ).toBe(true);
+      }
+    } finally {
+      release.resolve();
+      await Promise.allSettled([consuming]);
+      await resumed?.dispose();
+      await runtime.dispose();
+      await backing.memory.settled();
+      await database.close();
+    }
   }
-});
+);
 
 it("a child card answered on a new leg never wakes a parked root; the root's own resume presents the late result", async () => {
   // Both park in the first leg: the child on its gated read, the root on its

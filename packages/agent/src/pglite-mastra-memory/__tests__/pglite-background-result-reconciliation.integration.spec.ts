@@ -4,6 +4,7 @@ import {
 } from '@brainstrike/assistant-contract/subagent-settings';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { PGlite } from '@electric-sql/pglite';
+import { MessageList } from '@mastra/core/agent';
 import type { MastraDBMessage } from '@mastra/core/memory';
 import { getTransformedToolPayload } from '@mastra/core/tools';
 import { afterEach, beforeEach, expect, it } from 'vitest';
@@ -73,6 +74,122 @@ function parentMessage(): MastraDBMessage {
 
 let database: PGlite;
 
+it.each([
+  { batch: false, progressive: false },
+  { batch: false, progressive: true },
+  { batch: true, progressive: false },
+  { batch: true, progressive: false, rotations: 2 },
+])(
+  'persists the native observation suffix without moving its sealed parent invocations ($progressive/$batch)',
+  async ({ progressive, batch, rotations }) => {
+    const backing = await createPgliteMastraMemory({
+      backgroundTaskScope: scope,
+      backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
+      database: port(database),
+      memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
+    });
+    const tasks = await backing.storage.getStore('backgroundTasks');
+    if (!tasks) {
+      throw new Error('Missing background task store');
+    }
+    for (const suffix of ['a', 'b']) {
+      await tasks.createTask({
+        ...scope,
+        agentId: 'parent',
+        args: { prompt: suffix },
+        completedAt: new Date(),
+        createdAt: new Date(),
+        id: `task-${suffix}`,
+        maxRetries: 0,
+        result: { text: `canonical ${suffix}` },
+        retryCount: 0,
+        runId: 'native-run',
+        status: 'completed',
+        timeoutMs: 30_000,
+        toolCallId: `call-${suffix}`,
+        toolName: `agent-worker-${suffix}`,
+      });
+    }
+    const original = parentMessage();
+    if (progressive) {
+      await backing.store.saveMessages({
+        messages: [{ ...structuredClone(original), id: 'earlier-progressive' }],
+      });
+    }
+    original.content.metadata = { ...original.content.metadata, mastra: { sealed: true } };
+    const last = original.content.parts.at(-1);
+    if (!last) {
+      throw new Error('Missing seal boundary fixture');
+    }
+    Object.assign(last, { metadata: { mastra: { sealedAt: Date.now() } } });
+    if (!batch) {
+      await backing.store.saveMessages({ messages: [original] });
+    }
+    const list = new MessageList();
+    list.add(structuredClone(original), 'response');
+    const extended = structuredClone(original);
+    extended.content.parts.push({ text: 'Continuation after observation.', type: 'text' });
+    list.add(extended, 'response');
+    if (rotations === 2) {
+      const next = list.get.all.db()[1];
+      if (!next?.content.parts[0]) {
+        throw new Error('Missing native next suffix');
+      }
+      Object.assign(next.content.parts[0], { metadata: { mastra: { sealedAt: Date.now() } } });
+      list.add(next, 'response');
+      const more = structuredClone(next);
+      more.content.parts.push({ text: 'Second observation continuation.', type: 'text' });
+      list.add(more, 'response');
+    }
+    const nativeMessages = list.get.all.db();
+    expect(nativeMessages).toHaveLength(rotations === 2 ? 3 : 2);
+    const suffix = nativeMessages[1];
+    expect(suffix?.content.parts).toMatchObject([
+      { text: 'Continuation after observation.', type: 'text' },
+    ]);
+    if (!suffix) {
+      throw new Error('Missing native observation suffix');
+    }
+    if (batch) {
+      await backing.store.saveMessages({ messages: nativeMessages });
+    }
+    await database.exec('UPDATE mastra_background_tasks SET delivered_at = NULL');
+    const suffixOnly = await backing.store.saveMessages({ messages: [suffix] });
+    expect(suffixOnly.messages[0]?.content.metadata?.['backgroundTasks']).toEqual({});
+    expect(suffixOnly.messages[0]?.content.metadata).toMatchObject({
+      mastra: { sealed: true },
+      preserved: { source: 'native-snapshot' },
+    });
+    expect(
+      (
+        await database.query(
+          'SELECT delivered_at IS NOT NULL AS delivered FROM mastra_background_tasks'
+        )
+      ).rows
+    ).toEqual([{ delivered: false }, { delivered: false }]);
+    await expect(backing.store.saveMessages({ messages: nativeMessages })).resolves.toMatchObject({
+      messages: nativeMessages.map((message, index) =>
+        index === 0 ? { id: original.id } : { content: { parts: message.content.parts } }
+      ),
+    });
+    const reloaded = await backing.store.listMessagesById({
+      messageIds: nativeMessages.map(({ id }) => id),
+    });
+    expect(
+      reloaded.messages[0]?.content.parts.filter((part) => part.type === 'tool-invocation')
+    ).toHaveLength(2);
+    expect(reloaded.messages.slice(1).map((message) => message.content.parts)).toEqual(
+      nativeMessages.slice(1).map((message) => message.content.parts)
+    );
+    expect(
+      reloaded.messages
+        .slice(1)
+        .flatMap((message) => message.content.parts)
+        .every((part) => part.type !== 'tool-invocation')
+    ).toBe(true);
+  }
+);
+
 beforeEach(async () => {
   database = await createEnginePglite();
 });
@@ -80,6 +197,96 @@ beforeEach(async () => {
 afterEach(async () => {
   await database.close();
 });
+
+it.each([
+  'missing-owner',
+  'foreign-owner',
+  'duplicate-owner-call',
+  'unsealed-owner',
+  'unsealed-suffix',
+  'incoming-unsealed-owner',
+])(
+  'rejects an unproven observation suffix (%s) without delivery or content mutation',
+  async (failure) => {
+    const backing = await createPgliteMastraMemory({
+      backgroundTaskScope: scope,
+      backgroundTaskTimeoutMs: resolveChildTaskTimeoutMs(DEFAULT_RUNTIME_SUBAGENT_SETTINGS),
+      database: port(database),
+      memoryOptions: { generateTitle: false, workingMemory: { enabled: false } },
+    });
+    const tasks = await backing.storage.getStore('backgroundTasks');
+    if (!tasks) {
+      throw new Error('Missing background task store');
+    }
+    await tasks.createTask({
+      ...scope,
+      agentId: 'parent',
+      args: { prompt: 'A' },
+      completedAt: new Date(),
+      createdAt: new Date(),
+      id: 'task-a',
+      maxRetries: 0,
+      result: { text: 'canonical A' },
+      retryCount: 0,
+      runId: 'native-run',
+      status: 'completed',
+      timeoutMs: 30_000,
+      toolCallId: 'call-a',
+      toolName: 'agent-worker-a',
+    });
+    const parent = parentMessage();
+    parent.content.parts = parent.content.parts.slice(0, 2);
+    parent.content.metadata = {
+      backgroundTasks: { 'call-a': { taskId: 'task-a' } },
+      mastra: { sealed: failure !== 'unsealed-owner' },
+    };
+    Object.assign(parent.content.parts[1] ?? {}, { metadata: { mastra: { sealedAt: 1 } } });
+    await backing.store.saveMessages({ messages: [parent] });
+    if (failure === 'missing-owner') {
+      await database.exec('DELETE FROM mastra_messages');
+    } else if (failure === 'foreign-owner') {
+      await database.exec(`UPDATE mastra_messages SET "resourceId" = 'foreign'`);
+    } else if (failure === 'duplicate-owner-call') {
+      const invocation = parent.content.parts[1];
+      if (!invocation) {
+        throw new Error('Missing invocation fixture');
+      }
+      parent.content.parts.push(structuredClone(invocation));
+      await database.query('UPDATE mastra_messages SET content = $1::jsonb', [
+        JSON.stringify(parent.content),
+      ]);
+    }
+    await database.exec('UPDATE mastra_background_tasks SET delivered_at = NULL');
+    const suffix = structuredClone(parent);
+    suffix.id = 'unproven-suffix';
+    suffix.createdAt = new Date(parent.createdAt.getTime() + 1);
+    suffix.content.parts = [{ text: 'Ordinary continuation.', type: 'text' }];
+    suffix.content.metadata = {
+      ...suffix.content.metadata,
+      mastra: { sealed: failure !== 'unsealed-suffix' },
+    };
+    const incomingOwner = structuredClone(parent);
+    incomingOwner.content.metadata = {
+      ...incomingOwner.content.metadata,
+      mastra: { sealed: false },
+    };
+    await expect(
+      backing.store.saveMessages({
+        messages: failure === 'incoming-unsealed-owner' ? [incomingOwner, suffix] : [suffix],
+      })
+    ).rejects.toThrow('Background parent invocation is missing or ambiguous.');
+    expect(
+      (
+        await database.query(
+          'SELECT delivered_at IS NOT NULL AS delivered FROM mastra_background_tasks'
+        )
+      ).rows
+    ).toEqual([{ delivered: false }]);
+    await expect(backing.store.listMessagesById({ messageIds: [suffix.id] })).resolves.toEqual({
+      messages: [],
+    });
+  }
+);
 
 it('atomically overlays every terminal task onto stale native saves and acknowledges them', async () => {
   const backing = await createPgliteMastraMemory({
