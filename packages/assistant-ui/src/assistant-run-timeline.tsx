@@ -33,7 +33,7 @@ const STATUS_LABELS: Record<AssistantRunEventDisplayStatus, string> = {
 
 function AssistantRunStatusIcon({ status }: { status: AssistantRunEventDisplayStatus }) {
   if (status === 'completed') {
-    return <CheckCircle className="size-3.5 text-emerald-600 dark:text-emerald-500" />;
+    return <CheckCircle className="size-3.5 text-success" />;
   }
   if (status === 'failed') {
     return <AlertCircle className="size-3.5 text-destructive" />;

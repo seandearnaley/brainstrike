@@ -244,9 +244,7 @@ function QueueHudCard({
           </div>
           <div>
             <div className="text-[9px] text-muted-foreground">Success</div>
-            <div className="font-semibold text-green-600 text-sm dark:text-green-400">
-              {succeededLifetime}
-            </div>
+            <div className="font-semibold text-sm text-success">{succeededLifetime}</div>
           </div>
         </div>
         {nextRunnableAt && (

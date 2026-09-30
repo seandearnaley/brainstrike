@@ -41,7 +41,7 @@
   for a real conflict, required up-to-date protection, or a relevant base change.
 
 These rules hold without the external `pr-scope-guard` skill.
-Guard: `scripts/__tests__/engineering-skills-contract.test.mjs`. Evidence: `ci-quality/vercel-parser-dependencies.md`.
+Guard: `scripts/__tests__/engineering-skills-contract.test.mjs`. Evidence: `ci-quality/vercel-parser-dependencies.md`, `ci-quality/build-tooling-dependencies.md`.
 
 ### Browser failure traces
 

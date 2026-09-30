@@ -135,9 +135,7 @@ const ComposerInputRow = ({
             title="Plan mode: investigate read-only and propose a plan for approval before any changes."
             type="button"
           >
-            <ClipboardListIcon
-              className={planMode.enabled ? 'size-4 text-sky-600 dark:text-sky-400' : 'size-4'}
-            />
+            <ClipboardListIcon className={planMode.enabled ? 'size-4 text-info' : 'size-4'} />
           </button>
         ) : null}
         <ThreadPrimitive.If running={false}>

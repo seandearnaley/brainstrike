@@ -42,7 +42,7 @@ const WorktreeInfo = ({
     </span>
     {worktree.setupReason ? (
       <span
-        className="mt-1 block text-[10px] text-amber-700 leading-snug dark:text-amber-300"
+        className="mt-1 block text-[10px] text-warning leading-snug"
         data-testid="workspace-bar-mode-setup-reason"
       >
         {worktree.setupReason}
@@ -157,7 +157,7 @@ const DiagnosticOnlyModeChip = ({
     >
       <Layers aria-hidden="true" className="size-3 shrink-0" />
       <span className="truncate">{label}</span>
-      <span className="shrink-0 text-amber-600 dark:text-amber-400">!</span>
+      <span className="shrink-0 text-warning">!</span>
       <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
     </DropdownMenuTrigger>
     <DropdownMenuContent align="start" className="w-80">
@@ -215,7 +215,7 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
           <Layers aria-hidden="true" className="size-3 shrink-0" />
           <span className="truncate">{label}</span>
           {worktree?.setupStatus === 'failed' ? (
-            <span className="shrink-0 text-amber-600 dark:text-amber-400">!</span>
+            <span className="shrink-0 text-warning">!</span>
           ) : null}
           <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
         </DropdownMenuTrigger>

@@ -127,9 +127,9 @@ const TONE_ICON: Record<CoverageNoticeTone, typeof CheckCircle2> = {
 };
 
 const TONE_ICON_CLASS: Record<CoverageNoticeTone, string> = {
-  healthy: 'text-emerald-500',
-  indexing: 'text-sky-500',
-  warning: 'text-amber-500',
+  healthy: 'text-success',
+  indexing: 'text-info',
+  warning: 'text-warning',
 };
 
 // Actionable warnings keep toned TEXT (not just a tiny colored icon) so they
@@ -138,7 +138,7 @@ const TONE_ICON_CLASS: Record<CoverageNoticeTone, string> = {
 const TONE_TEXT_CLASS: Record<CoverageNoticeTone, string> = {
   healthy: 'text-muted-foreground',
   indexing: 'text-muted-foreground',
-  warning: 'text-amber-700 dark:text-amber-300',
+  warning: 'text-warning',
 };
 
 function resolveTone(

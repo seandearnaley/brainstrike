@@ -300,7 +300,7 @@ function DatabaseStatusSection(): ReactElement {
         )}
         <div className="flex items-center gap-1.5 pt-1">
           {connected ? (
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
+            <CheckCircle2 className="h-3.5 w-3.5 text-success" />
           ) : (
             <XCircle className="h-3.5 w-3.5 text-destructive" />
           )}
@@ -644,7 +644,7 @@ function EmbeddingRuntimeDiagnosticsCard({
           </div>
         )}
         {telemetry.cache.memoryEstimateUnavailableCount > 0 && (
-          <div className="text-[10px] text-amber-700 dark:text-amber-300">
+          <div className="text-[10px] text-warning">
             {formatCount(
               telemetry.cache.memoryEstimateUnavailableCount,
               'model estimate unavailable',

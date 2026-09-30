@@ -50,11 +50,11 @@ function indexedCalls() {
   );
   return index.cardedSurfaceCalls;
 }
-function pause(runId: string | undefined, toolCallId: string) {
+function pause(runId: string | undefined, toolCallId: string, kind = 'tool.approval.requested') {
   return {
     data: {
       id: 'pause',
-      kind: 'tool.approval.requested',
+      kind,
       label: 'Approval requested',
       status: 'running',
       timestamp: '2026-09-28T19:03:00Z',
@@ -70,6 +70,19 @@ it('finds a separate card using the recorded run and surface call', () => {
     'delegate',
   ]);
 });
+it('uses an exact tool start when the matching pause lives outside this message', () => {
+  expect([
+    ...approvalCardToolCallIds([pause('host-root', 'delegate', 'tool.started')], indexedCalls()),
+  ]).toEqual(['delegate']);
+});
+it.each(['tool.completed', 'tool.failed', 'run.started', 'run.finished'])(
+  'does not infer a pause owner from %s',
+  (kind) => {
+    expect(
+      approvalCardToolCallIds([pause('host-root', 'delegate', kind)], indexedCalls()).size
+    ).toBe(0);
+  }
+);
 it.each([
   ['another run', 'other', 'delegate'],
   ['a child timeline', 'host-child', 'delegate'],
@@ -79,6 +92,9 @@ it.each([
   ['an unscoped pause', undefined, 'delegate'],
 ] as const)('does not replace %s with an unrelated approval card', (_, runId, toolCallId) => {
   expect(approvalCardToolCallIds([pause(runId, toolCallId)], indexedCalls()).size).toBe(0);
+  expect(
+    approvalCardToolCallIds([pause(runId, toolCallId, 'tool.started')], indexedCalls()).size
+  ).toBe(0);
 });
 
 it('does not guess a host leg for a rediscovered request without one', () => {

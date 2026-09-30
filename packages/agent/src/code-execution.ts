@@ -271,7 +271,7 @@ export interface CodeExecutor {
   execute(input: ExecInput): Promise<ExecResult>;
 }
 
-export type CodeExecutorFactory = () => CodeExecutor;
+export type CodeExecutorFactory = (signal?: AbortSignal) => CodeExecutor | Promise<CodeExecutor>;
 
 /**
  * A host advertises a backend by providing its factory — absence means the
@@ -343,16 +343,18 @@ export function isExecutorTierMismatchError(value: unknown): value is ExecutorTi
  *
  * Factory PRESENCE is not sufficient evidence of isolation, so the resolved
  * executor's advertised tier is checked against the kind. A backend that
- * cannot apply its platform sandbox must throw at construction rather than
- * return a weaker executor under the same kind.
+ * cannot apply its platform sandbox must reject construction rather than
+ * return a weaker executor under the same kind. Construction is awaited so
+ * asynchronous readiness checks finish before any executor is exposed.
  *
  * The caller owns the returned executor's lifetime: each resolve invokes the
  * factory, so each resolve yields a NEW executor that must be `dispose()`d.
  */
-export function resolveCodeExecutor(
+export async function resolveCodeExecutor(
   requested: ExecutorKind,
-  host: CodeExecutorHostCapabilities
-): CodeExecutor {
+  host: CodeExecutorHostCapabilities,
+  signal?: AbortSignal
+): Promise<CodeExecutor> {
   const factory = host[requested];
   if (!factory) {
     throw new ExecutorKindUnavailableError(
@@ -360,7 +362,7 @@ export function resolveCodeExecutor(
       EXECUTOR_KINDS.filter((kind) => host[kind] !== undefined)
     );
   }
-  const executor = factory();
+  const executor = await factory(signal);
   const requiredTier = REQUIRED_ISOLATION_TIER[requested];
   const reportedTier = executor.capabilities().maxIsolationTier;
   if (reportedTier !== requiredTier) {

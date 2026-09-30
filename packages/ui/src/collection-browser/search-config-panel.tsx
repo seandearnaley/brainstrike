@@ -62,6 +62,7 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
   collectionDistanceMetric,
   className,
 }: SearchConfigPanelProps) {
+  const metricMismatchId = React.useId();
   const handleThresholdChange = React.useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = Number.parseFloat(e.target.value);
@@ -270,16 +271,17 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
           <span className="shrink-0 text-[10px] text-muted-foreground">
             Metric
             {metricMismatch && (
-              <span
-                className="ml-1 text-warning"
-                title={`Collection uses ${collectionDistanceMetric}`}
-              >
+              <span aria-hidden="true" className="ml-1 text-warning">
                 ⚠
               </span>
             )}
           </span>
           <Select onValueChange={handleMetricChange} value={config.distanceMetric}>
-            <SelectTrigger className="h-7 flex-1 text-[11px]" id="metric">
+            <SelectTrigger
+              aria-describedby={metricMismatch ? metricMismatchId : undefined}
+              className="h-7 flex-1 text-[11px]"
+              id="metric"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -298,6 +300,11 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
         </div>
       </div>
 
+      {metricMismatch && (
+        <p className="text-[10px] text-warning" id={metricMismatchId}>
+          {`Metric mismatch: collection uses ${collectionDistanceMetric}; search uses ${config.distanceMetric}.`}
+        </p>
+      )}
       {isLargeLimit && <p className="text-[10px] text-warning">Large result sets rank slower.</p>}
     </div>
   );
