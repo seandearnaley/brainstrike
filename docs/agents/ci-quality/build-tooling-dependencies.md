@@ -57,3 +57,36 @@ exported initialization promise awaited. The fixture preserves entry exports
 explicitly; the default application-entry tree shaking would remove the
 otherwise unobserved test export. That fixture correction is compatibility
 setup, not security RED.
+
+### esbuild and the deprecated migration loader
+
+The [development-server CORS advisory](https://github.com/advisories/GHSA-67mh-4wv8-2f99)
+affects <=0.24.2; the [Windows traversal advisory](https://github.com/advisories/GHSA-g7r4-m6w7-qqqr)
+affects >=0.27.3 <0.28.1. Preserve unaffected 0.25.12 and 0.27.0 copies.
+
+Drizzle 0.31.10's published CLI, API and utilities contain no reference to its
+`@esbuild-kit/esm-loader` dependency. The CLI bundles tsx; the API calls
+`tsx/cjs/api`. The [loader vendor](https://github.com/esbuild-kit/esm-loader)
+marks it unmaintained and merged into tsx. Remove only that unused owner edge
+using pnpm's documented `-` override, which removes the 0.18.20 subtree.
+Resolve Drizzle and Vercel Node/backends to existing tsx 4.23.12, retaining its
+4.x CommonJS and ESM APIs and eliminating their 0.27.7 copy.
+
+Tsup 8.5.1 declares ^0.27.0; clearing the Windows advisory requires an explicit
+0.28.2 compatibility lift, scoped to that owner. Its bundle-require peer admits
+>=0.18. The [vendor 0.28 changelog](https://github.com/evanw/esbuild/blob/v0.28.2/CHANGELOG.md)
+identifies native download integrity and Go/runtime changes as the breaking
+release rationale; the build/context/plugin APIs remain available. The normal
+frozen install and real owner builds verify the selected platform binary.
+Peer references to the removed esbuild line converge on the existing 0.28.2
+snapshots; unrelated PostCSS and native runtime refreshes are excluded.
+
+Guard: `scripts/__tests__/esbuild-dependency-security.test.mjs`. RED fails the
+full-graph floor, the deprecated owner edge and the actual tsup resolution.
+GREEN generates and checks real SQL from a temporary TS config/schema,
+loads that config through Drizzle's actual tsx API, builds and executes TS
+ESM/CJS dynamic-import bundles with source maps through both tsup owners,
+and exercises both Vercel owners' TS CommonJS/ESM loading. The repository's
+production schema, migration ledger and local database profiles are untouched.
+The lock graph proves patched Windows coverage; no Windows exploit execution
+or packaged desktop test is claimed from the macOS-local checks.

@@ -151,6 +151,16 @@ catalog:
   zod: ^4.6.5
   zustand: ^5.0.15
 overrides:
+  # BST-875: Drizzle's published CLI/API use tsx, never its deprecated loader.
+  # Retire on owner update; do not reintroduce the unused esbuild 0.18 subtree.
+  'drizzle-kit@0.31.10>@esbuild-kit/esm-loader': '-'
+  'drizzle-kit@0.31.10>tsx': 4.23.12
+  # Vercel pins the same older tsx copy; include those edges in the full graph.
+  '@vercel/backends@0.8.30>tsx': 4.23.12
+  '@vercel/node@5.9.3>tsx': 4.23.12
+  # 0.28.2 retains tsup's build/context/plugin APIs; real owner builds guard it.
+  # Remove when tsup admits a release clearing GHSA-g7r4-m6w7-qqqr itself.
+  'tsup@8.5.1>esbuild': 0.28.2
   # BST-888: v11 keeps the plugin's CommonJS v5 API and patches bounds checks.
   # v1/v7 state changes are unused here; remove when this owner admits >=11.1.1.
   'vite-plugin-top-level-await@1.6.0>uuid': 11.1.1
