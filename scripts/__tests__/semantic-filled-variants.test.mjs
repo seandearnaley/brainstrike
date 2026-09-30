@@ -56,10 +56,12 @@ function destructiveBackgrounds(classes) {
   // Qualify every background utility, not only the expected token family.
   // New background images/positions or arbitrary colors need an explicit paint model.
   // Leading/trailing ! is deliberately unsupported: this model does not resolve cascade priority.
-  const backgrounds = classes.filter((utility) => /(?:^|:)!?bg-/.test(utility));
+  const backgrounds = classes.filter((utility) =>
+    /(?:^|:)!?(?:bg-|\[(?:background(?:-color|-image)?):)/.test(utility)
+  );
   for (const utility of backgrounds) {
     assert.ok(
-      !/(?:^|:)!bg-|!$/.test(utility),
+      !/(?:^|:)!(?:bg-|\[(?:background(?:-color|-image)?):)|!$/.test(utility),
       `Unsupported important background utility: ${utility}; qualify its cascade before measuring contrast`
     );
     assert.match(
@@ -233,6 +235,37 @@ for (const path of [
   'packages/ui/src/badge.tsx',
   'packages/ui/src/toast.tsx',
 ]) {
+  for (const property of [
+    'background:red',
+    'background-color:red',
+    'background-image:linear-gradient(red,blue)',
+  ]) {
+    for (const [override, important] of [
+      [`[${property}]`, false],
+      [`hover:[${property}]`, false],
+      [`[&:hover]:[${property}]`, false],
+      [`![${property}]`, true],
+      [`dark:![${property}]`, true],
+      [`dark:[&:hover]:[${property}]!`, true],
+    ]) {
+      it(`${path} rejects arbitrary background property ${override}`, () => {
+        const classes = [...destructiveVariant(path), override];
+        const expected = {
+          message: important
+            ? `Unsupported important background utility: ${override}; qualify its cascade before measuring contrast`
+            : `Unqualified destructive background override: ${override}`,
+        };
+        if (path.endsWith('/toast.tsx')) {
+          assert.throws(() => requireOpaqueToastFill(classes), expected);
+        } else {
+          for (const mode of Object.keys(modes)) {
+            assert.throws(() => destructiveFillAlphas(classes, mode), expected);
+          }
+        }
+      });
+    }
+  }
+
   it(`${path} rejects a different background family instead of measuring the wrong fill`, () => {
     const classes = destructiveVariant(path);
     for (const override of [

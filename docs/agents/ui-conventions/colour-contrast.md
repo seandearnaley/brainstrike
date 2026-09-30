@@ -47,7 +47,7 @@ to copy into new UI. The live checks recompute on palette/theme changes.
 
 `source-foreground-contract.test.mjs` discovers production JS/TS/JSX/TSX beneath
 every app/package `src` directory. It ignores tests, declarations, stories,
-test fixture directories and build/dependency output. Its minimum file count
+test fixture directories and `dist`/`node_modules` directories. Its minimum file count
 and representative app/shared paths prevent vacuous success. One explicit
 non-UI exclusion is `file-system/src/fixtures/dev-inline-fixture.ts`: its
 `@mock/ui/Badge.tsx` is example text displayed in the editor, never mounted UI.
@@ -132,3 +132,10 @@ and trailing `!`, variant and alpha forms are tested through both destructive
 fill helpers before theme filtering. Other-family background overrides still
 fail qualification. This narrower guard does not change the palette-foreground
 parser's support for important foreground modifiers.
+
+The filled-variant background detector also recognizes arbitrary-property
+`[background:...]`, `[background-color:...]` and `[background-image:...]`
+overrides. Plain, state, arbitrary-variant and leading/trailing important forms
+fail closed through the Button/Badge fill model and Toast's opaque-fill check;
+none may silently preserve the old measured destructive background. These
+properties require explicit paint qualification, not inferred CSS evaluation.
