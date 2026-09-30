@@ -88,3 +88,9 @@ Guards: `apps/desktop/src/__tests__/main/python-runtime-linux.test.ts`,
 `resolve-python-binary.integration.test.ts`, `resolve-python-binary.test.ts`,
 `resolve-python-binary-resources.test.ts`, `desktop-factory-reset.test.ts`,
 `derive-python-runtime.integration.test.ts`, `python-derived-payloads.integration.test.ts`.
+
+
+Byte-pinned notice text uses directory-local Git `-text` attributes so Windows
+`core.autocrlf=true` checkouts preserve the upstream bytes. Guard:
+`scripts/__tests__/python-license-eol-contract.test.mjs`; its negative control
+removes the attributes and observes changed bytes through Git's real checkout filter.
