@@ -12,7 +12,7 @@
  * into `electronAPI.storage`, then reload — the main process restores the root
  * and inserts the DB `roots` row the git bridge resolves against.
  */
-import { writeFileSync } from 'node:fs';
+import { realpathSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
@@ -23,6 +23,7 @@ import {
   createTempDirTracker,
   git,
 } from './utils/git-fixtures';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { seedRoot as seedRootWithLedgers } from './utils/seed-root';
 
 const tempDirs = createTempDirTracker();
@@ -107,6 +108,83 @@ test.describe('Git panel (desktop)', () => {
     await openGitPanel(page);
     await expect(page.getByTestId('git-panel-clean')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('git-panel')).toContainText('main', { timeout: 10_000 });
+  });
+
+  test('switches a restored non-Git parent to its Git child without changing Main', async ({
+    window: page,
+  }) => {
+    test.setTimeout(150_000);
+    const parent = realpathSync(freshNonGitDir('focused-parent'));
+    const child = path.join(parent, 'child-repository');
+    renameSync(freshRepo('focused-child'), child);
+    await seedRootWithLedgers(page, parent, {
+      disableBackgroundIndexing: true,
+      reloadReason: 'git-focused-parent-seed',
+      rootId: ROOT_ID,
+    });
+    await page.evaluate(
+      async ({ parentPath, childPath, parentId }) => {
+        const storage = (
+          globalThis as typeof globalThis & {
+            electronAPI?: { storage?: { setItem?: (key: string, value: string) => Promise<void> } };
+          }
+        ).electronAPI?.storage;
+        if (!storage?.setItem) {
+          throw new Error('Workspace seed storage is unavailable');
+        }
+        await storage.setItem(
+          'rootsList',
+          JSON.stringify([
+            { addedAt: 1_800_000_000_000, path: parentPath, rootId: parentId },
+            { addedAt: 1_800_000_000_001, path: childPath, rootId: 'git-focused-child-root' },
+          ])
+        );
+      },
+      { childPath: child, parentId: ROOT_ID, parentPath: parent }
+    );
+    const { reloadRenderer } = await loadElectronHelpers();
+    await reloadRenderer(page, 'git-focused-parent-child-restore');
+    await openGitPanel(page);
+    await expect(page.getByTestId('git-panel-not-a-repo')).toBeVisible();
+    await expect(page.getByTestId('git-focused-folder')).toContainText(parent);
+
+    const trigger = page.getByRole('button', { name: 'Switch repository or focused folder' });
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    const childChoice = page.getByRole('menuitemradio', {
+      name: `Focus folder child-repository: ${child}`,
+    });
+    await expect(childChoice).toBeVisible();
+    await expect(childChoice).toContainText('Git repository');
+    const screenshot = await page.screenshot();
+    await test.info().attach('restored-parent-repository-switcher', {
+      body: screenshot,
+      contentType: 'image/png',
+    });
+    await page.keyboard.press('ArrowDown');
+    await expect(childChoice).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('git-panel-clean')).toBeVisible();
+    await expect(page.getByTestId('git-focused-folder')).toContainText(child);
+    await expect(page.getByTestId('workspace-root-status-trigger')).toHaveAttribute(
+      'title',
+      parent
+    );
+    await expect(trigger).toBeFocused();
+
+    await trigger.press('Enter');
+    await expect(childChoice).toHaveAttribute('aria-checked', 'true');
+    await childChoice.click();
+    await expect(page.getByTestId('git-panel-clean')).toBeVisible();
+    await trigger.press('Enter');
+    await expect(page.getByRole('menu')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await expect(page.getByTestId('workspace-root-status-trigger')).toHaveAttribute(
+      'title',
+      parent
+    );
   });
 
   test('surfaces an unstaged change made on disk', async ({ window: page }) => {

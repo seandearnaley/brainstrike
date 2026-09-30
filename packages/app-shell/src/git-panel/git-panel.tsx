@@ -2,10 +2,11 @@ import { Button } from '@brainstrike/ui';
 import { RefreshCw } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
 import { GitChangesView } from './git-changes-view';
+import { GitFocusedFolder } from './git-focused-folder';
 import { GitHistoryView } from './git-history-view';
 import { GitWorkbenchHeader } from './git-workbench-header';
 import { type GitWorkbenchTab, GitWorkbenchTabs } from './git-workbench-tabs';
-import { useGitPanel } from './use-git-panel';
+import { type UseGitPanelResult, useGitPanel } from './use-git-panel';
 
 function formatWorkspaceScope(openedRoot: string, worktreeRoot: string): string {
   const normalizedOpenedRoot = openedRoot.replaceAll('\\', '/').replace(/\/+$/, '');
@@ -36,11 +37,17 @@ function CenteredMessage({
 }
 
 /** Desktop-only, local-first Git workbench for changes, commits, branches and history. */
-export function GitPanel(): ReactElement {
-  const panel = useGitPanel();
+function GitPanelContent({ panel }: { readonly panel: UseGitPanelResult }): ReactElement {
   const [tab, setTab] = useState<GitWorkbenchTab>('changes');
 
   if (!panel.activeRootId) {
+    if (panel.isRestoringFolders || panel.focusedFolder) {
+      return (
+        <CenteredMessage>
+          {panel.focusedFolder ? 'Waiting for focused folder…' : 'Restoring workspace folders…'}
+        </CenteredMessage>
+      );
+    }
     return (
       <CenteredMessage testId="git-panel-no-root">
         Open a workspace folder to review and commit changes with Git.
@@ -123,6 +130,19 @@ export function GitPanel(): ReactElement {
         history={<GitHistoryView key={viewKey} panel={panel} repository={repository} />}
         onChange={setTab}
       />
+    </div>
+  );
+}
+
+/** Keep orientation and switching available even when this folder has no repository. */
+export function GitPanel(): ReactElement {
+  const panel = useGitPanel();
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
+      <GitFocusedFolder />
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <GitPanelContent panel={panel} />
+      </div>
     </div>
   );
 }

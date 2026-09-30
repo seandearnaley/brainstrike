@@ -23,6 +23,7 @@ const mockRoot: {
     platform: string;
     rootId?: string;
   } | null;
+  isAccessLoading: boolean;
 } = {
   handle: {
     kind: 'directory',
@@ -31,6 +32,7 @@ const mockRoot: {
     platform: 'electron',
     rootId: 'root-1',
   },
+  isAccessLoading: false,
 };
 
 vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => {
@@ -38,8 +40,11 @@ vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => {
   return {
     FILE_EXPLORER_REFRESH_EVENT: actual.FILE_EXPLORER_REFRESH_EVENT,
     useFileSystem: () => ({
+      isAccessLoading: mockRoot.isAccessLoading,
       rootDirectoryHandle: mockRoot.handle,
+      rootDirectoryHandles: mockRoot.handle ? [mockRoot.handle] : [],
       rootIdByPath: new Map<string, string>(),
+      setFocusedRoot: vi.fn(),
     }),
   };
 });
@@ -289,6 +294,7 @@ function makeHistoryCommit(id: string, summary: string): GitHistoryCommit {
 
 describe('GitPanel', () => {
   beforeEach(() => {
+    mockRoot.isAccessLoading = false;
     mockRoot.handle = {
       kind: 'directory',
       name: 'repo',
@@ -313,6 +319,7 @@ describe('GitPanel', () => {
     render(<GitPanel />);
 
     expect(await screen.findByTestId('git-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('git-focused-folder')).toHaveTextContent('/abs/repo');
     expect(screen.getByText('Staged (1)')).toBeInTheDocument();
     expect(screen.getByText('Unstaged (1)')).toBeInTheDocument();
     expect(screen.getByText('Untracked (1)')).toBeInTheDocument();
@@ -824,6 +831,7 @@ describe('GitPanel', () => {
     rerender(<GitPanel />);
 
     await waitFor(() => expect(screen.queryByTestId('git-panel')).not.toBeInTheDocument());
+    expect(screen.getByTestId('git-focused-folder')).toHaveTextContent('/abs/repo2');
     expect(screen.queryByText('unstaged.ts')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Stage unstaged.ts' })).not.toBeInTheDocument();
     expect(bridge.stage).not.toHaveBeenCalled();
@@ -1714,6 +1722,49 @@ describe('GitPanel', () => {
     expect(await screen.findByTestId('git-panel-not-a-repo')).toHaveTextContent(
       'not a Git repository'
     );
+    expect(screen.getByTestId('git-focused-folder')).toHaveTextContent('/abs/repo');
+    expect(
+      screen.getByRole('button', { name: 'Switch repository or focused folder' })
+    ).toBeEnabled();
+  });
+
+  it('reads repository discovery only when the folder switcher opens and again on reopening', async () => {
+    const user = userEvent.setup();
+    installBridge({ status: vi.fn(async () => ok(makeStatus({ isRepository: false }))) });
+    const changes = installChangesBridge({});
+    render(<GitPanel />);
+    await screen.findByTestId('git-panel-not-a-repo');
+    expect(changes.inventory).not.toHaveBeenCalled();
+    const trigger = screen.getByRole('button', { name: 'Switch repository or focused folder' });
+    await user.click(trigger);
+    await screen.findByText('No repositories discovered in connected folders.');
+    expect(changes.inventory).toHaveBeenCalledTimes(1);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(trigger).toHaveFocus());
+    await user.click(trigger);
+    await screen.findByText('No repositories discovered in connected folders.');
+    expect(changes.inventory).toHaveBeenCalledTimes(2);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it('keeps orientation and switching available when repository details fail', async () => {
+    installBridge({
+      repository: vi.fn(
+        async (): Promise<GitResult<GitRepository>> => ({
+          error: 'Repository metadata unavailable',
+          ok: false,
+        })
+      ),
+    });
+    render(<GitPanel />);
+    expect(await screen.findByTestId('git-panel-error')).toHaveTextContent(
+      'Could not load repository details.'
+    );
+    expect(screen.getByTestId('git-focused-folder')).toHaveTextContent('/abs/repo');
+    expect(
+      screen.getByRole('button', { name: 'Switch repository or focused folder' })
+    ).toBeEnabled();
   });
 
   it('renders the no-root empty state when no workspace is focused', async () => {
@@ -1722,6 +1773,33 @@ describe('GitPanel', () => {
     render(<GitPanel />);
 
     expect(await screen.findByTestId('git-panel-no-root')).toBeInTheDocument();
+    expect(screen.getByTestId('git-focused-folder')).toHaveTextContent('No folder focused');
+  });
+
+  it('keeps the folder path visible while restored root identity is pending', () => {
+    mockRoot.handle = {
+      kind: 'directory',
+      name: 'restored',
+      path: '/abs/restored',
+      platform: 'electron',
+    };
+    const bridge = installBridge({});
+    render(<GitPanel />);
+
+    expect(screen.getByTestId('git-focused-folder')).toHaveTextContent('/abs/restored');
+    expect(screen.getByText('Waiting for focused folder…')).toBeInTheDocument();
+    expect(screen.queryByTestId('git-panel-no-root')).not.toBeInTheDocument();
+    expect(bridge.status).not.toHaveBeenCalled();
+  });
+
+  it('distinguishes folder restoration from having no folder', () => {
+    mockRoot.handle = null;
+    mockRoot.isAccessLoading = true;
+    installBridge({});
+    render(<GitPanel />);
+
+    expect(screen.getByText('Restoring workspace folders…')).toBeInTheDocument();
+    expect(screen.queryByTestId('git-panel-no-root')).not.toBeInTheDocument();
   });
 
   it('surfaces a status load error with a retry affordance', async () => {
@@ -1733,6 +1811,7 @@ describe('GitPanel', () => {
     render(<GitPanel />);
 
     const error = await screen.findByTestId('git-panel-error');
+    expect(screen.getByTestId('git-focused-folder')).toHaveTextContent('/abs/repo');
     expect(within(error).getByText('git exploded')).toBeInTheDocument();
     expect(within(error).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     expect(toastSpy).toHaveBeenCalledWith(

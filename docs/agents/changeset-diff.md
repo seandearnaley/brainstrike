@@ -389,17 +389,19 @@ Guard: `packages/app-shell/src/changes/__tests__/changes-store.test.ts`,
 
 ### Git panel (`packages/app-shell/src/git-panel/`) — converged in W6
 
-- Both tabs resolve diffs through the structured engine and render
-  `ChangesetFileDiffCard`.
-- The panel's staged/unstaged/untracked list, per-row stage/unstage buttons and
-  tri-state stage-all stay PANEL-OWNED, driven off `window.git`'s
-  `GitStatus.files`. The panel never imports `changes-store.ts` and never mounts
-  `ChangesetDiffPane`.
-- Re-pin the changeset to the selected row's own bucket on every selection
-  change — staged → `staged`, unstaged → `unstaged`, untracked → `uncommitted`.
-  Why: a `git-scope` changeset carries exactly one `GitScope`.
-- Mount the History diff card with `key={commitId:path}` so a slow response for
-  a prior selection lands on an unmounted component and is dropped.
+- Both tabs resolve diffs through the structured engine and render `ChangesetFileDiffCard`.
+- Keep the Focused folder's path and switcher visible in no-folder, pending,
+  non-repository and error states. Git follows Focused, never Main.
+- Switch only live mounted handles by durable ID through `setFocusedRoot`;
+  inventory-only paths stay disabled and never mount or grant access.
+- Mount folder-picker discovery only on opening; display partial errors and
+  unresolved results distinctly from a successful empty inventory.
+- Staged/unstaged/untracked lists, per-row stage/unstage and tri-state stage-all
+  stay PANEL-OWNED, driven by `window.git`'s `GitStatus.files`. Never import
+  `changes-store.ts` or mount `ChangesetDiffPane` in the panel.
+- Re-pin the changeset to each selected row's bucket: staged → `staged`,
+  unstaged → `unstaged`, untracked → `uncommitted`; a changeset carries one scope.
+- Mount History's diff card with `key={commitId:path}` to drop slow prior results;
   `CommitFilesSidebar` keeps `bridge.commitFiles` and its own generation guard.
 - `changes-navigation-store` owns the Canvas surface's DOMAIN navigation facts
   (`openCanvasPanel()`, `canvasRefreshNonce` / `requestCanvasRefresh()`, bumped
@@ -409,22 +411,20 @@ Guard: `packages/app-shell/src/changes/__tests__/changes-store.test.ts`,
   keep-mounted contract. Gate capability PER-APP: an unregistered app has no tab
   and no launcher card, and web passes no `canvasPanelContent` — omit, not stub.
 - The worktree dropdown publishes a `git-scope` changeset via `openChangeset`
-  AND switches the shell route back to `explorer` via
-  `usePanelLayoutStore.setActiveTab`. Two stores, two "tab" concepts; both
-  writes are required.
+  AND switches the shell route to `explorer` via `usePanelLayoutStore.setActiveTab`.
+  These are distinct stores and distinct tab concepts; both writes are required.
 - Gate trust in priority order, each disabled state stating its own reason:
   unavailable → inventory error → loading → not found → `unvalidated` →
   `outside-roots` → locked. `unvalidated` precedes `outside-roots` because it
-  only ever occurs for an outside-roots worktree and carries the narrower
-  reason; `available` is first because a bridge-less build reports
-  `inventory: null` with `error: null`, which would read as a permanent
-  "Loading…".
+  only occurs for outside-roots worktrees and carries the narrower reason.
+  Check `available` first: a bridge-less build reports null inventory and error,
+  which otherwise reads as permanent "Loading…".
 
-Settled: staging composition stays panel-owned — checkbox semantics collide and
+Settled: staging stays panel-owned — checkbox semantics collide and
 `changes-store.ts` is a cross-surface singleton. Evidence:
-`changeset-diff/git-panel-convergence.md`.
+`changeset-diff/git-panel-convergence.md`, `changeset-diff/git-focused-folder.md`.
 Guard: `packages/app-shell/src/__tests__/git-panel.test.tsx`,
-`git-workbench-header.test.tsx`.
+`git-focused-folder.test.tsx`, `git-workbench-header.test.tsx`.
 
 ### `DiffView`'s `strings` source
 

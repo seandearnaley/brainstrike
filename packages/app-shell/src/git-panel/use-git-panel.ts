@@ -1,4 +1,5 @@
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -30,8 +31,10 @@ export interface UseGitPanelResult {
   readonly activeRootId: string | null;
   readonly commit: (summary: string, description?: string) => Promise<boolean>;
   readonly fetchRemote: (remote: string) => Promise<void>;
+  readonly focusedFolder: Pick<DirectoryHandle, 'name' | 'path'> | null;
   /** True while a status fetch is in flight. */
   readonly isLoading: boolean;
+  readonly isRestoringFolders: boolean;
   /** True while a push or pull network op is running. */
   readonly isSyncing: boolean;
   /**
@@ -85,7 +88,7 @@ interface LoadHistoryOptions {
  * the panel renders the desktop-only empty state.
  */
 export function useGitPanel(): UseGitPanelResult {
-  const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
+  const { isAccessLoading, rootDirectoryHandle, rootIdByPath } = useFileSystem();
   const { toast } = useToast();
   const bridgeRef = useRef<GitBridge | null>(null);
   if (bridgeRef.current === null) {
@@ -550,7 +553,9 @@ export function useGitPanel(): UseGitPanelResult {
     activeRootId,
     commit,
     fetchRemote,
+    focusedFolder: rootDirectoryHandle,
     isLoading,
+    isRestoringFolders: isAccessLoading,
     isSyncing,
     loadCommitFileDiff,
     loadCommitFiles,
