@@ -124,3 +124,33 @@ conflicting protocol or negotiated-era resolver fails visibly. Retire this
 mapping only when the pinned SDK implements
 the final SEP rule and the official `sep-2322-client-request-state` scenario
 still passes.
+
+## Saved SSE OAuth configuration validation (BST-1606, 2026-09-30)
+
+The shared config grammar previously accepted `auth.type: "oauth-user"` with
+legacy `sse`, although the unchanged explicit-client construction guards reject
+interactive OAuth completion and scope step-up there. Rejecting the combination
+at configuration admission now names both discriminators and the supported
+`streamable-http` transport. Stdio still rejects an auth field; unauthenticated
+and bearer SSE configurations remain supported.
+
+Arbitrary installed user configuration cannot be inventoried. The migration
+behavior is therefore explicit: the desktop raw-text read validates the exact
+JSONC it returns and carries any validation error alongside the unchanged
+content. Neither reading nor rejecting a write rewrites comments, formatting,
+transport, auth, or omitted protocol. The Config panel shows that error beside
+the editable document and clears it when the user saves a valid correction.
+The read-text IPC and renderer adapter preserve the diagnostic, rather than
+fetching a second config snapshot that could describe a different document.
+
+Delayed reads cannot replace a newer document or edits made while reading.
+Delayed save failures cannot mark another draft invalid, and successful saves
+mark only the submitted text as saved. The newer draft remains unsaved. These
+guards prevent the new validation feedback from becoming stale or destructive.
+
+Guards: `packages/assistant-contract/src/__tests__/mcp-config.test.ts`,
+`apps/desktop/src/__tests__/main/{mcp-loader,ipc-mcp}.test.ts`,
+`apps/desktop/src/__tests__/renderer/components/settings/page-content-operations.test.tsx`,
+`packages/settings-ui/src/settings/tools/__tests__/mcp-config-panel.test.tsx`.
+The unchanged construction defense is exercised by
+`packages/agent/src/__tests__/mcp-explicit-http-client-validation.spec.ts`.

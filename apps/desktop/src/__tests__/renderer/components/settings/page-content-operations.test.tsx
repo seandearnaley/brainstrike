@@ -388,7 +388,11 @@ describe('desktop SettingsPageContent tool operations', () => {
       onExtensionPreferencesUpdated: vi.fn(() => vi.fn()),
       onServerStatusUpdated: vi.fn(() => vi.fn()),
       onToolsUpdated: vi.fn(() => vi.fn()),
-      readConfigText: vi.fn(async () => ({ content: '{}', path: '/tmp/mcp.json' })),
+      readConfigText: vi.fn(async () => ({
+        content: '{}',
+        error: 'invalid_mcp_config: servers: required',
+        path: '/tmp/mcp.json',
+      })),
       readResource: vi.fn(async () => ({
         result: { contents: [{ text: '# BST-1585', uri: 'linear://issue/BST-1585' }] },
         type: 'resources/read',
@@ -459,6 +463,7 @@ describe('desktop SettingsPageContent tool operations', () => {
     await expect(capturedOperations.getMcpConfigPath?.()).resolves.toBe('/tmp/mcp.json');
     await expect(capturedOperations.readMcpConfigText?.()).resolves.toEqual({
       content: '{}',
+      error: 'invalid_mcp_config: servers: required',
       path: '/tmp/mcp.json',
     });
     await expect(capturedOperations.writeMcpConfigText?.('{"servers":{}}')).resolves.toEqual({

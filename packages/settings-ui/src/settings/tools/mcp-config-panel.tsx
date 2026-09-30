@@ -36,7 +36,13 @@ type McpPanelAction =
   | { type: 'SET_PATH_DRAFT'; value: string }
   | { type: 'SET_EDITOR_VALUE'; value: string }
   | { type: 'START_LOADING' }
-  | { type: 'DOCUMENT_LOADED'; path: string; content: string; created?: boolean }
+  | {
+      type: 'DOCUMENT_LOADED';
+      path: string;
+      content: string;
+      created?: boolean;
+      error: string | null;
+    }
   | { type: 'LOAD_ERROR'; error: string }
   | { type: 'LOAD_DONE' }
   | { type: 'SET_STATUS'; message: string | null }
@@ -44,8 +50,7 @@ type McpPanelAction =
   | { type: 'CLEAR_MESSAGES' }
   | { type: 'SHOW_RELOAD_CONFIRM' }
   | { type: 'HIDE_RELOAD_CONFIRM' }
-  | { type: 'SAVE_SUCCESS' }
-  | { type: 'SET_SAVED_VALUE'; value: string };
+  | { type: 'SAVE_SUCCESS'; value: string };
 
 const initialState: McpPanelState = {
   editorValue: '',
@@ -76,7 +81,7 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
       return {
         ...state,
         editorValue: action.content,
-        errorMessage: null,
+        errorMessage: action.error,
         initialized: true,
         loading: false,
         pathDraft: action.path,
@@ -110,12 +115,13 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
     case 'SAVE_SUCCESS':
       return {
         ...state,
-        savedValue: state.editorValue,
+        savedValue: action.value,
         showReloadConfirm: false,
-        statusMessage: 'MCP config saved.',
+        statusMessage:
+          state.editorValue === action.value
+            ? 'MCP config saved.'
+            : 'MCP config saved. Newer edits are unsaved.',
       };
-    case 'SET_SAVED_VALUE':
-      return { ...state, savedValue: action.value };
     default:
       return state;
   }
@@ -140,6 +146,10 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
   );
   // Keep fetchAndApplyDocument stable while still using the latest operation callback from props.
   const readMcpConfigTextRef = useRef(operations.readMcpConfigText);
+  // A response owns only its document request and the draft it read. Late
+  // validation must never replace newer text or mark unsent edits as saved.
+  const documentRequestRef = useRef(0);
+  const editorRevisionRef = useRef(0);
 
   useEffect(() => {
     readMcpConfigTextRef.current = operations.readMcpConfigText;
@@ -158,12 +168,22 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
       return;
     }
 
+    const request = ++documentRequestRef.current;
+    const editorRevision = editorRevisionRef.current;
+
     let doc: Awaited<ReturnType<typeof readMcpConfigText>> | null = null;
     let loadError: string | null = null;
     try {
       doc = await readMcpConfigText();
     } catch (error) {
       loadError = error instanceof Error ? error.message : 'Failed to load MCP config';
+    }
+    if (request !== documentRequestRef.current) {
+      return;
+    }
+    if (editorRevision !== editorRevisionRef.current) {
+      dispatch({ type: 'LOAD_DONE' });
+      return;
     }
     if (loadError !== null) {
       dispatch({ error: loadError, type: 'LOAD_ERROR' });
@@ -175,6 +195,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
       dispatch({
         content: doc.content,
         created: doc.created,
+        error: doc.error ?? null,
         path: doc.path,
         type: 'DOCUMENT_LOADED',
       });
@@ -191,6 +212,9 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
       return;
     }
     void fetchAndApplyDocument();
+    return () => {
+      documentRequestRef.current += 1;
+    };
   }, [editorAvailable, fetchAndApplyDocument]);
 
   const handleApplyPath = useCallback(async () => {
@@ -260,20 +284,31 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
       return;
     }
 
+    const request = ++documentRequestRef.current;
+    const editorRevision = editorRevisionRef.current;
+    const ownsFeedback = (): boolean =>
+      request === documentRequestRef.current && editorRevision === editorRevisionRef.current;
+
     try {
       dispatch({ type: 'CLEAR_MESSAGES' });
       const result = await operations.writeMcpConfigText(editorValue);
       if (!result.success) {
-        dispatch({ message: result.error, type: 'SET_ERROR' });
+        if (ownsFeedback()) {
+          dispatch({ message: result.error, type: 'SET_ERROR' });
+        }
         return;
       }
-      dispatch({ type: 'SAVE_SUCCESS' });
+      if (request === documentRequestRef.current) {
+        dispatch({ type: 'SAVE_SUCCESS', value: editorValue });
+      }
       await onConfigChanged();
     } catch (error) {
-      dispatch({
-        message: error instanceof Error ? error.message : 'Failed to save MCP config',
-        type: 'SET_ERROR',
-      });
+      if (ownsFeedback()) {
+        dispatch({
+          message: error instanceof Error ? error.message : 'Failed to save MCP config',
+          type: 'SET_ERROR',
+        });
+      }
     }
   }, [editorValue, onConfigChanged, operations]);
 
@@ -347,7 +382,10 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
           loading={loading}
           onCancelReload={handleCancelReload}
           onConfirmReload={() => void handleConfirmReload()}
-          onEditorChange={(value) => dispatch({ type: 'SET_EDITOR_VALUE', value })}
+          onEditorChange={(value) => {
+            editorRevisionRef.current += 1;
+            dispatch({ type: 'SET_EDITOR_VALUE', value });
+          }}
           onEditorKeyDown={handleEditorKeyDown}
           onReload={() => void handleReload()}
           onSave={() => void handleSave()}

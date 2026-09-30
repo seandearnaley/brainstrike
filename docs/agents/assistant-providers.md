@@ -1310,17 +1310,17 @@ Transport, startup and ownership rules:
   actionable status without constructing the transport. The automatic attempt
   cannot open a browser, and on needing login it closes its transport and returns
   to authentication-required without retrying on every assistant request.
-- `connect`, `retry`, `cancel`, `disconnect` and `reauthorize` are explicit host
-  controls; user-paced authorization is not governed by the ten-second machine
-  deadline.
+- `connect`, `retry`, `cancel`, `disconnect` and `reauthorize` are explicit host controls;
+  user-paced authorization is not governed by the ten-second machine deadline.
 - Per transport: `stdio` constructs only the SDK's `StdioClientTransport`;
   `streamable-http` only `StreamableHTTPClientTransport`; `sse` only
   `SSEClientTransport`, even when its URL ends in `/mcp`. Interactive OAuth
-  completion and scope step-up are Streamable-HTTP-only and throw at construction
-  on `sse`; `authorizationCallbackTimeoutMs` alone throws on EVERY transport.
-- **There is NO automatic Streamable HTTP → SSE fallback.** Brainstrike removes
-  the URL ambiguity by requiring the user to select the transport, so a
-  400/404/405 initialization failure remains visible.
+  completion and scope step-up are Streamable-HTTP-only. Config rejects `sse` +
+  `oauth-user`; saved invalid JSONC stays verbatim with a Config editor error.
+  Construction still rejects interactive options on `sse`, and orphan
+  `authorizationCallbackTimeoutMs` on EVERY transport. Late load/save results
+  never replace newer drafts or diagnostics; save success acknowledges only submitted text.
+- **No automatic Streamable HTTP → SSE fallback:** explicit transport keeps 400/404/405 failures visible.
 - External bearer auth is desktop-main-only and reference-based: JSONC carries a
   credential reference and the renderer-visible snapshot projects only
   `malformed | missing | stored | unreadable`. The credential authority injects

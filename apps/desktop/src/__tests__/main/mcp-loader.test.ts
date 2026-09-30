@@ -389,6 +389,55 @@ describe('mcp-loader', () => {
     expect(fs.existsSync(configPath)).toBe(true);
   });
 
+  it('reports saved SSE OAuth as a config error while preserving its raw JSONC for repair', async () => {
+    const { loadMcpConfig, readMcpConfigText, setCustomMcpConfigPath, writeMcpConfigText } =
+      await import('../../mcp-loader');
+    const configPath = path.join(tempDir, 'legacy-oauth.jsonc');
+    const content = `{
+      // Keep this user's comment, whitespace, and omitted protocol.
+      "servers": [{ "name": "legacy", "transport": "sse", "url": "https://example.test/sse", "auth": { "type": "oauth-user" } }],
+    }`;
+    fs.writeFileSync(configPath, content, 'utf-8');
+    await setCustomMcpConfigPath(configPath);
+    const error =
+      'invalid_mcp_config: servers.0.auth: auth "oauth-user" is not supported with transport "sse"; use "streamable-http"';
+
+    expect(await readMcpConfigText(true)).toEqual({
+      content,
+      created: false,
+      error,
+      exists: true,
+      path: configPath,
+    });
+    expect(await loadMcpConfig()).toEqual({ error, exists: true, path: configPath });
+    expect(await writeMcpConfigText(content)).toEqual({ error, path: configPath, success: false });
+    expect(fs.readFileSync(configPath, 'utf-8')).toBe(content);
+
+    const corrected = content.replace('"transport": "sse"', '"transport": "streamable-http"');
+    expect(await writeMcpConfigText(corrected)).toEqual({ path: configPath, success: true });
+    expect(await readMcpConfigText()).toEqual({
+      content: corrected,
+      created: false,
+      exists: true,
+      path: configPath,
+    });
+    expect(fs.readFileSync(configPath, 'utf-8')).toBe(corrected);
+  });
+
+  it('returns JSONC syntax diagnostics with the raw editable document', async () => {
+    const { readMcpConfigText, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const configPath = path.join(tempDir, 'invalid.jsonc');
+    const content = '{ invalid json }';
+    fs.writeFileSync(configPath, content, 'utf-8');
+    await setCustomMcpConfigPath(configPath);
+    expect(await readMcpConfigText()).toMatchObject({
+      content,
+      error: expect.stringContaining('invalid_mcp_config:'),
+      exists: true,
+    });
+    expect(fs.readFileSync(configPath, 'utf-8')).toBe(content);
+  });
+
   it('returns structured errors when writing MCP config text fails', async () => {
     const { setCustomMcpConfigPath, writeMcpConfigText } = await import('../../mcp-loader');
     const nonDirectoryPath = path.join(tempDir, 'not-a-directory');

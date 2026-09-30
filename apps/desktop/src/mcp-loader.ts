@@ -373,6 +373,7 @@ export async function ensureMcpDirExists(): Promise<void> {
 export interface McpConfigTextDocument {
   content: string;
   created: boolean;
+  error?: string;
   exists: boolean;
   path: string;
 }
@@ -424,9 +425,16 @@ export async function readMcpConfigText(createIfMissing = false): Promise<McpCon
   }
 
   const content = await fsp.readFile(ensured.path, 'utf-8');
+  let validationError: string | undefined;
+  try {
+    parseMcpConfig(content);
+  } catch (error) {
+    validationError = errorMessage(error);
+  }
   return {
     content,
     created: ensured.created,
+    ...(validationError === undefined ? {} : { error: validationError }),
     exists: true,
     path: ensured.path,
   };

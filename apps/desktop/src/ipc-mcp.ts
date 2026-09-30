@@ -798,6 +798,7 @@ export function registerMcpIpcHandlers({
       exists: boolean;
       created: boolean;
       content: string;
+      error?: string;
     }> => await trackConfigOperation(async () => await readMcpConfigText(true))
   );
 
