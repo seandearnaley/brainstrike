@@ -105,43 +105,45 @@ function useToolsDataManager({
   const fetchAndApplyTools = useCallback((): Promise<boolean> => {
     const readEpoch = ++toolsReadEpochRef.current;
     // Publish the pending promise before calling operations, which may notify.
-    const read = Promise.resolve().then(async (): Promise<boolean> => {
-      try {
-        const [toolsData, stats] = await Promise.all([
-          operations.getTools(),
-          operations.getStats(),
-        ]);
+    const read = Promise.resolve()
+      .then(() =>
+        Promise.all([liveQueryEnabled ? null : operations.getTools(), operations.getStats()])
+      )
+      .then(([toolsData, stats]): boolean | Promise<boolean> => {
         if (readEpoch !== toolsReadEpochRef.current) {
-          return await latestToolsReadRef.current;
+          return latestToolsReadRef.current;
         }
         statsRef.current = stats;
-        dispatch({ tools: toolsData, type: 'SET_TOOLS' });
+        // Live-query rows own the catalog; only preference stats need a host read.
+        if (toolsData !== null) {
+          dispatch({ tools: toolsData, type: 'SET_TOOLS' });
+        }
         dispatch({ error: null, type: 'SET_LOAD_ERROR' });
         dispatch({ error: stats.preferencesFault?.message ?? null, type: 'SET_PREFERENCES_ERROR' });
         return true;
-      } catch (err) {
+      })
+      .catch((err: unknown): boolean | Promise<boolean> => {
         if (readEpoch !== toolsReadEpochRef.current) {
-          return await latestToolsReadRef.current;
+          return latestToolsReadRef.current;
         }
         dispatch({
           error: err instanceof Error ? err.message : 'Failed to load tools',
           type: 'SET_LOAD_ERROR',
         });
         return false;
-      } finally {
+      })
+      .finally(() => {
         if (readEpoch === toolsReadEpochRef.current) {
           dispatch({ loading: false, type: 'SET_LOADING' });
         }
-      }
-    });
+      });
     latestToolsReadRef.current = read;
     return read;
-  }, [operations, statsRef, dispatch]);
+  }, [operations, statsRef, dispatch, liveQueryEnabled]);
   const loadToolsData = useCallback(async (): Promise<boolean> => {
     dispatch({ loading: true, type: 'SET_LOADING' });
     return await fetchAndApplyTools();
   }, [fetchAndApplyTools, dispatch]);
-
   const loadMcpData = useCallback(async () => {
     if (!mcpAvailable) {
       return;
@@ -309,8 +311,8 @@ export function UnifiedToolsSettings({
     setReloadPending(true);
     try {
       await operations.reloadToolPreferences();
+      setReloadError(null);
       if (await refreshTools()) {
-        setReloadError(null);
         onToolsChanged?.();
       }
     } catch (err) {

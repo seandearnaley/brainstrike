@@ -2134,8 +2134,8 @@ Evidence: `assistant-providers/tool-preference-write-precedence.md`.
   pruning, rewriting or creating it, even with zero discovered tools. Rebuild from
   the current discovery/config defaults, then saved choices (disabled wins overlap),
   before clearing the fault and notifying. Invalid/unreadable stays fail-closed.
-- Recovery joins the config-operation queue and shared lock; fence lifecycle and projected
-  authority before/after reading. Failed factory reset restores discovery defaults too.
+- Recovery joins the config queue then shared lock; fence lifecycle and current projection
+  before/after reads. Capture authority after queued work; failed resets restore defaults.
 
 Evidence: `assistant-providers/tool-preference-reset.md`, `assistant-providers/tool-preference-recovery.md`.
 Guard: `apps/desktop/src/__tests__/main/ipc-mcp-preferences-recovery.test.ts`.

@@ -264,16 +264,19 @@ function isCurrentMcpAuthority(authorityEpoch: number, lifecycleEpoch: number): 
 }
 
 async function reloadToolPreferences(): Promise<void> {
-  const authorityEpoch = latestAuthorityEpoch;
   await trackConfigOperation(async (lifecycleEpoch) => {
+    // Earlier queued config work has settled; fence changes after recovery starts.
+    const authorityEpoch = latestAuthorityEpoch;
     await withToolPreferencesFileLock(async () => {
       const assertCurrent = (): void => {
-        if (
-          !isCurrentMcpAuthority(authorityEpoch, lifecycleEpoch) ||
-          projectedAuthorityEpoch !== authorityEpoch
-        ) {
+        if (!isCurrentMcpAuthority(authorityEpoch, lifecycleEpoch)) {
           throw new Error(
             'MCP tool registry changed or retired during preference reload. Retry Reload tool preferences.'
+          );
+        }
+        if (projectedAuthorityEpoch !== authorityEpoch) {
+          throw new Error(
+            'MCP tools are not synchronized with their configuration. Save a valid MCP configuration or re-select its file in Settings before reloading tool preferences.'
           );
         }
       };
@@ -518,6 +521,7 @@ function captureMcpFactoryResetSnapshot(runtime: McpAuthorityRuntime): McpFactor
   return {
     authorityConfig: structuredClone(lastCommittedResolvedConfig),
     config: last === null ? null : structuredClone(last),
+    // Host results passed assertStrictJson and SDK schema parsing before discovery.
     discoveries: structuredClone(lastToolDiscoveries),
     extensionPreferences: { ...runtime.mcpExtensionPreferences },
     selectedConfigPath: lastUserSelectedConfigPath,

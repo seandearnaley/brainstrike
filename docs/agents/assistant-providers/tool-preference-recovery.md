@@ -59,3 +59,41 @@ Different error messages, including ones merely containing the fault text, stay
 visible. Superseded catalog reads join the latest read, keeping recovery pending
 until that read settles and clearing stale retry feedback only after success.
 Renderer adapter and Settings tests pin these races and the near-match refusal.
+
+
+## Initial review follow-up, 2026-09-30
+
+PR #3446's initial review identified an unnecessary retry when preference reload was
+queued behind a config operation: its authority epoch was captured before that earlier
+operation completed. Recovery now captures after joining the queue; concurrent watch
+changes or lifecycle cleanup still retire a recovery before it can publish. Tests retain
+the in-flight config/reset fences and cover reload queued behind successful config work.
+
+Invalid config loads preserve the previous projection without bumping authority. Failed
+discovery commits an empty projection. Both remain recoverable and have explicit tests.
+A rejected authority replacement is different: host runtime can commit new servers and
+then reject OAuth cleanup. Recovery must not trust the old discovery snapshot in that
+case. The projection fence remains closed, with specific advice: "Save a valid MCP
+configuration or re-select its file in Settings before reloading tool preferences."
+The editor's read-only Reload and server Refresh buttons do not reapply authority. Paired tests cover rejection before and after an empty config commit,
+prove preferences are not read or rewritten while unsynchronized, and retry successfully
+after a complete projection. No unsafe rollback of the authority epoch was added.
+
+Factory-reset snapshot cloning is retained. Discovery copies only description and schema
+from wire tool metadata, not executable tool definitions. `server-actor.ts` and
+`core-server-features.ts` call `parseMcpHostOperationResult`, which first recursively
+rejects non-JSON values (functions, nonplain prototypes, accessors and cycles), then
+parses the SDK `ListToolsResultSchema`. Resolved server config is schema-parsed and
+cloned before host replacement. Registry registration creates metadata records;
+toggles change only their enabled field. A nested JSON-schema reset/restore/recovery
+regression passes. Retaining a mutable discovery reference would weaken snapshot
+isolation without resolving a reachable new cloneability failure.
+
+The same review separates successful reload IPC from its follow-up view refresh:
+old reload failures clear when IPC succeeds, while a failed stats/catalog refresh
+stays visible as a load error. Pending state and onToolsChanged still wait for the
+current refresh. When live-query owns catalog rows, that refresh reads only stats
+rather than a second unused tool list. Tests cover live-query notification races,
+failed refresh after successful retry, and the retained single-error precedence:
+a config failure reappears after the higher-priority action recovers. The exact
+fault comparison comment now names its main-process/adapter provenance.

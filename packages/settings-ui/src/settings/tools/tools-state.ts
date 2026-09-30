@@ -87,6 +87,8 @@ export function toolsDataReducer(state: ToolsDataState, action: ToolsDataAction)
     case 'SET_LOADING':
       return { ...state, loading: action.loading };
     case 'SET_ERROR':
+      // Main's requireToolPreferencesWritable throws the stats fault verbatim;
+      // the desktop adapter removes its IPC wrapper before this exact comparison.
       // A refusal may arrive after its exact pre-action fault was recovered.
       if (
         action.preferencesFault === action.error &&

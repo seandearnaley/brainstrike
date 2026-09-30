@@ -334,6 +334,100 @@ describe('read-only in-session MCP tool preference recovery', () => {
     await expect(invoke('mcp:tools:enable', ['server.read'])).rejects.toThrow('tool preferences');
   });
 
+  it('uses the completed projection when a config operation was queued before reload', async () => {
+    await start();
+    mocks.bytes = preferences(['server.write']);
+    const change = invoke('mcp:config:setPath', null);
+    const recovery = reload();
+    await change;
+    await expect(recovery).resolves.toBeUndefined();
+    expect(states()['server.write']).toBe(false);
+    expect(await invoke('mcp:tools:getStats')).not.toHaveProperty('preferencesFault');
+  });
+
+  it('recovers the retained projection after an invalid config load', async () => {
+    await start();
+    await mocks.watch?.({
+      error: 'invalid config JSON',
+      exists: true,
+      path: '/profile/mcp/config.json',
+    });
+    const repaired = preferences(['server.write']);
+    mocks.bytes = repaired;
+    await reload();
+    expect(states()['server.write']).toBe(false);
+    expect(states()['server.read']).toBe(true);
+    expect(mocks.bytes).toBe(repaired);
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it('recovers an empty projection after tool discovery fails', async () => {
+    await start();
+    authority.invoke.mockRejectedValueOnce(new Error('discovery failed'));
+    await invoke('mcp:config:setPath', null);
+    const repaired = preferences(['server.write', 'undiscovered.danger']);
+    mocks.bytes = repaired;
+    await reload();
+    expect(states()).toEqual({});
+    expect(mocks.bytes).toBe(repaired);
+    expect(mocks.save).not.toHaveBeenCalled();
+    expect(await invoke('mcp:tools:getStats')).not.toHaveProperty('preferencesFault');
+  });
+
+  it.each(['before', 'after'] as const)(
+    'requires a successful config projection when replacement fails %s authority commit',
+    async (failurePoint) => {
+      await start();
+      const replace = authority.replaceResolvedConfig.getMockImplementation();
+      if (!replace) {
+        throw new Error('Expected test authority replacement implementation');
+      }
+      mocks.config = { config: { servers: [] }, exists: true, path: '/profile/mcp/config.json' };
+      authority.replaceResolvedConfig.mockImplementationOnce(async (config) => {
+        if (failurePoint === 'after') {
+          await replace(config);
+        }
+        throw new Error('authority replacement failed');
+      });
+      await expect(invoke('mcp:config:setPath', null)).rejects.toThrow(
+        'authority replacement failed'
+      );
+      const repaired = preferences(['server.write']);
+      mocks.bytes = repaired;
+      await expect(reload()).rejects.toThrow(
+        'MCP tools are not synchronized with their configuration. Save a valid MCP configuration or re-select its file in Settings before reloading tool preferences.'
+      );
+      expect(Object.values(states())).toEqual([false, false, false, false]);
+      expect(mocks.load).not.toHaveBeenCalled();
+      expect(mocks.save).not.toHaveBeenCalled();
+      expect(mocks.bytes).toBe(repaired);
+      await invoke('mcp:config:setPath', null);
+      await reload();
+      expect(states()).toEqual({});
+      expect(mocks.bytes).toBe(repaired);
+    }
+  );
+
+  it('restores nested wire schemas through factory-reset snapshot and recovery', async () => {
+    const inputSchema = {
+      properties: { paths: { items: { type: 'string' }, type: 'array' } },
+      required: ['paths'],
+      type: 'object' as const,
+    };
+    authority.invoke.mockResolvedValueOnce({
+      result: { tools: [{ description: 'Read paths', inputSchema, name: 'read' }] },
+      type: 'tools/list',
+    });
+    await start();
+    await resetMcpRuntimeForFactoryReset(authority.runtime);
+    await resumeMcpRuntimeAfterFactoryReset(authority.runtime, 'failed');
+    mocks.bytes = null;
+    await reload();
+    expect(mcpToolRegistry.getAllTools()).toMatchObject({
+      server: [{ description: 'Read paths', enabled: true, inputSchema }],
+    });
+  });
+
   it('rejects a recovery retired during its read by config replacement', async () => {
     await start();
     mocks.bytes = preferences(['server.write']);
