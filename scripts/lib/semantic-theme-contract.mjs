@@ -1,3 +1,7 @@
+// Deliberately context-free source matching: known semantic prefixes in route,
+// i18n or data-testid strings may need explicit future classification. This is
+// not a className AST parser. CSS is the current flat numeric-token subset;
+// quoted braces and braces in url() are unsupported and must not be inferred.
 /**
  * Static semantic-color wiring guard. It complements Tailwind source coverage:
  * definitions and aliases do not emit utilities without each app's @theme map.

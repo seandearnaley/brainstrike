@@ -110,8 +110,55 @@ function toastCloseClasses() {
   return classes;
 }
 
+function requireOpaqueToastFill(classes) {
+  const fills = classes.filter((utility) => /(?:^|:)bg-destructive(?:\/.*)?$/.test(utility));
+  assert.deepEqual(
+    fills,
+    ['bg-destructive'],
+    'Toast paint measurement requires its actual opaque destructive fill; alpha or variant overrides must be qualified'
+  );
+  return 'destructive';
+}
+
+it('rejects an alpha or theme override in the actual Toast fill contract', () => {
+  assert.throws(() => requireOpaqueToastFill(['bg-destructive/60']), /opaque destructive fill/);
+  assert.throws(
+    () => requireOpaqueToastFill(['bg-destructive', 'dark:bg-destructive/60']),
+    /opaque destructive fill/
+  );
+});
+
+function closePaint(tokens, color) {
+  if (color === 'destructive-foreground') {
+    return semantic(tokens, color);
+  }
+  const match = palette.match(
+    new RegExp(`--color-${color}:\\s*oklch\\(([\\d.]+)%\\s+([\\d.]+)\\s+([\\d.]+)\\)`)
+  );
+  assert.ok(match, `Unsupported live close color ${color}`);
+  return oklchToRgb([Number(match[1]) / 100, Number(match[2]), Number(match[3])]);
+}
+
+it('the actual destructive ToastClose focus ring clears 3:1 in every mode', () => {
+  const classes = toastCloseClasses();
+  const prefix = 'focus-visible:group-[.destructive]:ring-';
+  const ring = classes.find(
+    (utility) => utility.startsWith(prefix) && !utility.startsWith(`${prefix}offset-`)
+  );
+  assert.ok(ring, 'Missing qualified destructive focus ring');
+  const fillName = requireOpaqueToastFill(destructiveVariant('packages/ui/src/toast.tsx'));
+  for (const [mode, tokens] of Object.entries(modes)) {
+    const ratio = contrastRatio(
+      closePaint(tokens, ring.slice(prefix.length)),
+      semantic(tokens, fillName)
+    );
+    assert.ok(ratio >= 3, `${mode} focus ring ${ring}: ${ratio.toFixed(4)}:1`);
+  }
+});
+
 it('the live destructive ToastClose glyph clears 3:1 at resting and hover opacity in every mode', () => {
   const classes = toastCloseClasses();
+  const fillName = requireOpaqueToastFill(destructiveVariant('packages/ui/src/toast.tsx'));
   const states = [
     { alpha: 0.7, prefix: 'group-[.destructive]:text-' },
     { alpha: 1, prefix: 'hover:group-[.destructive]:text-' },
@@ -123,17 +170,8 @@ it('the live destructive ToastClose glyph clears 3:1 at resting and hover opacit
     assert.ok(utility, `Missing qualified close color for ${state.prefix}`);
     const color = utility.slice(state.prefix.length);
     for (const [mode, tokens] of Object.entries(modes)) {
-      let foreground;
-      if (color === 'destructive-foreground') {
-        foreground = semantic(tokens, color);
-      } else {
-        const match = palette.match(
-          new RegExp(`--color-${color}:\\s*oklch\\(([\\d.]+)%\\s+([\\d.]+)\\s+([\\d.]+)\\)`)
-        );
-        assert.ok(match, `Unsupported live close color ${color}`);
-        foreground = oklchToRgb([Number(match[1]) / 100, Number(match[2]), Number(match[3])]);
-      }
-      const fill = semantic(tokens, 'destructive');
+      const foreground = closePaint(tokens, color);
+      const fill = semantic(tokens, fillName);
       const ratio = contrastRatio(composite(foreground, fill, state.alpha), fill);
       assert.ok(ratio >= 3, `${mode} ${utility} alpha ${state.alpha}: ${ratio.toFixed(4)}:1`);
     }
