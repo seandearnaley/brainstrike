@@ -36,7 +36,7 @@ import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress'
 import { ToolDurationProvider } from './tool-duration-context';
 import { useChainActivityDerivations } from './use-chain-activity-derivations';
 import {
-  toolResultPreservesEffectsWhenHidden,
+  toolResultPartPreservesEffectsWhenHidden,
   useToolResultRenderers,
 } from './use-tool-result-renderers';
 
@@ -279,11 +279,9 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
         ),
     [indices, messageParts, cardedCalls]
   );
-  const preserveBodyEffects = groupParts.some(
-    (part) =>
-      part.type === 'tool-call' &&
-      !isSubagentDelegationToolName(part.toolName) &&
-      toolResultPreservesEffectsWhenHidden(renderers, part.result)
+  const preserveBodyEffects = useMemo(
+    () => groupParts.some((part) => toolResultPartPreservesEffectsWhenHidden(renderers, part)),
+    [groupParts, renderers]
   );
   const hasActivityParts = groupParts.some(isActivityPart);
   // A group's own member statuses can all already read "complete" (e.g. a

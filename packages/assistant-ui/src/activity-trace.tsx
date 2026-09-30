@@ -233,11 +233,9 @@ function TraceCollapse({
           hidden={!expanded}
           id={bodyId}
         >
-          {preserveBodyEffects ? (
-            children
-          ) : (
-            <Activity mode={expanded ? 'visible' : 'hidden'}>{children}</Activity>
-          )}
+          <Activity mode={expanded || preserveBodyEffects ? 'visible' : 'hidden'}>
+            {children}
+          </Activity>
         </div>
       </div>
     </div>

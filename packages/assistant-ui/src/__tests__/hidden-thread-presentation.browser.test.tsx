@@ -12,15 +12,22 @@ import {
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { useEffect } from 'react';
-import { expect, onTestFinished, test, vi } from 'vitest';
+import { beforeEach, expect, onTestFinished, test, vi } from 'vitest';
 import { ChatThreadUI } from '../assistant-ui-panel';
 import { BrainstrikeDataStreamRuntimeAdapter } from '../data-stream-runtime';
 import { resetFollowUpQueueStore, useFollowUpQueueStore } from '../follow-up-queue-store';
+import { ACTIVITY_TRACE_CLOCK_INTERVAL_MS } from '../use-activity-trace-clock';
 import { completedParts } from './assistant-activity-timeline-fixtures';
 
 const onRunningChange = vi.fn();
 const onToolApprovalRequired = vi.fn();
 const onRunFinished = vi.fn();
+beforeEach(() => {
+  onRunningChange.mockClear();
+  onToolApprovalRequired.mockClear();
+  onRunFinished.mockClear();
+});
+
 const runtimes = new Map<string, AssistantRuntime>();
 const adapters = new Map<string, ChatModelAdapter>();
 
@@ -94,7 +101,7 @@ test('pauses hidden presentation clocks while both owned streams and hidden noti
   const originalClearInterval = browserTimers.clearInterval.bind(browserTimers);
   vi.spyOn(browserTimers, 'setInterval').mockImplementation((handler, timeout, ...args) => {
     const id = originalSetInterval(handler, timeout, ...args);
-    if (timeout === 100) {
+    if (timeout === ACTIVITY_TRACE_CLOCK_INTERVAL_MS) {
       intervals.add(id);
     }
     return id;

@@ -1,7 +1,6 @@
 import { useAuiState } from '@assistant-ui/react';
-import { isSubagentDelegationToolName } from './subagent-tool-cards';
 import {
-  toolResultPreservesEffectsWhenHidden,
+  toolResultPartPreservesEffectsWhenHidden,
   useToolResultRenderers,
 } from './use-tool-result-renderers';
 
@@ -16,12 +15,7 @@ export function useThreadPresentationActivityMode(isVisible: boolean): 'hidden' 
       return false;
     }
     return state.thread.messages.some((message) =>
-      message.content.some(
-        (part) =>
-          part.type === 'tool-call' &&
-          !isSubagentDelegationToolName(part.toolName) &&
-          toolResultPreservesEffectsWhenHidden(renderers, part.result)
-      )
+      message.content.some((part) => toolResultPartPreservesEffectsWhenHidden(renderers, part))
     );
   });
   return presentationVisible ? 'visible' : 'hidden';

@@ -212,6 +212,7 @@ export function AssistantUiPanelWrapper({
     providers: configuredProviders,
   } = useConfiguredAssistantProviders();
 
+  // Load model registry from DB for local provider models
   useEnsureModelRegistry();
   const registryModels = useModelRegistryStore((state) => state.models);
   const registryProviders = useModelRegistryStore((state) => state.providers);
@@ -595,7 +596,9 @@ export function AssistantUiPanelWrapper({
     [pathToClientRootId, setTapestryRangesForKey]
   );
 
-  // Tool-update subscription ownership: assistant-panel/tool-update-subscriptions.ts.
+  // Selection write-back bridge (BST-1652): one subscription over every
+  // available channel instead of four copy-pasted effects. See
+  // `assistant-panel/tool-update-subscriptions.ts`.
   useEffect(
     () =>
       subscribeAssistantToolUpdates({

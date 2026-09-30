@@ -338,9 +338,10 @@ describe('assistant UI panel architecture', () => {
     expect(source).toContain("from './budget-guardrail-control'");
     expect(source).toContain('<BudgetGuardrailControl />');
 
-    const editComposerStart = source.indexOf('const EditComposer =');
-    const assistantMessageStart = source.indexOf('const AssistantMessage =');
-    const editComposerSource = source.slice(editComposerStart, assistantMessageStart);
+    expect(source).toContain("import { EditComposer } from './edit-composer'");
+    expect(source).toContain('EditComposer,');
+    const editComposerSource = readSource('edit-composer.tsx');
+    expect(editComposerSource).toContain('export function EditComposer');
     expect(editComposerSource).toContain('useBudgetSendGate()');
     // The gate must reach the Input too, not just the Send button — Enter in
     // the edit input is a submit path (review #1714).

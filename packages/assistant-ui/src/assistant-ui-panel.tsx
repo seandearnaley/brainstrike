@@ -42,7 +42,7 @@ import { useThreadPresentationActivityMode } from './use-thread-presentation-act
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import type { ModelPickerModel, ModelPickerProvider } from '@brainstrike/ui';
-import { Button, cn } from '@brainstrike/ui';
+import { cn } from '@brainstrike/ui';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { agentColorStyle } from './agent-color-style';
 import { AssistantActionBar } from './assistant-action-bar';
@@ -59,7 +59,7 @@ import {
   ThreadScrollToBottom,
 } from './assistant-thread-messages';
 import { BranchPicker } from './branch-picker';
-import { BudgetGuardrailControl, useBudgetSendGate } from './budget-guardrail-control';
+import { BudgetGuardrailControl } from './budget-guardrail-control';
 import { ChangesReviewLink } from './changes-review-link';
 import { CheckpointTurnRevert } from './checkpoint-turn-revert';
 import { CompactionSummaryCard } from './compaction-summary-card';
@@ -74,6 +74,7 @@ import { ComposerEffortControl } from './composer-effort-control';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
 import { ComposerModelPicker, modelIdFromCompositeKey } from './composer-model-picker';
 import { CopyDebugBundleButton } from './copy-debug-bundle-button';
+import { EditComposer } from './edit-composer';
 import { RewindComposerBridge } from './message-rewind-action';
 import { MetadataProviders } from './openrouter-model-metadata-context';
 import { ThreadDebugPackButton } from './thread-debug-pack-button';
@@ -1360,37 +1361,6 @@ export const AssistantUiPanel = ({
 };
 
 // ===== Message Components =====
-
-const EditComposer = () => {
-  // Editing a past user message RE-SENDS it, so the last-24h budget gate must
-  // cover this path too — otherwise edit-resend silently bypasses the cap. The
-  // gate is never silent: the BudgetGuardrailControl notice in the composer
-  // shell explains the block and offers the explicit session override.
-  const budgetSendBlocked = useBudgetSendGate();
-  return (
-    <ComposerPrimitive.Root className="my-4 flex w-full flex-col gap-2 rounded-xl bg-muted">
-      {/* disabled mirrors ComposerInputRow: the Input submits on Enter, so a
-          gate on the Send button alone leaves a keyboard bypass (review #1714). */}
-      <ComposerPrimitive.Input
-        className="flex h-8 w-full resize-none bg-transparent p-4 pb-0 text-foreground outline-none"
-        disabled={budgetSendBlocked}
-      />
-
-      <div className="mx-3 mb-3 flex items-center justify-center gap-2 self-end">
-        <ComposerPrimitive.Cancel asChild>
-          <Button size="sm" variant="ghost">
-            Cancel
-          </Button>
-        </ComposerPrimitive.Cancel>
-        <ComposerPrimitive.Send asChild>
-          <Button disabled={budgetSendBlocked} size="sm">
-            Send
-          </Button>
-        </ComposerPrimitive.Send>
-      </div>
-    </ComposerPrimitive.Root>
-  );
-};
 
 const AssistantMessage = () => {
   const messageId = useAuiState((state) => state.message.id);

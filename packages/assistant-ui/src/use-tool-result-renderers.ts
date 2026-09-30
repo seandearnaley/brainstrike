@@ -1,5 +1,6 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { type ComponentProps, type ComponentType, createContext, use } from 'react';
+import { isSubagentDelegationToolName } from './subagent-tool-cards';
 
 /**
  * Everything the chain-of-thought tool fallback receives for one tool part,
@@ -53,5 +54,17 @@ export function toolResultPreservesEffectsWhenHidden(
   return (
     result !== undefined &&
     renderers.find((renderer) => renderer.matches(result))?.preserveEffectsWhenHidden === true
+  );
+}
+
+/** Delegation cards route before registered result surfaces in both presentations. */
+export function toolResultPartPreservesEffectsWhenHidden(
+  renderers: readonly ToolResultRenderer[],
+  part: { readonly type: string; readonly toolName?: string | undefined; readonly result?: unknown }
+): boolean {
+  return (
+    part.type === 'tool-call' &&
+    !isSubagentDelegationToolName(part.toolName) &&
+    toolResultPreservesEffectsWhenHidden(renderers, part.result)
   );
 }

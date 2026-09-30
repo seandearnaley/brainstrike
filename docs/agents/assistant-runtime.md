@@ -845,8 +845,8 @@ The library's legacy `components.ChainOfThought` path is gone and must not retur
   for the life of the mounted trace.
 - `ActivityTrace` owns markup; phase/strings stay in `activity-trace-labels.ts`, hooks in
   `use-activity-trace-clock.ts` / `use-label-enter-class.ts`; `.tsx` exports only components.
-- Wrap ordinary body children in React `Activity`; keep approval cards and claimed
-  renderers declaring `preserveEffectsWhenHidden` outside it, preserving app sessions and consent.
+- Keep the body tree fixed in React `Activity`; renderers declaring `preserveEffectsWhenHidden`
+  keep its mode visible under the hidden shell. Approval cards remain outside; app sessions persist.
   Guards: `activity-trace.browser.test.tsx`, `mcp-app-tool-result.test.tsx`; evidence: `assistant-runtime/collapsed-body-activity.md`.
 - The header is two rows: a status row (glyph, label, elapsed) and, only while
   active, a fixed-height one-line detail row (`bs-trace-detail`) entirely removed

@@ -373,3 +373,51 @@ test('collapsed activity releases display subscriptions and restores manual deta
   expect(detail).toHaveAttribute('aria-expanded', 'true');
   expect(detail).toHaveAttribute('data-value', '20');
 });
+
+test('a streamed effect owner preserves sibling disclosure state and DOM as ownership changes', async () => {
+  function Detail({ output }: { output: string }) {
+    const [expanded, setExpanded] = useState(false);
+    return (
+      <button
+        aria-expanded={expanded}
+        data-output={output}
+        onClick={() => setExpanded(!expanded)}
+        type="button"
+      >
+        Sibling detail
+      </button>
+    );
+  }
+  const row = (preserveBodyEffects: boolean, output: string) => (
+    <ActivityTrace
+      detail={null}
+      fallbackMs={undefined}
+      incompleteReason={undefined}
+      isActive
+      preserveBodyEffects={preserveBodyEffects}
+      restingOverride={null}
+      summary={live}
+    >
+      <Detail output={output} />
+    </ActivityTrace>
+  );
+  const view = render(row(false, 'Waiting for result'));
+  fireEvent.click(screen.getByRole('button', { name: 'Expand activity' }));
+  const detail = await screen.findByRole('button', { name: 'Sibling detail' });
+  fireEvent.click(detail);
+  expect(detail).toHaveAttribute('aria-expanded', 'true');
+  view.rerender(row(true, 'App result arrived'));
+  expect(await screen.findByRole('button', { name: 'Sibling detail' })).toBe(detail);
+  expect(detail).toHaveAttribute('aria-expanded', 'true');
+  expect(detail).toHaveAttribute('data-output', 'App result arrived');
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse activity' }));
+  view.rerender(row(true, 'App output progressed'));
+  await waitFor(() => expect(detail).toHaveAttribute('data-output', 'App output progressed'));
+  expect(view.container.querySelector('button[data-output]')).toBe(detail);
+  expect(detail).toHaveAttribute('aria-expanded', 'true');
+  expect(screen.getByTestId('assistant-activity-body')).toHaveAttribute('hidden');
+  fireEvent.click(screen.getByRole('button', { name: 'Expand activity' }));
+  view.rerender(row(false, 'Ordinary result restored'));
+  expect(await screen.findByRole('button', { name: 'Sibling detail' })).toBe(detail);
+  expect(detail).toHaveAttribute('aria-expanded', 'true');
+});

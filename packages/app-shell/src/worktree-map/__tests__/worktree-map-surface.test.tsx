@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const useWorktreeMapMock = vi.fn();
 vi.mock('../use-worktree-map', () => ({ useWorktreeMap: () => useWorktreeMapMock() }));
@@ -151,6 +151,21 @@ const BASE_STATE = {
   ],
   statusByPath: new Map([['/wt', { kind: 'ready', value: { ahead: 2, behind: 0, clean: false } }]]),
 };
+
+// Keep Radix's deferred close autofocus inside this fixture's jsdom lifetime.
+afterEach(async () => {
+  const menu = screen.queryByRole('menu');
+  if (!menu) {
+    return;
+  }
+  const triggerId = menu.getAttribute('aria-labelledby');
+  const trigger = triggerId ? document.getElementById(triggerId) : null;
+  if (!trigger) {
+    throw new Error('The open worktree card menu must identify its focus-return trigger.');
+  }
+  await userEvent.keyboard('{Escape}');
+  await waitFor(() => expect(trigger).toHaveFocus());
+});
 
 describe('WorktreeMapSurface', () => {
   beforeEach(() => {
@@ -906,5 +921,29 @@ describe('WorktreeMapSurface', () => {
     // disabled one. Reveal still renders, proving the menu itself is fine.
     expect(screen.queryByRole('menuitem', { name: /terminal/iu })).not.toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /reveal/iu })).toBeInTheDocument();
+  });
+
+  describe('card menu fixture lifetime', () => {
+    let restoredFocus = false;
+
+    afterAll(() => {
+      expect(restoredFocus).toBe(true);
+    });
+
+    it('finishes focus restoration when a test leaves a card menu open', async () => {
+      render(<WorktreeMapSurface />);
+      const trigger = screen.getByTestId('worktree-map-card-actions');
+      await userEvent.click(trigger);
+      expect(screen.getByRole('menu')).toBeVisible();
+      expect(trigger).not.toHaveFocus();
+      trigger.addEventListener(
+        'focus',
+        () => {
+          restoredFocus = true;
+        },
+        { once: true }
+      );
+      // The registered fixture teardown must close the real menu.
+    });
   });
 });

@@ -9,7 +9,7 @@ import type { ThreadSearchRepository } from '@brainstrike/db';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
@@ -367,6 +367,19 @@ function renderThreadsPanel(): ReturnType<typeof createTestActionRegistry> {
   );
   return actionRegistry;
 }
+
+// Finish each real Radix popover's deferred autofocus before RTL removes its DOM.
+afterEach(async () => {
+  const triggers = screen
+    .queryAllByRole('button', { expanded: true })
+    .filter((trigger) => trigger.getAttribute('aria-haspopup') === 'dialog');
+  for (const trigger of triggers) {
+    // Toasts can own Escape; click this popover's trigger without moving focus
+    // so the observed return focus belongs to Radix's deferred close callback.
+    fireEvent.click(trigger);
+    await waitFor(() => expect(trigger).toHaveFocus());
+  }
+});
 
 beforeEach(() => {
   virtualizerState.windowSize = Number.POSITIVE_INFINITY;
@@ -2923,5 +2936,29 @@ describe('ThreadsPanel folders', () => {
         'Pull request status unavailable: checks_json is unreadable'
       );
     });
+  });
+});
+
+describe('thread panel popover fixture lifetime', () => {
+  let restoredFocus = false;
+
+  afterAll(() => {
+    expect(restoredFocus).toBe(true);
+  });
+
+  it('finishes focus restoration when a test leaves View options open', async () => {
+    renderThreadsPanel();
+    const trigger = screen.getByRole('button', { name: 'View options' });
+    await userEvent.click(trigger);
+    expect(screen.getByRole('dialog')).toBeVisible();
+    expect(trigger).not.toHaveFocus();
+    trigger.addEventListener(
+      'focus',
+      () => {
+        restoredFocus = true;
+      },
+      { once: true }
+    );
+    // The registered fixture teardown must close the real popover.
   });
 });
