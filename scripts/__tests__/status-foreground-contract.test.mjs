@@ -1,9 +1,13 @@
+// This guard finds raw palette regressions in audited consumers. Semantic token
+// contrast (all four modes, surfaces and tints) is measured by
+// semantic-status-contrast.test.mjs; semantic-theme-contract.test.mjs compiles
+// both real app @theme mappings, including success/info and fill utilities.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { it } from 'node:test';
-import { hslToRgb } from '../lib/color-contrast.mjs';
+import { contrastRatio, hslToRgb } from '../lib/color-contrast.mjs';
 import { collectForegroundViolations, parsePalette } from '../lib/foreground-contrast.mjs';
 import { themeModes } from '../lib/semantic-theme-contract.mjs';
 import { staticColorClasses } from '../lib/static-color-classes.mjs';
@@ -104,5 +108,34 @@ it('keeps audited status foregrounds legible and warning colors semantic', () =>
       count,
       `Stale decorative exception: ${path}:${utility}`
     );
+  }
+});
+
+it('keeps non-status collection categories distinct and contrast-qualified in every theme mode', () => {
+  const path = 'packages/ui/src/collection-browser/types.ts';
+  const colors = staticColorClasses(readFileSync(join(root, path), 'utf8'), path);
+  assert.equal(colors.length, 8, 'Four category hues need a light and dark foreground each');
+  const modes = themeModes(readFileSync(join(root, 'packages/ui/src/globals.css'), 'utf8'));
+  for (const [mode, tokens] of Object.entries(modes)) {
+    const active = colors.filter((paint) => paint.dark === mode.endsWith('dark'));
+    assert.equal(new Set(active.map((paint) => paint.color)).size, 4);
+    for (const paint of active) {
+      for (const surface of [
+        'background',
+        'card',
+        'popover',
+        'muted',
+        'secondary',
+        'accent',
+        'sidebar',
+        'sidebar-accent',
+      ]) {
+        const background = hslToRgb(
+          tokens.get(`--bs-${surface}`).replaceAll('%', '').split(/\s+/).map(Number)
+        );
+        const ratio = contrastRatio(palette.get(paint.color), background);
+        assert.ok(ratio >= 4.5, `${mode}/${surface} ${paint.utility}: ${ratio.toFixed(4)}:1`);
+      }
+    }
   }
 });

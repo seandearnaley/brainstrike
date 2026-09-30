@@ -17,6 +17,8 @@ export function staticClassStrings(source, path = 'component.tsx') {
       ts.isTemplateMiddle(node) ||
       ts.isTemplateTail(node)
     ) {
+      // The full-source guard consumes this metadata to qualify exact
+      // aria-hidden decorative exceptions (source-foreground-contract.mjs).
       let element = node.parent;
       while (element && !ts.isJsxOpeningElement(element) && !ts.isJsxSelfClosingElement(element)) {
         element = element.parent;

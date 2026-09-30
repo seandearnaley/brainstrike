@@ -88,8 +88,9 @@ function getStatusIndicatorClasses(
         : 'fill-success text-success';
     case 'connecting':
     case 'authorizing':
-    case 'authentication-required':
       return 'fill-info text-info';
+    case 'authentication-required':
+      return 'fill-warning text-warning';
     case 'disconnected':
     case 'closing':
       return 'fill-muted-foreground text-muted-foreground';

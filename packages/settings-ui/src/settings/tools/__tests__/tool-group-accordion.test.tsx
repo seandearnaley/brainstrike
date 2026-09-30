@@ -241,8 +241,24 @@ describe('ToolGroupAccordion', () => {
       );
 
       const indicators = screen.getAllByTestId('mcp-status-indicator');
-      // Should have yellow/amber indicator for connecting status
+      // Should have informational indicator for an in-progress connection
       expect(indicators[0]).toHaveClass('fill-info');
+    });
+
+    it('shows authentication-required as a warning that needs user action', () => {
+      render(
+        <ToolGroupAccordion
+          {...defaultProps}
+          connectionStatus="authentication-required"
+          id="mcp-auth"
+          source="mcp"
+        >
+          <div>Tool content</div>
+        </ToolGroupAccordion>
+      );
+      const indicator = screen.getByTestId('mcp-status-indicator');
+      expect(indicator).toHaveClass('fill-warning', 'text-warning');
+      expect(indicator).not.toHaveClass('fill-info');
     });
 
     it('shows disconnected status for MCP groups', () => {
@@ -487,7 +503,7 @@ describe('ToolGroupAccordion', () => {
       expect(screen.getByTestId('mcp-status-indicator')).toHaveClass('fill-success');
     });
 
-    it('shows the WARNING token, not the connecting yellow, when the tool list failed', () => {
+    it('shows the WARNING token, not the connecting info tone, when the tool list failed', () => {
       // Deliberately distinct from `fill-info`, which already means
       // connecting/authorizing. Reusing it would collapse "still working, wait"
       // into "settled and empty" — the one distinction this indicator draws.

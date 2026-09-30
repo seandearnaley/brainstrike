@@ -319,6 +319,7 @@ describe('GitPanel', () => {
     expect(screen.getByText('staged.ts')).toBeInTheDocument();
     expect(screen.getByText('unstaged.ts')).toBeInTheDocument();
     expect(screen.getByText('new.ts')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'staged.ts' })).not.toHaveAttribute('aria-label');
     expect(screen.getByRole('button', { name: 'staged.ts' })).toHaveAccessibleDescription(
       'Modified file'
     );

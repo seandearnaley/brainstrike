@@ -197,7 +197,7 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
         <span
           className={
             fileNode.type === 'truncated'
-              ? 'truncate text-muted-foreground text-sm italic leading-4 dark:text-muted-foreground'
+              ? 'truncate text-muted-foreground text-sm italic leading-4'
               : 'truncate text-sm leading-4 group-hover/file-row:underline'
           }
         >

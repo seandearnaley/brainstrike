@@ -290,10 +290,12 @@ function ChangeFileRow({
   const statusDescriptionId = useId();
   return (
     <li className="group flex min-h-9 items-center border-border/70 border-b last:border-b-0">
+      <span className="sr-only" id={statusDescriptionId}>
+        {presentation.label}
+      </span>
       <button
         aria-current={selected ? 'true' : undefined}
         aria-describedby={statusDescriptionId}
-        aria-label={file.path}
         className={`flex min-w-0 flex-1 items-center gap-2 self-stretch px-3 text-left text-xs transition-colors hover:bg-accent/45 ${
           selected ? 'bg-primary/12 text-foreground' : 'text-foreground/90'
         }`}
@@ -305,9 +307,6 @@ function ChangeFileRow({
           className={`w-4 shrink-0 text-center font-mono font-semibold text-[10px] ${presentation.className}`}
         >
           {presentation.glyph}
-        </span>
-        <span className="sr-only" id={statusDescriptionId}>
-          {presentation.label}
         </span>
         <span className="truncate" title={file.path}>
           {file.path}

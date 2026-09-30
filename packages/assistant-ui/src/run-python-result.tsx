@@ -7,7 +7,7 @@
  * - `killed` is a REAL state (`exitCode: null, timedOut: false` — segfault,
  *   OOM), rendered as neither completed nor "nothing ran";
  * - a non-zero exit code is NOT a tool failure — the tool did its job, the
- *   script returned 1: amber "finished with an error", never the destructive
+ *   script returned 1: warning "finished with an error", never the destructive
  *   didn't-run chrome (destructive is reserved for `unavailable`);
  * - cancelled never renders as success and never renders as empty — the
  *   partial streams exist precisely so neither lie is necessary;
@@ -164,12 +164,12 @@ interface RunPythonHeaderSpec {
 }
 
 function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
-  const amber = 'size-4 text-warning';
+  const warningIconClass = 'size-4 text-warning';
   switch (result.kind) {
     case 'completed': {
       if (result.exitCode !== 0) {
         return {
-          icon: <AlertCircle className={amber} />,
+          icon: <AlertCircle className={warningIconClass} />,
           state: 'completed-nonzero',
           text: `Finished with an error (exit code ${result.exitCode}).`,
         };
@@ -187,13 +187,13 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
     }
     case 'timed_out':
       return {
-        icon: <Timer className={amber} />,
+        icon: <Timer className={warningIconClass} />,
         state: 'timed_out',
         text: `Stopped after ${formatRunDuration(result.timeoutMs)} — the script was still running.`,
       };
     case 'killed':
       return {
-        icon: <AlertCircle className={amber} />,
+        icon: <AlertCircle className={warningIconClass} />,
         state: 'killed',
         text: 'The script was stopped by the system before it finished.',
       };

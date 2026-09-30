@@ -240,6 +240,7 @@ it('compiles semantic utilities, variants and opacity through each real app them
   const candidates = ['success', 'info', 'warning', 'destructive'].flatMap((token) => [
     `text-${token}`,
     `bg-${token}`,
+    `fill-${token}`,
     `text-${token}-foreground`,
     `hover:text-${token}/70`,
     `dark:before:text-${token}/70`,
@@ -266,6 +267,8 @@ it('compiles semantic utilities, variants and opacity through each real app them
     // static parser: source text alone cannot materialize an unmapped utility.
     const brokenTheme = theme.replace(/--color-success:\s*[^;]+;/, '');
     const broken = await compile(`${brokenTheme}\n@tailwind utilities;`);
-    assert.ok(!broken.build(['text-success']).includes('.text-success {'));
+    const missingRules = broken.build(['text-success', 'fill-success']);
+    assert.ok(!missingRules.includes('.text-success {'));
+    assert.ok(!missingRules.includes('.fill-success {'));
   }
 });

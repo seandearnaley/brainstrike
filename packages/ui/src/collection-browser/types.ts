@@ -89,28 +89,28 @@ export interface NodeTypeConfig {
  */
 export const NODE_TYPE_CONFIG: Record<CollectionNodeType, NodeTypeConfig> = {
   chunk: {
-    color: 'text-warning',
+    color: 'text-orange-800 dark:text-orange-300',
     icon: 'FileText',
     label: 'Chunk',
     pluralLabel: 'Chunks',
     type: 'chunk',
   },
   collection: {
-    color: 'text-info',
+    color: 'text-blue-800 dark:text-blue-300',
     icon: 'FolderOpen',
     label: 'Collection',
     pluralLabel: 'Collections',
     type: 'collection',
   },
   embedding: {
-    color: 'text-info',
+    color: 'text-purple-800 dark:text-purple-300',
     icon: 'Sparkles',
     label: 'Embedding',
     pluralLabel: 'Embeddings',
     type: 'embedding',
   },
   file: {
-    color: 'text-success',
+    color: 'text-green-800 dark:text-green-300',
     icon: 'File',
     label: 'File',
     pluralLabel: 'Files',
