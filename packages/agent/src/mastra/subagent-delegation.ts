@@ -51,6 +51,7 @@ import { MAX_DELEGATED_CONTEXT_BYTES } from './delegated-system-context';
 import type { DelegatedTurnPersistence } from './delegated-turn-persistence';
 import { type DelegatedWorkQueue, resolveDelegatedWorkBudget } from './delegated-work-budget';
 import {
+  type DelegationStartupEvidence,
   EMBEDDING_ACCESS_FEEDBACK,
   EMBEDDING_PROBE_FEEDBACK,
   summarizeDelegationFailure,
@@ -334,7 +335,8 @@ function describeMissingChildAnswer(persona: AssistantPersonaDefinition, result:
  */
 async function resolveMissingAnswerResult(
   params: CreateDelegationConfigParams,
-  context: Parameters<NonNullable<DelegationConfig['onDelegationComplete']>>[0]
+  context: Parameters<NonNullable<DelegationConfig['onDelegationComplete']>>[0],
+  startup: DelegationStartupEvidence | undefined
 ): Promise<{ feedback?: string; resultText: string } | undefined> {
   const persona = params.personasById.get(context.primitiveId);
   if (!persona) {
@@ -347,21 +349,27 @@ async function resolveMissingAnswerResult(
   // failed. Native streaming failures may return a projected tool-result that
   // omits finishReason, so retain the hook's authoritative outcome for mapping.
   if (context.success === false) {
-    if (isExplicitParentStop(params, context.error)) {
+    if (isExplicitParentStop(params, context.error, startup)) {
       return;
     }
     params.delegationOutcomes?.recordFailure(context.toolCallId, context.runId);
-    const cause = summarizeDelegationFailure(context.error);
+    const cause = summarizeDelegationFailure(context.error, startup?.failure);
     const feedback =
       cause.causeReason === 'memory-embedding-access-denied'
         ? EMBEDDING_ACCESS_FEEDBACK
         : cause.causeReason === 'memory-embedding-probe-failed'
           ? EMBEDDING_PROBE_FEEDBACK
           : undefined;
-    return {
-      ...(feedback ? { feedback } : {}),
-      resultText: `Subagent "${persona.label}" failed before completing the task. Any partial results remain in its child conversation; do not treat this as a completed deliverable.`,
-    };
+    const childThreadId =
+      startup?.childThreadId ??
+      (params.conversationBinding ? undefined : context.result.subAgentThreadId);
+    const childStatus = childThreadId
+      ? 'Any partial results remain in its child conversation'
+      : 'No admitted child conversation was observed';
+    const resultText = `Subagent "${persona.label}" failed before completing the task. ${childStatus}; do not treat this as a completed deliverable.`;
+    // Native thrown execution ignores resultText; public feedback carries the
+    // same safe observed outcome into the supervisor's memory.
+    return { feedback: feedback ?? resultText, resultText };
   }
   // The exported type says `string`, but the one place a runtime shape is least
   // likely to match is the path that just went wrong — and a TypeError thrown
@@ -387,8 +395,17 @@ async function resolveMissingAnswerResult(
   return { resultText: describeMissingChildAnswer(persona, context.result) };
 }
 
-function isExplicitParentStop(params: CreateDelegationConfigParams, error: unknown): boolean {
+function isExplicitParentStop(
+  params: CreateDelegationConfigParams,
+  error: unknown,
+  startup?: DelegationStartupEvidence
+): boolean {
   if (!(params.externalStopSignal?.aborted && params.abortSignal.aborted)) {
+    return false;
+  }
+  // The binding saw an independent failure before native unwind replaced its
+  // error. A later Stop cannot replace that observed cause, even if unclassified.
+  if (startup?.failureIsOwnerAbort === false) {
     return false;
   }
   // createStreamAbortContext forwards the caller's reason unchanged. If the
@@ -402,7 +419,7 @@ function isExplicitParentStop(params: CreateDelegationConfigParams, error: unkno
   // races either failure must not erase its diagnostic or model feedback.
   if (
     !(error instanceof Error) ||
-    summarizeDelegationFailure(error).causeCategory === 'known-internal'
+    summarizeDelegationFailure(error, startup?.failure).causeCategory === 'known-internal'
   ) {
     return false;
   }
@@ -427,7 +444,8 @@ function isExplicitParentStop(params: CreateDelegationConfigParams, error: unkno
 
 function logDelegationCompletion(
   params: CreateDelegationConfigParams,
-  context: Parameters<NonNullable<DelegationConfig['onDelegationComplete']>>[0]
+  context: Parameters<NonNullable<DelegationConfig['onDelegationComplete']>>[0],
+  startup: DelegationStartupEvidence | undefined
 ): void {
   if (context.success !== false) {
     params.logger.info('Subagent delegation completed', {
@@ -445,7 +463,7 @@ function logDelegationCompletion(
     parentToolCallId: context.toolCallId,
     personaId: context.primitiveId,
   };
-  if (isExplicitParentStop(params, context.error)) {
+  if (isExplicitParentStop(params, context.error, startup)) {
     params.logger.info('Subagent delegation cancelled', {
       code: 'subagent_delegation_cancelled',
       ...identity,
@@ -453,7 +471,8 @@ function logDelegationCompletion(
     return;
   }
   params.logger.error('Subagent delegation failed', {
-    ...summarizeDelegationFailure(context.error),
+    ...summarizeDelegationFailure(context.error, startup?.failure),
+    ...(startup ? { startupBoundary: startup.startupBoundary } : {}),
     code: 'subagent_delegation_failed',
     ...identity,
   });
@@ -622,6 +641,18 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
   // took, so the per-leg caps do not count it again. Durable admission and
   // the binding's own preparation still run, exactly as on a resume leg.
   const admitted = new Set<string>();
+  const started = new Set<string>();
+  const startupEvidence = (
+    runId: string,
+    toolCallId: string
+  ): DelegationStartupEvidence | undefined =>
+    params.conversationBinding?.readStartupEvidence?.({
+      parentRuntimeRunId: runId,
+      parentToolCallId: toolCallId,
+    }) ??
+    (started.has(JSON.stringify([runId, toolCallId]))
+      ? { startupBoundary: 'delegation-started' }
+      : undefined);
 
   return {
     // All delegation-hook failures propagate, including diagnostics: silently
@@ -665,7 +696,9 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
     },
     onDelegationComplete: async (context) => {
       inFlight = Math.max(0, inFlight - 1);
-      logDelegationCompletion(params, context);
+      const startup = startupEvidence(context.runId, context.toolCallId);
+      started.delete(JSON.stringify([context.runId, context.toolCallId]));
+      logDelegationCompletion(params, context, startup);
       const usage = readDelegationUsage(context.result.usage);
       if (usage && params.onChildUsage) {
         const delegation = params.conversationBinding
@@ -688,9 +721,10 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
       // Usage is reported BEFORE the empty-answer branch returns: a child that
       // burned minutes of an expensive model and then failed to answer is
       // exactly the case whose cost must still be attributed.
-      return await resolveMissingAnswerResult(params, context);
+      return await resolveMissingAnswerResult(params, context, startup);
     },
     onDelegationStart: async (context) => {
+      started.add(JSON.stringify([context.runId, context.toolCallId]));
       // Every refusal is a tool result the model can read and a recorded
       // outcome for the timeline; none of them starts a child (BST-1751).
       const reject = (

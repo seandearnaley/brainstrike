@@ -178,9 +178,9 @@ bespoke `subagent` tool.
   `streamOptions.delegation` in ALL THREE stream iterators — initial turn,
   approval resume, suspend resume. With durable budgets the shared model/tool
   queue replaces the in-flight cap.
-- Failure hooks log fixed cause categories and call identity, not freeform errors;
-  known embedding failures give feedback. Selected Stop requires the same reason
-  in both owner signals and child error cause chain; `AbortError` alone is insufficient.
+- Failure hooks log call identity, fixed causes, allowlisted native IDs/status and
+  observed startup boundaries; partial-child guidance requires observed admission.
+  Stop requires the same reason in owner signals and child causes, not `AbortError` alone.
   Evidence: `assistant-subagents/worker-startup-failures.md`.
 - An in-flight delegation whose parent run aborts mid-stream gets a terminal
   `subagent.failed` (status `cancelled`), so a cancelled parent leaves no
