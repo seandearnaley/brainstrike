@@ -16,8 +16,11 @@ Sources: [official release](https://github.com/astral-sh/python-build-standalone
 The existing build fetcher verifies byte length and SHA256 before installation;
 the runtime hashes the resource archive before cold extraction and retains its
 existing typed missing/checksum/unpack errors. No runtime network or PATH lookup
-is introduced. `/usr/bin/tar` remains the absolute extractor; its absence is a
-typed unpack failure.
+is introduced. `/usr/bin/tar` remains the absolute extractor; on Linux it uses
+`--use-compress-program=/usr/bin/gzip` rather than GNU tar's PATH-searched `-z`.
+Either tool's absence is a typed unpack failure; Darwin keeps its existing
+tar arguments. A native cold-extraction test with PATH removed caught the
+implicit gzip lookup before this correction.
 
 Linux electron-builder resources include only the manifest and derived Linux archive,
 plus the upstream component notices. The macOS filter is narrowed to Darwin
@@ -78,10 +81,42 @@ files do not gain automatic conversion or another interpreter/backend fallback.
 - Real Linux x64 archive: first extraction, execution with an empty executable
   search path, `ctypes`/`hashlib`/`sqlite3`/`ssl` imports, fresh resolver module
   reuse, actual factory-reset helper deletion, then offline re-extraction/run
-- This host is Debian 13 x64. It lacks socat and refuses bubblewrap namespaces
-  with `Operation not permitted`. Successful fenced execution is **not verified**;
-  BST-1317 owns the distinct sandbox-readiness outcome. No host security settings
-  are changed. A clean-distro/real packaged-app launch remains separate evidence
+- Cold extraction and reset recovery now run with PATH absent on Linux too,
+  not merely the interpreter subprocess. The missing-gzip regression is red
+  before the absolute Linux compressor argument and green afterward; unit
+  controls preserve typed missing tar/gzip errors and unchanged Darwin arguments
+- Native Debian 13 x64 desktop: the checksum-pinned derived interpreter runs
+  through the built FenceExecutor, both on this branch and with BST-1317's
+  async readiness factory. SRT reports no dependency errors or warnings;
+  default dbm/SQLite/shelve round trips pass, `_dbm` stays absent, and a write
+  outside the writable scratch directory is refused with `EROFS` (errno 30)
+- The earlier missing-socat/`Operation not permitted` result came from the
+  restricted execution-tool context, not the native desktop. The native probe
+  uses a private, authenticated Debian socat package prefix. User, mount, PID,
+  and network namespace controls plus the combined bwrap command all exit 0;
+  no host security settings or weaker sandbox flags are used
+- Native proof identifies Python head `1d74f9bd3abef734fcac38b866ce891578bd22ac`
+  and readiness head `a9468d144aaa1b339abb6f90ac90886d350e2b8a` (built module
+  SHA256 `8214f4aee0e58ce1ea42db8f39e5da94b6b1fb95365ac4a32528b5ca7882ab10`).
+  The request uses an absolute injected interpreter, `allowedDomains: []`,
+  one writable scratch directory, a 20-second budget, and no fallback.
+  Network policy allow/deny and clean-distro qualification are separate proof
+- CI exposed an older build-config assertion that still expected every
+  platform's tarballs in macOS resources. It reproduces red, then passes with
+  the Darwin-only filter; the existing Linux packaging regressions stay green
+- Actual `electron-builder --linux --x64 --dir` packaging passes with native
+  dependency rebuilding enabled and the verified Electron 44.4.5 distribution.
+  Inspection of the resulting `resources/python-runtime/` finds exactly the
+  manifest, derived Linux archive, and licenses directory. The archive size
+  and SHA256 match the manifest; all 19 notice hashes and provenance files
+  match the sources. Neither the original Linux nor Darwin archives ship there
+- Two distinct Node processes invoke the real resolver against those packaged
+  resources with PATH absent and fetch prohibited. Both run the exact pinned
+  interpreter; the second preserves the install sentinel's inode and mtime,
+  proving disk-cache reuse without relying on a module-level memo
+- This unpacked-package resource proof does not qualify clean distributions,
+  AppImage installation/upgrades, or a full desktop-process restart. The
+  resolver-reload/reset tests and native fence test above retain their stated scope
 
 Guards: `apps/desktop/src/__tests__/main/python-runtime-linux.test.ts`,
 `python-runtime-packaging.test.ts`, `fetch-python-runtime-script.test.ts`,

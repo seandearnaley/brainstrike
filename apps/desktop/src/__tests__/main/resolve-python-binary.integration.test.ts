@@ -57,6 +57,7 @@ const cleanupPaths: string[] = [];
 
 afterEach(async () => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   await Promise.all(
     cleanupPaths.splice(0).map((target) => fsPromises.rm(target, { force: true, recursive: true }))
   );
@@ -74,6 +75,10 @@ describe('resolvePythonBinary (real archive)', () => {
         throw new Error('runtime network access is forbidden');
       });
       vi.stubGlobal('fetch', fetch);
+      if (process.platform === 'linux') {
+        // Cold extraction, not just the interpreter, must avoid PATH lookups.
+        vi.stubEnv('PATH', '/nonexistent');
+      }
       const binary = await resolvePythonBinary({ resourcesDir, userDataDir });
       expect(path.isAbsolute(binary)).toBe(true);
       expect(binary.startsWith(path.join(userDataDir, 'python-runtime'))).toBe(true);

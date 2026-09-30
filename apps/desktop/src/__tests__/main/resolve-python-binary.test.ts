@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  ARCHIVE_CONTENT,
   ARCHIVE_FILE_NAME,
   ARCHIVE_SHA256,
   createFixtureDirs as createPythonFixture,
@@ -76,6 +77,20 @@ function mockTarSuccess(): void {
       lastCallback(rest[0], rest[1])(null, '', '');
     }
   );
+}
+
+function writeLinuxArchive(resourcesDir: string): string {
+  const target = 'x86_64-unknown-linux-gnu';
+  writeManifest(resourcesDir, {
+    supportedTargets: [target],
+    targets: { [target]: { bytes: ARCHIVE_CONTENT.length, sha256: ARCHIVE_SHA256 } },
+  });
+  const archivePath = path.join(
+    resourcesDir,
+    `cpython-${PYTHON_VERSION}+${RELEASE_TAG}-${target}-install_only.tar.gz`
+  );
+  writeFileSync(archivePath, ARCHIVE_CONTENT);
+  return archivePath;
 }
 
 async function loadModule() {
@@ -242,6 +257,47 @@ describe('resolvePythonBinary', () => {
       resolvePythonBinary({ arch: 'arm64', platform: 'darwin', resourcesDir, userDataDir })
     ).rejects.toMatchObject({ code: 'python_unpack_failed' });
   });
+
+  it('uses absolute tar and gzip paths for Linux cold extraction without a shell', async () => {
+    const { resourcesDir, userDataDir } = await createFixtureDirs();
+    const archivePath = writeLinuxArchive(resourcesDir);
+    mockTarSuccess();
+    const { resolvePythonBinary } = await loadModule();
+    await resolvePythonBinary({ arch: 'x64', platform: 'linux', resourcesDir, userDataDir });
+    expect(execFileMock).toHaveBeenCalledExactlyOnceWith(
+      '/usr/bin/tar',
+      [
+        '--use-compress-program=/usr/bin/gzip',
+        '-xf',
+        archivePath,
+        '-C',
+        expect.stringContaining('.staging-'),
+      ],
+      { signal: undefined },
+      expect.any(Function)
+    );
+  });
+
+  it.each(['spawn /usr/bin/tar ENOENT', '/usr/bin/gzip: Cannot exec: No such file or directory'])(
+    'preserves a typed Linux unpack failure with no fallback: %s',
+    async (diagnostic) => {
+      const { resourcesDir, userDataDir } = await createFixtureDirs();
+      writeLinuxArchive(resourcesDir);
+      execFileMock.mockImplementation(
+        (_command: string, _args: readonly string[], ...rest: unknown[]) => {
+          lastCallback(rest[0], rest[1])(new Error(diagnostic), '', diagnostic);
+        }
+      );
+      const { resolvePythonBinary } = await loadModule();
+      await expect(
+        resolvePythonBinary({ arch: 'x64', platform: 'linux', resourcesDir, userDataDir })
+      ).rejects.toMatchObject({
+        code: 'python_unpack_failed',
+        message: expect.stringContaining(diagnostic),
+      });
+      expect(execFileMock).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it('treats an archive that lacks python/bin/python3 as a typed unpack failure', async () => {
     const { resourcesDir, userDataDir } = await createFixtureDirs();

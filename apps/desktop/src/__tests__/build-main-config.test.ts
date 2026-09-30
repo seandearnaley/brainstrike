@@ -79,11 +79,11 @@ describe('main-process bundle config', () => {
     );
   });
 
-  it('packages the bundled Python manifest and target archives as macOS resources', () => {
+  it('packages the bundled Python manifest and only Darwin archives as macOS resources', () => {
     const packageJson = readDesktopPackageConfig();
 
     expect(packageJson.build?.mac?.extraResources).toContainEqual({
-      filter: ['manifest.json', '*.tar.gz'],
+      filter: ['manifest.json', '*-apple-darwin-install_only.tar.gz'],
       from: 'resources/python-runtime',
       to: 'python-runtime',
     });

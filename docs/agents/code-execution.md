@@ -247,7 +247,7 @@ Evidence: `code-execution/permission-engine-ux-design.md`.
   macOS arm64/x64 or Linux glibc x64 (no `_dbm`) and injects its absolute path. It unpacks
   under `userData/python-runtime/`, outside always-deny stores. This package never
   imports it; its typed `python_*` errors stay disjoint from seam/fence codes.
-  No runtime download or PATH fallback. Evidence: `code-execution/bundled-linux-python.md`.
+  No runtime download or PATH fallback; Linux tar/gzip paths are absolute. Evidence: `code-execution/bundled-linux-python.md`.
 - `ALWAYS_DENY_READ_PATHS` applies on top of every policy, resolved to ABSOLUTE
   paths from `os.homedir()` rather than handed to srt as `~/…`, and stays
   literal. srt's glob-deny handling is version-dependent and is NOT relied on.

@@ -285,14 +285,20 @@ async function hashFileSha256(filePath: string, signal: AbortSignal | undefined)
 async function extractArchive(
   archivePath: string,
   stagingDir: string,
+  platform: string,
   signal: AbortSignal | undefined
 ): Promise<void> {
+  // GNU tar's -z searches PATH for gzip; a desktop launch need not have one.
+  const args =
+    platform === 'linux'
+      ? ['--use-compress-program=/usr/bin/gzip', '-xf', archivePath, '-C', stagingDir]
+      : ['-xzf', archivePath, '-C', stagingDir];
   const classifyFailure = (error: unknown): unknown => {
     if (signal?.aborted) {
       return error;
     }
     return new PythonUnpackFailedError(
-      `Unpacking the bundled Python runtime failed (${TAR_BINARY} -xzf ${archivePath}): ${
+      `Unpacking the bundled Python runtime failed (${TAR_BINARY} ${args.join(' ')}): ${
         error instanceof Error ? error.message : String(error)
       }`
     );
@@ -316,12 +322,7 @@ async function extractArchive(
             // The callback can fail on abort before process exit and stdio close.
             // Attach a handler before invoking execFile, then await the same result.
             result.catch(() => undefined);
-            const child = execFile(
-              TAR_BINARY,
-              ['-xzf', archivePath, '-C', stagingDir],
-              { signal },
-              complete
-            );
+            const child = execFile(TAR_BINARY, args, { signal }, complete);
             const onError = (error: Error): void => complete(error);
             child.on('error', onError);
             const closed = new Promise<void>((resolve) =>
@@ -363,12 +364,14 @@ async function unpackArchive({
   binaryRelativePath,
   expectedSha256,
   installDir,
+  platform,
   signal,
 }: {
   archivePath: string;
   binaryRelativePath: string;
   expectedSha256: string;
   installDir: string;
+  platform: string;
   signal: AbortSignal | undefined;
 }): Promise<void> {
   const stagingDir = `${installDir}.staging-${process.pid}-${Date.now()}`;
@@ -401,7 +404,7 @@ async function unpackArchive({
           await fsPromises.rm(stagingDir, { force: true, recursive: true });
           await fsPromises.mkdir(stagingDir, { recursive: true });
           signal?.throwIfAborted();
-          await extractArchive(archivePath, stagingDir, signal);
+          await extractArchive(archivePath, stagingDir, platform, signal);
           signal?.throwIfAborted();
           const stagedBinary = path.join(stagingDir, binaryRelativePath);
           try {
@@ -521,6 +524,7 @@ async function resolvePythonBinaryUncached(options: ResolvePythonBinaryOptions):
     binaryRelativePath,
     expectedSha256: runtimeEntry.sha256,
     installDir,
+    platform,
     signal: options.signal,
   });
   return assertAbsolute(binaryPath);
