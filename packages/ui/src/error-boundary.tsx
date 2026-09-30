@@ -99,7 +99,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
           <div className="border-b bg-muted/30 p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <AlertTriangle className="mr-2 h-6 w-6 text-red-500" />
+                <AlertTriangle className="mr-2 h-6 w-6 text-destructive" />
                 <h2 className="font-bold text-xl">Error</h2>
               </div>
               <Button

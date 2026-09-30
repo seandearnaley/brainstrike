@@ -324,7 +324,7 @@ describe('EnvironmentSection', () => {
         `${OPENAI_DEPRECATED_KEY} is set but no longer read — rename it to ${OPENAI_VENDOR_KEY}.`
       );
       expect(warning.textContent).not.toContain('BRAINSTRIKE_');
-      expect(warning.className).toContain('amber');
+      expect(warning.className).toContain('text-warning');
     });
 
     it('adds a file-provenance clause when the name is spelled in an env file', async () => {

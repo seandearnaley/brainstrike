@@ -345,7 +345,7 @@ function FileLoggingCard({
       </CardHeader>
       <CardContent className="space-y-4">
         {fileCapabilities?.reason ? (
-          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-amber-900 text-xs dark:text-amber-200">
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-warning text-xs">
             {fileCapabilities.reason}
           </div>
         ) : null}
@@ -510,7 +510,7 @@ function AdvancedLoggingCard({
 function DiagnosticSinkHealthBanner({ reason }: { reason: string }) {
   return (
     <div
-      className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-amber-900 text-xs dark:text-amber-200"
+      className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-warning text-xs"
       data-testid="diagnostic-sink-health-banner"
       role="alert"
     >

@@ -378,17 +378,17 @@ placing it here.
 - Keep the catalog `ignore` package as the implementation and pin its behaviour
   in `workspace-ignore-matcher.test.ts`. Why: gitignore reimplementations
   disagree on edge cases, so assert rather than assume.
-- Keep LIVE GREP out of the gitignore chain: its ripgrep pass runs
-  `--no-ignore --hidden`, so rg is a true superset and
-  `policy.shouldIncludeFile` stays the single authority trimming both engines
-  identically. The agent layers are the exception — see below.
+- Keep LIVE GREP out of the gitignore chain: root-wide rg uses `--no-ignore --hidden`;
+  the balanced policy and hard agent layers trim every engine identically.
+  For exact `filePaths`, resolve only those files (including the excluded-path probe),
+  without a root candidate scan; report `js-files` and retain truthful cap flags.
 
 Settled: gitignore leads because a hand-maintained denylist falls behind
 silently; the static floor stays because a non-repo root has no `.gitignore`;
 layers 7-8 are a hard boundary and directories are tested with a trailing
 slash — do not relitigate either. Evidence:
-`explorer-search-tapestry/ignore-chain-precedence.md`.
-Guard: `packages/utils/src/__tests__/workspace-ignore-matcher.test.ts`.
+`explorer-search-tapestry/ignore-chain-precedence.md`, `explorer-search-tapestry/scoped-live-grep.md`.
+Guard: `packages/utils/src/__tests__/workspace-ignore-matcher.test.ts`, `live-grep-scoped.integration.test.ts`.
 
 ### A ZERO-MATCH GLOB STEERS TO `includeIgnored` — BUT ONLY WHEN THAT WOULD HELP
 
@@ -427,7 +427,7 @@ with no directory context and cannot use the walk's push/pop matcher.
 | `readWorkspaceFile` (paged) | inside the stable-path lock |
 | `readWorkspaceTextFile` (LSP inspect, rename reindex, workspace-context, `@file`) | the shared reader, so consumers inherit it |
 
-- Filter both grep engines at ONE call site. Why: enforcing inside each
+- Filter all grep engines at ONE call site. Why: enforcing inside each
   collector makes the boundary's strength depend on whether `rg` is installed.
 - THROW on a refused read and name the ignore files; never return empty content,
   which teaches the model the file is empty and it reports that as fact.

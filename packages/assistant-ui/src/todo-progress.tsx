@@ -35,9 +35,9 @@ const STATUS_GLYPH: Record<AssistantTaskStatus, string> = {
 };
 
 const STATUS_GLYPH_CLASS: Record<AssistantTaskStatus, string> = {
-  completed: 'text-emerald-500',
+  completed: 'text-success',
   // biome-ignore lint/style/useNamingConvention: AssistantTaskStatus value (Mastra convention)
-  in_progress: 'text-sky-500',
+  in_progress: 'text-info',
   pending: 'text-muted-foreground',
 };
 

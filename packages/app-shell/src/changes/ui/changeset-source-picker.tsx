@@ -249,7 +249,7 @@ export function ChangesetSourcePicker({
                           <span className="truncate font-medium text-sm">{worktree.name}</span>
                           {worktree.trust === 'unvalidated' ? (
                             <Badge
-                              className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-300"
+                              className="gap-1 border-amber-500/40 text-warning"
                               data-testid="worktree-trust-badge"
                               variant="outline"
                             >
@@ -263,7 +263,7 @@ export function ChangesetSourcePicker({
                         </span>
                         {worktree.trust === 'unvalidated' && worktree.trustReason ? (
                           <span
-                            className="text-[10px] text-amber-700 dark:text-amber-300"
+                            className="text-[10px] text-warning"
                             data-testid="worktree-trust-reason"
                           >
                             {worktree.trustReason}

@@ -66,7 +66,7 @@ export function RunVerdictButtons({
           <Button
             aria-label="This worked"
             aria-pressed={chosen === 'succeeded'}
-            className={`h-5 px-1.5 text-[11px] ${chosen === 'succeeded' ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}
+            className={`h-5 px-1.5 text-[11px] ${chosen === 'succeeded' ? 'text-success' : 'text-muted-foreground'}`}
             disabled={saving}
             onClick={() => void submit('succeeded')}
             size="sm"
@@ -82,7 +82,7 @@ export function RunVerdictButtons({
           <Button
             aria-label="This didn't work"
             aria-pressed={chosen === 'failed'}
-            className={`h-5 px-1.5 text-[11px] ${chosen === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}
+            className={`h-5 px-1.5 text-[11px] ${chosen === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`}
             disabled={saving}
             onClick={() => void submit('failed')}
             size="sm"

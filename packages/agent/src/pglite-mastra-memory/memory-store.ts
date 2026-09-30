@@ -37,6 +37,10 @@ import {
   emitAssistantRunEventSafely,
 } from '../run-events';
 import {
+  hasBackgroundInvocation,
+  removeInheritedBackgroundReference,
+} from './background-reference-ownership';
+import {
   appendLimit,
   compareMessagesByOrder,
   DEFAULT_MESSAGES_PER_PAGE,
@@ -713,10 +717,38 @@ export class PgliteMemoryStore extends MemoryStorage {
       [taskIds]
     );
     const tasksById = new Map(tasks.rows.map((task) => [task.id, task]));
+    const inheritedReferences = references.filter(
+      ({ message, toolCallId }) => !hasBackgroundInvocation(message, toolCallId)
+    );
+    const owners =
+      inheritedReferences.length > 0
+        ? await tx.query<MessageRow>(
+            `SELECT id, thread_id AS "threadId", content, role, type, "createdAt", "resourceId"
+           FROM ${MASTRA_MEMORY_TABLES.messages}
+           WHERE thread_id = $1 AND "resourceId" = $2
+             AND EXISTS (SELECT 1 FROM jsonb_each(CASE
+               WHEN jsonb_typeof(content #> '{metadata,backgroundTasks}') = 'object'
+               THEN content #> '{metadata,backgroundTasks}' ELSE '{}'::jsonb END) reference
+               WHERE reference.value ->> 'taskId' = ANY($3::text[]))
+           FOR UPDATE`,
+            [scope.threadId, scope.resourceId, inheritedReferences.map(({ taskId }) => taskId)]
+          )
+        : undefined;
+    const ownerMessages = [
+      ...new Map([
+        ...(owners?.rows.map((row) => [row.id, messageFromRow(row)] as const) ?? []),
+        ...messages.map((message) => [message.id, message] as const),
+      ]).values(),
+    ];
+    const deliveredTaskIds = new Set<string>();
     for (const { message, taskId, toolCallId } of references) {
       const task = tasksById.get(taskId);
       if (!taskMatchesMessage(task, message, toolCallId, scope)) {
         throw new Error('Background task metadata has no unique task in this conversation.');
+      }
+      if (!hasBackgroundInvocation(message, toolCallId)) {
+        removeInheritedBackgroundReference(message, taskId, toolCallId, ownerMessages);
+        continue;
       }
       if (isTerminalTask(task)) {
         applyBackgroundTaskOutcome(
@@ -724,15 +756,15 @@ export class PgliteMemoryStore extends MemoryStorage {
           { id: task.id, toolCallId: task.toolCallId },
           outcomeFromTaskRow(task)
         );
+        deliveredTaskIds.add(task.id);
       }
     }
-    const deliveredTaskIds = tasks.rows.filter(isTerminalTask).map((task) => task.id);
-    if (deliveredTaskIds.length > 0) {
+    if (deliveredTaskIds.size > 0) {
       await tx.query(
         `UPDATE ${MASTRA_BACKGROUND_TASKS_TABLE}
          SET delivered_at = COALESCE(delivered_at, NOW())
          WHERE id = ANY($1::text[])`,
-        [deliveredTaskIds]
+        [[...deliveredTaskIds]]
       );
     }
   }

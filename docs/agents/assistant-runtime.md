@@ -103,9 +103,9 @@ the Mastra error-processor layer.
   classification as root results; native `isError` alone cannot classify a
   guarded failure.
 - Keep a redacted `tool_failed` message for a generic exception (it may carry host
-  paths or secrets). A trusted `ToolInputError` keeps its bounded,
-  model-correctable message as `tool_input_invalid`; only application-owned
-  validation code constructs that error.
+  paths or secrets). Only application-owned validation constructs `ToolInputError`:
+  preserve its bounded remedy as `tool_input_invalid`, including rejected file-read
+  ranges/handles. Evidence and guard: `assistant-runtime/cursor-input-errors.md`.
 - **The budget is PER CALL, not one flat ceiling.** A native tool declares
   `executionBudget: { defaultMs, maxMs }` on its `defineNativeTool()` definition
   (validated at definition time).
@@ -809,8 +809,8 @@ The library's legacy `components.ChainOfThought` path is gone and must not retur
   context-breakdown and child-run-usage are transparent; tool-approval /
   tool-suspend cards, `text` and unknown data parts are standalone, because a
   pause is a real boundary.
-- A valid approval card replaces duplicate pause chrome by explicit `timelineRunId` +
-  surface call; root decision routing stays separate. Preserve child navigation and history.
+- A valid approval card replaces duplicate pause chrome by exact `timelineRunId` + surface
+  call on a recorded start/pause; keep root decision routing separate and child navigation/history.
 - MCP-app tool calls stay inside the group: Brainstrike detects apps by RESULT
   shape only, and a call must not change groups when its result lands.
 - A `group-activity` node holding only transparent data parts renders its children
@@ -908,7 +908,7 @@ The library's legacy `components.ChainOfThought` path is gone and must not retur
 Evidence: `assistant-runtime/activity-grouping.md`,
 `assistant-runtime/activity-trace-header.md`.
 Guard: `packages/assistant-ui/src/__tests__/assistant-activity-grouping.test.ts`,
-`packages/assistant-ui/src/__tests__/activity-verbs.test.ts`.
+`packages/assistant-ui/src/__tests__/activity-verbs.test.ts`, `packages/assistant-ui/src/__tests__/canvas-approval-history.browser.test.tsx`.
 
 L1 step rows and L2 bodies (`activity-step-row.tsx` / `activity-trace-model.ts`):
 

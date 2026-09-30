@@ -45,7 +45,7 @@ const COLUMNS: TreeTableColumn<MiniTreeEntry>[] = [
           <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
             <Icon
               aria-hidden="true"
-              className={`h-3.5 w-3.5 flex-shrink-0 ${entry.kind === 'error' ? 'text-amber-500' : ''}`}
+              className={`h-3.5 w-3.5 flex-shrink-0 ${entry.kind === 'error' ? 'text-warning' : ''}`}
             />
             <span className="truncate italic">{entry.message}</span>
           </span>

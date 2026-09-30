@@ -32,7 +32,7 @@ export function RediscoveredPauseLines({ display }: { display: RediscoveredPause
     }[display.decisionState];
     return (
       <p
-        className="mt-1 text-amber-700 text-xs dark:text-amber-400"
+        className="mt-1 text-warning text-xs"
         data-testid="delegated-decision-recovery-status"
         role="status"
       >
@@ -52,7 +52,7 @@ export function RediscoveredPauseLines({ display }: { display: RediscoveredPause
         </p>
       ) : null}
       {display.stale ? (
-        <p className="mt-0.5 text-amber-700 text-xs dark:text-amber-400">
+        <p className="mt-0.5 text-warning text-xs">
           This request has been pending a while — re-running it may be safer.
         </p>
       ) : null}

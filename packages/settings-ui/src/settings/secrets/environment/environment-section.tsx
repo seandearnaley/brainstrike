@@ -253,7 +253,7 @@ export function EnvironmentSection({
 
       {retiredNames.map((name) => (
         <p
-          className="text-amber-700 text-xs dark:text-amber-500"
+          className="text-warning text-xs"
           data-testid={`env-bootstrap-deprecated-${name}`}
           key={name}
         >
