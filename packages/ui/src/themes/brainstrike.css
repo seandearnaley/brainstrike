@@ -39,7 +39,7 @@
   --bs-accent-foreground: hsl(25 20% 14%); /* #2D2520 - Warm text */
 
   /* Destructive - Warm terracotta red, desaturated to match palette */
-  --bs-destructive: hsl(8 55% 50%); /* #C25A4A - Muted terracotta */
+  --bs-destructive: hsl(8 55% 39%); /* Deep terracotta; AA on neutral surfaces and 10% error tints */
   --bs-destructive-foreground: hsl(0 0% 100%); /* #FFFFFF - White on red */
 
   /* Borders & Inputs - Subtle warm borders */
@@ -68,11 +68,11 @@
   --bs-sidebar-ring: hsl(25 12% 38%); /* Warm graphite focus ring */
 
   /* Semantic Status Colors */
-  --bs-success: hsl(152 55% 41%); /* #2F9E6E - Green */
+  --bs-success: hsl(152 55% 26%); /* Deep green; AA on neutral surfaces and 10% status tints */
   --bs-success-foreground: hsl(0 0% 100%); /* White */
-  --bs-warning: hsl(30 90% 34%); /* Deep amber; 4.66:1 against the light muted surface */
+  --bs-warning: hsl(30 90% 29%); /* Deep amber; AA even on accent with a 10% warning tint */
   --bs-warning-foreground: hsl(0 0% 100%); /* White text on deep amber */
-  --bs-info: hsl(215 50% 50%); /* #4080B3 - Muted blue */
+  --bs-info: hsl(215 50% 38%); /* Deep slate blue; AA on neutral surfaces and 10% status tints */
   --bs-info-foreground: hsl(0 0% 100%); /* White */
 
   /* Radius - Slightly larger for modern feel */
@@ -133,8 +133,8 @@
   --bs-accent-foreground: hsl(30 10% 93%); /* #F0EEEB - Light text */
 
   /* Destructive - Lighter terracotta for dark mode */
-  --bs-destructive: hsl(8 50% 60%); /* #CC7A6B - Light terracotta */
-  --bs-destructive-foreground: hsl(0 0% 100%); /* #FFFFFF - White text */
+  --bs-destructive: hsl(8 50% 75%); /* Light terracotta; AA through the accent surface */
+  --bs-destructive-foreground: hsl(30 8% 9%); /* Dark text on the light destructive fill */
 
   /* Borders & Inputs - Warm subtle borders */
   --bs-border: hsl(30 5% 20%); /* #353230 - Warm dark border */
@@ -162,12 +162,12 @@
   --bs-sidebar-ring: hsl(30 8% 70%); /* Warm neutral focus ring */
 
   /* Semantic Status Colors - Adjusted for dark mode */
-  --bs-success: hsl(152 50% 50%); /* Brighter green */
+  --bs-success: hsl(152 50% 62%); /* Light green; AA through the accent surface */
   --bs-success-foreground: hsl(30 8% 9%); /* Dark text */
-  --bs-warning: hsl(38 88% 55%); /* Brighter amber */
+  --bs-warning: hsl(38 88% 60%); /* Light amber; AA through the accent surface */
   --bs-warning-foreground: hsl(30 8% 9%); /* Dark text */
-  --bs-info: hsl(215 45% 60%); /* Muted blue for dark mode */
-  --bs-info-foreground: hsl(0 0% 100%); /* White text */
+  --bs-info: hsl(215 45% 74%); /* Light slate blue; AA through the accent surface */
+  --bs-info-foreground: hsl(30 8% 9%); /* Dark text on the light info fill */
 
   --bs-radius: 0.5rem;
 

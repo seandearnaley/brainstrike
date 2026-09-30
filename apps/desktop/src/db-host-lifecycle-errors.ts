@@ -1,3 +1,7 @@
+import type { DatabaseInitAttemptRecord } from '@brainstrike/types';
+import { formatBudget } from './db-host-timeout-error';
+import { describeInitAttemptPhase } from './db-init-attempt-record';
+
 export type DbHostCloseOutcome =
   /** The host reported that closing the database failed; it was then SIGKILLed. */
   | 'close-failed'
@@ -41,5 +45,24 @@ export class DbHostUnavailableError extends Error {
     return new DbHostUnavailableError(
       `DB host is unavailable: it closed ${signal === null ? 'itself after a signal' : `after receiving ${signal}`}; restart BrainStrike.`
     );
+  }
+}
+
+/**
+ * Init timed out twice in one phase, so main forked no third host (`db-init-attempt-record.ts`).
+ * The message is what the person reads: nothing was deleted or replaced, and only a user action
+ * (`retryInit`, or a reset) starts another attempt.
+ */
+export class DbHostInitStoppedError extends Error {
+  readonly record: DatabaseInitAttemptRecord;
+
+  constructor(record: DatabaseInitAttemptRecord) {
+    const times =
+      record.consecutiveTimeouts === 2 ? 'twice' : `${record.consecutiveTimeouts} times in a row`;
+    super(
+      `BrainStrike stopped retrying the database start: ${describeInitAttemptPhase(record)} timed out ${times} (last budget ${formatBudget(record.budgetMs)}). Nothing was deleted or replaced.`
+    );
+    this.name = 'DbHostInitStoppedError';
+    this.record = record;
   }
 }

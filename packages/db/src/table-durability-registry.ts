@@ -39,7 +39,15 @@
  * chunk-initialization hazard `reset-table-registry.ts` documents (BST-558).
  */
 
-export type TableDurabilityClass = 'precious' | 'derived' | 'operational' | 'schema-ledger';
+/** Every class, so a runtime schema (the snapshot manifest) derives from the same list as the type. */
+export const TABLE_DURABILITY_CLASSES = [
+  'precious',
+  'derived',
+  'operational',
+  'schema-ledger',
+] as const;
+
+export type TableDurabilityClass = (typeof TABLE_DURABILITY_CLASSES)[number];
 
 type NonDerivedClass = Exclude<TableDurabilityClass, 'derived'>;
 
@@ -395,6 +403,16 @@ export function buildTableDurabilityIndex(
 }
 
 const DURABILITY_BY_TABLE = buildTableDurabilityIndex(TABLE_DURABILITY_REGISTRY);
+
+/**
+ * The durability class of `table`, or `undefined` when it is unregistered. For a
+ * caller that must REPORT an unknown table (snapshot verification lists it as
+ * `unclassified`) rather than stop; a caller that would act on the class uses
+ * {@link getTableDurability}.
+ */
+export function findTableDurability(table: string): TableDurabilityClass | undefined {
+  return DURABILITY_BY_TABLE.get(table);
+}
 
 /**
  * The durability class of `table`. Throws for an unregistered table — a guess

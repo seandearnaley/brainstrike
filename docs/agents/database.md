@@ -262,19 +262,19 @@ pre-date BST-1643 (Drizzle-only `embedding_cache` and `token_cache`, numbered-on
 `file_records.embedding`); the parity test freezes them in a shrink-only allowlist, so
 they may be removed but never added to.
 
-Evidence: `database/model-catalog-layers.md`.
-Guard: `scripts/__tests__/model-catalog-migration-contract.test.mjs`,
+Evidence: `database/model-catalog-layers.md`, `database/july-catalog-rollback-review.md`.
+Guard: `packages/db/__tests__/migration-071-rollback.integration.test.ts`, `scripts/__tests__/model-catalog-migration-contract.test.mjs`,
 `scripts/__tests__/gen-model-catalog-migration.test.mjs`,
 `scripts/__tests__/db-test-discovery-contract.test.mjs`,
 `packages/db/__tests__/drizzle-ledger-keys.test.ts`,
 `drizzle-migration-manifest.test.ts`, `migration-manifest-order.test.ts`,
-`drizzle-migration-parity.integration.test.ts`, `provider-registry-vision.test.ts`.
+`drizzle-migration-parity.integration.test.ts`, `provider-registry-vision.test.ts`, `packages/db/__tests__/migration-072-rollback.integration.test.ts`. Evidence: `database/ling-catalog-rollback-review.md`.
 
 ### SAFE CATALOG ROLLBACK WITH LIVE USER DATA
 
 BrainStrike has no shipped production `down` path. The app applies only forward migrations through Drizzle's append-only `__drizzle_migrations` ledger; `MigrationRunner.down()` and its `_migrations` ledger are test-only. Never execute raw `down` SQL or edit the production ledger in an active local profile: the next startup can reapply the migration or continue from a schema the ledger falsely reports as current. A reviewed forward migration is the only sanctioned production recovery.
 
-Use this fail-closed procedure:
+Use this fail-closed procedure; rollback scope is guarded by `packages/db/__tests__/migration-073-rollback.integration.test.ts` and `packages/db/__tests__/migration-076-rollback.integration.test.ts`. Evidence: `database/diagnostic-rollback-review.md`, `database/forensics-rollback-review.md`.
 
 1. Prefer a forward catalog migration that restores compatibility without deleting durable IDs. Treat any manual rollback as an exceptional developer/support investigation, not a supported app operation.
 2. Before an exceptional investigation, fully quit BrainStrike (all desktop processes or browser tabs/workers) to quiesce writes. On desktop, capture both `<database root>/profiles/<profile>/pgdata` (root and profile per § "DESKTOP DATABASE LOCATION"; the running app logs them once at startup) and the relevant Electron `userData` artifacts: Chromium renderer `localStorage` and `electron-storage.json`. On web, capture the origin's PGlite IndexedDB store and `localStorage`. Prove the complete clone can be restored into an isolated profile. BrainStrike does not ship a catalog-rollback backup command; if any required store or a verified restore is unavailable, stop.
@@ -462,6 +462,8 @@ Evidence: `database/managed-worktree-ledger.md`.
   runs, user toggles) is never truncated by automated repair and is in every portable
   export. `derived` may be truncated and rebuilt; `operational` may be truncated without
   a rebuild; `schema-ledger` is never truncated and always exported.
+- `findTableDurability` is the non-throwing lookup for reporting an unregistered table as `unclassified`;
+  never decide what to truncate from it.
 - `derived` requires `rebuildOwner` (`path/to/file.ts#symbol`), an existing automatic rebuild
   path the union type enforces and the guard resolves; none, not derived.
 - Before truncating ANY non-precious table, repair names to the user each scope it cannot
@@ -484,9 +486,9 @@ extension control file" error on that path only:
 - `pg_trgm` (from `@electric-sql/pglite/contrib/pg_trgm` — powers
   `brainstrike.grepSearch`'s trigram prefilter, migration 038)
 - `pg_textsearch` (BM25 index AM, from `@electric-sql/pglite-pg_textsearch`)
-- `live` (client-side reactive queries — loaded everywhere EXCEPT the two live-less
-  worker hosts: `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and
-  `browser-first-run-bootstrap-worker.ts`, whose short-lived bootstrap instances serve
+- `live` (client-side reactive queries — loaded everywhere EXCEPT the live-less hosts:
+  `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and the short-lived
+  `browser-first-run-bootstrap-worker.ts` and snapshot verifier instances, which serve
   no reactive queries)
 
 Rules:
@@ -515,7 +517,9 @@ Rules:
   (`CRASH_SENSITIVE_INDEX_ACCESS_METHODS`, `packages/db/src/crash-sensitive-indexes.ts`) on the
   first open after an unclean shutdown, before migrations, and records it as
   `crashRecoveryIndexRebuild` in the diagnostics; a failed rebuild fails the open as
-  `corruption` and never resets. A new index access method joins that list unless the SIGKILL
+  `corruption` and never resets. The rebuild reports each index's heap+toast bytes to the host manager
+  before its `REINDEX`, and `listCrashSensitiveIndexes` returns those sizes; the manager's per-phase
+  budget is derived from them. A new index access method joins that list unless the SIGKILL
   crash gate proves it recovers; a pg_textsearch >= 1.4.0 bump re-derives this rule.
   Web is out of scope: browser PGlite has no process-kill crash mode of this kind.
 - When the exact English `plain` arm returns zero rows, all three file-chunk
@@ -539,9 +543,13 @@ engine registry; `CLIENT_EXTENSIONS` contains `live`. The sanctioned constructio
 are `wasm-loader.ts` (cached dynamic loaders and HMR reset only for
 `createPGliteClient`; `createPGlite` caches the creation promise for persistent
 instances to prevent double-open), the two worker entries via `createEnginePglite`, the
-quantization benchmark, and `apps/desktop/src/db-main.ts`, which dynamically imports
+quantization benchmark, `apps/desktop/src/db-main.ts`, which dynamically imports
 `@brainstrike/db/pglite-factory` so bare package imports stay external in the
-main-process build. The contract guard has no runtime exceptions.
+main-process build, and the snapshot verifier's `pglite-verification-factory.ts`: the
+engine set plus `amcheck` and no `live`, in its own subpath so no browser bundle reaches
+amcheck. Only the desktop DB tool entry (`apps/desktop/src/db-tool-entry.ts`, forthcoming)
+may import it, and nothing else may import `amcheck`. The contract guard has no runtime
+exceptions.
 
 - Loading the extension binaries does not execute `CREATE EXTENSION`; callers and
   migrations own that SQL and shutdown/drain behaviour.
@@ -552,7 +560,8 @@ Settled: greenfield is the entire install population, so migration 066's guard p
 every install that will ever exist; extension qualification is macOS-arm64 only, with
 Linux/Windows owed. Evidence: `database/pg-textsearch-qualification.md`.
 Guard: `scripts/__tests__/pglite-factory-contract.test.mjs`,
-`packages/db/__tests__/pglite-factory.test.ts`, `crash-injection-gate.integration.test.ts`,
+`packages/db/__tests__/pglite-factory.test.ts`, `pglite-verification-factory.test.ts`,
+`crash-injection-gate.integration.test.ts`,
 `pglite-factory.integration.test.ts`, `fts-search-options-contract.test.ts`,
 `file-chunk-repository.test.ts`, `crash-sensitive-indexes.integration.test.ts`,
 `apps/desktop/src/__tests__/main/db-main.pglite-factory.test.ts`, `db-main.crash-recovery.test.ts`.

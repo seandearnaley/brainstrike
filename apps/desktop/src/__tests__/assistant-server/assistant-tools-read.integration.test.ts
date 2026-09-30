@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   getKnownFileMtime,
+  guardToolExecution,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   NATIVE_TOOL_INPUT_SCHEMAS,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
@@ -13,7 +14,11 @@ import {
   ToolProjectionInputRejectedError,
   withFileLock,
 } from '@brainstrike/agent';
-import { ToolInputError, type ToolOutputArtifactReference } from '@brainstrike/assistant-contract';
+import {
+  type GuardedToolError,
+  ToolInputError,
+  type ToolOutputArtifactReference,
+} from '@brainstrike/assistant-contract';
 import { encodeToolOutputArtifactCursor } from '@brainstrike/assistant-contract/tool-output-artifact';
 import type { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -354,6 +359,171 @@ describe('assistant-tools read tools', () => {
         startLine: null,
       });
       expect(continued.content).toBe('3: line 3');
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it.each([{ startLine: 3 }, { endLine: 3 }])(
+    'preserves cursor-only advice through the guard for a changed range (%j)',
+    async (changedRange) => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath), {
+        readWorkspaceFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+      });
+      const toolName = 'brainstrike.readWorkspaceFile';
+      const executeRead = requireToolExecute<ReadWorkspaceFileResult | GuardedToolError>(
+        {
+          [toolName]: guardToolExecution(requireTool(tools, toolName), {
+            timeoutMs: 1000,
+            toolName,
+          }),
+        },
+        toolName
+      );
+
+      try {
+        const first = await requireToolExecute<ReadWorkspaceFileResult>(
+          tools,
+          toolName
+        )({
+          endLine: 4,
+          maxChars: 10,
+          path: '/src/main.ts',
+          startLine: 2,
+        });
+        expect(first.nextCursor).toMatch(/^rfh_[A-Za-z0-9_-]{22}$/);
+        await expect(
+          executeRead({ cursor: first.nextCursor, maxChars: 10, ...changedRange })
+        ).resolves.toEqual({
+          error: {
+            code: 'tool_input_invalid',
+            message:
+              'A readWorkspaceFile continuation may only replay the original startLine/endLine unchanged. Retry with only cursor set to nextCursor and optional maxChars; omit path/root/startLine/endLine.',
+            toolName,
+          },
+          ok: false,
+        });
+        await expect(
+          executeRead({ cursor: first.nextCursor, maxChars: 10 })
+        ).resolves.toMatchObject({
+          content: '3: line 3',
+          endLine: 3,
+          startLine: 3,
+          truncated: true,
+        });
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }
+  );
+
+  it.each(['thread', 'resource', 'stale', 'expired', 'released'] as const)(
+    'keeps a guarded continuation fail-closed for %s rejection',
+    async (rejection) => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      let now = 0;
+      const registry = new ReadWorkspaceFileCursorRegistry({ now: () => now, ttlMs: 1000 });
+      const runtime = workspaceRuntime(workspaceRootPath);
+      const toolName = 'brainstrike.readWorkspaceFile';
+      const tools = buildDesktopAssistantTools(runtime, {
+        readWorkspaceFileCursorRegistry: registry,
+      });
+      try {
+        const first = await requireToolExecute<ReadWorkspaceFileResult>(
+          tools,
+          toolName
+        )({
+          maxChars: 10,
+          path: '/src/main.ts',
+        });
+        if (rejection === 'stale') {
+          await fsPromises.writeFile(path.join(workspaceRootPath, 'src/main.ts'), 'changed source');
+          resetFileReadState();
+        }
+        if (rejection === 'expired') {
+          now = 1000;
+        }
+        if (rejection === 'released') {
+          await requireToolExecute<ReadWorkspaceFileResult>(
+            tools,
+            toolName
+          )({
+            cursor: first.nextCursor,
+            maxChars: 10,
+          });
+        }
+        const rejectedTools = buildDesktopAssistantTools(
+          {
+            ...runtime,
+            memory: {
+              resourceId: rejection === 'resource' ? 'other-resource' : 'assistant-tools-workspace',
+              threadId: rejection === 'thread' ? 'other-thread' : 'assistant-tools-thread',
+            },
+          } as RuntimeData,
+          { readWorkspaceFileCursorRegistry: registry }
+        );
+        const executeRead = requireToolExecute<GuardedToolError>(
+          {
+            [toolName]: guardToolExecution(requireTool(rejectedTools, toolName), {
+              timeoutMs: 1000,
+              toolName,
+            }),
+          },
+          toolName
+        );
+        const result = await executeRead({ cursor: first.nextCursor, maxChars: 10 });
+        expect(result).toMatchObject({
+          error: { code: 'tool_input_invalid', toolName },
+          ok: false,
+        });
+        expect(result.error.message).toContain('Start a new read without cursor.');
+        expect(JSON.stringify(result)).not.toContain(workspaceRootPath);
+        expect(result).not.toHaveProperty('content');
+        if (rejection === 'stale') {
+          expect(
+            getKnownFileMtime('assistant-tools-thread', path.join(workspaceRootPath, 'src/main.ts'))
+          ).toBeUndefined();
+        }
+        if (rejection === 'thread' || rejection === 'resource') {
+          await expect(
+            requireToolExecute<ReadWorkspaceFileResult>(
+              tools,
+              toolName
+            )({
+              cursor: first.nextCursor,
+              maxChars: 10,
+            })
+          ).resolves.toMatchObject({ content: '2: line 2' });
+        }
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }
+  );
+
+  it('keeps filesystem read faults redacted through the execution guard', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const toolName = 'brainstrike.readWorkspaceFile';
+    const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+    const executeRead = requireToolExecute<GuardedToolError>(
+      {
+        [toolName]: guardToolExecution(requireTool(tools, toolName), { timeoutMs: 1000, toolName }),
+      },
+      toolName
+    );
+    try {
+      const result = await executeRead({ path: '/src/private-missing.ts' });
+      expect(result).toEqual({
+        error: {
+          code: 'tool_failed',
+          message: 'The tool did not complete successfully. Try another approach.',
+          toolName,
+        },
+        ok: false,
+      });
+      expect(JSON.stringify(result)).not.toContain(workspaceRootPath);
+      expect(JSON.stringify(result)).not.toContain('private-missing');
     } finally {
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }

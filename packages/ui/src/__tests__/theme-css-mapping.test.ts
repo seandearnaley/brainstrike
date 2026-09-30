@@ -46,6 +46,10 @@ describe('theme.css mapping', () => {
       'accent-foreground',
       'destructive',
       'destructive-foreground',
+      'success',
+      'success-foreground',
+      'info',
+      'info-foreground',
       'warning',
       'warning-foreground',
       'border',
@@ -68,7 +72,7 @@ describe('theme.css mapping', () => {
       'sidebar-ring',
       'radius',
     ];
-    expect(expected).toHaveLength(37);
+    expect(expected).toHaveLength(41);
     expect([...bridgeTokens()].sort()).toEqual([...expected].sort());
   });
 

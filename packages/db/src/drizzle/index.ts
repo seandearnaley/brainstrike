@@ -24,4 +24,4 @@ export {
   hasPGliteRaw,
 } from './database.js';
 // Migration utilities
-export { runMigrations } from './migrate.js';
+export { computeLedgerHead, getBundledLedgerHead, runMigrations } from './migrate.js';
