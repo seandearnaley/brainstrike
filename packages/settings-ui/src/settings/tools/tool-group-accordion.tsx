@@ -80,21 +80,16 @@ function getStatusIndicatorClasses(
       // a server that connected and failed to enumerate showed the same green
       // dot as a healthy one, which is why the row could not be trusted.
       //
-      // The degraded state uses the SEMANTIC warning token, deliberately NOT
-      // the `fill-yellow-500` below: that yellow already means
-      // connecting/authorizing, and a user who cannot tell "still working,
-      // wait" from "settled, and it will never contribute tools" has lost the
-      // only actionable distinction this indicator exists to draw (PR #2945
-      // review). `warning` is also the accessible choice — raw `yellow-500`
-      // measures 1.87:1 against the settings surface, under the 3:1 non-text
-      // floor (BST-1619).
+      // A settled enumeration failure is warning; a connection still in
+      // progress is info. Keep these distinct, with the accessible status
+      // label carrying the meaning independently of the color.
       return toolsAvailability === 'tools-unavailable'
         ? 'fill-warning text-warning'
-        : 'fill-green-500 text-green-500';
+        : 'fill-success text-success';
     case 'connecting':
     case 'authorizing':
     case 'authentication-required':
-      return 'fill-yellow-500 text-yellow-500';
+      return 'fill-info text-info';
     case 'disconnected':
     case 'closing':
       return 'fill-muted-foreground text-muted-foreground';

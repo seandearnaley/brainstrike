@@ -312,7 +312,7 @@ export function ToolPlayground({
           <div className="mb-1 flex items-center justify-between">
             <span
               className={`font-medium text-xs ${
-                result.success ? 'text-green-600' : 'text-destructive'
+                result.success ? 'text-success' : 'text-destructive'
               }`}
             >
               {result.success ? 'Success' : 'Error'}

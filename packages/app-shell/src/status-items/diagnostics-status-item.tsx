@@ -27,7 +27,7 @@ import { useUnseenDiagnosticsCount } from '../diagnostics/use-unseen-diagnostics
  * frozen and stale — reporting it as live would be its own small lie.
  */
 
-const AMBER_TONE_CLASSNAME = 'text-amber-800 dark:text-amber-300';
+const AMBER_TONE_CLASSNAME = 'text-warning';
 
 function formatCountLabel(count: number, singular: 'error' | 'warning'): string {
   return `${count.toLocaleString()} ${count === 1 ? singular : `${singular}s`}`;

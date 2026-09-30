@@ -20,7 +20,7 @@ export function TabStatusIcon({ status }: { readonly status: TabStatus }): React
       return (
         <CircleDot
           aria-hidden="true"
-          className={cn(TAB_ICON_CLASS_NAME, 'text-amber-500')}
+          className={cn(TAB_ICON_CLASS_NAME, 'text-warning')}
           data-tab-status={status}
         />
       );
@@ -28,7 +28,7 @@ export function TabStatusIcon({ status }: { readonly status: TabStatus }): React
       return (
         <LockKeyhole
           aria-hidden="true"
-          className={cn(TAB_ICON_CLASS_NAME, 'text-amber-500')}
+          className={cn(TAB_ICON_CLASS_NAME, 'text-warning')}
           data-tab-status={status}
         />
       );

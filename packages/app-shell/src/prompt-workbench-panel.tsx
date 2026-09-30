@@ -244,11 +244,9 @@ function PromptKindMark({ kind }: { readonly kind: PromptItemKind }) {
     <span
       className={cn(
         'inline-flex size-7 shrink-0 items-center justify-center rounded-lg border',
-        kind === 'prompt' && 'border-sky-500/25 bg-sky-500/10 text-sky-600 dark:text-sky-300',
-        kind === 'snippet' &&
-          'border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-        kind === 'fragment' &&
-          'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+        kind === 'prompt' && 'border-sky-500/25 bg-sky-500/10 text-info',
+        kind === 'snippet' && 'border-amber-500/25 bg-amber-500/10 text-warning',
+        kind === 'fragment' && 'border-emerald-500/25 bg-emerald-500/10 text-success'
       )}
     >
       <Icon aria-hidden="true" className="size-3.5" />
@@ -259,7 +257,7 @@ function PromptKindMark({ kind }: { readonly kind: PromptItemKind }) {
 function EmbeddingState({ item }: { readonly item: PromptItem }) {
   if (item.embeddingStatus === 'ready') {
     return (
-      <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 dark:text-emerald-300">
+      <span className="inline-flex items-center gap-1 text-[10px] text-success">
         <Check aria-hidden="true" className="size-2.5" /> Indexed
       </span>
     );
@@ -417,7 +415,7 @@ function ContextualRecall({
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate font-medium text-[11px]">{suggestion.title}</span>
-                  <span className="shrink-0 font-mono text-[9px] text-sky-600 dark:text-sky-300">
+                  <span className="shrink-0 font-mono text-[9px] text-info">
                     {Math.round(suggestion.similarity * 100)}% match
                   </span>
                 </div>
@@ -466,7 +464,7 @@ function QuickCapture({
     <div className="border-border/80 border-b px-3 pt-3 pb-2.5">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-sky-600 dark:text-sky-300">
+          <div className="flex items-center gap-1.5 text-info">
             <Sparkles aria-hidden="true" className="size-3.5" />
             <span className="font-semibold text-[10px] uppercase tracking-[0.17em]">
               Prompt workbench
@@ -575,7 +573,7 @@ function PromptLibraryControls({
         <Button
           aria-label="Favorites only"
           aria-pressed={favoriteOnly}
-          className={cn('rounded-full', favoriteOnly && 'text-amber-500')}
+          className={cn('rounded-full', favoriteOnly && 'text-warning')}
           onClick={() => onFavoriteOnlyChange(!favoriteOnly)}
           size="icon-sm"
           variant="ghost"
@@ -651,10 +649,7 @@ function PromptLibraryList({
                     <div className="flex items-center gap-1.5">
                       <h3 className="truncate font-medium text-[12px]">{item.title}</h3>
                       {item.isFavorite ? (
-                        <Star
-                          aria-label="Favorite"
-                          className="size-3 fill-amber-400 text-amber-500"
-                        />
+                        <Star aria-label="Favorite" className="size-3 fill-warning text-warning" />
                       ) : null}
                     </div>
                     <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground leading-4">

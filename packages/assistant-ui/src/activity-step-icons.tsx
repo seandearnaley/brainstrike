@@ -31,9 +31,7 @@ function renderStateIcon(state: StepGlyphState): ReactNode {
     case 'running':
       return <BrainstrikeThinkingMark className="size-4" testId="step-running-mark" />;
     case 'done':
-      return (
-        <CheckCircle aria-hidden="true" className="size-4 text-green-600 dark:text-green-500" />
-      );
+      return <CheckCircle aria-hidden="true" className="size-4 text-success" />;
     case 'failed':
       return <AlertCircle aria-hidden="true" className="size-4 text-destructive" />;
     case 'cancelled':
@@ -43,15 +41,11 @@ function renderStateIcon(state: StepGlyphState): ReactNode {
     case 'truncated':
       // Amber check: the delegation completed and its findings are real, but
       // the summary was cut at the synthesis budget — expect gaps.
-      return (
-        <CheckCircle aria-hidden="true" className="size-4 text-amber-600 dark:text-amber-500" />
-      );
+      return <CheckCircle aria-hidden="true" className="size-4 text-warning" />;
     case 'no-answer':
     case 'rejected':
       // Amber like no-answer: nothing broke, the delegation never ran.
-      return (
-        <AlertCircle aria-hidden="true" className="size-4 text-amber-600 dark:text-amber-500" />
-      );
+      return <AlertCircle aria-hidden="true" className="size-4 text-warning" />;
     default:
       // Compile-time exhaustiveness as its OWN statement, so the runtime
       // answer for an unmapped state is rendering nothing — returning the

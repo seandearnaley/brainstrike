@@ -10,23 +10,19 @@ interface NodeIconProps {
 export function NodeIcon({ node, isExpanded, isLoading }: NodeIconProps) {
   if (isLoading) {
     return (
-      <Loader2
-        aria-label={`Loading ${node.name}`}
-        className="animate-spin text-blue-500 dark:text-blue-400"
-        size={16}
-      />
+      <Loader2 aria-label={`Loading ${node.name}`} className="animate-spin text-info" size={16} />
     );
   }
 
   if (node.type === 'file') {
-    return <FileIcon className="text-gray-500 dark:text-gray-400" size={16} />;
+    return <FileIcon className="text-muted-foreground" size={16} />;
   }
 
   if (node.type === 'directory') {
     return isExpanded ? (
-      <FolderOpen className="text-blue-500 dark:text-blue-400" size={16} />
+      <FolderOpen className="text-info" size={16} />
     ) : (
-      <Folder className="text-blue-500 dark:text-blue-400" size={16} />
+      <Folder className="text-info" size={16} />
     );
   }
 

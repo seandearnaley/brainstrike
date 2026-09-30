@@ -112,7 +112,7 @@ export function ToolRow({ tool, expanded = false, onToggle, onExpand }: ToolRowP
               onClick={(e) => e.stopPropagation()}
               type="button"
             >
-              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              <AlertTriangle className="h-4 w-4 text-warning" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="top">Requires user approval before execution</TooltipContent>

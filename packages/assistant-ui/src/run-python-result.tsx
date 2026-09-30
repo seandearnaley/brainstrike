@@ -147,10 +147,7 @@ function RunPythonStreamPane({
         </section>
       ) : null}
       {omittedBytes > 0 ? (
-        <p
-          className="mt-1 text-amber-700 text-xs dark:text-amber-400"
-          data-testid={`${testId}-omitted`}
-        >
+        <p className="mt-1 text-warning text-xs" data-testid={`${testId}-omitted`}>
           {/* The seam reports a count, not a position — never claim WHERE the
               drop happened. */}
           Output was too long — {formatOmittedBytes(omittedBytes)} wasn't captured.
@@ -167,7 +164,7 @@ interface RunPythonHeaderSpec {
 }
 
 function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
-  const amber = 'size-4 text-amber-700 dark:text-amber-400';
+  const amber = 'size-4 text-warning';
   switch (result.kind) {
     case 'completed': {
       if (result.exitCode !== 0) {
@@ -183,7 +180,7 @@ function resolveHeader(result: RunPythonDisplayResult): RunPythonHeaderSpec {
         result.stdoutOmittedBytes === 0 &&
         result.stderrOmittedBytes === 0;
       return {
-        icon: <CheckCircle className="size-4 text-green-600 dark:text-green-500" />,
+        icon: <CheckCircle className="size-4 text-success" />,
         state: 'completed',
         text: silent ? "Finished — the script didn't print anything." : 'Finished',
       };
@@ -378,10 +375,7 @@ export function RunPythonResultSurface({
         </>
       )}
       {cleanupDir ? (
-        <p
-          className="px-2 pb-1.5 text-amber-700 text-xs dark:text-amber-400"
-          data-testid="run-python-cleanup-failed"
-        >
+        <p className="px-2 pb-1.5 text-warning text-xs" data-testid="run-python-cleanup-failed">
           The run's temporary folder couldn't be deleted:{' '}
           <span className="font-mono [overflow-wrap:anywhere]">{cleanupDir}</span>
         </p>

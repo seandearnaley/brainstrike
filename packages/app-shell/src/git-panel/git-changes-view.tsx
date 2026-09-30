@@ -104,13 +104,14 @@ import {
   Filter,
   Upload,
 } from 'lucide-react';
-import { type ReactElement, useCallback, useDeferredValue, useMemo, useState } from 'react';
+import { type ReactElement, useCallback, useDeferredValue, useId, useMemo, useState } from 'react';
 import {
   selectGitScopeRefreshNonce,
   useChangesLiveRefreshStore,
 } from '../changes/changes-live-refresh-store';
 import { ChangesetFileDiffCard } from '../changes/ui/changeset-file-diff-card';
 import { useChangeset } from '../changes/use-changeset';
+import { gitStatusPresentation } from '../git-status-presentation';
 import type { GitRepository, GitStatus, GitStatusFile } from './git-bridge';
 import type { UseGitPanelResult } from './use-git-panel';
 
@@ -285,10 +286,14 @@ function ChangeFileRow({
   readonly selected: boolean;
   readonly staged: boolean;
 }): ReactElement {
+  const presentation = gitStatusPresentation(file.status);
+  const statusDescriptionId = useId();
   return (
     <li className="group flex min-h-9 items-center border-border/70 border-b last:border-b-0">
       <button
         aria-current={selected ? 'true' : undefined}
+        aria-describedby={statusDescriptionId}
+        aria-label={file.path}
         className={`flex min-w-0 flex-1 items-center gap-2 self-stretch px-3 text-left text-xs transition-colors hover:bg-accent/45 ${
           selected ? 'bg-primary/12 text-foreground' : 'text-foreground/90'
         }`}
@@ -297,15 +302,12 @@ function ChangeFileRow({
       >
         <span
           aria-hidden="true"
-          className={`w-4 shrink-0 text-center font-mono font-semibold text-[10px] ${
-            file.status === '?' || file.status === 'A'
-              ? 'text-emerald-500'
-              : file.status === 'D'
-                ? 'text-red-500'
-                : 'text-amber-500'
-          }`}
+          className={`w-4 shrink-0 text-center font-mono font-semibold text-[10px] ${presentation.className}`}
         >
-          {file.status}
+          {presentation.glyph}
+        </span>
+        <span className="sr-only" id={statusDescriptionId}>
+          {presentation.label}
         </span>
         <span className="truncate" title={file.path}>
           {file.path}

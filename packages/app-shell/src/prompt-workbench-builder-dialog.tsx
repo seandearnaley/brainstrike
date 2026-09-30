@@ -119,7 +119,7 @@ export function PromptBuilderDialog({
     <Dialog onOpenChange={(open) => !open && onClose()} open>
       <DialogContent className="max-h-[min(90vh,780px)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <div className="mb-1 flex items-center gap-2 text-sky-600 dark:text-sky-300">
+          <div className="mb-1 flex items-center gap-2 text-info">
             <WandSparkles aria-hidden="true" className="size-4" />
             <span className="font-medium text-[11px] uppercase tracking-[0.16em]">
               Prompt builder
