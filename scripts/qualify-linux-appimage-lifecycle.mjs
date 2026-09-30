@@ -111,15 +111,32 @@ async function bounded(operation, milliseconds, signal) {
   }
 }
 
-async function stopProcess(child, report) {
+export async function stopAppImageProcess(
+  child,
+  report,
+  { mainProcessId, requireGraceful = true } = {}
+) {
   if (!child.pid) {
     return; // An unsuccessful spawn has no process tree to reap.
   }
   let graceful = child.exitCode === 0;
   if (child.exitCode === null && child.signalCode === null) {
     const exited = once(child, 'exit');
-    signalProcessGroup(child.pid, 'SIGTERM');
     try {
+      if (mainProcessId === undefined) {
+        signalProcessGroup(child.pid, 'SIGTERM');
+      } else {
+        const stat = await readFile(`/proc/${mainProcessId}/stat`, 'utf8');
+        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+        assert.equal(
+          Number(fields[2]),
+          child.pid,
+          'Electron main left the owned AppImage process group.'
+        );
+        // The extraction runtime waits for Electron. Killing its whole group
+        // first terminates that wrapper before it can return Electron's code.
+        process.kill(mainProcessId, 'SIGTERM');
+      }
       const [code] = await bounded(() => exited, 20_000);
       graceful = code === 0;
     } catch {
@@ -134,7 +151,10 @@ async function stopProcess(child, report) {
     report.profileCleanupAllowed = false;
     throw error;
   }
-  assert.ok(graceful, 'AppImage did not shut down gracefully; preservation is unqualified.');
+  report.lastProcessExit = { code: child.exitCode, signal: child.signalCode };
+  if (requireGraceful) {
+    assert.ok(graceful, 'AppImage did not shut down gracefully; preservation is unqualified.');
+  }
 }
 
 export async function inspectSandboxArguments(browser, child) {
@@ -157,7 +177,7 @@ export async function inspectSandboxArguments(browser, child) {
       ),
       'AppImage launcher disabled Chromium sandboxing.'
     );
-    return { sandboxBypassArguments: false };
+    return { mainProcessId: main.id, sandboxBypassArguments: false };
   } finally {
     await session.detach();
   }
@@ -278,16 +298,19 @@ async function launchSession({
     spawnFailure = error;
   });
   let browser;
-  const close = async () => {
+  let mainProcessId;
+  const close = async (requireGraceful = true) => {
     const exitedBeforeClose = child.exitCode !== null || child.signalCode !== null;
     try {
       if (browser) {
         await bounded(() => browser.close(), 5000);
       }
     } finally {
-      await stopProcess(child, report);
+      await stopAppImageProcess(child, report, { mainProcessId, requireGraceful });
     }
-    assert.ok(!exitedBeforeClose, 'AppImage exited before intentional close.');
+    if (requireGraceful) {
+      assert.ok(!exitedBeforeClose, 'AppImage exited before intentional close.');
+    }
   };
   try {
     const endpoint = await waitForDebugEndpoint(child, port, {
@@ -295,7 +318,11 @@ async function launchSession({
       spawnError: () => spawnFailure,
     });
     browser = await chromium.connectOverCDP(endpoint, { timeout: 15_000 });
-    await bounded(() => inspectSandboxArguments(browser, child), 15_000, signal);
+    ({ mainProcessId } = await bounded(
+      () => inspectSandboxArguments(browser, child),
+      15_000,
+      signal
+    ));
     const context = browser.contexts()[0];
     assert.ok(context, 'AppImage browser context is missing.');
     let page;
@@ -326,7 +353,7 @@ async function launchSession({
     };
   } catch (error) {
     try {
-      await close();
+      await close(false);
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],
@@ -364,9 +391,8 @@ export function assertEncryptedCredential(source, marker) {
     'Encrypted credential was not persisted.'
   );
   const ciphertext = Buffer.from(encoded, 'base64');
-  assert.equal(
-    ciphertext.toString('base64'),
-    encoded,
+  assert.ok(
+    ciphertext.toString('base64') === encoded,
     'Encrypted credential is not canonical base64.'
   );
   assert.ok(

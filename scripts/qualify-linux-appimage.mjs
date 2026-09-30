@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { constants } from 'node:fs';
-import { access, mkdir, mkdtemp, open, readFile, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, open, readFile, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,7 +53,7 @@ export function parseAppImageQualificationArgs(args) {
   };
 }
 
-export function buildAppImageLaunch({ artifact, root, port, mode, inherited }) {
+export function buildAppImageLaunch({ artifact, root, port, mode, inherited, temporaryDirectory }) {
   const env = {};
   for (const key of INHERITED_KEYS) {
     if (inherited[key] !== undefined) {
@@ -68,7 +68,7 @@ export function buildAppImageLaunch({ artifact, root, port, mode, inherited }) {
     BRAINSTRIKE_DB_ROOT_PATH: path.join(root, 'database'),
     BRAINSTRIKE_E2E_USER_DATA_DIR: path.join(root, 'profile'),
     HOME: path.join(root, 'home'),
-    TMPDIR: path.join(root, 'tmp'),
+    TMPDIR: temporaryDirectory ?? path.join(root, 'tmp'),
     XDG_CACHE_HOME: path.join(root, 'cache'),
     XDG_CONFIG_HOME: path.join(root, 'config'),
     XDG_DATA_HOME: path.join(root, 'data'),
@@ -82,6 +82,20 @@ export function buildAppImageLaunch({ artifact, root, port, mode, inherited }) {
     command: artifact,
     env,
   };
+}
+
+async function createTempAlias(root) {
+  // Unix-domain sockets have a short path limit. Keep the pathname short while
+  // AppImage extraction/cache bytes stay on the chosen disk-backed filesystem.
+  const directory = await mkdtemp('/tmp/bs-ai-');
+  const temporaryDirectory = path.join(directory, 't');
+  try {
+    await symlink(path.join(root, 'tmp'), temporaryDirectory, 'dir');
+    return { directory, temporaryDirectory };
+  } catch (error) {
+    await rm(directory, { force: true, recursive: true });
+    throw error;
+  }
 }
 
 async function requireHost() {
@@ -104,6 +118,22 @@ async function requireFuse() {
       'Mounted AppImage qualification requires readable/writable /dev/fuse. No extraction fallback was used.'
     );
   });
+}
+
+export function describeQualificationFailure(error, depth = 0) {
+  const message = error instanceof Error ? error.message : 'AppImage qualification failed.';
+  const description = {
+    message: message
+      .replace(/synthetic-appimage-qa-[a-f0-9-]+/giu, '[synthetic credential]')
+      .slice(0, 1000),
+    name: error instanceof Error ? error.name : 'Error',
+  };
+  if (error instanceof AggregateError && depth < 2) {
+    description.causes = error.errors
+      .slice(0, 4)
+      .map((cause) => describeQualificationFailure(cause, depth + 1));
+  }
+  return description;
 }
 
 export async function main(args = process.argv.slice(2), dependencies = {}) {
@@ -131,6 +161,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
   process.once('SIGINT', interrupt);
   process.once('SIGTERM', interrupt);
   let root;
+  let temporaryAlias;
   let phase = 'host-prerequisites';
   try {
     await output.writeFile(`${JSON.stringify(report, null, 2)}\n`);
@@ -160,7 +191,10 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
     ]) {
       await mkdir(path.join(root, name), { mode: 0o700 });
     }
-    const { env } = buildAppImageLaunch({
+    temporaryAlias = await createTempAlias(root);
+    const buildLaunch = (launch) =>
+      buildAppImageLaunch({ ...launch, temporaryDirectory: temporaryAlias.temporaryDirectory });
+    const { env } = buildLaunch({
       artifact: options.candidate,
       inherited: process.env,
       mode: options.mode,
@@ -187,7 +221,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
     (dependencies.requireDisplay ?? requireDisplay)(env);
     phase = 'lifecycle';
     await (dependencies.qualifyLifecycle ?? qualifyAppImageLifecycle)({
-      buildLaunch: buildAppImageLaunch,
+      buildLaunch,
       options,
       report,
       root,
@@ -223,10 +257,7 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
     report.status = 'passed-bounded-lifecycle';
   } catch (error) {
     report.status = 'failed';
-    report.failure = {
-      message: error instanceof Error ? error.message : 'AppImage qualification failed.',
-      phase,
-    };
+    report.failure = { ...describeQualificationFailure(error), phase };
   } finally {
     process.removeListener('SIGINT', interrupt);
     process.removeListener('SIGTERM', interrupt);
@@ -234,13 +265,21 @@ export async function main(args = process.argv.slice(2), dependencies = {}) {
       report.status = 'failed';
       report.cleanupFailure = 'Process-tree cleanup unconfirmed; disposable profile retained.';
     }
-    try {
-      if (root && report.profileCleanupAllowed !== false) {
-        await (dependencies.removeProfile ?? rm)(root, { force: true, recursive: true });
+    if (report.profileCleanupAllowed === false) {
+      report.retainedProfile = root;
+      report.retainedTemporaryAlias = temporaryAlias?.directory;
+    } else {
+      for (const target of [root, temporaryAlias?.directory].filter(Boolean)) {
+        try {
+          await (target === root ? (dependencies.removeProfile ?? rm) : rm)(target, {
+            force: true,
+            recursive: true,
+          });
+        } catch {
+          report.status = 'failed';
+          report.cleanupFailure = 'Disposable profile cleanup failed.';
+        }
       }
-    } catch {
-      report.status = 'failed';
-      report.cleanupFailure = 'Disposable profile cleanup failed.';
     }
     report.finishedAt = new Date().toISOString();
     try {

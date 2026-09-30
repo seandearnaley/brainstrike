@@ -3,7 +3,7 @@
 This is a release qualification procedure, not a new distribution-support claim.
 `Native Electron Package` currently packages with `electron-builder --dir`; that
 unpacked executable is **not** an AppImage installation or upgrade test. The
-release pipeline tracked in BST-1898's linked release ticket remains the owner of
+release pipeline linked from BST-1898 remains the owner of
 building and publishing release artifacts. This procedure does not publish them.
 
 ## Scope and safety
@@ -85,7 +85,10 @@ metadata inspection itself does not launch the application.
 The harness reserves its owner-only report before expensive work, validates
 actual x64 type-2 AppImage headers, hashes both files, and refuses identical
 bytes or resolved paths. It creates a fresh disposable HOME/XDG/userData profile
-next to the report; all four runs reuse that one profile. Agent DevTools is
+next to the report; all four runs reuse that one profile. A private short `/tmp`
+symlink points to its disk-backed temp directory so Chromium singleton socket
+paths fit Linux limits without moving extracted AppImages into RAM-backed temp.
+Both the profile and the short alias are cleaned up only after the app stops. Agent DevTools is
 opted in on loopback only, without enabling E2E/test semantics. The sequence is:
 
 1. Launch previous, wait for the actual main navigation and production bridge,
@@ -99,7 +102,8 @@ opted in on loopback only, without enabling E2E/test semantics. The sequence is:
 
 Read the complete report. Exit 0 / `passed-bounded-lifecycle` covers only this
 sequence. A failed stage, missing keyring, early process exit, timeout, abort,
-failed cleanup, or report-write error is nonzero. No app logs or credential
+failed cleanup, or report-write error is nonzero. Primary and teardown failures
+stay separate in the report; messages redact the synthetic marker. No app logs or credential
 values are included in the report. The owned process group is stopped before
 removing its profile; when process-tree cleanup cannot be confirmed, the profile
 is retained for diagnosis rather than deleted beneath a live app. Interrupted

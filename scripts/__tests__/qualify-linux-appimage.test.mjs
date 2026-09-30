@@ -1,10 +1,20 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { chmod, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { shutdownChildProcessTree } from '../../apps/desktop/scripts/start-agent-devtools-session.mjs';
 import {
   buildAppImageLaunch,
   main,
@@ -22,6 +32,7 @@ import {
   inspectProfile,
   inspectSandboxArguments,
   runLifecycleStages,
+  stopAppImageProcess,
   waitForDebugEndpoint,
 } from '../qualify-linux-appimage-lifecycle.mjs';
 
@@ -354,6 +365,7 @@ test('unconfirmed process cleanup retains its profile rather than deleting live 
   });
   assert.equal(report.status, 'failed');
   assert.ok((await readdir(root)).some((name) => name.startsWith('appimage-qa-')));
+  t.after(() => rm(report.retainedTemporaryAlias, { force: true, recursive: true }));
 });
 
 test('bounded success leaves manual clean-desktop and database gates visibly open', async (t) => {
@@ -523,6 +535,7 @@ test('live sandbox check proves CDP process ownership and rejects injected bypas
         );
       } else {
         assert.deepEqual(await inspectSandboxArguments(browser, child), {
+          mainProcessId: child.pid,
           sandboxBypassArguments: false,
         });
       }
@@ -552,4 +565,70 @@ test('credential-at-rest check rejects raw and base64-encoded plaintext', () => 
   assert.doesNotThrow(() =>
     assertEncryptedCredential(wrap(Buffer.from([1, 2, 3, 255]).toString('base64')), marker)
   );
+});
+
+test('long report paths use short socket paths backed by the same isolated disk directory', async (t) => {
+  const base = await temporary(t);
+  const root = path.join(base, 'long-qualified-artifact-output-'.repeat(3));
+  let socketTemp;
+  const dependencies = successfulDependencies();
+  const report = await main(qualificationArgs(root), {
+    ...dependencies,
+    qualifyLifecycle: async (input) => {
+      socketTemp = input.buildLaunch({
+        artifact: '/tmp/test.AppImage',
+        inherited: {},
+        mode: 'extract',
+        port: 9222,
+        root: input.root,
+      }).env.TMPDIR;
+      assert.ok(
+        Buffer.byteLength(socketTemp) < 60,
+        'Chromium singleton sockets need a short TMPDIR'
+      );
+      assert.equal(await realpath(socketTemp), path.join(input.root, 'tmp'));
+      await dependencies.qualifyLifecycle(input);
+    },
+  });
+  assert.equal(report.status, 'passed-bounded-lifecycle');
+  await assert.rejects(realpath(socketTemp), /ENOENT/);
+});
+
+test('graceful shutdown signals Electron main without killing the AppImage wrapper', async (t) => {
+  const mainCode =
+    "process.on('SIGTERM', () => process.exit(0)); process.stdout.write('ready'); setInterval(() => {}, 1000);";
+  const wrapperCode = `const { spawn } = require('node:child_process');
+    process.on('SIGTERM', () => process.exit(23));
+    const main = spawn(process.execPath, ['-e', ${JSON.stringify(mainCode)}], {stdio:['ignore','pipe','ignore']});
+    main.stdout.once('data', () => process.stdout.write(String(main.pid)));
+    main.once('exit', code => process.exit(code ?? 24));`;
+  const wrapper = spawn(process.execPath, ['-e', wrapperCode], {
+    detached: true,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  t.after(() => shutdownChildProcessTree(wrapper, 'linux'));
+  const [data] = await once(wrapper.stdout, 'data');
+  const mainProcessId = Number(data.toString());
+  await stopAppImageProcess(wrapper, {}, { mainProcessId });
+  assert.equal(wrapper.exitCode, 0);
+});
+
+test('durable failure reports retain primary and teardown causes without synthetic credentials', async (t) => {
+  const root = await temporary(t);
+  const report = await main(qualificationArgs(root), {
+    ...successfulDependencies(),
+    qualifyLifecycle: async () => {
+      throw new AggregateError(
+        [new Error('lost synthetic-appimage-qa-aabbcc-1234'), new Error('teardown failed')],
+        'session failed'
+      );
+    },
+  });
+  assert.equal(report.status, 'failed');
+  const durable = JSON.parse(await readFile(path.join(root, 'report.json'), 'utf8'));
+  assert.deepEqual(
+    durable.failure.causes.map((cause) => cause.message),
+    ['lost [synthetic credential]', 'teardown failed']
+  );
+  assert.ok(!JSON.stringify(durable).includes('synthetic-appimage-qa-aabbcc-1234'));
 });
