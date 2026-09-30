@@ -37,9 +37,12 @@ test('every YAML copy clears the current advisory floors, with negative controls
 
 test('Vercel Python YAML parsing charges empty merge sources against the budget', () => {
   const { load, YAMLException } = pythonRequire('js-yaml');
+  const source = 'arr: &arr [{}, {}, {}]\ntarget: { <<: *arr }';
+  assert.deepEqual(load(source), { arr: [{}, {}, {}], target: {} });
   assert.throws(
-    () => load('arr: &arr [{}, {}, {}]\ntarget: { <<: *arr }', { maxTotalMergeKeys: 2 }),
-    YAMLException
+    () => load(source, { maxTotalMergeKeys: 2 }),
+    (error) =>
+      error instanceof YAMLException && /merge keys exceeded maxTotalMergeKeys/.test(error.reason)
   );
 });
 
