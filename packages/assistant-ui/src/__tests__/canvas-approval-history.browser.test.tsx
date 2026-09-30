@@ -65,6 +65,17 @@ const pausedContent = [
   { data: request, name: 'brainstrike.tool-approval' as const, type: 'data' },
 ] satisfies ThreadMessageLike['content'];
 
+function separateNoticeContent(): typeof pausedContent {
+  return pausedContent.filter(
+    (part) =>
+      !(
+        part.type === 'data' &&
+        (part.name === 'brainstrike.tool-approval' ||
+          (part.name === 'brainstrike.run-event' && part.data.kind === 'tool.approval.requested'))
+      )
+  );
+}
+
 test('decoded canvas pause and acknowledged resume leave static history', async () => {
   const pause = [
     'f:{"messageId":"canvas-paused"}',
@@ -141,6 +152,7 @@ test('settled reload content retains the captured reasoning and canvas without l
       {(children) => (
         <AnsweredApprovalsProvider>
           <AssistantDataRendererRegistration />
+          <RuntimeStatusProbe />
           {children}
         </AnsweredApprovalsProvider>
       )}
@@ -148,7 +160,26 @@ test('settled reload content retains the captured reasoning and canvas without l
   );
   await screen.findByText('Now write the report to the canvas.');
   expectStaticHistory(screen.getByTestId('timeline'));
-  expect(screen.getAllByTestId('local-chain-of-thought')).toHaveLength(4);
+  const retained: unknown = JSON.parse(screen.getByTestId('runtime-content').textContent ?? 'null');
+  expect(retained).toEqual(
+    expect.arrayContaining(
+      pausedContent
+        .filter((part) => part.type === 'reasoning' || part.type === 'tool-call')
+        .map((part) =>
+          expect.objectContaining(
+            part.type === 'reasoning'
+              ? { text: part.text, type: part.type }
+              : {
+                  args: part.args,
+                  toolCallId: part.toolCallId,
+                  toolName: part.toolName,
+                  type: part.type,
+                  ...(part.result === undefined ? {} : { result: part.result }),
+                }
+          )
+        )
+    )
+  );
   expect(screen.queryByTestId('assistant-tool-approval-notice')).toBeNull();
   expect(run).not.toHaveBeenCalled();
 });
@@ -161,7 +192,19 @@ function RuntimeStatusProbe() {
         .map((message) => message.status)
     )
   );
-  return <output data-testid="runtime-statuses">{statuses}</output>;
+  const content = useAuiState((state) =>
+    JSON.stringify(
+      state.thread.messages.flatMap((message) =>
+        message.role === 'assistant' ? message.content : []
+      )
+    )
+  );
+  return (
+    <>
+      <output data-testid="runtime-statuses">{statuses}</output>
+      <output data-testid="runtime-content">{content}</output>
+    </>
+  );
 }
 
 function expectStaticHistory(timeline: HTMLElement): void {
@@ -227,17 +270,7 @@ test.each(
         adapter={{ run }}
         initialMessages={[
           {
-            content: separateNotice
-              ? pausedContent.filter(
-                  (part) =>
-                    !(
-                      part.type === 'data' &&
-                      (part.name === 'brainstrike.tool-approval' ||
-                        (part.name === 'brainstrike.run-event' &&
-                          part.data.kind === 'tool.approval.requested'))
-                    )
-                )
-              : pausedContent,
+            content: separateNotice ? separateNoticeContent() : pausedContent,
             role: 'assistant',
             status: { reason: 'interrupt', type: 'requires-action' },
           },
@@ -310,20 +343,12 @@ test('a reused surface call on another host remains animated beside the addresse
   const run = vi.fn<ChatModelAdapter['run']>(async () => {
     throw new Error('No decision has been submitted.');
   });
-  const canvas = pausedContent.filter(
-    (part) =>
-      !(
-        part.type === 'data' &&
-        (part.name === 'brainstrike.tool-approval' ||
-          (part.name === 'brainstrike.run-event' && part.data.kind === 'tool.approval.requested'))
-      )
-  );
   render(
     <Harness
       adapter={{ run }}
       initialMessages={[
         {
-          content: canvas,
+          content: separateNoticeContent(),
           role: 'assistant',
           status: { reason: 'interrupt', type: 'requires-action' },
         },
@@ -351,6 +376,7 @@ test('a reused surface call on another host remains animated beside the addresse
       {(children) => (
         <AnsweredApprovalsProvider>
           <AssistantDataRendererRegistration />
+          <RuntimeStatusProbe />
           {children}
         </AnsweredApprovalsProvider>
       )}
@@ -366,4 +392,85 @@ test('a reused surface call on another host remains animated beside the addresse
   expect(sibling.querySelector('[data-live="true"]')).not.toBeNull();
   expect(sibling.querySelector('.bs-thinking-shimmer')).not.toBeNull();
   expect(run).not.toHaveBeenCalled();
+});
+
+test('approved execution on the same host and call remains live until its result arrives', async () => {
+  let release: (() => void) | undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const answered = {
+    data: { ...request, decision: 'approve', reason: 'user' },
+    name: 'brainstrike.tool-approval-answered',
+    type: 'data' as const,
+  };
+  const started = runEventPart({
+    id: 'approved-start',
+    kind: 'tool.started',
+    runId: request.timelineRunId,
+    status: 'running',
+    timestamp: '2026-09-30T02:39:43.764Z',
+    toolCallId: request.toolCallId,
+  });
+  const run = vi.fn<ChatModelAdapter['run']>(async function* () {
+    yield { content: [answered, tool(request.toolCallId, request.toolName), started] };
+    await held;
+    yield {
+      content: [
+        answered,
+        tool(request.toolCallId, request.toolName, { ok: true }),
+        started,
+        { text: 'Approved canvas finished.', type: 'text' },
+      ],
+      status: { reason: 'stop', type: 'complete' },
+    };
+  });
+  render(
+    <Harness
+      adapter={{ run }}
+      initialMessages={[
+        {
+          content: separateNoticeContent(),
+          role: 'assistant',
+          status: { reason: 'interrupt', type: 'requires-action' },
+        },
+        {
+          content: [{ data: request, name: 'brainstrike.tool-approval', type: 'data' }],
+          role: 'assistant',
+        },
+      ]}
+    >
+      {(children) => (
+        <AnsweredApprovalsProvider>
+          <AssistantDataRendererRegistration />
+          {children}
+        </AnsweredApprovalsProvider>
+      )}
+    </Harness>
+  );
+  const paused = screen.getAllByTestId('timeline')[0];
+  if (!paused) {
+    throw new Error('Paused owner must be rendered.');
+  }
+  await userEvent.click(await screen.findByRole('button', { name: `Approve ${request.toolName}` }));
+  await waitFor(() =>
+    expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved')
+  );
+  expectStaticHistory(paused);
+  const executing = screen.getAllByTestId('timeline').at(-1);
+  if (!executing || executing === paused) {
+    throw new Error('Resumed execution must have its own message.');
+  }
+  expect(executing.querySelector('[data-live="true"]')).not.toBeNull();
+  expect(executing.querySelector('.bs-thinking-shimmer')).not.toBeNull();
+  expect(within(executing).queryAllByText('Waiting for approval')).toHaveLength(0);
+  await act(async () => {
+    release?.();
+    await held;
+  });
+  await screen.findByText('Approved canvas finished.');
+  expectStaticHistory(paused);
+  expectStaticHistory(executing);
+  expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
+  expect(run).toHaveBeenCalledTimes(1);
 });

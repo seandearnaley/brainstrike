@@ -810,7 +810,7 @@ The library's legacy `components.ChainOfThought` path is gone and must not retur
   tool-suspend cards, `text` and unknown data parts are standalone, because a
   pause is a real boundary.
 - A valid approval card replaces duplicate pause chrome by exact `timelineRunId` + surface
-  call on a recorded start/pause; decision routing stays separate. Keep navigation and history.
+  call on a recorded start/pause; keep root decision routing separate and child navigation/history.
 - MCP-app tool calls stay inside the group: Brainstrike detects apps by RESULT
   shape only, and a call must not change groups when its result lands.
 - A `group-activity` node holding only transparent data parts renders its children

@@ -173,7 +173,9 @@ reasoning and text boundaries around six completed reads, final reasoning/text,
 canvas call/start, and an inline or separate approval notice. It drives the public
 local runtime and real answer index through Approve, host acknowledgement,
 completed, failed and explicitly stopped resume states. A running sibling keeps
-its live mark and shimmer; a reused call on another host stays animated. The
+its live mark and shimmer; a reused call on another host stays animated. An
+approved execution on the same host leg and call also remains live until its
+result arrives; only the older requires-action group loses pause chrome. The
 public data-stream adapter also decodes an approval/resume sequence. Settled
 renderer hydration retains reasoning and calls without invoking a model.
 `approval-history.test.ts` pins positive start/pause identity and negative owner
