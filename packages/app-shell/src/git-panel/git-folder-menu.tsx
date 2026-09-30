@@ -1,4 +1,5 @@
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { WorktreeDescriptor } from '@brainstrike/types';
 import {
   DropdownMenuItem,
@@ -53,6 +54,26 @@ function unmountedReason(worktree: WorktreeDescriptor): string {
   return 'Open this repository as a workspace folder to focus it.';
 }
 
+/** Derive display hints only; the mounted handles remain the separate focus authority. */
+function inventoryDisplay(discovery: UseGitInventoryResult, roots: readonly DirectoryHandle[]) {
+  const worktrees =
+    discovery.inventory?.repositories.flatMap((repository) => repository.worktrees) ?? [];
+  const mountedPaths = new Set(roots.map((root) => pathKey(root.path)));
+  // Path equality is a display hint only, never a grant or a containing-parent guess.
+  const discoveredPaths = new Set(worktrees.map((worktree) => pathKey(worktree.path)));
+  const unmountedByPath = new Map<string, WorktreeDescriptor>();
+  for (const worktree of worktrees) {
+    const key = pathKey(worktree.path);
+    if (!mountedPaths.has(key)) {
+      unmountedByPath.set(key, worktree);
+    }
+  }
+  const unmounted = [...unmountedByPath.values()];
+  const errors = discovery.error ? [discovery.error] : (discovery.inventory?.errors ?? []);
+
+  return { discoveredPaths, errors, message: discoveryMessage(discovery), unmounted };
+}
+
 /** Radix owns the gesture-driven mount and releases discovery after the exit animation. */
 export function GitFolderMenu(): ReactElement {
   const { isAccessLoading, rootDirectoryHandle, rootDirectoryHandles, setFocusedRoot } =
@@ -71,21 +92,7 @@ export function GitFolderMenu(): ReactElement {
   const identityMessage = isAccessLoading
     ? 'Folder is still being restored.'
     : 'Folder identity is unavailable. Reopen this folder to switch.';
-  const worktrees =
-    discovery.inventory?.repositories.flatMap((repository) => repository.worktrees) ?? [];
-  const mountedPaths = new Set(roots.map((root) => pathKey(root.path)));
-  // Path equality is a display hint only, never a grant or a containing-parent guess.
-  const discoveredPaths = new Set(worktrees.map((worktree) => pathKey(worktree.path)));
-  const unmountedByPath = new Map<string, WorktreeDescriptor>();
-  for (const worktree of worktrees) {
-    const key = pathKey(worktree.path);
-    if (!mountedPaths.has(key)) {
-      unmountedByPath.set(key, worktree);
-    }
-  }
-  const unmounted = [...unmountedByPath.values()];
-  const errors = discovery.error ? [discovery.error] : (discovery.inventory?.errors ?? []);
-  const message = discoveryMessage(discovery);
+  const { discoveredPaths, errors, message, unmounted } = inventoryDisplay(discovery, roots);
 
   return (
     <>
