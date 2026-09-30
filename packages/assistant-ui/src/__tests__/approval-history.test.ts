@@ -1,3 +1,5 @@
+import { getToolActionIdentityKey } from '@brainstrike/assistant-contract';
+import type { AssistantToolApprovalAnswered } from '@brainstrike/assistant-contract/tool-approval';
 import { expect, it } from 'vitest';
 import {
   advanceAnsweredApprovalsIndex,
@@ -131,4 +133,168 @@ it('a child surface matches its own leaf call, never the root transport alias or
   ] as const) {
     expect(approvalCardToolCallIds([pause(runId, callId)], index.cardedSurfaceCalls).size).toBe(0);
   }
+});
+
+function indexRequest(original = request) {
+  const index = createMutableApprovalsIndex();
+  advanceAnsweredApprovalsIndex(
+    [{ content: [{ data: original, name: 'brainstrike.tool-approval', type: 'data' }] }],
+    { keys: [], scanned: [] },
+    index
+  );
+  return index;
+}
+function answerPart(
+  answer: AssistantToolApprovalAnswered = { ...request, decision: 'approve', reason: 'user' }
+) {
+  return { data: answer, name: 'brainstrike.tool-approval-answered', type: 'data' };
+}
+
+it('uses the initiating answer in this resume message to retain the original approval history', () => {
+  const index = indexRequest();
+  const parts = [pause('host-resume', request.toolCallId, 'tool.started'), answerPart()];
+  expect([...approvalCardToolCallIds(parts, index.cardedSurfaceCalls, index.requests)]).toEqual([
+    'delegate',
+  ]);
+  expect(
+    approvalCardToolCallIds(parts.slice(0, 1), index.cardedSurfaceCalls, index.requests).size
+  ).toBe(0);
+  expect(approvalCardToolCallIds(parts, index.cardedSurfaceCalls).size).toBe(0);
+  expect([
+    ...approvalCardToolCallIds([answerPart()], index.cardedSurfaceCalls, index.requests),
+  ]).toEqual(['delegate']);
+});
+
+it('does not suppress two same-id tool parts when only one has an exact answer', () => {
+  const index = indexRequest();
+  const tool = { toolCallId: request.toolCallId, toolName: request.toolName, type: 'tool-call' };
+  expect(
+    approvalCardToolCallIds([tool, answerPart(), tool], index.cardedSurfaceCalls, index.requests)
+      .size
+  ).toBe(0);
+});
+
+it.each([
+  ['native generation', { ...request, runId: 'other-native-run' }],
+  ['surface call', { ...request, toolCallId: 'other-surface-call' }],
+  ['tool', { ...request, toolName: 'brainstrike.globWorkspace' }],
+  ['continuation', { ...request, continuationId: 'other-continuation' }],
+  [
+    'leaf generation',
+    {
+      ...request,
+      delegation: {
+        ...request.delegation,
+        path: [{ ...request.delegation.path[0]!, childRuntimeRunId: 'other-child' }],
+      },
+    },
+  ],
+  [
+    'parent generation',
+    {
+      ...request,
+      delegation: {
+        ...request.delegation,
+        path: [{ ...request.delegation.path[0]!, parentRuntimeRunId: 'other-parent' }],
+      },
+    },
+  ],
+  [
+    'parent call',
+    {
+      ...request,
+      delegation: {
+        ...request.delegation,
+        path: [{ ...request.delegation.path[0]!, parentToolCallId: 'other-parent-call' }],
+      },
+    },
+  ],
+  [
+    'persona',
+    {
+      ...request,
+      delegation: {
+        ...request.delegation,
+        path: [{ ...request.delegation.path[0]!, personaId: 'other-persona' }],
+      },
+    },
+  ],
+  ['child leaf', { ...request, delegation: { ...request.delegation, toolCallId: 'other-leaf' } }],
+  [
+    'path length',
+    {
+      ...request,
+      delegation: {
+        ...request.delegation,
+        path: [
+          {
+            childRuntimeRunId: 'root',
+            parentRuntimeRunId: 'ancestor',
+            parentToolCallId: 'ancestor-call',
+            personaId: 'explore',
+          },
+          ...request.delegation.path,
+        ],
+      },
+    },
+  ],
+])('retains a gate when a same-id answer has a foreign %s', (_, foreign) => {
+  const index = indexRequest();
+  const answer = { ...foreign, decision: 'approve' as const, reason: 'user' as const };
+  expect(
+    approvalCardToolCallIds([answerPart(answer)], index.cardedSurfaceCalls, index.requests).size
+  ).toBe(0);
+  const answerKey = getToolActionIdentityKey(answer);
+  const requestKey = getToolActionIdentityKey(request);
+  expect(answerKey === requestKey).toBe(!['leaf generation', 'child leaf'].includes(_));
+  // Exercise the surface comparator independently of the shared leaf lookup.
+  const indexedOriginal = index.requests.get(requestKey)!;
+  expect(
+    approvalCardToolCallIds(
+      [answerPart(answer)],
+      index.cardedSurfaceCalls,
+      new Map([[answerKey, indexedOriginal]])
+    ).size
+  ).toBe(0);
+});
+
+it('requires matching delegation presence even when an indexed request is found', () => {
+  const { delegation: _delegation, ...rootRequest } = request;
+  const index = indexRequest();
+  const rootAnswer = { ...rootRequest, decision: 'approve' as const, reason: 'user' as const };
+  expect(
+    approvalCardToolCallIds(
+      [answerPart(rootAnswer)],
+      index.cardedSurfaceCalls,
+      new Map([
+        [
+          getToolActionIdentityKey(rootAnswer),
+          index.requests.get(getToolActionIdentityKey(request))!,
+        ],
+      ])
+    ).size
+  ).toBe(0);
+});
+
+it('does not hide a reused child surface call behind a root routing alias', () => {
+  const childRequest = {
+    ...request,
+    runId: 'child',
+    timelineRunId: 'host-child',
+    toolCallId: 'call_0',
+  };
+  const index = indexRequest(childRequest);
+  // The shared decision key deliberately joins root and child views; the
+  // display projection must additionally verify their DIFFERENT surface IDs.
+  expect(getToolActionIdentityKey(request)).toBe(getToolActionIdentityKey(childRequest));
+  expect(
+    approvalCardToolCallIds([answerPart()], index.cardedSurfaceCalls, index.requests).size
+  ).toBe(0);
+});
+
+it('requires a real host-owned original card rather than an unscoped rediscovery', () => {
+  const index = indexRequest({ ...request, timelineRunId: '' });
+  expect(
+    approvalCardToolCallIds([answerPart()], index.cardedSurfaceCalls, index.requests).size
+  ).toBe(0);
 });
