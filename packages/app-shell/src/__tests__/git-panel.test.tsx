@@ -319,6 +319,12 @@ describe('GitPanel', () => {
     expect(screen.getByText('staged.ts')).toBeInTheDocument();
     expect(screen.getByText('unstaged.ts')).toBeInTheDocument();
     expect(screen.getByText('new.ts')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'staged.ts' })).toHaveAccessibleDescription(
+      'Modified file'
+    );
+    expect(screen.getByRole('button', { name: 'new.ts' })).toHaveAccessibleDescription(
+      'Untracked file'
+    );
   });
 
   it('reserves forty percent of the workbench for browsing changed files', async () => {

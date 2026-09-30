@@ -194,7 +194,7 @@ describe('QueueStatusPopover', () => {
       renderPopover();
 
       // CheckCircle2 icon should be present (green)
-      const icon = document.querySelector('.text-green-500');
+      const icon = document.querySelector('.text-success');
       expect(icon).toBeInTheDocument();
     });
 
@@ -217,7 +217,7 @@ describe('QueueStatusPopover', () => {
       renderPopover();
 
       // Zap icon should be present (blue, animated)
-      const icon = document.querySelector('.text-blue-500.animate-pulse');
+      const icon = document.querySelector('.text-info.animate-pulse');
       expect(icon).toBeInTheDocument();
     });
 
@@ -240,7 +240,7 @@ describe('QueueStatusPopover', () => {
       renderPopover();
 
       // AlertTriangle icon should be present (yellow)
-      const icon = document.querySelector('.text-yellow-500');
+      const icon = document.querySelector('.text-warning');
       expect(icon).toBeInTheDocument();
     });
 
@@ -268,7 +268,7 @@ describe('QueueStatusPopover', () => {
       renderPopover();
 
       // AlertTriangle icon should be present (yellow)
-      const icon = document.querySelector('.text-yellow-500');
+      const icon = document.querySelector('.text-warning');
       expect(icon).toBeInTheDocument();
     });
   });
@@ -516,7 +516,7 @@ describe('QueueStatusPopover', () => {
       renderPopover();
 
       // Warning icon should appear (has errors)
-      const icon = document.querySelector('.text-yellow-500');
+      const icon = document.querySelector('.text-warning');
       expect(icon).toBeInTheDocument();
     });
   });

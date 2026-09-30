@@ -222,7 +222,7 @@ describe('ToolGroupAccordion', () => {
 
       const indicators = screen.getAllByTestId('mcp-status-indicator');
       // Should have green indicator for connected status
-      expect(indicators[0]).toHaveClass('fill-green-500');
+      expect(indicators[0]).toHaveClass('fill-success');
     });
 
     it('shows connecting status for MCP groups', () => {
@@ -242,7 +242,7 @@ describe('ToolGroupAccordion', () => {
 
       const indicators = screen.getAllByTestId('mcp-status-indicator');
       // Should have yellow/amber indicator for connecting status
-      expect(indicators[0]).toHaveClass('fill-yellow-500');
+      expect(indicators[0]).toHaveClass('fill-info');
     });
 
     it('shows disconnected status for MCP groups', () => {
@@ -484,11 +484,11 @@ describe('ToolGroupAccordion', () => {
         </ToolGroupAccordion>
       );
 
-      expect(screen.getByTestId('mcp-status-indicator')).toHaveClass('fill-green-500');
+      expect(screen.getByTestId('mcp-status-indicator')).toHaveClass('fill-success');
     });
 
     it('shows the WARNING token, not the connecting yellow, when the tool list failed', () => {
-      // Deliberately distinct from `fill-yellow-500`, which already means
+      // Deliberately distinct from `fill-info`, which already means
       // connecting/authorizing. Reusing it would collapse "still working, wait"
       // into "settled and empty" — the one distinction this indicator draws.
       render(
@@ -499,8 +499,8 @@ describe('ToolGroupAccordion', () => {
 
       const indicator = screen.getByTestId('mcp-status-indicator');
       expect(indicator).toHaveClass('fill-warning');
-      expect(indicator).not.toHaveClass('fill-yellow-500');
-      expect(indicator).not.toHaveClass('fill-green-500');
+      expect(indicator).not.toHaveClass('fill-info');
+      expect(indicator).not.toHaveClass('fill-success');
     });
 
     it('carries the meaning in an accessible name, not colour alone', () => {
@@ -539,7 +539,7 @@ describe('ToolGroupAccordion', () => {
         </ToolGroupAccordion>
       );
 
-      expect(screen.getByTestId('mcp-status-indicator')).toHaveClass('fill-green-500');
+      expect(screen.getByTestId('mcp-status-indicator')).toHaveClass('fill-success');
     });
   });
 });
