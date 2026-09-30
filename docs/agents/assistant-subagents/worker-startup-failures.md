@@ -105,7 +105,7 @@ deserialized records, as the real host export does. This is native-runtime and
 export-format coverage, not desktop UI E2E or a live external provider test.
 
 Generic failures reach supervisor memory through Mastra's documented `feedback`
-hook as well as `resultText`; native thrown execution ignores `resultText`.
+hook; `resultText` also rewrites a resolved child's tool result.
 Partial-child wording requires an observed admitted child. The native persistence
 failure regression checks the actual next parent model prompt for the explicit
 absence-of-admission message. Existing fixed embedding remedies remain unchanged.
@@ -114,3 +114,52 @@ Guards: `packages/agent/src/__tests__/delegation-startup-evidence.integration.sp
 `packages/agent/src/mastra/__tests__/delegation-failure-diagnostic.spec.ts`,
 `packages/agent/src/mastra/__tests__/subagent-stop-causality.spec.ts`, and
 `packages/app-shell/src/__tests__/thread-debug-pack.test.ts`.
+
+### PR #3428 review disposition
+
+The desktop's `getDesktopMastraMemory` bypasses the shared cache when `runId`
+is present (`apps/desktop/src/assistant-server/mastra-memory.ts`). That branch
+constructs the binding and returns it with that run's memory; the cache-only
+branch never constructs a binding. `runtime-assembly/stream-options.ts` creates
+a delegation config for each stream leg using that run's binding. Thus `startup`
+shares the run-owned lifetime of `controllers` and `executionSignals`, while
+`started` shares the leg-owned lifetime of the existing admitted-address set.
+Neither is a session cache. `afterToolCall` releases prepared execution and stall
+ownership, retaining cancellation and observed child identity for a same-native
+invocation resume. Consuming startup evidence on completion would discard that
+identity; the paired admitted-resume guard protects this retention. Rejected or
+thrown starts are still only leg-owned observations, not long-lived state.
+
+The Agent package deliberately uses `.integration.spec.ts`: its base config
+includes specs, the pure `test` script excludes this suffix, and
+`vitest.integration.config.mts` includes it in uncached `test:integration`.
+Required Unit in `.github/workflows/test.yml` runs that integration task. The
+test was not renamed. Its PGlite construction now occurs only for the embedding
+probe, within the resource's `try`; nested `finally` closes it even if Memory
+settlement rejects or subsequent configuration fails. The persistence fixture
+uses native in-memory storage without allocating an unused database.
+
+Admission wording now has three states: an observed child permits partial-result
+guidance, an available binding observer without a child reports no observed
+admission, and no admission observer reports that admission could not be
+established. A native allocated thread ID alone does not establish host admission.
+The numeric status reader also considers the second field when the first field
+is present but invalid, retaining only an actually observed valid integer.
+Both corrections failed before the fix and passed afterward.
+
+Selected Stop is produced as an `Error` by
+`packages/assistant-service/src/steering.ts` and forwarded by identity in
+`mastra/turn-attempts.ts`; binding-selected child Stop also creates an `Error`.
+A persistence layer's unrelated `AbortError`, even during Stop, is not causal
+proof. The actual wrapped owner-Stop and independent-503 race controls remain
+green, so the exact identity rule was preserved rather than weakening it for
+hypothetical primitive or unchained reasons.
+
+The installed native completion code uses both channels on a resolved failed
+child: `resultText` replaces its returned text and `feedback` saves an assistant
+message to supervisor memory. Thrown execution puts `resultText` into its error
+text and also saves `feedback`; it does not return a normal child result. The
+same bounded sentence can therefore occur in both channels. This is intentional
+so the observed outcome persists across supervisor continuation, and the public
+native thrown-failure guard checks the actual next parent model prompt. Fixed
+embedding-remedy feedback remains distinct from generic failed-result wording.

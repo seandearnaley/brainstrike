@@ -66,11 +66,13 @@ function readFrameworkErrorId(error: Error): string | undefined {
 }
 
 function readHttpStatus(error: Error): number | undefined {
-  const status = readErrorField(error, 'statusCode') ?? readErrorField(error, 'status');
-  if (typeof status !== 'number' || !Number.isInteger(status) || status < 100 || status > 599) {
-    return;
+  for (const field of ['statusCode', 'status']) {
+    const status = readErrorField(error, field);
+    if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) {
+      return status;
+    }
   }
-  return status;
+  return;
 }
 
 function readInternalReason(error: Error): string | undefined {

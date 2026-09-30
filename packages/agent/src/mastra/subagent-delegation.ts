@@ -360,15 +360,14 @@ async function resolveMissingAnswerResult(
         : cause.causeReason === 'memory-embedding-probe-failed'
           ? EMBEDDING_PROBE_FEEDBACK
           : undefined;
-    const childThreadId =
-      startup?.childThreadId ??
-      (params.conversationBinding ? undefined : context.result.subAgentThreadId);
-    const childStatus = childThreadId
+    const childStatus = startup?.childThreadId
       ? 'Any partial results remain in its child conversation'
-      : 'No admitted child conversation was observed';
+      : params.conversationBinding?.readStartupEvidence
+        ? 'No admitted child conversation was observed'
+        : 'Child admission could not be established';
     const resultText = `Subagent "${persona.label}" failed before completing the task. ${childStatus}; do not treat this as a completed deliverable.`;
-    // Native thrown execution ignores resultText; public feedback carries the
-    // same safe observed outcome into the supervisor's memory.
+    // resultText rewrites resolved tool output; public feedback also persists
+    // the safe observed outcome in supervisor memory on thrown execution.
     return { feedback: feedback ?? resultText, resultText };
   }
   // The exported type says `string`, but the one place a runtime shape is least

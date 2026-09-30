@@ -237,9 +237,26 @@ describe('delegation failure diagnostics', () => {
     ).toEqual({ causeCategory: 'unclassified' });
   });
 
-  it('does not claim a child conversation when no admitted child was observed', async () => {
+  it.each([
+    { expected: 'Child admission could not be established', observer: 'native-only' },
+    { expected: 'Child admission could not be established', observer: 'binding-no-observer' },
+    { expected: 'No admitted child conversation was observed', observer: 'binding-observer' },
+  ])('reports only observed child admission ($observer)', async ({ expected, observer }) => {
+    const binding = createDelegatedConversationBinding(async () => undefined);
     const config = createDelegationConfig({
       abortSignal: new AbortController().signal,
+      ...(observer === 'native-only'
+        ? {}
+        : {
+            conversationBinding:
+              observer === 'binding-observer'
+                ? binding
+                : {
+                    endStalledExecution: binding.endStalledExecution,
+                    inputProcessor: binding.inputProcessor,
+                    prepare: binding.prepare,
+                  },
+          }),
       logger: createLogger('DelegationDiagnosticTest'),
       personasById: new Map([['explore', persona]]),
       subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
@@ -255,13 +272,23 @@ describe('delegation failure diagnostics', () => {
       primitiveId: 'explore',
       primitiveType: 'agent',
       prompt: 'private',
-      result: { text: '' },
+      result: { subAgentThreadId: 'native-allocated-thread', text: '' },
       runId: 'run-1',
       success: false,
       toolCallId: 'failed-call',
     });
-    expect(result?.resultText).toContain('No admitted child conversation was observed');
+    expect(result?.resultText).toContain(expected);
     expect(result?.resultText).not.toContain('partial results remain');
+  });
+  it.each([
+    { expected: 502, status: 502, statusCode: '503' },
+    { expected: 503, status: 503, statusCode: 700 },
+    { expected: 429, status: 503, statusCode: 429 },
+  ])('retains the first valid numeric status ($statusCode/$status)', (fields) => {
+    expect(summarizeDelegationFailure(Object.assign(new Error('private'), fields))).toEqual({
+      causeCategory: 'unclassified',
+      httpStatus: fields.expected,
+    });
   });
   it.each([401, 403])(
     'recognizes nested embedding access failure %i and returns fixed supervisor feedback',

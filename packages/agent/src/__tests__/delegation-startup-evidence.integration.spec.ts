@@ -48,39 +48,12 @@ it.each(['probe', 'persist'] as const)(
       resolveToolAction: async () => [],
     };
     const storage = new InMemoryStore({ id: `startup-${failure}` });
-    const database = await createEnginePglite();
+    let database: Awaited<ReturnType<typeof createEnginePglite>> | undefined;
     const memory = new Memory({ options: { generateTitle: false }, storage });
     const embed = vi.fn(async () => {
       throw Object.assign(new Error('PRIVATE_PROVIDER_RESPONSE'), { statusCode: 401 });
     });
-    const childMemory =
-      failure === 'probe'
-        ? new Memory({
-            embedder: {
-              doEmbed: embed,
-              maxEmbeddingsPerCall: undefined,
-              modelId: 'startup-embedder',
-              provider: 'test',
-              specificationVersion: 'v2',
-              supportsParallelCalls: false,
-            },
-            options: { generateTitle: false, semanticRecall: true },
-            storage,
-            vector: new PgliteVectorStore({
-              database: {
-                exec: (query) => database.exec(query),
-                query: (query, values) => database.query(query, values ? [...values] : undefined),
-                transaction: (operation) =>
-                  database.transaction((tx) =>
-                    operation({
-                      exec: (query) => tx.exec(query),
-                      query: (query, values) => tx.query(query, values ? [...values] : undefined),
-                    })
-                  ),
-              },
-            }),
-          })
-        : memory;
+    let childMemory = memory;
     const model = scriptedAgentModel((options) => {
       if (!options.tools?.some((tool) => tool.name === 'agent-worker')) {
         childSteps += 1;
@@ -94,6 +67,36 @@ it.each(['probe', 'persist'] as const)(
     const records: LogRecord[] = [];
     const remove = addLogListener((record) => records.push(record));
     try {
+      if (failure === 'probe') {
+        const probeDatabase = await createEnginePglite();
+        database = probeDatabase;
+        childMemory = new Memory({
+          embedder: {
+            doEmbed: embed,
+            maxEmbeddingsPerCall: undefined,
+            modelId: 'startup-embedder',
+            provider: 'test',
+            specificationVersion: 'v2',
+            supportsParallelCalls: false,
+          },
+          options: { generateTitle: false, semanticRecall: true },
+          storage,
+          vector: new PgliteVectorStore({
+            database: {
+              exec: (query) => probeDatabase.exec(query),
+              query: (query, values) =>
+                probeDatabase.query(query, values ? [...values] : undefined),
+              transaction: (operation) =>
+                probeDatabase.transaction((tx) =>
+                  operation({
+                    exec: (query) => tx.exec(query),
+                    query: (query, values) => tx.query(query, values ? [...values] : undefined),
+                  })
+                ),
+            },
+          }),
+        });
+      }
       const child = new Agent({
         id: 'worker',
         inputProcessors: [binding.inputProcessor],
@@ -130,8 +133,11 @@ it.each(['probe', 'persist'] as const)(
       expect(JSON.stringify(chunks)).toContain('ROOT_HANDLED_FAILURE');
     } finally {
       remove();
-      await Promise.all([memory.settled(), childMemory.settled()]);
-      await database.close();
+      try {
+        await Promise.all([memory.settled(), childMemory.settled()]);
+      } finally {
+        await database?.close();
+      }
     }
     expect(admitted).not.toHaveBeenCalled();
     expect(childSteps).toBe(0);

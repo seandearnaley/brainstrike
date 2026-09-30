@@ -179,7 +179,7 @@ bespoke `subagent` tool.
   approval resume, suspend resume. With durable budgets the shared model/tool
   queue replaces the in-flight cap.
 - Failure hooks log call identity, fixed causes, allowlisted native IDs/status and
-  observed startup boundaries; partial-child guidance requires observed admission.
+  startup boundaries; partial-child guidance needs observed admission, else absent/unknown.
   Stop requires the same reason in owner signals and child causes, not `AbortError` alone.
   Evidence: `assistant-subagents/worker-startup-failures.md`.
 - An in-flight delegation whose parent run aborts mid-stream gets a terminal
