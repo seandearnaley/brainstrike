@@ -45,4 +45,15 @@ describe('makeThrowingDecoder', () => {
   it('uses the struct message for a value that is not an object', () => {
     expect(() => decodeRow('row')).toThrow(/^MCP task row must be an object\.$/);
   });
+
+  it('ignores an unknown key by default, and rejects it, naming the key, when asked to', () => {
+    const input = { extra: true, history: [1], task_id: 't-1' };
+    expect(decodeRow(input)).toEqual({ history: [1], task_id: 't-1' });
+
+    const strict = makeThrowingDecoder(Row, { onExcessProperty: 'error' });
+    const thrown = thrownBy(() => strict(input));
+    expect(thrown).toBeInstanceOf(TypeError);
+    expect((thrown as TypeError).message).toContain('"extra"');
+    expect(strict({ history: [1], task_id: 't-1' })).toEqual({ history: [1], task_id: 't-1' });
+  });
 });

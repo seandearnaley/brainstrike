@@ -5,6 +5,7 @@
  */
 /** Compose the non-silent live-pass note (degradation + cap warnings), or undefined when clean. */
 export function buildLiveNote(args: {
+  exactScope?: boolean;
   rgPresent: boolean;
   rgUsed: boolean;
   regexNoLiteralPrefilter: boolean;
@@ -21,7 +22,9 @@ export function buildLiveNote(args: {
       'ripgrep reported unreadable files during the live pass; matches inside unreadable files may be missing.'
     );
   }
-  if (!args.rgPresent) {
+  if (args.exactScope) {
+    // Direct file scopes need no prefilter and no root walk.
+  } else if (!args.rgPresent) {
     parts.push('ripgrep is unavailable; the live (on-disk) pass used a bounded file-walk instead.');
   } else if (args.degradedToWalk) {
     parts.push(

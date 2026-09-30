@@ -59,6 +59,7 @@ const appGetPathMock = vi.hoisted(() =>
 const loggerErrorMock = vi.hoisted(() => vi.fn());
 const loggerInfoMock = vi.hoisted(() => vi.fn());
 const loggerWarnMock = vi.hoisted(() => vi.fn());
+const writeInitAttemptRecordMock = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
   app: {
@@ -68,6 +69,13 @@ vi.mock('electron', () => ({
   utilityProcess: {
     fork: forkMock,
   },
+}));
+
+// An init timeout records itself in the profile directory; here that is a fake path, so the write
+// must not reach the real filesystem.
+vi.mock('../../db-init-attempt-record', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../db-init-attempt-record')>()),
+  writeDbInitAttemptRecord: writeInitAttemptRecordMock,
 }));
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -127,6 +135,7 @@ describe('DbHostManager', () => {
     loggerErrorMock.mockReset();
     loggerInfoMock.mockReset();
     loggerWarnMock.mockReset();
+    writeInitAttemptRecordMock.mockReset();
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_PROFILE');
     Reflect.deleteProperty(process.env, 'SECRET_TOKEN');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
@@ -838,6 +847,10 @@ describe('DbHostManager', () => {
       expect((databaseError as Error).message).toBe('DB host request timed out: init');
       expect(killSpy).toHaveBeenCalledWith(firstHost.pid, 'SIGKILL');
       expect(firstHost.kill).not.toHaveBeenCalled();
+      expect(writeInitAttemptRecordMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ consecutiveTimeouts: 1, phaseKey: 'init:first-report' })
+      );
     } finally {
       killSpy.mockRestore();
       vi.useRealTimers();

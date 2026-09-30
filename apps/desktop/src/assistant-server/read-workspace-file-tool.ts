@@ -18,7 +18,7 @@ import {
   type RuntimeData,
   recordKnownFileMtime,
 } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { assertNotAgentIgnored } from './agent-ignore-guard';
 import {
@@ -178,7 +178,7 @@ function assertReadWorkspaceFileCursorIdentity(args: {
   readonly rootId: string;
 }): void {
   if (args.cursor.rootId !== args.rootId) {
-    throw new Error(
+    throw new ToolInputError(
       'The readWorkspaceFile continuation handle belongs to another workspace root. Start a new read without cursor.'
     );
   }
@@ -187,7 +187,7 @@ function assertReadWorkspaceFileCursorIdentity(args: {
     args.cursor.size !== args.file.size ||
     args.cursor.mtimeMs !== args.file.mtimeMs
   ) {
-    throw new Error(
+    throw new ToolInputError(
       'The readWorkspaceFile continuation handle is stale or belongs to another file. Start a new read without cursor.'
     );
   }
@@ -208,8 +208,8 @@ function assertReadWorkspaceFileRangeReplay(
     input.endLine === cursor.requestedEndLine ||
     (cursor.requestedEndLine === null && input.endLine === cursor.endLine);
   if (!(replaysStartLine && replaysEndLine)) {
-    throw new Error(
-      'A readWorkspaceFile continuation may only replay the original startLine/endLine unchanged. Reuse nextCursor without changing its range.'
+    throw new ToolInputError(
+      'A readWorkspaceFile continuation may only replay the original startLine/endLine unchanged. Retry with only cursor set to nextCursor and optional maxChars; omit path/root/startLine/endLine.'
     );
   }
 }

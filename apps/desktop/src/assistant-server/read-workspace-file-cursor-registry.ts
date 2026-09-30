@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 
 const HANDLE_PREFIX = 'rfh_';
 const HANDLE_RANDOM_BYTES = 16;
@@ -116,22 +117,24 @@ export class ReadWorkspaceFileCursorRegistry {
 
   #getEntry(handle: string, scope: ReadWorkspaceFileCursorScope): ReadWorkspaceFileCursorEntry {
     if (!HANDLE_PATTERN.test(handle)) {
-      throw new Error('The readWorkspaceFile continuation handle is malformed.');
+      throw new ToolInputError(
+        'The readWorkspaceFile continuation handle is malformed. Start a new read without cursor.'
+      );
     }
     const entry = this.#entries.get(handle);
     if (!entry) {
-      throw new Error(
+      throw new ToolInputError(
         'The readWorkspaceFile continuation handle is unknown or no longer available. Start a new read without cursor.'
       );
     }
     if (entry.expiresAt <= this.#now()) {
       this.#entries.delete(handle);
-      throw new Error(
+      throw new ToolInputError(
         'The readWorkspaceFile continuation handle has expired. Start a new read without cursor.'
       );
     }
     if (!scopesMatch(entry.scope, scope)) {
-      throw new Error(
+      throw new ToolInputError(
         'The readWorkspaceFile continuation handle belongs to another assistant thread. Start a new read without cursor.'
       );
     }
