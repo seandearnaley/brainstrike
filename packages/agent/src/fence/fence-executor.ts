@@ -298,6 +298,13 @@ async function acquireReadySession(callerSignal?: AbortSignal): Promise<void> {
       activeSessions += 1;
     } catch (error) {
       let failure = fenceReadinessFailure(error);
+      // Log before cancellation returns its original reason. Expose aggregate
+      // members explicitly: log redaction does not copy non-enumerable errors.
+      logger.warn('Sandbox readiness failed', {
+        error: failure,
+        errors: failure.cause instanceof AggregateError ? failure.cause.errors : undefined,
+        reason: failure.reason,
+      });
       // Even failed initialize() can leave singleton resources. Never reset
       // another live executor's session, and never race a still-running probe.
       if (activeSessions === 0) {
@@ -312,7 +319,6 @@ async function acquireReadySession(callerSignal?: AbortSignal): Promise<void> {
       if (signal.aborted) {
         throw signal.reason;
       }
-      logger.warn('Sandbox readiness failed', { error: failure, reason: failure.reason });
       throw failure;
     }
   });

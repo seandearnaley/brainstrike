@@ -12,7 +12,7 @@
  */
 
 import { TooltipProvider } from '@brainstrike/ui';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ToolFallback } from '../tool-fallback';
@@ -332,56 +332,50 @@ describe('sandbox readiness refusals (BST-1317)', () => {
   it.each([
     {
       detail:
-        'Missing required sandbox tools: bubblewrap (bwrap), socat, ripgrep (rg). Ask an administrator to install the missing tools.',
+        'Sandbox dependencies are missing: socat not installed. No user code ran. Ask your administrator to install the required sandbox tools (on Linux: bubblewrap, socat and ripgrep), then retry.',
       headline: /required sandbox tools are missing/i,
       reason: 'sandbox_dependencies_missing',
-      remediation: /administrator to install the missing tools/i,
     },
     {
       detail:
-        "The host refused the sandbox namespace probe. Ask an administrator to check the host's sandbox support.",
+        'This Linux host blocked creation of the sandbox namespace. No user code ran. Ask your administrator to provide a supported bubblewrap/user-namespace configuration, or use a supported host. Brainstrike will not change host security settings or run without the sandbox.',
       headline: /computer blocks the isolation the sandbox needs/i,
       reason: 'sandbox_namespace_blocked',
-      remediation: /administrator to check the host.*sandbox support/i,
     },
     {
-      detail: 'The sandbox runtime does not support this host. Use a supported host.',
+      detail:
+        'This runtime cannot confirm the complete OS sandbox. Sandbox runtime warnings: seccomp not available - unix socket access not restricted. No user code ran. Use a supported runtime with all sandbox components available; ask your administrator to check the Brainstrike installation.',
       headline: /operating system or runtime isn't supported/i,
       reason: 'sandbox_unsupported_runtime',
-      remediation: /use a supported host/i,
     },
     {
       detail:
-        'Sandbox readiness did not finish within 5000 ms. The time limit expired before your code could run.',
+        'The sandbox readiness check did not finish within 5 seconds. No user code ran. Retry once; if it persists, restart Brainstrike and ask your administrator to check sandbox support on this host.',
       headline: /sandbox readiness check reached its time limit/i,
       reason: 'sandbox_readiness_timeout',
-      remediation: /time limit expired before your code could run/i,
     },
     {
+      // The actual fenceReadinessFailure detail includes a safe negation.
       detail:
-        "The sandbox readiness probe exited with code 1. Ask an administrator to check this host's sandbox setup.",
+        'The sandbox readiness check failed before user code could run. Restart Brainstrike and retry; if it persists, ask your administrator to check the sandbox runtime and Brainstrike logs. No unsandboxed fallback is available.',
       headline: /sandbox couldn't confirm it was ready to isolate your code/i,
       reason: 'sandbox_readiness_failed',
-      remediation: /administrator to check this host.*sandbox setup/i,
     },
-  ])(
-    'explains $reason and preserves actionable backend detail',
-    ({ detail, headline, reason, remediation }) => {
-      renderRunPython({ detail, kind: 'unavailable', reason });
+  ])('explains $reason and preserves actionable backend detail', ({ detail, headline, reason }) => {
+    renderRunPython({ detail, kind: 'unavailable', reason });
 
-      const header = screen.getByTestId('run-python-result-header');
-      expect(header).toHaveTextContent(/^Nothing ran/);
-      expect(header).toHaveTextContent(headline);
-      expect(screen.getByText(remediation)).toBeInTheDocument();
-      expect(screen.getByText(detail)).toBeInTheDocument();
-      expect(screen.getByRole('img', { name: 'Failed' })).toBeInTheDocument();
-      expect(screen.queryByTestId('run-python-stdout')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('run-python-stderr')).not.toBeInTheDocument();
-      expect(screen.getByTestId('run-python-result-state')).not.toHaveTextContent(
-        /disable.*security|unsandboxed|unsafe fallback/i
-      );
-    }
-  );
+    const header = screen.getByTestId('run-python-result-header');
+    expect(header).toHaveTextContent(/^Nothing ran/);
+    expect(header).toHaveTextContent(headline);
+    expect(screen.getByText(detail)).toBeInTheDocument();
+    // One headline and one detail paragraph, with no duplicated remediation.
+    expect(
+      within(screen.getByTestId('run-python-result-state')).getAllByRole('paragraph')
+    ).toHaveLength(2);
+    expect(screen.getByRole('img', { name: 'Failed' })).toBeInTheDocument();
+    expect(screen.queryByTestId('run-python-stdout')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('run-python-stderr')).not.toBeInTheDocument();
+  });
 
   it('keeps curated remediation when a readiness result has no backend detail', () => {
     renderRunPython({ detail: '', kind: 'unavailable', reason: 'sandbox_namespace_blocked' });

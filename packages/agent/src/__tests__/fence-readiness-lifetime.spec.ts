@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { platform } from 'node:process';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CodeExecutor, ExecInput } from '../code-execution';
 
@@ -131,6 +132,7 @@ describe.skipIf(platform !== 'linux' && platform !== 'darwin')(
     it.each([0, 1, 2, 3, 4, 5, 6, 7, 8])(
       'releases a lease when aborted %i microtasks after cleanup',
       async (depth) => {
+        const sentinel = await createFenceExecutor({ interpreters });
         const controller = new AbortController();
         const reason = new Error('Stopped at handoff');
         mocks.rm.mockImplementationOnce(async (...args: Parameters<typeof actualFs.rm>) => {
@@ -145,18 +147,23 @@ describe.skipIf(platform !== 'linux' && platform !== 'darwin')(
           };
           queueMicrotask(abort);
         });
-        const result = await createFenceExecutor({ interpreters }, controller.signal).then(
-          (executor) => ({ executor }),
-          (error: unknown) => ({ error })
-        );
-        if ('executor' in result) {
-          await result.executor.dispose();
-        } else {
-          expect(result.error).toBe(reason);
+        try {
+          const result = await createFenceExecutor({ interpreters }, controller.signal).then(
+            (executor) => ({ executor }),
+            (error: unknown) => ({ error })
+          );
+          if ('executor' in result) {
+            await result.executor.dispose();
+          } else {
+            expect(result.error).toBe(reason);
+          }
+          const retried = await createFenceExecutor({ interpreters });
+          await retried.dispose();
+          expect(sandbox.reset).not.toHaveBeenCalled();
+        } finally {
+          await sentinel.dispose();
         }
-        const retried = await createFenceExecutor({ interpreters });
-        await retried.dispose();
-        expect(sandbox.reset).toHaveBeenCalled();
+        expect(sandbox.reset).toHaveBeenCalledTimes(1);
       }
     );
   }
@@ -165,6 +172,68 @@ describe.skipIf(platform !== 'linux' && platform !== 'darwin')(
 describe.skipIf(platform !== 'linux' && platform !== 'darwin')(
   'readiness diagnostic preservation',
   () => {
+    it.each(['stop', 'timeout'] as const)(
+      'records late probe and cleanup failures after %s without replacing the caller reason',
+      async (interruption) => {
+        const controller = new AbortController();
+        const stopReason = new Error('Stopped while initializing');
+        const probeError = new Error(
+          'bwrap: Creating new namespace failed: Operation not permitted'
+        );
+        const commandError = new Error('late command cleanup failed');
+        const scratchError = new Error('late scratch cleanup failed');
+        const resetError = new Error('late reset failed');
+        let rejectInitialization: (error: unknown) => void = () => {};
+        sandbox.initialize.mockImplementationOnce(
+          () =>
+            new Promise<void>((_resolve, reject) => {
+              rejectInitialization = reject;
+            })
+        );
+        sandbox.cleanupAfterCommand.mockImplementationOnce(() => {
+          throw commandError;
+        });
+        mocks.rm.mockImplementationOnce(async (...args: Parameters<typeof actualFs.rm>) => {
+          await actualFs.rm(...args);
+          throw scratchError;
+        });
+        sandbox.reset.mockRejectedValueOnce(resetError);
+        const records: LogRecord[] = [];
+        const unsubscribe = addLogListener((record) => records.push(record));
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        try {
+          const pending = createFenceExecutor({ interpreters }, controller.signal);
+          const result = pending.catch((error: unknown) => error);
+          await vi.waitFor(() => expect(sandbox.initialize).toHaveBeenCalledTimes(1));
+          if (interruption === 'stop') {
+            controller.abort(stopReason);
+          } else {
+            await vi.advanceTimersByTimeAsync(5000);
+          }
+          const callerReason = await result;
+          if (interruption === 'stop') {
+            expect(callerReason).toBe(stopReason);
+          } else {
+            expect(callerReason).toMatchObject({ reason: 'sandbox_readiness_timeout' });
+          }
+          rejectInitialization(probeError);
+          const retry = await createFenceExecutor({ interpreters });
+          await retry.dispose();
+          await expect(pending).rejects.toBe(callerReason);
+          const failure = records.find((record) => record.message === 'Sandbox readiness failed');
+          expect(failure).toMatchObject({ scope: 'FenceExecutor' });
+          const diagnostic = JSON.stringify(records);
+          for (const error of [probeError, commandError, scratchError, resetError]) {
+            expect(diagnostic).toContain(error.message);
+          }
+        } finally {
+          rejectInitialization(probeError);
+          unsubscribe();
+          vi.useRealTimers();
+        }
+      }
+    );
+
     it('refuses an unrelated runtime warning and includes its bounded actual diagnostic', async () => {
       const warning = `runtime feature unavailable: ${'x'.repeat(2000)}`;
       sandbox.checkDependenciesAsync.mockResolvedValue({ errors: [], warnings: [warning] });

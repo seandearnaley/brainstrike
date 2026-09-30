@@ -35,6 +35,9 @@ anew on every construction: the added probe latency deliberately avoids trusting
 a stale positive result when host permissions or dependencies have changed.
 Cleanup failures preserve the primary typed reason and aggregate both errors
 for diagnostics. A successful probe with failed cleanup still fails closed.
+Late probe/cleanup failures are logged before rethrowing the original caller
+cancellation reason. Aggregate members are logged explicitly so error lists
+survive log redaction.
 
 Missing dependencies, namespace denial, unsupported/degraded runtime, timeout
 and unexpected failure have separate typed unavailable reasons. Detail reaches
@@ -55,13 +58,18 @@ AppArmor/sysctl workaround, or Electron sandbox relaxation is introduced.
   caller cancellation while queued, the microtask handoff window, an unrelated
   dependency warning, and simultaneous probe/cleanup failures. The UI keeps
   actionable backend detail once, using curated remediation only as a fallback.
+- A live sentinel across the microtask sweep pins exactly-once release: no
+  reset while it is live, then one reset on its disposal. A double-decrement
+  control fails this assertion. Real log listeners capture late failure details
+  after Stop/timeout while the caller retains the original reason object. UI
+  fixtures include current backend wording, including safe fallback negations.
 - Vitest 5.0.2 defaults to `clearMocks: true`; module state deliberately remains
   intact so leaked leases break lifecycle assertions. `realpath.native` is
   retained per the seam's OS-canonical path contract.
 - The real-fence/escape-resistance integration setup now awaits construction;
   the required Linux lane's existing dependency and namespace prerequisites
   still apply. Its success evidence must come from an actual unskipped run.
-- Actual unmodified development host: Debian GNU/Linux 13.6 x64, bubblewrap
+- Measured through the exec-command sandbox on Debian GNU/Linux 13.6 x64, bubblewrap
   0.12.0; socat absent. Invoking the built `fence-executor.mjs` refused in
   14 ms with `sandbox_dependencies_missing`, naming socat. Invoking the built
   root tool with that separately bundled factory returned the same structured
@@ -70,7 +78,8 @@ AppArmor/sysctl workaround, or Electron sandbox relaxation is introduced.
   --unshare-net --ro-bind / / --proc /proc --dev /dev /bin/true`) failed with
   `bwrap: loopback: Failed to create NETLINK_ROUTE socket: Operation not permitted`.
   Namespace classification covers this diagnostic as well as the earlier
-  uid-map/RTM_NEWADDR/namespace failures. The host was not reconfigured.
-- These measurements prove refusal diagnostics on this host. They do not prove
+  uid-map/RTM_NEWADDR/namespace failures. The host was not reconfigured; this
+  result does not characterize the separate native desktop execution route.
+- These measurements prove refusal diagnostics in that execution context. They do not prove
   successful consumer-desktop execution, clean Ubuntu qualification, or macOS
   execution. Those claims remain unverified here.
