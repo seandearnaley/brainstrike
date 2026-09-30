@@ -1,9 +1,18 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { composite, contrastRatio, hslToRgb, oklchToRgb, relativeLuminance } from '../lib/color-contrast.mjs';
+import {
+  composite,
+  contrastRatio,
+  hslToRgb,
+  oklchToRgb,
+  relativeLuminance,
+} from '../lib/color-contrast.mjs';
 
 function close(actual, expected, tolerance = 0.000_01) {
-  assert.ok(Math.abs(actual - expected) < tolerance, `${actual} must be within ${tolerance} of ${expected}`);
+  assert.ok(
+    Math.abs(actual - expected) < tolerance,
+    `${actual} must be within ${tolerance} of ${expected}`
+  );
 }
 
 describe('WCAG sRGB contrast arithmetic', () => {
@@ -29,9 +38,15 @@ describe('WCAG sRGB contrast arithmetic', () => {
 
   it('converts independently known OKLCH red and neutral samples', () => {
     const red = oklchToRgb([0.627_955_36, 0.257_683_31, 29.233_885]);
-    red.forEach((channel, index) => close(channel, [1, 0, 0][index]));
-    oklchToRgb([0.5, 0, 0]).forEach((channel) => close(channel, 0.388_572_86));
-    oklchToRgb([1, 0, 0]).forEach((channel) => close(channel, 1));
+    red.forEach((channel, index) => {
+      close(channel, [1, 0, 0][index]);
+    });
+    oklchToRgb([0.5, 0, 0]).forEach((channel) => {
+      close(channel, 0.388_572_86);
+    });
+    oklchToRgb([1, 0, 0]).forEach((channel) => {
+      close(channel, 1);
+    });
     assert.deepEqual(oklchToRgb([0, 0, 0]), [0, 0, 0]);
   });
 

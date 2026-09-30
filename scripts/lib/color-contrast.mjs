@@ -26,8 +26,12 @@ export function hslToRgb(values) {
   const sector = (((hue % 360) + 360) % 360) / 60;
   const secondary = chroma * (1 - Math.abs((sector % 2) - 1));
   const rgb = [
-    [chroma, secondary, 0], [secondary, chroma, 0], [0, chroma, secondary],
-    [0, secondary, chroma], [secondary, 0, chroma], [chroma, 0, secondary],
+    [chroma, secondary, 0],
+    [secondary, chroma, 0],
+    [0, chroma, secondary],
+    [0, secondary, chroma],
+    [secondary, 0, chroma],
+    [chroma, 0, secondary],
   ][Math.floor(sector)];
   return rgb.map((channel) => clamp(channel + lightness - chroma / 2));
 }
@@ -50,7 +54,9 @@ export function oklchToRgb(values) {
     4.076_741_662_1 * l - 3.307_711_591_3 * m + 0.230_969_929_2 * s,
     -1.268_438_004_6 * l + 2.609_757_401_1 * m - 0.341_319_396_5 * s,
     -0.004_196_086_3 * l - 0.703_418_614_7 * m + 1.707_614_701 * s,
-  ].map(encodeSrgb).map(clamp);
+  ]
+    .map(encodeSrgb)
+    .map(clamp);
 }
 
 export function composite(foreground, background, opacity) {
@@ -58,20 +64,23 @@ export function composite(foreground, background, opacity) {
     throw new RangeError('Color opacity must be between 0 and 1');
   }
   const backdrop = triple(background).map(clamp);
-  return triple(foreground).map((channel, index) =>
-    clamp(channel) * opacity + backdrop[index] * (1 - opacity)
+  return triple(foreground).map(
+    (channel, index) => clamp(channel) * opacity + backdrop[index] * (1 - opacity)
   );
 }
 
 export function relativeLuminance(rgb) {
-  return triple(rgb).map(clamp)
-    .map((channel) => channel <= 0.040_45 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+  return triple(rgb)
+    .map(clamp)
+    .map((channel) => (channel <= 0.040_45 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4))
     .reduce((sum, channel, index) => sum + channel * WEIGHTS[index], 0);
 }
 
 export function contrastRatio(first, second) {
   const firstLuminance = relativeLuminance(first);
   const secondLuminance = relativeLuminance(second);
-  return (Math.max(firstLuminance, secondLuminance) + 0.05) /
-    (Math.min(firstLuminance, secondLuminance) + 0.05);
+  return (
+    (Math.max(firstLuminance, secondLuminance) + 0.05) /
+    (Math.min(firstLuminance, secondLuminance) + 0.05)
+  );
 }
