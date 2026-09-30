@@ -154,3 +154,13 @@ Guards: `packages/assistant-contract/src/__tests__/mcp-config.test.ts`,
 `packages/settings-ui/src/settings/tools/__tests__/mcp-config-panel.test.tsx`.
 The unchanged construction defense is exercised by
 `packages/agent/src/__tests__/mcp-explicit-http-client-validation.spec.ts`.
+
+PR review identified that suppressing obsolete draft validation also hid a write
+failure after an edit. The latest document request now reports that failed save
+with neutral wording and an explicit warning tone; it never marks the current draft invalid or replaces a
+newer load/save result. A tools-refresh failure after a successful write is not
+misreported as a failed write. The same panel tests pin disabled button and
+keyboard saves during a reload, capability restoration settling loading, and
+the intentional tools refresh after a save superseded by a newer document.
+Warning feedback uses the semantic warning palette, not success styling; a
+successful retry restores the explicit success tone independently of message text.

@@ -1318,8 +1318,8 @@ Transport, startup and ownership rules:
   completion and scope step-up are Streamable-HTTP-only. Config rejects `sse` +
   `oauth-user`; saved invalid JSONC stays verbatim with a Config editor error.
   Construction still rejects interactive options on `sse`, and orphan
-  `authorizationCallbackTimeoutMs` on EVERY transport. Late load/save results
-  never replace newer drafts or diagnostics; save success acknowledges only submitted text.
+  `authorizationCallbackTimeoutMs` on EVERY transport. Save success acknowledges only submitted text.
+  Late results preserve newer drafts/diagnostics; failed saves after edits give neutral warning status.
 - **No automatic Streamable HTTP → SSE fallback:** explicit transport keeps 400/404/405 failures visible.
 - External bearer auth is desktop-main-only and reference-based: JSONC carries a
   credential reference and the renderer-visible snapshot projects only

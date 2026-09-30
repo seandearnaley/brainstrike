@@ -11,6 +11,7 @@ const WINDOWS_DRIVE_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
 const WINDOWS_UNC_PATH = /^\\\\/u;
 const MCP_CONFIG_STATUS_ID = 'mcp-config-status-message';
 const MCP_CONFIG_ERROR_ID = 'mcp-config-error-message';
+type McpConfigStatusTone = 'success' | 'warning';
 
 function isAbsoluteFilePath(filePath: string): boolean {
   return (
@@ -30,6 +31,7 @@ interface McpPanelState {
   savedValue: string;
   showReloadConfirm: boolean;
   statusMessage: string | null;
+  statusTone: McpConfigStatusTone;
 }
 
 type McpPanelAction =
@@ -45,7 +47,7 @@ type McpPanelAction =
     }
   | { type: 'LOAD_ERROR'; error: string }
   | { type: 'LOAD_DONE' }
-  | { type: 'SET_STATUS'; message: string | null }
+  | { type: 'SET_STATUS'; message: string | null; tone: McpConfigStatusTone }
   | { type: 'SET_ERROR'; message: string | null }
   | { type: 'CLEAR_MESSAGES' }
   | { type: 'SHOW_RELOAD_CONFIRM' }
@@ -61,6 +63,7 @@ const initialState: McpPanelState = {
   savedValue: '',
   showReloadConfirm: false,
   statusMessage: null,
+  statusTone: 'success',
 };
 
 function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanelState {
@@ -90,6 +93,7 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
         statusMessage: action.created
           ? 'Created a new MCP config template with commented examples.'
           : null,
+        statusTone: 'success',
       };
     case 'LOAD_ERROR':
       return {
@@ -103,11 +107,11 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
     case 'LOAD_DONE':
       return { ...state, initialized: true, loading: false, showReloadConfirm: false };
     case 'SET_STATUS':
-      return { ...state, statusMessage: action.message };
+      return { ...state, statusMessage: action.message, statusTone: action.tone };
     case 'SET_ERROR':
       return { ...state, errorMessage: action.message };
     case 'CLEAR_MESSAGES':
-      return { ...state, errorMessage: null, statusMessage: null };
+      return { ...state, errorMessage: null, statusMessage: null, statusTone: 'success' };
     case 'SHOW_RELOAD_CONFIRM':
       return { ...state, showReloadConfirm: true };
     case 'HIDE_RELOAD_CONFIRM':
@@ -121,6 +125,7 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
           state.editorValue === action.value
             ? 'MCP config saved.'
             : 'MCP config saved. Newer edits are unsaved.',
+        statusTone: 'success',
       };
     default:
       return state;
@@ -136,6 +141,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     initialized,
     loading,
     statusMessage,
+    statusTone,
     errorMessage,
     showReloadConfirm,
   } = state;
@@ -235,7 +241,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     try {
       await operations.setMcpConfigPath(resolvedPath);
       await Promise.all([onConfigChanged(), loadDocument()]);
-      dispatch({ message: 'MCP config path updated.', type: 'SET_STATUS' });
+      dispatch({ message: 'MCP config path updated.', tone: 'success', type: 'SET_STATUS' });
     } catch (error) {
       dispatch({
         message: error instanceof Error ? error.message : 'Failed to update MCP config path',
@@ -270,7 +276,11 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
       dispatch({ type: 'CLEAR_MESSAGES' });
       await operations.resetMcpConfig();
       await Promise.all([onConfigChanged(), loadDocument()]);
-      dispatch({ message: 'MCP config path reset to default.', type: 'SET_STATUS' });
+      dispatch({
+        message: 'MCP config path reset to default.',
+        tone: 'success',
+        type: 'SET_STATUS',
+      });
     } catch (error) {
       dispatch({
         message: error instanceof Error ? error.message : 'Failed to reset MCP config path',
@@ -280,7 +290,8 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
   }, [loadDocument, onConfigChanged, operations]);
 
   const handleSave = useCallback(async () => {
-    if (!operations.writeMcpConfigText) {
+    const writeMcpConfigText = operations.writeMcpConfigText;
+    if (!writeMcpConfigText) {
       return;
     }
 
@@ -288,19 +299,36 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     const editorRevision = editorRevisionRef.current;
     const ownsFeedback = (): boolean =>
       request === documentRequestRef.current && editorRevision === editorRevisionRef.current;
-
-    try {
-      dispatch({ type: 'CLEAR_MESSAGES' });
-      const result = await operations.writeMcpConfigText(editorValue);
-      if (!result.success) {
-        if (ownsFeedback()) {
-          dispatch({ message: result.error, type: 'SET_ERROR' });
-        }
+    const reportSaveFailure = (message: string): void => {
+      if (request !== documentRequestRef.current) {
         return;
       }
-      if (request === documentRequestRef.current) {
-        dispatch({ type: 'SAVE_SUCCESS', value: editorValue });
+      if (ownsFeedback()) {
+        dispatch({ message, type: 'SET_ERROR' });
+      } else {
+        dispatch({
+          message: 'Previous save failed. Review current edits before retrying.',
+          tone: 'warning',
+          type: 'SET_STATUS',
+        });
       }
+    };
+    let result: Awaited<ReturnType<typeof writeMcpConfigText>>;
+    try {
+      dispatch({ type: 'CLEAR_MESSAGES' });
+      result = await writeMcpConfigText(editorValue);
+    } catch (error) {
+      reportSaveFailure(error instanceof Error ? error.message : 'Failed to save MCP config');
+      return;
+    }
+    if (!result.success) {
+      reportSaveFailure(result.error);
+      return;
+    }
+    if (request === documentRequestRef.current) {
+      dispatch({ type: 'SAVE_SUCCESS', value: editorValue });
+    }
+    try {
       await onConfigChanged();
     } catch (error) {
       if (ownsFeedback()) {
@@ -391,6 +419,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
           onSave={() => void handleSave()}
           showReloadConfirm={showReloadConfirm}
           statusMessage={statusMessage}
+          statusTone={statusTone}
         />
       ) : (
         <Card>
@@ -490,6 +519,7 @@ interface McpEditorCardProps {
   onSave: () => void;
   showReloadConfirm: boolean;
   statusMessage: string | null;
+  statusTone: McpConfigStatusTone;
 }
 
 function McpEditorCard({
@@ -497,6 +527,7 @@ function McpEditorCard({
   editorDescribedBy,
   errorMessage,
   statusMessage,
+  statusTone,
   loading,
   hasUnsavedChanges,
   showReloadConfirm,
@@ -567,8 +598,13 @@ function McpEditorCard({
         {statusMessage && (
           <div
             aria-live="polite"
-            className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-emerald-900 text-xs dark:text-emerald-200"
+            className={
+              statusTone === 'warning'
+                ? 'rounded-md border border-warning/40 bg-warning/10 p-2 text-warning text-xs'
+                : 'rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-emerald-900 text-xs dark:text-emerald-200'
+            }
             data-testid="mcp-config-status"
+            data-tone={statusTone}
             id={MCP_CONFIG_STATUS_ID}
           >
             {statusMessage}
