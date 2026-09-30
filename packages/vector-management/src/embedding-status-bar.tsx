@@ -185,7 +185,7 @@ export function EmbeddingStatusBar({
       <div className="flex items-center gap-1.5">
         <MiniSparkline
           ariaLabel="Throughput trend"
-          className="text-emerald-500 dark:text-emerald-400"
+          className="text-success"
           values={throughputTrend}
         />
         <span className="font-medium text-[10px]">{formatPerMinute(throughput)}</span>
@@ -194,11 +194,7 @@ export function EmbeddingStatusBar({
 
       {/* Latency */}
       <div className="flex items-center gap-1.5">
-        <MiniSparkline
-          ariaLabel="Latency trend"
-          className="text-sky-500 dark:text-sky-400"
-          values={latencyTrend}
-        />
+        <MiniSparkline ariaLabel="Latency trend" className="text-info" values={latencyTrend} />
         <span className="font-medium text-[10px]">{formatLatencyMs(latencyStats.p50Ms)}</span>
         <span className="text-[9px] text-muted-foreground">P50</span>
       </div>
@@ -219,9 +215,7 @@ export function EmbeddingStatusBar({
         </>
       )}
       {queueCounts.succeeded > 0 && (
-        <span className="ml-1 text-emerald-600 text-muted-foreground dark:text-emerald-400">
-          ✓{queueCounts.succeeded}
-        </span>
+        <span className="ml-1 text-success">✓{queueCounts.succeeded}</span>
       )}
     </div>
   );

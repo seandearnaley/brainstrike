@@ -299,7 +299,7 @@ export function CredentialRow({
           )}
           {deprecatedReports.map((report) => (
             <p
-              className="mt-1 text-amber-700 text-xs dark:text-amber-500"
+              className="mt-1 text-warning text-xs"
               data-testid={`credential-deprecated-env-${slot.id}`}
               key={report.envVar}
             >

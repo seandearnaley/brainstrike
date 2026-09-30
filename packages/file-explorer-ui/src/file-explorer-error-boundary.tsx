@@ -55,7 +55,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
     }
 
     let icon = AlertTriangle;
-    let color = 'text-red-500';
+    let color = 'text-destructive';
     let message = error.message;
     let actions = null as React.ReactNode | null;
     let displayTitle = 'Error';
@@ -65,7 +65,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
       icon = FileWarning;
       displayTitle = 'File Content Error';
       message = `Failed to load file '${fileError.path}': ${fileError.message}`;
-      color = 'text-orange-500';
+      color = 'text-warning';
       actions = (
         <div className="mt-2 flex gap-2">
           <Button onClick={this.handleReset} variant="outline">
@@ -81,7 +81,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
       icon = Server;
       displayTitle = 'Loading Error';
       message = `Failed to load ${concurrentError.failedPaths.length} files: ${concurrentError.message}`;
-      color = 'text-purple-500';
+      color = 'text-destructive';
       actions = (
         <Button className="mt-2" onClick={this.handleReset} variant="outline">
           Retry with Fewer Concurrent Operations
@@ -92,7 +92,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
       icon = RefreshCw;
       displayTitle = 'Partial Refresh Error';
       message = `Refresh partially failed: ${partialError.successCount} succeeded, ${partialError.failCount} failed`;
-      color = 'text-yellow-500';
+      color = 'text-warning';
       actions = (
         <Button className="mt-2" onClick={this.handleReset} variant="outline">
           Retry Failed Operations
@@ -125,7 +125,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
           <div className="border-b bg-muted/30 p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <Icon className={`mr-2 h-6 w-6 ${info?.color ?? 'text-red-500'}`} />
+                <Icon className={`mr-2 h-6 w-6 ${info?.color ?? 'text-destructive'}`} />
                 <h2 className="font-bold text-xl">{info?.displayTitle ?? 'Error'}</h2>
               </div>
               <Button

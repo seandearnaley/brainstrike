@@ -82,7 +82,7 @@ export const WatcherHealthChip = ({ rootPath }: WatcherHealthChipProps) => {
           <TooltipTrigger asChild>
             <AlertTriangle
               aria-label={label}
-              className={`h-3.5 w-3.5 ${isFailed ? 'text-destructive' : 'text-amber-500'}`}
+              className={`h-3.5 w-3.5 ${isFailed ? 'text-destructive' : 'text-warning'}`}
               role="img"
             />
           </TooltipTrigger>

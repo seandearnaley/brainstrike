@@ -7,8 +7,8 @@ export interface ErrorFallbackProps {
 }
 
 /**
- * A simple error message display with red text styling.
+ * A simple error message display with semantic destructive text styling.
  */
 export function ErrorFallback({ message = 'Something went wrong.' }: ErrorFallbackProps) {
-  return <div className={cn('p-4 text-red-500')}>{message}</div>;
+  return <div className={cn('p-4 text-destructive')}>{message}</div>;
 }

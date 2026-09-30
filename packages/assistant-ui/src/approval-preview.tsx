@@ -309,10 +309,7 @@ function RunPythonFactRows({ context }: { context: CodeExecutionApprovalContext 
         </RunPythonFactRow>
       </dl>
       {domainCount > 0 ? (
-        <p
-          className="mt-2 text-amber-700 text-xs dark:text-amber-400"
-          data-testid="approval-run-python-forewarning"
-        >
+        <p className="mt-2 text-warning text-xs" data-testid="approval-run-python-forewarning">
           You'll be asked about internet access separately, right before it runs.
         </p>
       ) : null}
@@ -336,7 +333,7 @@ function RunPythonPreview({ approval }: { approval: AssistantToolApprovalRequest
       <>
         <PreviewParseError />
         <p
-          className="mt-1 text-amber-700 text-xs dark:text-amber-400"
+          className="mt-1 text-warning text-xs"
           data-testid="approval-run-python-grants-suppressed-note"
         >
           Because this tool runs code, we won't offer "always allow" for a call we can't read.
@@ -376,14 +373,14 @@ function RunPythonPreview({ approval }: { approval: AssistantToolApprovalRequest
       {!context && parsed.code.length > 0 ? (
         <>
           <p
-            className="mt-2 text-amber-700 text-xs dark:text-amber-400"
+            className="mt-2 text-warning text-xs"
             data-testid="approval-run-python-context-missing"
           >
             We couldn't confirm what this script is allowed to touch. Check the raw arguments below
             before approving.
           </p>
           <p
-            className="mt-1 text-amber-700 text-xs dark:text-amber-400"
+            className="mt-1 text-warning text-xs"
             data-testid="approval-run-python-grants-suppressed-note"
           >
             Because this tool runs code, we won't offer "always allow" for a call we can't confirm.
@@ -448,10 +445,7 @@ function FileTargetSummary({
 
 function PreviewParseError() {
   return (
-    <p
-      className="mt-3 text-amber-700 text-xs dark:text-amber-400"
-      data-testid="approval-preview-parse-error"
-    >
+    <p className="mt-3 text-warning text-xs" data-testid="approval-preview-parse-error">
       Could not render a preview for these arguments — see the raw arguments below.
     </p>
   );
@@ -596,10 +590,7 @@ function moreTruncatedPreview(
 
 function PreviewTruncatedNote({ preview }: { preview: TruncatedPreviewText }) {
   return (
-    <p
-      className="mt-1.5 text-amber-700 text-xs dark:text-amber-400"
-      data-testid="approval-preview-truncated-note"
-    >
+    <p className="mt-1.5 text-warning text-xs" data-testid="approval-preview-truncated-note">
       Preview truncated — showing {preview.shownChars} of {preview.totalChars} chars. Full content
       is in the raw arguments below.
     </p>

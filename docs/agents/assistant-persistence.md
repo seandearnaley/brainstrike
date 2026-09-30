@@ -1865,10 +1865,10 @@ competing transitions cannot overwrite each other.
   store's task-only operation, which locks the terminal task and reads current
   parent rows in that transaction instead of writing a recalled whole-message
   snapshot, so a callback cannot erase newer parent text or metadata.
-- Progressive snapshots may repeat one tool call under fresh message ids; update
-  every matching row while preserving each row's ordinary content. Duplicate
-  matching invocation parts inside one row, a mismatched call/task pair, a foreign
-  owner, or a missing retained task fails BEFORE acknowledgement.
+- Update every matching progressive row, preserving content. Remove inherited suffix
+  references without local calls only after exact sealed assistant owner proof in
+  the same conversation and transaction; suffix saves never acknowledge delivery.
+  Duplicate calls in one row, mismatched pairs, foreign owners and missing tasks fail closed.
 - Delegated `subagent.*` history events carrying their originating turn attach only
   to that turn's exact tool call. An absent retained call never redirects the event
   by run or reused call id; ambiguous ownership fails visibly. Assignment may use a
@@ -1891,7 +1891,7 @@ competing transitions cannot overwrite each other.
   human input, and retain normal branch topology. Notification and state signals
   must not be reclassified as human messages.
 
-Installed Mastra 1.64 public APIs and source remain the compatibility authority.
+Installed Mastra public APIs and source remain the compatibility authority.
 Evidence: `assistant-persistence/durable-native-background-outcomes.md`.
 Guard: `packages/agent/src/__tests__/background-outcome-recovery.integration.spec.ts`,
 `pglite-background-result-reconciliation.integration.spec.ts`,

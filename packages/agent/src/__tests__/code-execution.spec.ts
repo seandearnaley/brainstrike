@@ -263,26 +263,78 @@ describe('isPathCoveredBy', () => {
 });
 
 describe('resolveCodeExecutor', () => {
-  it('resolves each kind from its own factory', () => {
+  it('resolves each kind from its own factory', async () => {
     const fenceExecutor = stubExecutor();
     const vmExecutor = stubExecutor({
       ...fenceCapabilities,
       maxIsolationTier: 'vm',
     });
-    expect(resolveCodeExecutor('fence', { fence: () => fenceExecutor })).toBe(fenceExecutor);
-    expect(resolveCodeExecutor('vm', { vm: () => vmExecutor })).toBe(vmExecutor);
+    await expect(resolveCodeExecutor('fence', { fence: () => fenceExecutor })).resolves.toBe(
+      fenceExecutor
+    );
+    await expect(resolveCodeExecutor('vm', { vm: () => vmExecutor })).resolves.toBe(vmExecutor);
   });
 
-  it('never invokes the factory for the other kind', () => {
+  it('awaits construction before checking the isolation tier', async () => {
+    const executor = stubExecutor();
+    const capabilities = vi.spyOn(executor, 'capabilities');
+    const construction = Promise.withResolvers<CodeExecutor>();
+    const fence = vi.fn(() => construction.promise);
+    const resolution = resolveCodeExecutor('fence', { fence });
+    expect(fence).toHaveBeenCalledTimes(1);
+    expect(capabilities).not.toHaveBeenCalled();
+    construction.resolve(executor);
+    await expect(resolution).resolves.toBe(executor);
+    expect(capabilities).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards the construction abort signal to the selected factory', async () => {
+    const controller = new AbortController();
+    const executor = stubExecutor();
+    const fence = vi.fn(() => Promise.resolve(executor));
+    await expect(resolveCodeExecutor('fence', { fence }, controller.signal)).resolves.toBe(
+      executor
+    );
+    expect(fence).toHaveBeenCalledExactlyOnceWith(controller.signal);
+  });
+
+  it.each(['fence', 'vm'] as const)(
+    'propagates asynchronous %s construction failure without invoking the other factory',
+    async (requested) => {
+      const failure = new Error('The requested sandbox could not become ready');
+      const rejectedConstruction = Promise.reject(failure);
+      // The factory owns this promise before the resolver attaches to it.
+      void rejectedConstruction.catch(() => undefined);
+      const failingFactory = vi.fn(() => rejectedConstruction);
+      const otherFactory = vi.fn(stubExecutor);
+      const host =
+        requested === 'fence'
+          ? { fence: failingFactory, vm: otherFactory }
+          : { fence: otherFactory, vm: failingFactory };
+      await expect(resolveCodeExecutor(requested, host)).rejects.toBe(failure);
+      expect(failingFactory).toHaveBeenCalledTimes(1);
+      expect(otherFactory).not.toHaveBeenCalled();
+    }
+  );
+
+  it('propagates a synchronous construction failure as a rejection', async () => {
+    const failure = new Error('The factory refused construction');
+    const fence = () => {
+      throw failure;
+    };
+    await expect(resolveCodeExecutor('fence', { fence })).rejects.toBe(failure);
+  });
+
+  it('never invokes the factory for the other kind', async () => {
     const vm = vi.fn(stubExecutor);
-    resolveCodeExecutor('fence', { fence: () => stubExecutor(), vm });
+    await resolveCodeExecutor('fence', { fence: () => stubExecutor(), vm });
     expect(vm).not.toHaveBeenCalled();
   });
 
-  it('throws a typed error when vm is requested on a fence-only host', () => {
+  it('throws a typed error when vm is requested on a fence-only host', async () => {
     let caught: unknown;
     try {
-      resolveCodeExecutor('vm', { fence: () => stubExecutor() });
+      await resolveCodeExecutor('vm', { fence: () => stubExecutor() });
     } catch (error) {
       caught = error;
     }
@@ -295,20 +347,20 @@ describe('resolveCodeExecutor', () => {
     expect(caught.code).toBe('executor_kind_unavailable');
   });
 
-  it('throws when fence is requested on a vm-only host (no downgrade in either direction)', () => {
+  it('throws when fence is requested on a vm-only host (no downgrade in either direction)', async () => {
     const vmExecutor = stubExecutor({
       ...fenceCapabilities,
       maxIsolationTier: 'vm',
     });
-    expect(() => resolveCodeExecutor('fence', { vm: () => vmExecutor })).toThrowError(
+    await expect(resolveCodeExecutor('fence', { vm: () => vmExecutor })).rejects.toThrowError(
       ExecutorKindUnavailableError
     );
   });
 
-  it('throws with an empty available list on a host with no backend', () => {
+  it('throws with an empty available list on a host with no backend', async () => {
     let caught: unknown;
     try {
-      resolveCodeExecutor('fence', {});
+      await resolveCodeExecutor('fence', {});
     } catch (error) {
       caught = error;
     }
@@ -318,10 +370,10 @@ describe('resolveCodeExecutor', () => {
     expect(caught.availableKinds).toEqual([]);
   });
 
-  it('rejects an executor whose advertised tier is weaker than the requested kind', () => {
+  it('rejects an executor whose advertised tier is weaker than the requested kind', async () => {
     let caught: unknown;
     try {
-      resolveCodeExecutor('fence', {
+      await resolveCodeExecutor('fence', {
         fence: () => createNullCodeExecutor({ platform: 'darwin' }),
       });
     } catch (error) {
@@ -336,29 +388,30 @@ describe('resolveCodeExecutor', () => {
     expect(caught.reportedTier).toBe('none');
   });
 
-  it('disposes the executor it rejects, so a mis-tiered factory cannot leak', () => {
+  it('disposes the asynchronously constructed executor it rejects, so a mis-tiered factory cannot leak', async () => {
     const dispose = vi.fn(() => Promise.resolve());
-    expect(() =>
+    await expect(
       resolveCodeExecutor('fence', {
-        fence: () => ({ ...createNullCodeExecutor({ platform: 'darwin' }), dispose }),
+        fence: () =>
+          Promise.resolve({ ...createNullCodeExecutor({ platform: 'darwin' }), dispose }),
       })
-    ).toThrowError(ExecutorTierMismatchError);
+    ).rejects.toThrowError(ExecutorTierMismatchError);
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 
-  it('still reports the tier mismatch when disposing the rejected executor fails', () => {
-    expect(() =>
+  it('still reports the tier mismatch when disposing the rejected executor fails', async () => {
+    await expect(
       resolveCodeExecutor('fence', {
         fence: () => ({
           ...createNullCodeExecutor({ platform: 'darwin' }),
           dispose: () => Promise.reject(new Error('teardown exploded')),
         }),
       })
-    ).toThrowError(ExecutorTierMismatchError);
+    ).rejects.toThrowError(ExecutorTierMismatchError);
   });
 
-  it('rejects a fence-tier executor registered as the vm backend', () => {
-    expect(() => resolveCodeExecutor('vm', { vm: () => stubExecutor() })).toThrowError(
+  it('rejects a fence-tier executor registered as the vm backend', async () => {
+    await expect(resolveCodeExecutor('vm', { vm: () => stubExecutor() })).rejects.toThrowError(
       ExecutorTierMismatchError
     );
   });
