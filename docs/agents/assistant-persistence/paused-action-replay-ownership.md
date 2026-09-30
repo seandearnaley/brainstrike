@@ -23,3 +23,36 @@ prefix. The desktop HTTP integration pins that routing; the Electron active-chil
 regression proves typed input, images, context, idle continuation, reload and a
 subsequent approval execute through the actual child receipt. Root Gate A/Gate B
 replay and its exact native ownership checks remain enforced.
+
+## Late background child approvals
+
+On September 30, 2026, BST-1902 reproduced a late Explorer read approval after
+its parent background dispatch had completed. The root's durable tool-bearing
+assistant stored the dispatch acknowledgement as a result; a newer assistant
+had no tools. The UI action named a transient resume assistant whose persisted
+parent still proved the root turn. Its host had completed before the click.
+The exact child approval arrived after the parent's `tool.completed` event.
+
+The real-PGlite replay-prefix regression was RED with the retained request's
+ownership-disagreement error: native generation, host turn, transient parent,
+and exact projected host pause all passed, but the terminal check addressed
+the parent surface call. That completed dispatch could not establish whether
+the child read had been answered.
+
+Delegated transient replay now walks every edge through the existing durable
+conversation/invocation repository. Each child native run, persona and parent
+thread must match; every invocation belongs to the selected host's root turn
+and exact host or nonnull generation. The leaf event proof uses its child
+resource/thread and full native identity, requires one exact pending call,
+and rejects native terminal events, any durable leaf decision, or cancellation
+on the root turn or any ancestry thread. No transcript
+chronology chooses an owner, and the root-call terminal check is unchanged.
+
+`assistant-delegated-action-replay.integration.test.ts` covers distinct
+same-generation host legs, genuinely reconstructed repositories, nested paths,
+ancestor/leaf/root cancellation, wrong child,
+persona, parent call, appended ancestry, turn and leaf, missing/ambiguous pause
+events, claimed/consumed/interrupted decisions, and child terminal outcomes.
+This only prepares the root replay prefix. Execution remains guarded by
+`assertDelegatedToolActionPending` through public native `listSuspendedRuns`,
+an atomic durable claim, and a repeated snapshot read before native resume.

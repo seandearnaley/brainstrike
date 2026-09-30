@@ -65,6 +65,10 @@ import {
 } from '@brainstrike/db';
 
 import type { DbHandle } from '@brainstrike/db/react';
+import {
+  type DelegatedReplayProofInput,
+  hasPendingDelegatedReplayCall,
+} from './assistant-delegated-replay-proof';
 import type { SuspendedRunDiscovery } from './assistant-suspended-approvals';
 
 export {
@@ -685,6 +689,7 @@ export interface AssistantThreadRepository {
    * it required puts that gap in the compiler's hands instead of the user's.
    */
   getThreadRunTurnMessageId: (runId: string, threadId: string) => Promise<string | null>;
+  hasPendingDelegatedToolCall?: (input: DelegatedReplayProofInput) => Promise<boolean>;
   hasResolvedToolCallInGeneration?: (hostRunId: string, toolCallId: string) => Promise<boolean>;
   listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
   listMessages: (
@@ -2774,6 +2779,29 @@ function hasHostPauseEvidence(input: {
   );
 }
 
+async function hasUnresolvedReplayCall(
+  input: Parameters<typeof readPausedActionReplayPrefix>[0],
+  hostRunId: string
+): Promise<boolean> {
+  if (input.delegation) {
+    return (
+      (await input.repository.hasPendingDelegatedToolCall?.({
+        delegation: input.delegation,
+        hostRunId,
+        nativeRunId: input.nativeRunId,
+        pauseKind: input.pauseKind,
+        resourceId: input.resourceId,
+        threadId: input.threadId,
+        toolCallId: input.toolCallId,
+      })) === true
+    );
+  }
+  return (
+    (await input.repository.hasResolvedToolCallInGeneration?.(hostRunId, input.toolCallId)) ===
+    false
+  );
+}
+
 /**
  * Capture the paused assistant exactly as persisted before a continuation can
  * add a new Mastra snapshot to its hydration group. A tool-call identity must
@@ -2828,15 +2856,14 @@ export async function readPausedActionReplayPrefix(input: {
       candidate &&
       hostRunId &&
       repository.getMessageParent &&
-      repository.sharesNativeRunGeneration &&
-      repository.hasResolvedToolCallInGeneration
+      repository.sharesNativeRunGeneration
     ) {
-      const [transientParent, turnMessageId, sharesNativeRunGeneration, hasTerminal] =
+      const [transientParent, turnMessageId, sharesNativeRunGeneration, unresolved] =
         await Promise.all([
           repository.getMessageParent(pausedMessageId, threadId, resourceId),
           repository.getThreadRunTurnMessageId(hostRunId, threadId),
           repository.sharesNativeRunGeneration(hostRunId, nativeRunId),
-          repository.hasResolvedToolCallInGeneration(hostRunId, toolCallId),
+          hasUnresolvedReplayCall(input, hostRunId),
         ]);
       const hasExactHostPause = hasHostPauseEvidence({
         events: runEvents,
@@ -2851,7 +2878,7 @@ export async function readPausedActionReplayPrefix(input: {
         transientParent === candidate.parentId &&
         turnMessageId === transientParent &&
         hasExactHostPause &&
-        !hasTerminal
+        unresolved === true
       ) {
         matchingCandidates = [candidate];
       }
@@ -3582,6 +3609,10 @@ export function createPgliteAssistantThreadRepository(
       );
       const value = result.rows[0]?.turnMessageId;
       return typeof value === 'string' && value.length > 0 ? value : null;
+    },
+    async hasPendingDelegatedToolCall(input) {
+      await initialize();
+      return hasPendingDelegatedReplayCall(database, input);
     },
     async hasResolvedToolCallInGeneration(hostRunId, toolCallId) {
       requireString(hostRunId, 'hostRunId');
