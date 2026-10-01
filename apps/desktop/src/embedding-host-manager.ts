@@ -105,13 +105,14 @@ export class EmbeddingHostManager {
           : new Error(`Embedding host request ${requestId} was aborted.`);
       },
       onTimeout: (request, context) => {
-        this.cancelQueryEmbeddingRequest(request);
         logger.warn('Embedding host query timed out', {
+          elapsedMs: Math.max(0, context.timedOutAt - context.startedAt),
           pendingCount: context.pendingCount,
           provider: 'local',
           stage: 'host-response',
           timeoutMs: context.timeoutMs,
         });
+        this.cancelQueryEmbeddingRequest(request);
         return {
           error: new Error(
             `Embedding host request ${context.requestId} timed out after ${context.timeoutMs}ms.`

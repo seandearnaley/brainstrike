@@ -4,6 +4,7 @@ import {
   resetEmbeddingQueueFactory,
 } from '@brainstrike/embeddings/runtime-config';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
+import { addLogListener } from '@brainstrike/logging';
 import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
 import { act, render, waitFor } from '@testing-library/react';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
@@ -330,6 +331,18 @@ describe('committed readiness fix physical query ownership controls', () => {
     'surfaces a failed %s cancellation send while preserving valid sibling ownership',
     async (reason) => {
       const run = await connectControlledQuery();
+      const timeoutWarnings: (readonly unknown[])[] = [];
+      onTestFinished(
+        addLogListener((entry) => {
+          if (
+            entry.level === 'warn' &&
+            entry.scope === 'EmbeddingHostManager' &&
+            entry.message === 'Embedding host query timed out'
+          ) {
+            timeoutWarnings.push(entry.args);
+          }
+        })
+      );
       const controller = new AbortController();
       if (reason === 'timeout') {
         vi.useFakeTimers();
@@ -362,6 +375,20 @@ describe('committed readiness fix physical query ownership controls', () => {
         cause: transportFailure,
         message: 'Embedding host query cancellation could not be sent.',
       });
+      if (reason === 'timeout') {
+        expect(timeoutWarnings).toEqual([
+          [
+            'Embedding host query timed out',
+            {
+              elapsedMs: 60_000,
+              pendingCount: 1,
+              provider: 'local',
+              stage: 'host-response',
+              timeoutMs: 60_000,
+            },
+          ],
+        ]);
+      }
       expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
       expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
       const sibling = run.manager.queryEmbedding({
