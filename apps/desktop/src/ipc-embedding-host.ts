@@ -1,9 +1,12 @@
 import { ipcMain } from 'electron';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
+  assertEmbeddingHostDownloadPayload,
   assertEmbeddingHostQueryEmbeddingPayload,
   assertEmbeddingHostQueryEmbeddingResponseReport,
   assertEmbeddingHostStatus,
+  EMBEDDING_HOST_DOWNLOAD_MODEL_CHANNEL,
+  EMBEDDING_HOST_DOWNLOAD_PROGRESS_EVENT,
   EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
   EMBEDDING_HOST_GET_STATUS_CHANNEL,
   EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
@@ -43,6 +46,21 @@ export function registerEmbeddingHostIpcHandlers(manager: EmbeddingHostManager):
     UNAUTHENTICATED_SENDER_POLICY,
     async (_event, payload) =>
       manager.queryEmbedding(assertEmbeddingHostQueryEmbeddingPayload(payload))
+  );
+  registry.registerUnauthenticatedInvoke(
+    'embeddings',
+    EMBEDDING_HOST_DOWNLOAD_MODEL_CHANNEL,
+    UNAUTHENTICATED_SENDER_POLICY,
+    async (event, value) => {
+      const payload = assertEmbeddingHostDownloadPayload(value);
+      await manager.downloadModel(payload, {
+        onProgress: (progress) =>
+          event.sender.send(EMBEDDING_HOST_DOWNLOAD_PROGRESS_EVENT, {
+            progress,
+            requestId: payload.requestId,
+          }),
+      });
+    }
   );
   registry.registerEvent(
     'embeddings',

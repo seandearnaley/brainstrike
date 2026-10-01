@@ -23,8 +23,7 @@ type ChunkingHostRequest = import('./chunking-host-shared').ChunkingHostRequest;
 type ChunkingHostResponseReport = import('./chunking-host-shared').ChunkingHostResponseReport;
 type ChunkingHostStatus = import('./chunking-host-shared').ChunkingHostStatus;
 type EmbeddingHostCommand = import('./embedding-host-shared').EmbeddingHostCommand;
-type EmbeddingHostQueryEmbeddingRequest =
-  import('./embedding-host-shared').EmbeddingHostQueryEmbeddingRequest;
+type EmbeddingHostRequest = import('./embedding-host-shared').EmbeddingHostRequest;
 type EmbeddingHostQueryEmbeddingCancel =
   import('./embedding-host-shared').EmbeddingHostQueryEmbeddingCancel;
 type EmbeddingHostQueryEmbeddingResponseReport =
@@ -129,7 +128,7 @@ function exposeEmbeddingHostBridge(): void {
       subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.command, callback),
     onQueryEmbeddingCancel: (callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingCancel, callback),
-    onQueryEmbeddingRequest: (callback: (request: EmbeddingHostQueryEmbeddingRequest) => void) =>
+    onQueryEmbeddingRequest: (callback: (request: EmbeddingHostRequest) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingRequest, callback),
     reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport): void => {
       ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportQueryEmbeddingResponse, response);

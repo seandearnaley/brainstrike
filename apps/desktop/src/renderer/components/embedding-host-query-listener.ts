@@ -2,9 +2,9 @@ import { createLogger } from '@brainstrike/logging';
 import type { MutableRefObject } from 'react';
 import {
   assertEmbeddingHostQueryEmbeddingCancel,
-  assertEmbeddingHostQueryEmbeddingRequest,
+  assertEmbeddingHostRequest,
   createEmbeddingHostQueryEmbeddingErrorReport,
-  type EmbeddingHostQueryEmbeddingRequest,
+  type EmbeddingHostRequest,
 } from '../../embedding-host-shared';
 import { getEmbeddingHostBridge, reportQueryEmbeddingResponse } from './embedding-host-bridge';
 import {
@@ -21,7 +21,7 @@ const logger = createLogger('EmbeddingHostRuntime');
 export interface AdmittedQueryEmbeddingRequest {
   readonly isCurrent: () => boolean;
   readonly queryOwner: QueryEmbeddingRuntimeOwner;
-  readonly request: EmbeddingHostQueryEmbeddingRequest;
+  readonly request: EmbeddingHostRequest;
   readonly signal: AbortSignal;
 }
 
@@ -34,9 +34,9 @@ export function subscribeQueryEmbeddingRequests(options: {
 }): () => void {
   const bridge = getEmbeddingHostBridge();
   const unsubscribeRequest = bridge?.onQueryEmbeddingRequest?.((rawRequest) => {
-    let request: EmbeddingHostQueryEmbeddingRequest;
+    let request: EmbeddingHostRequest;
     try {
-      request = assertEmbeddingHostQueryEmbeddingRequest(rawRequest);
+      request = assertEmbeddingHostRequest(rawRequest);
     } catch (error) {
       const response = createQueryEmbeddingRequestParseErrorReport(rawRequest, error);
       logger.error('Rejected invalid embedding host query embedding request', {

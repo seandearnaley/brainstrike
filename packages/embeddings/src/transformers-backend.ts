@@ -4,7 +4,10 @@ import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { generateUUID } from '@brainstrike/utils';
 import { parseModelSizeEstimateBytes } from './model-size-estimate.js';
-import { getRegisteredEmbeddingQueueFactory } from './runtime-config.js';
+import {
+  getRegisteredEmbeddingQueueFactory,
+  getRegisteredEmbeddingRuntimeConfig,
+} from './runtime-config.js';
 import type {
   EmbeddingConfig,
   EmbeddingExecutionOptions,
@@ -18,60 +21,12 @@ import type {
 
 const logger = createLogger('TransformersBackend');
 
-// Type definitions for transformers.js
-interface TransformersModule {
-  pipeline: (
-    task: string,
-    model: string,
-    config: PipelineConfig
-  ) => Promise<FeatureExtractionPipeline>;
-}
-
-/**
- * Options for FeatureExtractionPipeline._call().
- *
- * Note: Truncation is handled internally by the pipeline - it passes
- * `truncation: true` to the tokenizer automatically. The tokenizer uses
- * the model's configured `model_max_length`.
- *
- * See: https://huggingface.co/docs/transformers.js/api/pipelines#featureextractionpipeline
- */
-interface FeatureExtractionPipelineOptions {
-  normalize: boolean;
-  pooling: string;
-  precision?: 'binary' | 'ubinary';
-  quantize?: boolean;
-}
-
-type FeatureExtractionPipeline = (
-  text: string,
-  options: FeatureExtractionPipelineOptions
-) => Promise<{
-  data: Float32Array;
-}>;
-
-interface PipelineConfig {
-  device?: string;
-  dtype?: string;
-  progressCallback?: (progress: ProgressInfo) => void;
-  quantized?: boolean;
-}
-
-interface ProgressInfo {
-  file?: string;
-  loaded?: number;
-  status: string;
-  total?: number;
-}
-
 interface DownloadOptions {
   cacheDir?: string;
-  onProgress?: (progress: ProgressInfo) => void;
+  onProgress?: (progress: { progress: number }) => void;
+  signal?: AbortSignal;
+  streamingWorkerUrl?: string;
 }
-
-// Cache the imported module to avoid duplicate imports across instances
-let transformersModule: TransformersModule | null = null;
-let transformersModulePromise: Promise<TransformersModule> | null = null;
 
 function supportsWorkerQueue(): boolean {
   return typeof window !== 'undefined' && typeof Worker !== 'undefined';
@@ -88,19 +43,6 @@ async function getBrowserQueue(): Promise<QueueAdapter> {
   throw new Error(
     'Embedding queue factory is not registered. Register an explicit queue with a workerUrl before initializing the transformers backend.'
   );
-}
-
-async function getTransformersModule(): Promise<TransformersModule> {
-  if (transformersModule) {
-    return transformersModule;
-  }
-  if (!transformersModulePromise) {
-    transformersModulePromise = import(
-      /* @vite-ignore */ '@huggingface/transformers'
-    ) as Promise<TransformersModule>;
-  }
-  transformersModule = await transformersModulePromise;
-  return transformersModule;
 }
 
 /**
@@ -220,8 +162,7 @@ export class TransformersBackend {
       inferenceCount: TransformersBackend._inferenceCount,
     };
   }
-  private _transformers: TransformersModule | null = null;
-  private _pipeline: FeatureExtractionPipeline | null = null;
+  private readonly _downloads = new Map<StreamingEmbeddingWorkerClient, Promise<void>>();
   private _selectedDevice: 'webgpu' | 'wasm' | null = null;
   private _isInitialized = false;
   private _quantized: boolean | undefined;
@@ -541,25 +482,23 @@ export class TransformersBackend {
    * Dispose of the backend and clean up resources
    */
   async dispose(): Promise<void> {
-    // Properly dispose of the pipeline if it has a dispose method
-    if (
-      this._pipeline &&
-      'dispose' in this._pipeline &&
-      typeof this._pipeline.dispose === 'function'
-    ) {
-      try {
-        await (this._pipeline as unknown as { dispose: () => Promise<void> }).dispose();
-      } catch (error) {
-        logger.debug('Failed to dispose transformers pipeline', { error });
-      }
+    const downloads = [...this._downloads];
+    this._downloads.clear();
+    const stopReason = new DOMException('Embedding model download stopped.', 'AbortError');
+    for (const [client] of downloads) {
+      client.terminate(stopReason);
     }
-
-    this._pipeline = null;
-    this._transformers = null;
+    const settled = await Promise.allSettled(downloads.map(([, execution]) => execution));
+    const failures = settled.flatMap((result) =>
+      result.status === 'rejected' && result.reason !== stopReason ? [result.reason] : []
+    );
     this._selectedDevice = null;
     this._isInitialized = false;
     this._streamingClient?.terminate();
     this._streamingClient = null;
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'Embedding model download cleanup failed.');
+    }
   }
 
   /**
@@ -598,31 +537,32 @@ export class TransformersBackend {
    * explicit download model to cache dir
    */
   async downloadModel(modelId: string, options?: DownloadOptions): Promise<void> {
-    if (!this._transformers) {
-      this._transformers = await getTransformersModule();
+    options?.signal?.throwIfAborted();
+    const workerUrl =
+      options?.streamingWorkerUrl ?? getRegisteredEmbeddingRuntimeConfig()?.streamingWorkerUrl;
+    if (!workerUrl) {
+      throw new Error('Embedding model download requires a registered worker URL.');
     }
-
-    // Set cache dir if provided
-    if (options?.cacheDir && this._transformers) {
-      const transformers = this._transformers as unknown as {
-        env?: { cacheDir?: string; allowLocalModels?: boolean };
-      };
-      if (transformers.env) {
-        transformers.env.cacheDir = options.cacheDir;
-        transformers.env.allowLocalModels = false; // Force download/check from hub
+    const client = new StreamingEmbeddingWorkerClient({ workerUrl });
+    const execution = client.download(
+      {
+        id: this.createTaskId(),
+        model: modelId,
+        ...(options?.cacheDir ? { cacheDir: options.cacheDir } : {}),
+      },
+      {
+        ...(options?.signal ? { signal: options.signal } : {}),
+        onProgress: (progress) => options?.onProgress?.({ progress }),
+      }
+    );
+    this._downloads.set(client, execution);
+    try {
+      await execution;
+      options?.signal?.throwIfAborted();
+    } finally {
+      if (this._downloads.delete(client)) {
+        client.terminate();
       }
     }
-
-    const pipelineConfig: PipelineConfig = {
-      progressCallback: (progress: ProgressInfo) => {
-        if (options?.onProgress) {
-          options.onProgress(progress);
-        }
-      },
-    };
-
-    // We just init the pipeline to trigger download
-    // We don't need to keep it
-    await this._transformers.pipeline('feature-extraction', modelId, pipelineConfig);
   }
 }

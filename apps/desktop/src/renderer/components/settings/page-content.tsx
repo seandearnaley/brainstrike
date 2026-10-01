@@ -59,9 +59,18 @@ import { useWorktreeSettings } from './use-worktree-settings';
 
 configureModelRuntimeServices({
   downloadEmbeddingModel: async (modelId, options) => {
-    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
-    const service = new SimpleEmbeddingService();
-    await service.downloadModel(modelId, options);
+    const bridge = window.embeddingHost;
+    if (!(bridge && 'downloadModel' in bridge)) {
+      throw new Error('Embedding host model download capability is unavailable.');
+    }
+    await bridge.downloadModel(
+      {
+        modelId,
+        requestId: crypto.randomUUID(),
+        ...(options?.cacheDir ? { cacheDir: options.cacheDir } : {}),
+      },
+      (progress) => options?.onProgress?.({ progress })
+    );
   },
 });
 

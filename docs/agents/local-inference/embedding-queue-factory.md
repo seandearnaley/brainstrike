@@ -25,3 +25,6 @@ Embedding queue factory registration (visible renderer):
   over an app-level registration — that was the "semantic search breaks after
   visiting the Database tab" regression). Proof: database-demo-panel.test.tsx +
   create-embedding-queue.test.ts (web + desktop) + root-layout-content.test.tsx.
+
+Environment variables: `VITE_EMBED_CONCURRENCY` (default 1), `VITE_EMBED_LEASE_MS`
+(default 60000), `VITE_EMBED_MODEL_KEY` (e.g. `local:Xenova/bge-m3`).

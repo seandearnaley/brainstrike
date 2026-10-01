@@ -27,6 +27,7 @@ import {
   createEmbeddingHostQueryEmbeddingErrorReport,
   createEmbeddingHostQueryEmbeddingResultReport,
   type EmbeddingHostQueryEmbeddingRequest,
+  type EmbeddingHostRequest,
   type EmbeddingHostRuntimeMetadata,
   type EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
@@ -301,7 +302,7 @@ async function handleQueryEmbeddingRequest(options: {
   readonly queryOwner: QueryEmbeddingRuntimeOwner;
   readonly signal: AbortSignal;
   readonly queryEmbeddingActiveCountRef: MutableRefObject<number>;
-  readonly request: EmbeddingHostQueryEmbeddingRequest;
+  readonly request: EmbeddingHostRequest;
   readonly runtimeIdRef: MutableRefObject<string>;
 }): Promise<void> {
   const {
@@ -330,6 +331,55 @@ async function handleQueryEmbeddingRequest(options: {
     }
     if (request.runtimeId !== runtimeIdRef.current) {
       throw new Error('Embedding host query request targeted a stale runtime.');
+    }
+    if (request.channel === 'download-model') {
+      await runCoordinatedQueryEmbedding({
+        drainTimeoutMs: QUERY_DRAIN_TIMEOUT_MS,
+        gate,
+        generate: async () => {
+          assertQueryEmbeddingRuntimeCurrent(isCurrent);
+          await runOwnedQueryEmbeddingInference(
+            queryOwner,
+            async (downloadSignal) => {
+              const service = new SimpleEmbeddingService({
+                streamingWorkerUrl: resolveViteEmbeddingWorkerUrlHref(),
+              });
+              try {
+                await service.downloadModel(request.payload.modelId, {
+                  ...(request.payload.cacheDir ? { cacheDir: request.payload.cacheDir } : {}),
+                  onProgress: ({ progress }) => {
+                    if (progress !== undefined && isCurrent() && !downloadSignal.aborted) {
+                      reportQueryEmbeddingResponse({
+                        channel: 'download-progress',
+                        payload: { progress },
+                        requestId: request.requestId,
+                        runtimeId: request.runtimeId,
+                        type: 'result',
+                      });
+                    }
+                  },
+                  signal: downloadSignal,
+                });
+              } finally {
+                await service.dispose();
+              }
+            },
+            signal
+          );
+          assertQueryEmbeddingRuntimeCurrent(isCurrent);
+          signal.throwIfAborted();
+        },
+        isWorkerActive: () => activeRef.current,
+        signal,
+      });
+      reportQueryEmbeddingResponse({
+        channel: 'download-complete',
+        payload: {},
+        requestId: request.requestId,
+        runtimeId: request.runtimeId,
+        type: 'result',
+      });
+      return;
     }
     const result = await runCoordinatedQueryEmbedding({
       drainTimeoutMs: QUERY_DRAIN_TIMEOUT_MS,
@@ -392,7 +442,8 @@ async function handleQueryEmbeddingRequest(options: {
   } catch (error) {
     logger.error('Embedding host query embedding request failed', {
       error: error instanceof Error ? error.message : String(error),
-      modelKey: request.payload.modelKey,
+      modelKey:
+        request.channel === 'query-embedding' ? request.payload.modelKey : request.payload.modelId,
       requestId: request.requestId,
       runtimeId: request.runtimeId,
     });

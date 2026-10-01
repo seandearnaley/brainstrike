@@ -7,6 +7,7 @@ import { createRuntimeId, deserializeRuntimeError } from '@brainstrike/worker-ru
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import {
   createEmbeddingHostCommand,
+  createEmbeddingHostDownloadRequest,
   createEmbeddingHostQueryEmbeddingCancel,
   createEmbeddingHostQueryEmbeddingRequest,
   createStoppedEmbeddingHostStatus,
@@ -16,9 +17,10 @@ import {
   EMBEDDING_HOST_STATUS_ADAPTER,
   EMBEDDING_HOST_STATUS_EVENT,
   EMBEDDING_HOST_STOPPED_RUNTIME_ID,
+  type EmbeddingHostDownloadPayload,
   type EmbeddingHostQueryEmbeddingPayload,
-  type EmbeddingHostQueryEmbeddingRequest,
   type EmbeddingHostQueryEmbeddingResponseReport,
+  type EmbeddingHostRequest,
   type EmbeddingHostStatus,
   type EmbeddingHostStatusReport,
 } from './embedding-host-shared';
@@ -88,16 +90,17 @@ export class EmbeddingHostManager {
   private pendingIdleStopTimer: ReturnType<typeof setTimeout> | null = null;
   private controlState: RuntimeHostControlState | null = null;
   private readonly queryRequests: HostRequestChannel<
-    EmbeddingHostQueryEmbeddingRequest,
+    EmbeddingHostRequest,
     EmbeddingHostQueryEmbeddingResponseReport
   >;
 
   constructor(options: EmbeddingHostManagerOptions = {}) {
     this.powerSaveBlockerEnabled = (options.platform ?? process.platform) === 'darwin';
     this.queryRequests = createHostRequestChannel<
-      EmbeddingHostQueryEmbeddingRequest,
+      EmbeddingHostRequest,
       EmbeddingHostQueryEmbeddingResponseReport
     >({
+      isProgress: (response) => response.channel === 'download-progress',
       onAbort: (request, { reason, requestId }) => {
         this.cancelQueryEmbeddingRequest(request);
         return reason instanceof Error
@@ -372,10 +375,48 @@ export class EmbeddingHostManager {
     if (report.type === 'error') {
       throw deserializeRuntimeError(report.payload);
     }
+    if (report.channel !== 'query-embedding-result') {
+      throw new Error('Embedding host returned an unexpected query response.');
+    }
     return report.payload.embedding;
   }
 
-  private cancelQueryEmbeddingRequest(request: EmbeddingHostQueryEmbeddingRequest): void {
+  async downloadModel(
+    payload: EmbeddingHostDownloadPayload,
+    options?: { signal?: AbortSignal; onProgress?: (progress: number) => void }
+  ): Promise<void> {
+    this.assertNotDisposed('queryEmbedding');
+    options?.signal?.throwIfAborted();
+    const status = await waitForHostStartup(
+      this.ensureStarted({ waitForRunning: true }),
+      options?.signal
+    );
+    options?.signal?.throwIfAborted();
+    if (status.state !== 'running') {
+      throw new Error(status.lastError ?? 'Embedding host is not running.');
+    }
+    if (this.queryRequests.size() >= MAX_PENDING_QUERY_EMBEDDING_REQUESTS) {
+      throw new Error('Embedding host request capacity is exhausted.');
+    }
+    const request = createEmbeddingHostDownloadRequest(status.runtimeId, payload);
+    const report = await this.queryRequests.request(request, {
+      ...(options?.signal ? { signal: options.signal } : {}),
+      onProgress: (progress) => {
+        if (progress.channel !== 'download-progress') {
+          throw new Error('Unexpected embedding download progress response.');
+        }
+        options?.onProgress?.(progress.payload.progress);
+      },
+    });
+    if (report.type === 'error') {
+      throw deserializeRuntimeError(report.payload);
+    }
+    if (report.channel !== 'download-complete') {
+      throw new Error('Unexpected embedding download completion response.');
+    }
+  }
+
+  private cancelQueryEmbeddingRequest(request: EmbeddingHostRequest): void {
     try {
       this.requireHostWindow().webContents.send(
         EMBEDDING_HOST_QUERY_EMBEDDING_CANCEL_EVENT,

@@ -9,6 +9,12 @@ import {
   recordEmbeddingPipelineCacheTelemetry,
   removeEmbeddingTelemetrySource,
 } from './embedding-telemetry';
+import {
+  assertModelDownloadRequest,
+  type ModelDownloadEvent,
+  type ModelDownloadRequest,
+  readModelDownloadEvent,
+} from './model-download';
 import type {
   EmbedWorkerBatch,
   EmbedWorkerComplete,
@@ -34,7 +40,10 @@ interface AckBatchMessage {
   readonly type: 'stream-ack';
 }
 
-type StreamWorkerMessage = AckBatchMessage | StartStreamMessage;
+type StreamWorkerMessage =
+  | AckBatchMessage
+  | StartStreamMessage
+  | { readonly type: 'download-model'; readonly request: ModelDownloadRequest };
 type StreamCleanup = () => void;
 type StreamResolve = (metadata: EmbedWorkerComplete['metadata']) => void;
 type StreamReject = (error: Error) => void;
@@ -319,6 +328,65 @@ export class StreamingEmbeddingWorkerClient {
         return;
       }
     });
+  }
+
+  async download(
+    request: ModelDownloadRequest,
+    options: {
+      readonly signal?: AbortSignal;
+      readonly onProgress?: (progress: number) => void;
+    } = {}
+  ): Promise<void> {
+    assertModelDownloadRequest(request);
+    const signal = options.signal;
+    const onAbort = (): void => this.terminate(signal?.reason);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+    }
+    const execution = this.executionChain.then(async () => {
+      if (this.terminated) {
+        throw this.terminationReason ?? new Error('Embedding worker was terminated.');
+      }
+      this.runtime.throwIfFailed();
+      signal?.throwIfAborted();
+      await new Promise<void>((resolve, reject) => {
+        const unsubscribe = this.transport.onMessage((value) => {
+          let event: ModelDownloadEvent | null;
+          try {
+            event = readModelDownloadEvent(value, request.id);
+            if (event?.type === 'download-progress') {
+              options.onProgress?.(event.progress);
+              return;
+            }
+          } catch (error) {
+            this.runtime.markFailed(error);
+            return;
+          }
+          if (!event) {
+            return;
+          }
+          this.activeStream = null;
+          unsubscribe();
+          if (event.type === 'download-error') {
+            reject(new Error(event.message));
+            return;
+          }
+          resolve();
+        });
+        this.activeStream = { cleanup: unsubscribe, reject, requestId: request.id };
+        this.postMessage({ request, type: 'download-model' });
+      });
+    });
+    this.executionChain = execution.then(
+      () => undefined,
+      () => undefined
+    );
+    try {
+      await execution;
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+    }
   }
 
   async embed(

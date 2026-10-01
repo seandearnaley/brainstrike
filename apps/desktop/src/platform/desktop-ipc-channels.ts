@@ -109,6 +109,8 @@ export const DESKTOP_IPC_CHANNELS = {
     cancelAllBackfills: 'embedding-host:cancel-all-backfills',
     cancelBackfill: 'embedding-host:cancel-backfill',
     command: 'embedding-host:command',
+    downloadModel: 'embedding-host:download-model',
+    downloadProgress: 'embedding-host:download-progress',
     enqueueBackfill: 'embedding-host:enqueue-backfill',
     ensureStarted: 'embedding-host:ensure-started',
     getBackfillsInFlight: 'embedding-host:get-backfills-in-flight',

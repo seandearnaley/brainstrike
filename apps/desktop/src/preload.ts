@@ -83,10 +83,11 @@ import type {
   EmbeddingHostBackfillProgress,
   EmbeddingHostBackfillRequest,
   EmbeddingHostCommand,
+  EmbeddingHostDownloadPayload,
   EmbeddingHostQueryEmbeddingCancel,
   EmbeddingHostQueryEmbeddingPayload,
-  EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostQueryEmbeddingResponseReport,
+  EmbeddingHostRequest,
   EmbeddingHostStatus,
 } from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
@@ -756,6 +757,22 @@ const embeddingHost = {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.cancelAllBackfills),
   cancelBackfill: (embeddingSetId: string): Promise<void> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.cancelBackfill, embeddingSetId),
+  downloadModel: async (
+    payload: EmbeddingHostDownloadPayload,
+    onProgress?: (progress: number) => void
+  ): Promise<void> => {
+    const listener = (_event: unknown, value: { requestId: string; progress: number }): void => {
+      if (value.requestId === payload.requestId) {
+        onProgress?.(value.progress);
+      }
+    };
+    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.downloadProgress, listener);
+    try {
+      await ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.downloadModel, payload);
+    } finally {
+      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.embeddingHost.downloadProgress, listener);
+    }
+  },
   enqueueBackfill: (request: EmbeddingHostBackfillRequest) =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.enqueueBackfill, request),
   ensureStarted: (): Promise<EmbeddingHostStatus> =>
@@ -786,9 +803,8 @@ const embeddingHost = {
     return () =>
       ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingCancel, listener);
   },
-  onQueryEmbeddingRequest: (callback: (request: EmbeddingHostQueryEmbeddingRequest) => void) => {
-    const listener = (_event: unknown, request: EmbeddingHostQueryEmbeddingRequest) =>
-      callback(request);
+  onQueryEmbeddingRequest: (callback: (request: EmbeddingHostRequest) => void) => {
+    const listener = (_event: unknown, request: EmbeddingHostRequest) => callback(request);
     ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingRequest, listener);
     return () => {
       ipcRenderer.removeListener(

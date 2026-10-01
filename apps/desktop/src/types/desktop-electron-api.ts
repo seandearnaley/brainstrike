@@ -25,10 +25,11 @@ import type {
   EmbeddingHostBackfillProgress,
   EmbeddingHostBackfillRequest,
   EmbeddingHostCommand,
+  EmbeddingHostDownloadPayload,
   EmbeddingHostQueryEmbeddingCancel,
   EmbeddingHostQueryEmbeddingPayload,
-  EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostQueryEmbeddingResponseReport,
+  EmbeddingHostRequest,
   EmbeddingHostStatus,
 } from '../embedding-host-shared';
 
@@ -182,6 +183,10 @@ export type ChunkingHostRuntimeBridge = Pick<
 export interface VisibleEmbeddingHostBridge {
   cancelAllBackfills: () => Promise<void>;
   cancelBackfill: (embeddingSetId: string) => Promise<void>;
+  downloadModel: (
+    payload: EmbeddingHostDownloadPayload,
+    onProgress?: (progress: number) => void
+  ) => Promise<void>;
   enqueueBackfill: (
     request: EmbeddingHostBackfillRequest
   ) => Promise<{ requestId: string } | { canceled: true }>;
@@ -193,9 +198,7 @@ export interface VisibleEmbeddingHostBridge {
   onQueryEmbeddingCancel: (
     callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void
   ) => () => void;
-  onQueryEmbeddingRequest: (
-    callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
-  ) => () => void;
+  onQueryEmbeddingRequest: (callback: (request: EmbeddingHostRequest) => void) => () => void;
   onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
   queryEmbedding: (payload: EmbeddingHostQueryEmbeddingPayload) => Promise<number[]>;
   reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;

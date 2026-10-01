@@ -29,6 +29,8 @@ vi.mock('electron', async () => {
 });
 
 import {
+  EMBEDDING_HOST_DOWNLOAD_MODEL_CHANNEL,
+  EMBEDDING_HOST_DOWNLOAD_PROGRESS_EVENT,
   EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
   EMBEDDING_HOST_GET_STATUS_CHANNEL,
   EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
@@ -237,5 +239,29 @@ describe('embedding host IPC handlers', () => {
       EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL,
       listeners.get(EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL)
     );
+  });
+  it('validates downloads and routes progress only to the requesting renderer', async () => {
+    const downloadModel = vi.fn(
+      async (_payload: unknown, options: { onProgress: (progress: number) => void }) => {
+        options.onProgress(42);
+      }
+    );
+    registerEmbeddingHostIpcHandlers({ downloadModel } as never);
+    const handler = handlers.get(EMBEDDING_HOST_DOWNLOAD_MODEL_CHANNEL);
+    if (!handler) {
+      throw new Error('Download handler was not registered');
+    }
+    const send = vi.fn();
+    const payload = { cacheDir: '/models', modelId: 'model-a', requestId: 'download-a' };
+    await handler({ sender: { id: 7, send } }, payload);
+    expect(downloadModel).toHaveBeenCalledWith(payload, { onProgress: expect.any(Function) });
+    expect(send).toHaveBeenCalledWith(EMBEDDING_HOST_DOWNLOAD_PROGRESS_EVENT, {
+      progress: 42,
+      requestId: 'download-a',
+    });
+    await expect(handler({ sender: { id: 7, send } }, { ...payload, modelId: '' })).rejects.toThrow(
+      'modelId'
+    );
+    expect(downloadModel).toHaveBeenCalledOnce();
   });
 });

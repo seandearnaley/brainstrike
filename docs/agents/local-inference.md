@@ -25,7 +25,10 @@
 - Only the hidden host disables background throttling; a macOS `powerSaveBlocker`
   runs only while it reports active embedding work, never on other platforms.
 
-Evidence: `local-inference/hidden-host-manifest.md`.
+- Explicit model downloads use the hidden host FIFO/drain gate and an owned worker;
+  await temporary public pipeline disposal before success, or terminate the worker on abort.
+Guard: `embedding-host-download.test.tsx`, `embedding.worker.runtime.spec.ts`, `model-download-owner.browser.test.ts`.
+Evidence: `local-inference/hidden-host-manifest.md`, `local-inference/model-download-ownership.md`.
 Guard: `hidden-preload-contract.test.ts`, `hidden-preload-runtime.test.ts`.
 
 ### Vector device preference
@@ -206,9 +209,6 @@ Guard: `packages/indexing-contract/src/__tests__/workspace-indexing-qos.test.ts`
 Evidence: `local-inference/embedding-queue-factory.md`.
 Guard: `database-demo-panel.test.tsx`, `create-embedding-queue.test.ts` (web +
 desktop), `root-layout-content.test.tsx`.
-
-Environment variables: `VITE_EMBED_CONCURRENCY` (default 1), `VITE_EMBED_LEASE_MS`
-(default 60000), `VITE_EMBED_MODEL_KEY` (e.g. `local:Xenova/bge-m3`).
 
 ### Embedding runtime telemetry
 

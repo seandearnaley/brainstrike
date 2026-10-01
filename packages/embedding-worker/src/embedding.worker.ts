@@ -1,3 +1,8 @@
+import {
+  assertModelDownloadRequest,
+  downloadEmbeddingModelArtifacts,
+  type ModelDownloadEvent,
+} from './model-download';
 /// <reference lib="webworker" />
 
 import {
@@ -1335,6 +1340,32 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
       request?: unknown;
       type?: unknown;
     };
+    if (message.type === 'download-model') {
+      const request = assertModelDownloadRequest(message.request);
+      void (async (): Promise<void> => {
+        try {
+          const { pipeline } = await import('@huggingface/transformers');
+          await downloadEmbeddingModelArtifacts(request, pipeline, (progress) => {
+            self.postMessage({
+              id: request.id,
+              progress,
+              type: 'download-progress',
+            } satisfies ModelDownloadEvent);
+          });
+          self.postMessage({
+            id: request.id,
+            type: 'download-complete',
+          } satisfies ModelDownloadEvent);
+        } catch (error) {
+          self.postMessage({
+            id: request.id,
+            message: error instanceof Error ? error.message : String(error),
+            type: 'download-error',
+          } satisfies ModelDownloadEvent);
+        }
+      })();
+      return;
+    }
     if (message.type === 'stream-ack') {
       if (typeof message.id === 'string' && typeof message.batchIndex === 'number') {
         acknowledgeBatch(message.id, message.batchIndex);

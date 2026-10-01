@@ -23,6 +23,8 @@ const EMBEDDING_HOST_CHANNELS = EMBEDDING_HOST_RUNTIME.createScopedChannels({
   cancelAllBackfills: 'cancel-all-backfills',
   cancelBackfill: 'cancel-backfill',
   command: 'command',
+  downloadModel: 'download-model',
+  downloadProgress: 'download-progress',
   enqueueBackfill: 'enqueue-backfill',
   getBackfillsInFlight: 'get-backfills-in-flight',
   queryEmbedding: 'query-embedding',
@@ -51,6 +53,8 @@ export const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
 export const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL =
   EMBEDDING_HOST_CHANNELS.cancelAllBackfills;
 export const EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL = EMBEDDING_HOST_CHANNELS.cancelBackfill;
+export const EMBEDDING_HOST_DOWNLOAD_MODEL_CHANNEL = EMBEDDING_HOST_CHANNELS.downloadModel;
+export const EMBEDDING_HOST_DOWNLOAD_PROGRESS_EVENT = EMBEDDING_HOST_CHANNELS.downloadProgress;
 export const EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL = EMBEDDING_HOST_CHANNELS.queryEmbedding;
 export const EMBEDDING_BACKFILL_CANCELED_MESSAGE = 'Embedding backfill was canceled.' as const;
 
@@ -91,6 +95,77 @@ export interface EmbeddingHostQueryEmbeddingPayload {
   readonly query: string;
 }
 
+export interface EmbeddingHostDownloadPayload {
+  readonly cacheDir?: string;
+  readonly modelId: string;
+  readonly requestId: string;
+}
+export type EmbeddingHostDownloadRequest = RuntimeRequestEnvelope<
+  'download-model',
+  EmbeddingHostDownloadPayload
+>;
+export type EmbeddingHostRequest =
+  | EmbeddingHostDownloadRequest
+  | EmbeddingHostQueryEmbeddingRequest;
+export type EmbeddingHostDownloadProgressReport = RuntimeResultEnvelope<
+  'download-progress',
+  { readonly progress: number }
+>;
+export type EmbeddingHostDownloadResultReport = RuntimeResultEnvelope<
+  'download-complete',
+  Record<string, never>
+>;
+
+export function assertEmbeddingHostDownloadPayload(value: unknown): EmbeddingHostDownloadPayload {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding host download payload must be an object.');
+  }
+  const payload = value as Record<string, unknown>;
+  return {
+    modelId: assertNonEmptyString(payload['modelId'], 'Embedding download modelId is required.'),
+    requestId: assertNonEmptyString(
+      payload['requestId'],
+      'Embedding download requestId is required.'
+    ),
+    ...(payload['cacheDir'] === undefined
+      ? {}
+      : {
+          cacheDir: assertNonEmptyString(
+            payload['cacheDir'],
+            'Embedding download cacheDir must be a non-empty string.'
+          ),
+        }),
+  };
+}
+
+export function createEmbeddingHostDownloadRequest(
+  runtimeId: string,
+  payload: EmbeddingHostDownloadPayload
+): EmbeddingHostDownloadRequest {
+  return {
+    channel: 'download-model',
+    payload,
+    requestId: payload.requestId,
+    runtimeId,
+    type: 'request',
+  };
+}
+
+export function assertEmbeddingHostRequest(value: unknown): EmbeddingHostRequest {
+  const { envelopeBase, payload } = assertRuntimeObjectPayloadEnvelope(
+    value,
+    'Embedding host request'
+  );
+  if (envelopeBase.type === 'request' && envelopeBase.channel === 'download-model') {
+    const normalized = assertEmbeddingHostDownloadPayload(payload);
+    if (normalized.requestId !== envelopeBase.requestId) {
+      throw new Error('Embedding download request identity does not match its envelope.');
+    }
+    return createEmbeddingHostDownloadRequest(envelopeBase.runtimeId, normalized);
+  }
+  return assertEmbeddingHostQueryEmbeddingRequest(value);
+}
+
 export const EMBEDDING_HOST_STATUS_ADAPTER = EMBEDDING_HOST_RUNTIME.statusAdapter;
 export interface EmbeddingHostWorkerRuntimeMetadata {
   readonly device: 'webgpu' | 'wasm';
@@ -123,11 +198,13 @@ export type EmbeddingHostQueryEmbeddingResultReport = RuntimeResultEnvelope<
 >;
 export type EmbeddingHostQueryEmbeddingErrorReport = RuntimeErrorEnvelope<'query-embedding-error'>;
 export type EmbeddingHostQueryEmbeddingResponseReport =
+  | EmbeddingHostDownloadResultReport
+  | EmbeddingHostDownloadProgressReport
   | EmbeddingHostQueryEmbeddingErrorReport
   | EmbeddingHostQueryEmbeddingResultReport;
 
 export function createEmbeddingHostQueryEmbeddingCancel(
-  request: EmbeddingHostQueryEmbeddingRequest
+  request: EmbeddingHostRequest
 ): EmbeddingHostQueryEmbeddingCancel {
   return {
     channel: 'query-embedding-cancel',
@@ -423,7 +500,7 @@ export function createEmbeddingHostQueryEmbeddingResultReport(
 }
 
 export function createEmbeddingHostQueryEmbeddingErrorReport(
-  request: EmbeddingHostQueryEmbeddingRequest,
+  request: EmbeddingHostRequest,
   error: unknown
 ): EmbeddingHostQueryEmbeddingErrorReport {
   return {
@@ -435,6 +512,33 @@ export function createEmbeddingHostQueryEmbeddingErrorReport(
   };
 }
 
+function assertDownloadResponse(
+  envelopeBase: ReturnType<typeof assertRuntimeObjectPayloadEnvelope>['envelopeBase'],
+  payload: Record<string, unknown>
+): EmbeddingHostDownloadProgressReport | EmbeddingHostDownloadResultReport | null {
+  if (envelopeBase.type === 'result' && envelopeBase.channel === 'download-complete') {
+    if (Object.keys(payload).length !== 0) {
+      throw new Error('Embedding download completion payload must be empty.');
+    }
+    return { ...envelopeBase, channel: 'download-complete', payload: {}, type: 'result' };
+  }
+  if (envelopeBase.type === 'result' && envelopeBase.channel === 'download-progress') {
+    const progress = payload['progress'];
+    if (
+      !(
+        typeof progress === 'number' &&
+        Number.isFinite(progress) &&
+        progress >= 0 &&
+        progress < 100
+      )
+    ) {
+      throw new Error('Embedding download progress must be between 0 and 99.');
+    }
+    return { ...envelopeBase, channel: 'download-progress', payload: { progress }, type: 'result' };
+  }
+  return null;
+}
+
 export function assertEmbeddingHostQueryEmbeddingResponseReport(
   value: unknown
 ): EmbeddingHostQueryEmbeddingResponseReport {
@@ -442,6 +546,10 @@ export function assertEmbeddingHostQueryEmbeddingResponseReport(
     value,
     'Embedding host query embedding response'
   );
+  const downloadResponse = assertDownloadResponse(envelopeBase, payload);
+  if (downloadResponse) {
+    return downloadResponse;
+  }
   if (envelopeBase.type === 'result') {
     if (envelopeBase.channel !== 'query-embedding-result') {
       throw new Error(

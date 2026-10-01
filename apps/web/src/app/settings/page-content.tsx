@@ -55,7 +55,11 @@ configureModelRuntimeServices({
   downloadEmbeddingModel: async (modelId, options) => {
     const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
     const service = new SimpleEmbeddingService();
-    await service.downloadModel(modelId, options);
+    try {
+      await service.downloadModel(modelId, options);
+    } finally {
+      await service.dispose();
+    }
   },
 });
 

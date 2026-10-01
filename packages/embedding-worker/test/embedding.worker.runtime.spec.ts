@@ -1918,4 +1918,71 @@ describe('embedding worker runtime', () => {
     const length = Math.sqrt(result.vectors[0].reduce((sum, value) => sum + value * value, 0));
     expect(length).toBeCloseTo(1, 5);
   });
+  it('downloads through the public pipeline and publishes completion only after disposal', async () => {
+    const listeners = new Set<(event: MessageEvent<unknown>) => void>();
+    const postMessage = vi.fn();
+    vi.stubGlobal('self', {
+      addEventListener: (type: string, listener: (event: MessageEvent<unknown>) => void) => {
+        if (type === 'message') {
+          listeners.add(listener);
+        }
+      },
+      postMessage,
+    });
+    const released = Promise.withResolvers<void>();
+    const dispose = vi.fn(() => released.promise);
+    const infer = vi.fn();
+    pipelineMock.mockResolvedValue(Object.assign(infer, { dispose }));
+    await import('../src/embedding.worker');
+    for (const listener of listeners) {
+      listener({
+        data: { request: { id: 'download-a', model: 'model-a' }, type: 'download-model' },
+      } as MessageEvent<unknown>);
+    }
+    await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce());
+    expect(pipelineMock).toHaveBeenCalledWith('feature-extraction', 'model-a', {
+      progress_callback: expect.any(Function),
+    });
+    expect(postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'download-complete' })
+    );
+    expect(infer).not.toHaveBeenCalled();
+    released.resolve();
+    await vi.waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith({ id: 'download-a', type: 'download-complete' })
+    );
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it('reports public pipeline disposal failure as download error', async () => {
+    const listeners = new Set<(event: MessageEvent<unknown>) => void>();
+    const postMessage = vi.fn();
+    vi.stubGlobal('self', {
+      addEventListener: (type: string, listener: (event: MessageEvent<unknown>) => void) => {
+        if (type === 'message') {
+          listeners.add(listener);
+        }
+      },
+      postMessage,
+    });
+    const dispose = vi.fn().mockRejectedValue(new Error('release failed'));
+    pipelineMock.mockResolvedValue({ dispose });
+    await import('../src/embedding.worker');
+    for (const listener of listeners) {
+      listener({
+        data: { request: { id: 'download-a', model: 'model-a' }, type: 'download-model' },
+      } as MessageEvent<unknown>);
+    }
+    await vi.waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith({
+        id: 'download-a',
+        message: 'release failed',
+        type: 'download-error',
+      })
+    );
+    expect(postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'download-complete' })
+    );
+    expect(dispose).toHaveBeenCalledOnce();
+  });
 });

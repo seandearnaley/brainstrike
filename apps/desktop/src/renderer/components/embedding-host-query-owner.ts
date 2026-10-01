@@ -1,5 +1,4 @@
 import type { usePGliteDatabase } from '@brainstrike/db/react';
-import type { EmbeddingResult } from '@brainstrike/embeddings';
 import type { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import { createLogger } from '@brainstrike/logging';
 import type { MutableRefObject } from 'react';
@@ -22,7 +21,7 @@ export interface QueryEmbeddingRuntimeOwner extends QueryEmbeddingStateRefs {
   readonly disposalRef: MutableRefObject<Promise<void> | null>;
   readonly executionTailRef: MutableRefObject<Promise<void>>;
   readonly inferenceController: AbortController;
-  readonly inferenceRef: MutableRefObject<Promise<EmbeddingResult> | null>;
+  readonly inferenceRef: MutableRefObject<Promise<unknown> | null>;
   readonly requests: Map<string, AbortController>;
 }
 
@@ -57,11 +56,11 @@ export function enqueueQueryEmbeddingOperation(
 }
 
 /** The public queue signal requests cancellation; ownership lasts until actual settlement. */
-export async function runOwnedQueryEmbeddingInference(
+export async function runOwnedQueryEmbeddingInference<T>(
   owner: QueryEmbeddingRuntimeOwner,
-  generate: (signal: AbortSignal) => Promise<EmbeddingResult>,
+  generate: (signal: AbortSignal) => Promise<T>,
   requestSignal?: AbortSignal
-): Promise<EmbeddingResult> {
+): Promise<T> {
   if (owner.closed) {
     throw new Error('Embedding host query runtime is no longer available.');
   }
