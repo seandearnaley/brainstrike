@@ -1,7 +1,9 @@
+import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import type { SubAgentToolRow, SubagentDelegationOutcome } from './subagent-tool-rows';
 import { readSubagentRunEventContribution } from './subagent-tool-rows';
 
 export interface SubagentInvocationSnapshot {
+  readonly completed?: boolean;
   readonly outcome?: SubagentDelegationOutcome;
   readonly rows: readonly SubAgentToolRow[];
 }
@@ -15,6 +17,7 @@ interface IndexedMessage {
 }
 
 interface InvocationContribution {
+  completed?: boolean;
   outcome?: SubagentDelegationOutcome;
   readonly rows: Map<string, SubAgentToolRow>;
 }
@@ -93,11 +96,13 @@ function projectSnapshot(
 ): SubagentInvocationSnapshot {
   const rows = new Map<string, SubAgentToolRow>();
   let outcome: SubagentDelegationOutcome | undefined;
+  let completed = false;
   for (const record of records) {
     const contribution = record.invocations.get(id);
     if (!contribution) {
       continue;
     }
+    completed ||= contribution.completed === true;
     outcome ??= contribution.outcome;
     for (const [key, row] of contribution.rows) {
       rows.set(
@@ -106,7 +111,11 @@ function projectSnapshot(
       );
     }
   }
-  return { ...(outcome ? { outcome } : {}), rows: Array.from(rows.values()) };
+  return {
+    ...(completed ? { completed } : {}),
+    ...(outcome ? { outcome } : {}),
+    rows: Array.from(rows.values()),
+  };
 }
 
 function readMessage(message: IndexMessage): IndexedMessage {
@@ -124,12 +133,37 @@ function readMessage(message: IndexMessage): IndexedMessage {
   };
 }
 
-function foldPart(record: IndexedMessage, part: unknown): string | undefined {
+export function completedSubagentInvocationKey(
+  generation: string,
+  callId: string,
+  toolName: string
+): string {
+  return JSON.stringify([generation, callId, toolName]);
+}
+
+function foldPart(record: IndexedMessage, part: unknown): readonly string[] | undefined {
   const event = readSubagentRunEventContribution(part);
   if (!event) {
     return;
   }
-  const parent = event.parentToolCallId;
+  const parent = JSON.stringify([event.parentToolCallId]);
+  const data = readAssistantRunEventDataPart(part);
+  const generation = data?.metadata?.['parentRuntimeRunId'];
+  const persona = data?.metadata?.['personaId'];
+  const toolName = data?.metadata?.['toolName'];
+  let completedKey: string | undefined;
+  if (
+    data?.kind === 'subagent.finished' &&
+    data.status === 'completed' &&
+    typeof generation === 'string' &&
+    generation.trim() &&
+    typeof persona === 'string' &&
+    persona.trim() &&
+    toolName === `agent-${persona}`
+  ) {
+    completedKey = completedSubagentInvocationKey(generation, event.parentToolCallId, toolName);
+    record.invocations.set(completedKey, { completed: true, rows: new Map() });
+  }
   let contribution = record.invocations.get(parent);
   if (!contribution) {
     contribution = { rows: new Map() };
@@ -141,13 +175,15 @@ function foldPart(record: IndexedMessage, part: unknown): string | undefined {
   if (event.row) {
     contribution.rows.set(event.row.key, event.row);
   }
-  return parent;
+  return completedKey ? [parent, completedKey] : [parent];
 }
 
 export interface SubagentInvocationIndex {
   advance(messages: readonly IndexMessage[]): void;
+  getCompletedSnapshot(invocationKey: string): boolean;
   getSnapshot(parentToolCallId: string): SubagentInvocationSnapshot;
   subscribe(parentToolCallId: string, listener: () => void): () => void;
+  subscribeCompleted(invocationKey: string, listener: () => void): () => void;
 }
 
 export function createSubagentInvocationIndex(options?: {
@@ -161,10 +197,14 @@ export function createSubagentInvocationIndex(options?: {
     for (const id of ids) {
       const previous = snapshots.get(id) ?? EMPTY_SNAPSHOT;
       const next = projectSnapshot(records, id);
-      if (previous.outcome === next.outcome && equalRows(previous.rows, next.rows)) {
+      if (
+        previous.completed === next.completed &&
+        previous.outcome === next.outcome &&
+        equalRows(previous.rows, next.rows)
+      ) {
         continue;
       }
-      if (next.rows.length === 0 && next.outcome === undefined) {
+      if (next.rows.length === 0 && next.outcome === undefined && !next.completed) {
         snapshots.delete(id);
       } else {
         snapshots.set(id, next);
@@ -179,9 +219,9 @@ export function createSubagentInvocationIndex(options?: {
     for (let index = start; index < record.parts.length; index += 1) {
       const part = record.parts[index];
       options?.inspect?.(part);
-      const parent = foldPart(record, part);
-      if (parent) {
-        affected.add(parent);
+      const keys = foldPart(record, part);
+      for (const key of keys ?? []) {
+        affected.add(key);
       }
     }
     record.scanned = record.parts.length;
@@ -250,20 +290,35 @@ export function createSubagentInvocationIndex(options?: {
       }
       publish(affected);
     },
+    getCompletedSnapshot(invocationKey) {
+      return snapshots.get(invocationKey)?.completed === true;
+    },
     getSnapshot(parentToolCallId) {
-      return snapshots.get(parentToolCallId) ?? EMPTY_SNAPSHOT;
+      return snapshots.get(JSON.stringify([parentToolCallId])) ?? EMPTY_SNAPSHOT;
     },
     subscribe(parentToolCallId, listener) {
-      let own = listeners.get(parentToolCallId);
+      const key = JSON.stringify([parentToolCallId]);
+      let own = listeners.get(key);
       if (!own) {
         own = new Set();
-        listeners.set(parentToolCallId, own);
+        listeners.set(key, own);
       }
       own.add(listener);
       return () => {
         own?.delete(listener);
         if (own?.size === 0) {
-          listeners.delete(parentToolCallId);
+          listeners.delete(key);
+        }
+      };
+    },
+    subscribeCompleted(invocationKey, listener) {
+      const owners = listeners.get(invocationKey) ?? new Set();
+      owners.add(listener);
+      listeners.set(invocationKey, owners);
+      return () => {
+        owners.delete(listener);
+        if (owners.size === 0) {
+          listeners.delete(invocationKey);
         }
       };
     },

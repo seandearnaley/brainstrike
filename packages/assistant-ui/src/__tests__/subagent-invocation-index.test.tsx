@@ -10,6 +10,10 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import { StrictMode, useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { SubagentInvocationIndexProvider } from '../subagent-invocation-index';
+import {
+  completedSubagentInvocationKey,
+  createSubagentInvocationIndex,
+} from '../subagent-invocation-index-model';
 import { useSubagentInvocationSnapshot } from '../use-subagent-invocation-snapshot';
 
 const adapter: ChatModelAdapter = {
@@ -239,4 +243,43 @@ describe('SubagentInvocationIndexProvider', () => {
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
+});
+
+it('retains terminal native ownership incrementally and removes it on history replacement', () => {
+  const inspect = vi.fn();
+  const index = createSubagentInvocationIndex({ inspect });
+  const key = completedSubagentInvocationKey('native-root', 'delegate', 'agent-explore');
+  const finished = {
+    data: {
+      id: 'terminal',
+      kind: 'subagent.finished',
+      label: 'Explorer finished',
+      metadata: {
+        parentRuntimeRunId: 'native-root',
+        parentToolCallId: 'delegate',
+        personaId: 'explore',
+        toolName: 'agent-explore',
+      },
+      status: 'completed',
+      timestamp: '2026-10-01T00:40:00Z',
+    },
+    name: 'brainstrike.run-event',
+    type: 'data',
+  };
+  const parts = [finished];
+  const messages = [{ id: 'terminal-message', parts, status: { type: 'complete' } }];
+  index.advance(messages);
+  expect(index.getCompletedSnapshot(key)).toBe(true);
+  expect(
+    index.getCompletedSnapshot(
+      completedSubagentInvocationKey('other-native-root', 'delegate', 'agent-explore')
+    )
+  ).toBe(false);
+  index.advance(messages);
+  expect(inspect).toHaveBeenCalledTimes(1);
+  const changed = vi.fn();
+  index.subscribeCompleted(key, changed);
+  index.advance([{ ...messages[0], parts: [] }]);
+  expect(index.getCompletedSnapshot(key)).toBe(false);
+  expect(changed).toHaveBeenCalledTimes(1);
 });

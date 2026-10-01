@@ -5,6 +5,7 @@ import {
   SUBAGENT_DELEGATION_TOOL_PREFIX,
 } from '@brainstrike/assistant-contract/personas';
 import { createElement, use, useCallback, useMemo, useSyncExternalStore } from 'react';
+import { CompletedSubagentCallsContext } from './completed-subagent-calls-context';
 import {
   readSubagentConversationAddress,
   readSubagentInvocationRun,
@@ -31,6 +32,7 @@ import { useSubagentPresentation } from './use-subagent-presentation';
  * full retained thread on every store update.
  */
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
+  const completedCalls = use(CompletedSubagentCallsContext);
   const liveInvocations = use(SubagentLiveInvocationContext);
   const invocationJson = useAuiState((state) =>
     JSON.stringify(readSubagentInvocationRun(state.message.parts, props.toolCallId))
@@ -92,7 +94,7 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
     liveRows,
     ...(outcome ? { outcome } : {}),
     result: props.result,
-    status: props.status,
+    status: completedCalls.has(props.toolCallId) ? { type: 'complete' } : props.status,
     toolCallId: props.toolCallId,
     toolName: props.toolName,
   });

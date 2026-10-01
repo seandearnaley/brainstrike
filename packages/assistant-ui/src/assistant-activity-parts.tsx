@@ -30,11 +30,13 @@ import {
   AssistantThinkingIndicator,
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
+import { CompletedSubagentCallsContext } from './completed-subagent-calls-context';
 import { ShellOutputProvider } from './shell-output-context';
 import { isSubagentDelegationToolName } from './subagent-tool-cards';
 import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { ToolDurationProvider } from './tool-duration-context';
 import { useChainActivityDerivations } from './use-chain-activity-derivations';
+import { useCompletedSubagentCalls } from './use-completed-subagent-calls';
 import {
   toolResultPartPreservesEffectsWhenHidden,
   useToolResultRenderers,
@@ -227,6 +229,7 @@ function ActivityReasoningBlock({
 interface ActivityGroupProps {
   readonly cardedCalls: ReadonlySet<string>;
   readonly children: ReactNode;
+  readonly completedCalls: ReadonlySet<string>;
   readonly indices: readonly number[];
   readonly status: MessagePartStatus | ToolCallMessagePartStatus;
 }
@@ -256,7 +259,13 @@ function toIncompleteReason(
  * the group body renders `children` directly — tool cards and reasoning
  * blocks interleaved in part order.
  */
-function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroupProps): ReactNode {
+function ActivityGroup({
+  cardedCalls,
+  completedCalls,
+  children,
+  indices,
+  status,
+}: ActivityGroupProps): ReactNode {
   const renderers = useToolResultRenderers();
   const messageParts = useAuiState((state) => state.message.parts);
   const messageId = useAuiState((state) => (state.message as { id?: string }).id ?? '');
@@ -266,7 +275,12 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
   const groupParts = useMemo(
     () =>
       indices
-        .map((index) => messageParts[index])
+        .map((index) => {
+          const part = messageParts[index];
+          return part?.type === 'tool-call' && completedCalls.has(part.toolCallId)
+            ? { ...part, status: { type: 'complete' as const } }
+            : part;
+        })
         .filter(
           (part): part is PartState =>
             part !== undefined &&
@@ -277,7 +291,7 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
               cardedCalls.has(part.toolCallId)
             )
         ),
-    [indices, messageParts, cardedCalls]
+    [indices, messageParts, cardedCalls, completedCalls]
   );
   const preserveBodyEffects = useMemo(
     () => groupParts.some((part) => toolResultPartPreservesEffectsWhenHidden(renderers, part)),
@@ -420,6 +434,7 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
  */
 export function AssistantActivityParts(): ReactNode {
   const messageParts = useAuiState((state) => state.message.parts);
+  const completedCalls = useCompletedSubagentCalls(messageParts);
   const { cardedSurfaceCalls, requests } = useAnsweredApprovals();
   const cardedCalls = useMemo(
     () => approvalCardToolCallIds(messageParts, cardedSurfaceCalls, requests),
@@ -429,50 +444,57 @@ export function AssistantActivityParts(): ReactNode {
     trailingGroupHasActivity(state.message.parts)
   );
   return (
-    <MessagePrimitive.GroupedParts<ActivityGroupKey>
-      groupBy={groupAssistantActivityPart}
-      indicator="no-text"
-    >
-      {({ children, part }) => {
-        switch (part.type) {
-          case ACTIVITY_GROUP_KEY:
-            return (
-              <ActivityGroup cardedCalls={cardedCalls} indices={part.indices} status={part.status}>
-                {children}
-              </ActivityGroup>
-            );
-          case 'text':
-            return <AssistantMessageText />;
-          case 'reasoning':
-            return <ActivityReasoningBlock part={part} />;
-          case 'tool-call':
-            if (
-              part.result === undefined &&
-              part.status.type === 'requires-action' &&
-              cardedCalls.has(part.toolCallId) &&
-              !isSubagentDelegationToolName(part.toolName)
-            ) {
+    <CompletedSubagentCallsContext value={completedCalls}>
+      <MessagePrimitive.GroupedParts<ActivityGroupKey>
+        groupBy={groupAssistantActivityPart}
+        indicator="no-text"
+      >
+        {({ children, part }) => {
+          switch (part.type) {
+            case ACTIVITY_GROUP_KEY:
+              return (
+                <ActivityGroup
+                  cardedCalls={cardedCalls}
+                  completedCalls={completedCalls}
+                  indices={part.indices}
+                  status={part.status}
+                >
+                  {children}
+                </ActivityGroup>
+              );
+            case 'text':
+              return <AssistantMessageText />;
+            case 'reasoning':
+              return <ActivityReasoningBlock part={part} />;
+            case 'tool-call':
+              if (
+                part.result === undefined &&
+                part.status.type === 'requires-action' &&
+                cardedCalls.has(part.toolCallId) &&
+                !isSubagentDelegationToolName(part.toolName)
+              ) {
+                return null;
+              }
+              return (
+                <ActivityPartLayout>
+                  {part.toolUI ?? <ActivityToolPart {...part} />}
+                </ActivityPartLayout>
+              );
+            case 'data':
+              return part.dataRendererUI;
+            case 'indicator':
+              return trailingGroupHoldsActivity ? null : (
+                <AssistantThinkingIndicator
+                  className="bs-streaming-thinking"
+                  markClassName="size-4"
+                />
+              );
+            default:
               return null;
-            }
-            return (
-              <ActivityPartLayout>
-                {part.toolUI ?? <ActivityToolPart {...part} />}
-              </ActivityPartLayout>
-            );
-          case 'data':
-            return part.dataRendererUI;
-          case 'indicator':
-            return trailingGroupHoldsActivity ? null : (
-              <AssistantThinkingIndicator
-                className="bs-streaming-thinking"
-                markClassName="size-4"
-              />
-            );
-          default:
-            return null;
-        }
-      }}
-    </MessagePrimitive.GroupedParts>
+          }
+        }}
+      </MessagePrimitive.GroupedParts>
+    </CompletedSubagentCallsContext>
   );
 }
 
