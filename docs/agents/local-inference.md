@@ -159,7 +159,7 @@ Evidence: `local-inference/embedding-queue-load-verification.md`.
 - Never overlap indexing and foreground inference; FIFO generations own isolated service caches and serialize selection, initialization and generation.
   Gate only `waitForBackgroundPermit('embedding claim')`, never completion, with one host gate.
 - Failed background drain rejects before generation; `createForegroundEmbeddingGate`, `runCoordinatedQueryEmbedding` and `composeClaimPermit` share that gate.
-- Generation close fences admission, aborts the active query's public signal and joins actual inference settlement before disposal or replacement.
+- Generation close fences admission, aborts the active query's public signal and joins actual inference and owned cached-service disposal before replacement.
   Never join stale model reads, preference hydration or lightweight service initialization just to stop inference.
   Retire non-cooperative hosts through main's existing Stop (10s), shutdown (3s) and reset (30s) deadlines; never extend them.
 - Gate tests control polling/reopen with fake timers and restore timers after each case.
@@ -169,7 +169,7 @@ Evidence: `local-inference/embedding-queue-load-verification.md`.
   `performance.now()`. Wall-clock corrections must not extend either wait.
 - Keep one mounted-host query listener; retrieval/hybrid signals reach both embedding transports.
   DB-unavailable requests fail explicitly; DB/run generations own query service/activity; stale completions cannot decrement current activity.
-  Request cancellation releases main pending entries and ignores late replies; there is no per-request renderer cancel transport.
+  Request abort/timeout cancels the exact runtime/request; missing capability or notice delivery rejects explicitly. Canceled FIFO work skips preparation; active inference stays owned until settlement.
   Timeout/interruption logs include provider, stage, elapsed time; never query text, endpoints, credentials, or vectors.
 
 Evidence: `local-inference/foreground-query-coordination.md`, `local-inference/query-listener-readiness.md`, `local-inference/foreground-query-lifecycle-ownership.md`; guards: `embedding-host-foreground-ownership.test.tsx`, `embedding-host-physical-stop-ownership.test.tsx`, `embedding-host-reinitialization-readiness.test.tsx`.

@@ -236,9 +236,10 @@ describe('foreground service ownership with the real public service', () => {
     }
     expect(add).toHaveBeenCalledTimes(3);
   });
-  it.each(['before', 'after'] as const)(
-    'does not restore an old failed disposal %s a reset generation warms',
-    async (timing) => {
+
+  it.each(['model-a', 'model-b'])(
+    'joins old disposal before reset and preserves fresh %s cache ownership',
+    async (replacementModel) => {
       const { dispose, initialize } = installRealQueryService();
       await renderReady();
       expect(await send('warm-a', 'model-a')).toMatchObject({ type: 'result' });
@@ -246,11 +247,28 @@ describe('foreground service ownership with the real public service', () => {
       dispose.mockImplementationOnce(() => oldDisposal.promise);
       queryEmbeddingListenerRef.current?.(createRequest('old-switch-b', 'model-b'));
       await waitFor(() => expect(dispose).toHaveBeenCalledOnce());
-      commandListenerRef.current?.(
-        createEmbeddingHostCommand('reset', 'test-runtime', 'next-runtime')
-      );
+      try {
+        await act(async () => {
+          commandListenerRef.current?.(
+            createEmbeddingHostCommand('reset', 'test-runtime', 'next-runtime')
+          );
+        });
+        expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+        expect(initialize).toHaveBeenCalledOnce();
+        expect(dispose).toHaveBeenCalledOnce();
+      } finally {
+        oldDisposal.resolve();
+      }
       await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2));
-      const replacementModel = timing === 'before' ? 'model-a' : 'model-b';
+      await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(2));
+      expect(
+        reportQueryEmbeddingResponseMock.mock.calls.find(
+          ([report]) => report.requestId === 'old-switch-b'
+        )?.[0]
+      ).toMatchObject({
+        payload: { message: 'Embedding host query runtime is no longer available.' },
+        type: 'error',
+      });
       const sendNew = async (id: string) => {
         queryEmbeddingListenerRef.current?.({
           ...createRequest(id, replacementModel),
@@ -258,34 +276,39 @@ describe('foreground service ownership with the real public service', () => {
         });
         await waitFor(() =>
           expect(
-            reportQueryEmbeddingResponseMock.mock.calls.some(([r]) => r.requestId === id)
+            reportQueryEmbeddingResponseMock.mock.calls.some(([report]) => report.requestId === id)
           ).toBe(true)
         );
-        return reportQueryEmbeddingResponseMock.mock.calls.find(([r]) => r.requestId === id)?.[0];
+        return reportQueryEmbeddingResponseMock.mock.calls.find(
+          ([report]) => report.requestId === id
+        )?.[0];
       };
-      if (timing === 'after') {
-        expect(await sendNew('new-warm-b')).toMatchObject({ type: 'result' });
-        expect(initialize).toHaveBeenCalledTimes(2);
-      }
-      oldDisposal.reject(new Error('Old disposal rejected after reset.'));
-      await waitFor(() =>
-        expect(
-          reportQueryEmbeddingResponseMock.mock.calls.some(([r]) => r.requestId === 'old-switch-b')
-        ).toBe(true)
-      );
-      expect(
-        reportQueryEmbeddingResponseMock.mock.calls.find(
-          ([report]) => report.requestId === 'old-switch-b'
-        )?.[0]
-      ).toMatchObject({
-        payload: { message: 'Old disposal rejected after reset.' },
-        type: 'error',
-      });
-      if (timing === 'before') {
-        expect(await sendNew('new-warm-b')).toMatchObject({ type: 'result' });
-      }
-      expect(await sendNew('new-reuse-b')).toMatchObject({ type: 'result' });
+      expect(await sendNew('new-warm')).toMatchObject({ type: 'result' });
+      expect(await sendNew('new-reuse')).toMatchObject({ type: 'result' });
       expect(initialize).toHaveBeenCalledTimes(2);
+      expect(dispose).toHaveBeenCalledOnce();
     }
   );
+
+  it('joins a pending model-switch disposal before acknowledging host Stop', async () => {
+    const { dispose } = installRealQueryService();
+    await renderReady();
+    expect(await send('warm-a', 'model-a')).toMatchObject({ type: 'result' });
+    const held = Promise.withResolvers<void>();
+    dispose.mockImplementationOnce(() => held.promise);
+    queryEmbeddingListenerRef.current?.(createRequest('switch-b', 'model-b'));
+    await waitFor(() => expect(dispose).toHaveBeenCalledOnce());
+    try {
+      await act(async () => {
+        commandListenerRef.current?.(createEmbeddingHostCommand('stop', 'test-runtime'));
+      });
+      expect(reportStatusMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'stopped' })
+      );
+      expect(dispose).toHaveBeenCalledOnce();
+    } finally {
+      held.reject(new Error('Held cleanup rejected.'));
+      await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(2));
+    }
+  });
 });

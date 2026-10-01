@@ -134,6 +134,7 @@ describe('hidden preload runtime capability manifest', () => {
     expect(Object.keys(embeddingApi.vectorPreferences).sort()).toEqual(['clear', 'read', 'write']);
     expect(Object.keys(embedding.get('embeddingHost') as object).sort()).toEqual([
       'onCommand',
+      'onQueryEmbeddingCancel',
       'onQueryEmbeddingRequest',
       'reportQueryEmbeddingResponse',
       'reportStatus',

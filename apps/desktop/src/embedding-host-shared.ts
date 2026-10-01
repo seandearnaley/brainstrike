@@ -26,6 +26,7 @@ const EMBEDDING_HOST_CHANNELS = EMBEDDING_HOST_RUNTIME.createScopedChannels({
   enqueueBackfill: 'enqueue-backfill',
   getBackfillsInFlight: 'get-backfills-in-flight',
   queryEmbedding: 'query-embedding',
+  queryEmbeddingCancel: 'query-embedding-cancel',
   queryEmbeddingRequest: 'query-embedding-request',
   reportQueryEmbeddingResponse: 'report-query-embedding-response',
 });
@@ -41,6 +42,8 @@ export const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = EMBEDDING_HOST_CHANNELS.e
 export const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = EMBEDDING_HOST_CHANNELS.backfillProgress;
 export const EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT =
   EMBEDDING_HOST_CHANNELS.queryEmbeddingRequest;
+export const EMBEDDING_HOST_QUERY_EMBEDDING_CANCEL_EVENT =
+  EMBEDDING_HOST_CHANNELS.queryEmbeddingCancel;
 export const EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL =
   EMBEDDING_HOST_CHANNELS.reportQueryEmbeddingResponse;
 export const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
@@ -110,6 +113,10 @@ export type EmbeddingHostQueryEmbeddingRequest = RuntimeRequestEnvelope<
   'query-embedding',
   EmbeddingHostQueryEmbeddingPayload
 >;
+export type EmbeddingHostQueryEmbeddingCancel = RuntimeRequestEnvelope<
+  'query-embedding-cancel',
+  Record<string, never>
+>;
 export type EmbeddingHostQueryEmbeddingResultReport = RuntimeResultEnvelope<
   'query-embedding-result',
   { readonly embedding: number[] }
@@ -118,6 +125,43 @@ export type EmbeddingHostQueryEmbeddingErrorReport = RuntimeErrorEnvelope<'query
 export type EmbeddingHostQueryEmbeddingResponseReport =
   | EmbeddingHostQueryEmbeddingErrorReport
   | EmbeddingHostQueryEmbeddingResultReport;
+
+export function createEmbeddingHostQueryEmbeddingCancel(
+  request: EmbeddingHostQueryEmbeddingRequest
+): EmbeddingHostQueryEmbeddingCancel {
+  return {
+    channel: 'query-embedding-cancel',
+    payload: {},
+    requestId: request.requestId,
+    runtimeId: request.runtimeId,
+    type: 'request',
+  };
+}
+
+export function assertEmbeddingHostQueryEmbeddingCancel(
+  value: unknown
+): EmbeddingHostQueryEmbeddingCancel {
+  const { envelopeBase, payload } = assertRuntimeObjectPayloadEnvelope(
+    value,
+    'Embedding host query cancellation'
+  );
+  if (
+    envelopeBase.type !== 'request' ||
+    envelopeBase.channel !== 'query-embedding-cancel' ||
+    Object.keys(payload).length !== 0
+  ) {
+    throw new Error(
+      'Embedding host query cancellation must be a query-embedding-cancel request with an empty payload.'
+    );
+  }
+  return {
+    channel: 'query-embedding-cancel',
+    payload: {},
+    requestId: envelopeBase.requestId,
+    runtimeId: envelopeBase.runtimeId,
+    type: 'request',
+  };
+}
 
 export const EMBEDDING_HOST_STOPPED_RUNTIME_ID = EMBEDDING_HOST_RUNTIME.stoppedRuntimeId;
 

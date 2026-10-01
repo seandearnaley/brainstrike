@@ -24,7 +24,6 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { type MutableRefObject, useEffect, useRef } from 'react';
 import {
-  assertEmbeddingHostQueryEmbeddingRequest,
   createEmbeddingHostQueryEmbeddingErrorReport,
   createEmbeddingHostQueryEmbeddingResultReport,
   type EmbeddingHostQueryEmbeddingRequest,
@@ -41,16 +40,15 @@ import {
 import {
   createEmbeddingHostCommandHandler,
   createEmbeddingHostLifecycleFailureHandler,
-  createQueryEmbeddingRequestParseErrorReport,
   runEmbeddingHostCleanupStep,
 } from './embedding-host-lifecycle';
+import { subscribeQueryEmbeddingRequests } from './embedding-host-query-listener';
 import { loadQueryEmbeddingModelConfig } from './embedding-host-query-model';
 import {
   closeQueryEmbeddingRuntimeOwner,
   createQueryEmbeddingRuntimeOwner,
-  enqueueQueryEmbeddingOperation,
+  disposeQueryEmbeddingService,
   type QueryEmbeddingRuntimeOwner,
-  type QueryEmbeddingServiceState,
   runOwnedQueryEmbeddingInference,
 } from './embedding-host-query-owner';
 import { startEmbeddingTelemetryReporter } from './embedding-telemetry-reporter';
@@ -94,20 +92,20 @@ async function stopEmbeddingHostAfterRestartLimit(options: {
     options;
   const closeQueries = closeQueryEmbeddingRuntimeOwner(queryOwner);
   let lastError = terminalError;
-  if (controller) {
-    try {
-      await controller.stop();
-    } catch (error) {
-      lastError = `${terminalError}; worker stop failed: ${error instanceof Error ? error.message : String(error)}`;
-      logger.error('Embedding host worker stop after restart limit failed', {
-        error: error instanceof Error ? error.message : String(error),
-        runtimeId: runtimeIdRef.current,
-      });
-    }
+  const [workerStop, queryClose] = await Promise.allSettled([controller?.stop(), closeQueries]);
+  if (workerStop.status === 'rejected') {
+    const error: unknown = workerStop.reason;
+    lastError = `${terminalError}; worker stop failed: ${error instanceof Error ? error.message : String(error)}`;
+    logger.error('Embedding host worker stop after restart limit failed', {
+      error: error instanceof Error ? error.message : String(error),
+      runtimeId: runtimeIdRef.current,
+    });
   }
-  await closeQueries;
   try {
-    await disposeQueryEmbeddingService(runtimeIdRef, queryOwner.serviceStateRef);
+    if (queryClose.status === 'rejected') {
+      throw queryClose.reason;
+    }
+    await disposeQueryEmbeddingService(runtimeIdRef, queryOwner);
   } catch (error) {
     lastError = `${lastError}; query service disposal failed: ${error instanceof Error ? error.message : String(error)}`;
   }
@@ -237,28 +235,6 @@ function assertEmbeddingResultDimensions(
   );
 }
 
-async function disposeQueryEmbeddingService(
-  runtimeIdRef: MutableRefObject<string>,
-  serviceStateRef: MutableRefObject<QueryEmbeddingServiceState | null>
-): Promise<void> {
-  const state = serviceStateRef.current;
-  serviceStateRef.current = null;
-  if (!state) {
-    return;
-  }
-  try {
-    await state.service.dispose();
-  } catch (error) {
-    serviceStateRef.current = state;
-    logger.warn('Failed to dispose local query embedding service', {
-      error: error instanceof Error ? error.message : String(error),
-      modelKey: state.modelKey,
-      runtimeId: runtimeIdRef.current,
-    });
-    throw error;
-  }
-}
-
 function assertQueryEmbeddingRuntimeCurrent(isCurrent: () => boolean): void {
   if (!isCurrent()) {
     throw new Error('Embedding host query runtime is no longer available.');
@@ -271,8 +247,10 @@ async function getQueryEmbeddingService(
   runtimeIdRef: MutableRefObject<string>,
   owner: QueryEmbeddingRuntimeOwner,
   isCurrent: () => boolean,
-  onServiceDisposalFailure: (error: unknown) => void
+  onServiceDisposalFailure: (error: unknown) => void,
+  signal: AbortSignal
 ): Promise<SimpleEmbeddingService> {
+  signal.throwIfAborted();
   const serviceStateRef = owner.serviceStateRef;
   assertQueryEmbeddingRuntimeCurrent(isCurrent);
   const existing = serviceStateRef.current;
@@ -280,7 +258,7 @@ async function getQueryEmbeddingService(
     return existing.service;
   }
   try {
-    await disposeQueryEmbeddingService(runtimeIdRef, serviceStateRef);
+    await disposeQueryEmbeddingService(runtimeIdRef, owner);
   } catch (error) {
     const current = isCurrent();
     owner.closed = true;
@@ -290,10 +268,13 @@ async function getQueryEmbeddingService(
     throw error;
   }
   assertQueryEmbeddingRuntimeCurrent(isCurrent);
+  signal.throwIfAborted();
   const modelConfig = await loadQueryEmbeddingModelConfig(db, request);
   assertQueryEmbeddingRuntimeCurrent(isCurrent);
+  signal.throwIfAborted();
   const hydratedDevicePref = await resolveHydratedVectorDevicePreference();
   assertQueryEmbeddingRuntimeCurrent(isCurrent);
+  signal.throwIfAborted();
   const service = new SimpleEmbeddingService({
     streamingWorkerUrl: resolveViteEmbeddingWorkerUrlHref(),
   });
@@ -306,6 +287,7 @@ async function getQueryEmbeddingService(
     modelKey: request.payload.modelKey,
     service,
   };
+  signal.throwIfAborted();
   return service;
 }
 
@@ -317,6 +299,7 @@ async function handleQueryEmbeddingRequest(options: {
   readonly gate: ForegroundEmbeddingGate;
   readonly isCurrent: () => boolean;
   readonly queryOwner: QueryEmbeddingRuntimeOwner;
+  readonly signal: AbortSignal;
   readonly queryEmbeddingActiveCountRef: MutableRefObject<number>;
   readonly request: EmbeddingHostQueryEmbeddingRequest;
   readonly runtimeIdRef: MutableRefObject<string>;
@@ -329,6 +312,7 @@ async function handleQueryEmbeddingRequest(options: {
     gate,
     isCurrent,
     queryOwner,
+    signal,
     queryEmbeddingActiveCountRef,
     request,
     runtimeIdRef,
@@ -340,6 +324,7 @@ async function handleQueryEmbeddingRequest(options: {
     embeddingRuntime: embeddingRuntimeRef.current,
   });
   try {
+    signal.throwIfAborted();
     if (fatalErrorRef.current) {
       throw new Error(fatalErrorRef.current);
     }
@@ -365,13 +350,18 @@ async function handleQueryEmbeddingRequest(options: {
               embeddingRuntime: embeddingRuntimeRef.current,
               lastError: message,
             });
-          }
+          },
+          signal
         );
         assertQueryEmbeddingRuntimeCurrent(isCurrent);
-        const generated = await runOwnedQueryEmbeddingInference(queryOwner, (signal) =>
-          service.generateQueryEmbedding(request.payload.query, { signal })
+        const generated = await runOwnedQueryEmbeddingInference(
+          queryOwner,
+          (inferenceSignal) =>
+            service.generateQueryEmbedding(request.payload.query, { signal: inferenceSignal }),
+          signal
         );
         assertQueryEmbeddingRuntimeCurrent(isCurrent);
+        signal.throwIfAborted();
         assertEmbeddingResultDimensions(request, generated);
         if (generated.runtime) {
           const selectedDevicePreference =
@@ -394,6 +384,7 @@ async function handleQueryEmbeddingRequest(options: {
           runtimeId: request.runtimeId,
         });
       },
+      signal,
     });
     reportQueryEmbeddingResponse(
       createEmbeddingHostQueryEmbeddingResultReport(request, result.embedding)
@@ -686,19 +677,21 @@ export function EmbeddingHostRuntime(): null {
           reportRuntimeId,
           runtimeId: runtimeIdRef.current,
         });
-        if (startPromiseRef.current) {
-          await startPromiseRef.current;
-        }
-        const controller = controllerRef.current;
-        controllerRef.current = null;
-        fatalErrorRef.current = null;
-        activeRef.current = false;
-        queryEmbeddingActiveCountRef.current = 0;
-        if (controller) {
-          await controller.stop();
-        }
-        await closeQueries;
-        await disposeQueryEmbeddingService(runtimeIdRef, stoppingQueryOwner.serviceStateRef);
+        await Promise.all([
+          closeQueries,
+          (async () => {
+            if (startPromiseRef.current) {
+              await startPromiseRef.current;
+            }
+            const controller = controllerRef.current;
+            controllerRef.current = null;
+            fatalErrorRef.current = null;
+            activeRef.current = false;
+            queryEmbeddingActiveCountRef.current = 0;
+            await controller?.stop();
+          })(),
+        ]);
+        await disposeQueryEmbeddingService(runtimeIdRef, stoppingQueryOwner);
         if (disposed) {
           return;
         }
@@ -851,56 +844,11 @@ export function EmbeddingHostRuntime(): null {
     };
   }, [db]);
 
-  useEffect(() => {
-    const unsubscribeQueryEmbedding = getEmbeddingHostBridge()?.onQueryEmbeddingRequest?.(
-      (rawRequest) => {
-        let request: EmbeddingHostQueryEmbeddingRequest;
-        try {
-          request = assertEmbeddingHostQueryEmbeddingRequest(rawRequest);
-        } catch (error) {
-          const response = createQueryEmbeddingRequestParseErrorReport(rawRequest, error);
-          logger.error('Rejected invalid embedding host query embedding request', {
-            error: error instanceof Error ? error.message : String(error),
-            requestId: response?.requestId ?? null,
-            runtimeId: response?.runtimeId ?? null,
-          });
-          if (response) {
-            reportQueryEmbeddingResponse(response);
-          }
-          return;
-        }
-        const queryOwner = queryEmbeddingOwnerRef.current;
-        if (
-          !queryOwner ||
-          queryOwner.closed ||
-          stoppedByCommandRef.current ||
-          stopPromiseRef.current ||
-          request.runtimeId !== runtimeIdRef.current
-        ) {
-          reportQueryEmbeddingResponse(
-            createEmbeddingHostQueryEmbeddingErrorReport(
-              request,
-              new Error('Embedding host query runtime is unavailable.')
-            )
-          );
-          return;
-        }
-        const isCurrent = (): boolean =>
-          queryEmbeddingOwnerRef.current === queryOwner &&
-          !queryOwner.closed &&
-          !stoppedByCommandRef.current &&
-          request.runtimeId === runtimeIdRef.current;
-        void enqueueQueryEmbeddingOperation(queryOwner, async () => {
-          if (!isCurrent()) {
-            reportQueryEmbeddingResponse(
-              createEmbeddingHostQueryEmbeddingErrorReport(
-                request,
-                new Error('Embedding host query runtime is no longer available.')
-              )
-            );
-            return;
-          }
-          await handleQueryEmbeddingRequest({
+  useEffect(
+    () =>
+      subscribeQueryEmbeddingRequests({
+        handle: ({ queryOwner, request, signal, isCurrent }) =>
+          handleQueryEmbeddingRequest({
             activeRef,
             db: queryOwner.db,
             embeddingRuntimeRef,
@@ -911,26 +859,14 @@ export function EmbeddingHostRuntime(): null {
             queryOwner,
             request,
             runtimeIdRef,
-          });
-        }).catch((error: unknown) => {
-          logger.error('Unhandled embedding host query embedding request failure', {
-            error,
-            requestId: request.requestId,
-          });
-        });
-      }
-    );
-
-    return () => {
-      runEmbeddingHostCleanupStep(
+            signal,
+          }),
+        isStopping: () => stoppedByCommandRef.current || stopPromiseRef.current !== null,
+        ownerRef: queryEmbeddingOwnerRef,
         runtimeIdRef,
-        'Embedding host query embedding cleanup failed',
-        () => {
-          unsubscribeQueryEmbedding?.();
-        }
-      );
-    };
-  }, []);
+      }),
+    []
+  );
 
   useEffect(() => {
     let disposed = false;

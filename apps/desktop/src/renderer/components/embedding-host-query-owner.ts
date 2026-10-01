@@ -1,7 +1,10 @@
 import type { usePGliteDatabase } from '@brainstrike/db/react';
 import type { EmbeddingResult } from '@brainstrike/embeddings';
 import type { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
+import { createLogger } from '@brainstrike/logging';
 import type { MutableRefObject } from 'react';
+
+const logger = createLogger('EmbeddingHostRuntime');
 
 export interface QueryEmbeddingServiceState {
   readonly modelKey: string;
@@ -16,9 +19,11 @@ interface QueryEmbeddingStateRefs {
 export interface QueryEmbeddingRuntimeOwner extends QueryEmbeddingStateRefs {
   closed: boolean;
   readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
+  readonly disposalRef: MutableRefObject<Promise<void> | null>;
   readonly executionTailRef: MutableRefObject<Promise<void>>;
   readonly inferenceController: AbortController;
   readonly inferenceRef: MutableRefObject<Promise<EmbeddingResult> | null>;
+  readonly requests: Map<string, AbortController>;
 }
 
 export function createQueryEmbeddingRuntimeOwner(
@@ -29,9 +34,11 @@ export function createQueryEmbeddingRuntimeOwner(
     activeCountRef,
     closed: false,
     db,
+    disposalRef: { current: null },
     executionTailRef: { current: Promise.resolve() },
     inferenceController: new AbortController(),
     inferenceRef: { current: null },
+    requests: new Map(),
     serviceStateRef: { current: null },
   };
 }
@@ -52,12 +59,17 @@ export function enqueueQueryEmbeddingOperation(
 /** The public queue signal requests cancellation; ownership lasts until actual settlement. */
 export async function runOwnedQueryEmbeddingInference(
   owner: QueryEmbeddingRuntimeOwner,
-  generate: (signal: AbortSignal) => Promise<EmbeddingResult>
+  generate: (signal: AbortSignal) => Promise<EmbeddingResult>,
+  requestSignal?: AbortSignal
 ): Promise<EmbeddingResult> {
   if (owner.closed) {
     throw new Error('Embedding host query runtime is no longer available.');
   }
-  const inference = generate(owner.inferenceController.signal);
+  const signal = requestSignal
+    ? AbortSignal.any([owner.inferenceController.signal, requestSignal])
+    : owner.inferenceController.signal;
+  signal.throwIfAborted();
+  const inference = generate(signal);
   owner.inferenceRef.current = inference;
   try {
     return await inference;
@@ -68,17 +80,58 @@ export async function runOwnedQueryEmbeddingInference(
   }
 }
 
-/** Fence preparation immediately, but join only inference that already owns execution. */
+/** Fence preparation immediately, joining only owned inference and cached-service disposal. */
 export async function closeQueryEmbeddingRuntimeOwner(
   owner: QueryEmbeddingRuntimeOwner
 ): Promise<void> {
   owner.closed = true;
   owner.inferenceController.abort();
+  for (const controller of owner.requests.values()) {
+    controller.abort();
+  }
+  owner.requests.clear();
   const inference = owner.inferenceRef.current;
   if (inference) {
     await inference.then(
       () => undefined,
       () => undefined
     );
+  }
+  await owner.disposalRef.current;
+}
+
+/** Keep the cached service reachable until disposal settles; never retry a failed disposal. */
+export async function disposeQueryEmbeddingService(
+  runtimeIdRef: MutableRefObject<string>,
+  owner: QueryEmbeddingRuntimeOwner
+): Promise<void> {
+  if (owner.disposalRef.current) {
+    await owner.disposalRef.current;
+    return;
+  }
+  const serviceStateRef = owner.serviceStateRef;
+  const state = serviceStateRef.current;
+  if (!state) {
+    return;
+  }
+  const disposal = (async () => {
+    try {
+      await state.service.dispose();
+    } catch (error) {
+      logger.warn('Failed to dispose local query embedding service', {
+        error: error instanceof Error ? error.message : String(error),
+        modelKey: state.modelKey,
+        runtimeId: runtimeIdRef.current,
+      });
+      throw error;
+    }
+    if (serviceStateRef.current === state) {
+      serviceStateRef.current = null;
+    }
+  })();
+  owner.disposalRef.current = disposal;
+  await disposal;
+  if (owner.disposalRef.current === disposal) {
+    owner.disposalRef.current = null;
   }
 }

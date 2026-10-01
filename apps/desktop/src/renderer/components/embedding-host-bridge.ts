@@ -1,6 +1,7 @@
 import type { MutableRefObject } from 'react';
 import type {
   EmbeddingHostCommand,
+  EmbeddingHostQueryEmbeddingCancel,
   EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostQueryEmbeddingResponseReport,
   EmbeddingHostStatus,
@@ -12,6 +13,9 @@ import {
 
 export function getEmbeddingHostBridge(): {
   onCommand?: (callback: (command: EmbeddingHostCommand) => void) => () => void;
+  onQueryEmbeddingCancel?: (
+    callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void
+  ) => () => void;
   onQueryEmbeddingRequest?: (
     callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
   ) => () => void;
@@ -21,6 +25,9 @@ export function getEmbeddingHostBridge(): {
   const hostWindow = window as Window & {
     embeddingHost?: {
       onCommand?: (callback: (command: EmbeddingHostCommand) => void) => () => void;
+      onQueryEmbeddingCancel?: (
+        callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void
+      ) => () => void;
       onQueryEmbeddingRequest?: (
         callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
       ) => () => void;

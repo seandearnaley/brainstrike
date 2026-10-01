@@ -25,6 +25,8 @@ type ChunkingHostStatus = import('./chunking-host-shared').ChunkingHostStatus;
 type EmbeddingHostCommand = import('./embedding-host-shared').EmbeddingHostCommand;
 type EmbeddingHostQueryEmbeddingRequest =
   import('./embedding-host-shared').EmbeddingHostQueryEmbeddingRequest;
+type EmbeddingHostQueryEmbeddingCancel =
+  import('./embedding-host-shared').EmbeddingHostQueryEmbeddingCancel;
 type EmbeddingHostQueryEmbeddingResponseReport =
   import('./embedding-host-shared').EmbeddingHostQueryEmbeddingResponseReport;
 type EmbeddingHostStatus = import('./embedding-host-shared').EmbeddingHostStatus;
@@ -125,6 +127,8 @@ function exposeEmbeddingHostBridge(): void {
   const embeddingHost = {
     onCommand: (callback: (command: EmbeddingHostCommand) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.command, callback),
+    onQueryEmbeddingCancel: (callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void) =>
+      subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingCancel, callback),
     onQueryEmbeddingRequest: (callback: (request: EmbeddingHostQueryEmbeddingRequest) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingRequest, callback),
     reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport): void => {

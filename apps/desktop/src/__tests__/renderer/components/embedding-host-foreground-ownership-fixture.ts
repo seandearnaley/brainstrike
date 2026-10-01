@@ -3,6 +3,7 @@ import { beforeEach, vi } from 'vitest';
 
 const {
   commandListenerRef,
+  queryEmbeddingCancelListenerRef,
   currentDbRef,
   dbHandle,
   embeddingCacheRepository,
@@ -48,6 +49,7 @@ const {
   })),
   getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),
   initializeWithModelMock: vi.fn(async () => {}),
+  queryEmbeddingCancelListenerRef: { current: null as null | ((notice: unknown) => void) },
   queryEmbeddingListenerRef: {
     current: null as null | ((request: unknown) => void),
   },
@@ -196,6 +198,12 @@ export function installEmbeddingHostRuntimeFixture(): void {
             commandListenerRef.current = null;
           };
         },
+        onQueryEmbeddingCancel: (callback: (notice: unknown) => void) => {
+          queryEmbeddingCancelListenerRef.current = callback;
+          return () => {
+            queryEmbeddingCancelListenerRef.current = null;
+          };
+        },
         onQueryEmbeddingRequest: (callback: (request: unknown) => void) => {
           queryEmbeddingListenerRef.current = callback;
           return () => {
@@ -232,6 +240,7 @@ export {
   getEmbeddingQueueMock,
   hostWindow,
   initializeWithModelMock,
+  queryEmbeddingCancelListenerRef,
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
