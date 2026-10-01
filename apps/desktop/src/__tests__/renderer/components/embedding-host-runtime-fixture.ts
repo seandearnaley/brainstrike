@@ -214,6 +214,7 @@ export function installEmbeddingHostRuntimeFixture(): void {
             commandListenerRef.current = null;
           };
         },
+        onQueryEmbeddingCancel: () => () => {},
         onQueryEmbeddingRequest: (callback: (request: unknown) => void) => {
           queryEmbeddingListenerRef.current = callback;
           return () => {

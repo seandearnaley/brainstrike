@@ -114,6 +114,7 @@ export const DESKTOP_IPC_CHANNELS = {
     getBackfillsInFlight: 'embedding-host:get-backfills-in-flight',
     getStatus: 'embedding-host:get-status',
     queryEmbedding: 'embedding-host:query-embedding',
+    queryEmbeddingCancel: 'embedding-host:query-embedding-cancel',
     queryEmbeddingRequest: 'embedding-host:query-embedding-request',
     reportQueryEmbeddingResponse: 'embedding-host:report-query-embedding-response',
     reportStatus: 'embedding-host:report-status',

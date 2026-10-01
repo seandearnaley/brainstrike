@@ -25,6 +25,7 @@ import type {
   EmbeddingHostBackfillProgress,
   EmbeddingHostBackfillRequest,
   EmbeddingHostCommand,
+  EmbeddingHostQueryEmbeddingCancel,
   EmbeddingHostQueryEmbeddingPayload,
   EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostQueryEmbeddingResponseReport,
@@ -189,6 +190,9 @@ export interface VisibleEmbeddingHostBridge {
   getStatus: () => Promise<EmbeddingHostStatus>;
   onBackfillProgress: (callback: (progress: EmbeddingHostBackfillProgress) => void) => () => void;
   onCommand: (callback: (command: EmbeddingHostCommand) => void) => () => void;
+  onQueryEmbeddingCancel: (
+    callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void
+  ) => () => void;
   onQueryEmbeddingRequest: (
     callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
   ) => () => void;
@@ -202,7 +206,11 @@ export interface VisibleEmbeddingHostBridge {
 
 export type EmbeddingHostRuntimeBridge = Pick<
   VisibleEmbeddingHostBridge,
-  'onCommand' | 'onQueryEmbeddingRequest' | 'reportQueryEmbeddingResponse' | 'reportStatus'
+  | 'onCommand'
+  | 'onQueryEmbeddingRequest'
+  | 'onQueryEmbeddingCancel'
+  | 'reportQueryEmbeddingResponse'
+  | 'reportStatus'
 >;
 
 export interface VisibleDesktopCapabilities {

@@ -1,13 +1,43 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   assertEmbeddingHostCommand,
+  assertEmbeddingHostQueryEmbeddingCancel,
   assertEmbeddingHostStatus,
   createEmbeddingHostCommand,
+  createEmbeddingHostQueryEmbeddingCancel,
+  createEmbeddingHostQueryEmbeddingRequest,
 } from '../embedding-host-shared';
 
 describe('embedding host shared command helpers', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('carries only exact request and runtime identity in a cancellation notice', () => {
+    const request = createEmbeddingHostQueryEmbeddingRequest('runtime-a', {
+      dimensions: 2,
+      modelId: 'model-a',
+      modelKey: 'local:model-a',
+      query: 'private query content',
+    });
+    const notice = createEmbeddingHostQueryEmbeddingCancel(request);
+    expect(assertEmbeddingHostQueryEmbeddingCancel(notice)).toEqual({
+      channel: 'query-embedding-cancel',
+      payload: {},
+      requestId: request.requestId,
+      runtimeId: request.runtimeId,
+      type: 'request',
+    });
+    expect(JSON.stringify(notice)).not.toContain(request.payload.query);
+    for (const invalid of [
+      { ...notice, payload: { query: request.payload.query } },
+      { ...notice, type: 'result' },
+      { ...notice, channel: 'query-embedding' },
+      { ...notice, runtimeId: '' },
+      { ...notice, requestId: '' },
+    ]) {
+      expect(() => assertEmbeddingHostQueryEmbeddingCancel(invalid)).toThrow();
+    }
   });
 
   it('preserves exact control acknowledgement identity and rejects malformed identities', () => {

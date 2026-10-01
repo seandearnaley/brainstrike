@@ -83,6 +83,7 @@ import type {
   EmbeddingHostBackfillProgress,
   EmbeddingHostBackfillRequest,
   EmbeddingHostCommand,
+  EmbeddingHostQueryEmbeddingCancel,
   EmbeddingHostQueryEmbeddingPayload,
   EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostQueryEmbeddingResponseReport,
@@ -777,6 +778,13 @@ const embeddingHost = {
     return () => {
       ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.embeddingHost.command, listener);
     };
+  },
+  onQueryEmbeddingCancel: (callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void) => {
+    const listener = (_event: unknown, notice: EmbeddingHostQueryEmbeddingCancel) =>
+      callback(notice);
+    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingCancel, listener);
+    return () =>
+      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingCancel, listener);
   },
   onQueryEmbeddingRequest: (callback: (request: EmbeddingHostQueryEmbeddingRequest) => void) => {
     const listener = (_event: unknown, request: EmbeddingHostQueryEmbeddingRequest) =>

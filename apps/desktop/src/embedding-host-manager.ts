@@ -7,9 +7,11 @@ import { createRuntimeId, deserializeRuntimeError } from '@brainstrike/worker-ru
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import {
   createEmbeddingHostCommand,
+  createEmbeddingHostQueryEmbeddingCancel,
   createEmbeddingHostQueryEmbeddingRequest,
   createStoppedEmbeddingHostStatus,
   EMBEDDING_HOST_COMMAND_EVENT,
+  EMBEDDING_HOST_QUERY_EMBEDDING_CANCEL_EVENT,
   EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT,
   EMBEDDING_HOST_STATUS_ADAPTER,
   EMBEDDING_HOST_STATUS_EVENT,
@@ -96,13 +98,21 @@ export class EmbeddingHostManager {
       EmbeddingHostQueryEmbeddingRequest,
       EmbeddingHostQueryEmbeddingResponseReport
     >({
-      onTimeout: (_request, context) => {
+      onAbort: (request, { reason, requestId }) => {
+        this.cancelQueryEmbeddingRequest(request);
+        return reason instanceof Error
+          ? reason
+          : new Error(`Embedding host request ${requestId} was aborted.`);
+      },
+      onTimeout: (request, context) => {
         logger.warn('Embedding host query timed out', {
+          elapsedMs: Math.max(0, context.timedOutAt - context.startedAt),
           pendingCount: context.pendingCount,
           provider: 'local',
           stage: 'host-response',
           timeoutMs: context.timeoutMs,
         });
+        this.cancelQueryEmbeddingRequest(request);
         return {
           error: new Error(
             `Embedding host request ${context.requestId} timed out after ${context.timeoutMs}ms.`
@@ -291,6 +301,7 @@ export class EmbeddingHostManager {
       }
       return status;
     } catch (error) {
+      this.lifecycle.destroyHostWindow();
       const message = error instanceof Error ? error.message : String(error);
       this.lifecycle.setStatus(
         EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
@@ -362,6 +373,17 @@ export class EmbeddingHostManager {
       throw deserializeRuntimeError(report.payload);
     }
     return report.payload.embedding;
+  }
+
+  private cancelQueryEmbeddingRequest(request: EmbeddingHostQueryEmbeddingRequest): void {
+    try {
+      this.requireHostWindow().webContents.send(
+        EMBEDDING_HOST_QUERY_EMBEDDING_CANCEL_EVENT,
+        createEmbeddingHostQueryEmbeddingCancel(request)
+      );
+    } catch (error) {
+      throw new Error('Embedding host query cancellation could not be sent.', { cause: error });
+    }
   }
 
   private requireHostWindow(): BrowserWindow {
