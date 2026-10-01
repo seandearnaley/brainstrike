@@ -277,6 +277,8 @@ function ActivityGroup({
       indices
         .map((index) => {
           const part = messageParts[index];
+          // Display-only completion: retain the original result/error/timing and
+          // let the other activity parts keep their running/incomplete reasons.
           return part?.type === 'tool-call' && completedCalls.has(part.toolCallId)
             ? { ...part, status: { type: 'complete' as const } }
             : part;
@@ -434,7 +436,7 @@ function ActivityGroup({
  */
 export function AssistantActivityParts(): ReactNode {
   const messageParts = useAuiState((state) => state.message.parts);
-  const completedCalls = useCompletedSubagentCalls(messageParts);
+  const completedCalls = useCompletedSubagentCalls();
   const { cardedSurfaceCalls, requests } = useAnsweredApprovals();
   const cardedCalls = useMemo(
     () => approvalCardToolCallIds(messageParts, cardedSurfaceCalls, requests),

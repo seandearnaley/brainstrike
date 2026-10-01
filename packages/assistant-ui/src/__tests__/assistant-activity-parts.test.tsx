@@ -125,6 +125,75 @@ describe('AssistantActivityParts (hydrated messages)', () => {
     expect(group.contains(text)).toBe(false);
   });
 
+  it('projects a resultless finished delegation without losing sibling errors or recorded duration', async () => {
+    const owner = (kind: string) => ({
+      data: {
+        id: kind,
+        kind,
+        label: 'Explorer',
+        metadata: {
+          parentRuntimeRunId: 'native-one',
+          parentToolCallId: 'delegate',
+          personaId: 'explore',
+          toolName: 'agent-explore',
+        },
+        status: kind === 'subagent.finished' ? 'completed' : 'running',
+        timestamp: '2026-10-01T00:40:00Z',
+      },
+      name: 'brainstrike.run-event' as const,
+      type: 'data' as const,
+    });
+    render(
+      <Harness
+        adapter={neverRun}
+        initialMessages={[
+          {
+            content: [
+              {
+                args: {},
+                argsText: '{}',
+                toolCallId: 'delegate',
+                toolName: 'agent-explore',
+                type: 'tool-call',
+              },
+              owner('subagent.started'),
+              runEventPart({
+                id: 'sibling-start',
+                kind: 'tool.started',
+                status: 'running',
+                timestamp: '2026-10-01T00:40:01Z',
+                toolCallId: 'sibling',
+              }),
+              tool('sibling', { isError: true, result: { error: 'Recorded sibling failure' } }),
+              runEventPart({
+                id: 'sibling-end',
+                kind: 'tool.failed',
+                status: 'failed',
+                timestamp: '2026-10-01T00:40:03Z',
+                toolCallId: 'sibling',
+              }),
+            ],
+            role: 'assistant',
+            status: { reason: 'interrupt', type: 'requires-action' },
+          },
+          {
+            content: [owner('subagent.finished')],
+            role: 'assistant',
+            status: { reason: 'stop', type: 'complete' },
+          },
+        ]}
+      />
+    );
+    const group = await screen.findByTestId('assistant-activity-group');
+    expect(group).toHaveAttribute('data-active', 'false');
+    expect(group).toHaveAttribute('data-failed-steps', '1');
+    expect(group).toHaveTextContent('Worked for 2.0s');
+    expect(group).toHaveTextContent('1 failed');
+    await userEvent.click(within(group).getByTestId('assistant-activity-summary'));
+    expect(within(group).getByText('Explorer finished')).toBeInTheDocument();
+    expect(within(group).getByText(/Recorded sibling failure/)).toBeInTheDocument();
+  });
+
   // The WRAPPER half of the part-level `isError` forward (Task 6 review,
   // Important 2). `subagent-execution-card.test.tsx` pins the presentational
   // card's reading of the flag by handing it the prop directly; nothing pinned

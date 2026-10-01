@@ -809,7 +809,7 @@ The library's legacy `components.ChainOfThought` path is gone and must not retur
   context-breakdown and child-run-usage are transparent; tool-approval /
   tool-suspend cards, `text` and unknown data parts are standalone, because a
   pause is a real boundary.
-- Replace duplicate pause chrome by exact host timeline/call or a same-message answer matching full identity; retain running/results.
+- Replace duplicate pause chrome by exact host timeline/call or a same-message host answer matching its original card's full native/continuation/ancestry identity; retain running/results.
   Settle old delegated pauses only on an exact native parent-run/call/tool terminal event; see `assistant-runtime/completed-delegation-history.md`.
 - MCP-app tool calls stay inside the group: Brainstrike detects apps by RESULT
   shape only, and a call must not change groups when its result lands.

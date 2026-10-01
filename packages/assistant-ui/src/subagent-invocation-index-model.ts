@@ -193,6 +193,18 @@ export function createSubagentInvocationIndex(options?: {
   const snapshots = new Map<string, SubagentInvocationSnapshot>();
   const listeners = new Map<string, Set<() => void>>();
 
+  const subscribeKey = (key: string, listener: () => void): (() => void) => {
+    const owners = listeners.get(key) ?? new Set<() => void>();
+    owners.add(listener);
+    listeners.set(key, owners);
+    return () => {
+      owners.delete(listener);
+      if (owners.size === 0) {
+        listeners.delete(key);
+      }
+    };
+  };
+
   const publish = (ids: ReadonlySet<string>) => {
     for (const id of ids) {
       const previous = snapshots.get(id) ?? EMPTY_SNAPSHOT;
@@ -297,30 +309,8 @@ export function createSubagentInvocationIndex(options?: {
       return snapshots.get(JSON.stringify([parentToolCallId])) ?? EMPTY_SNAPSHOT;
     },
     subscribe(parentToolCallId, listener) {
-      const key = JSON.stringify([parentToolCallId]);
-      let own = listeners.get(key);
-      if (!own) {
-        own = new Set();
-        listeners.set(key, own);
-      }
-      own.add(listener);
-      return () => {
-        own?.delete(listener);
-        if (own?.size === 0) {
-          listeners.delete(key);
-        }
-      };
+      return subscribeKey(JSON.stringify([parentToolCallId]), listener);
     },
-    subscribeCompleted(invocationKey, listener) {
-      const owners = listeners.get(invocationKey) ?? new Set();
-      owners.add(listener);
-      listeners.set(invocationKey, owners);
-      return () => {
-        owners.delete(listener);
-        if (owners.size === 0) {
-          listeners.delete(invocationKey);
-        }
-      };
-    },
+    subscribeCompleted: subscribeKey,
   };
 }

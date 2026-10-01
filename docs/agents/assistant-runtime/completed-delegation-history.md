@@ -31,3 +31,22 @@ and replacement removes terminal evidence.
 
 Native retesting and broader performance causality remain separate qualification:
 these renderer tests do not attribute a recorded 13-second freeze to animation.
+
+The PR #3448 review identified subscription churn when public message content
+changed without changing the invocation owner. A public `useLocalRuntime`
+replacement test kept the message ID and native owner fixed through five text
+updates: before the remediation it registered six completion subscriptions;
+afterward it registers one. The selector now returns the serialized owned tuples
+from one message-local pass, so equal owners preserve subscription identity.
+Changing the native owner releases the previous subscription, replacing terminal
+history removes completion, and appending/replacing owner events in the same
+parts array remains observable. The shared keyed registration helper retains
+separate legacy call keys and full native completion keys.
+
+The display projection retains the resultless source part's `requires-action`
+status and undefined result. A real work-group assertion preserves a sibling's
+error payload, failed-step count and recorded 2.0-second duration while the
+finished delegation becomes static. Existing interrupted-group tests retain
+incomplete/cancelled trace semantics; active execution is never projected.
+The contract's same-message host-answer rule explicitly retains the original
+card's full native, continuation and ancestry identity.
