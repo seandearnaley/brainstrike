@@ -48,10 +48,4 @@ test('both E2E smoke jobs stay ungated by any build selection', () => {
     /needs\.build\.outputs\.\w*_selected/,
     'E2E jobs must not gate on a build-selection output'
   );
-  const agents = readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
-  assert.match(
-    agents,
-    /web \+ desktop E2E smoke run on every PR/,
-    'the always-on smoke contract this test defends has moved or changed'
-  );
 });

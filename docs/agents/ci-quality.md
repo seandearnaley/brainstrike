@@ -75,7 +75,6 @@ Guard: `packages/config/__tests__/vitest-browser.test.ts`.
 Delegated smoke specs stay in the PR gate, not nightly. Evidence:
 `ci-quality/workload-boundaries.md`, `ci-quality/e2e-lane-timeout-budgets.md`.
 Guard: `scripts/__tests__/unit-shard-partition.test.mjs`,
-`scripts/__tests__/ci-input-locality.test.mjs`,
 `scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs`.
 
 ### MCP verifier lanes
@@ -116,10 +115,6 @@ Guard: `scripts/__tests__/mcp-verification-ci-contract.test.mjs`,
 `scripts/__tests__/run-mcp-verification.test.mjs`.
 
 #### MCP 2026 fleet working agreements (BST-1590)
-
-This heading keeps its identifier because
-`scripts/__tests__/mcp-verification-ci-contract.test.mjs` pins it verbatim; every
-other heading drops the suffix.
 
 The WIP limit, ladder freeze, and daily status update lapsed when
 [BST-1472](https://linear.app/brainstrike/issue/BST-1472) closed (Done,

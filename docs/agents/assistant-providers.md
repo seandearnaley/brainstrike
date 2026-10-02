@@ -1627,8 +1627,7 @@ Evidence: `assistant-providers/mcp-content-port.md`,
 `assistant-providers/mcp-oauth-loopback.md`.
 Guard: `apps/desktop/src/__tests__/main/{mcp-oauth-client-provider.integration,mcp-host-runtime-oauth,mcp-server-actor}.test.ts`,
 `apps/desktop/e2e/mcp-packaged-core.desktop.test.ts` (the packaged relaunch
-proof), and `packages/mcp-test-lab/__tests__/package-contract.test.ts`, which
-pins this section's wording verbatim.
+proof).
 
 ---
 

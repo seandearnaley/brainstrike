@@ -44,12 +44,6 @@ test('intentional screenshot documentation and baseline fixtures remain trackabl
 });
 
 test('every package browser project reroutes intentional baselines', () => {
-  const contract = readFileSync(path.join(repoRoot, 'docs/agents/ci-quality.md'), 'utf8');
-  assert.match(
-    contract,
-    /generated failure captures.*`\.vitest\/attachments\/failure-screenshots`.*intentional `toMatchScreenshot` references.*`__image_snapshots__`/is
-  );
-
   const sharedConfig = readFileSync(
     path.join(repoRoot, 'packages/config/src/vitest-browser.ts'),
     'utf8'

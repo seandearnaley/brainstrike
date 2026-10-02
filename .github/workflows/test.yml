@@ -400,8 +400,7 @@ jobs:
       # with the exact base/checkout pair. Explicit SCM refs avoid Turbo's
       # inferred main~1 range, including on stacked PRs and merge commits.
       # Cross-package inputs select their actual readers without making every
-      # document a global cache dependency. ci-input-locality.test.mjs proves
-      # doc-only selection, upstream-source propagation, and partition filters.
+      # document a global cache dependency.
       # Push/manual and local checks continue to execute the complete suite.
       #
       # TURBO_TEST_MODE=unit and TEST_TIMEOUT_MULTIPLIER=2 are set EXPLICITLY
