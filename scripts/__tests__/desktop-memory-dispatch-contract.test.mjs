@@ -58,7 +58,8 @@ test('desktop workflow exposes an untruncated memory-baseline dispatch', async (
     'the reachability gate must see literal Playwright files and options in each branch'
   );
   assert.match(runStep?.run ?? '', /--max-failures=0/);
-  assert.match(runStep?.run ?? '', /--max-failures=1/);
+  // BST-1915: one failing spec stopped the nightly and hid 17 never-run specs.
+  assert.doesNotMatch(runStep?.run ?? '', /--max-failures=[1-9]/);
 });
 
 test('scheduled embedding smoke distinguishes configured WebGPU from unavailable automatic selection', async () => {

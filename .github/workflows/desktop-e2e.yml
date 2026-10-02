@@ -3,6 +3,9 @@ name: Desktop E2E
 on:
   schedule:
     - cron: '53 7 * * *'
+  pull_request:
+    branches: ['**']
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       suite:
@@ -15,8 +18,8 @@ on:
           - memory-baseline
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -34,11 +37,17 @@ env:
 
 jobs:
   desktop-full-regression:
-    name: Desktop Full Regression
+    name: Desktop Full Regression (shard ${{ matrix.shard }})
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'full'
     runs-on: ubuntu-latest
-    # 30m broad regression + 2m AI Tools nightly lane + setup/build headroom.
+    # Each shard runs half of the regression project under the lane's own 30m
+    # --global-timeout; shard 1 also runs the 2m AI Tools nightly lane.
+    # Setup/build headroom included.
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -91,18 +100,52 @@ jobs:
       # Chromium inside Electron doesn't spew `[ERROR:dbus/bus.cc:405]
       # Failed to connect to the bus` for every process. dbus-run-session
       # is provided by the `dbus` package (pre-installed on ubuntu-latest).
+      # Playwright's own --shard splits the regression project in two. pnpm
+      # appends the flag to the lane script, which must therefore end in the
+      # playwright command.
       - name: Run full desktop regression
         working-directory: apps/desktop
-        run: dbus-run-session -- pnpm run test:e2e:lane:full-regression
+        run: dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${{ matrix.shard }}/2
+
+      # The AI Tools smoke specs are excluded from the regression project, so
+      # exactly one shard runs their nightly lane. It runs only after the regression
+      # step passes: both write apps/desktop/blob-report/, which Playwright clears
+      # at start, so running it after a failure would erase the failure's traces.
+      - name: Run desktop AI Tools nightly lane
+        if: matrix.shard == 1
+        working-directory: apps/desktop
+        run: dbus-run-session -- pnpm run test:e2e:lane:tools-settings-nightly
 
       - name: Upload desktop traces
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: desktop-full-regression-test-results
+          name: desktop-full-regression-shard-${{ matrix.shard }}-test-results
           path: apps/desktop/blob-report/
           retention-days: 1
           if-no-files-found: warn
+
+  # The `Desktop Full Regression` check the ruleset will require (it names this job's
+  # `name`, so keep it exact). Fan-in over the shard matrix, like `unit` over
+  # `unit-shard` in test.yml: a matrix job's result is `success` only when every
+  # shard succeeded. It carries the shard job's own condition so it skips exactly
+  # when the shards do (a memory-baseline dispatch), and fails on anything else.
+  desktop-full-regression-gate:
+    name: Desktop Full Regression
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.suite == 'full')
+    needs: [desktop-full-regression]
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - name: Check shard results
+        env:
+          SHARD_RESULT: ${{ needs.desktop-full-regression.result }}
+        run: |
+          echo "desktop-full-regression shard result: $SHARD_RESULT"
+          if [ "$SHARD_RESULT" != "success" ]; then
+            echo "::error::Desktop full regression shards did not all succeed: $SHARD_RESULT"
+            exit 1
+          fi
 
   desktop-embedding-e2e:
     name: Desktop Embedding E2E
@@ -188,7 +231,7 @@ jobs:
               --project=regression \
               --workers=1 \
               --retries=0 \
-              --max-failures=1 \
+              --max-failures=0 \
               --global-timeout=3000000 \
               --grep="@desktop-embedding-"
           fi
@@ -204,11 +247,11 @@ jobs:
 
   notify-linear:
     name: Notify Linear
-    needs: [desktop-full-regression, desktop-embedding-e2e]
+    needs: [desktop-full-regression-gate, desktop-embedding-e2e]
     if: ${{ always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       workflow_name: ${{ github.workflow }}
-      results: desktop-full-regression=${{ needs.desktop-full-regression.result }},desktop-embedding-e2e=${{ needs.desktop-embedding-e2e.result }}
+      results: desktop-full-regression-gate=${{ needs.desktop-full-regression-gate.result }},desktop-embedding-e2e=${{ needs.desktop-embedding-e2e.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

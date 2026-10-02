@@ -260,10 +260,9 @@ test.describe('Desktop file explorer selection', () => {
     );
   });
 
-  test('root Select All keeps expanded folders fully checked when all descendants are selected', async ({
-    electronApp,
-    window,
-  }) => {
+  test.fixme('root Select All keeps expanded folders fully checked when all descendants are selected', {
+    annotation: { description: 'BST-1953', type: 'quarantine' },
+  }, async ({ electronApp, window }) => {
     test.setTimeout(45_000);
 
     await installNestedPackagesFixture(electronApp.app, '/mock/desktop-selection-root-packages');

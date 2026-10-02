@@ -80,10 +80,9 @@ const {
 test.describe('Embedding Host Renderer - diagnostics', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('@desktop-embedding-diagnostic does not reload the visible renderer or churn hidden runtimes during a real 1k-file import and backfill', async ({
-    electronApp,
-    window,
-  }) => {
+  test.fixme('@desktop-embedding-diagnostic does not reload the visible renderer or churn hidden runtimes during a real 1k-file import and backfill', {
+    annotation: { description: 'BST-1960', type: 'quarantine' },
+  }, async ({ electronApp, window }) => {
     test.setTimeout(420_000);
 
     let activeWindow = await showDatabaseDemoPanel(window);

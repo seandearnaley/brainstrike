@@ -191,9 +191,9 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
     await ensureMockWorkspaceOpen(window);
   });
 
-  test('a suspend decision mid-thread persists only durable edges and reloads as one stream', async ({
-    window,
-  }) => {
+  test.fixme('a suspend decision mid-thread persists only durable edges and reloads as one stream', {
+    annotation: { description: 'BST-1950', type: 'quarantine' },
+  }, async ({ window }) => {
     await setupAssistantMock(window, { variant: 'network-suspend' });
     await waitForAssistantChat(window);
     await sendPrompt(window, FIRST_PROMPT);

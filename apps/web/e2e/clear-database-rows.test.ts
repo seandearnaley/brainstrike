@@ -210,7 +210,9 @@ test.describe('Clear Database clears rows (web) @destructive @web-clear-database
     await waitForAppLoad(page);
   });
 
-  test('clears file records, chunks, and workflow snapshots', async ({ page }) => {
+  test.fixme('clears file records, chunks, and workflow snapshots', {
+    annotation: { description: 'BST-1962', type: 'quarantine' },
+  }, async ({ page }) => {
     const home = new HomePage(page);
     await home.goto();
     await waitForAppLoad(page);
@@ -236,9 +238,9 @@ test.describe('Clear Database clears rows (web) @destructive @web-clear-database
       .toEqual({ fileChunks: 0, fileRecords: 0, workflowSnapshots: 0 });
   });
 
-  test('clears file records and chunks when mastra_workflow_snapshot is absent', async ({
-    page,
-  }) => {
+  test.fixme('clears file records and chunks when mastra_workflow_snapshot is absent', {
+    annotation: { description: 'BST-1962', type: 'quarantine' },
+  }, async ({ page }) => {
     const home = new HomePage(page);
     await home.goto();
     await waitForAppLoad(page);

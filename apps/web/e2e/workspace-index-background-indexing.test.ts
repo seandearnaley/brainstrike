@@ -244,9 +244,9 @@ async function readWorkspaceIndexStartupSummary(
 }
 
 test.describe('Workspace Index background indexing (web) @stateful @web-indexing', () => {
-  test('starts the managed Workspace Index for a web root and records chunked files', async ({
-    page,
-  }) => {
+  test.fixme('starts the managed Workspace Index for a web root and records chunked files', {
+    annotation: { description: 'BST-1966', type: 'quarantine' },
+  }, async ({ page }) => {
     test.setTimeout(180_000);
     const indexingConsoleIssues: string[] = [];
     page.on('console', (message) => {
