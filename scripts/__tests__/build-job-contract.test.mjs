@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { buildPlan } from '../check.mjs';
 
 /**
  * BST-1005 (R09): the Build job's invocation contract.
@@ -37,11 +38,8 @@ test('Build reports every independent failure in one run', () => {
   assert.match(workflow(), /--continue=dependencies-successful/);
 });
 
-test('both E2E smoke jobs stay ungated by any build selection', () => {
-  // AGENTS.md's CI contract: "web + desktop E2E smoke run on every PR", and
-  // audit-bolt-readiness.mjs counts a SKIPPED required check as not-ready. A
-  // selection-based gate on these jobs would violate both, and would save at
-  // most one package anyway — the web+desktop dependency closure is 46 of 47.
+test('local validation preserves every smoke lane while cloud CI stays disabled', () => {
+  // The retained definition documents the lane, not permission to run it.
   const source = workflow();
   assert.doesNotMatch(
     source,
@@ -51,7 +49,14 @@ test('both E2E smoke jobs stay ungated by any build selection', () => {
   const agents = readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
   assert.match(
     agents,
-    /web \+ desktop E2E smoke run on every PR/,
-    'the always-on smoke contract this test defends has moved or changed'
+    /GitHub Actions and every workflow are disabled/,
+    'the local-only policy must not authorize hosted smoke runs'
   );
+  const plan = buildPlan();
+  for (const id of ['web-e2e-smoke', 'desktop-e2e-smoke', 'desktop-e2e-delegated-smoke']) {
+    assert.ok(
+      plan.some((step) => step.id === id),
+      `${id} must remain in default local validation`
+    );
+  }
 });

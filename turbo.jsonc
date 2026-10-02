@@ -76,7 +76,6 @@
       "tsconfig*.json", // Root TS config — config/tsconfig.json extends it (genuinely global)
       "packages/*/tsconfig/*.json", // Shared tsconfig preset (base.json); sole hash carrier for ~40 raw-path consumers
       "turbo.jsonc", // Turborepo configuration
-      "biome.json", // Formatting/linting configuration
       ".nvmrc", // Node version specification
       "scripts/prune-stale-dist.mjs" // Stale-dist pruner (2026-07-30 cache-poisoning class); wired into the `build` of every non-cleaning tsc package — must invalidate their build cache when edited
     ]
@@ -283,6 +282,8 @@
     },
     // --- Lint Task --- //
     "lint": {
+      // Formatting policy affects lint, not every workspace test/build.
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/biome.json"],
       // Linting usually doesn't produce cacheable artifacts and should run on current code.
       "cache": false,
       // No outputs to cache.

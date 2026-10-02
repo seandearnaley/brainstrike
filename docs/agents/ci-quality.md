@@ -33,7 +33,7 @@
 - Preserve failure visibility, test selection, and platform-specific checks.
   A local macOS pass does not qualify Windows or Linux native behavior.
 
-Evidence: `ci-quality/local-only-validation.md`,
+Evidence: `ci-quality/local-only-validation.md`, `ci-quality/ci-minute-audit.md`,
 `ci-quality/vercel-parser-dependencies.md`, `ci-quality/build-tooling-dependencies.md`.
 Guard: `scripts/__tests__/check-ci-parity.test.mjs`.
 
@@ -635,7 +635,7 @@ Guard: `scripts/__tests__/vitest-worker-global-mutation.test.mjs`,
 - Narrow task inputs only as a guarded pilot. `@brainstrike/types` excludes its
   test/spec files from `topo` and `build`, so nothing outside it may import,
   read, or glob them. Shared helpers live outside excluded paths.
-- A guard script is an input of the tasks that run it, never a global input.
+- Keep guard scripts and formatting policy task-local; include every real reader.
   Coverage enforcement runs outside Turbo.
 - File-node factories live in `@brainstrike/file-tree-test-fixtures`;
   `@brainstrike/test-utils` never depends on `@brainstrike/types`.
