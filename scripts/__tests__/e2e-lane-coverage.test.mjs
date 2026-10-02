@@ -776,10 +776,11 @@ test('REAL REPO: the modelled project grep filters still match the Playwright co
   );
   const webConfig = readFileSync(path.join(REPO_ROOT, 'apps/web/playwright.config.mts'), 'utf8');
 
-  // desktop:regression excludes smoke-tagged tests, so smoke/nightly coverage
+  // desktop:regression excludes smoke- and perf-tagged tests, so their coverage
   // must come from explicit lanes.
-  assert.match(desktopConfig, /grepInvert: \/@smoke\/,\s*\n\s*name: 'regression',/);
+  assert.match(desktopConfig, /grepInvert: \/@smoke\|@perf\/,\s*\n\s*name: 'regression',/);
   assert.match(desktopConfig, /grep: \/@smoke\/,\s*\n\s*name: 'smoke',/);
+  assert.match(desktopConfig, /grep: \/@perf\/,\s*\n\s*name: 'perf',/);
   assert.match(webConfig, /grep: \/@smoke\/,\s*\n\s*name: 'smoke',/);
   assert.doesNotMatch(
     webConfig,

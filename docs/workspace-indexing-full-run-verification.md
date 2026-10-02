@@ -34,7 +34,9 @@ If the target is WebGPU, a run that used WASM is invalid. Set `BRAINSTRIKE_E2E_F
 Analyze the emitted artifact with:
 
 ```bash
-node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs --require-device webgpu
+node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs \
+  --evidence apps/desktop/test-results/full-workspace-index-evidence.json \
+  --require-device webgpu
 ```
 
 ## Focused Development Checks
