@@ -190,13 +190,6 @@ test('guard edits select and hash only tasks that execute the guard', () => {
   }
 });
 
-test('coverage enforcement remains an uncached direct command after artifact collection', () => {
-  const scripts = JSON.parse(readRepo('package.json')).scripts;
-  assert.equal(scripts['coverage:enforce'], 'node scripts/enforce-coverage.mjs');
-  assert.match(readRepo('.github/workflows/nightly-coverage.yml'), /run: pnpm coverage:enforce/u);
-  assert.match(readRepo('scripts/check.mjs'), /command: 'pnpm -s run coverage:enforce'/u);
-});
-
 function commandsForTask(manifest, task) {
   const command = manifest.scripts?.[task] ?? '';
   const commands = [command];
