@@ -47,8 +47,14 @@ const playwrightConfig: PlaywrightTestConfig = {
       name: 'smoke',
     },
     {
-      grepInvert: /@smoke/,
+      grepInvert: /@smoke|@perf/,
       name: 'regression',
+    },
+    // Benchmarks that take minutes and report numbers instead of asserting
+    // behaviour. Nightly and dispatch only (desktop-e2e.yml), never on PRs.
+    {
+      grep: /@perf/,
+      name: 'perf',
     },
   ],
 
