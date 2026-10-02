@@ -70,6 +70,8 @@ const workflowPath = path.join(repoRoot, '.github', 'workflows', 'test.yml');
 const PROVISIONING_STEPS = new Set([
   'admission › Wait for pull request activity to settle',
   'static › Require successful admission',
+  // Native affected selection only avoids empty runners; local tests stay full.
+  'static › Select affected Unit shards',
   'unit-shard › Require successful admission',
   // Runner plumbing, not a gate: it apt-installs bubblewrap/socat/ripgrep and
   // lifts the AppArmor userns restriction so the real-OS-fence suites can run

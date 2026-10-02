@@ -4,7 +4,9 @@
 
 Future‑ready, AI‑assisted productivity apps built with React 19, Vite, Turborepo, and a typed TypeScript stack. This repo contains the Web app, Desktop app, and shared packages powering them.
 
-[![CI](https://github.com/seandearnaley/brainstrike/actions/workflows/test.yml/badge.svg)](https://github.com/seandearnaley/brainstrike/actions/workflows/test.yml)
+**CI is disabled due to cost; validation must run locally.** Run `pnpm check`
+and include actual local commands, results, and limitations in every PR.
+Do not enable or dispatch workflows without the owner's explicit authorization.
 [![Node 26.8.2](https://img.shields.io/badge/node-26.8.2-3C873A?logo=node.js&logoColor=white)](./.nvmrc)
 [![pnpm](https://img.shields.io/badge/pnpm-11.15.0-F69220?logo=pnpm&logoColor=white)](https://pnpm.io)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](LICENSE)
@@ -107,9 +109,9 @@ Web UX notes:
 
 Scope to a package with `--filter`, e.g. `pnpm test --filter @brainstrike/utils`.
 
-### `pnpm check` — the local CI mirror
+### `pnpm check` — local validation
 
-`pnpm check` runs the same gates `.github/workflows/test.yml` requires on a PR,
+`pnpm check` runs the gates retained in the disabled `.github/workflows/test.yml`,
 in the same order and through the same turbo invocations: the Static job's
 secret scan, `turbo boundaries`, `pnpm test:scripts`, read-only lint and
 type-check; the Build job's build and CSS-bundle validation;
