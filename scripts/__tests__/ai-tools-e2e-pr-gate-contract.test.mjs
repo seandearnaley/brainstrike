@@ -91,7 +91,10 @@ const DESKTOP_TOOLS_NIGHTLY_COMMAND = [
   '--global-timeout=120000',
   '--grep="@smoke"',
 ].join(' ');
-const DESKTOP_FULL_REGRESSION_COMMAND = [
+// CI runs the regression project as two Playwright shards (BST-1915). The shard
+// lane must end in the playwright command so the workflow's appended
+// `--shard=N/2` reaches it; the unsharded lane below stays for local runs.
+const DESKTOP_FULL_REGRESSION_SHARD_COMMAND = [
   'node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn --',
   'xvfb-maybe pnpm exec playwright test',
   '--project=regression',
@@ -100,6 +103,9 @@ const DESKTOP_FULL_REGRESSION_COMMAND = [
   '--max-failures=1',
   '--global-timeout=1800000',
   '--grep-invert="@desktop-embedding-|@packaged"',
+].join(' ');
+const DESKTOP_FULL_REGRESSION_COMMAND = [
+  DESKTOP_FULL_REGRESSION_SHARD_COMMAND,
   '&& pnpm run test:e2e:lane:tools-settings-nightly',
 ].join(' ');
 const REQUIRED_PR_E2E_JOB_CONDITION = [
@@ -144,6 +150,10 @@ function assertBlockingStep(step, label) {
 
 function laneResultExpression(laneJobId) {
   return `\${{ needs.${laneJobId}.result }}`;
+}
+
+function matrixExpression(name) {
+  return `\${{ matrix.${name} }}`;
 }
 
 function overlappingSpecs(left, right) {
@@ -272,6 +282,11 @@ test('REAL REPO: desktop smoke tags remain selected by nightly regression', () =
     DESKTOP_FULL_REGRESSION_COMMAND,
     'desktop full-regression lane'
   );
+  assertExactLaneCommand(
+    desktopPackage.scripts['test:e2e:lane:full-regression-shard'],
+    DESKTOP_FULL_REGRESSION_SHARD_COMMAND,
+    'desktop full-regression shard lane'
+  );
   const nightlyCommand = desktopPackage.scripts['test:e2e:lane:tools-settings-nightly'];
   assertExactLaneCommand(
     nightlyCommand,
@@ -284,19 +299,37 @@ test('REAL REPO: desktop smoke tags remain selected by nightly regression', () =
 
   const nightlyWorkflow = parseYaml(read('.github/workflows/desktop-e2e.yml'));
   const fullRegressionJob = nightlyWorkflow.jobs['desktop-full-regression'];
+  assert.deepEqual(fullRegressionJob.strategy.matrix.shard, [1, 2]);
   const matchingSteps = fullRegressionJob.steps.filter((step) =>
-    stepRunsExactCommand(step, 'dbus-run-session -- pnpm run test:e2e:lane:full-regression')
+    stepRunsExactCommand(
+      step,
+      `dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${matrixExpression('shard')}/2`
+    )
   );
   assert.equal(
     matchingSteps.length,
     1,
-    'nightly workflow must execute full desktop regression once'
+    'nightly workflow must execute each full desktop regression shard once'
   );
   assertBlockingStep(matchingSteps[0], 'nightly full-regression step');
   assert.equal(
     matchingSteps[0]['working-directory'],
     'apps/desktop',
     'nightly full-regression step must run from the desktop workspace'
+  );
+
+  // The @smoke AI Tools specs sit outside the regression project, so one shard
+  // (and only one) must run their lane.
+  const toolsSteps = fullRegressionJob.steps.filter((step) =>
+    stepRunsExactCommand(step, 'dbus-run-session -- pnpm run test:e2e:lane:tools-settings-nightly')
+  );
+  assert.equal(toolsSteps.length, 1, 'AI Tools nightly lane must run exactly once');
+  assert.equal(toolsSteps[0].if, 'matrix.shard == 1');
+  assert.equal(toolsSteps[0]['working-directory'], 'apps/desktop');
+  assert.ok(
+    toolsSteps[0]['continue-on-error'] === undefined ||
+      toolsSteps[0]['continue-on-error'] === false,
+    'AI Tools nightly step must fail its job when tests fail'
   );
 });
 
