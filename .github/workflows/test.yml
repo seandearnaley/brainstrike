@@ -175,7 +175,22 @@ jobs:
           TURBO_CONCURRENCY: 4
         run: pnpm run type-check
 
+      - name: Detect MCP-related changes
+        id: mcp-paths
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          files="$(gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only)"
+          if printf '%s\n' "$files" | grep -Eq '^(packages/agent/src/mcp/|packages/agent/src/mcp-|packages/mcp-|apps/desktop/src/mcp/|packages/assistant-contract/src/mcp|scripts/[^/]*mcp|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|\.github/workflows/test\.yml$)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: MCP representative verification
+        if: github.event_name != 'pull_request' || steps.mcp-paths.outputs.changed == 'true'
         run: pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json
 
   unit-shard:

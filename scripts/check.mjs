@@ -80,6 +80,11 @@ const RESET = '\u001b[0m';
 export const CI_GATES_NOT_RUN_LOCALLY = [
   {
     reason:
+      'PR-only path detector that decides whether CI runs the MCP representative verification step. A local run has no PR diff and always runs that step (plan step `mcp-verification`).',
+    step: 'static › Detect MCP-related changes',
+  },
+  {
+    reason:
       'Windows-only: node-gyp + MSVC on windows-latest. It cannot run on a macOS or Linux workstation at all.',
     step: 'native-windows › Build and test secure filesystem capability',
   },
