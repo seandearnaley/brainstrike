@@ -77,7 +77,7 @@ These override any older directive, contract or "settled" marker that conflicts 
 
 ## CI
 
-- Plain GitHub Actions. No CI *routing* labels, no generated proof artifacts, no custom planner/registry — do not reintroduce them. (Sole exception: the `coverage` label on-demand-triggers the advisory `coverage.yml`; see `docs/agents/ci-quality.md`.) Required PR checks come from `.github/workflows/test.yml`; web + desktop E2E smoke run on every PR; full E2E regression on schedule/dispatch.
+- Plain GitHub Actions. No CI *routing* labels, no generated proof artifacts, no custom planner/registry — do not reintroduce them. (Sole exception: the `coverage` label on-demand-triggers the advisory `coverage.yml`; see `docs/agents/ci-quality.md`.) Required PR checks come from `.github/workflows/test.yml`; web + desktop E2E smoke run on every PR; full E2E regression (web, and desktop in two shards) on every PR, schedule and dispatch, with known-red specs quarantined against owner-held tickets.
 - Claude review coverage requires an exact-head completed disposition and actual review content. Self-change skips and incomplete actions are not completed reviews. Use the trusted targeted invocation in `docs/agents/ci-quality.md`; never close/reopen a PR or restart Test merely to request review.
 - React Doctor runs on every PR (`scope: changed` — only NEWLY introduced error-severity issues block). Local: `pnpm run react-doctor`. Its config invariants are pinned in `docs/agents/ci-quality.md`.
 
