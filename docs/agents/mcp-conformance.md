@@ -94,7 +94,7 @@ Guard: `packages/mcp-test-lab/__tests__/evidence-artifact-integrity.test.ts`,
   ticket to `BST-1486`; the repository wrapper rejects a dirty checkout or a
   `GITHUB_SHA` that differs from `HEAD`. Both lanes reach that one CLI:
   `pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json`
-  (PRs that touch MCP code, and pushes to `main`) and
+  (PRs that change the lab, its dependencies or its wrapper, and every push) and
   `pnpm run verify:mcp -- --profile exhaustive --output artifacts/exhaustive-evidence.json`
   (schedule/manual).
 

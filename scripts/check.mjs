@@ -80,8 +80,8 @@ const RESET = '\u001b[0m';
 export const CI_GATES_NOT_RUN_LOCALLY = [
   {
     reason:
-      'PR-only path detector that decides whether CI runs the MCP representative verification step. A local run has no PR diff and always runs that step (plan step `mcp-verification`).',
-    step: 'static › Detect MCP-related changes',
+      'PR-only turbo change-set check that decides whether CI runs the MCP representative verification step. A local run has no PR range and always runs that step (plan step `mcp-verification`).',
+    step: 'static › Detect MCP lab changes',
   },
   {
     reason:

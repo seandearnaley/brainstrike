@@ -120,8 +120,12 @@ jobs:
       # Checkout MUST stay here, ahead of the composite: a local `uses: ./...`
       # action is read off the runner's filesystem, so the repo has to be on
       # disk before it can resolve. See setup-workspace/action.yml's header.
+      # Depth 2 keeps the PR merge commit's first parent (the base tip), which
+      # the MCP lab change detection below diffs against.
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
 
       # BST-1324: MUST run before `Setup workspace` — the composite ends with
       # `pnpm install --frozen-lockfile`, which is exactly where a textually
@@ -175,19 +179,24 @@ jobs:
           TURBO_CONCURRENCY: 4
         run: pnpm run type-check
 
-      - name: Detect MCP-related changes
+      # The lab is self-contained (it spawns its own reference servers), so it
+      # needs to run when turbo's package graph says @brainstrike/mcp-test-lab
+      # or one of its dependencies changed, or when its root wrapper changed.
+      # Turbo also marks every package changed on a global-file edit.
+      - name: Detect MCP lab changes
         id: mcp-paths
         if: github.event_name == 'pull_request'
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
-          files="$(gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only)"
-          if printf '%s\n' "$files" | grep -Eq '^(packages/agent/src/mcp/|packages/agent/src/mcp-|packages/mcp-|apps/desktop/src/mcp/|packages/assistant-contract/src/mcp|scripts/[^/]*mcp|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|\.github/workflows/test\.yml$)'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          pnpm -s exec turbo ls --filter="...[${BASE_SHA}...${HEAD_SHA}]" --output=json > "$RUNNER_TEMP/turbo-changed.json"
+          changed="$(node -e 'const s=require("node:fs").readFileSync(process.argv[1],"utf8");const j=JSON.parse(s.slice(s.indexOf("{")));process.stdout.write(String(j.packages.items.some((p)=>p.name==="@brainstrike/mcp-test-lab")))' "$RUNNER_TEMP/turbo-changed.json")"
+          if [ "$changed" != true ] && ! git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- scripts/run-mcp-verification.mjs package.json; then
+            changed=true
           fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
       - name: MCP representative verification
         if: github.event_name != 'pull_request' || steps.mcp-paths.outputs.changed == 'true'

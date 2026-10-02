@@ -81,7 +81,7 @@ Guard: `scripts/__tests__/unit-shard-partition.test.mjs`,
 ### MCP verifier lanes
 
 - Required `Static` always runs; its representative-profile step runs only on PRs
-  that touch MCP code and on `main` pushes (local `pnpm check` always runs it),
+  whose turbo change set includes `@brainstrike/mcp-test-lab` (the lab or a dependency, or any global file) or that edit its root wrapper, and on every push (local `pnpm check` always runs it),
   with no `continue-on-error`: `pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json`.
 - `mcp-verification.yml` runs the exhaustive profile on `schedule` and
   `workflow_dispatch` only; its `push` trigger serves the official jobs:
