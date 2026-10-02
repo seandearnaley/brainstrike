@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { Page } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
 import { setVectorDevicePreference } from './embedding-worker-renderer.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import {
@@ -123,6 +123,22 @@ async function queryDb(page: Page, sql: string, params: readonly unknown[] = [])
     },
     { statement: sql, values: params }
   );
+}
+
+/**
+ * Desktop E2E never shows the app window. A never-shown window on Linux runs
+ * rAF at about 1 Hz, so frame gaps would describe the harness, not the app; a
+ * user's window is visible. Shown inactive, so it takes no focus.
+ */
+async function showAppWindow(app: ElectronApplication, page: Page): Promise<void> {
+  const browserWindow = await app.browserWindow(page);
+  const visible = await browserWindow.evaluate((win) => {
+    win.showInactive();
+    return win.isVisible();
+  });
+  if (!visible) {
+    throw new Error('The app window did not become visible.');
+  }
 }
 
 async function seedPausedWorkspace(page: Page, rootPath: string, device: Device): Promise<void> {
@@ -353,6 +369,7 @@ test.describe('Foreground latency under a full index build', () => {
       const invalidReasons: string[] = [];
 
       try {
+        await showAppWindow(electronApp.app, page);
         await seedPausedWorkspace(page, corpus.rootPath, device);
         const embeddingSetId = await readWorkspaceIndexSetId(page);
         const chatRunId = await seedRunningChatRun(page);
