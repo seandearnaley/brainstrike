@@ -57,6 +57,25 @@ function readerFor(
   };
 }
 
+/**
+ * The repository rejects any read above TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES, so
+ * a scan wider than one page must arrive as capped, contiguous reads that
+ * together cover the scanned window exactly.
+ */
+function expectCappedContiguousReads(
+  calls: ReadonlyArray<ReadonlyArray<{ limitBytes: number; offsetByte: number }>>,
+  scannedBytes: number
+): void {
+  expect(calls.length).toBeGreaterThan(1);
+  let nextOffset = 0;
+  for (const [read] of calls) {
+    expect(read?.limitBytes).toBeLessThanOrEqual(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES);
+    expect(read?.offsetByte).toBe(nextOffset);
+    nextOffset += read?.limitBytes ?? 0;
+  }
+  expect(nextOffset).toBe(scannedBytes);
+}
+
 describe('tool output artifact reader', () => {
   it('uses a strict discriminant for initial references and continuation cursors', () => {
     const artifactRef = referenceFor('content');
@@ -805,7 +824,7 @@ describe('tool output artifact reader', () => {
     expect(midBlankLineResult.matches[0]?.lineText).toBe('');
   });
 
-  it('scans a multi-page-sized artifact in ONE call and finds a deep match, decoupled from the page/projection byte budget', async () => {
+  it('scans a multi-page-sized artifact in ONE call (as capped page reads) and finds a deep match, decoupled from the page/projection byte budget', async () => {
     const filler = Array.from(
       { length: 300 },
       (_, index) => `line-${index}-${'x'.repeat(50)}`
@@ -831,8 +850,7 @@ describe('tool output artifact reader', () => {
     expect(result.matches[0]?.lineText).toBe('DEEPMATCH-here');
     expect(result.searchLimited).toBe(false);
 
-    const requestedLimitBytes = readRange.mock.calls[0]?.[0]?.limitBytes;
-    expect(requestedLimitBytes).toBeGreaterThan(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES);
+    expectCappedContiguousReads(readRange.mock.calls, artifactRef.byteLength);
   });
 
   it('still bounds rendered matches to the projection budget with continuation when a large scan overflows it', async () => {
@@ -856,8 +874,7 @@ describe('tool output artifact reader', () => {
     // The whole artifact was scanned in one call (decoupled scan window)...
     expect(result.matches.length).toBe(20);
     expect(result.searchLimited).toBe(false);
-    const requestedLimitBytes = readRange.mock.calls[0]?.[0]?.limitBytes;
-    expect(requestedLimitBytes).toBeGreaterThan(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES);
+    expectCappedContiguousReads(readRange.mock.calls, artifactRef.byteLength);
 
     // ...but the PROJECTION still fits the domain budget and hints a
     // continuation for the matches it could not render, exactly like a

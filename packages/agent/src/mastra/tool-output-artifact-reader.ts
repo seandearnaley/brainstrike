@@ -201,6 +201,9 @@ const TOOL_OUTPUT_ARTIFACT_READER_TOOL_ID = NATIVE_TOOL_ID.readToolOutputArtifac
  * multi-hundred-KB artifact while staying a bounded, predictable per-call
  * read cost — far short of reading an entire (up to 16MB,
  * TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES) artifact in one call. The
+ * window is assembled from consecutive repository reads of at most
+ * TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES each (the repository rejects larger
+ * ranges); see readArtifactBytes. The
  * RENDERED matches stay bounded by the unchanged domain projection budget
  * (MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) via the standard
  * fit-with-continuation loop in projectToolOutputArtifactSearchResult: a
@@ -555,6 +558,56 @@ interface DecodedArtifactSlice {
   readonly offsetByte: number;
 }
 
+/**
+ * Read `byteCount` bytes starting at `offsetByte` as consecutive repository
+ * reads of at most TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES each (the repository
+ * rejects a larger `limitBytes`; it is deliberately neither raised nor
+ * clamped there). Every page is validated against the reference on its own,
+ * then the pages are joined byte-exactly BEFORE any UTF-8 decoding or line
+ * splitting, so a match or a multi-byte character straddling a page seam is
+ * indistinguishable from one read of the whole range.
+ *
+ * At least one repository read is always issued, even for `byteCount === 0`
+ * (an offset at the end of the artifact), so scope, expiry and reference
+ * coherence are still checked on that path.
+ */
+async function readArtifactBytes(args: {
+  readonly artifactRef: ToolOutputArtifactReference;
+  readonly byteCount: number;
+  readonly offsetByte: number;
+  readonly options: ReadToolOutputArtifactPageOptions;
+}): Promise<Uint8Array> {
+  const { artifactRef, byteCount, offsetByte, options } = args;
+  const now = options.now ?? (() => new Date());
+  const bytes = new Uint8Array(byteCount);
+  let filled = 0;
+  do {
+    const pageOffset = offsetByte + filled;
+    const pageLimit = Math.max(
+      1,
+      Math.min(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES, byteCount - filled)
+    );
+    const result = requireAvailableRange(
+      await readScopedRange(options.reader, {
+        artifactId: artifactRef.id,
+        limitBytes: pageLimit,
+        offsetByte: pageOffset,
+      }),
+      artifactRef,
+      now
+    );
+    validateFoundRange({
+      expectedBytes: Math.min(pageLimit, artifactRef.byteLength - pageOffset),
+      offsetByte: pageOffset,
+      reference: artifactRef,
+      result,
+    });
+    bytes.set(result.bytes, filled);
+    filled += result.bytes.byteLength;
+  } while (filled < byteCount);
+  return bytes;
+}
+
 async function readDecodedArtifactSlice(
   input: ReadToolOutputArtifactInput,
   options: ReadToolOutputArtifactPageOptions,
@@ -568,22 +621,16 @@ async function readDecodedArtifactSlice(
   // larger TOOL_OUTPUT_ARTIFACT_SEARCH_SCAN_BYTES (see readToolOutputArtifactSearch).
   const maxBytes = input.maxBytes ?? defaultMaxBytes;
   const remainingBytes = artifactRef.byteLength - offsetByte;
-  const readLimit = Math.max(1, Math.min(remainingBytes, maxBytes));
-  const result = requireAvailableRange(
-    await readScopedRange(options.reader, {
-      artifactId: artifactRef.id,
-      limitBytes: readLimit,
-      offsetByte,
-    }),
+  const bytes = await readArtifactBytes({
     artifactRef,
-    options.now ?? (() => new Date())
-  );
-  const expectedBytes = Math.min(readLimit, remainingBytes);
-  validateFoundRange({ expectedBytes, offsetByte, reference: artifactRef, result });
+    byteCount: Math.min(remainingBytes, maxBytes),
+    offsetByte,
+    options,
+  });
   if (remainingBytes === 0) {
     return { artifactRef, decoded: '', endByte: offsetByte, offsetByte };
   }
-  const decoded = decodeUtf8Prefix(result.bytes, maxBytes);
+  const decoded = decodeUtf8Prefix(bytes, maxBytes);
   const endByte = offsetByte + TEXT_ENCODER.encode(decoded).byteLength;
   if (endByte <= offsetByte) {
     throw new ToolOutputArtifactReadError('non_progress');
