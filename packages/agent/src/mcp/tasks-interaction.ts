@@ -403,8 +403,11 @@ export class McpTaskInteraction {
         },
         (error: unknown) => {
           // A withdrawal by this coordinator's own cancel() finishes the
-          // observation; cancel() reports the cancellation outcome.
-          if (!(error instanceof McpTaskInputWithdrawnError)) {
+          // observation; cancel() reports the cancellation outcome. Decide on
+          // our own state, not the error: a transport's abort listener can
+          // reject an in-flight tasks/update first with its own error.
+          const { signal } = operation.controller;
+          if (!(signal.aborted && signal.reason instanceof McpTaskInputWithdrawnError)) {
             throw error;
           }
         }

@@ -8,6 +8,7 @@ import {
   McpTaskInteraction,
   type McpTaskInteractionClient,
   type McpTaskInteractionElicitationContext,
+  type McpTaskInteractionRequestOptions,
 } from '../mcp/tasks-interaction.js';
 import {
   DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
@@ -78,7 +79,26 @@ interface FakeTaskServer {
   readonly updateReceived: Promise<void>;
 }
 
-function createTaskServer(onGet: (server: FakeTaskServer) => GetTaskResult): FakeTaskServer {
+/**
+ * A transport whose own abort listener rejects an in-flight request with its
+ * own error. It returns the raw promise, not one from an async function, so
+ * that rejection reaches the caller's race before the caller's own listener.
+ */
+function heldUpdate<Result>(signal: AbortSignal | undefined): Promise<Result> {
+  if (!signal) {
+    return Promise.reject(new Error('A held tasks/update needs a request signal.'));
+  }
+  return new Promise<Result>((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(new Error('transport aborted')), {
+      once: true,
+    });
+  });
+}
+
+function createTaskServer(
+  onGet: (server: FakeTaskServer) => GetTaskResult,
+  options: { readonly holdUpdate?: boolean } = {}
+): FakeTaskServer {
   const log: string[] = [];
   const cancelReceived = Promise.withResolvers<void>();
   const updateReceived = Promise.withResolvers<void>();
@@ -97,12 +117,21 @@ function createTaskServer(onGet: (server: FakeTaskServer) => GetTaskResult): Fak
         closed: neverCloses,
         honoredTaskIds: taskIds,
       }),
-      requestExtension: async <Params extends JSONObject, Result>(
-        contract: McpClientExtensionRequestContract<Params, Result>
+      requestExtension: <Params extends JSONObject, Result>(
+        contract: McpClientExtensionRequestContract<Params, Result>,
+        _params: Params,
+        requestOptions?: McpTaskInteractionRequestOptions
       ): Promise<Result> => {
         receive(contract.method, ['tasks/cancel', 'tasks/update']);
-        (contract.method === 'tasks/cancel' ? cancelReceived : updateReceived).resolve();
-        return { resultType: 'complete' } as Result;
+        if (contract.method === 'tasks/cancel') {
+          cancelReceived.resolve();
+        } else {
+          updateReceived.resolve();
+          if (options.holdUpdate) {
+            return heldUpdate(requestOptions?.signal);
+          }
+        }
+        return Promise.resolve({ resultType: 'complete' } as Result);
       },
     },
     log,
@@ -237,6 +266,40 @@ describe('McpTaskInteraction cancellation of a task waiting on input (BST-1948)'
       inputKeys: 0,
       subscriptionActive: false,
     });
+  });
+
+  it('withdraws an answered input whose in-flight tasks/update the transport rejects with its own error', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(CREATED_AT));
+    db = await openDatabase();
+    const server = createTaskServer(
+      ({ log }) =>
+        log.includes('tasks/cancel')
+          ? observation('cancelled', 300)
+          : observation('input_required', 100),
+      { holdUpdate: true }
+    );
+    const session = await startTaskSession(db, server);
+    try {
+      await vi.advanceTimersByTimeAsync(POLL_MS);
+      await session.presented.promise;
+      // The presenter answers; the server holds the tasks/update response open.
+      session.decision.resolve({ action: 'accept', content: { approved: true } });
+      await server.updateReceived;
+
+      const cancellation = session.interaction.cancel(TASK_ID);
+      await server.cancelReceived;
+      expect(server.log).toEqual(['tasks/get', 'tasks/update', 'tasks/cancel']);
+
+      await vi.advanceTimersByTimeAsync(POLL_MS);
+      await expect(cancellation).resolves.toMatchObject({ status: 'cancelled', taskId: TASK_ID });
+      expect(server.log).toEqual(['tasks/get', 'tasks/update', 'tasks/cancel', 'tasks/get']);
+      expect(session.consumerErrors).toEqual([]);
+      expect(session.interaction.observationFailure(TASK_ID)).toBeUndefined();
+    } finally {
+      await session.interaction.close();
+      await session.lifecycle.stop('closed');
+    }
   });
 
   it('keeps the sole poller ordered behind an unanswered input that is not cancelled', async () => {
