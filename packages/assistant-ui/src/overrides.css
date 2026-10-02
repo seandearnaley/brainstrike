@@ -1430,12 +1430,21 @@
  * The tier attribute scopes this to tier 1 only: on the virtualized tier the
  * virtualizer measures every mounted row, and a contained row would report the
  * placeholder size instead of its real height.
+ *
+ * `flex-shrink: 0` is what lets that intrinsic size take effect (BST-1949). The
+ * viewport is the library's flex column, and a row skipping its contents has no
+ * content-based minimum, so a shrinkable row collapsed to its padding while
+ * skipped. Row heights then changed whenever a row entered or left the rendered
+ * range, and a thread shown again after `display: none` restored its saved
+ * scroll offset into that collapsed layout: the reader landed on other content
+ * and could be clamped onto the end, which re-pins follow.
  */
 .aui-thread-viewport[data-thread-render-tier="static"]
   > :where(.aui-user-message-root, .aui-assistant-message-root):not(:last-child) {
   content-visibility: auto;
   /* Matches THREAD_MESSAGE_ESTIMATED_HEIGHT_PX in assistant-thread-messages.tsx. */
   contain-intrinsic-size: auto 120px;
+  flex-shrink: 0;
 }
 
 /**

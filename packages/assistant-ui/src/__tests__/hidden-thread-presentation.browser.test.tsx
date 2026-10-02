@@ -285,6 +285,39 @@ test('retains transcript DOM, draft, disclosure, and reader scroll across hidden
   await waitFor(() => expect(Math.abs(viewport.scrollTop - savedTop)).toBeLessThanOrEqual(2));
 });
 
+test('keeps a skipped transcript row at its intrinsic size (BST-1949)', async () => {
+  adapters.set(
+    'history',
+    new BrainstrikeDataStreamRuntimeAdapter({ api: 'http://assistant.test/history' })
+  );
+  onTestFinished(() => adapters.clear());
+  const view = render(
+    <TooltipProvider>
+      <Panel id="history" initialMessages={history} visible />
+    </TooltipProvider>
+  );
+  const panel = within(view.getByTestId('history'));
+  await panel.findByText('Retained evidence 79.');
+  const row = panel
+    .getByTestId('assistant-ui-viewport')
+    .querySelector('[data-message-id="history-1"]');
+  const rowContent = row?.firstElementChild;
+  if (!(row instanceof HTMLElement && rowContent)) {
+    throw new Error('Expected the second transcript row.');
+  }
+  // The thread opens at its newest message, far below this row.
+  await waitFor(() =>
+    expect(rowContent.checkVisibility({ contentVisibilityAuto: true })).toBe(false)
+  );
+  // Skipped rows must keep their placeholder or remembered size. A row collapsed
+  // to its padding resizes whenever it enters or leaves the rendered range, so a
+  // re-shown thread restores its saved offset into different content.
+  const { paddingBottom, paddingTop } = getComputedStyle(row);
+  expect(
+    row.clientHeight - Number.parseFloat(paddingTop) - Number.parseFloat(paddingBottom)
+  ).toBeGreaterThan(0);
+});
+
 test('dispatches a queued follow-up from the existing hidden runtime owner', async () => {
   const inputs: string[] = [];
   const releases: Array<() => void> = [];
