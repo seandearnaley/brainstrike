@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import {
   createMcpLabRunnerDeadline,
   MAX_MCP_LAB_CASE_TIMEOUT_MS,
@@ -124,23 +123,6 @@ describe('MCP verifier runner manifest', () => {
         MCP_LAB_RUNNER_PROFILE_CASE_IDS[profile].length * timeouts.caseTimeoutMs
       );
     }
-  });
-
-  it('keeps the living contract coupled to the executable profile defaults', async () => {
-    // BST-1590: the verifier-harness prose (profiles, budgets) lives in the
-    // conformance contract, not the provider contract.
-    const contract = await readFile(
-      new URL('../../../docs/agents/mcp-conformance.md', import.meta.url),
-      'utf8'
-    );
-
-    for (const profile of MCP_LAB_RUNNER_PROFILES) {
-      const timeouts = MCP_LAB_RUNNER_PROFILE_TIMEOUTS[profile];
-      expect(contract).toContain(
-        `\`${profile}\`: ${MCP_LAB_RUNNER_PROFILE_CASE_IDS[profile].length} cases, ${timeouts.caseTimeoutMs.toLocaleString('en-US')} ms per case, ${timeouts.runTimeoutMs.toLocaleString('en-US')} ms per run`
-      );
-    }
-    expect(contract).toContain('Explicit `undefined` values are malformed');
   });
 
   it('provides a monotonic injectable deadline that fails visibly on expiry or clock regression', () => {

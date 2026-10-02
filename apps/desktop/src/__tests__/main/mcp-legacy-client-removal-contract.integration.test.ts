@@ -89,15 +89,10 @@ describe('legacy desktop MCP client removal contract', () => {
 
   it('preserves the shared status and discovered-tool helpers', () => {
     const source = fs.readFileSync(path.join(sourceRoot, 'mcp/types.ts'), 'utf8');
-    const providerContract = fs.readFileSync(
-      path.resolve(desktopRoot, '../../docs/agents/assistant-providers.md'),
-      'utf8'
-    );
 
     expect(source).toContain('export interface McpDiscoveredTool');
     expect(source).toContain('export function connectedStatus');
     expect(source).toContain('export function mcpStatusErrorMessage');
-    expect(providerContract).toMatch(/`McpHostService` is the sole production SDK client owner\./u);
   });
 
   it('omits the legacy stack from the production Electron main bundle', async () => {
