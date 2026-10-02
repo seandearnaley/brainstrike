@@ -16,6 +16,7 @@ on:
         options:
           - full
           - memory-baseline
+          - foreground-latency
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}
@@ -149,7 +150,7 @@ jobs:
 
   desktop-embedding-e2e:
     name: Desktop Embedding E2E
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.suite != 'foreground-latency')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -245,13 +246,85 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
+  # The loaded foreground-latency benchmark (BST-1925): a full Workspace Index
+  # build with foreground probes. It reports numbers into the evidence artifact
+  # and fails only when the run cannot produce valid ones. Nightly and dispatch
+  # (suite=foreground-latency) only, never on pull requests.
+  desktop-foreground-latency:
+    name: Desktop Foreground Latency Benchmark
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.suite == 'foreground-latency')
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Build desktop
+        run: pnpm run build --filter @brainstrike/desktop
+
+      # Same Chromium system libraries and Electron provisioning as the jobs above.
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
+      - name: Install Chromium system dependencies
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Provision Electron binary
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
+          rm -rf "${DIR}/dist" "${DIR}/path.txt"
+          mkdir -p "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
+          printf 'electron' > "${DIR}/path.txt"
+          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
+
+      # Runners have no GPU, so the embedding host runs on WASM, and the corpus
+      # is sized for the build to outlast the benchmark's 60 s floor on that path.
+      - name: Run foreground latency benchmark
+        working-directory: apps/desktop
+        env:
+          BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_DEVICE: wasm
+          BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_FILES: '60'
+          BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_EVIDENCE_PATH: ${{ runner.temp }}/foreground-latency/foreground-latency-under-index-build.json
+        run: dbus-run-session -- pnpm run test:e2e:lane:foreground-latency
+
+      - name: Upload foreground latency evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-foreground-latency-evidence
+          path: ${{ runner.temp }}/foreground-latency/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload desktop traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-foreground-latency-test-results
+          path: apps/desktop/blob-report/
+          retention-days: 1
+          if-no-files-found: warn
+
   notify-linear:
     name: Notify Linear
-    needs: [desktop-full-regression-gate, desktop-embedding-e2e]
+    needs: [desktop-full-regression-gate, desktop-embedding-e2e, desktop-foreground-latency]
     if: ${{ always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       workflow_name: ${{ github.workflow }}
-      results: desktop-full-regression-gate=${{ needs.desktop-full-regression-gate.result }},desktop-embedding-e2e=${{ needs.desktop-embedding-e2e.result }}
+      results: desktop-full-regression-gate=${{ needs.desktop-full-regression-gate.result }},desktop-embedding-e2e=${{ needs.desktop-embedding-e2e.result }},desktop-foreground-latency=${{ needs.desktop-foreground-latency.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
