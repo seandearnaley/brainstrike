@@ -780,28 +780,28 @@ describe('ipc-mcp handlers', () => {
   });
 
   describe('mcp:config:readText', () => {
-    it('returns MCP config text document', async () => {
-      vi.mocked(readMcpConfigText).mockResolvedValue({
-        content: '{\n  "servers": []\n}',
-        created: false,
-        exists: true,
-        path: '/tmp/mcp.config.json',
-      } as never);
+    it.each([undefined, 'invalid_mcp_config: servers.0.auth: unsupported SSE OAuth'])(
+      'returns MCP config text with its validation diagnostic: %s',
+      async (error) => {
+        const document = {
+          content: '{\n  "servers": []\n}',
+          created: false,
+          ...(error === undefined ? {} : { error }),
+          exists: true,
+          path: '/tmp/mcp.config.json',
+        };
+        vi.mocked(readMcpConfigText).mockResolvedValue(document);
 
-      const handler = handlers.get('mcp:config:readText');
-      if (!handler) {
-        throw new Error('handler not registered');
+        const handler = handlers.get('mcp:config:readText');
+        if (!handler) {
+          throw new Error('handler not registered');
+        }
+
+        const result = await handler();
+        expect(readMcpConfigText).toHaveBeenCalledWith(true);
+        expect(result).toEqual(document);
       }
-
-      const result = await handler();
-      expect(readMcpConfigText).toHaveBeenCalledWith(true);
-      expect(result).toEqual({
-        content: '{\n  "servers": []\n}',
-        created: false,
-        exists: true,
-        path: '/tmp/mcp.config.json',
-      });
-    });
+    );
   });
 
   describe('mcp:config:writeText', () => {

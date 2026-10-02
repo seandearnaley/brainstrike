@@ -166,6 +166,13 @@ const McpServerInputSchema = z
     HttpServerSchema.extend({ transport: z.literal('sse') }),
   ])
   .superRefine((server, context) => {
+    if (server.transport === 'sse' && server.auth?.type === 'oauth-user') {
+      context.addIssue({
+        code: 'custom',
+        message: 'auth "oauth-user" is not supported with transport "sse"; use "streamable-http"',
+        path: ['auth'],
+      });
+    }
     if (server.transport === 'sse' && server.protocol && server.protocol !== 'legacy') {
       context.addIssue({
         code: 'custom',

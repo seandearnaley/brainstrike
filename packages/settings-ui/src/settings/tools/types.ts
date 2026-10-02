@@ -283,6 +283,7 @@ export interface McpConfigInfo {
 export interface McpConfigTextDocument {
   content: string;
   created: boolean;
+  error?: string;
   exists: boolean;
   path: string;
 }
