@@ -56,11 +56,12 @@ Cross-cutting invariants (full detail + rationale in the docs):
 - Desktop E2E can be flaky headless — diagnose, don't bypass.
 - Agent-driven Electron renderer debugging (opt-in only, never in default E2E): `pnpm --filter @brainstrike/desktop dev:agent-debug`.
 
-## CI
+## CI — disabled due to cost
 
-- Plain GitHub Actions. No CI *routing* labels, no generated proof artifacts, no custom planner/registry — do not reintroduce them. (Sole exception: the `coverage` label on-demand-triggers the advisory `coverage.yml`; see `docs/agents/ci-quality.md`.) Required PR checks come from `.github/workflows/test.yml`; web + desktop E2E smoke run on every PR; full E2E regression on schedule/dispatch.
-- Claude review coverage requires an exact-head completed disposition and actual review content. Self-change skips and incomplete actions are not completed reviews. Use the trusted targeted invocation in `docs/agents/ci-quality.md`; never close/reopen a PR or restart Test merely to request review.
-- React Doctor runs on every PR (`scope: changed` — only NEWLY introduced error-severity issues block). Local: `pnpm run react-doctor`. Its config invariants are pinned in `docs/agents/ci-quality.md`.
+- GitHub Actions and every workflow are disabled. Do not enable workflows, dispatch runs, request automated reviews, rerun checks, or add CI without the user's explicit authorization. Preserved workflow definitions are references for local validation, not active gates.
+- Test locally before handing off changes. Use `pnpm check` for the default validation plan and relevant package tests while iterating; use `pnpm check --full` when the change needs coverage or full E2E regression. A reduced run is not a full pass: report omitted checks and platform limitations.
+- Every handoff and PR description must say: **CI is disabled due to cost; validation must run locally.** List the actual local commands, their results, and any checks that remain unverified. Never claim absent or skipped CI is green.
+- Keep the PR and history protections. Required CI status checks are removed from the default and integration branch rulesets so disabled workflows cannot block merges. Follow `docs/agents/ci-quality.md` for the retained local validation and tooling contracts.
 
 # Ultracite Code Standards
 

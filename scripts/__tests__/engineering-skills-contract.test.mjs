@@ -12,17 +12,17 @@ const domain = readRepoFile('docs/agents/domain.md');
 const issueTracker = readRepoFile('docs/agents/issue-tracker.md');
 const triageVocabulary = readRepoFile('docs/agents/triage-labels.md');
 
-test('review and CI budgets are discoverable without an external delivery skill', () => {
+test('local validation and review budgets are discoverable without an external delivery skill', () => {
   const quality = readRepoFile('docs/agents/ci-quality.md');
   assert.match(agents, /PR review\/remediation, stacked delivery, CI reruns.*ci-quality\.md/);
   for (const rule of [
     /45 minutes/,
-    /90 minutes without an exact-head-ready PR layer/,
-    /initial whole-PR review and one re-review/,
-    /Do not push each comment\s+separately/,
-    /Keep one CI watcher/,
-    /Do not close\/reopen PRs/,
-    /before rebasing descendants once/,
+    /90 minutes\s+without a reviewable layer/,
+    /Cloud CI is disabled due to cost/,
+    /without the user's explicit authorization/,
+    /Run validation locally/,
+    /actual commands, results, skipped checks/,
+    /Hosted checks and reviews remain disabled even after local success/,
   ]) {
     assert.match(quality, rule);
   }
@@ -42,7 +42,7 @@ test('AGENTS routes each external engineering-skill contract exactly once', () =
   }
 });
 
-test('the tracker contract keeps Linear authoritative while naming active GitHub exceptions', () => {
+test('the tracker contract keeps Linear authoritative while naming retained GitHub workflow definitions', () => {
   const claudeWorkflow = readRepoFile('.github/workflows/claude.yml');
   assert.match(claudeWorkflow, /^\s*issues:/m, 'the Claude workflow still accepts issues');
   assert.match(
