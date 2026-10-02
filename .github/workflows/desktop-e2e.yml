@@ -202,55 +202,13 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
-  notify-failure:
-    name: Notify desktop E2E failure
-    # Fire if EITHER desktop regression job fails; failure() is true when any
-    # `needs` job concludes failure.
+  notify-linear:
+    name: Notify Linear
     needs: [desktop-full-regression, desktop-embedding-e2e]
-    if: failure() && github.event_name == 'schedule'
-    runs-on: ubuntu-latest
-    # gh issue create / comment are sub-second under normal conditions; cap at
-    # 5 min so a GitHub API hang can't burn the GHA default 6-hour wall clock.
-    timeout-minutes: 5
-    permissions:
-      issues: write
-      contents: read
-    steps:
-      - name: Ensure tracking label exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          if ! gh label create "desktop-e2e-failure" \
-            --repo "$REPO" \
-            --force \
-            --color d93f0b \
-            --description "Auto-opened by desktop-e2e.yml when the scheduled desktop E2E run fails"; then
-            echo "::error::Could not ensure the 'desktop-e2e-failure' label exists, so the tracking issue can be neither filed nor de-duplicated."
-            exit 1
-          fi
-
-      - name: Open or update tracking issue
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          existing=$(gh issue list --repo "$REPO" \
-            --label "desktop-e2e-failure" --state open \
-            --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" --repo "$REPO" \
-              --body "Nightly desktop E2E failed again. Run: $RUN_URL"
-          else
-            gh issue create --repo "$REPO" \
-              --title "Desktop E2E nightly failure ($(date -u +%Y-%m-%d))" \
-              --label "desktop-e2e-failure" \
-              --body "Nightly Desktop E2E workflow failed.
-
-          Run: $RUN_URL
-
-          This issue stays open while the failure persists and gets a new comment on each subsequent failure. Close it once the next nightly is green."
-          fi
+    if: ${{ always() && github.event_name == 'schedule' }}
+    uses: ./.github/workflows/nightly-linear-alert.yml
+    with:
+      workflow_name: ${{ github.workflow }}
+      results: desktop-full-regression=${{ needs.desktop-full-regression.result }},desktop-embedding-e2e=${{ needs.desktop-embedding-e2e.result }}
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
