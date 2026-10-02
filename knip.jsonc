@@ -346,6 +346,17 @@
     "packages/windows-job-native": {
       "ignoreDependencies": ["node-addon-api"]
     },
+    "packages/state-store": {
+      // Child processes the suites spawn by path (`node --import tsx <file>`,
+      // `node <file>.mjs`): writers that are SIGKILLed, lock holders and racing
+      // contenders, a read-only reader, the kernel-sync run and its attribution.
+      // knip cannot follow a path handed to `spawn`, so they are entries.
+      "entry": ["__tests__/fixtures/*.ts", "__tests__/kill/*.{ts,mjs}", "__tests__/kernel-sync/*.{ts,mjs}"],
+      // Loaded as `--import tsx` in those spawned processes, never imported.
+      "ignoreDependencies": ["tsx"],
+      // The Linux tracer of the opt-in kernel-sync suite, found at run time.
+      "ignoreBinaries": ["strace"]
+    },
     "packages/app-state": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],

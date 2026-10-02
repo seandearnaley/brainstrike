@@ -125,7 +125,8 @@
         "@brainstrike/db",
         "@brainstrike/app-state",
         "@brainstrike/assistant-data",
-        "@brainstrike/queue"
+        "@brainstrike/queue",
+        "@brainstrike/state-store"
       ],
       "mayDependOn": [
         "shared-foundation",
