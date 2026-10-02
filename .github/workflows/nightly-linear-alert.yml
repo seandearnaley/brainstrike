@@ -31,9 +31,13 @@ jobs:
       - name: File or update the Linear issue
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          WORKFLOW_NAME: ${{ inputs.workflow_name }}
+          RESULTS: ${{ inputs.results }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEAD_SHA: ${{ github.sha }}
         run: >-
           node scripts/notify-linear-nightly.mjs
-          --workflow "${{ inputs.workflow_name }}"
-          --results "${{ inputs.results }}"
-          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          --sha "${{ github.sha }}"
+          --workflow "$WORKFLOW_NAME"
+          --results "$RESULTS"
+          --run-url "$RUN_URL"
+          --sha "$HEAD_SHA"

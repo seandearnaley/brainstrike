@@ -17,8 +17,8 @@ nowhere, so a red nightly in either went unseen.
 - One open issue per workflow, titled `Nightly red: <workflow>`, labelled
   `nightly-alert`, `area-ci`, `needs-human`, assigned to the key's owner, `Todo`,
   priority High.
-- Red with none open creates it; red with one open comments; green with one open
-  comments `Recovered: <run URL>`; green with none open does nothing.
+- Red: no open issue creates one, an open issue comments. Green: an open issue gets
+  one `Recovered: <run URL>` comment, not again until a red night; none does nothing.
 - The script never closes or reopens an issue. A human closes it, and a red
   night after that opens a new one. Two open issues for one title fail the run.
 

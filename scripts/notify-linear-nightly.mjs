@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // Files a nightly workflow's failure to Linear (BST-1915): one open issue per
-// workflow, a comment on each further red night, a `Recovered:` comment when
-// green, and never a close or reopen. Zero dependencies: Node's native fetch.
+// workflow, a comment on each further red night, one `Recovered:` comment per
+// recovery, and never a close or reopen. Zero dependencies: Node's native fetch.
 //
 //   node scripts/notify-linear-nightly.mjs --workflow <name> \
 //     --results <job=result,...> --run-url <url> --sha <sha>
@@ -17,6 +17,7 @@ import { parseArgs } from 'node:util';
 
 const LINEAR_ENDPOINT = 'https://api.linear.app/graphql';
 const SUCCESS = 'success';
+const RECOVERED_PREFIX = 'Recovered:';
 const HIGH_PRIORITY = 2;
 const ALERT_LABEL = { color: '#E5484D', name: 'nightly-alert' };
 const REQUIRED_LABEL_NAMES = ['area-ci', 'needs-human'];
@@ -30,7 +31,7 @@ const STATE_QUERY =
   'query { workflowStates(filter: { team: { key: { eq: "BST" } }, name: { eq: "Todo" } }) { nodes { id } } }';
 const LABELS_QUERY = `query {
   issueLabels(filter: {
-    team: { key: { eq: "BST" } },
+    or: [{ team: { key: { eq: "BST" } } }, { team: { null: true } }],
     name: { in: ["nightly-alert", "area-ci", "needs-human"] }
   }) { nodes { id name } }
 }`;
@@ -42,6 +43,14 @@ const DEDUP_QUERY = `query ($title: String!) {
     title: { eq: $title },
     state: { type: { nin: ["completed", "canceled"] } }
   }) { nodes { id identifier url } }
+}`;
+const COMMENTS_QUERY = `query ($id: String!, $cursor: String) {
+  issue(id: $id) {
+    comments(first: 250, after: $cursor) {
+      nodes { body createdAt }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
 }`;
 const LABEL_CREATE_MUTATION = `mutation ($teamId: String!, $name: String!, $color: String!) {
   issueLabelCreate(input: { teamId: $teamId, name: $name, color: $color }) {
@@ -171,11 +180,11 @@ async function resolveAlertLabelIds(linear, teamId) {
   const labels = nodesOf(await linear(LABELS_QUERY), 'issueLabels');
   const named = (name) => labels.filter((label) => label.name === name);
   const required = REQUIRED_LABEL_NAMES.map((name) =>
-    exactlyOne(named(name), `label "${name}" on team BST`)
+    exactlyOne(named(name), `label "${name}" (team BST or workspace)`)
   );
   const alertMatches = named(ALERT_LABEL.name);
   if (alertMatches.length > 0) {
-    const alert = exactlyOne(alertMatches, `label "${ALERT_LABEL.name}" on team BST`);
+    const alert = exactlyOne(alertMatches, `label "${ALERT_LABEL.name}" (team BST or workspace)`);
     return [alert.id, ...required.map((label) => label.id)];
   }
   // Provisioning the alert label once, not a fallback: every other lookup fails.
@@ -221,6 +230,31 @@ async function addComment(linear, issueId, body) {
   );
 }
 
+async function newestComment(linear, issueId) {
+  const comments = [];
+  let cursor = null;
+  do {
+    const { issue } = await linear(COMMENTS_QUERY, { cursor, id: issueId });
+    const page = issue?.comments;
+    if (!(Array.isArray(page?.nodes) && page.pageInfo)) {
+      throw new Error(`Linear API response is missing comments for issue ${issueId}.`);
+    }
+    comments.push(...page.nodes);
+    if (page.pageInfo.hasNextPage && !page.pageInfo.endCursor) {
+      throw new Error(`Linear reported more comments for issue ${issueId} but no cursor.`);
+    }
+    cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+  } while (cursor);
+  for (const { createdAt } of comments) {
+    if (Number.isNaN(Date.parse(createdAt))) {
+      throw new Error(`Linear comment on issue ${issueId} has an invalid createdAt.`);
+    }
+  }
+  // Never trust the API's ordering: the newest comment decides.
+  comments.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  return comments.length > 0 ? comments[0] : undefined;
+}
+
 async function reportNightly({ linear, workflow, results, runUrl, sha }) {
   const title = `Nightly red: ${workflow}`;
   const isGreen = results.every(({ result }) => result === SUCCESS);
@@ -232,9 +266,17 @@ async function reportNightly({ linear, workflow, results, runUrl, sha }) {
   const existing = open.length === 1 ? open[0] : undefined;
   const red = describeRedNight({ results, runUrl, sha, workflow });
 
+  if (existing && !isGreen) {
+    await addComment(linear, existing.id, red.comment);
+    return { action: 'commented', issue: existing };
+  }
   if (existing) {
-    await addComment(linear, existing.id, isGreen ? `Recovered: ${runUrl}` : red.comment);
-    return { action: isGreen ? 'recovered' : 'commented', issue: existing };
+    const newest = await newestComment(linear, existing.id);
+    if (newest?.body.startsWith(RECOVERED_PREFIX)) {
+      return { action: 'already-recovered', issue: existing };
+    }
+    await addComment(linear, existing.id, `${RECOVERED_PREFIX} ${runUrl}`);
+    return { action: 'recovered', issue: existing };
   }
   if (isGreen) {
     return { action: 'none' };
@@ -246,6 +288,9 @@ async function reportNightly({ linear, workflow, results, runUrl, sha }) {
 function summaryLine({ issue, action }) {
   if (action === 'none') {
     return 'Linear: no open nightly issue; green';
+  }
+  if (action === 'already-recovered') {
+    return `Linear: ${issue.identifier} already recovered`;
   }
   return `Linear: ${issue.identifier} ${issue.url} (${action})`;
 }

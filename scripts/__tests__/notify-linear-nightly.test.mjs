@@ -29,6 +29,19 @@ function argv(results) {
 
 const RED = argv('desktop-full-regression=failure,desktop-embedding-e2e=success');
 const GREEN = argv('desktop-full-regression=success,desktop-embedding-e2e=success');
+const RECOVERED_AT = (day) => ({
+  body: `Recovered: ${RUN_URL}`,
+  createdAt: `2026-09-${day}T07:00:00.000Z`,
+});
+const RED_AT = (day) => ({
+  body: `Red again: ${RUN_URL}`,
+  createdAt: `2026-09-${day}T07:00:00.000Z`,
+});
+const NO_MORE_PAGES = { endCursor: null, hasNextPage: false };
+
+function commentsReply(nodes, pageInfo = NO_MORE_PAGES) {
+  return { issue: { comments: { nodes, pageInfo } } };
+}
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status });
@@ -39,6 +52,7 @@ function json(body, status = 200) {
 function scriptedLinear(overrides = {}) {
   const table = {
     commentCreate: { commentCreate: { success: true } },
+    comments: commentsReply([]),
     issueCreate: {
       issueCreate: {
         issue: { identifier: 'BST-2001', url: 'https://linear.app/x/BST-2001' },
@@ -65,7 +79,7 @@ function scriptedLinear(overrides = {}) {
     const name = operationOf(body.query);
     assert.ok(name, `unscripted Linear operation: ${body.query}`);
     const reply = table[name];
-    return typeof reply === 'function' ? reply() : json({ data: reply });
+    return typeof reply === 'function' ? reply(body) : json({ data: reply });
   }
 
   return {
@@ -181,6 +195,118 @@ test('green with no open issue makes no mutation and exits 0', async () => {
   assert.equal(result.exitCode, 0, result.stderr);
   assert.equal(linear.mutations().length, 0);
   assert.equal(result.summary, 'Linear: no open nightly issue; green\n');
+});
+
+test('green after a red night comments Recovered once, reading the issue comments', async () => {
+  const linear = scriptedLinear({
+    comments: commentsReply([RECOVERED_AT('01'), RED_AT('02')]),
+    issues: { issues: { nodes: [OPEN_ISSUE] } },
+  });
+  const result = await run(GREEN, linear);
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(linear.named('comments')[0].body.variables.id, 'issue-1');
+  const mutations = linear.mutations();
+  assert.equal(mutations.length, 1);
+  assert.equal(mutations[0].body.variables.input.body, `Recovered: ${RUN_URL}`);
+  assert.equal(result.summary, 'Linear: BST-2000 https://linear.app/x/BST-2000 (recovered)\n');
+});
+
+test('green when the newest comment is already Recovered makes no mutation', async () => {
+  const linear = scriptedLinear({
+    comments: commentsReply([RED_AT('05'), RECOVERED_AT('20'), RED_AT('10')]),
+    issues: { issues: { nodes: [OPEN_ISSUE] } },
+  });
+  const result = await run(GREEN, linear);
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(linear.mutations().length, 0);
+  assert.equal(result.summary, 'Linear: BST-2000 already recovered\n');
+});
+
+test('comments returned out of order are sorted by createdAt: a newer red night beats an older Recovered', async () => {
+  const linear = scriptedLinear({
+    comments: commentsReply([RECOVERED_AT('02'), RED_AT('30'), RECOVERED_AT('03')]),
+    issues: { issues: { nodes: [OPEN_ISSUE] } },
+  });
+  const result = await run(GREEN, linear);
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  const mutations = linear.mutations();
+  assert.equal(mutations.length, 1);
+  assert.equal(mutations[0].body.variables.input.body, `Recovered: ${RUN_URL}`);
+});
+
+test('the comment search follows hasNextPage to the newest comment', async () => {
+  const linear = scriptedLinear({
+    comments: ({ variables }) =>
+      json({
+        data:
+          variables.cursor === 'cursor-1'
+            ? commentsReply([RECOVERED_AT('20')])
+            : commentsReply([RED_AT('01')], { endCursor: 'cursor-1', hasNextPage: true }),
+      }),
+    issues: { issues: { nodes: [OPEN_ISSUE] } },
+  });
+  const result = await run(GREEN, linear);
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  const pages = linear.named('comments');
+  assert.deepEqual(
+    pages.map(({ body }) => body.variables.cursor),
+    [null, 'cursor-1']
+  );
+  assert.equal(linear.mutations().length, 0);
+  assert.equal(result.summary, 'Linear: BST-2000 already recovered\n');
+});
+
+test('a next page without a cursor fails instead of looping', async () => {
+  const linear = scriptedLinear({
+    comments: commentsReply([RED_AT('01')], { endCursor: null, hasNextPage: true }),
+    issues: { issues: { nodes: [OPEN_ISSUE] } },
+  });
+  const result = await run(GREEN, linear);
+
+  assert.notEqual(result.exitCode, 0);
+  assert.match(result.stderr, /no cursor/);
+  assert.equal(linear.mutations().length, 0);
+});
+
+test('a workspace-level label is found and the create path succeeds', async () => {
+  const workspaceCi = { id: 'label-ci-ws', name: 'area-ci', team: null };
+  const linear = scriptedLinear({
+    issueLabels: { issueLabels: { nodes: [ALERT_LABEL, workspaceCi, HUMAN_LABEL] } },
+  });
+  const result = await run(RED, linear);
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  const [labels] = linear.named('issueLabels');
+  assert.match(
+    labels.body.query,
+    /or:\s*\[\s*\{\s*team:\s*\{\s*key:\s*\{\s*eq:\s*"BST"\s*\}\s*\}\s*\},\s*\{\s*team:\s*\{\s*null:\s*true\s*\}\s*\}\s*\]/
+  );
+  assert.equal(linear.named('issueLabelCreate').length, 0);
+  const [issueCreate] = linear.named('issueCreate');
+  assert.deepEqual(issueCreate.body.variables.input.labelIds, [
+    'label-alert',
+    'label-ci-ws',
+    'label-human',
+  ]);
+});
+
+test('a label name matching at team and workspace scope is ambiguous and fails', async () => {
+  const linear = scriptedLinear({
+    issueLabels: {
+      issueLabels: {
+        nodes: [ALERT_LABEL, CI_LABEL, { ...CI_LABEL, id: 'label-ci-ws' }, HUMAN_LABEL],
+      },
+    },
+  });
+  const result = await run(RED, linear);
+
+  assert.notEqual(result.exitCode, 0);
+  assert.match(result.stderr, /2 label "area-ci".*expected exactly one/);
+  assert.equal(linear.mutations().length, 0);
 });
 
 test('two open issues for one workflow fail without any mutation', async () => {
