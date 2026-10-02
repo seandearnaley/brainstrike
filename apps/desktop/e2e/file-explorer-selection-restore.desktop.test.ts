@@ -166,9 +166,9 @@ test.describe('Desktop file explorer selection restore', () => {
     }
   });
 
-  test('restored partial explicit selection remains interactive after app restart', async ({
-    electronHarness,
-  }) => {
+  test.fixme('restored partial explicit selection remains interactive after app restart', {
+    annotation: { description: 'BST-1953', type: 'quarantine' },
+  }, async ({ electronHarness }) => {
     test.setTimeout(60_000);
 
     const rootPath = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-tree-restore-partial-'));

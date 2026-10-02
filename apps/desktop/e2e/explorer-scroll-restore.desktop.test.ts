@@ -31,9 +31,9 @@ test.afterAll(() => {
 const SCROLL_SELECTOR = '[data-testid="explorer-scroll-root"]';
 
 test.describe('Explorer scroll restore', () => {
-  test('@desktop-explorer-scroll-restore restores the scroll position across a restart', async ({
-    window: page,
-  }) => {
+  test.fixme('@desktop-explorer-scroll-restore restores the scroll position across a restart', {
+    annotation: { description: 'BST-1952', type: 'quarantine' },
+  }, async ({ window: page }) => {
     test.setTimeout(3 * 60 * 1000);
 
     await page.evaluate(

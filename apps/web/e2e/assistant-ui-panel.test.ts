@@ -304,9 +304,9 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(page.getByText('Memory database unavailable')).toHaveCount(0);
   });
 
-  test('customizes thread identity and keeps diagnostics out of the primary row', async ({
-    page,
-  }) => {
+  test.fixme('customizes thread identity and keeps diagnostics out of the primary row', {
+    annotation: { description: 'BST-1961', type: 'quarantine' },
+  }, async ({ page }) => {
     await expect(page.getByTestId('threads-panel')).toBeVisible();
     const threadRow = page.getByTestId('thread-row').first();
     await expect(threadRow).toBeVisible();

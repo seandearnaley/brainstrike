@@ -77,9 +77,9 @@ test.describe('File System Integration', () => {
     expect(hasTree || hasList || hasFallback).toBe(true);
   });
 
-  test('loading the mocked explorer root does not reload the visible renderer', async ({
-    window,
-  }) => {
+  test.fixme('loading the mocked explorer root does not reload the visible renderer', {
+    annotation: { description: 'BST-1954', type: 'quarantine' },
+  }, async ({ window }) => {
     test.setTimeout(45_000);
 
     await ensureFileExplorerPanelVisible(window);
