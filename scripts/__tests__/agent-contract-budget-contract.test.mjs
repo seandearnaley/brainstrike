@@ -82,7 +82,7 @@ const CONTRACT_LINE_BUDGETS = {
   'assistant-runtime.md': 2780,
   'assistant-subagents.md': 1626,
   'changeset-diff.md': 495,
-  'ci-quality.md': 924,
+  'ci-quality.md': 922,
   'code-execution.md': 364,
   // BST-1794 raised this from 852: rule 3 (catalog upsert) needed a
   // sibling-invariant cross-reference to the `models.updated_at` rule in
