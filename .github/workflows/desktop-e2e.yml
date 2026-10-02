@@ -226,7 +226,7 @@ jobs:
               --project=regression \
               --workers=1 \
               --retries=0 \
-              --max-failures=1 \
+              --max-failures=0 \
               --global-timeout=3000000 \
               --grep="@desktop-embedding-"
           fi
