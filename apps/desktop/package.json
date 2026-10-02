@@ -104,6 +104,7 @@
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/settings-ui": "workspace:*",
+    "@brainstrike/sqlite-native": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",

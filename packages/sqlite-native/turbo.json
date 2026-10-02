@@ -1,0 +1,25 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // NEVER cache: the suite dlopens better-sqlite3's prebuilt `.node` and
+      // sqlite-vec's `vec0` for the HOST platform and architecture. Pass/fail
+      // depends on which prebuild is installed and loadable on this machine, a
+      // result-affecting input turbo does NOT hash (it hashes source, never the
+      // installed native binaries). A cache hit would replay a green without
+      // proving the prebuild loads here, defeating the point of the suite.
+      // Nothing in this package compiles, so there is no `build` edge: tests
+      // import workspace code from SOURCE.
+      // cache:false does NOT exempt strict-env filtering; package configs
+      // REPLACE array fields. Redeclare to keep CI/COVERAGE visible. Sync with
+      // root.
+      "cache": false,
+      "passThroughEnv": ["CI", "COVERAGE"]
+    },
+    "test:coverage": {
+      // Runs the IDENTICAL suite (`pnpm run test --coverage`), so it needs the
+      // same `cache: false`; see `test` above.
+      "cache": false
+    }
+  }
+}

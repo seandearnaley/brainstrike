@@ -134,6 +134,9 @@
       "@brainstrike/mcp-tasks-extension": [
         "./packages/mcp-tasks-extension/src/index.ts"
       ],
+      "@brainstrike/sqlite-native": [
+        "./packages/sqlite-native/src/index.ts"
+      ],
       "@brainstrike/embeddings": [
         "./packages/embeddings/src"
       ],
