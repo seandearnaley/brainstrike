@@ -75,7 +75,6 @@ Guard: `packages/config/__tests__/vitest-browser.test.ts`.
 Settled: delegated smoke specs stay in the PR gate, not nightly. Evidence:
 `ci-quality/workload-boundaries.md`, `ci-quality/e2e-lane-timeout-budgets.md`.
 Guard: `scripts/__tests__/unit-shard-partition.test.mjs`,
-`scripts/__tests__/ci-input-locality.test.mjs`,
 `scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs`.
 
 ### MCP verifier lanes
@@ -117,9 +116,7 @@ Guard: `scripts/__tests__/mcp-verification-ci-contract.test.mjs`,
 
 #### MCP 2026 fleet working agreements (BST-1590)
 
-This heading keeps its identifier because
-`scripts/__tests__/mcp-verification-ci-contract.test.mjs` pins it verbatim; every
-other heading drops the suffix.
+This heading keeps its identifier; every other heading drops the suffix.
 
 The WIP limit, ladder freeze, and daily status update lapsed when
 [BST-1472](https://linear.app/brainstrike/issue/BST-1472) closed (Done,
@@ -659,7 +656,7 @@ Guard: `scripts/__tests__/vitest-worker-global-mutation.test.mjs`,
 Evidence: `ci-quality/workspace-src-alias-guard.md`.
 Guard: `scripts/__tests__/` `verify-workspace-src-aliases`,
 `turbo-global-configuration`, `native-addon-build-uncached-contract`,
-`private-test-input-locality`, `ci-guard-input-locality` (`.test.mjs`).
+`ci-guard-input-locality` (`.test.mjs`).
 
 ### Mutation-lane contract guard (`pnpm test:scripts`)
 
@@ -670,7 +667,6 @@ Guard: `scripts/__tests__/` `verify-workspace-src-aliases`,
   reviewed decision.
 
 Evidence: `ci-quality/mutation-lane-guard.md`.
-Guard: `scripts/__tests__/verify-stryker-mutation-contracts.test.mjs`.
 
 ### TypeScript 7 CLI with the TypeScript 6 compatibility API
 
@@ -907,7 +903,6 @@ scalar `--max-warnings`. Evidence: `ci-quality/react-doctor.md`,
 `ci-quality/knip-audit.md`, `ci-quality/eslint-warning-ratchet.md`.
 Guard: `scripts/__tests__/react-doctor-version-contract.test.mjs`,
 `scripts/__tests__/knip-workflow.test.mjs`,
-`scripts/__tests__/eslint-warning-baseline-contract.test.mjs`,
 `scripts/__tests__/pnpm-shadowed-builtin-contract.test.mjs`.
 
 ### React Compiler bailouts are invisible — measure them

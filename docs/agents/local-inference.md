@@ -364,8 +364,7 @@ Flow:
      `ALLOWED_MODEL_REVISION`; the development proxy intentionally accepts any revision
      below the allowed model's resolve path. Do not duplicate the model, revision, URL,
      or header values in either consumer.
-   - Verification: `node --test scripts/__tests__/hf-proxy-contract-ownership.test.mjs`
-     plus the web proxy unit tests (`pnpm --filter @brainstrike/web test`).
+   - Verification: the web proxy unit tests (`pnpm --filter @brainstrike/web test`).
 
 Constraints:
 - Built-in local model downloads are manifest-based, not single-file heuristics.
@@ -398,5 +397,4 @@ ONNX-Runtime markers that carry no "gpu" substring. Evidence:
 `local-inference/engine-fault-recovery.md`, `local-inference/gemma-runtime-budget.md`.
 Guard: `llm-host-runtime.test.tsx`, `llm-host-manager.test.ts`,
 `local-runtime-adapter-backend-lifetime.test.ts`,
-`packages/agent/src/__tests__/mastra-local-host-execution.spec.ts`,
-`scripts/__tests__/hf-proxy-contract-ownership.test.mjs`.
+`packages/agent/src/__tests__/mastra-local-host-execution.spec.ts`.

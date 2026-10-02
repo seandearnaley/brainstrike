@@ -4,8 +4,6 @@ Owns the MCP verification harness (`@brainstrike/mcp-test-lab`), the production
 official-conformance client, the bounded official-runner driver, the evidence
 schemas, and the durable official conformance run links. CI trigger shape,
 budgets, and the red-`main` exit condition stay in `docs/agents/ci-quality.md`.
-Update this file and `scripts/__tests__/mcp-verification-ci-contract.test.mjs`
-together.
 
 ## MCP verification harness
 
