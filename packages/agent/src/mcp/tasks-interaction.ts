@@ -68,6 +68,14 @@ export class McpTaskCancellationOutcomeError extends Error {
   }
 }
 
+/** The requestor's own `tasks/cancel` withdrew a task input request before it was answered. */
+class McpTaskInputWithdrawnError extends Error {
+  constructor(taskId: string, inputKey: string) {
+    super(`MCP task "${taskId}" input request "${inputKey}" was withdrawn by cancellation.`);
+    this.name = 'McpTaskInputWithdrawnError';
+  }
+}
+
 interface InputOperation {
   acknowledged: boolean;
   readonly controller: AbortController;
@@ -267,7 +275,10 @@ export class McpTaskInteraction {
         ? new Set(Object.keys(task.inputRequests))
         : new Set<string>();
     this.retireSupersededInputs(task.taskId, currentInputKeys);
-    if (task.status !== 'input_required') {
+    // Once tasks/cancel is sent the client owes the task no further input
+    // (Tasks 2026-07-28, "Task Cancellation"); an eventually consistent
+    // server may still list requests until it reports a terminal status.
+    if (task.status !== 'input_required' || this.cancellations.has(task.taskId)) {
       return;
     }
     await Promise.all(
@@ -304,6 +315,10 @@ export class McpTaskInteraction {
     const terminal = Promise.withResolvers<'cancelled' | 'completed' | 'failed'>();
     // An observation failure may reject this before runCancellation awaits it.
     void terminal.promise.catch(() => undefined);
+    // The sole poller is parked on this task's unanswered input, and only its
+    // next poll can observe the terminal status. Withdrawing the input
+    // releases it and refuses a late answer before tasks/cancel is sent.
+    this.withdrawInputs(taskId);
     const promise = this.runCancellation(taskId, terminal.promise);
     const operation = { promise, terminal };
     this.cancellations.set(taskId, operation);
@@ -382,9 +397,18 @@ export class McpTaskInteraction {
     }
     let delivery: Promise<void>;
     delivery = this.deliverInput(taskId, inputKey, operation.decision, operation.controller.signal)
-      .then(() => {
-        operation.acknowledged = true;
-      })
+      .then(
+        () => {
+          operation.acknowledged = true;
+        },
+        (error: unknown) => {
+          // A withdrawal by this coordinator's own cancel() finishes the
+          // observation; cancel() reports the cancellation outcome.
+          if (!(error instanceof McpTaskInputWithdrawnError)) {
+            throw error;
+          }
+        }
+      )
       .finally(() => {
         if (operation.delivery === delivery) {
           operation.delivery = undefined;
@@ -490,6 +514,16 @@ export class McpTaskInteraction {
       }
       operation.retired = true;
       operation.controller.abort(new Error(`MCP task "${taskId}" input request was superseded.`));
+    }
+  }
+
+  private withdrawInputs(taskId: string): void {
+    for (const operation of this.inputs.values()) {
+      if (operation.taskId !== taskId || operation.acknowledged || operation.retired) {
+        continue;
+      }
+      operation.retired = true;
+      operation.controller.abort(new McpTaskInputWithdrawnError(taskId, operation.inputKey));
     }
   }
 
