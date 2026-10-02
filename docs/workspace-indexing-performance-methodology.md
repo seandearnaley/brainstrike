@@ -21,13 +21,9 @@ The verifier writes the same artifact to Playwright's output directory and to th
 
 ## Validation Command
 
-Analyze the most recent verifier artifact:
-
-```bash
-node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs --require-device webgpu
-```
-
-Analyze a specific artifact:
+Analyze a verifier artifact (without `--evidence`, `--mode integrated` runs the
+loaded foreground-latency benchmark instead; see
+`docs/performance/foreground-latency-under-index-build.md`):
 
 ```bash
 node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs \
@@ -54,10 +50,11 @@ integratedToBottleneckRatio =
   integratedChunksPerSecond / min(stageCeilings)
 ```
 
-Stage ceilings must be measured on the same machine and backend as the integrated run. The current CLI validates integrated full-run evidence and uses externally supplied stage ceilings. It rejects non-integrated `--mode` values until the Electron stage benchmark harness exists, because silently ignoring requested stage measurements would produce false evidence. Do not publish a bottleneck ratio unless those ceilings were measured on the same machine/backend and passed explicitly:
+Stage ceilings must be measured on the same machine and backend as the integrated run, and passed explicitly. Do not publish a bottleneck ratio unless those ceilings were measured on the same machine/backend:
 
 ```bash
 node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs \
+  --evidence apps/desktop/test-results/full-workspace-index-evidence.json \
   --require-device webgpu \
   --stage-ceiling embeddingCeilingChunksPerSecond=25 \
   --stage-ceiling dbCompletionCeilingChunksPerSecond=40 \

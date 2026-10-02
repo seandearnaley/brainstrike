@@ -1,0 +1,196 @@
+{
+  "build": {
+    "actualDevice": "webgpu",
+    "backfillCompletion": {
+      "current": 5570,
+      "requestId": "background-indexing-backfill:503457ba-342c-433e-8c37-2528588d4b49",
+      "total": 5570
+    },
+    "chunkCount": 6962,
+    "chunksPerSecond": 42.82,
+    "completedChunkCount": 6962,
+    "dtype": "fp16",
+    "elapsedMs": 162587,
+    "fileCount": 1000
+  },
+  "capturedAt": "2026-10-02T10:38:53.119Z",
+  "commit": "18695d4b7e45d763df7a3e37f20e82c209e4564f",
+  "config": {
+    "corpus": {
+      "bytes": 3864680,
+      "files": 1000,
+      "seed": 1925,
+      "sha256": "64dcd0167650bc048e28b1b73e009b32aa427a364ff68559d09594f474e2fd23"
+    },
+    "device": "webgpu",
+    "idleSamplesPerProbe": 150,
+    "minBuildMs": 60000,
+    "minLoadedSamplesPerProbe": 100,
+    "probePeriodMs": 200,
+    "rendererCalibration": {
+      "blockMs": 120,
+      "observed": {
+        "frameGapMs": 100.29999999999995,
+        "longTaskMs": 120
+      }
+    },
+    "warmupSamplesPerProbe": 10
+  },
+  "environment": {
+    "arch": "arm64",
+    "ci": false,
+    "cpuCount": 16,
+    "cpuModel": "Apple M4 Max",
+    "electronVersion": "44.4.5",
+    "loadAverageAtStart": [
+      6.33,
+      5.42,
+      6.28
+    ],
+    "osRelease": "27.0.0",
+    "platform": "darwin",
+    "runner": null,
+    "totalMemoryGb": 128,
+    "loadAverageAtEnd": [
+      3.028,
+      4.254,
+      5.604
+    ]
+  },
+  "invalidReasons": [],
+  "metrics": {
+    "chatPathOp": {
+      "idleMs": {
+        "max": 8.355,
+        "n": 150,
+        "p50": 3.785,
+        "p95": 4.528
+      },
+      "loadedMs": {
+        "max": 68.238,
+        "n": 813,
+        "p50": 5.444,
+        "p95": 50.445
+      },
+      "operation": "recordDesktopAssistantRunEvent(run.step.finished), foreground scheduler lane",
+      "p95DeltaMs": 45.917
+    },
+    "mainEventLoopLag": {
+      "idleMs": {
+        "max": 9.071,
+        "n": 2552,
+        "p50": 2.075,
+        "p95": 2.984
+      },
+      "loadedMs": {
+        "max": 11.873,
+        "n": 14441,
+        "p50": 1.403,
+        "p95": 2.165
+      }
+    },
+    "renderer": {
+      "idle": {
+        "frameGapMs": {
+          "max": 18.8,
+          "n": 1919,
+          "p50": 16.7,
+          "p95": 18.6
+        },
+        "framesOver50Ms": 0,
+        "longTasks": {
+          "count": 0,
+          "maxMs": 0,
+          "totalMs": 0
+        }
+      },
+      "loaded": {
+        "frameGapMs": {
+          "max": 18.8,
+          "n": 9744,
+          "p50": 16.7,
+          "p95": 18.1
+        },
+        "framesOver50Ms": 0,
+        "longTasks": {
+          "count": 0,
+          "maxMs": 0,
+          "totalMs": 0
+        }
+      }
+    },
+    "toolRead": {
+      "components": {
+        "fileReadMs": {
+          "idle": {
+            "max": 6.454,
+            "n": 150,
+            "p50": 2.788,
+            "p95": 5.019
+          },
+          "loaded": {
+            "max": 1.622,
+            "n": 812,
+            "p50": 0.782,
+            "p95": 1.19
+          }
+        },
+        "indexQueryMs": {
+          "idle": {
+            "max": 3.915,
+            "n": 150,
+            "p50": 2.083,
+            "p95": 3.201
+          },
+          "loaded": {
+            "max": 147.087,
+            "n": 812,
+            "p50": 30.207,
+            "p95": 55.877
+          }
+        }
+      },
+      "idleMs": {
+        "max": 9.256,
+        "n": 150,
+        "p50": 4.895,
+        "p95": 7.427
+      },
+      "loadedMs": {
+        "max": 147.844,
+        "n": 812,
+        "p50": 31.135,
+        "p95": 56.627
+      },
+      "p95LoadedOverIdle": 7.624
+    }
+  },
+  "rawSamplesMs": {
+    "idle": {
+      "chatPathOp": [
+        4.129,
+        4.725,
+        2.333
+      ],
+      "toolRead": [
+        5.169,
+        4.39,
+        5.541
+      ]
+    },
+    "loaded": {
+      "chatPathOp": [
+        0.903,
+        0.96,
+        0.951
+      ],
+      "toolRead": [
+        1.671,
+        1.35,
+        1.69
+      ]
+    }
+  },
+  "schema": "brainstrike.foreground-latency-under-index-build.v1",
+  "status": "valid"
+}

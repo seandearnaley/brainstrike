@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import { analyzeWorkspaceIndexEvidence } from '../../apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs';
+import {
+  analyzeWorkspaceIndexEvidence,
+  integratedBenchmarkEnv,
+  parseArgs,
+  summarizeIntegratedBenchmarkEvidence,
+} from '../../apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs';
+
+// Evidence recorded by e2e/foreground-latency-under-index-build.desktop.test.ts
+// (raw sample arrays trimmed to three entries).
+function readRecordedIntegratedEvidence() {
+  return JSON.parse(
+    readFileSync(
+      new URL('./fixtures/foreground-latency-evidence.recorded.json', import.meta.url),
+      'utf8'
+    )
+  );
+}
 
 function createSnapshot({ embedded, elapsedMs, fallbackApplied = false, device = 'webgpu' }) {
   return {
@@ -146,5 +163,55 @@ test('analyzeWorkspaceIndexEvidence rejects incomplete terminal counts', () => {
         { requireDevice: 'webgpu' }
       ),
     /did not complete/
+  );
+});
+
+test('summarizeIntegratedBenchmarkEvidence returns the metric set of a valid run without raw samples', () => {
+  const recorded = readRecordedIntegratedEvidence();
+  assert.equal(recorded.status, 'valid');
+
+  const summary = summarizeIntegratedBenchmarkEvidence(recorded);
+
+  assert.equal(summary.status, 'valid');
+  assert.equal(summary.commit, recorded.commit);
+  assert.deepEqual(summary.build, recorded.build);
+  assert.deepEqual(summary.metrics, recorded.metrics);
+  assert.equal('rawSamplesMs' in summary, false);
+});
+
+test('summarizeIntegratedBenchmarkEvidence refuses an invalid run and names why', () => {
+  const recorded = readRecordedIntegratedEvidence();
+  const invalid = {
+    ...recorded,
+    invalidReasons: ['the build finished in 9896 ms, under the 60000 ms floor'],
+    status: 'invalid',
+  };
+
+  assert.throws(() => summarizeIntegratedBenchmarkEvidence(invalid), /under the 60000 ms floor/);
+});
+
+test('summarizeIntegratedBenchmarkEvidence refuses evidence of another schema', () => {
+  assert.throws(
+    () => summarizeIntegratedBenchmarkEvidence(createEvidence()),
+    /not foreground-latency benchmark evidence/
+  );
+});
+
+test('parseArgs reads the integrated corpus size and rejects a non-positive one', () => {
+  assert.equal(parseArgs(['--mode', 'integrated', '--files', '120']).files, 120);
+  assert.throws(() => parseArgs(['--files', '0']), /--files requires a positive integer/);
+});
+
+test('integratedBenchmarkEnv hands the device, corpus size and evidence path to the spec', () => {
+  const env = integratedBenchmarkEnv({ files: 120, requireDevice: 'wasm' }, '/tmp/evidence.json', {
+    PATH: '/bin',
+  });
+
+  assert.equal(env.PATH, '/bin');
+  assert.equal(env.BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_DEVICE, 'wasm');
+  assert.equal(env.BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_FILES, '120');
+  assert.equal(
+    env.BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_EVIDENCE_PATH,
+    '/tmp/evidence.json'
   );
 });

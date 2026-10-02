@@ -1,31 +1,23 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { mkdtemp, readdir, readFile, stat } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const DESKTOP_APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(DESKTOP_APP_ROOT, '../..');
-const DEFAULT_EVIDENCE_ROOTS = [
-  path.join(DESKTOP_APP_ROOT, 'test-results'),
-  path.join(DESKTOP_APP_ROOT, 'blob-report'),
-];
-const BENCHMARK_MODES = new Set([
-  'embedding-ceiling',
-  'db-completion-ceiling',
-  'chunking-ceiling',
-  'import-ceiling',
-  'integrated',
-]);
-const RUNNABLE_STAGE_BENCHMARK_MODES = new Set([
+const INTEGRATED_BENCHMARK_LANE = 'test:e2e:lane:foreground-latency';
+const INTEGRATED_BENCHMARK_SCHEMA = 'brainstrike.foreground-latency-under-index-build.v1';
+const STAGE_BENCHMARK_MODES = new Set([
   'chunking-ceiling',
   'db-completion-ceiling',
   'embedding-ceiling',
   'import-ceiling',
 ]);
+/** Stage modes run e2e/workspace-index-stage-benchmark; `integrated` runs the full-build lane. */
+const BENCHMARK_MODES = new Set([...STAGE_BENCHMARK_MODES, 'integrated']);
 
 const FATAL_LOG_PATTERN =
   /DB host request timed out|Local embedding execution failed|uncaught|unhandled/i;
@@ -259,9 +251,45 @@ export function analyzeWorkspaceIndexEvidence(evidence, options = {}) {
   };
 }
 
+/**
+ * Validates evidence written by e2e/foreground-latency-under-index-build.desktop.test.ts
+ * and returns it without the raw sample arrays. An invalid run is an error, never
+ * a set of numbers.
+ */
+export function summarizeIntegratedBenchmarkEvidence(evidence) {
+  if (evidence?.schema !== INTEGRATED_BENCHMARK_SCHEMA) {
+    throw new Error(
+      `Evidence schema ${JSON.stringify(evidence?.schema)} is not foreground-latency benchmark evidence (${INTEGRATED_BENCHMARK_SCHEMA}).`
+    );
+  }
+  if (evidence.status !== 'valid') {
+    const reasons = Array.isArray(evidence.invalidReasons) ? evidence.invalidReasons : [];
+    throw new Error(
+      `Foreground latency benchmark run is ${evidence.status}: ${reasons.join('; ') || 'no reason recorded'}`
+    );
+  }
+  const { rawSamplesMs: _rawSamplesMs, ...summary } = evidence;
+  return summary;
+}
+
+/** The environment the integrated benchmark spec reads its configuration from. */
+export function integratedBenchmarkEnv(options, evidencePath, baseEnv = process.env) {
+  return {
+    ...baseEnv,
+    BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_EVIDENCE_PATH: evidencePath,
+    ...(options.requireDevice
+      ? { BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_DEVICE: options.requireDevice }
+      : {}),
+    ...(options.files
+      ? { BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_FILES: String(options.files) }
+      : {}),
+  };
+}
+
 export function parseArgs(argv = process.argv.slice(2)) {
   const options = {
     evidencePath: null,
+    files: null,
     maxRetainedHeapMb: null,
     minIntegratedToBottleneckRatio: null,
     modes: ['integrated'],
@@ -282,6 +310,12 @@ export function parseArgs(argv = process.argv.slice(2)) {
       options.evidencePath = path.resolve(next());
     } else if (arg === '--require-device') {
       options.requireDevice = next();
+    } else if (arg === '--files') {
+      const files = Number(next());
+      if (!Number.isInteger(files) || files <= 0) {
+        throw new Error('--files requires a positive integer');
+      }
+      options.files = files;
     } else if (arg === '--max-retained-heap-mb') {
       options.maxRetainedHeapMb = Number(next());
     } else if (arg === '--min-ratio') {
@@ -315,37 +349,26 @@ export function parseArgs(argv = process.argv.slice(2)) {
   return options;
 }
 
-export function assertRunnableBenchmarkModes(options) {
-  const unsupportedModes = options.modes.filter(
-    (mode) => mode !== 'integrated' && !RUNNABLE_STAGE_BENCHMARK_MODES.has(mode)
-  );
-  if (unsupportedModes.length > 0) {
-    throw new Error(
-      `Workspace Index benchmark mode '${unsupportedModes[0]}' requires the Electron stage benchmark harness. Current CLI only validates integrated full-run evidence; refusing to silently ignore requested stage mode(s): ${unsupportedModes.join(
-        ', '
-      )}.`
-    );
-  }
-}
-
 function getStageBenchmarkModes(options) {
   return options.modes.filter((mode) => mode !== 'integrated');
 }
 
 function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
+    // `streamToStderr` shows a long run's progress while keeping this script's
+    // stdout for its JSON result.
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
       shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: options.streamToStderr ? ['ignore', 2, 2] : ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk) => {
+    child.stdout?.on('data', (chunk) => {
       stdout += chunk.toString();
     });
-    child.stderr.on('data', (chunk) => {
+    child.stderr?.on('data', (chunk) => {
       stderr += chunk.toString();
     });
     child.on('error', reject);
@@ -367,7 +390,7 @@ export async function runElectronStageBenchmarks(options) {
   const stageModes = getStageBenchmarkModes(options);
   const results = {};
   for (const mode of stageModes) {
-    if (!RUNNABLE_STAGE_BENCHMARK_MODES.has(mode)) {
+    if (!STAGE_BENCHMARK_MODES.has(mode)) {
       throw new Error(`Workspace Index benchmark mode '${mode}' is not runnable.`);
     }
     const outputDir = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-stage-benchmark-'));
@@ -416,74 +439,63 @@ export async function runElectronStageBenchmarks(options) {
   return results;
 }
 
-async function findEvidenceFiles(root) {
-  if (!existsSync(root)) {
-    return [];
-  }
-  const entries = await readdir(root, { withFileTypes: true });
-  const nested = await Promise.all(
-    entries.map(async (entry) => {
-      const entryPath = path.join(root, entry.name);
-      if (entry.isDirectory()) {
-        return await findEvidenceFiles(entryPath);
-      }
-      return entry.name === 'full-workspace-index-evidence.json' ? [entryPath] : [];
-    })
-  );
-  return nested.flat();
-}
-
-export async function findLatestWorkspaceIndexEvidencePath(options = {}) {
-  const searchRoots = Array.isArray(options.searchRoots)
-    ? options.searchRoots
-    : DEFAULT_EVIDENCE_ROOTS;
-  const files = (await Promise.all(searchRoots.map((root) => findEvidenceFiles(root)))).flat();
-  if (files.length === 0) {
-    throw new Error(
-      `No full-workspace-index-evidence.json found under ${searchRoots.join(
-        ', '
-      )}. Run the full Workspace Index verifier or pass --evidence.`
-    );
-  }
-  const stats = await Promise.all(
-    files.map(async (filePath) => ({
-      filePath,
-      mtimeMs: (await stat(filePath)).mtimeMs,
-    }))
-  );
-  stats.sort((left, right) => right.mtimeMs - left.mtimeMs);
-  return stats[0].filePath;
+/**
+ * Runs the integrated benchmark: a full Workspace Index build of the seeded
+ * corpus with foreground latency probes, through the same lane script CI runs.
+ */
+export async function runIntegratedBenchmark(options) {
+  const configuredPath =
+    process.env.BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_EVIDENCE_PATH?.trim();
+  // Absolute, because the lane runs from apps/desktop while this script reads from its own cwd.
+  const evidencePath = configuredPath
+    ? path.resolve(configuredPath)
+    : path.join(
+        await mkdtemp(path.join(os.tmpdir(), 'brainstrike-integrated-benchmark-')),
+        'foreground-latency-under-index-build.json'
+      );
+  await runCommand('pnpm', ['--dir', DESKTOP_APP_ROOT, 'run', INTEGRATED_BENCHMARK_LANE], {
+    cwd: REPO_ROOT,
+    env: integratedBenchmarkEnv(options, evidencePath),
+    streamToStderr: true,
+  });
+  const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
+  return { evidencePath, ...summarizeIntegratedBenchmarkEvidence(evidence) };
 }
 
 async function runCli(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
     console.log(
-      'Usage: node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs --profile isolated --require-device webgpu [--mode integrated] [--evidence <path>] [--stage-ceiling embeddingCeilingChunksPerSecond=20]'
+      [
+        'Usage: node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs [--mode <mode>]... [options]',
+        '',
+        '  --mode integrated (default)  Run the loaded foreground-latency benchmark: a full Workspace',
+        '                               Index build of the seeded corpus (--require-device webgpu|wasm,',
+        '                               --files <n>). With --evidence, analyze that file instead.',
+        '  --mode <stage>-ceiling       Run an Electron stage benchmark.',
+        '  --evidence <path>            Analyze recorded evidence: integrated benchmark evidence, or a',
+        '                               full-workspace-index-evidence.json from the full-run verifier.',
+        '  --stage-ceiling key=value    Stage ceilings for the full-run throughput ratio.',
+      ].join('\n')
     );
     return;
   }
-  assertRunnableBenchmarkModes(options);
   const stageBenchmarks = await runElectronStageBenchmarks(options);
-  const shouldAnalyzeIntegrated = options.modes.includes('integrated');
-  let evidencePath = null;
   let result = null;
-  if (shouldAnalyzeIntegrated) {
-    evidencePath = options.evidencePath ?? (await findLatestWorkspaceIndexEvidencePath());
-    const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
-    result = analyzeWorkspaceIndexEvidence(evidence, options);
+  if (options.modes.includes('integrated')) {
+    if (options.evidencePath) {
+      const evidence = JSON.parse(await readFile(options.evidencePath, 'utf8'));
+      result = {
+        evidencePath: options.evidencePath,
+        ...(evidence?.schema === INTEGRATED_BENCHMARK_SCHEMA
+          ? summarizeIntegratedBenchmarkEvidence(evidence)
+          : analyzeWorkspaceIndexEvidence(evidence, options)),
+      };
+    } else {
+      result = await runIntegratedBenchmark(options);
+    }
   }
-  console.log(
-    JSON.stringify(
-      {
-        ...(evidencePath ? { evidencePath } : {}),
-        ...(result ?? {}),
-        stageBenchmarks,
-      },
-      null,
-      2
-    )
-  );
+  console.log(JSON.stringify({ ...(result ?? {}), stageBenchmarks }, null, 2));
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
