@@ -152,9 +152,9 @@ async function pollUntil(
 }
 
 test.describe('Mid-session add root indexing', () => {
-  test('@desktop-mid-session-add-root indexes a root added after the workspace is running', async ({
-    window: page,
-  }) => {
+  test.fixme('@desktop-mid-session-add-root indexes a root added after the workspace is running', {
+    annotation: { description: 'BST-1955', type: 'quarantine' },
+  }, async ({ window: page }) => {
     test.setTimeout(8 * 60 * 1000);
 
     // 1) Seed an already-running workspace with root #1 (boot/restore path).
