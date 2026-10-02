@@ -181,19 +181,21 @@ jobs:
 
       # The lab is self-contained (it spawns its own reference servers), so it
       # needs to run when turbo's package graph says @brainstrike/mcp-test-lab
-      # or one of its dependencies changed, or when its root wrapper changed.
-      # Turbo also marks every package changed on a global-file edit.
+      # or one of its dependencies changed, or when its wrapper, this workflow
+      # or the setup composite changed. Turbo also marks every package changed
+      # on a global-file edit. The range is the checked-out merge commit
+      # against its first parent: the PR event's base.sha goes stale when the
+      # base branch moves, and is then absent from the depth-2 clone.
       - name: Detect MCP lab changes
         id: mcp-paths
         if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          pnpm -s exec turbo ls --filter="...[${BASE_SHA}...${HEAD_SHA}]" --output=json > "$RUNNER_TEMP/turbo-changed.json"
-          changed="$(node -e 'const s=require("node:fs").readFileSync(process.argv[1],"utf8");const j=JSON.parse(s.slice(s.indexOf("{")));process.stdout.write(String(j.packages.items.some((p)=>p.name==="@brainstrike/mcp-test-lab")))' "$RUNNER_TEMP/turbo-changed.json")"
-          if [ "$changed" != true ] && ! git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- scripts/run-mcp-verification.mjs package.json; then
+          base="$(git rev-parse HEAD^1)"
+          head="$(git rev-parse HEAD)"
+          pnpm -s exec turbo ls --filter="...[${base}...${head}]" --output=json > "$RUNNER_TEMP/turbo-changed.json"
+          changed="$(node -e 'const s=require("node:fs").readFileSync(process.argv[1],"utf8");const i=s.indexOf("{");if(i<0){throw new Error("turbo ls printed no JSON")}process.stdout.write(String(JSON.parse(s.slice(i)).packages.items.some((p)=>p.name==="@brainstrike/mcp-test-lab")))' "$RUNNER_TEMP/turbo-changed.json")"
+          if [ "$changed" != true ] && ! git diff --quiet "$base" "$head" -- scripts/run-mcp-verification.mjs package.json .github/workflows/test.yml .github/actions/setup-workspace; then
             changed=true
           fi
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
