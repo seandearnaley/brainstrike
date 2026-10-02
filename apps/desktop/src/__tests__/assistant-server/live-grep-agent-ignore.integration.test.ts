@@ -1,8 +1,8 @@
 /**
  * Live-grep coverage for the HARD agent ignore layers (BST-1432). Split out of
  * `live-grep.integration.test.ts` to keep both files under the repo's
- * noExcessiveLinesPerFile cap — that ratchet only shrinks, so new coverage gets
- * its own file rather than a grandfathered exemption.
+ * noExcessiveLinesPerFile cap (Biome enforces it), so new coverage gets its own
+ * file rather than a grandfathered exemption.
  */
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';

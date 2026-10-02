@@ -3,8 +3,8 @@
  * `liveNote` and `probeNote` each render as an independent `note:` line, in
  * that order, with either present alone. Split out of
  * workspace-search-model-projections.test.ts to keep both files under the
- * repo's noExcessiveLinesPerFile cap — that ratchet only shrinks, so new
- * coverage gets its own file rather than a grandfathered exemption.
+ * repo's noExcessiveLinesPerFile cap (Biome enforces it), so new coverage gets
+ * its own file rather than a grandfathered exemption.
  */
 import { describe, expect, it } from 'vitest';
 import { projectGrepSearchModelOutput } from '../../assistant-server/workspace-search-model-projections';

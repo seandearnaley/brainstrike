@@ -56,6 +56,7 @@ const BOUNDED_ENTRYPOINT_ARGS = new Map([
     {
       args: (root) => ['--repo-root', root],
       failureSignature: (root) => path.join(root, 'eslint-warning-baseline.json'),
+      fullTreeOwner: 'eslint-warning-baseline-contract.test.mjs',
     },
   ],
   [
@@ -65,6 +66,15 @@ const BOUNDED_ENTRYPOINT_ARGS = new Map([
       failureSignature: (root) =>
         `Could not resolve the web renderer entrypoint (apps/web/src/main.tsx) under ${root}`,
       fullTreeOwner: 'verify-no-source-cycles.test.mjs',
+    },
+  ],
+  [
+    'verify-private-test-input-locality.mjs',
+    {
+      args: (root) => ['--repo-root', root],
+      failureSignature: (root) =>
+        `Private test input locality cannot verify ${root}: no Git metadata found.`,
+      fullTreeOwner: 'private-test-input-locality.test.mjs',
     },
   ],
   [
@@ -109,9 +119,6 @@ test('discovery floor: the verify-* script set is not silently empty', () => {
     'Bounded entrypoint controls must name discovered verify-* scripts'
   );
   for (const [name, { fullTreeOwner }] of BOUNDED_ENTRYPOINT_ARGS) {
-    if (fullTreeOwner === undefined) {
-      continue;
-    }
     assert.ok(
       readdirSync(path.join(SCRIPTS_DIR, '__tests__')).includes(fullTreeOwner),
       `${name} uses a bounded entrypoint probe but its full-tree owner test is missing: ` +

@@ -116,8 +116,6 @@ Guard: `scripts/__tests__/mcp-verification-ci-contract.test.mjs`,
 
 #### MCP 2026 fleet working agreements (BST-1590)
 
-This heading keeps its identifier; every other heading drops the suffix.
-
 The WIP limit, ladder freeze, and daily status update lapsed when
 [BST-1472](https://linear.app/brainstrike/issue/BST-1472) closed (Done,
 2026-09-02). Standing for MCP work: dedupe against open and last-24-hour merged PRs
@@ -643,7 +641,7 @@ Guard: `scripts/__tests__/vitest-worker-global-mutation.test.mjs`,
   package `turbo.json`; no inline `pnpm build &&`, no `^build`. Native-addon
   packages keep `build`, `test`, and `test:coverage` uncached; outside Turbo,
   build them before testing.
-- Narrow task inputs only as a pilot. `@brainstrike/types` excludes its
+- Narrow task inputs only as a guarded pilot. `@brainstrike/types` excludes its
   test/spec files from `topo` and `build`, so nothing outside it may import,
   read, or glob them. Shared helpers live outside excluded paths.
 - A guard script is an input of the tasks that run it, never a global input.
@@ -656,17 +654,18 @@ Guard: `scripts/__tests__/vitest-worker-global-mutation.test.mjs`,
 Evidence: `ci-quality/workspace-src-alias-guard.md`.
 Guard: `scripts/__tests__/` `verify-workspace-src-aliases`,
 `turbo-global-configuration`, `native-addon-build-uncached-contract`,
-`ci-guard-input-locality` (`.test.mjs`).
+`private-test-input-locality`, `ci-guard-input-locality` (`.test.mjs`).
 
-### Mutation lane
+### Mutation-lane contract guard (`pnpm test:scripts`)
 
 - A `mutation` script is `stryker run [args]` in a package that declares
   `@stryker-mutator/core`, with exactly one loadable Stryker config whose
   `vitest.configFile` is an existing `vitest.mutation.config.ts`.
-- `reporters` are Stryker reporter names (`html`, `clear-text`, `progress`
-  today), not Vitest reporters; widening them is a reviewed decision.
+- `reporters` stays within the guard's `SUPPORTED_REPORTERS`; widening it is a
+  reviewed decision.
 
 Evidence: `ci-quality/mutation-lane-guard.md`.
+Guard: `scripts/__tests__/verify-stryker-mutation-contracts.test.mjs`.
 
 ### TypeScript 7 CLI with the TypeScript 6 compatibility API
 
@@ -903,6 +902,7 @@ scalar `--max-warnings`. Evidence: `ci-quality/react-doctor.md`,
 `ci-quality/knip-audit.md`, `ci-quality/eslint-warning-ratchet.md`.
 Guard: `scripts/__tests__/react-doctor-version-contract.test.mjs`,
 `scripts/__tests__/knip-workflow.test.mjs`,
+`scripts/__tests__/eslint-warning-baseline-contract.test.mjs`,
 `scripts/__tests__/pnpm-shadowed-builtin-contract.test.mjs`.
 
 ### React Compiler bailouts are invisible — measure them

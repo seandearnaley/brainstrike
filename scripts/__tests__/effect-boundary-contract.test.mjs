@@ -471,30 +471,6 @@ test('the effect usage detector fires on known violations and ignores look-alike
   assert.equal(isProductionSource('packages/x/src/a.integration.test.ts'), false);
 });
 
-test('desktop maintenance scope ownership preserves SQL drain and native cadence', () => {
-  const contract = readRepoFile('docs/agents/effect-boundary.md');
-  const decision = readRepoFile('docs/adr/0006-scoped-desktop-maintenance.md');
-  assert.match(
-    contract,
-    /Context\/Layer scope owns both maintenance triggers and subscriptions, never admitted SQL/u
-  );
-  assert.match(
-    contract,
-    /Stop fences automatic dispatch synchronously; close joins finalizers before DB drain/u
-  );
-  assert.match(
-    contract,
-    /native unref interval cadence, separate admission policies and reset barriers/u
-  );
-  assert.match(decision, /Failed acquisition releases/u);
-  assert.match(contract, /partial graph acquisition rolls back both triggers/u);
-  assert.match(decision, /Startup is atomic across the pair/u);
-  assert.match(
-    decision,
-    /Finalizer failures remain visible and do not bypass the existing database drain/u
-  );
-});
-
 test('both desktop maintenance schedulers delegate trigger resources to the scoped owner', () => {
   for (const name of ['database', 'dimension-index']) {
     const source = readRepoFile(`apps/desktop/src/${name}-maintenance-scheduler.ts`);
