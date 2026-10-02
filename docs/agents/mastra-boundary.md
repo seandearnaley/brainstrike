@@ -7,9 +7,7 @@
 
 - Rulings R1–R10 are the `##` sections below, in order; each states what
   Brainstrike owns and what Mastra is allowed to own.
-- Reopen a ruling only with a named capability Brainstrike lacks today, and
-  record the new decision here in the same change. Why: this boundary lived in
-  ticket comments and evaporated across four sessions before it was written down.
+- Reopen a ruling only with a named capability Brainstrike lacks today.
 
 Settled: every ruling ratifies shipped behaviour; none required a migration.
 Evidence: `mastra-boundary/ratification-history.md`.
@@ -35,9 +33,9 @@ Evidence: `mastra-boundary/server-boundary.md`.
   absent from the tree" — both are in the lockfile for unrelated reasons, and the
   guards assert the former.
 
-Settled: rejected on cost — an adapter moves ownership of auth, CORS, secrets and
-the desktop loopback lifecycle for no capability Brainstrike lacks. Do not
-relitigate without a named capability that requires one.
+Mastra Server is rejected on cost: an adapter moves ownership of auth, CORS,
+secrets and the desktop loopback lifecycle for no capability Brainstrike lacks.
+Reopen it only for a named capability that requires one. See ADR-0012.
 Evidence: `mastra-boundary/why-not-mastra-server.md`.
 
 ### First-class subagents: host lifetime decision
@@ -66,10 +64,10 @@ Evidence: `mastra-boundary/why-not-mastra-server.md`.
   across the host's durable commit. Mastra owns child execution and cleanup;
   host reservations own only decision admission and parent continuation.
 
-Settled: this lifecycle authorizes no Mastra HTTP server, no replacement
-workspace tools, and no second permission or persistence system. Evidence:
-`mastra-boundary/subagent-host-lifetime.md`, `mastra-boundary/upgrade-1-71.md`, `mastra-boundary/upstream-1-71-drafts.md`.
-Settled: share one stateless xxhash-wasm instance across `SemanticRecall`
+This lifecycle authorizes no Mastra HTTP server, no replacement
+workspace tools, and no second permission or persistence system. See ADR-0012.
+Evidence: `mastra-boundary/subagent-host-lifetime.md`, `mastra-boundary/upgrade-1-71.md`, `mastra-boundary/upstream-1-71-drafts.md`.
+Share one stateless xxhash-wasm instance across `SemanticRecall`
 processors. Evidence:
 `mastra-boundary/semantic-recall-wasm-leak.md`.
 Guard: `packages/agent/src/__tests__/semantic-recall-lifecycle.integration.spec.ts`.
@@ -116,8 +114,8 @@ Evidence: `mastra-boundary/workspace-ownership.md`.
   package plus a real Chromium, and is not renderer-viable (R2). `webExtract` is
   a Tavily HTTP call, not a driven browser.
 
-Settled: reopening requires a product decision naming which runtime owns browser
-state, credentials, consent, and desktop/web parity. Evidence:
+Reopening requires a product decision naming which runtime owns browser
+state, credentials, consent, and desktop/web parity. See ADR-0012. Evidence:
 `mastra-boundary/browser-scope.md`.
 Guard: `scripts/__tests__/mastra-boundary-contract.test.mjs`.
 
@@ -277,8 +275,8 @@ Evidence: `mastra-boundary/verified-false-premises.md`.
 
 ## PAIRED TESTS
 
-- Update this contract and its guards in the same change. R1, R2, R4 and R7 are
-  guarded by `scripts/__tests__/mastra-boundary-contract.test.mjs` (forbidden
+- R1, R2, R4 and R7 are guarded by
+  `scripts/__tests__/mastra-boundary-contract.test.mjs` (forbidden
   packages, registered config keys, both bundles' vite externals); R6 by
   `scripts/mastra-stream-chunk-contract.mjs` and its test; R8 is unguarded by
   design.

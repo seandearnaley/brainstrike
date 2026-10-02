@@ -72,7 +72,7 @@ Guard: `packages/config/__tests__/vitest-browser.test.ts`.
 - A Radix menu or popover fixture finishes close and trigger focus in its own `afterEach`;
   never suppress the unhandled error, stub Event, sleep, or drop timers.
 
-Settled: delegated smoke specs stay in the PR gate, not nightly. Evidence:
+Delegated smoke specs stay in the PR gate, not nightly. Evidence:
 `ci-quality/workload-boundaries.md`, `ci-quality/e2e-lane-timeout-budgets.md`.
 Guard: `scripts/__tests__/unit-shard-partition.test.mjs`,
 `scripts/__tests__/ci-input-locality.test.mjs`,
@@ -110,7 +110,7 @@ pnpm run verify:mcp:official -- --profile core
 pnpm run verify:mcp:official -- --profile modern-closeout
 ```
 
-Settled: official jobs gate post-merge on `main`, not in the PR lane; change a
+Official jobs gate post-merge on `main`, not in the PR lane; change a
 timeout only with its budget arithmetic. Evidence: `ci-quality/mcp-verifier-lanes.md`.
 Guard: `scripts/__tests__/mcp-verification-ci-contract.test.mjs`,
 `scripts/__tests__/run-mcp-verification.test.mjs`.
@@ -202,7 +202,7 @@ Guard: `scripts/__tests__/run-turbo-command.test.mjs`.
 - Do not upgrade Turbo to >=2.11.3 until vendor walking judges tracked files
   under ignore patterns; recheck the real tracked-source guard before upgrading.
 
-Settled: git decides what is generated. Evidence: `ci-quality/package-boundary-gate.md`.
+Git decides what is generated. Evidence: `ci-quality/package-boundary-gate.md`.
 Guard: `scripts/__tests__/turbo-boundaries-gate.test.mjs`.
 
 ### App test-tsconfig programs (`tsconfig.test.json`)
@@ -388,7 +388,7 @@ Guard: `apps/web/e2e/utils/__tests__/performance-benchmark-contract.vitest.ts`.
 - On failure, grep the job log for `CLAUDE_REVIEW_CLI_FAILED:` or
   `CLAUDE_REVIEW_PUBLICATION_FAILED:`.
 
-Settled: the `pull_request` trigger (not `pull_request_target`), the direct CLI
+Choices: the `pull_request` trigger (not `pull_request_target`), the direct CLI
 (not `anthropics/claude-code-action`), stdin delivery, the raw UUID-fenced diff
 (not JSON-encoded), and the empty tool set (not `allowedTools`). Evidence:
 `ci-quality/claude-review.md`.
@@ -498,7 +498,7 @@ Guard: `scripts/verify-lost-file-reporter.mjs`, and in `scripts/__tests__/`
 - The guard runs in required Static: it never passes vacuously and never fails
   a valid config.
 
-Settled: patch coverage does not gate. Evidence: `ci-quality/codecov-non-gating.md`.
+Patch coverage does not gate. Evidence: `ci-quality/codecov-non-gating.md`.
 Guard: `scripts/verify-codecov-status-contract.mjs`.
 
 ### Assistant stop/retry verifier
@@ -526,7 +526,7 @@ Evidence: `ci-quality/assistant-stop-retry-verifier.md`.
   `vitest.setup`, `@brainstrike/test-utils/vitest.timeouts.setup`, or
   `createBrowserProject`'s required `asyncUtilTimeout` and `setupFiles`.
 
-Settled: the parity test compares invoked commands, not step names or verbatim
+The parity test compares invoked commands, not step names or verbatim
 `run:` blocks. Evidence: `ci-quality/pnpm-check-parity.md`,
 `ci-quality/test-timeout-multiplier.md`.
 Guard: `scripts/__tests__/check-ci-parity.test.mjs`,
@@ -566,7 +566,7 @@ Guard: `apps/desktop/e2e/assistant-panel.desktop.test.ts`,
   failures, requires exit code zero, and removes the workspace only after
   confirmed exit.
 
-Settled: no warn-and-relaunch. Evidence:
+There is no warn-and-relaunch. Evidence:
 `ci-quality/desktop-e2e-process-exit-guard.md`.
 Guard: `apps/desktop/src/__tests__/electron-process-exit-guard.test.ts`,
 `electron-harness-state-seeding.test.ts`, `interactive-child-fixture.test.ts`.
@@ -591,7 +591,7 @@ Guard: `scripts/__tests__/e2e-module-format-contract.test.mjs`.
 - Web full-regression runs through `scripts/run-e2e-lane-sequence.mjs`
   (fail-late); `web-e2e.yml`'s timeout covers every lane timeout plus startup.
 
-Settled: reachability is per title, with exact Playwright grep semantics.
+Reachability is per title, with exact Playwright grep semantics.
 Evidence: `ci-quality/e2e-lane-coverage.md`.
 Guard: `scripts/__tests__/e2e-lane-coverage.test.mjs`,
 `scripts/__tests__/run-e2e-lane-sequence.test.mjs`.
@@ -626,7 +626,7 @@ Evidence: `ci-quality/vitest-5-migration.md`.
 - The `@stryker-mutator/vitest-runner@10.0.0` pnpm patch carries an unreleased
   upstream fix; remove it on a fixed release, after re-running mutation lanes.
 
-Settled: no `@vitest/runner` teardown patch. Evidence:
+There is no `@vitest/runner` teardown patch. Evidence:
 `ci-quality/vitest-worker-mutation-guard.md`.
 Guard: `scripts/__tests__/vitest-worker-global-mutation.test.mjs`,
 `scripts/__tests__/stryker-vitest-5-compatibility.test.mjs`.
@@ -683,7 +683,7 @@ Guard: `scripts/__tests__/verify-stryker-mutation-contracts.test.mjs`.
   Parity covers `--noEmit` only; verify `apps/web`'s emitting type-check in a
   clean worktree.
 
-Settled: the side-by-side topology; two aliases of plain `typescript` make the
+Keep the side-by-side topology; two aliases of plain `typescript` make the
 `tsc` bin ambiguous. Evidence: `ci-quality/typescript-side-by-side.md`, `ci-quality/lsp-webgpu-fixture.md`.
 Guard: `scripts/__tests__/typescript-compiler-wiring.test.mjs`,
 `apps/desktop/src/__tests__/build-main-config.test.ts`.
@@ -699,7 +699,7 @@ Guard: `scripts/__tests__/typescript-compiler-wiring.test.mjs`,
 - Enable another future flag only with an adopted call site and a proving test.
   Share package config only through Turbo's native `extends`.
 
-Settled: no config micro-package or registry; `turbo query affected` is not a
+Add no config micro-package or registry; `turbo query affected` is not a
 CI planner. Evidence: `ci-quality/turbo-configuration.md`.
 Guard: `scripts/__tests__/turbo-global-configuration.test.mjs`,
 `scripts/__tests__/tsconfig-global-deps-contract.test.mjs`.
@@ -721,7 +721,7 @@ Guard: `scripts/__tests__/package-scripts-canonical-form-contract.test.mjs`.
 - Never describe the local cache as content-safe: same-size/same-mtime stale
   bytes remain possible within one worktree.
 
-Settled: no shared HOME-level cache until Turbo's restore identity is content-
+Use no shared HOME-level cache until Turbo's restore identity is content-
 or checkout-aware. Evidence: `ci-quality/turbo-cache-and-dist-hygiene.md`.
 Guard: `scripts/__tests__/run-turbo-command.test.mjs`.
 
@@ -734,7 +734,7 @@ Guard: `scripts/__tests__/run-turbo-command.test.mjs`.
   stays in `turbo.jsonc` `global.inputs`. A type-check never runs `tsc --build
   --force`: it rewrites dist that concurrent type-checks read (BST-1818).
 
-Settled: prune, not clean, for wired packages. Evidence: `ci-quality/turbo-cache-and-dist-hygiene.md`.
+Prune, not clean, for wired packages. Evidence: `ci-quality/turbo-cache-and-dist-hygiene.md`.
 Guard: `scripts/__tests__/prune-stale-dist.test.mjs`, `package-scripts-canonical-form-contract.test.mjs`.
 
 ### Canonical package build strategies
@@ -749,7 +749,7 @@ Guard: `scripts/__tests__/prune-stale-dist.test.mjs`, `package-scripts-canonical
   resolution under the same `tsc -b` build. Hosted functions load the agent's
   ESM export; pino and tiktoken stay external.
 
-Settled: tsup stays until a replacement ships alone with measured evidence.
+tsup stays until a replacement ships alone with measured evidence.
 Evidence: `ci-quality/package-build-strategies.md`. Guard:
 `scripts/verify-package-build-strategies.mjs`,
 `packages/agent/scripts/verify-hosted-web-bundle.mjs`.
@@ -769,7 +769,7 @@ Guard: `scripts/__tests__/agent-declaration-build-contract.test.mjs`.
   `dts: false`. The tsup-only set is exactly `chunking-worker`,
   `file-tree-worker`, `token-cache`; each MUST emit declarations.
 
-Settled: no shared `createTsupConfig` factory; dynamic values are rejected.
+There is no shared `createTsupConfig` factory; dynamic values are rejected.
 Evidence: `ci-quality/tsup-build-invariants.md`. Guard:
 `scripts/verify-tsup-build-invariants.mjs` and its test.
 
@@ -901,7 +901,7 @@ together with that config and this section.
   `npx react-doctor . --scope changed --verbose`. The CLI takes exactly one
   positional argument, a directory — one invocation per path.
 
-Settled: both categories off, manual-memoization rule off, Knip over React
+Choices: both categories off, manual-memoization rule off, Knip over React
 Doctor graph rules, ESLint over Biome for Fast Refresh, per-rule ratchet over a
 scalar `--max-warnings`. Evidence: `ci-quality/react-doctor.md`,
 `ci-quality/knip-audit.md`, `ci-quality/eslint-warning-ratchet.md`.

@@ -460,7 +460,7 @@ Guard: `packages/assistant-contract/src/__tests__/provider-catalog-schema.test.t
   compaction limit, and a larger model-level window may be served by one
   provider only.
 
-Settled: the 4/15 beside OpenRouter's 2/10 for `gpt-5.6-sol` is a declared
+The 4/15 beside OpenRouter's 2/10 for `gpt-5.6-sol` is a declared
 `min_prompt_tokens: 272000` tier, so 2/10 is that route's base. BST-1804 re-read
 both on 2026-09-23: OpenAI's own >272K tier is 8/30, so the direct 4/20 is not a
 mis-read tier; the gap is genuine per-route data, recorded, not explained. The
@@ -493,7 +493,7 @@ fallback.
   weekly, so a network gate would fail PRs for reasons outside them and skipping
   on a network error would be silent degradation.
 
-Settled: the known limit of the cheapest-band rule is a promotional window priced
+The known limit of the cheapest-band rule is a promotional window priced
 below the standing rate; it is recorded rather than guessed around.
 Evidence: `assistant-providers/openrouter-pricing-audit.md`.
 Guard: `scripts/__tests__/openrouter-pricing-audit.test.mjs` (offline derivation
@@ -579,7 +579,7 @@ it, not the contract. Three layers, each with one owner.
   ZERO edges — not even type-only — to the Node-only
   `@aws-sdk/credential-providers`. Its fidelity is compile-checked at
   `createAwsCredentialChain`'s return statement.
-- **Threading rule (do not relitigate):** the auth input travels as a DIRECT
+- **Threading rule (see ADR-0014):** the auth input travels as a DIRECT
   parameter the whole way down — `runAssistantTurn` → `initializeAgentStream` →
   stream options → `MastraAgentRuntimeOptions.authInput` →
   `resolveRuntimeConfiguration` → `instantiateLanguageModel` → `createProvider`.
@@ -630,7 +630,7 @@ Guard: `packages/agent/src/__tests__/{provider-factory.auth-input,runtime-config
   bounded by the probe's own `requestTimeoutMs`. Its `detail` comes from a
   bounded shape map and never interpolates the raw SDK message.
 
-Settled: chain resolution earns `verified_limited`, not `verified` — it never
+Chain resolution earns `verified_limited`, not `verified` — it never
 touches Bedrock. Evidence:
 `assistant-providers/credential-verification-probes.md`.
 Guard: `apps/desktop/src/__tests__/assistant-server/provider-verification.test.ts`,
@@ -649,8 +649,8 @@ per request.
 
 - **Auth precedence is four rungs on two orthogonal axes**, decided in ONE place,
   `readProviderCredential` (`apps/desktop/src/provider-api-key.ts`): env bearer,
-  stored bearer, env chain, stored chain. Rung 2 deliberately outranks rung 3 —
-  do not relitigate: a bearer key is explicit and Bedrock-specific, while an AWS
+  stored bearer, env chain, stored chain. Rung 2 deliberately outranks rung 3
+  (see ADR-0014): a bearer key is explicit and Bedrock-specific, while an AWS
   environment is ambient and often set for unrelated tooling. An env bearer key
   pairs with `AWS_REGION`; every stored credential carries its OWN region.
 - **Env-chain activation**, stated once in `resolveAwsEnvChainCredential`:
@@ -706,7 +706,7 @@ per request.
   `BEDROCK_RECOMMENDED_MODEL_IDS` is this provider's `seed` entry — see
   § "`is_enabled` is not evidence of user intent".
 - **The injected chain capability IS the structural proof that Hosted Web never
-  resolves a chain** (do not relitigate): desktop main passes
+  resolves a chain** (see ADR-0014): desktop main passes
   `createAwsCredentialChain` in BOTH places, web passes nothing, so the same
   credential throws `credential_type_unsupported` there. The string shim
   deliberately calls the projection with NO options.
@@ -796,8 +796,6 @@ constraints).
   `provider-auth-runtime.ts`; a second would carry its own single-flight map and
   REPLAY a rotating refresh token.
 
-When changing any of this, update this section, `apps/desktop/SECURITY.md`, and
-the paired tests under `apps/desktop/src/__tests__/provider-auth/`.
 Evidence: `assistant-providers/openai-codex-provider.md`.
 Guard: `apps/desktop/src/__tests__/main/main-platform-ipc.test.ts`.
 
@@ -826,8 +824,8 @@ work.
 
 Desktop-main-only, provider-agnostic engine at `apps/desktop/src/provider-auth/`,
 bound by the signed `docs/OAUTH_LEGAL_REVIEW_GATE.md`, whose 8 constraints are
-acceptance criteria. Do not relitigate its settled rulings (Anthropic
-subscription OAuth is PERMANENTLY REJECTED).
+acceptance criteria. Anthropic subscription OAuth is PERMANENTLY REJECTED; see
+ADR-0014.
 
 - The descriptor contract pins the EXACT redirect URI: a busy port is a typed
   visible `port_in_use` error naming the port, NEVER a random-port fallback, and
@@ -859,7 +857,7 @@ Guard: `apps/desktop/src/__tests__/provider-auth/provider-auth-ipc.test.ts`
 
 ### Env bootstrap visibility
 
-- **Payload rule — NAMES ONLY, NEVER VALUES (do not relitigate).** The
+- **Payload rule — NAMES ONLY, NEVER VALUES (see ADR-0014).** The
   projection carries variable NAMES, file PATHS, counts and the loader's own
   failure messages — never a value, prefix, hash or length.
   `apps/desktop/src/desktop-env-report.ts` builds the name lists by intersecting
@@ -1954,11 +1952,11 @@ Desktop-only native tools:
   client-local `brainstrike_canvas_versions` ledger; web has no remote fallback.
   It is a deferred workspace tool with an `action` discriminated union and
   explicit `edit` risk, because create/update/rewrite persist durable state.
-- Settled ruling (do not relitigate): the union branches TOLERATE cross-action
+- The union branches TOLERATE cross-action
   extras among the six declared envelope keys — `action` fully determines
   semantics, and rejecting bundled fields broke the feature. Only genuinely
-  unknown keys fail, at the strict provider envelope.
-- Settled, CREATE REQUIRES CONTENT (do not relitigate): `create` refuses a
+  unknown keys fail, at the strict provider envelope. See ADR-0009.
+- CREATE REQUIRES CONTENT: `create` refuses a
   document `isEmptyCanvasDocument` judges empty, BEFORE any DB call and at no
   approval cost, with the structured `empty_document` failure and
   `EMPTY_CANVAS_DOCUMENT_HINT`. `update`/`rewrite`/`list` are unchanged. The
@@ -2212,7 +2210,7 @@ Evidence: `assistant-providers/tool-preference-lock.md`.
   discovery line, `describeSearchMatches`, the skill execution guidance, and
   `wrapLoadTool`'s rewrite of Mastra's `load_tool` success sentence — leaving its
   failure copy verbatim, since there is nothing to call.
-- **THE BATCHING EXEMPTION LIVES ON THE BATCHING LINE — do not relitigate.** A
+- **THE BATCHING EXEMPTION LIVES ON THE BATCHING LINE.** A
   loaded tool is callable only on the FOLLOWING model step, so
   `buildParallelCallInstruction` carries the exemption, conditional on discovery
   being installed. Stated once: repeating it on the discovery line spends prompt
@@ -2268,7 +2266,7 @@ exactly one partition, no namespace over nine functions), and the opt-in
 - Do not trade the measured quality floor for a smaller unsuccessful request or a
   one-turn improvement that needs answer-specific prompting.
 
-Settled: OpenAI native search cleared its duplicate-item blocker but failed the
+OpenAI native search cleared its duplicate-item blocker but failed the
 paired economic gate (69–117% more input tokens, 36–79% more estimated cost).
 Evidence: `assistant-providers/provider-native-tool-search.md`,
 `docs/agents/research/bst-614-native-tool-search-spike.md`,

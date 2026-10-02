@@ -21,7 +21,7 @@
   or pagination updates the file-explorer and workspace-search adapters plus
   their grouped-slicing/selection tests.
 
-Settled: the collection browser and the Context explorer's grouped preview table
+The collection browser and the Context explorer's grouped preview table
 are retired; the context preview's only surface is the Tapestry gallery.
 Evidence: `ui-conventions/retired-tree-adapters.md`.
 
@@ -41,7 +41,7 @@ Evidence: `ui-conventions/retired-tree-adapters.md`.
   height each table passes as `scrollPaddingStart` so a focused row clears it.
   Row pitch is pinned by `apps/web/e2e/settings-models-and-providers.test.ts`.
 
-Settled: shared-scroller mode is the one sanctioned exception. Evidence:
+Shared-scroller mode is the one sanctioned exception. Evidence:
 `ui-conventions/shared-scroller-mode.md`.
 Guard: `tree-table-shared-scroller.test.tsx`, `apps/web/e2e/forest-expand-all.test.ts`.
 
@@ -67,7 +67,7 @@ Guard: `tree-table-shared-scroller.test.tsx`, `apps/web/e2e/forest-expand-all.te
   root's rows. `setExpandedPaths` ADOPTS the caller's set: hand over a fresh set
   and do not mutate it afterwards.
 
-Settled: relative-path (web FSA) roots still cross-match — accepted phase-4
+Relative-path (web FSA) roots still cross-match — an accepted phase-4
 limitation; a drive-relative sentinel such as `C:` is not a filesystem root and
 never consumes the cap. Evidence: `ui-conventions/expand-all-batching.md`,
 `ui-conventions/persisted-expansion-restoration.md`.
@@ -132,7 +132,7 @@ Guard: `forest-tree-actions-context.test.tsx`, `forest-section-filtering.test.ts
   and do not take the header out of flow: a start-aligned `scrollToIndex` already
   cancels the offset. `scrollMargin` is non-zero ONLY in shared-scroller mode.
 
-Settled: `OptimizedFileTree`'s `ROW_HEIGHT` is 29. Evidence:
+`OptimizedFileTree`'s `ROW_HEIGHT` is 29. Evidence:
 `ui-conventions/row-height-pitch.md`.
 Guard: "paints tree rows at exactly the pitch its virtualizer models" plus the
 reveal assertions in `apps/web/e2e/file-explorer.test.ts` — jsdom has no layout,
@@ -180,7 +180,7 @@ never hideable.
   resize handles in the accessibility tree; sort state reaches AT through each
   sort button's `aria-label`. TreeTable's header cells carry `scope="col"`.
 
-Settled: `aria-sort` on those presentational `th`s is inert and stays for markup
+`aria-sort` on those presentational `th`s is inert and stays for markup
 parity with TreeTable's real `columnheader`. Evidence:
 `ui-conventions/explorer-tree-grid.md`.
 Guard: `explorer-tree-grid.test.tsx`, `explorer-forest-visible-indexing.test.tsx`,
@@ -207,7 +207,7 @@ Guard: `explorer-tree-grid.test.tsx`, `explorer-forest-visible-indexing.test.tsx
   Type/Tokens/Size affordance, and a persisted one arriving there resets to the
   default order with a warn. Name never needs the seam.
 
-Settled: a structural change costs TWO full projection rebuild+sorts, the floor
+A structural change costs TWO full projection rebuild+sorts, the floor
 today. Evidence: `ui-conventions/explorer-sort.md`.
 Guard: `explorer-sort-rebuild-loop.test.tsx`,
 `explorer-sort-structural-cost.integration.test.tsx`,
@@ -320,7 +320,7 @@ Every document strip (assistant threads, the workspace, the browser pane) render
 - Every close path feeds its strip's bounded, session-only history (no factory-reset wiring).
   ⌘K and the strip menu offer Reopen only with an entry; ⌘⇧T on empty informs, stale reports.
 
-Settled: BST-1836 decisions D1–D9 (2026-09-27). Evidence: `ui-conventions/tab-strips.md`.
+Evidence for BST-1836 decisions D1–D9 (2026-09-27): `ui-conventions/tab-strips.md`.
 Guard: `packages/ui/src/tab-strip/__tests__/tab-strip.test.tsx`, `tab-strip.browser.test.tsx`
 (painted geometry, axe, keyboard menu, native drag), `tab-panel-boundary-chunk-load.test.tsx`,
 `packages/ui/src/chunk-load/__tests__/`, context-actions `tab-strip-actions.test.ts`, app-shell
@@ -346,7 +346,7 @@ reload is always the user's click. Why: a web session holds running work, and a 
   logged and the flow continues; factory reset's blanket `sessionStorage.clear()` covers the key.
 - `buildIdPlugin` defines the id: the dev server gets `dev`, an unresolvable production build throws.
 
-Settled: no automatic reload, no silent fallback, no cache header on `index.html`. Evidence: `ui-conventions/app-reload.md`.
+There is no automatic reload, no silent fallback and no cache header on `index.html`. Evidence: `ui-conventions/app-reload.md`.
 Guard: `app-reload/__tests__/`, `build-id.test.ts`, `e2e/app-reload-recovery*`, `vercel-config.test.ts`.
 
 ---
@@ -418,13 +418,11 @@ bridges through `window.platform` / `window.clipboard` to the `shell` and
   `createAppActionRegistry` only when the backing bridge is fully formed; a
   malformed bridge logs an error and stays absent.
 
-Settled: the clipboard write runs in MAIN and must not call Electron's clipboard
+The clipboard write runs in MAIN and must not call Electron's clipboard
 module from the sandboxed preload; Radix touch/pen long-press (~700ms) bypasses
 the claiming protocol, an accepted desktop-first tradeoff documented in
 `action-context-menu.tsx`. Evidence: `ui-conventions/context-action-layers.md`,
 `ui-conventions/shared-target-kind-wiring.md`.
-
-When changing this flow, update this section and the related tests.
 
 ---
 
@@ -466,12 +464,10 @@ Three invariants hold:
   `tapestry/tapestry-lens.tsx` portals a `fixed z-[120]` code-lens preview to
   clear toasts. It is not covered by the token guard.
 
-Settled: BST-963's ruling, and eight reserved tiers rather than the four the
-defect needed. Evidence: `ui-conventions/floating-layer-stacking.md`.
+The scale follows BST-963's ruling and reserves eight tiers rather than the four
+the defect needed. Evidence: `ui-conventions/floating-layer-stacking.md`.
 Guard: `packages/ui/src/__tests__/layers.test.ts` (the invariants),
 `packages/ui/src/__tests__/floating-layer-tokens.test.ts` (no hardcoded `z-`).
-
-When changing this scale, update this section and `layers.test.ts` together.
 
 ---
 
@@ -543,8 +539,8 @@ nothing reports it — no missing import, no type error, no console warning.
   entrypoint that renders it (`apps/web/src/app/globals.css`,
   `apps/desktop/src/renderer/styles.css`).
 
-Settled: measured on `packages/settings-ui`, where 103 utilities produced no rule
-at all. Evidence: `ui-conventions/tailwind-source-coverage.md`.
+The rule was measured on `packages/settings-ui`, where 103 utilities produced no
+rule at all. Evidence: `ui-conventions/tailwind-source-coverage.md`.
 Guard: `scripts/__tests__/tailwind-source-coverage.test.mjs` (`pnpm test:scripts`,
 the Static CI job).
 
@@ -663,7 +659,7 @@ step in part order.
   total `STEP_STATE_LABELS` map (`activity-step-tokens.ts`) — colour alone never
   carries the state.
 
-Settled: `.bs-run-timeline` rows are group-transparent direct children that
+`.bs-run-timeline` rows are group-transparent direct children that
 consume `:nth-child` slots without animating; `sr-only` has no rule in the
 browser lane, so a test there accounts for the visible tool-id span or omits
 `toolName`. Evidence: `ui-conventions/step-row-geometry.md`.

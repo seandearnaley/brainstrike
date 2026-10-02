@@ -19,7 +19,7 @@
   payload with empty `hunks` is consistent: `full` promises both sides' text,
   not computed hunk ranges.
 
-Settled: `null` and computed `0` stay different facts. Evidence:
+`null` and computed `0` stay different facts. Evidence:
 `changeset-diff/types-and-totals.md`.
 
 ## SERVICES
@@ -43,7 +43,7 @@ Settled: `null` and computed `0` stay different facts. Evidence:
 - Validate refs (`validateCommitId`/`validateBaseRef`). `commit` mode resolves a
   root commit to the empty-tree object id and a merge commit to its FIRST parent.
 
-Settled: `unstaged` is index-vs-worktree. Evidence:
+`unstaged` is index-vs-worktree. Evidence:
 `changeset-diff/diff-engine-modes.md`.
 Guard: `apps/desktop/src/__tests__/assistant-server/git-service-structured-diff.test.ts`.
 
@@ -88,7 +88,7 @@ Guard: `apps/desktop/src/__tests__/assistant-server/git-service-structured-diff.
   A missing `mastra_threads` table with surviving rows refuses to classify,
   visibly.
 
-Settled: the BST-1164 journal fold is gone for good; gc stays off the run hot
+The BST-1164 journal fold is gone for good; gc stays off the run hot
 path. Evidence: `changeset-diff/snapshot-engine-swap.md`.
 
 ### Git inventory — `git-inventory-service.ts` / `-discovery.ts` / `-watcher.ts`
@@ -126,7 +126,7 @@ Evidence: `changeset-diff/inventory-discovery.md`.
   existing admin directory. Why: a partial entry or an empty parent is exposed
   to Git's own pruning and maintenance. Locking does not grant trust.
 
-Settled: in-root means granted, not verified. Evidence:
+In-root means granted, not verified. Evidence:
 `changeset-diff/trust-model.md`.
 Guard: `apps/desktop/src/__tests__/assistant-server/git-inventory.integration.test.ts`.
 
@@ -214,7 +214,7 @@ Evidence: `changeset-diff/worktrees-ipc-domain.md`.
   never shows a disabled action. Web has no `window.terminal`, so the item does
   not exist there. Run-scoped `git worktree lock` stays unsupported.
 
-Settled: mount callbacks never refresh; adopt/archive always do. Evidence:
+Mount callbacks never refresh; adopt/archive always do. Evidence:
 `changeset-diff/worktree-map-adoption.md`, `changeset-diff/open-in-terminal.md`.
 Guard: `packages/app-shell/src/worktree-map/__tests__/worktree-map-model.test.ts`,
 `worktree-map-surface.test.tsx`, `use-worktree-map.test.ts`,
@@ -285,7 +285,7 @@ Evidence: `changeset-diff/worktree-setup-hooks.md`.
   guard, not human approval: churn beneath an already-disclosed top-level
   directory does not invalidate it.
 
-Settled: no run-scoped `git worktree lock` — a lock is globally visible and would
+There is no run-scoped `git worktree lock`: a lock is globally visible and would
 disable every managed worktree in the Changes surface. Nested Git repositories
 need separate restorability handling (BST-1625). Evidence:
 `changeset-diff/archive-snapshots.md`.
@@ -347,7 +347,7 @@ need separate restorability handling (BST-1625). Evidence:
   hardcoded-`null` changeset, which `use-changeset.ts` makes inert, and the
   surface's own hook instance has no run-finished listener.
 
-Settled: lossless cross-source coalescing costs latency — roughly 2s to the diff
+Lossless cross-source coalescing costs latency — roughly 2s to the diff
 view under sustained churn, with inventory briefly leading. Evidence:
 `changeset-diff/live-refresh-seams.md`.
 Guard: `packages/app-shell/src/changes/__tests__/use-changes-live-refresh.test.ts`,
@@ -420,7 +420,7 @@ Guard: `packages/app-shell/src/changes/__tests__/changes-store.test.ts`,
   `inventory: null` with `error: null`, which would read as a permanent
   "Loading…".
 
-Settled: staging composition stays panel-owned — checkbox semantics collide and
+Staging composition stays panel-owned — checkbox semantics collide and
 `changes-store.ts` is a cross-surface singleton. Evidence:
 `changeset-diff/git-panel-convergence.md`.
 Guard: `packages/app-shell/src/__tests__/git-panel.test.tsx`,

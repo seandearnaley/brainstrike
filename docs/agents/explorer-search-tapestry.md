@@ -39,7 +39,7 @@
   `registerFactoryResetSessionStore`; the active tab persists in
   `context-explorer-layout-store`.
 
-Settled: ranges are output-only, so merging is safe and the subtraction-bleed
+Ranges are output-only, so merging is safe and the subtraction-bleed
 defect cannot return; the mode never auto-reverts. Evidence:
 `explorer-search-tapestry/workspace-search-panel.md`.
 Guard: `search-mode-gating.test.tsx`, `workspace-search-panel.test.tsx`,
@@ -117,7 +117,7 @@ through the workspace snapshot `editors[*].pane`.
   existing wholesale replacement boundary. Ordering and rejection contract:
   `docs/agents/assistant-persistence.md`.
 
-Settled: old snapshots without pane entries adopt auto-open retroactively; there
+Old snapshots without pane entries adopt auto-open retroactively; there
 is no migration. Evidence: `explorer-search-tapestry/file-tab-pane.md`.
 Guard: `file-tab-pane-store.test.ts`, `file-tab-body-pane.test.tsx`,
 `apps/web/e2e/file-tab-pane.test.ts`.
@@ -160,7 +160,7 @@ consumer (report generator, `listWorkspaceContext`, token meters).
   and `apps/desktop/src/assistant-server/workspace-context-tools.ts`
   (`listWorkspaceContext`'s `detail: true` gate for per-file ranges).
 
-Settled: the Table View and its stores are gone, and the four default-user
+The Table View and its stores are gone, and the four default-user
 behaviour changes that came with the per-file rule are spec-approved — do not
 "fix" them back. Evidence: `explorer-search-tapestry/tapestry-range-model.md`.
 Guard: `preview-panel.test.tsx`, `preview-panel-deferred-selection.test.tsx`.
@@ -241,7 +241,7 @@ Guard: `preview-panel.test.tsx`, `preview-panel-deferred-selection.test.tsx`.
   legacy handle with no stamped `rootId`). Never project down to path plus a
   nullable DB id.
 
-Settled: truncation is reported, never thrown; the re-dispatch budget is
+Truncation is reported, never thrown; the re-dispatch budget is
 deliberately non-persistent, so a renderer restart grants a fresh one. Evidence:
 `explorer-search-tapestry/secure-root-capabilities.md`,
 `explorer-search-tapestry/traversal-policy-and-truncation.md`.
@@ -383,10 +383,10 @@ placing it here.
   For exact `filePaths`, resolve only those files (including the excluded-path probe),
   without a root candidate scan; report `js-files` and retain truthful cap flags.
 
-Settled: gitignore leads because a hand-maintained denylist falls behind
+Gitignore leads because a hand-maintained denylist falls behind
 silently; the static floor stays because a non-repo root has no `.gitignore`;
 layers 7-8 are a hard boundary and directories are tested with a trailing
-slash — do not relitigate either. Evidence:
+slash. See ADR-0016. Evidence:
 `explorer-search-tapestry/ignore-chain-precedence.md`, `explorer-search-tapestry/scoped-live-grep.md`.
 Guard: `packages/utils/src/__tests__/workspace-ignore-matcher.test.ts`, `live-grep-scoped.integration.test.ts`.
 
@@ -406,7 +406,7 @@ each load-bearing, each with a test:
 - Never steer when the caller already passed `includeIgnored`, or when
   `scanLimited` — whose honest answer is "the walk did not finish".
 
-Settled: the pre-existing "nothing matches" case still asserts `hint` is
+The pre-existing "nothing matches" case still asserts `hint` is
 undefined, which is the evidence that the steer is precise rather than firing on
 every empty result. Evidence:
 `explorer-search-tapestry/zero-match-glob-steer.md`.
@@ -436,9 +436,9 @@ with no directory context and cannot use the walk's push/pop matcher.
 - File MUTATION tools deliberately do not consult the guard yet, so an agent can
   still write to an agent-ignored path.
 
-Settled: `.llmignore` is enforced JS-side for both grep engines even though
+`.llmignore` is enforced JS-side for both grep engines even though
 `.gitignore` deliberately is not, because there is no second implementation to
-diverge from. Evidence:
+diverge from. See ADR-0016. Evidence:
 `explorer-search-tapestry/agent-ignore-read-paths.md`.
 
 ## EXPLORER TREE LIVE REFRESH
@@ -618,7 +618,7 @@ fallback.
   the button; the compact-actions menu yields its slot for the operation
   (`resolveCompactToolbarActionsState` → `yielded-to-cancel`).
 
-Settled: these surfaces are read-only with no in-app dirty buffer, so a conflict
+These surfaces are read-only with no in-app dirty buffer, so a conflict
 state here would be false architecture; the duplicate-provider double init is a
 separate defect the identity skip does not address. Evidence:
 `explorer-search-tapestry/watcher-pipeline.md`,

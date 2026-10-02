@@ -32,8 +32,8 @@ Guard: `packages/db/__tests__/thread-debug-snapshot.integration.test.ts`.
 - Production never passes `untilIdle` — `withBackgroundIdleLoop` replaces it. The
   native suite exercises it only as a capability probe.
 
-Settled 2026-09-14 (do not relitigate): read-only children cannot delegate, and a
-parallel delegation step no longer stops the root loop at the first pause.
+Since 2026-09-14, read-only children cannot delegate, and a parallel delegation
+step no longer stops the root loop at the first pause. See ADR-0010.
 Evidence: `assistant-subagents/native-contract-matrix.md`.
 Guard: `packages/agent/src/mastra/__tests__/persona-recursion-gate.spec.ts`,
 `packages/agent/src/__tests__/specialist-fanout.integration.spec.ts`,
@@ -663,8 +663,8 @@ Evidence: `assistant-subagents/child-transcript-durability.md`.
   `@brainstrike/agent#build` and `@brainstrike/assistant-data#build`
   dependencies; direct Vitest invocation needs those builds first.
 
-Settled: an interrupted claim is terminal, and admission never asserts that an
-effect succeeded. Evidence: `assistant-subagents/delegated-decision-identity.md`.
+An interrupted claim is terminal, and admission never asserts that an
+effect succeeded. See ADR-0010. Evidence: `assistant-subagents/delegated-decision-identity.md`.
 Guard: `apps/desktop/src/__tests__/assistant-server/delegated-process-restart.integration.test.ts`,
 `packages/agent/src/mastra/__tests__/delegated-tool-actions.spec.ts`.
 
@@ -1000,15 +1000,15 @@ Guard: `apps/desktop/src/__tests__/assistant-server/delegated-tree-limits.integr
   leg and `createBackgroundResumeStream` both report `suspended`,
   `readNativeStreamStatus` ends the leg with a `tool-calls` finish, and the
   withheld child notice publishes.
-- **The parent model is NEVER woken by a child's suspension** (settled
-  2026-09-14, do not relitigate). The host does not pass `untilIdle`; every
+- **The parent model is NEVER woken by a child's suspension** (2026-09-14;
+  see ADR-0010). The host does not pass `untilIdle`; every
   parent inference uses public `waitTimeoutMs: 0` and is wrapped by
   `withBackgroundIdleLoop` (`background-idle-loop.ts`), which mirrors Mastra's
   loop except that only a RETURNED, FAILED or CANCELLED task queues a wakeup. A
   suspension is a host-surfaced approval prompt; the model is not the messenger.
   The loop judges no silence: running work holds the leg open until its
   terminal; each child's own watchdog (`assistant-runtime.md`) judges liveness.
-- **WAKEUP LEDGER** (settled 2026-09-15, do not relitigate): a parent wakeup is
+- **WAKEUP LEDGER** (2026-09-15; see ADR-0010): a parent wakeup is
   the whole LEDGER of this turn's background invocations, not one line per event.
   Read it from the DURABLE task rows (`background-ledger.ts`), scoped to the runs
   the host mapped to this GENERATION (migration 140) UNION the runs the leg
@@ -1130,7 +1130,7 @@ Guard: `apps/desktop/src/__tests__/assistant-server/delegated-tree-limits.integr
   a child that finished on a pause when its continuation re-enters. The parent
   still wakes only on returned/failed/cancelled work, so a decision on an
   all-parked turn takes the ordinary new-leg path.
-- **SESSION GRANT STOPS ASKING** (settled 2026-09-15, do not relitigate): after a
+- **SESSION GRANT STOPS ASKING** (2026-09-15; see ADR-0010): after a
   live "Allow <category> this session" the next gated call of EVERY child in the
   leg simply runs — no suspension, no card, no resume. `applyLiveApprovalGate`
   (`approval-gate.ts`) clones each kept ask tool with the PUBLIC FUNCTION form of
@@ -1540,8 +1540,8 @@ Evidence: `assistant-subagents/child-run-controls-and-composer.md`.
   (`packages/assistant-contract/src/child-permission-ceiling.ts`), so a root
   grant made after admission (session grant, per-tool "Always allow", yolo) lifts
   an admitted `ask` on the very next resume leg, while a later root reduction
-  still applies and the admitted tool catalog stays frozen. SETTLED 2026-09-12
-  (do not relitigate): a symmetric "stricter wins" rule froze every admitted
+  still applies and the admitted tool catalog stays frozen (2026-09-12; see
+  ADR-0010). Why: a symmetric "stricter wins" rule froze every admitted
   `ask`, so a grant could never end the prompting.
 - Because that grant removes the approved tool's `ask` flag before the child
   resumes, the approval-resume leg builds children with SEQUENTIAL tool calls
