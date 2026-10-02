@@ -170,10 +170,10 @@ Guard: `packages/agent/src/__tests__/aborted-turn-persistence.spec.ts`,
      Why: an approval arriving while its root leg still streams races that leg's
      own runEnd append.
 
-Settled: read-side hydration is untouched — re-rooting and the conflicting-edge
+Read-side hydration is untouched — re-rooting and the conflicting-edge
 throw stay; fix producers, never coerce at read. Approving a rediscovered pause
 anchors at the durable thread head, and a regeneration taken from a
-post-approval response persists no edge.
+post-approval response persists no edge. See ADR-0011.
 Evidence: `assistant-persistence/durable-parent-invariant.md`.
 Guard: `packages/assistant-data/src/__tests__/assistant-approval-topology.integration.test.ts`,
 `packages/agent/src/__tests__/root-pause-run-identity.integration.spec.ts`,
@@ -279,14 +279,11 @@ the `'auto'` observer target.
   dispatch switches on the spec literal and routes a raw `'v4'` embedder into a
   v1-only pipeline that throws.
 
-Settled: the auto observer stays inside the selected chat provider (privacy
-ruling); the built-in local Gemma is not a candidate.
+The auto observer stays inside the selected chat provider (privacy
+ruling); the built-in local Gemma is not a candidate. See ADR-0013.
 Evidence: `assistant-persistence/observational-memory-auto-target.md`.
 Guard: the VECTOR-retrieval and observer wire cases in
 `mastra-memory-persistence.integration.spec.ts`.
-
-When changing message persistence or hydration, update this section and the
-paired tests in `packages/agent` and `packages/app-shell`.
 
 **MCP Task status is deliberately outside assistant message persistence.** Never
 serialize a task's live status, input requests, result metadata or control
@@ -443,9 +440,9 @@ desktop server only child rows from the `child-run-usage` chunk.
   load stays null, never $0. While live tokens are included, suppress the durable
   cost and qualify the popover "(excl. live)".
 
-Settled: OM rows flow into the daily-spend guardrail, cross-root usage and ledger
+OM rows flow into the daily-spend guardrail, cross-root usage and ledger
 analytics priced at the observer model's registry rate — the tokens are genuinely
-billed, and excluding them would under-count real spend.
+billed, and excluding them would under-count real spend. See ADR-0013.
 Evidence: `assistant-persistence/run-usage-attribution.md`.
 Guard: `packages/assistant-ui/src/__tests__/context-usage-meter.test.tsx`,
 `packages/tokenization/src/__tests__/token-counting-heuristic-accuracy.test.ts`.
@@ -1000,9 +997,9 @@ exact and the messages die only when the next user message finalizes.
   redo re-reads its batch INSIDE the lock so it can LOSE, returning
   `rewind-not-found` before touching a file.
 
-Settled: OM residue survives a tombstone and is accepted — Mastra exposes no
-partial un-observe, and scrubbing observation text is guesswork. No `mind_ops` row,
-by ruling: a tombstone is not a deletion.
+OM residue survives a tombstone and is accepted — Mastra exposes no
+partial un-observe, and scrubbing observation text is guesswork. No `mind_ops` row:
+a tombstone is not a deletion. See ADR-0013.
 Evidence: `assistant-persistence/rewind-tombstones.md`.
 Guard: `packages/db/__tests__/migration-080-assistant-message-tombstones.test.ts`,
 `packages/agent/src/pglite-mastra-memory/__tests__/pglite-memory-store-tombstones.integration.spec.ts`,
@@ -1352,7 +1349,7 @@ and the panel and budget-guardrail suites under
 User-defined groups organize the panel: rank-ordered sections, an **Ungrouped**
 section always last, drag-and-drop, and a Group by / Sort by popover.
 
-Where state lives (do not relitigate):
+Where state lives (see ADR-0012):
 
 - Groups in `brainstrike_assistant_thread_groups`; membership and manual order in
   `brainstrike_assistant_thread_placements` (migration 054; 056 adds nullable
@@ -1517,7 +1514,7 @@ Hybrid lexical + semantic + title search over threads. Mastra has no cross-threa
 content search, so this is Brainstrike-owned derived state under the same ownership
 ruling as thread groups: never ALTER the Mastra tables.
 
-Where state lives (do not relitigate):
+Where state lives (see ADR-0012):
 
 - **Index:** `brainstrike_thread_message_index` (migration 067; one row per Mastra
   message, no FKs — orphans are inert and swept by the bounded GC). `content_text`

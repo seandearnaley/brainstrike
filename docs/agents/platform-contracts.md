@@ -39,8 +39,8 @@
   uses `configureLogger({ console: false })`, which builds a disabled Pino
   instance rather than falling back to stdout.
 
-Settled: one gate, one redaction pass, and `instanceof` is not the gate.
-Evidence: `platform-contracts/logging-error-serializer.md`.
+There is one gate and one redaction pass, and `instanceof` is not the gate.
+See ADR-0015. Evidence: `platform-contracts/logging-error-serializer.md`.
 Guard: `packages/logging/src/__tests__/error-serializer.test.ts`,
 `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`.
 
@@ -104,8 +104,8 @@ Evidence: `platform-contracts/in-memory-performance-telemetry.md`.
 - Add a new sensitive channel through the authorized registration API and cover
   both an allowed sender and a hidden/untracked rejection.
 
-Settled: possession is not authorization, and both factors are mandatory for a
-contract domain. Evidence: `platform-contracts/sensitive-ipc-authorization.md`
+Possession is not authorization, and both factors are mandatory for a
+contract domain. See ADR-0015. Evidence: `platform-contracts/sensitive-ipc-authorization.md`
 (the full domain/role table and the standing unauthenticated set).
 Guard: `apps/desktop/src/__tests__/platform/desktop-ipc-registry.test.ts`,
 `desktop-ipc-sender-frame.test.ts`, `privileged-ipc-sender-authorization.test.ts`,
@@ -173,9 +173,9 @@ Guard: `apps/desktop/src/__tests__/platform/desktop-ipc-registry.test.ts`,
   bridge. Electron 44 requires macOS 13+ and 64-bit targets, which the builder
   inherits without an override.
 
-Settled: the manifest owns channel literals, preload imports are allowlisted by
-purity, and the migration inventory is closed in both directions. Evidence:
-`platform-contracts/ipc-contract-modules.md`.
+The manifest owns channel literals, preload imports are allowlisted by
+purity, and the migration inventory is closed in both directions. See ADR-0015.
+Evidence: `platform-contracts/ipc-contract-modules.md`.
 Guard: `apps/desktop/src/__tests__/main/ipc-global-manifest.test.ts`,
 `ipc-disposer-ledger.test.ts`, `preload-sandbox-imports.test.ts`,
 `preload-contract-bridges.test.ts`, `platform/register-domain.test.ts`,
@@ -188,8 +188,7 @@ Guard: `apps/desktop/src/__tests__/main/ipc-global-manifest.test.ts`,
 "Factory Reset Brainstrike" means a true fresh start: the renderer boots as if
 never used. Wiping the database alone is not enough.
 
-- Wire every new persistent store into `packages/app-state/src/factory-reset.ts`
-  and document it next to its helper in the same change.
+- Wire every new persistent store into `packages/app-state/src/factory-reset.ts`.
   `clearPersistentUiState()` covers persistent UI store keys, the Electron
   renderer storage bridge, IndexedDB (enumerated plus a fallback list), and
   CacheStorage.
@@ -311,9 +310,9 @@ never used. Wiping the database alone is not enough.
 - Reset changes that depend on aborted-transaction semantics need a real-PGlite
   `*.integration.test.*`; a mocked `tx.query` cannot reproduce them.
 
-Settled: probing, not catching; the registry owns the set; module-scope reads of
+Reset probes rather than catches; the registry owns the set; module-scope reads of
 imported constants stay banned; migration 066 stays as it is (closed won't-do).
-Evidence: `platform-contracts/factory-reset-storage-keys.md`,
+See ADR-0015. Evidence: `platform-contracts/factory-reset-storage-keys.md`,
 `platform-contracts/python-runtime-paths.md`,
 `platform-contracts/desktop-reset-order.md`,
 `platform-contracts/reset-table-registry.md`,
@@ -417,8 +416,8 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   answered from main with `initStop`. Only a user action clears a stop: `retryInit` or either reset. A
   successful init removes the record and a non-timeout failure leaves it. The host never touches the record.
 
-Settled: admission retirement precedes host stops, and each timeout sits under
-the application deadline. Evidence:
+Admission retirement precedes host stops, and each timeout sits under
+the application deadline. See ADR-0005 and ADR-0006. Evidence:
 `platform-contracts/graceful-shutdown-ownership.md`, `effect-boundary/parser-generation-scope.md`.
 Guard: `apps/desktop/src/__tests__/main/desktop-graceful-shutdown.test.ts`, `ipc-embedding-backfill.test.ts`, `embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
 `renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`, `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`, `parser-host-shutdown.integration.test.ts`, `db-host-manager-close.test.ts`, `db-host-manager-init-phase.test.ts`, `db-host-manager-init-loop.test.ts`, `db-host-init-budget.test.ts`, `db-host-protocol.test.ts`, `db-main.close.test.ts`, `apps/desktop/src/__tests__/platform/host-request-channel.test.ts`, `apps/desktop/src/__tests__/db-clean-shutdown-marker.test.ts`, `db-init-attempt-record.test.ts`, `apps/desktop/src/__tests__/main/db-host-entry.signals.test.ts`, `db-host-entry.db-main.test.ts`, `apps/desktop/src/__tests__/main/shutdown-signals.test.ts`, `boot-order.test.ts`, `apps/desktop/e2e/shutdown-signals.desktop.test.ts`, `apps/desktop/src/__tests__/electron-harness-out-of-band.test.ts`.
@@ -575,7 +574,7 @@ on this local latency path; assistant tools consume indexed state only.
 Full event-pipeline invariants (batching, ignore rules, normalization, consumers)
 live in `docs/agents/explorer-search-tapestry.md` ("EXPLORER TREE LIVE REFRESH").
 
-Settled: one engine with no fallback, and the ignore override stays out of the
+There is one engine with no fallback, and the ignore override stays out of the
 IPC domain. Evidence: `platform-contracts/file-watcher-lifecycle.md`,
 `docs/agents/research/bst-568-parcel-watcher-spike.md`.
 Guard: `packages/file-system/src/__tests__/parcel-binding.integration.test.ts`,
@@ -640,7 +639,7 @@ Guard: `packages/db/__tests__/database-query-telemetry.test.ts`,
 
 Cross-cutting, app-wide diagnostic capture — deliberately SEPARATE from the
 run-scoped `brainstrike_assistant_run_events` timeline (different scope,
-retention, and sanitization contract; do not relitigate). Design doc:
+retention, and sanitization contract; see ADR-0015). Design doc:
 `docs/error-observability-design-2026-07-23.md`.
 
 - **Performance telemetry is a separate in-memory signal, not a fabricated
@@ -774,7 +773,7 @@ retention, and sanitization contract; do not relitigate). Design doc:
   cut is visible through `truncated` and `hint`. The hosted web assistant omits
   this capability and never substitutes a remote query.
 
-Settled: performance samples stay out of the table; the repository boundary
+Performance samples stay out of the table; the repository boundary
 rewrites unstorable characters rather than retrying; one helper owns both halves
 of every download. Evidence: `platform-contracts/long-task-telemetry.md`,
 `platform-contracts/diagnostic-events-pipeline.md`,
@@ -803,7 +802,7 @@ Guard: `packages/utils/src/__tests__/diagnostic-events.test.ts`,
   sets. `writeLine` never throws: an open, write, rotate, or short-write failure
   permanently self-disables the sink and reports once through the injected
   `onFailure`. Constructor guards throw synchronously on malformed config.
-- **Load-bearing ruling — do not relitigate**: the sink hangs off the two
+- **Load-bearing, see ADR-0015**: the sink hangs off the two
   `logging-ipc.ts` choke points (the main-process `addLogListener` tap and the
   `logging:ingest-buffered-record` handler, both already filtered to warn+), NOT
   a pino `customTransports` target. Why: pino transports run in a worker thread
@@ -910,8 +909,8 @@ Guard: `packages/utils/src/__tests__/diagnostic-events.test.ts`,
   try/catch, because a swallowed rejection renders as a successful-but-empty
   file.
 
-Settled: the sink stays on the logging choke points, the last shutdown step stays
-last, and flat main entries resolve from `__filename`. Evidence:
+The sink stays on the logging choke points, the last shutdown step stays
+last, and flat main entries resolve from `__filename`. See ADR-0015. Evidence:
 `platform-contracts/ndjson-backstop.md`,
 `platform-contracts/desktop-diagnostics-host-probes.md`,
 `platform-contracts/log-viewer-sources.md`.
@@ -973,7 +972,7 @@ Guard: `packages/utils/src/__tests__/diagnostic-event-ndjson.test.ts`,
   the persisted retention store is re-defaulted directly from
   `clearBrowserStorage()`.
 
-Settled: the watermark stays session-scoped, and a not-knowing state always
+The watermark stays session-scoped, and a not-knowing state always
 outranks a count. Evidence: `platform-contracts/p2b-diagnostics-stores.md`.
 Guard: `packages/app-state/src/__tests__/diagnostics-retention-store.test.ts`,
 `packages/app-shell/src/__tests__/diagnostics-status-item.test.tsx`,
@@ -989,7 +988,7 @@ Guard: `packages/app-state/src/__tests__/diagnostics-retention-store.test.ts`,
 - Native host shutdown drains active work before reset; unresolved output remains
   charged on ordinary restart.
 
-Settled: whole-profile no-resurrection coverage exists and does not replace
-table-by-table `db:clearAll` proofs. Evidence:
+Whole-profile no-resurrection coverage exists and does not replace
+table-by-table `db:clearAll` proofs. See ADR-0015. Evidence:
 `platform-contracts/delegation-reset-coverage.md`.
 Guard: `apps/desktop/e2e/delegated-factory-reset.desktop.test.ts`.

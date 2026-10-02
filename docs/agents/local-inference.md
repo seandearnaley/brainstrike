@@ -2,7 +2,7 @@
 
 > Read before touching embedding or LLM hosts, hidden preloads, workers, or local
 > chat. Local inference runs ONLY in hidden renderer hosts, never in Electron
-> main. Rules here are true now; the record behind each is in
+> main. See ADR-0007. Rules here are true now; the record behind each is in
 > `local-inference/<topic>.md`.
 
 ## EMBEDDING ARCHITECTURE (CRITICAL)
@@ -40,7 +40,7 @@ Guard: `hidden-preload-contract.test.ts`, `hidden-preload-runtime.test.ts`.
   resolves `rehydrate()` anyway, so a swallowed read presents as "unconfigured, use
   WebGPU".
 
-Settled: one canonical record; a recurrence is not fixed by relaxing the E2E
+There is one canonical record; a recurrence is not fixed by relaxing the E2E
 assertion or re-exposing the full storage bridge. Evidence:
 `local-inference/vector-device-preference.md`.
 Guard: `vector-preferences-store.hidden-host.test.ts`,
@@ -91,7 +91,7 @@ Guard: `packages/embeddings/src/__tests__/embedding-worker-already-completed-lea
   from the deduped count snapshot; diagnostics read that timestamp rather than
   synthesizing freshness during render.
 
-Settled: `detach()` is never the answer to a deliberate stop.
+`detach()` is never the answer to a deliberate stop.
 Evidence: `local-inference/backfill-ownership.md`.
 
 ### Renderer sync-loop coordinator
@@ -137,7 +137,7 @@ Evidence: `local-inference/embedding-telemetry-diagnostics.md`.
 - This suite and the queue-load suite set `concurrent: false`; their shared PGlite
   state stays serialized.
 
-Settled: historical-minus-persisted understates the hashing win rather than isolating
+Historical-minus-persisted understates the hashing win rather than isolating
 pure hash cost. Evidence: `local-inference/embedding-input-hash-benchmark.md`.
 
 ### Embedding queue load verification
@@ -249,7 +249,7 @@ Environment variables: `VITE_EMBED_CONCURRENCY` (default 1), `VITE_EMBED_LEASE_M
   weights, vectors, input text, paths or content; a persistence or export path reopens
   the diagnostics privacy and factory-reset contracts.
 
-Settled: BST-369's physical assertion proves browser-worker backing-store residency and
+BST-369's physical assertion proves browser-worker backing-store residency and
 reclamation for WASM and a logical GPU-class proxy — it measures neither GPU VRAM nor
 real model inference. Evidence: `local-inference/embedding-runtime-telemetry.md`.
 Guard: `pipeline-cache-controller.spec.ts`, `pipeline-cache-controller.browser.test.ts`,
@@ -265,7 +265,7 @@ Guard: `pipeline-cache-controller.spec.ts`, `pipeline-cache-controller.browser.t
 - Keep the backpressure gate proved: `embedding.worker.runtime.spec.ts` (fails without
   `await waitForBatchAck(...)`) and `bst-372-current-retention.spec.ts` (peak delta bound).
 
-Settled: the comparison boundary is a controlled replay of the exact source
+The comparison boundary is a controlled replay of the exact source
 implementations. Evidence: `local-inference/streaming-payload-memory-proof.md`.
 
 ### Embedding host lifecycle and shutdown
@@ -288,7 +288,7 @@ Evidence: `local-inference/host-lifecycle-and-shutdown.md`.
   hidden `llm-host` renderer, web through the browser-safe
   `@brainstrike/agent/local-llm` entrypoint. Why: the Transformers.js Gemma runtime
   depends on renderer-only browser/WebGPU surfaces, and hidden-host execution avoids
-  visible-renderer throttling during warmup and generation.
+  visible-renderer throttling during warmup and generation. See ADR-0007.
 
 Flow:
 1. Hidden host renderer (desktop)
@@ -389,11 +389,9 @@ Constraints:
 - Validate Gemma tool schemas before templating: accept a no-argument empty schema as an
   object, or a single schema plus `null` via `anyOf` or a type array and rewrite it
   explicitly; unsupported unions throw with the tool/property path.
-- If you change the local host lifecycle, preload bridge, or availability gating, update
-  this section and the relevant tests.
 
-Settled: the GPU prompt ceiling and the engineReset escalation, including the
-ONNX-Runtime markers that carry no "gpu" substring. Evidence:
+Evidence for the GPU prompt ceiling and the engineReset escalation, including the
+ONNX-Runtime markers that carry no "gpu" substring:
 `local-inference/local-llm-hosts-and-flow.md`,
 `local-inference/engine-fault-recovery.md`, `local-inference/gemma-runtime-budget.md`.
 Guard: `llm-host-runtime.test.tsx`, `llm-host-manager.test.ts`,

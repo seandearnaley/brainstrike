@@ -93,10 +93,11 @@ message every turn. Desktop-only, capability-gated — no `isElectron()`.
   decisions are byte-identical to injection; a rejected scan renders a distinct,
   logged error state with Retry, never the empty "no folders" state.
 
-Settled: default-ON with no per-root trust gate — an accepted risk, since
+Default-ON with no per-root trust gate is an accepted risk, since
 referenced-files injection is already ungated and the permission engine's `ask`
 defaults keep injected text from driving mutations; web is deferred for want of a
-workspace-tool bridge. Evidence: `workspace-context/workspace-instructions.md`.
+workspace-tool bridge. See ADR-0016.
+Evidence: `workspace-context/workspace-instructions.md`.
 Guard: `apps/desktop/src/assistant-server/__tests__/workspace-instructions-context.test.ts`,
 `workspace-instructions-scan.test.ts`,
 `apps/desktop/src/__tests__/ipc-context-files-handlers.test.ts`.
@@ -133,7 +134,7 @@ and failing safe to OFF.
   attached only when BOTH fields are set. It is attribution metadata and never
   changes runtime behavior.
 
-Settled: remove the feature after a meaningful sample if truncation and zero-match
+Remove the feature after a meaningful sample if truncation and zero-match
 rates do not improve over equivalent windows. Evidence:
 `workspace-context/self-improvement-signal.md`.
 Guard: `apps/desktop/src/__tests__/assistant-server/self-improvement-signal-context.test.ts`.
@@ -223,7 +224,8 @@ disk in main and web's hook returns `[]` (capability-gated).
 - SECURITY HARD LINE: there is NO shell (!\`command\`) expansion, gated or not, ever
   — it passes through as inert text. Do not add it.
 
-Settled: shell expansion never; web and namespaced popover grouping deferred.
+There is never shell expansion; web and namespaced popover grouping are deferred.
+See ADR-0016.
 Evidence: `workspace-context/user-slash-commands.md`.
 Guard: `packages/assistant-contract/src/__tests__/user-slash-commands.test.ts`,
 `apps/desktop/src/__tests__/assistant-server/user-slash-commands-loader.test.ts`,
@@ -340,11 +342,11 @@ Desktop-only by construction; web builds no bridge or engine.
   in `@brainstrike/assistant-contract/skills-bridge`, not app-shell, because both
   app-shell and settings-ui consume them and settings-ui cannot import app-shell.
 
-Settled: default-ON with no per-skill trust gate — skill content is
+Skills are default-ON with no per-skill trust gate: skill content is
 instructions-only, the permission engine's `edit/execute:ask` defaults are the
-backstop, and all reads are SecureRoot-contained and bounded. Deferred: web, fs-watch
-refresh, `SkillSearchProcessor`, a create-skill scaffold, composer chips for
-activations. Evidence: `workspace-context/agent-skills.md`.
+backstop, and all reads are SecureRoot-contained and bounded. See ADR-0016.
+Deferred: web, fs-watch refresh, `SkillSearchProcessor`, a create-skill scaffold,
+composer chips for activations. Evidence: `workspace-context/agent-skills.md`.
 Guard: `packages/agent/src/__tests__/skill-scan.spec.ts`,
 `scanned-workspace-skills.spec.ts`, `skill-tools.spec.ts`,
 `mastra-skills.integration.spec.ts`,
@@ -418,7 +420,7 @@ Key files: `edit-checkpoint-{journal,capture}.ts`, `checkpoint-snapshot-undo.ts`
 `checkpoint-reindex-deps.ts`, `ipc-domains/assistant-checkpoint-*.ts`,
 `edit-checkpoint-context.tsx`, `tool-fallback-row.tsx`, `checkpoint-turn-revert.tsx`,
 `use-edit-checkpoints.ts`, `packages/assistant-contract/src/edit-checkpoints.ts`.
-Settled: the T4 swap to snapshot restore, with identity-only storage and no
+Undo uses the T4 swap to snapshot restore, with identity-only storage and no
 destructive migration. Evidence: `workspace-context/edit-checkpoints.md`.
 Guard: `apps/desktop/src/__tests__/assistant-server/edit-checkpoint-journal.integration.test.ts`.
 
@@ -503,7 +505,7 @@ COMPARE-ONLY.
   target's key and stat, a dangling link has nothing to compare, and a symlink rename
   leaves the target's observation valid with no destination record.
 
-Settled: compare-only scoping — do not widen to core's stricter "refuse any overwrite
+Scoping is compare-only: do not widen to core's stricter "refuse any overwrite
 without a prior read" without revisiting the test surface that legitimately writes
 unread files. Accepted residuals: coarse-mtime filesystems can miss a sub-granularity
 external edit, and a checkpoint revert writes outside these tools, so a thread's next
@@ -923,7 +925,6 @@ Guard: `packages/assistant-ui/src/__tests__/workspace-bar.test.tsx`,
   Why: Radix's exit animation means the menu's real unmount fires AFTER the dialog has
   mounted and autofocused. Escape closes the dialog with the root still connected.
 
-Settled: the context menu shipped; the earlier v1 "deferred" ruling is closed.
 Evidence: `workspace-context/root-header-context-menu.md`.
 Guard: `packages/file-explorer-ui/src/components/__tests__/root-section-header.test.tsx`,
 `packages/file-explorer-ui/src/__tests__/file-explorer-sidebar.test.tsx`.

@@ -134,8 +134,9 @@ the Mastra error-processor layer.
   `notifications/cancelled`. A call with no tool-call id publishes nothing and keeps the
   pre-guard behaviour. The id is PROVIDER data: the later registration wins; the collision is LOGGED at `error`, never thrown.
 
-Settled: the budget is per call; the guard cancels its abandoned work; the
-keying is by tool-call id. Evidence: `assistant-runtime/tool-guard-budgets.md`.
+The budget is per call; the guard cancels its abandoned work; the
+keying is by tool-call id. See ADR-0009.
+Evidence: `assistant-runtime/tool-guard-budgets.md`.
 Guard: `packages/agent/src/__tests__/mcp-tool-guard-cancellation.integration.spec.ts`
 (real spawned stdio child).
 
@@ -212,11 +213,11 @@ Guard: `packages/agent/src/__tests__/mcp-tool-guard-cancellation.integration.spe
 - Delegated children's abort snapshots follow `assistant-subagents.md` § Cancelled
   child transcript durability, joined before attempt replacement and disposal.
 
-Settled: the phase boundary is provider output, not the first part; a running
+The phase boundary is provider output, not the first part; a running
 tool is never measured against a provider-silence window; Mastra's
 `tool-execution-start`/`-end` chunks are not the boundary; each background child
-has its own watchdog and the parent judges only itself (2026-09-22). Evidence:
-`assistant-runtime/stream-watchdog-phases.md`.
+has its own watchdog and the parent judges only itself (2026-09-22). See ADR-0009.
+Evidence: `assistant-runtime/stream-watchdog-phases.md`.
 Guard: `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec.ts`,
 `packages/agent/src/__tests__/mastra-stream-watchdogs.integration.spec.ts`, `packages/agent/src/__tests__/background-child-watchdog.integration.spec.ts`,
 `packages/agent/src/mastra/__tests__/mastra-background-watchdog-holds.spec.ts`, `packages/agent/src/mastra/__tests__/background-child-watchdog.spec.ts`.
@@ -315,8 +316,8 @@ Guard: `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec
   data-stream serialization. Intermediate steps start as `absent`. Never infer
   provider failure from the AI SDK `unknown` value.
 
-Settled: the provider/local split is evidence-based; the 401 remedy is keyed by
-`authType`; an error finish is a failed durable outcome. Evidence:
+The provider/local split is evidence-based; the 401 remedy is keyed by
+`authType`; an error finish is a failed durable outcome. See ADR-0009. Evidence:
 `assistant-runtime/error-processors-and-run-errors.md`.
 Guard: `packages/agent/src/__tests__/mastra-error-processors.spec.ts`,
 `packages/agent/src/mastra/__tests__/mastra-chunk-decoding.spec.ts`,
@@ -728,9 +729,9 @@ restating them here.
   visible text differs by phase. `describePart` supplies the Mastra part type from
   the call site; the timer module assumes no shape.
 
-Settled: the first-output and inactivity windows stay decoupled (BST-839); the
-phase boundary is provider output; a reasoning delta is not an answer. Evidence:
-`assistant-runtime/resilience-config-rationale.md`.
+The first-output and inactivity windows stay decoupled (BST-839); the
+phase boundary is provider output; a reasoning delta is not an answer. See ADR-0009.
+Evidence: `assistant-runtime/resilience-config-rationale.md`.
 
 Stream part continuity and tool-call args ordering:
 
@@ -1644,9 +1645,9 @@ Previews and grants:
   notice AND the approval carries a valid `riskCategory`. "Always allow <tool>"
   persists a per-tool override; "Allow <category> this session" is session-lived;
   the overflow "Allow all tools this session" grants ALL FOUR categories in ONE
-  atomic store `set()`. SETTLED: the blanket action is four category grants, NOT a
+  atomic store `set()`. The blanket action is four category grants, NOT a
   session-yolo flag — per-tool DENY still beats it and Settings lists each granted
-  category individually revocable.
+  category individually revocable. See ADR-0010.
 - All grant actions record the grant FIRST, then approve the pending call through
   the normal resume. The grant takes effect on the SAME resumed leg because
   `prepareRequestData` reads the posture fresh. The same holds for a DELEGATED
@@ -1775,9 +1776,9 @@ Previews and grants:
   run-wide `requireToolApproval` keeps gating every non-internal tool. Per-tool
   DENY wins in both cases; a non-empty `askTools` always gates exactly the ask set.
 
-Settled: one producer for the policy snapshot; the function-form per-tool gate;
-parked siblings are answered in the same leg; already-answered or stopped is not a
-refusal; the optimistic lock key is an identity. Evidence:
+There is one producer for the policy snapshot; the per-tool gate is the function
+form; parked siblings are answered in the same leg; already-answered or stopped is
+not a refusal; the optimistic lock key is an identity. See ADR-0010. Evidence:
 `assistant-runtime/permission-gate-wiring.md`,
 `assistant-runtime/approval-ui-and-grants.md`.
 Guard: `packages/agent/src/__tests__/permission-policy-request.spec.ts`,
@@ -2180,9 +2181,9 @@ each turn, never cached).
 - The clock is INJECTED (`composeRuntimeInstructions({ now })`) so the composed
   instructions stay a pure function of their inputs.
 
-Settled: a model with no date substitutes its training cutoff or a guess, and an
-observed run wrote a fabricated date into durable working memory. Evidence:
-`assistant-runtime/system-instruction-date.md`.
+Why: a model with no date substitutes its training cutoff or a guess, and an
+observed run wrote a fabricated date into durable working memory. See ADR-0009.
+Evidence: `assistant-runtime/system-instruction-date.md`.
 Guard: the frozen-time case that drives `createMastraAgentRuntime` and asserts the
 date reaches `config.instructions` (asserting `buildCurrentDateNote` directly
 would prove only that it renders a date it was handed).

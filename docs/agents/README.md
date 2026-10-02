@@ -21,7 +21,7 @@ Present tense, imperative, checkable. One topic per `###` heading, shaped:
 - <Rule an agent can obey or verify.>
 - <Rule.> Why: <one clause, only when the rule looks wrong without it>.
 
-Settled: <ruling that stays closed>. Evidence: `<area>/<topic>.md`.
+Evidence: `<area>/<topic>.md`.
 Guard: `<test or script that fails when the rule breaks>`.
 ```
 

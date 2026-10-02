@@ -41,7 +41,7 @@ Guard: `packages/agent/src/__tests__/code-execution.spec.ts`.
 - Resolve with `realpath.native`, never `fs/promises`' `realpath`, which copies
   non-symlink components verbatim and loses OS-canonical case.
 
-Settled: the timeout budget is single-sourced; `signal` and `maxOutputBytes`
+The timeout budget is single-sourced; `signal` and `maxOutputBytes`
 stay required; directory segments are never folded. Evidence:
 `code-execution/seam-validation-rationale.md`.
 Guard: `packages/agent/src/__tests__/code-execution.spec.ts`.
@@ -64,7 +64,7 @@ Guard: `packages/agent/src/__tests__/code-execution.spec.ts`.
 - `packages/agent/src/fence/fence-policy.ts` is the reference implementation.
   If a THIRD backend appears, move this duty into the seam as a helper.
 
-Settled: no darwin case-folding; volume-only folding on Windows, which moves
+Case is never folded on darwin. Windows folds only the volume, and that moves
 together with Windows canonicalization. Evidence:
 `code-execution/path-containment.md`.
 Guard: `packages/agent/src/__tests__/fence-policy.spec.ts`.
@@ -91,10 +91,10 @@ Guard: `packages/agent/src/__tests__/code-execution.spec.ts`.
 - Why network errors rather than downgrades: running with networking quietly
   off is a stronger sandbox but a wrong result — exit 0 with missing data.
 
-## Two-mode resolution — NO DOWNGRADE (settled, do not relitigate)
+## Two-mode resolution — NO DOWNGRADE
 
 - `resolveCodeExecutor(requested, host)` gates on factory presence — never
-  `isElectron()`, never platform sniffing.
+  `isElectron()`, never platform sniffing. See ADR-0008.
 - There is NO `vm`→`fence` fallback, ever. A mode the host cannot satisfy
   throws `ExecutorKindUnavailableError` in BOTH directions: `vm` on a
   fence-only host AND `fence` on a bare host.
@@ -106,7 +106,7 @@ Guard: `packages/agent/src/__tests__/code-execution.spec.ts`.
 - The caller owns the returned executor and MUST `dispose()` it: each call
   invokes the factory and yields a NEW executor.
 
-Settled: no downgrade in either direction; the tier is checked, not trusted.
+No downgrade in either direction; the tier is checked, not trusted. See ADR-0003.
 Evidence: `code-execution/no-downgrade.md`.
 Guard: `packages/agent/src/__tests__/code-execution.spec.ts`.
 
@@ -131,7 +131,7 @@ Evidence: `code-execution/exec-result-shape.md`.
 - Carry `partialStdout`, `partialStderr`, the omitted byte counts and
   `processStarted` on the error.
 
-Settled: an abort is an error, not a result. Evidence:
+An abort is an error, not a result. Evidence:
 `code-execution/cancellation-as-error.md`.
 
 ## The run_python tool
@@ -276,7 +276,7 @@ srt stays external in tsup. Runtime-free readiness diagnostics are exported by
 - A timeout kills the whole process TREE (`detached: true`, SIGTERM then
   SIGKILL on the negative pid) and no successful path settles before the group
   is down: settlement waits on a bounded signal-0 probe.
-- `EPERM` FROM THE PROBE IS INCONCLUSIVE, NOT A DENIAL — do not relitigate.
+- `EPERM` FROM THE PROBE IS INCONCLUSIVE, NOT A DENIAL.
   Every member is our own descendant running as us, so `EPERM` reports the
   post-reap race; it polls on exactly like `alive`, and ONLY `ESRCH` releases a
   tracked group. Failure rejects with `FenceProcessGroupTeardownError`, the
@@ -298,9 +298,10 @@ srt stays external in tsup. Runtime-free readiness diagnostics are exported by
   ways: without it the allow-list test fails RED on a restricted-egress host
   AND its network-deny sibling passes VACUOUSLY.
 
-Settled: Windows off; no degraded seccomp; `EPERM` polls on. Readiness failures
-are typed/actionable and distinct from interpreter availability; never change
-host security settings or recommend disabling them to make a probe pass.
+The fence stays gated off on Windows, seccomp is never degraded, and `EPERM`
+polls on. Readiness failures are typed/actionable and distinct from interpreter
+availability; never change host security settings or recommend disabling them to
+make a probe pass.
 Evidence: `code-execution/srt-version-pin.md`,
 `code-execution/windows-fence-gate.md`,
 `code-execution/fence-policy-refusals.md`,
@@ -330,7 +331,7 @@ Guard: `packages/agent/src/__tests__/fence-executor.spec.ts`,
   and confirm the escape-resistance suite RAN rather than printing
   `SUITE SKIPPED`.
 
-Settled: an unreachable probe host reds the lane rather than skipping quietly.
+An unreachable probe host reds the lane rather than skipping quietly.
 Dependency checks alone never prove host readiness; construction probes it.
 Evidence: `code-execution/linux-fence-lane.md`.
 Guard: `scripts/__tests__/linux-fence-lane-contract.test.mjs`.
@@ -359,5 +360,3 @@ Evidence: `code-execution/escape-resistance-suite.md`.
   backend existing.
 
 Evidence: `code-execution/vm-mode-two.md`.
-
-When changing this flow, update this doc and the paired spec in the same change.
