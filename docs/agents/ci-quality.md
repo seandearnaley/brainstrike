@@ -9,8 +9,12 @@
   command registry, no routing label. The `coverage` label only adds an
   advisory run (see "Coverage is a separate workflow").
 - Required PR checks are `test.yml`'s `Static`, `Unit`, `Build`, `Web E2E`,
-  `Desktop E2E`. Both E2E smokes run on every PR; full regression runs on
-  `schedule` or `workflow_dispatch`. `main` pushes: "A red `main` announces itself".
+  `Desktop E2E`. Both E2E smokes run on every PR. `main` pushes: "A red `main` announces itself".
+- Full regression (web, and desktop in two shards behind the `Desktop Full
+  Regression` fan-in) runs on every PR, on `schedule` and on `workflow_dispatch`.
+  A failing spec is quarantined with `test.fixme` plus a `quarantine` annotation
+  naming an owner-held ticket. A quarantine ticket closes only with its `fixme`
+  removed in the same PR; a spec is never deleted to get green.
 - A pull request touching official MCP conformance must link its workflow-dispatch run URL
   in its body; a self-reported pass count is no substitute (reviewer-enforced).
 
