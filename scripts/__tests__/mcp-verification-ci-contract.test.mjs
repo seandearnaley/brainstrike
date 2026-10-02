@@ -340,7 +340,7 @@ test('living contracts publish the exact local and CI commands', () => {
   assert.match(conformanceContract, /The ruling ports but its mechanism does not/u);
 });
 
-test('living contracts link official conformance evidence and require dispatch URLs in PRs', () => {
+test('living contracts retain official conformance evidence and require local validation', () => {
   const conformanceContract = readRepoFile('docs/agents/mcp-conformance.md');
   const ciContract = readRepoFile('docs/agents/ci-quality.md');
 
@@ -349,10 +349,8 @@ test('living contracts link official conformance evidence and require dispatch U
   }
   assert.match(conformanceContract, /28\/28 baseline auth/u);
   assert.match(conformanceContract, /11\/11 modern auth closeout/u);
-  assert.match(
-    ciContract,
-    /pull request touching official MCP conformance must link its workflow-dispatch run URL/u
-  );
+  assert.match(ciContract, /Do not enable, dispatch, rerun, request an automated review/u);
+  assert.match(ciContract, /CI is disabled due to cost;\s+validation must run locally/u);
 });
 
 test('the conformance contract is routed once from AGENTS.md and owns the moved prose', () => {
