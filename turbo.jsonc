@@ -115,9 +115,8 @@
     // green for weeks). `topo` REPLACES the edge: it re-carries the cascade
     // through a node that runs no script. See proof #2 in the B4 PR body.
     //
-    // INPUTS: full defaults unless a package has an explicitly guarded pilot.
-    // Types alone excludes executable test/spec files from topo and build;
-    // lint:private-test-input-locality rejects outside readers of those files.
+    // INPUTS: full defaults unless a package has an explicit pilot.
+    // Types alone excludes executable test/spec files from topo and build.
     // Owner tests retain full inputs. Helpers and shared fixtures remain hashed.
     // Do not extend exclusions without import/read and real Turbo hash proofs.
     "topo": {

@@ -643,7 +643,7 @@ Guard: `scripts/__tests__/vitest-worker-global-mutation.test.mjs`,
   package `turbo.json`; no inline `pnpm build &&`, no `^build`. Native-addon
   packages keep `build`, `test`, and `test:coverage` uncached; outside Turbo,
   build them before testing.
-- Narrow task inputs only as a guarded pilot. `@brainstrike/types` excludes its
+- Narrow task inputs only as a pilot. `@brainstrike/types` excludes its
   test/spec files from `topo` and `build`, so nothing outside it may import,
   read, or glob them. Shared helpers live outside excluded paths.
 - A guard script is an input of the tasks that run it, never a global input.
@@ -658,13 +658,13 @@ Guard: `scripts/__tests__/` `verify-workspace-src-aliases`,
 `turbo-global-configuration`, `native-addon-build-uncached-contract`,
 `ci-guard-input-locality` (`.test.mjs`).
 
-### Mutation-lane contract guard (`pnpm test:scripts`)
+### Mutation lane
 
 - A `mutation` script is `stryker run [args]` in a package that declares
   `@stryker-mutator/core`, with exactly one loadable Stryker config whose
   `vitest.configFile` is an existing `vitest.mutation.config.ts`.
-- `reporters` stays within the guard's `SUPPORTED_REPORTERS`; widening it is a
-  reviewed decision.
+- `reporters` are Stryker reporter names (`html`, `clear-text`, `progress`
+  today), not Vitest reporters; widening them is a reviewed decision.
 
 Evidence: `ci-quality/mutation-lane-guard.md`.
 

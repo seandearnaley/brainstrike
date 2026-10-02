@@ -2,12 +2,12 @@
   "extends": ["//"],
   "tasks": {
     "topo": {
-      // BST-1773 guarded pilot: executable private specs do not affect
+      // BST-1773 pilot: executable private specs do not affect
       // downstream packages. Only executable test/spec filenames are excluded;
       // helper modules in __tests__ remain hashed. Shared fixtures must live
       // outside these filename patterns and
-      // remain in $TURBO_DEFAULT$; verify-private-test-input-locality rejects
-      // cross-package imports and filesystem reads before an exclusion is safe.
+      // remain in $TURBO_DEFAULT$; an exclusion is only safe while no other
+      // package imports or reads the excluded files.
       "inputs": [
         "$TURBO_DEFAULT$",
         "!**/*.test.*",
@@ -15,7 +15,7 @@
       ]
     },
     "build": {
-      // tsconfig.json compiles src/**/*.ts only. Match topo's guarded private
+      // tsconfig.json compiles src/**/*.ts only. Match topo's private
       // spec exclusion so build-only exception edges cannot carry a spec edit
       // back into downstream test hashes.
       "inputs": [
