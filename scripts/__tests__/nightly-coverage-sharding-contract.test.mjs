@@ -149,7 +149,6 @@ test('nightly coverage merges DB blobs natively and fans one artifact into the t
   assert.match(workflow, /pattern: nightly-coverage-\*/);
   assert.match(workflow, /if \[ "\$archive_count" -ne 7 \]/);
   assert.match(workflow, /run: pnpm coverage:enforce/);
-  assert.match(workflow, /name: Notify nightly coverage failure[\s\S]*needs:[\s\S]*- coverage/);
 });
 
 test('PR coverage isolates DB and natively merges the same complete shard set', () => {

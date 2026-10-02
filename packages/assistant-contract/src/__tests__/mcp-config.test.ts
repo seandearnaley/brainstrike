@@ -1,7 +1,80 @@
 import { describe, expect, it } from 'vitest';
-import { McpConfigValidationError, parseMcpConfigValue } from '../mcp-config.js';
+import {
+  McpConfigSchema,
+  McpConfigValidationError,
+  McpServerSchema,
+  parseMcpConfigValue,
+  parseMcpServerValue,
+} from '../mcp-config.js';
 
 describe('MCP config contract', () => {
+  it.each(['stdio', 'sse'] as const)(
+    'rejects oauth-user on %s at every config entrypoint',
+    (transport) => {
+      const server = {
+        auth: { type: 'oauth-user' },
+        name: 'unsupported-oauth',
+        transport,
+        ...(transport === 'stdio' ? { command: 'node' } : { url: 'https://example.test/sse' }),
+      };
+      expect(McpServerSchema.safeParse(server).success).toBe(false);
+      expect(McpConfigSchema.safeParse({ servers: [server] }).success).toBe(false);
+      expect(() => parseMcpServerValue(server)).toThrow(McpConfigValidationError);
+      expect(() => parseMcpConfigValue({ servers: [server] })).toThrow(McpConfigValidationError);
+      if (transport === 'sse') {
+        expect(() => parseMcpConfigValue({ servers: [server] })).toThrow(
+          JSON.stringify({
+            code: 'invalid_mcp_config',
+            issues: [
+              {
+                message:
+                  'auth "oauth-user" is not supported with transport "sse"; use "streamable-http"',
+                path: 'servers.0.auth',
+              },
+            ],
+          })
+        );
+      }
+    }
+  );
+
+  it.each(['legacy', 'auto', '2026-07-28'] as const)(
+    'keeps oauth-user supported on streamable-http with %s protocol',
+    (protocol) => {
+      expect(
+        parseMcpServerValue({
+          auth: { scopes: ['read'], type: 'oauth-user' },
+          name: 'remote-oauth',
+          protocol,
+          transport: 'streamable-http',
+          url: 'https://example.test/mcp',
+        })
+      ).toMatchObject({
+        auth: { scopes: ['read'], type: 'oauth-user' },
+        protocol,
+        startup: 'authentication-required',
+      });
+    }
+  );
+
+  it.each([
+    undefined,
+    { type: 'none' },
+    {
+      credential: { id: '00000000-0000-4000-8000-000000000001', store: 'mcp-credentials' },
+      type: 'bearer',
+    },
+  ])('preserves supported SSE authentication: %j', (auth) => {
+    expect(
+      parseMcpServerValue({
+        ...(auth === undefined ? {} : { auth }),
+        name: 'legacy',
+        transport: 'sse',
+        url: 'https://example.test/sse',
+      })
+    ).toMatchObject({ protocol: 'legacy', startup: 'automatic', transport: 'sse' });
+  });
+
   it('normalizes every supported transport through one strict validator', () => {
     const parsed = parseMcpConfigValue({
       servers: [

@@ -10,8 +10,8 @@ GitHub Issues are not the authoritative work tracker for this repository.
 
 ## GitHub Issue exceptions
 
-- Existing CI-owned GitHub Issue notifiers have a narrow, automated lifecycle
-  governed by the relevant workflows and `docs/agents/ci-quality.md`.
+- CI-owned GitHub Issue notifiers are limited to the `main-broken` push notifier
+  in `test.yml` (`docs/agents/ci-quality.md`); nightly alerts go to Linear.
 - `.github/workflows/claude.yml` accepts issues and issue comments containing
   `@claude` as a legacy request-ingress surface. Capture any resulting product
   or engineering work in Linear before implementation or PR handoff.

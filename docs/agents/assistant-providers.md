@@ -1310,17 +1310,17 @@ Transport, startup and ownership rules:
   actionable status without constructing the transport. The automatic attempt
   cannot open a browser, and on needing login it closes its transport and returns
   to authentication-required without retrying on every assistant request.
-- `connect`, `retry`, `cancel`, `disconnect` and `reauthorize` are explicit host
-  controls; user-paced authorization is not governed by the ten-second machine
-  deadline.
+- `connect`, `retry`, `cancel`, `disconnect` and `reauthorize` are explicit host controls;
+  user-paced authorization is not governed by the ten-second machine deadline.
 - Per transport: `stdio` constructs only the SDK's `StdioClientTransport`;
   `streamable-http` only `StreamableHTTPClientTransport`; `sse` only
   `SSEClientTransport`, even when its URL ends in `/mcp`. Interactive OAuth
-  completion and scope step-up are Streamable-HTTP-only and throw at construction
-  on `sse`; `authorizationCallbackTimeoutMs` alone throws on EVERY transport.
-- **There is NO automatic Streamable HTTP → SSE fallback.** Brainstrike removes
-  the URL ambiguity by requiring the user to select the transport, so a
-  400/404/405 initialization failure remains visible.
+  completion and scope step-up are Streamable-HTTP-only. Config rejects `sse` +
+  `oauth-user`; saved invalid JSONC stays verbatim with a Config editor error.
+  Construction still rejects interactive options on `sse`, and orphan
+  `authorizationCallbackTimeoutMs` on EVERY transport. Save success acknowledges only submitted text.
+  Late results preserve newer drafts/diagnostics; failed saves after edits give neutral warning status.
+- **No automatic Streamable HTTP → SSE fallback:** explicit transport keeps 400/404/405 failures visible.
 - External bearer auth is desktop-main-only and reference-based: JSONC carries a
   credential reference and the renderer-visible snapshot projects only
   `malformed | missing | stored | unreadable`. The credential authority injects
@@ -2128,24 +2128,23 @@ Evidence: `assistant-providers/tool-preference-write-precedence.md`.
 
 #### Reset is the remediation, so it is never gated
 
-- `mcp:tools:reset` uses `replace`: it preserves nothing by definition, so it
-  does not read the file and is not blocked by the latched fault. Reset is the
-  ONLY in-app recovery for a corrupt preferences file.
-- A successful reset also CLEARS `toolPreferencesFault`, because it has just
-  written a readable file.
-- Reset discards every stored id, including undiscovered servers'. It is an
-  explicit, labelled discard, and a half-reset that silently leaves entries
-  behind is both surprising and an unreliable remediation.
+- `mcp:tools:reset` uses `replace` without reading or checking the fault. Success
+  clears the fault; reset deliberately discards every saved id, including undiscovered tools.
+- Settings' explicit `reloadToolPreferences` reads the repaired file without
+  pruning, rewriting or creating it, even with zero discovered tools. Rebuild from
+  the current discovery/config defaults, then saved choices (disabled wins overlap),
+  before clearing the fault and notifying. Invalid/unreadable stays fail-closed.
+- Recovery joins the config queue then shared lock; fence lifecycle and current projection
+  before/after reads. Capture authority after queued work; failed resets restore defaults.
 
-Evidence: `assistant-providers/tool-preference-reset.md`.
+Evidence: `assistant-providers/tool-preference-reset.md`, `assistant-providers/tool-preference-recovery.md`.
+Guard: `apps/desktop/src/__tests__/main/ipc-mcp-preferences-recovery.test.ts`.
 
 #### Both writers take one lock
 
-- `withToolPreferencesFileLock` serialises every read-modify-write of the file.
-  The two writers are on DIFFERENT queues and genuinely interleave, and
-  `latestAuthorityEpoch` narrows the window but cannot close it — that check runs
-  once at operation entry, before the I/O.
-- Any new writer of this file MUST take the same lock.
+- `withToolPreferencesFileLock` serialises every file read-modify-write and recovery
+  read through publication; entry-time authority checks cannot serialize the two queues.
+- Every new writer or recovery reader MUST take the same lock.
 
 Evidence: `assistant-providers/tool-preference-lock.md`.
 

@@ -50,8 +50,8 @@ status, not perceived importance, is where the line is drawn. The two E2E lanes
 are then excluded on a **second, independent** ground: they are the documented
 flaky-headless class, and a canary that cries wolf gets muted, which is the
 exact failure this job exists to prevent. Persistent E2E breakage is still
-caught within 24h by the scheduled notifiers in `web-e2e.yml` /
-`desktop-e2e.yml`.
+caught within 24h by the scheduled Linear alerts in `web-e2e.yml` /
+`desktop-e2e.yml` (`nightly-linear-alerts.md`).
 
 That leaves `Browser tests`, `Native Windows`, and
 `Native Electron Package`, which also run on pushes to `main` and are also
@@ -154,18 +154,13 @@ PATCHes an existing label instead of erroring, so a non-zero exit means only a
 genuine failure. Each label step annotates that the tracking issue cannot be
 filed or de-duplicated, then fails before any unlabelled issue can be created.
 
-The scheduled web, desktop, coverage, and performance notifiers deliberately
-retain their existing human-closed lifecycle: while an incident's issue remains
-open, another red run comments on it; after a human closes it on recovery, a
-later incident creates a fresh issue. Their issue bodies explicitly assign that
-close-on-green action to a human; this label-reliability fix does not redesign
-that established lifecycle or add automatic recovery jobs.
+The four scheduled web, desktop, coverage, and performance GitHub-Issue
+notifiers that once shared this label step were retired by BST-1915; scheduled
+failures now go to Linear (`nightly-linear-alerts.md`).
 
 Contract coverage lives in
 `scripts/__tests__/main-failure-notifier-contract.test.mjs` and runs in the
 Static job through `pnpm test:scripts`. Its control tests pin all four
 properties above: dropping a watched job, reverting `!cancelled()` to
 `always()`, restoring the `|| true` suppression, or deleting the recovery job
-each make the contract fail. The four scheduled notifier variants are covered
-by `scripts/__tests__/nightly-notifier-label-contract.test.mjs`, including their
-fail-visible label path and unchanged manual-close de-duplication lifecycle.
+each make the contract fail.

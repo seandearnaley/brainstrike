@@ -663,9 +663,7 @@ describe('ipc-mcp tool preference loading', () => {
       path: 'mock-user-data/mcp/tool-preferences.json',
     });
     expect(stats.preferencesFault?.message).toContain('tool-preferences.json');
-    // The fault latches for the session, so the copy must not promise a
-    // recovery that repairing the file alone will not deliver.
-    expect(stats.preferencesFault?.message).toContain('restart the app');
+    expect(stats.preferencesFault?.message).toContain('Reload tool preferences in Settings');
   });
 
   it('reports no preference fault once the file loads cleanly', async () => {

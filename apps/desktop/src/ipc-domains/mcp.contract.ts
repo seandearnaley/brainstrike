@@ -186,9 +186,14 @@ export const mcpContract = {
   }),
   readConfigText: rawChannel<
     [],
-    { path: string; exists: boolean; created: boolean; content: string }
+    { path: string; exists: boolean; created: boolean; content: string; error?: string }
   >({
     channel: DESKTOP_IPC_CHANNELS.mcp.configReadText,
+    parseArgs: parseNoArgs,
+    roles: VISIBLE_UI,
+  }),
+  reloadToolPreferences: rawChannel<[], void>({
+    channel: DESKTOP_IPC_CHANNELS.mcp.toolsReloadPreferences,
     parseArgs: parseNoArgs,
     roles: VISIBLE_UI,
   }),
