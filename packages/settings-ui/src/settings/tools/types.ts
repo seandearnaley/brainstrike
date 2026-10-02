@@ -176,6 +176,8 @@ export interface ToolsSettingsOperations {
   readMcpResource?: (request: McpReadResourceRequest) => Promise<McpReadResourceResult>;
   /** Refresh MCP server connections */
   refreshMcpServers?: () => Promise<void>;
+  /** Reload repaired MCP tool preferences without changing the saved choices. */
+  reloadToolPreferences?: () => Promise<void>;
   /** Reset MCP config to default path */
   resetMcpConfig?: () => Promise<void>;
   /** Reset all tools to defaults */

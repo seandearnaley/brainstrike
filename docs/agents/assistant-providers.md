@@ -2128,24 +2128,23 @@ Evidence: `assistant-providers/tool-preference-write-precedence.md`.
 
 #### Reset is the remediation, so it is never gated
 
-- `mcp:tools:reset` uses `replace`: it preserves nothing by definition, so it
-  does not read the file and is not blocked by the latched fault. Reset is the
-  ONLY in-app recovery for a corrupt preferences file.
-- A successful reset also CLEARS `toolPreferencesFault`, because it has just
-  written a readable file.
-- Reset discards every stored id, including undiscovered servers'. It is an
-  explicit, labelled discard, and a half-reset that silently leaves entries
-  behind is both surprising and an unreliable remediation.
+- `mcp:tools:reset` uses `replace` without reading or checking the fault. Success
+  clears the fault; reset deliberately discards every saved id, including undiscovered tools.
+- Settings' explicit `reloadToolPreferences` reads the repaired file without
+  pruning, rewriting or creating it, even with zero discovered tools. Rebuild from
+  the current discovery/config defaults, then saved choices (disabled wins overlap),
+  before clearing the fault and notifying. Invalid/unreadable stays fail-closed.
+- Recovery joins the config queue then shared lock; fence lifecycle and current projection
+  before/after reads. Capture authority after queued work; failed resets restore defaults.
 
-Evidence: `assistant-providers/tool-preference-reset.md`.
+Evidence: `assistant-providers/tool-preference-reset.md`, `assistant-providers/tool-preference-recovery.md`.
+Guard: `apps/desktop/src/__tests__/main/ipc-mcp-preferences-recovery.test.ts`.
 
 #### Both writers take one lock
 
-- `withToolPreferencesFileLock` serialises every read-modify-write of the file.
-  The two writers are on DIFFERENT queues and genuinely interleave, and
-  `latestAuthorityEpoch` narrows the window but cannot close it — that check runs
-  once at operation entry, before the I/O.
-- Any new writer of this file MUST take the same lock.
+- `withToolPreferencesFileLock` serialises every file read-modify-write and recovery
+  read through publication; entry-time authority checks cannot serialize the two queues.
+- Every new writer or recovery reader MUST take the same lock.
 
 Evidence: `assistant-providers/tool-preference-lock.md`.
 

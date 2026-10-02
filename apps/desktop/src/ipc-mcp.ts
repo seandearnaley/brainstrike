@@ -33,6 +33,7 @@ import {
   type DiscoveredServerTools,
   discoverToolsFromConfig,
   loadToolPreferencesForProjection,
+  loadToolPreferencesForRecovery,
   type ToolPreferenceProjection,
   type ToolPreferenceWriteIntent,
   withToolPreferencesFileLock,
@@ -65,10 +66,13 @@ let mcpLifecycleEpoch = 0;
 let mcpLifecycleOpen = true;
 let latestAuthorityEpoch = 0;
 let latestLoadEpoch = 0;
+let projectedAuthorityEpoch = 0;
+let lastToolDiscoveries: DiscoveredServerTools[] = [];
 let lastCommittedResolvedConfig: NonNullable<LoadedMcpConfig['config']> = { servers: [] };
 interface McpFactoryResetSnapshot {
   readonly authorityConfig: NonNullable<LoadedMcpConfig['config']>;
   readonly config: LoadedMcpConfig | null;
+  readonly discoveries: DiscoveredServerTools[];
   readonly extensionPreferences: McpExtensionEnablement;
   readonly selectedConfigPath: string | null;
   readonly toolPreferencesFault: McpToolPreferencesFault | null;
@@ -82,13 +86,7 @@ let pendingFactoryResetSnapshot: McpFactoryResetSnapshot | null = null;
  */
 let settingsStoreAccess: McpExtensionPreferencesStoreAccess = () => null;
 
-/**
- * Set when the tool-preferences file exists but could not be read (BST-1615).
- *
- * While it is set the projection refuses to auto-enable anything and every
- * preference write is refused, so the user's only copy of the file survives for
- * recovery. It is reported to the renderer through the tool stats payload.
- */
+/** Unreadable preferences fail closed; only recovery or explicit reset reopens writes. */
 let toolPreferencesFault: McpToolPreferencesFault | null = null;
 
 function buildToolPreferencesFaultMessage(fault: {
@@ -97,10 +95,7 @@ function buildToolPreferencesFaultMessage(fault: {
   reason: string;
 }): string {
   const cause = fault.kind === 'invalid' ? 'the file is corrupt' : 'the file could not be read';
-  // The fault latches for the session: nothing watches this file and the guard
-  // does not re-read it, so the instruction has to say restart or it promises a
-  // recovery that will not happen (BST-1615, follow-up BST-1620).
-  return `MCP tool preferences could not be loaded from ${fault.path} — ${cause} (${fault.reason}). Every MCP tool is disabled and tool changes cannot be saved, so your saved choices are left on disk untouched. Repair or remove that file and restart the app to recover them.`;
+  return `MCP tool preferences could not be loaded from ${fault.path} — ${cause} (${fault.reason}). Every MCP tool is disabled and tool changes cannot be saved, so your saved choices are left on disk untouched. Repair or remove that file, then choose Reload tool preferences in Settings. Reset tool preferences discards your saved choices.`;
 }
 
 function requireToolPreferencesWritable(): void {
@@ -146,13 +141,6 @@ function toMcpConfigStatus(config: LoadedMcpConfig): McpConfigStatus {
   return status;
 }
 
-/**
- * Rebuild the tool registry from a discovery pass and the preference projection.
- *
- * Split out of `applyConfigChange` to keep that function within its complexity
- * budget; it also isolates the one place that decides what an unreadable
- * preferences file means for tool state (BST-1615).
- */
 function rebuildToolRegistry(
   discoveries: DiscoveredServerTools[],
   toolIds: ReadonlySet<string>,
@@ -168,16 +156,12 @@ function rebuildToolRegistry(
   }
 
   if (preferences.status === 'not-read') {
-    // Nothing was discovered, so the preferences file was never opened. Leaving
-    // any latched fault alone is the whole point: clearing it here would hide
-    // the banner and re-open writes over a file still known to be broken.
+    // An unread file cannot clear the fault or reopen writes.
     return;
   }
 
   if (preferences.status === 'unavailable') {
-    // The user's choices exist but are unreadable. `register` defaults an unseen
-    // tool to enabled, so proceeding would grant back every tool they disabled.
-    // Fail closed instead, and refuse writes until the file is repaired.
+    // Fail closed: unreadable choices must never grant back disabled tools.
     toolPreferencesFault = {
       kind: preferences.kind,
       message: buildToolPreferencesFaultMessage(preferences),
@@ -249,38 +233,63 @@ async function applyConfigChange(
     return;
   }
   const toolIds = new Set(discoveries.flatMap((discovery) => Object.keys(discovery.tools)));
-  // The full configured set, not the discovered subset: a server that failed
-  // discovery is still configured, and only config removal retires its saved
-  // preferences (BST-1621).
+  // Discovery failure never retires preferences; only config removal can.
   const configuredServerNames = new Set(config.servers.map((server) => server.name));
-  // Removing the LAST server therefore prunes nothing: no tools are discovered,
-  // so the projection is skipped and that server's preferences stay on disk.
-  // Deliberate, not an oversight. `cfg.exists` would let us tell an explicitly
-  // empty config from an absent one and run a retire-everything pass -- but a
-  // pass whose entire input is "the config is empty" is a mass delete keyed on
-  // the one signal a config-load bug, a partial write, or a mid-edit save all
-  // produce, which is the failure this ticket exists to stop. The cost of not
-  // pruning is a few stale strings; the cost of pruning wrongly is every saved
-  // choice the user has. Re-adding a removed server restoring its prior
-  // preferences is also the friendlier outcome of the two.
-  const preferences: ToolPreferenceProjection =
-    toolIds.size > 0
-      ? // Same lock the toggle write takes: this pass read-modify-writes the
-        // same file from a queue that does not serialise against it (BST-1623).
-        await withToolPreferencesFileLock(
-          async () => await loadToolPreferencesForProjection(toolIds, configuredServerNames)
-        )
-      : { status: 'not-read' };
-  if (
-    !mcpLifecycleOpen ||
-    lifecycleEpoch !== mcpLifecycleEpoch ||
-    authorityEpoch !== latestAuthorityEpoch
-  ) {
-    return;
-  }
+  await withToolPreferencesFileLock(async () => {
+    if (!isCurrentMcpAuthority(authorityEpoch, lifecycleEpoch)) {
+      return;
+    }
+    // Empty discovery has no retirement authority. Keep any existing fault.
+    const preferences: ToolPreferenceProjection =
+      toolIds.size > 0
+        ? await loadToolPreferencesForProjection(toolIds, configuredServerNames)
+        : { status: 'not-read' };
+    if (!isCurrentMcpAuthority(authorityEpoch, lifecycleEpoch)) {
+      return;
+    }
+    // Keep file read, registry publication and notification in the same lock.
+    rebuildToolRegistry(discoveries, toolIds, preferences);
+    lastToolDiscoveries = discoveries;
+    projectedAuthorityEpoch = authorityEpoch;
+    notifyMcpToolsUpdated();
+  });
+}
 
-  rebuildToolRegistry(discoveries, toolIds, preferences);
-  notifyMcpToolsUpdated();
+function isCurrentMcpAuthority(authorityEpoch: number, lifecycleEpoch: number): boolean {
+  return (
+    mcpLifecycleOpen &&
+    lifecycleEpoch === mcpLifecycleEpoch &&
+    authorityEpoch === latestAuthorityEpoch
+  );
+}
+
+async function reloadToolPreferences(): Promise<void> {
+  await trackConfigOperation(async (lifecycleEpoch) => {
+    // Earlier queued config work has settled; fence changes after recovery starts.
+    const authorityEpoch = latestAuthorityEpoch;
+    await withToolPreferencesFileLock(async () => {
+      const assertCurrent = (): void => {
+        if (!isCurrentMcpAuthority(authorityEpoch, lifecycleEpoch)) {
+          throw new Error(
+            'MCP tool registry changed or retired during preference reload. Retry Reload tool preferences.'
+          );
+        }
+        if (projectedAuthorityEpoch !== authorityEpoch) {
+          throw new Error(
+            'MCP tools are not synchronized with their configuration. Save a valid MCP configuration or re-select its file in Settings before reloading tool preferences.'
+          );
+        }
+      };
+      assertCurrent();
+      const preferences = await loadToolPreferencesForRecovery();
+      assertCurrent();
+      const toolIds = new Set(lastToolDiscoveries.flatMap(({ tools }) => Object.keys(tools)));
+      // Re-register from discovery/config defaults, never the fail-closed registry.
+      rebuildToolRegistry(lastToolDiscoveries, toolIds, preferences);
+      notifyMcpToolsUpdated();
+      requireToolPreferencesWritable();
+    });
+  });
 }
 
 function registerConfigChange<T>(pending: Promise<T>): Promise<T> {
@@ -503,6 +512,8 @@ function purgeMcpRuntimeProjection(): void {
   last = null;
   lastUserSelectedConfigPath = null;
   toolPreferencesFault = null;
+  lastToolDiscoveries = [];
+  projectedAuthorityEpoch = latestAuthorityEpoch;
   mcpToolRegistry.clear();
 }
 
@@ -510,6 +521,8 @@ function captureMcpFactoryResetSnapshot(runtime: McpAuthorityRuntime): McpFactor
   return {
     authorityConfig: structuredClone(lastCommittedResolvedConfig),
     config: last === null ? null : structuredClone(last),
+    // Host results passed assertStrictJson and SDK schema parsing before discovery.
+    discoveries: structuredClone(lastToolDiscoveries),
     extensionPreferences: { ...runtime.mcpExtensionPreferences },
     selectedConfigPath: lastUserSelectedConfigPath,
     // Restored with the rest of the projection: an abandoned reset must not
@@ -529,6 +542,8 @@ async function restoreMcpFactoryResetSnapshot(
   last = snapshot.config;
   lastUserSelectedConfigPath = snapshot.selectedConfigPath;
   toolPreferencesFault = snapshot.toolPreferencesFault;
+  lastToolDiscoveries = snapshot.discoveries;
+  projectedAuthorityEpoch = latestAuthorityEpoch;
   mcpToolRegistry.clear();
   const disabledToolIds: string[] = [];
   for (const [serverName, tools] of Object.entries(snapshot.tools)) {
@@ -680,9 +695,7 @@ export function registerMcpIpcHandlers({
   ): Promise<void> => {
     const expectedAuthorityEpoch = latestAuthorityEpoch;
     // A `replace` is a reset: the user is discarding stored choices, so there
-    // is nothing to protect and the latched fault must NOT gate it. Gating it
-    // would leave a user with a corrupt file no in-app remediation at all
-    // (BST-1623 review; BST-1620 records that nothing else recovers in-session).
+    // is nothing to protect and the latched fault must NOT gate it.
     if (intent === 'merge') {
       // Refuse before mutating: writing now would flush the fail-closed registry
       // over the user's only (unreadable) copy of their preferences.
@@ -695,16 +708,10 @@ export function registerMcpIpcHandlers({
       if (intent === 'merge') {
         requireToolPreferencesWritable();
       }
-      // Mutates and persists together, refusing BEFORE the mutation so a
-      // rejected write cannot leave the live registry changed. Persist BEFORE
-      // telling the renderer: pushing first made a failed write paint the
-      // toggle in its new position and only then raise the error banner -- a
-      // success signal for a change that never reached disk.
+      // Read before mutation; persist before reporting success to the renderer.
       await applyToolPreferenceMutation(mutation, intent);
       if (intent === 'replace') {
-        // The reset just wrote a readable file, so the session fault is no
-        // longer true. Leaving it latched would make the recovery useless:
-        // the file is fine and every later toggle still throws until restart.
+        // Explicit reset wrote a readable file and deliberately discarded saved choices.
         toolPreferencesFault = null;
       }
       notifyMcpToolsUpdated();
@@ -907,6 +914,7 @@ export function registerMcpIpcHandlers({
       await updateToolPreferences(() => mcpToolRegistry.disableServerTools(serverName))
   );
 
+  defineMcpHandler('reloadToolPreferences', reloadToolPreferences);
   defineMcpHandler(
     'resetTools',
     async (): Promise<void> => await updateToolPreferences(() => mcpToolRegistry.reset(), 'replace')
