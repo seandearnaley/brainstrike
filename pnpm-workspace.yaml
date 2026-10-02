@@ -90,6 +90,11 @@ catalog:
   '@testing-library/jest-dom': ^7.0.1
   '@testing-library/react': ^16.3.3
   '@testing-library/user-event': ^14.6.7
+  # BST-1920: types for better-sqlite3 (13.x ships none). Exact pin on the newest
+  # published release (9.6.0, 2026-08-01); DefinitelyTyped majors do not track the
+  # runtime's. `Database.Options` and `loadExtension(path)` type-check against
+  # better-sqlite3 13.0.3 (packages/sqlite-native `tsc` and its type-check).
+  '@types/better-sqlite3': 9.6.0
   '@types/node': ^24.13.3
   '@types/react': ^19.3.0
   '@types/react-dom': ^19.3.0

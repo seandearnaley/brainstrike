@@ -29,7 +29,7 @@
  */
 
 const { execFileSync } = require('node:child_process');
-const { mkdtempSync, readdirSync, readFileSync, rmSync } = require('node:fs');
+const { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -54,6 +54,19 @@ function walk(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]
   );
+}
+
+/** A directory that is not there contributes nothing; the failure checks then say what is missing. */
+function walkIfPresent(dir) {
+  return existsSync(dir) ? walk(dir) : [];
+}
+
+/**
+ * node-gyp leaves `build/` (and `config.gypi`) beside the package, so the
+ * relative path starts with `build/`; a nested `x/build/y` counts too.
+ */
+function isGypOutput(relativePath) {
+  return relativePath.endsWith('config.gypi') || /(^|[\\/])build[\\/]/.test(relativePath);
 }
 
 /** Native files the OS has mapped into `pid`, filtered to the two we ship. */
@@ -161,12 +174,10 @@ function packagedTreeFacts(resources, requireFrom) {
   ];
   return {
     gypOutput: betterSqlite3Dirs.flatMap((dir) =>
-      walk(dir).filter(
-        (file) => file.endsWith('config.gypi') || /[\\/]build[\\/]/.test(path.relative(dir, file))
-      )
+      walkIfPresent(dir).filter((file) => isGypOutput(path.relative(dir, file)))
     ),
     // Only the two packages this package ships; the tree holds other addons too.
-    natives: walk(unpacked).filter(
+    natives: walkIfPresent(unpacked).filter(
       (file) =>
         /\.(node|dylib|so|dll)$/i.test(file) &&
         /[\\/]node_modules[\\/](better-sqlite3|sqlite-vec-[^\\/]+)[\\/]/i.test(file)
@@ -260,4 +271,4 @@ function provenanceFailures(facts, { packaged }) {
   ];
 }
 
-module.exports = { collectFacts, packagedTreeFacts, provenanceFailures };
+module.exports = { collectFacts, isGypOutput, packagedTreeFacts, provenanceFailures };
