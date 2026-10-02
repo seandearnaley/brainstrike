@@ -108,9 +108,11 @@ jobs:
         run: dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${{ matrix.shard }}/2
 
       # The AI Tools smoke specs are excluded from the regression project, so
-      # exactly one shard runs their nightly lane.
+      # exactly one shard runs their nightly lane. It runs only after the regression
+      # step passes: both write apps/desktop/blob-report/, which Playwright clears
+      # at start, so running it after a failure would erase the failure's traces.
       - name: Run desktop AI Tools nightly lane
-        if: matrix.shard == 1 && !cancelled()
+        if: matrix.shard == 1
         working-directory: apps/desktop
         run: dbus-run-session -- pnpm run test:e2e:lane:tools-settings-nightly
 
