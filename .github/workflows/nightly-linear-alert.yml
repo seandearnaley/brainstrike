@@ -1,0 +1,43 @@
+name: Nightly Linear Alert
+
+on:
+  workflow_call:
+    inputs:
+      workflow_name:
+        required: true
+        type: string
+      results:
+        required: true
+        type: string
+    secrets:
+      LINEAR_API_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: Notify Linear
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: File or update the Linear issue
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          WORKFLOW_NAME: ${{ inputs.workflow_name }}
+          RESULTS: ${{ inputs.results }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEAD_SHA: ${{ github.sha }}
+        run: >-
+          node scripts/notify-linear-nightly.mjs
+          --workflow "$WORKFLOW_NAME"
+          --results "$RESULTS"
+          --run-url "$RUN_URL"
+          --sha "$HEAD_SHA"

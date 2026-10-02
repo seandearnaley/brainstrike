@@ -1327,8 +1327,8 @@ jobs:
   # `desktop-e2e` are then excluded on a second, separate ground: they are the
   # documented flaky-headless class (AGENTS.md), and a canary that cries wolf
   # gets ignored, which is precisely the failure this job exists to prevent.
-  # Persistent E2E breakage is still caught within 24h by the scheduled
-  # notifiers in web-e2e.yml / desktop-e2e.yml.
+  # Persistent E2E breakage is still caught within 24h by the scheduled Linear
+  # alerts in web-e2e.yml / desktop-e2e.yml.
   #
   # `browser-tests`, `native-windows`, and `native-electron` also run
   # on pushes to `main` and are also NOT notified — not on flakiness grounds,

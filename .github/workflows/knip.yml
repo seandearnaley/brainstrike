@@ -33,3 +33,14 @@ jobs:
         run: time pnpm knip
       - name: Prove file and dependency detection
         run: node scripts/check-knip-liveness.mjs
+
+  notify-linear:
+    name: Notify Linear
+    needs: [audit]
+    if: ${{ always() && github.event_name == 'schedule' }}
+    uses: ./.github/workflows/nightly-linear-alert.yml
+    with:
+      workflow_name: ${{ github.workflow }}
+      results: audit=${{ needs.audit.result }}
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
