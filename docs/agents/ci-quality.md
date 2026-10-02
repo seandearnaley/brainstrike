@@ -37,7 +37,7 @@
   for a real conflict, required up-to-date protection, or a relevant base change.
 
 These rules hold without the external `pr-scope-guard` skill.
-Guard: `scripts/__tests__/engineering-skills-contract.test.mjs`. Evidence: `ci-quality/vercel-parser-dependencies.md`, `ci-quality/build-tooling-dependencies.md`.
+Evidence: `ci-quality/vercel-parser-dependencies.md`, `ci-quality/build-tooling-dependencies.md`.
 
 ### Browser failure traces
 
@@ -164,8 +164,7 @@ Guard: `scripts/__tests__/check-open-pr-linear-conformance.test.mjs`.
 Evidence: `ci-quality/desktop-electron-provisioning.md`,
 `ci-quality/packaged-mcp-lanes.md`, `ci-quality/desktop-memory-calibration.md`,
 `ci-quality/ai-tools-smoke-lanes.md`, `ci-quality/electron-collection-readiness.md`.
-Guard: `scripts/__tests__/desktop-electron-provisioning-contract.test.mjs`,
-`e2e-lane-coverage.test.mjs`, `mcp-*-packaged-ci-contract.test.mjs`,
+Guard: `scripts/__tests__/e2e-lane-coverage.test.mjs`,
 `ai-tools-e2e-pr-gate-contract.test.mjs`; `desktop-e2e-harness-contract.test.ts`, `search-collection-picker.test.tsx`.
 
 ### Every Linux apt site drops the unused Google Chrome source first
@@ -439,7 +438,6 @@ parenthesised `scripts/__tests__/<name>.test.mjs` contracts above.
   `test:coverage` may run uninstrumented.
 
 Evidence: `ci-quality/coverage-workflow.md`.
-Guard: `scripts/__tests__/nightly-coverage-sharding-contract.test.mjs`.
 
 #### The embeddings integration lane is serialized
 
@@ -547,8 +545,7 @@ Guard: `scripts/__tests__/verify-script-entrypoints.test.mjs`.
 
 Settled: no retries, global promise pin, or timeout increase. Evidence:
 `ci-quality/desktop-assistant-setup-promise.md`.
-Guard: `apps/desktop/e2e/assistant-panel.desktop.test.ts`,
-`scripts/__tests__/desktop-smoke-artifacts-contract.test.mjs`.
+Guard: `apps/desktop/e2e/assistant-panel.desktop.test.ts`.
 
 ### Desktop E2E process-exit guard
 
@@ -900,8 +897,7 @@ Choices: both categories off, manual-memoization rule off, Knip over React
 Doctor graph rules, ESLint over Biome for Fast Refresh, per-rule ratchet over a
 scalar `--max-warnings`. Evidence: `ci-quality/react-doctor.md`,
 `ci-quality/knip-audit.md`, `ci-quality/eslint-warning-ratchet.md`.
-Guard: `scripts/__tests__/react-doctor-version-contract.test.mjs`,
-`scripts/__tests__/knip-workflow.test.mjs`,
+Guard: `scripts/__tests__/knip-workflow.test.mjs`,
 `scripts/__tests__/eslint-warning-baseline-contract.test.mjs`,
 `scripts/__tests__/pnpm-shadowed-builtin-contract.test.mjs`.
 
