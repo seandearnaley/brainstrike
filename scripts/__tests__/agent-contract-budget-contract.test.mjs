@@ -82,7 +82,12 @@ const CONTRACT_LINE_BUDGETS = {
   'assistant-runtime.md': 2780,
   'assistant-subagents.md': 1626,
   'changeset-diff.md': 495,
-  'ci-quality.md': 924,
+  // BST-1915 raised this from 924 (+12): nightly failures now file one Linear issue per
+  // workflow through `notify-linear` jobs, replacing four GitHub-Issue notifiers and
+  // adding two uncovered workflows. The `always()` ruling is a new rule an agent must meet
+  // before changing the job; the incident record and the setup went to
+  // `ci-quality/nightly-linear-alerts.md`.
+  'ci-quality.md': 936,
   'code-execution.md': 364,
   // BST-1794 raised this from 852: rule 3 (catalog upsert) needed a
   // sibling-invariant cross-reference to the `models.updated_at` rule in

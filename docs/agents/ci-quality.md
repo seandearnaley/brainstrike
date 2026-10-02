@@ -102,7 +102,7 @@ Guard: `scripts/__tests__/unit-shard-partition.test.mjs`,
   redaction is why these artifacts can be published at all.
 - When one goes red, fix forward or revert before the next MCP-touching merge
   and attach the run URL to that merge's ticket. `notify-main-failure` does not
-  cover this workflow: whoever merges checks the run on their own commit.
+  cover this workflow's pushes: whoever merges checks the run on their own commit.
 
 ```bash
 pnpm run verify:mcp:official
@@ -265,8 +265,8 @@ Guard: `scripts/__tests__/main-failure-notifier-contract.test.mjs`.
 
 #### The scope line is required-check status, not "important lanes"
 
-- Watch required checks minus the two flaky E2E lanes (their scheduled notifiers
-  cover them). `Browser tests`, `Native Windows`, and `Native Electron Package`
+- Watch required checks minus the two flaky E2E lanes (their scheduled Linear
+  alerts cover them). `Browser tests`, `Native Windows`, and `Native Electron Package`
   are not required; a job promoted into the ruleset joins `needs:` in that change.
 
 #### `== 'failure'` is necessary but NOT sufficient — `!cancelled()` is what makes cancelled runs silent
@@ -291,9 +291,21 @@ Detection only; requiring up-to-date branches is the repo owner's ruleset call.
   `ubuntu-latest`, and keep their `gh` steps in `check-ci-parity.test.mjs`'s
   `PROVISIONING_STEPS` so `pnpm check` never files or closes issues.
 - Every tracking notifier's label step is `gh label create --force` with no
-  `|| true`, failing before an unlabelled issue can be created. The scheduled
-  web, desktop, coverage, and performance notifiers stay human-closed.
-  Guard: `scripts/__tests__/nightly-notifier-label-contract.test.mjs`.
+  `|| true`, failing before an unlabelled issue can be created.
+
+### Nightly failures file one Linear issue per workflow
+
+- `web-e2e`, `desktop-e2e`, `nightly-coverage`, `performance`,
+  `mcp-verification` and `knip` end in a `notify-linear` job (`needs:` every
+  other job) calling `nightly-linear-alert.yml`: one open Linear issue per
+  workflow, `Nightly red: <workflow>`, labels `nightly-alert`, `area-ci`,
+  `needs-human`. A human closes it; green nights only comment.
+- Keep `if: always() && github.event_name == 'schedule'`, never `!cancelled()`.
+  Why: on `schedule` only a timeout cancels a run, and a timed-out nightly must
+  alert; this differs from the push notifiers' ruling above.
+
+Evidence: `ci-quality/nightly-linear-alerts.md`. Live check: the first scheduled
+run after `LINEAR_API_KEY` is set; the unit tests script `fetch`, never Linear.
 
 ### Biome 2.5.8 cleared the 2.5.3/2.5.4 module-graph hold
 
