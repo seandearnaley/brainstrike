@@ -100,7 +100,7 @@ const DESKTOP_FULL_REGRESSION_SHARD_COMMAND = [
   '--project=regression',
   '--workers=1',
   '--retries=0',
-  '--max-failures=1',
+  '--max-failures=0',
   '--global-timeout=1800000',
   '--grep-invert="@desktop-embedding-|@packaged"',
 ].join(' ');
@@ -324,7 +324,7 @@ test('REAL REPO: desktop smoke tags remain selected by nightly regression', () =
     stepRunsExactCommand(step, 'dbus-run-session -- pnpm run test:e2e:lane:tools-settings-nightly')
   );
   assert.equal(toolsSteps.length, 1, 'AI Tools nightly lane must run exactly once');
-  assert.equal(toolsSteps[0].if, 'matrix.shard == 1');
+  assert.equal(toolsSteps[0].if, 'matrix.shard == 1 && !cancelled()');
   assert.equal(toolsSteps[0]['working-directory'], 'apps/desktop');
   assert.ok(
     toolsSteps[0]['continue-on-error'] === undefined ||

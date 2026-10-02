@@ -110,7 +110,7 @@ jobs:
       # The AI Tools smoke specs are excluded from the regression project, so
       # exactly one shard runs their nightly lane.
       - name: Run desktop AI Tools nightly lane
-        if: matrix.shard == 1
+        if: matrix.shard == 1 && !cancelled()
         working-directory: apps/desktop
         run: dbus-run-session -- pnpm run test:e2e:lane:tools-settings-nightly
 
@@ -123,7 +123,7 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
-  # The required `Desktop Full Regression` check (the ruleset names this job's
+  # The `Desktop Full Regression` check the ruleset will require (it names this job's
   # `name`, so keep it exact). Fan-in over the shard matrix, like `unit` over
   # `unit-shard` in test.yml: a matrix job's result is `success` only when every
   # shard succeeded. It carries the shard job's own condition so it skips exactly
