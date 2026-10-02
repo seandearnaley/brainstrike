@@ -846,8 +846,7 @@ Evidence: `ci-quality/agent-debug.md`.
 - Give every new file-size guard this shape, never a cap with headroom.
 
 Guard: `packages/app-shell/src/__tests__/assistant-contract-boundary.test.ts`
-(its comment block is the evidence),
-`scripts/__tests__/agent-contract-budget-contract.test.mjs`.
+(its comment block is the evidence).
 
 ## REACT DOCTOR (LINT)
 
