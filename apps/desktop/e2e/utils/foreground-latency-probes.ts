@@ -169,41 +169,45 @@ export async function markRendererPhase(page: Page, mark: string): Promise<void>
   }, mark);
 }
 
-/** Frame gaps that START inside [from, to), and long tasks that start inside it. */
-export async function readRendererWindow(
+/**
+ * Frame gaps that START inside any `[from, to)` mark pair, and long tasks that
+ * start inside one. Several pairs make one window with gaps in it.
+ */
+export async function readRendererWindows(
   page: Page,
-  from: string,
-  to: string
+  windows: ReadonlyArray<readonly [from: string, to: string]>
 ): Promise<RendererWindowSamples> {
-  return await page.evaluate(
-    ({ fromMark, toMark }) => {
-      const state = (
-        globalThis as typeof globalThis & {
-          __brainstrikeForegroundLatencyRenderer__?: RendererProbeState;
-        }
-      ).__brainstrikeForegroundLatencyRenderer__;
-      if (!state) {
-        throw new Error('Renderer frame probe is not installed.');
+  return await page.evaluate((markPairs) => {
+    const state = (
+      globalThis as typeof globalThis & {
+        __brainstrikeForegroundLatencyRenderer__?: RendererProbeState;
       }
+    ).__brainstrikeForegroundLatencyRenderer__;
+    if (!state) {
+      throw new Error('Renderer frame probe is not installed.');
+    }
+    const ranges = markPairs.map(([fromMark, toMark]) => {
       const start = state.marks[fromMark];
       const end = state.marks[toMark];
       if (start === undefined || end === undefined) {
         throw new Error(`Renderer phase marks ${fromMark}/${toMark} are missing.`);
       }
-      const frameGapsMs: number[] = [];
-      for (let index = 0; index + 1 < state.frames.length; index += 1) {
-        const frame = state.frames[index] as number;
-        if (frame >= start && frame < end) {
-          frameGapsMs.push((state.frames[index + 1] as number) - frame);
-        }
+      return { end, start };
+    });
+    const inside = (time: number): boolean =>
+      ranges.some((range) => time >= range.start && time < range.end);
+    const frameGapsMs: number[] = [];
+    for (let index = 0; index + 1 < state.frames.length; index += 1) {
+      const frame = state.frames[index] as number;
+      if (inside(frame)) {
+        frameGapsMs.push((state.frames[index + 1] as number) - frame);
       }
-      const longTaskDurationsMs = state.longTasks
-        .filter((task) => task.startTime >= start && task.startTime < end)
-        .map((task) => task.duration);
-      return { frameGapsMs, longTaskDurationsMs };
-    },
-    { fromMark: from, toMark: to }
-  );
+    }
+    const longTaskDurationsMs = state.longTasks
+      .filter((task) => inside(task.startTime))
+      .map((task) => task.duration);
+    return { frameGapsMs, longTaskDurationsMs };
+  }, windows);
 }
 
 // -------------------------------------------------------------------- main --
@@ -217,15 +221,20 @@ interface ProbeLoopRecord {
 }
 
 interface MainBenchController {
-  runIdle: (input: { samples: number; warmup: number }) => Promise<MainPhaseSamples>;
+  pauseLoaded: () => Promise<void>;
+  resumeLoaded: () => void;
+  runIdle: (samples: number) => Promise<MainPhaseSamples>;
   startLoaded: () => void;
   stopLoaded: () => Promise<MainPhaseSamples>;
+  warmUp: (samples: number) => Promise<readonly string[]>;
 }
 
 /**
  * Installs the main-process probe controller. Each probe loop is paced: an
  * operation starts at its next tick, or right after the previous one finishes
- * when it overran the tick. The two loops are offset by half a period.
+ * when it overran the tick. The two loops are offset by half a period. The
+ * loaded phase can pause (loops stop, the lag histogram stops sampling) and
+ * resume into the same samples, so its window can match the renderer's.
  */
 export async function installMainProbes(
   app: ElectronApplication,
@@ -313,16 +322,17 @@ export async function installMainProbes(
         }
       };
 
-      const runPhase = (
+      const newRecord = (): ProbeLoopRecord => ({
+        chatPathOpMs: [],
+        errors: [],
+        toolFileReadMs: [],
+        toolIndexQueryMs: [],
+        toolReadMs: [],
+      });
+      const runLoops = (
+        record: ProbeLoopRecord,
         keepGoing: (record: ProbeLoopRecord) => boolean
-      ): { done: Promise<void>; record: ProbeLoopRecord } => {
-        const record: ProbeLoopRecord = {
-          chatPathOpMs: [],
-          errors: [],
-          toolFileReadMs: [],
-          toolIndexQueryMs: [],
-          toolReadMs: [],
-        };
+      ): Promise<void> => {
         const guard = async (operation: () => Promise<void>): Promise<void> => {
           try {
             await operation();
@@ -349,8 +359,12 @@ export async function installMainProbes(
               record.toolReadMs.push(sample.total);
             })
         );
-        return { done: Promise.all([chatLoop, toolLoop]).then(() => undefined), record };
+        return Promise.all([chatLoop, toolLoop]).then(() => undefined);
       };
+      const enoughSamples =
+        (samples: number) =>
+        (record: ProbeLoopRecord): boolean =>
+          record.chatPathOpMs.length < samples || record.toolReadMs.length < samples;
 
       const startLag = (): import('node:perf_hooks').IntervalHistogram => {
         const histogram = perfHooks.monitorEventLoopDelay({ resolution: eldResolutionMs });
@@ -377,41 +391,71 @@ export async function installMainProbes(
 
       let loaded: {
         control: { stopped: boolean };
+        done: Promise<void>;
         histogram: import('node:perf_hooks').IntervalHistogram;
-        phase: { done: Promise<void>; record: ProbeLoopRecord };
+        record: ProbeLoopRecord;
       } | null = null;
+      const requireLoaded = (): NonNullable<typeof loaded> => {
+        if (!loaded) {
+          throw new Error('The loaded phase never started.');
+        }
+        return loaded;
+      };
+      const runLoaded = (state: NonNullable<typeof loaded>): void => {
+        const control = { stopped: false };
+        state.control = control;
+        state.done = runLoops(state.record, () => !control.stopped);
+      };
+      const pauseLoaded = async (): Promise<void> => {
+        const state = requireLoaded();
+        if (state.control.stopped) {
+          throw new Error('The loaded phase is already paused.');
+        }
+        state.control.stopped = true;
+        await state.done;
+        state.histogram.disable();
+      };
 
       target.__brainstrikeForegroundLatencyBench__ = {
-        runIdle: async ({ samples, warmup }) => {
-          const warm = runPhase(
-            (record) => record.chatPathOpMs.length < warmup || record.toolReadMs.length < warmup
-          );
-          await warm.done;
-          if (warm.record.errors.length > 0) {
-            return finishPhase(warm.record, startLag());
+        pauseLoaded,
+        resumeLoaded: () => {
+          const state = requireLoaded();
+          if (!state.control.stopped) {
+            throw new Error('The loaded phase is not paused.');
           }
+          state.histogram.enable();
+          runLoaded(state);
+        },
+        runIdle: async (samples) => {
           const histogram = startLag();
-          const idle = runPhase(
-            (record) => record.chatPathOpMs.length < samples || record.toolReadMs.length < samples
-          );
-          await idle.done;
-          return finishPhase(idle.record, histogram);
+          const record = newRecord();
+          await runLoops(record, enoughSamples(samples));
+          return finishPhase(record, histogram);
         },
         startLoaded: () => {
           if (loaded) {
             throw new Error('The loaded phase already started.');
           }
-          const control = { stopped: false };
-          const histogram = startLag();
-          loaded = { control, histogram, phase: runPhase(() => !control.stopped) };
+          const state = {
+            control: { stopped: true },
+            done: Promise.resolve(),
+            histogram: startLag(),
+            record: newRecord(),
+          };
+          loaded = state;
+          runLoaded(state);
         },
         stopLoaded: async () => {
-          if (!loaded) {
-            throw new Error('The loaded phase never started.');
+          const state = requireLoaded();
+          if (!state.control.stopped) {
+            await pauseLoaded();
           }
-          loaded.control.stopped = true;
-          await loaded.phase.done;
-          return finishPhase(loaded.phase.record, loaded.histogram);
+          return finishPhase(state.record, state.histogram);
+        },
+        warmUp: async (samples) => {
+          const record = newRecord();
+          await runLoops(record, enoughSamples(samples));
+          return record.errors;
         },
       };
     },
@@ -419,11 +463,12 @@ export async function installMainProbes(
   );
 }
 
-export async function runMainIdlePhase(
+/** Warm-up operations outside every measured window; resolves with their errors. */
+export async function warmUpMainProbes(
   app: ElectronApplication,
-  input: { samples: number; warmup: number }
-): Promise<MainPhaseSamples> {
-  return await app.evaluate(async (_electron, phaseInput) => {
+  samples: number
+): Promise<readonly string[]> {
+  return await app.evaluate(async (_electron, argument) => {
     const bench = (
       globalThis as typeof globalThis & {
         __brainstrikeForegroundLatencyBench__?: MainBenchController;
@@ -432,12 +477,30 @@ export async function runMainIdlePhase(
     if (!bench) {
       throw new Error('Main foreground latency bench is not installed.');
     }
-    return await bench.runIdle(phaseInput);
-  }, input);
+    return await bench.warmUp(argument);
+  }, samples);
+}
+
+/** Exactly `samples` operations per probe, with the event-loop histogram on. */
+export async function runMainIdlePhase(
+  app: ElectronApplication,
+  samples: number
+): Promise<MainPhaseSamples> {
+  return await app.evaluate(async (_electron, argument) => {
+    const bench = (
+      globalThis as typeof globalThis & {
+        __brainstrikeForegroundLatencyBench__?: MainBenchController;
+      }
+    ).__brainstrikeForegroundLatencyBench__;
+    if (!bench) {
+      throw new Error('Main foreground latency bench is not installed.');
+    }
+    return await bench.runIdle(argument);
+  }, samples);
 }
 
 export async function startMainLoadedPhase(app: ElectronApplication): Promise<void> {
-  await app.evaluate(() => {
+  return await app.evaluate(async (_electron, _argument) => {
     const bench = (
       globalThis as typeof globalThis & {
         __brainstrikeForegroundLatencyBench__?: MainBenchController;
@@ -447,11 +510,40 @@ export async function startMainLoadedPhase(app: ElectronApplication): Promise<vo
       throw new Error('Main foreground latency bench is not installed.');
     }
     bench.startLoaded();
-  });
+  }, null);
+}
+
+/** Stops the loaded probes (after any in-flight operation) and the histogram. */
+export async function pauseMainLoadedPhase(app: ElectronApplication): Promise<void> {
+  return await app.evaluate(async (_electron, _argument) => {
+    const bench = (
+      globalThis as typeof globalThis & {
+        __brainstrikeForegroundLatencyBench__?: MainBenchController;
+      }
+    ).__brainstrikeForegroundLatencyBench__;
+    if (!bench) {
+      throw new Error('Main foreground latency bench is not installed.');
+    }
+    await bench.pauseLoaded();
+  }, null);
+}
+
+export async function resumeMainLoadedPhase(app: ElectronApplication): Promise<void> {
+  return await app.evaluate(async (_electron, _argument) => {
+    const bench = (
+      globalThis as typeof globalThis & {
+        __brainstrikeForegroundLatencyBench__?: MainBenchController;
+      }
+    ).__brainstrikeForegroundLatencyBench__;
+    if (!bench) {
+      throw new Error('Main foreground latency bench is not installed.');
+    }
+    bench.resumeLoaded();
+  }, null);
 }
 
 export async function stopMainLoadedPhase(app: ElectronApplication): Promise<MainPhaseSamples> {
-  return await app.evaluate(async () => {
+  return await app.evaluate(async (_electron, _argument) => {
     const bench = (
       globalThis as typeof globalThis & {
         __brainstrikeForegroundLatencyBench__?: MainBenchController;
@@ -461,7 +553,7 @@ export async function stopMainLoadedPhase(app: ElectronApplication): Promise<Mai
       throw new Error('Main foreground latency bench is not installed.');
     }
     return await bench.stopLoaded();
-  });
+  }, null);
 }
 
 // ------------------------------------------------------- build completion --
@@ -544,33 +636,49 @@ export async function installBuildSignals(page: Page, embeddingSetId: string): P
   }, embeddingSetId);
 }
 
-/** Resolves with the completion at `index`, waiting for it if it has not arrived yet. */
+/**
+ * Resolves with the completion at `index` as soon as it arrives, or with null
+ * once `timeoutMs` passes without it, so the caller can check for a stall.
+ */
 export async function waitForBackfillCompletion(
   page: Page,
-  index: number
-): Promise<BackfillCompletion> {
-  return await page.evaluate(async (completionIndex) => {
-    const state = (
-      globalThis as typeof globalThis & {
-        __brainstrikeForegroundLatencyBuild__?: BuildSignalState;
+  index: number,
+  timeoutMs: number
+): Promise<BackfillCompletion | null> {
+  return await page.evaluate(
+    async ({ completionIndex, waitMs }) => {
+      const state = (
+        globalThis as typeof globalThis & {
+          __brainstrikeForegroundLatencyBuild__?: BuildSignalState;
+        }
+      ).__brainstrikeForegroundLatencyBuild__;
+      if (!state) {
+        throw new Error('Build signals are not installed.');
       }
-    ).__brainstrikeForegroundLatencyBuild__;
-    if (!state) {
-      throw new Error('Build signals are not installed.');
-    }
-    for (;;) {
-      if (state.errors.length > 0) {
-        throw new Error(`Embedding host failed during the build: ${state.errors.join('; ')}`);
+      const deadline = performance.now() + waitMs;
+      for (;;) {
+        if (state.errors.length > 0) {
+          throw new Error(`Embedding host failed during the build: ${state.errors.join('; ')}`);
+        }
+        const completion = state.completions[completionIndex];
+        if (completion) {
+          return completion;
+        }
+        const remainingMs = deadline - performance.now();
+        if (remainingMs <= 0) {
+          return null;
+        }
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, remainingMs);
+          state.waiters.push(() => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
       }
-      const completion = state.completions[completionIndex];
-      if (completion) {
-        return completion;
-      }
-      await new Promise<void>((resolve) => {
-        state.waiters.push(resolve);
-      });
-    }
-  }, index);
+    },
+    { completionIndex: index, waitMs: timeoutMs }
+  );
 }
 
 /** Sets a renderer phase mark at the moment completion `index` arrived. */

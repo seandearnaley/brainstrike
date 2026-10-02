@@ -254,9 +254,9 @@ export function analyzeWorkspaceIndexEvidence(evidence, options = {}) {
 /**
  * Validates evidence written by e2e/foreground-latency-under-index-build.desktop.test.ts
  * and returns it without the raw sample arrays. An invalid run is an error, never
- * a set of numbers.
+ * a set of numbers, and so is a run on a device other than `options.requireDevice`.
  */
-export function summarizeIntegratedBenchmarkEvidence(evidence) {
+export function summarizeIntegratedBenchmarkEvidence(evidence, options = {}) {
   if (evidence?.schema !== INTEGRATED_BENCHMARK_SCHEMA) {
     throw new Error(
       `Evidence schema ${JSON.stringify(evidence?.schema)} is not foreground-latency benchmark evidence (${INTEGRATED_BENCHMARK_SCHEMA}).`
@@ -266,6 +266,16 @@ export function summarizeIntegratedBenchmarkEvidence(evidence) {
     const reasons = Array.isArray(evidence.invalidReasons) ? evidence.invalidReasons : [];
     throw new Error(
       `Foreground latency benchmark run is ${evidence.status}: ${reasons.join('; ') || 'no reason recorded'}`
+    );
+  }
+  const configuredDevice = evidence.config?.device;
+  const actualDevice = evidence.build?.actualDevice;
+  if (
+    options.requireDevice &&
+    (configuredDevice !== options.requireDevice || actualDevice !== options.requireDevice)
+  ) {
+    throw new Error(
+      `Foreground latency benchmark evidence requires device ${options.requireDevice}, but the run was configured for ${configuredDevice} and embedded on ${actualDevice}.`
     );
   }
   const { rawSamplesMs: _rawSamplesMs, ...summary } = evidence;
@@ -459,7 +469,7 @@ export async function runIntegratedBenchmark(options) {
     streamToStderr: true,
   });
   const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
-  return { evidencePath, ...summarizeIntegratedBenchmarkEvidence(evidence) };
+  return { evidencePath, ...summarizeIntegratedBenchmarkEvidence(evidence, options) };
 }
 
 async function runCli(argv = process.argv.slice(2)) {
@@ -488,7 +498,7 @@ async function runCli(argv = process.argv.slice(2)) {
       result = {
         evidencePath: options.evidencePath,
         ...(evidence?.schema === INTEGRATED_BENCHMARK_SCHEMA
-          ? summarizeIntegratedBenchmarkEvidence(evidence)
+          ? summarizeIntegratedBenchmarkEvidence(evidence, options)
           : analyzeWorkspaceIndexEvidence(evidence, options)),
       };
     } else {

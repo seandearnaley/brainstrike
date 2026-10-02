@@ -2,19 +2,19 @@
   "build": {
     "actualDevice": "webgpu",
     "backfillCompletion": {
-      "current": 5570,
-      "requestId": "background-indexing-backfill:503457ba-342c-433e-8c37-2528588d4b49",
-      "total": 5570
+      "current": 5682,
+      "requestId": "background-indexing-backfill:3401f589-fef4-41d4-8e10-7ab339da2852",
+      "total": 5682
     },
     "chunkCount": 6962,
-    "chunksPerSecond": 42.82,
+    "chunksPerSecond": 43.152,
     "completedChunkCount": 6962,
     "dtype": "fp16",
-    "elapsedMs": 162587,
+    "elapsedMs": 161338,
     "fileCount": 1000
   },
-  "capturedAt": "2026-10-02T10:38:53.119Z",
-  "commit": "18695d4b7e45d763df7a3e37f20e82c209e4564f",
+  "capturedAt": "2026-10-02T12:04:25.378Z",
+  "commit": "81f285e4790e89482334c8990359cfae4871a09c",
   "config": {
     "corpus": {
       "bytes": 3864680,
@@ -24,16 +24,18 @@
     },
     "device": "webgpu",
     "idleSamplesPerProbe": 150,
+    "loadedWindowSegments": 1,
     "minBuildMs": 60000,
     "minLoadedSamplesPerProbe": 100,
     "probePeriodMs": 200,
     "rendererCalibration": {
       "blockMs": 120,
       "observed": {
-        "frameGapMs": 100.29999999999995,
+        "frameGapMs": 116.59999999999991,
         "longTaskMs": 120
       }
     },
+    "stallWindowMs": 200000,
     "warmupSamplesPerProbe": 10
   },
   "environment": {
@@ -43,57 +45,57 @@
     "cpuModel": "Apple M4 Max",
     "electronVersion": "44.4.5",
     "loadAverageAtStart": [
-      6.33,
-      5.42,
-      6.28
+      4.79,
+      3.59,
+      3.33
     ],
     "osRelease": "27.0.0",
     "platform": "darwin",
     "runner": null,
     "totalMemoryGb": 128,
     "loadAverageAtEnd": [
-      3.028,
-      4.254,
-      5.604
+      2.954,
+      3.098,
+      3.157
     ]
   },
   "invalidReasons": [],
   "metrics": {
     "chatPathOp": {
       "idleMs": {
-        "max": 8.355,
+        "max": 7.633,
         "n": 150,
-        "p50": 3.785,
-        "p95": 4.528
+        "p50": 4.061,
+        "p95": 6.461
       },
       "loadedMs": {
-        "max": 68.238,
-        "n": 813,
-        "p50": 5.444,
-        "p95": 50.445
+        "max": 92.649,
+        "n": 807,
+        "p50": 5.143,
+        "p95": 49.483
       },
       "operation": "recordDesktopAssistantRunEvent(run.step.finished), foreground scheduler lane",
-      "p95DeltaMs": 45.917
+      "p95DeltaMs": 43.022
     },
     "mainEventLoopLag": {
       "idleMs": {
-        "max": 9.071,
-        "n": 2552,
+        "max": 8.481,
+        "n": 2557,
         "p50": 2.075,
-        "p95": 2.984
+        "p95": 2.853
       },
       "loadedMs": {
-        "max": 11.873,
-        "n": 14441,
-        "p50": 1.403,
-        "p95": 2.165
+        "max": 9.35,
+        "n": 14324,
+        "p50": 1.411,
+        "p95": 2.157
       }
     },
     "renderer": {
       "idle": {
         "frameGapMs": {
-          "max": 18.8,
-          "n": 1919,
+          "max": 18.7,
+          "n": 1800,
           "p50": 16.7,
           "p95": 18.6
         },
@@ -107,9 +109,9 @@
       "loaded": {
         "frameGapMs": {
           "max": 18.8,
-          "n": 9744,
+          "n": 9680,
           "p50": 16.7,
-          "p95": 18.1
+          "p95": 18
         },
         "framesOver50Ms": 0,
         "longTasks": {
@@ -123,71 +125,71 @@
       "components": {
         "fileReadMs": {
           "idle": {
-            "max": 6.454,
+            "max": 11.482,
             "n": 150,
-            "p50": 2.788,
-            "p95": 5.019
+            "p50": 4.37,
+            "p95": 6.912
           },
           "loaded": {
-            "max": 1.622,
-            "n": 812,
-            "p50": 0.782,
-            "p95": 1.19
+            "max": 2.355,
+            "n": 807,
+            "p50": 0.739,
+            "p95": 1.187
           }
         },
         "indexQueryMs": {
           "idle": {
-            "max": 3.915,
+            "max": 4.48,
             "n": 150,
-            "p50": 2.083,
-            "p95": 3.201
+            "p50": 2.466,
+            "p95": 4.014
           },
           "loaded": {
-            "max": 147.087,
-            "n": 812,
-            "p50": 30.207,
-            "p95": 55.877
+            "max": 140.672,
+            "n": 807,
+            "p50": 30.027,
+            "p95": 53.446
           }
         }
       },
       "idleMs": {
-        "max": 9.256,
+        "max": 14.609,
         "n": 150,
-        "p50": 4.895,
-        "p95": 7.427
+        "p50": 7.599,
+        "p95": 9.781
       },
       "loadedMs": {
-        "max": 147.844,
-        "n": 812,
-        "p50": 31.135,
-        "p95": 56.627
+        "max": 141.354,
+        "n": 807,
+        "p50": 30.833,
+        "p95": 54.137
       },
-      "p95LoadedOverIdle": 7.624
+      "p95LoadedOverIdle": 5.535
     }
   },
   "rawSamplesMs": {
     "idle": {
       "chatPathOp": [
-        4.129,
-        4.725,
-        2.333
+        2.741,
+        5.746,
+        2.871
       ],
       "toolRead": [
-        5.169,
-        4.39,
-        5.541
+        5.673,
+        5.918,
+        1.807
       ]
     },
     "loaded": {
       "chatPathOp": [
-        0.903,
-        0.96,
-        0.951
+        1.416,
+        0.973,
+        0.869
       ],
       "toolRead": [
-        1.671,
-        1.35,
-        1.69
+        2.334,
+        1.409,
+        1.859
       ]
     }
   },

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   analyzeWorkspaceIndexEvidence,
@@ -8,6 +10,13 @@ import {
   parseArgs,
   summarizeIntegratedBenchmarkEvidence,
 } from '../../apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs';
+
+const PIPELINE_SCRIPT = fileURLToPath(
+  new URL('../../apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs', import.meta.url)
+);
+const RECORDED_INTEGRATED_EVIDENCE = fileURLToPath(
+  new URL('./fixtures/foreground-latency-evidence.recorded.json', import.meta.url)
+);
 
 // Evidence recorded by e2e/foreground-latency-under-index-build.desktop.test.ts
 // (raw sample arrays trimmed to three entries).
@@ -214,4 +223,47 @@ test('integratedBenchmarkEnv hands the device, corpus size and evidence path to 
     env.BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_EVIDENCE_PATH,
     '/tmp/evidence.json'
   );
+});
+
+test('summarizeIntegratedBenchmarkEvidence enforces a required device on both the configured and actual device', () => {
+  const recorded = readRecordedIntegratedEvidence();
+  assert.equal(recorded.config.device, 'webgpu');
+
+  assert.equal(
+    summarizeIntegratedBenchmarkEvidence(recorded, { requireDevice: 'webgpu' }).status,
+    'valid'
+  );
+  assert.throws(
+    () => summarizeIntegratedBenchmarkEvidence(recorded, { requireDevice: 'wasm' }),
+    /requires device wasm, but the run was configured for webgpu and embedded on webgpu/
+  );
+  const actualMismatch = { ...recorded, build: { ...recorded.build, actualDevice: 'wasm' } };
+  assert.throws(
+    () => summarizeIntegratedBenchmarkEvidence(actualMismatch, { requireDevice: 'webgpu' }),
+    /configured for webgpu and embedded on wasm/
+  );
+});
+
+function runPipelineCli(args) {
+  return spawnSync(process.execPath, [PIPELINE_SCRIPT, ...args], { encoding: 'utf8' });
+}
+
+test('the CLI exits non-zero when recorded integrated evidence ran on another device', () => {
+  const mismatch = runPipelineCli([
+    '--evidence',
+    RECORDED_INTEGRATED_EVIDENCE,
+    '--require-device',
+    'wasm',
+  ]);
+  assert.notEqual(mismatch.status, 0);
+  assert.match(mismatch.stderr, /requires device wasm/);
+
+  const match = runPipelineCli([
+    '--evidence',
+    RECORDED_INTEGRATED_EVIDENCE,
+    '--require-device',
+    'webgpu',
+  ]);
+  assert.equal(match.status, 0, match.stderr);
+  assert.equal(JSON.parse(match.stdout).status, 'valid');
 });

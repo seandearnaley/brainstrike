@@ -10,7 +10,8 @@ build runs. It reports and does not gate: the spec fails only when a run cannot
 produce valid numbers (precedent: `embedding-queue-load.integration.test.ts`).
 
 - Spec: `apps/desktop/e2e/foreground-latency-under-index-build.desktop.test.ts`
-  (Playwright project `perf`, never in `regression`).
+  (Playwright project `perf`, never in `regression`; the project exists only
+  with `BRAINSTRIKE_E2E_PERF=1`, so a plain `playwright test` never runs it).
 - Probes: `apps/desktop/e2e/utils/foreground-latency-probes.ts`.
 - Corpus: `apps/desktop/e2e/utils/index-build-corpus.ts`.
 - E2E-only main-process seam: `apps/desktop/src/e2e-foreground-latency-probes.ts`.
@@ -27,20 +28,49 @@ produce valid numbers (precedent: `embedding-queue-load.integration.test.ts`).
 4. Calibrate the renderer probe: block the renderer's main thread for 120 ms and
    require the long-task observer to record it and the frame gap to show it.
    A dead observer would otherwise report "zero long tasks".
-5. **Idle:** 10 warm-up operations, then exactly 150 samples per foreground
-   probe, one probe every 200 ms (about 30 s). Renderer and main-process probes
-   cover the same window.
-6. **Loaded:** click Resume in the indexing status popover. The loaded window
-   runs from Resume until the Workspace Index backfill emits `complete` on an
-   index where every file is imported and chunked, every chunk is embedded and no
-   `embed_chunk` job is queued, running or failed. Probes keep their 200 ms pace.
+5. **Idle:** 10 warm-up operations per probe, outside every window. Then the
+   renderer window opens, main runs exactly 150 samples per foreground probe
+   at one every 200 ms (about 30 s) with its event-loop histogram on, and the
+   renderer window closes.
+6. **Loaded:** open the indexing status popover, then start the main probes
+   and open the renderer window just before clicking Resume (the two start
+   within one CDP round trip). The window includes the click and closing the
+   popover. It closes when the Workspace Index backfill emits `complete` on an
+   index where every file is imported and chunked, every chunk is embedded and
+   no `embed_chunk` job is queued, running or failed: the renderer window ends
+   at the event's own timestamp, and main pauses as soon as the test sees it.
+   Probes keep their 200 ms pace throughout.
+   - Every index check (after any `complete`, and every 200 s without one)
+     pauses both windows, reads the index summary, and resumes, so the checks
+     are never measured. A loaded window can therefore have several segments;
+     the evidence records how many (`loadedWindowSegments`).
 7. Write the evidence JSON, print a summary, and fail if the run is invalid.
 
 A run is **invalid**, never reported, when: the build took under 60 s; any
 probe has fewer than 100 loaded samples; any probe operation threw; the idle
 rAF frame gap p50 is above 20 ms (the window is not producing frames); the
-calibration block was not seen; or the embedding host ran on a different
-device than configured, or with `fallbackApplied`.
+calibration block was not seen; the embedding host ran on a different
+device than configured, or with `fallbackApplied`; or the index stopped
+making progress (the stall rule below). An invalid run still writes its
+evidence, with `status: "invalid"` and the reasons.
+
+#### Stall rule
+
+If no index count (files, chunked files, chunks, embedded chunks) changes for
+200 s, the run stops, records the last index summary as an invalid reason and
+writes its evidence, instead of hanging until the 55-minute test timeout. The
+loop checks every 200 s, so it stops between 200 and 400 s after the last
+change.
+
+The window is sized from observed progress. In traces read every ~1.2 s, the
+slowest gap between count changes was 6.1 s: the WASM model loading before the
+first embedding (60 files); at most 7.3 s given the read interval. The WebGPU
+path (1,000 files) never went longer than 1.3 s without a change. CI's WASM
+path is up to 2.7× slower (1.68 against 4.49 chunks/s), so its slowest gap
+should be about 20 s. 200 s is a 10× margin on that.
+`index-progress-watch.ts` holds the decision; `pnpm test:scripts` tests it
+(`scripts/__tests__/index-progress-watch.test.mjs`), because a build that never
+finishes cannot be produced on demand in the real app.
 
 ### The metric set
 
@@ -103,9 +133,10 @@ node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs \
   --mode integrated --require-device webgpu --files 1000
 ```
 
-This runs the `test:e2e:lane:foreground-latency` lane and prints the validated
-evidence (raw samples omitted) as JSON. The lane can also be run directly from
-`apps/desktop`. The spec reads:
+This runs the `test:e2e:lane:foreground-latency` lane (which sets
+`BRAINSTRIKE_E2E_PERF=1`) and prints the validated evidence (raw samples
+omitted) as JSON. The lane can also be run directly from `apps/desktop`. The
+spec reads:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -114,7 +145,8 @@ evidence (raw samples omitted) as JSON. The lane can also be run directly from
 | `BRAINSTRIKE_WORKSPACE_INDEX_INTEGRATED_BENCHMARK_EVIDENCE_PATH` | Playwright output dir | Where the evidence JSON goes. |
 
 `--evidence <path>` re-validates and prints a recorded evidence file without
-running anything.
+running anything. With `--require-device`, both the configured and the actual
+embedding device must match, or the command fails.
 
 In CI, the `Desktop Foreground Latency Benchmark` job in
 `.github/workflows/desktop-e2e.yml` runs nightly and on dispatch, never on pull
@@ -136,7 +168,8 @@ completes under 2 chunks/s, so its load is mostly CPU.
 
 Today's system: PGlite on the DB host behind the `DatabaseWorkScheduler`, with
 the sync orchestration in the visible renderer and embeddings in the hidden
-embedding host.
+embedding host. These runs predate the aligned windows and the stall rule; the
+re-run below checks that aligning the windows did not move them.
 
 | | Local | CI |
 | --- | --- | --- |
@@ -206,6 +239,11 @@ Local, three consecutive runs on the reference configuration (window shown),
 An earlier series of three runs with the window hidden (otherwise identical)
 gave chat-path loaded p95 48.7 / 50.5 / 50.6 ms and tool-read loaded p95 56.4 /
 56.1 / 55.7 ms, so showing the window did not move the main-process numbers.
+
+One local re-run with the aligned windows and the stall rule (load average 4.8
+at start, one loaded segment) stayed inside that spread: chat-path loaded p95
+49.5 ms, tool-read loaded p95 54.1 ms, ratio 5.54, renderer loaded p95/max
+18.0 / 18.8 ms with no long tasks, 43.2 chunks/s.
 
 CI, three dispatched runs at commit `18695d4b7`
 ([36996284415](https://github.com/seandearnaley/brainstrike/actions/runs/36996284415),

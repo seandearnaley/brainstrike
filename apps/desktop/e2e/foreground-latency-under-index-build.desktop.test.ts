@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { setVectorDevicePreference } from './embedding-worker-renderer.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import {
@@ -15,15 +15,19 @@ import {
   type MainPhaseSamples,
   markRendererPhase,
   markRendererPhaseAtCompletion,
+  pauseMainLoadedPhase,
   type RendererWindowSamples,
-  readRendererWindow,
+  readRendererWindows,
+  resumeMainLoadedPhase,
   runMainIdlePhase,
   startMainLoadedPhase,
   stopMainLoadedPhase,
   summarize,
   waitForBackfillCompletion,
+  warmUpMainProbes,
 } from './utils/foreground-latency-probes';
 import { type IndexBuildCorpus, writeIndexBuildCorpus } from './utils/index-build-corpus';
+import { createIndexProgressWatch } from './utils/index-progress-watch';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 /**
@@ -62,6 +66,15 @@ const BENCH_ROOT_ID = 'foreground-latency-benchmark-root';
 /** Root-relative and never written, so the grep's index work is identical idle and loaded. */
 const NEVER_INDEXED_GREP_PATH = 'packages/foreground-latency-probe/never-indexed.ts';
 const GREP_PATTERN = 'total +=';
+/**
+ * No change in any index count for this long ends the run as invalid instead of
+ * waiting out the test timeout; it is also how often the loop checks. The
+ * slowest gap seen between count changes was 6.1 s (WASM, model load before the
+ * first embedding, read at ~1.2 s resolution, so at most 7.3 s). CI's WASM path
+ * is up to 2.7x slower (1.68 vs 4.49 chunks/s), about 20 s; x10 margin.
+ */
+const STALL_WINDOW_MS = 200_000;
+const NO_PROGRESS = { chunkCount: 0, chunkedFileCount: 0, embeddedChunkCount: 0, fileCount: 0 };
 
 type Device = 'wasm' | 'webgpu';
 
@@ -296,12 +309,19 @@ function isTerminal(summary: IndexSummary, files: number): boolean {
   );
 }
 
-async function resumeIndexing(page: Page): Promise<void> {
+/** Opens the indexing popover and returns its Resume button, ready to click. */
+async function openResumeControl(page: Page): Promise<Locator> {
   await page.getByTestId('indexing-status-trigger').click();
-  const popover = page.getByTestId('indexing-status-popover');
-  await popover.getByRole('button', { name: 'Resume workspace index' }).click();
+  const resume = page
+    .getByTestId('indexing-status-popover')
+    .getByRole('button', { name: 'Resume workspace index' });
+  await expect(resume).toBeVisible();
+  return resume;
+}
+
+async function closeIndexingPopover(page: Page): Promise<void> {
   await page.keyboard.press('Escape');
-  await expect(popover).toBeHidden();
+  await expect(page.getByTestId('indexing-status-popover')).toBeHidden();
 }
 
 function rendererMetrics(samples: RendererWindowSamples) {
@@ -387,47 +407,78 @@ test.describe('Foreground latency under a full index build', () => {
 
         const rendererCalibration = await calibrateRendererFrameProbe(page, CALIBRATION_BLOCK_MS);
 
-        // ---- idle: workspace open, indexing paused, same probes ----
+        // ---- idle: workspace open, indexing paused; warm-up runs before both windows ----
+        const warmUpErrors = await warmUpMainProbes(electronApp.app, WARMUP_SAMPLES);
         await markRendererPhase(page, 'idle-start');
-        const idleMain = await runMainIdlePhase(electronApp.app, {
-          samples: IDLE_SAMPLES,
-          warmup: WARMUP_SAMPLES,
-        });
+        const idleMain = await runMainIdlePhase(electronApp.app, IDLE_SAMPLES);
         await markRendererPhase(page, 'idle-end');
-        const idleRenderer = await readRendererWindow(page, 'idle-start', 'idle-end');
+        const idleRenderer = await readRendererWindows(page, [['idle-start', 'idle-end']]);
 
-        // ---- loaded: from Resume until the backfill completes on a terminal index ----
+        // ---- loaded: from the Resume click until the backfill completes on a terminal index ----
+        // Main and renderer start just before the click and stop at the completion.
+        // Every index check runs between windows, so it is not measured.
         await installBuildSignals(page, embeddingSetId);
-        const buildStartedAt = Date.now();
-        await resumeIndexing(page);
-        await markRendererPhase(page, 'loaded-start');
+        const resume = await openResumeControl(page);
         await startMainLoadedPhase(electronApp.app);
+        await markRendererPhase(page, 'loaded-start-0');
+        const buildStartedAt = Date.now();
+        await resume.click();
+        await closeIndexingPopover(page);
 
+        const progress = createIndexProgressWatch({
+          initial: NO_PROGRESS,
+          stallWindowMs: STALL_WINDOW_MS,
+          startedAtMs: buildStartedAt,
+        });
+        const loadedWindows: Array<readonly [string, string]> = [];
         let completion: BackfillCompletion | null = null;
         let completionIndex = 0;
-        let finalSummary: IndexSummary | null = null;
-        for (;;) {
-          completion = await waitForBackfillCompletion(page, completionIndex);
-          finalSummary = await readIndexSummary(page);
-          if (isTerminal(finalSummary, files)) {
+        let finalSummary: IndexSummary;
+        let buildElapsedMs: number;
+        for (let segment = 0; ; segment += 1) {
+          const arrived = await waitForBackfillCompletion(page, completionIndex, STALL_WINDOW_MS);
+          const wokeAt = Date.now();
+          await pauseMainLoadedPhase(electronApp.app);
+          if (arrived) {
+            await markRendererPhaseAtCompletion(page, `loaded-end-${segment}`, completionIndex);
+          } else {
+            await markRendererPhase(page, `loaded-end-${segment}`);
+          }
+          loadedWindows.push([`loaded-start-${segment}`, `loaded-end-${segment}`]);
+          const summary = await readIndexSummary(page);
+          if (arrived && isTerminal(summary, files)) {
+            completion = arrived;
+            finalSummary = summary;
+            buildElapsedMs = wokeAt - buildStartedAt;
             break;
           }
-          completionIndex += 1;
+          if (progress.observe(summary, Date.now()) === 'stalled') {
+            invalidReasons.push(
+              `the Workspace Index made no progress for ${STALL_WINDOW_MS} ms (stall window); last index summary: ${JSON.stringify(summary)}`
+            );
+            finalSummary = summary;
+            buildElapsedMs = wokeAt - buildStartedAt;
+            break;
+          }
+          if (arrived) {
+            completionIndex += 1;
+          }
+          await resumeMainLoadedPhase(electronApp.app);
+          await markRendererPhase(page, `loaded-start-${segment + 1}`);
         }
-        const buildElapsedMs = Date.now() - buildStartedAt;
-        await markRendererPhaseAtCompletion(page, 'loaded-end', completionIndex);
         const loadedMain = await stopMainLoadedPhase(electronApp.app);
-        const loadedRenderer = await readRendererWindow(page, 'loaded-start', 'loaded-end');
+        const loadedRenderer = await readRendererWindows(page, loadedWindows);
 
         // ---- validity: refuse to report numbers that cannot mean anything ----
         const idleRendererMetrics = rendererMetrics(idleRenderer);
         const loadedRendererMetrics = rendererMetrics(loadedRenderer);
-        for (const [phase, samples] of [
-          ['idle', idleMain],
-          ['loaded', loadedMain],
+        for (const [phase, errors] of [
+          ['warm-up', warmUpErrors],
+          ['idle', idleMain.errors],
+          ['loaded', loadedMain.errors],
         ] as const) {
-          if (samples.errors.length > 0) {
-            invalidReasons.push(`${phase} probe operations failed: ${samples.errors.join('; ')}`);
+          if (errors.length > 0) {
+            invalidReasons.push(`${phase} probe operations failed: ${errors.join('; ')}`);
           }
         }
         if (!(idleRendererMetrics.frameGapMs.p50 <= MAX_IDLE_FRAME_GAP_P50_MS)) {
@@ -480,10 +531,12 @@ test.describe('Foreground latency under a full index build', () => {
             },
             device,
             idleSamplesPerProbe: IDLE_SAMPLES,
+            loadedWindowSegments: loadedWindows.length,
             minBuildMs: MIN_BUILD_MS,
             minLoadedSamplesPerProbe: MIN_LOADED_SAMPLES,
             probePeriodMs: PROBE_PERIOD_MS,
             rendererCalibration: { blockMs: CALIBRATION_BLOCK_MS, observed: rendererCalibration },
+            stallWindowMs: STALL_WINDOW_MS,
             warmupSamplesPerProbe: WARMUP_SAMPLES,
           },
           environment: { ...environment, loadAverageAtEnd: os.loadavg().map(round3) },
