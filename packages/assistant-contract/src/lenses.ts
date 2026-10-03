@@ -34,6 +34,8 @@ const LENS_PARAM_NAME_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
 
 export const LENS_PARAM_TYPES = ['text', 'integer', 'number', 'boolean'] as const;
 export type LensParamType = (typeof LENS_PARAM_TYPES)[number];
+export const QUERY_SELF_TARGETS = ['app', 'index'] as const;
+export type QuerySelfTarget = (typeof QUERY_SELF_TARGETS)[number];
 
 export interface LensParamSpec {
   readonly description: string;
@@ -46,6 +48,7 @@ export interface LensDefinition {
   readonly id: string;
   readonly params: readonly LensParamSpec[];
   readonly sql: string;
+  readonly target: QuerySelfTarget;
 }
 
 export type ParseLensFileResult =
@@ -116,6 +119,9 @@ export function parseLensFile(fileName: string, content: string): ParseLensFileR
   if (header.description === null) {
     return { error: 'Missing required "-- description:" header line.', ok: false };
   }
+  if (header.target === null) {
+    return { error: 'Missing required "-- target:" header line (app or index).', ok: false };
+  }
 
   const sql = lines.slice(header.bodyStart).join('\n').trim();
   if (sql.length === 0) {
@@ -130,15 +136,30 @@ export function parseLensFile(fileName: string, content: string): ParseLensFileR
     return { error: placeholderError, ok: false };
   }
 
-  return { lens: { description: header.description, id, params: header.params, sql }, ok: true };
+  return {
+    lens: {
+      description: header.description,
+      id,
+      params: header.params,
+      sql,
+      target: header.target,
+    },
+    ok: true,
+  };
 }
 
 type LensHeader =
-  | { bodyStart: number; description: string | null; params: LensParamSpec[] }
+  | {
+      bodyStart: number;
+      description: string | null;
+      params: LensParamSpec[];
+      target: QuerySelfTarget | null;
+    }
   | { error: string };
 
 function parseLensHeader(lines: readonly string[]): LensHeader {
   let description: string | null = null;
+  let target: QuerySelfTarget | null = null;
   const params: LensParamSpec[] = [];
   let bodyStart = 0;
 
@@ -154,14 +175,17 @@ function parseLensHeader(lines: readonly string[]): LensHeader {
     bodyStart = index + 1;
     const comment = line.slice(2).trim();
     if (comment.startsWith('description:')) {
-      const value = comment.slice('description:'.length).trim();
-      if (description !== null) {
-        return { error: 'Duplicate "-- description:" header line.' };
+      const parsed = parseLensDescription(comment, description);
+      if ('error' in parsed) {
+        return parsed;
       }
-      if (value.length === 0) {
-        return { error: 'The "-- description:" header must not be empty.' };
+      description = parsed.description;
+    } else if (comment.startsWith('target:')) {
+      const parsed = parseLensTarget(comment, target);
+      if ('error' in parsed) {
+        return parsed;
       }
-      description = value;
+      target = parsed.target;
     } else if (comment.startsWith('param:')) {
       const paramError = ingestParamLine(comment, line, params);
       if (paramError !== null) {
@@ -169,10 +193,39 @@ function parseLensHeader(lines: readonly string[]): LensHeader {
       }
     }
     // Other comment lines in the header are allowed and ignored (license
-    // headers, notes) — only the two directives are meaningful.
+    // headers, notes) — only declared directives are meaningful.
   }
 
-  return { bodyStart, description, params };
+  return { bodyStart, description, params, target };
+}
+
+function parseLensDescription(
+  comment: string,
+  existing: string | null
+): { description: string } | { error: string } {
+  if (existing !== null) {
+    return { error: 'Duplicate "-- description:" header line.' };
+  }
+  const description = comment.slice('description:'.length).trim();
+  if (description.length === 0) {
+    return { error: 'The "-- description:" header must not be empty.' };
+  }
+  return { description };
+}
+
+function parseLensTarget(
+  comment: string,
+  existing: QuerySelfTarget | null
+): { target: QuerySelfTarget } | { error: string } {
+  if (existing !== null) {
+    return { error: 'Duplicate "-- target:" header line.' };
+  }
+  const value = comment.slice('target:'.length).trim();
+  const target = QUERY_SELF_TARGETS.find((allowed) => allowed === value);
+  if (target === undefined) {
+    return { error: `Unknown lens target "${value}" (allowed: ${QUERY_SELF_TARGETS.join(', ')}).` };
+  }
+  return { target };
 }
 
 /** Parse one `-- param:` line into `params`, returning an error or null. */

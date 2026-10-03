@@ -179,6 +179,23 @@ Why: an optional-field pair made exclusive by `.refine()` failed 100% of real ca
 See ADR-0009. Evidence: `agent-self-query/strict-function-calling-schema.md`.
 Guard: `apps/desktop/src/__tests__/assistant-server/query-self-tool.test.ts`.
 
+### Explicit database target
+
+- Require `target: 'app' | 'index'` at the querySelf input boundary in every mode.
+  Keep it a scalar enum without a union, refinement or default. M2 `app` remains
+  PGlite application history/diagnostics; `index` identifies derived SQLite data.
+- Require exactly one `-- target: app` or `-- target: index` in a lens header.
+  Retain it in `LensDefinition`; missing, invalid and duplicate declarations are
+  visible parse errors. Never infer a target from SQL or a lens filename.
+- Declare telemetry/history lenses as `app` and canonical `callers-hybrid` as
+  `index`. Preserve the PGlite caller SQL and its behavioral golden for hosted web
+  until M6 when the canonical index artifact moves to SQLite.
+
+Evidence: `agent-self-query/target-routing.md`.
+Guard: `packages/assistant-contract/src/__tests__/query-self-target.test.ts`,
+`packages/assistant-contract/src/__tests__/lenses.test.ts`,
+`packages/db/__tests__/search-lens-callers-hybrid.test.ts`.
+
 ### The second half of the same failure
 
 - Keep schema parsing INSIDE the executor's `try`

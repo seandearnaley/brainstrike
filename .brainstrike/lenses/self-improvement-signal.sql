@@ -1,4 +1,5 @@
 -- description: Top N most wasteful tool behaviors over an inclusive time window, ranked by a waste-score heuristic
+-- target: app
 -- param: since text  Inclusive ISO timestamp at the start of the window
 -- param: until text  Inclusive ISO timestamp at the end of the window
 -- param: top_n integer  Number of tools to keep, ranked by waste score (canonically 5)
