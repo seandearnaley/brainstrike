@@ -791,6 +791,13 @@ jobs:
           pnpm --filter @brainstrike/windows-job-native build
           pnpm --filter @brainstrike/windows-job-native test
 
+      # BST-1920: better-sqlite3 and sqlite-vec are shipped PREBUILT and are
+      # never compiled here (better-sqlite3 is denied in `allowBuilds`), so there
+      # is no build step: this proves the win32-x64 binaries load under Node and
+      # round-trip a vec0 table.
+      - name: Test SQLite native prebuilds
+        run: pnpm --filter @brainstrike/sqlite-native test
+
       # `always()`: the headers are valid whether or not the C++ compiled, and a
       # test failure is exactly when the next run should not re-download them.
       #
@@ -878,7 +885,11 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${ELECTRON_DIST:-}"
-          pnpm --filter @brainstrike/desktop run pack -- --config.electronDist="$ELECTRON_DIST"
+          pnpm --filter @brainstrike/desktop run pack -- --config.electronDist="$ELECTRON_DIST" 2>&1 | tee "$RUNNER_TEMP/electron-builder.log"
+          # BST-1920: `npmRebuild: false` makes the shipped prebuilds the only
+          # native binaries better-sqlite3 and sqlite-vec ever have. If
+          # electron-builder stops saying it skipped the rebuild, it recompiled.
+          grep -q 'skipped dependencies rebuild' "$RUNNER_TEMP/electron-builder.log"
 
       - name: Verify packaged MCP Apps bridge
         run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-apps-bridge
@@ -890,6 +901,12 @@ jobs:
 
       - name: Load the packaged native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:packaged
+
+      - name: Load the native SQLite prebuilds in Electron
+        run: pnpm --filter @brainstrike/sqlite-native test:electron
+
+      - name: Load the packaged native SQLite prebuilds
+        run: pnpm --filter @brainstrike/sqlite-native test:packaged
 
       - name: Load the packaged @parcel/watcher binding in Electron (BST-568)
         run: pnpm --filter @brainstrike/file-system test:packaged

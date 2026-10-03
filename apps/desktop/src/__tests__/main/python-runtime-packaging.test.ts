@@ -65,7 +65,8 @@ describe('bundled Python resource packaging', () => {
 
   it('copies the manifest and Linux archive outside asar while excluding Darwin archives', () => {
     const rule = pythonRule('linux');
-    expect(rule?.from).toBe('resources/python-runtime');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder expands this literal architecture macro.
+    expect(rule?.from).toBe('resources/python-runtime/linux/${arch}');
     expect(includes(rule, 'manifest.json')).toBe(true);
     expect(includes(rule, LINUX_ARCHIVE)).toBe(true);
     expect(includes(rule, UPSTREAM_ARCHIVE)).toBe(false);
@@ -76,32 +77,37 @@ describe('bundled Python resource packaging', () => {
     expect(includes(rule, `${LINUX_ARCHIVE}.download-123`)).toBe(false);
   });
 
-  it('ships the complete byte-verified upstream component notice set and source links', () => {
-    const licenseDir = path.join(desktopDir, 'licenses/python-linux-x64');
-    const hashes = JSON.parse(readFileSync(path.join(licenseDir, 'sha256.json'), 'utf8')) as Record<
-      string,
-      string
-    >;
-    expect(Object.keys(hashes).sort()).toEqual(
-      readdirSync(licenseDir)
-        .filter((file) => file.endsWith('.txt'))
-        .sort()
-    );
-    expect(hashes).toHaveProperty('LICENSE.bdb.txt');
-    expect(hashes).toHaveProperty('LICENSE.cpython.txt');
-    const rule = pythonRule('linux', 'python-runtime/licenses');
-    expect(rule?.from).toBe('licenses/python-linux-x64');
-    for (const [filename, digest] of Object.entries(hashes)) {
-      expect(
-        createHash('sha256')
-          .update(readFileSync(path.join(licenseDir, filename)))
-          .digest('hex')
-      ).toBe(digest);
-      expect(includes(rule, filename)).toBe(true);
+  it.each(['x64', 'arm64'])(
+    'ships the complete byte-verified %s component notice set and source links',
+    (arch) => {
+      const licenseDir = path.join(desktopDir, `licenses/python-linux-${arch}`);
+      const hashes = JSON.parse(
+        readFileSync(path.join(licenseDir, 'sha256.json'), 'utf8')
+      ) as Record<string, string>;
+      expect(Object.keys(hashes).sort()).toEqual(
+        readdirSync(licenseDir)
+          .filter((file) => file.endsWith('.txt'))
+          .sort()
+      );
+      expect(hashes).toHaveProperty('LICENSE.bdb.txt');
+      expect(hashes).toHaveProperty('LICENSE.cpython.txt');
+      const rule = pythonRule('linux', 'python-runtime/licenses');
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder expands this literal architecture macro.
+      expect(rule?.from).toBe('licenses/python-linux-${arch}');
+      for (const [filename, digest] of Object.entries(hashes)) {
+        expect(
+          createHash('sha256')
+            .update(readFileSync(path.join(licenseDir, filename)))
+            .digest('hex')
+        ).toBe(digest);
+        expect(includes(rule, filename)).toBe(true);
+      }
+      expect(includes(rule, 'SOURCES.md')).toBe(true);
+      expect(readFileSync(path.join(licenseDir, 'SOURCES.md'), 'utf8')).toContain(
+        'db-6.0.19.tar.gz'
+      );
     }
-    expect(includes(rule, 'SOURCES.md')).toBe(true);
-    expect(readFileSync(path.join(licenseDir, 'SOURCES.md'), 'utf8')).toContain('db-6.0.19.tar.gz');
-  });
+  );
 
   it('keeps Linux payloads out of macOS packages and leaves Windows unsupported', () => {
     const rule = pythonRule('mac');

@@ -150,6 +150,7 @@
         "@brainstrike/local-runtime",
         "@brainstrike/logging",
         "@brainstrike/mcp-tasks-extension",
+        "@brainstrike/sqlite-native",
         "@brainstrike/storage",
         "@brainstrike/test-utils",
         "@brainstrike/tokenization",

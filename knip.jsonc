@@ -132,6 +132,11 @@
         // as a parameter — and that file sits under the root `scripts/**/*` ignore
         // regardless. Same class as xvfb-maybe above.
         "@brainstrike/windows-job-native",
+        // BST-1920: listed so electron-builder packages it, with better-sqlite3 and
+        // sqlite-vec, into app.asar for the packaged provenance smoke
+        // (packages/sqlite-native/test/packaged-smoke.cjs). Nothing imports it
+        // until the indexer host lands; drop this entry with its first import.
+        "@brainstrike/sqlite-native",
         "@fontsource-variable/geist", // Imported via CSS @import in renderer/styles.css
         "@fontsource-variable/geist-mono", // Imported via CSS @import in renderer/styles.css
         // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers

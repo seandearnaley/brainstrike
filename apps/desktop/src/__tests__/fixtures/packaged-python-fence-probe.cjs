@@ -32,7 +32,11 @@ async function qualify(resources, state, layoutOnly) {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(runtimeResources, 'manifest.json'), 'utf8')
   );
-  const derived = manifest.targets['x86_64-unknown-linux-gnu'].derived;
+  const target = { arm64: 'aarch64-unknown-linux-gnu', x64: 'x86_64-unknown-linux-gnu' }[
+    process.arch
+  ];
+  assert(target, `unsupported packaged Python architecture: ${process.arch}`);
+  const derived = manifest.targets[target].derived;
   const archive = fs.readFileSync(path.join(runtimeResources, derived.archiveFileName));
   assert.equal(archive.length, derived.bytes);
   assert.equal(createHash('sha256').update(archive).digest('hex'), derived.sha256);
@@ -171,7 +175,7 @@ async function main() {
   assert(args.length <= 2, 'expected optional resources and disposable-state paths');
   const [resourcesArg, stateArg] = args;
   assert.equal(process.platform, 'linux');
-  assert.equal(process.arch, 'x64');
+  assert.ok(['arm64', 'x64'].includes(process.arch));
   const resources = resourcesArg ?? path.join(path.dirname(process.execPath), 'resources');
   const state = stateArg ?? fs.mkdtempSync(path.join(tmpdir(), 'brainstrike-packaged-python-'));
   assert(path.isAbsolute(resources) && path.isAbsolute(state));

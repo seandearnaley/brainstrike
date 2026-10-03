@@ -164,7 +164,7 @@ its own policy under the lock. SRT's reset itself does not clear the config.
 Guards cover errors and warnings with a live sentinel executor, policy/helper
 restoration, and exactly one reset on the final owner's disposal.
 
-After a normal Linux x64 `pack`, run `pnpm --filter @brainstrike/desktop
+After a normal Linux x64 or arm64 `pack`, run `pnpm --filter @brainstrike/desktop
 run test:packaged-python` on a host permitting the real OS fence, with its
 normal bwrap/socat/ripgrep dependencies. This retained, fail-loud test uses the
 actual packaged Electron in supported Node mode and loads the executor from
@@ -204,3 +204,25 @@ Read-only fencing can prevent writing new caches for upstream and derived bytes
 alike. Preserve the current payload pin rather than imply a performance repair.
 `python-derived-payloads.integration.test.ts` audits the deliberate timestamp and
 bytecode-header behavior alongside unchanged payloads and exact module removal.
+
+## Linux arm64 target, 2026-10-02
+
+The same upstream release supplies the canonical arm64 install-only archive.
+Its SHA256 is `7886fdc0c49062a1366bd2cd4f99cc899a648592e5da9a8de237110dd8a1a057`
+and size 90,903,809 bytes. The pinned full distribution's metadata identifies
+only `_dbm.cpython-313-aarch64-linux-gnu.so` as Berkeley DB-linked. Its complete
+notice set and source provenance are retained in `licenses/python-linux-arm64`.
+The existing derivation recipe on local Linux arm64, Node 26.8.2, produces
+89,918,175 bytes with SHA256
+`87721ef255b6b91c3c202c9052e96f6a7e38add2befbe24ac085d9dcc5e01d61`.
+The full streamed audit confirms exactly one removal and unchanged remaining
+payloads and symlinks. Its three upstream bytecode headers use timestamp
+1784817836 and are already stale against the same upstream mtimes.
+
+The local Linux arm64 package includes only its manifest, derived target archive
+and matching notices. The normal packaged Python commands select the native
+arm64 or x64 layout deterministically. Real offline Python execution with an
+empty PATH, resolver restart, factory reset and re-extraction passed. Packaged
+layout verified the physical target seccomp helper and archive pins; removing
+the archive or corrupting its bytes failed closed. Full OS-fence execution is
+a separate host qualification and was not established by this container run.

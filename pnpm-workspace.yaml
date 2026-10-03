@@ -90,6 +90,11 @@ catalog:
   '@testing-library/jest-dom': ^7.0.1
   '@testing-library/react': ^16.3.3
   '@testing-library/user-event': ^14.6.7
+  # BST-1920: types for better-sqlite3 (13.x ships none). Exact pin on the newest
+  # published release (9.6.0, 2026-08-01); DefinitelyTyped majors do not track the
+  # runtime's. `Database.Options` and `loadExtension(path)` type-check against
+  # better-sqlite3 13.0.3 (packages/sqlite-native `tsc` and its type-check).
+  '@types/better-sqlite3': 9.6.0
   '@types/node': ^24.13.3
   '@types/react': ^19.3.0
   '@types/react-dom': ^19.3.0
@@ -100,6 +105,12 @@ catalog:
   '@vitest/coverage-v8': ^5.0.2
   '@vitest/ui': ^5.0.2
   assistant-stream: 0.3.41
+  # BST-1920: the SQLite state/index engine. Exact pin. It ships a PREBUILT
+  # `prebuilds/<platform>-<arch>.node` for every release target and must never
+  # be compiled: `allowBuilds` DENIES it (see below) and electron-builder runs
+  # with `npmRebuild: false`. packages/sqlite-native owns the load path and the
+  # provenance smoke.
+  better-sqlite3: 13.0.3
   bindings: 1.5.0
   concurrently: ^10.0.5
   drizzle-orm: 0.45.2
@@ -136,6 +147,9 @@ catalog:
   react-shiki: ^0.11.1
   remark-gfm: ^4.0.1
   shiki: ^4.4.3
+  # BST-1920: loadable vec0 extension; one optional package per platform
+  # (sqlite-vec-<os>-<arch>). Exact pin; resolved through app.asar.unpacked.
+  sqlite-vec: 0.1.9
   tailwindcss: ^4.3.3
   tiktoken: ^1.0.22
   tsup: ^8.5.1
@@ -274,6 +288,12 @@ allowBuilds:
   '@jacobwolf/biome-unnecessary-effect': true
   '@swc/core': true
   '@tailwindcss/oxide': true
+  # BST-1920: DENIED, never allowed. better-sqlite3 ships `binding.gyp`, so pnpm
+  # counts an implicit `node-gyp rebuild` as an unreviewed build script and fails
+  # `pnpm install` with ERR_PNPM_IGNORED_BUILDS unless the package is reviewed.
+  # `false` is the review verdict (same as '@parcel/watcher' below): the shipped
+  # `prebuilds/<platform>-<arch>.node` is the only binary, nothing compiles.
+  better-sqlite3: false
   core-js: true
   core-js-pure: true
   electron: true

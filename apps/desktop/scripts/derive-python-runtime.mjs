@@ -4,11 +4,20 @@ import { create } from 'tar';
 
 // Verified against the pinned full build's PYTHON.json: _dbm is the only
 // extension linked to Berkeley DB. Keep the upstream notices and source links.
-export const LINUX_DBM_MODULE_PATH =
-  'python/lib/python3.13/lib-dynload/_dbm.cpython-313-x86_64-linux-gnu.so';
+export function linuxDbmModulePath(target) {
+  const architecture = {
+    'aarch64-unknown-linux-gnu': 'aarch64',
+    'x86_64-unknown-linux-gnu': 'x86_64',
+  }[target];
+  if (!architecture) {
+    throw new Error(`Unsupported no-dbm-v1 derivation target: ${target}.`);
+  }
+  return `python/lib/python3.13/lib-dynload/_dbm.cpython-313-${architecture}-linux-gnu.so`;
+}
 
 /** Repack a checksum-verified source, preserving payloads/symlinks without extracting them. */
-export async function derivePythonRuntimeArchive(sourcePath, outputPath) {
+export async function derivePythonRuntimeArchive(sourcePath, outputPath, target) {
+  const dbmModulePath = linuxDbmModulePath(target);
   if (path.resolve(sourcePath) === path.resolve(outputPath)) {
     throw new Error('python-runtime: derivation must not overwrite its upstream source.');
   }
@@ -19,7 +28,7 @@ export async function derivePythonRuntimeArchive(sourcePath, outputPath) {
       {
         file: outputPath,
         filter: (entryPath) => {
-          if (entryPath === LINUX_DBM_MODULE_PATH) {
+          if (entryPath === dbmModulePath) {
             omitted += 1;
             return false;
           }
@@ -40,7 +49,7 @@ export async function derivePythonRuntimeArchive(sourcePath, outputPath) {
     );
     if (omitted !== 1 || unexpected.length > 0) {
       throw new Error(
-        `python-runtime: no-dbm-v1 expected exactly one ${LINUX_DBM_MODULE_PATH}; removed ${omitted}; unexpected DB entries: ${unexpected.join(', ') || 'none'}.`
+        `python-runtime: no-dbm-v1 expected exactly one ${dbmModulePath}; removed ${omitted}; unexpected DB entries: ${unexpected.join(', ') || 'none'}.`
       );
     }
   } catch (error) {
