@@ -261,6 +261,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         startupTimeoutMs: 5000,
       }),
     getAuthority: authority,
+    getFileInvalidator: () => graph?.publication?.invalidateFile,
     installQueryTarget: () =>
       installIndexQueryTarget(getReadyIndexerHost, { deadlineMs: 1000, startupDeadlineMs: 5000 }),
   });

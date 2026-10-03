@@ -60,6 +60,7 @@ function fixture() {
       rootIds: ['root'],
       scopes: [{ kind: 'workspace', rootId: 'root' }],
     }),
+    getFileInvalidator: () => () => {},
     installQueryTarget: () => {
       events.push('reader-install');
     },

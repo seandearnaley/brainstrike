@@ -177,8 +177,33 @@ function overlappingFixture() {
       })
     ).toMatchObject({ scanComplete: true });
   };
-  return { port, publication, scan, scope, workspace };
+  return { contentHash: plan.contentHash, file: rooted, port, publication, scan, scope, workspace };
 }
+
+it('discards the removed file plan and overlapping proofs so a returned identity cannot reuse a stat skip', async () => {
+  const f = overlappingFixture();
+  await f.scan(f.workspace);
+  await f.scan(f.scope);
+  expect(await f.publication.reverifyScope(f.workspace, localProfile)).toBe(true);
+  f.publication.invalidateFile(f.file);
+  expect(f.publication.getReadiness().every((scope) => !scope.scanComplete)).toBe(true);
+  const file = { ...f.file, contentHash: f.contentHash };
+  expect(await f.publication.verifyManifest({ files: [file], scope: f.scope })).toMatchObject({
+    complete: false,
+    missing: [file],
+  });
+  expect(await f.publication.reverifyScope(f.workspace, localProfile)).toBe(false);
+  expect(await f.publication.reverifyScope(f.scope, localProfile)).toBe(false);
+});
+
+it('preserves surviving complete proofs when an already-retired binding is acknowledged again', async () => {
+  const f = overlappingFixture();
+  await f.scan(f.workspace);
+  await f.scan(f.scope);
+  expect(await f.publication.reverifyScope(f.workspace, localProfile)).toBe(true);
+  f.publication.invalidateFile({ ...f.file, fileId: 'already-retired' });
+  expect(f.publication.getReadiness().every((scope) => scope.scanComplete)).toBe(true);
+});
 
 it('reverifies full workspace manifest and selected-profile coverage after zero-missing VECTOR overlap', async () => {
   const f = overlappingFixture();

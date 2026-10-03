@@ -87,6 +87,7 @@ export function createNativeCanonicalPublication(
   writer: PublicationWriter,
   scopes: readonly CanonicalSourceScope[]
 ): CanonicalVectorPublicationPort & {
+  invalidateFile(file: Pick<CanonicalFileIdentity, 'fileId' | 'rootId' | 'embeddingSetId'>): void;
   invalidateScope(scope: CanonicalSourceScope): void;
   reverifyScope(scope: CanonicalSourceScope, profile: VectorProfile | null): Promise<boolean>;
   getReadiness(): readonly {
@@ -296,6 +297,30 @@ export function createNativeCanonicalPublication(
     },
     getReadiness: () =>
       ownedScopes.map((scope) => ({ scanComplete: stateFor(scope).scanComplete, scope })),
+    invalidateFile: (file) => {
+      const acknowledgedPlan = published.delete(file.fileId);
+      for (const scope of ownedScopes) {
+        if (
+          scope.kind === 'workspace'
+            ? scope.rootId !== file.rootId
+            : scope.embeddingSetId !== file.embeddingSetId
+        ) {
+          continue;
+        }
+        const state = stateFor(scope);
+        if (
+          !(
+            acknowledgedPlan ||
+            state.sourceProof?.files.some((proof) => proof.fileId === file.fileId)
+          )
+        ) {
+          continue;
+        }
+        state.scanComplete = false;
+        state.mutationRevision += 1;
+        state.sourceProof = undefined;
+      }
+    },
     invalidateScope: (scope) => {
       const state = stateFor(scope);
       state.scanComplete = false;

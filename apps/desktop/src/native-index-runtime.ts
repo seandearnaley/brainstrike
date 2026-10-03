@@ -28,6 +28,7 @@ interface Dependencies {
   createIndexOwner(authority: NativeIndexAuthority): Promise<IndexOwner>;
   createProfileOwner(): ProfileOwner;
   getAuthority(): Promise<NativeIndexAuthority>;
+  getFileInvalidator(): ((file: IndexFileBinding) => void) | undefined;
   installQueryTarget(owner: IndexOwner): void;
 }
 export interface CapturedNativeIndexAuthority {
@@ -132,6 +133,7 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
   let acquisition: Promise<NativePort> | undefined;
   let acknowledgedAuthority: NativeIndexAuthority | undefined;
   let acknowledgedPort: NativePort | undefined;
+  let bindingRemovalPending = false;
   let outgoingCollectionId: string | undefined;
   let outgoingPort: NativePort | undefined;
   let outgoingFiles: Map<string, IndexFileBinding> | undefined;
@@ -149,6 +151,39 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     await profileAcquisition;
     if (closed) {
       throw new Error('Native profile ownership closed during startup.');
+    }
+  };
+  const retireAbsentBindings = async (
+    requested: NativeIndexAuthority,
+    assertAuthorityCurrent: () => Promise<void>
+  ): Promise<void> => {
+    const writer = port;
+    if (!(writer && acknowledgedAuthority) || acknowledgedPort !== writer) {
+      throw new Error('Binding retirement has no original acknowledged writer authority.');
+    }
+    const retainedIds = new Set(requested.fileBindings.map((file) => file.fileId));
+    for (const file of acknowledgedAuthority.fileBindings) {
+      if (retainedIds.has(file.fileId)) {
+        continue;
+      }
+      await assertAuthorityCurrent();
+      const invalidateFile = dependencies.getFileInvalidator();
+      if (!invalidateFile) {
+        throw new Error('Native binding retirement has no canonical publication owner.');
+      }
+      bindingRemovalPending = true;
+      invalidateFile(file);
+      if (file.rootId === null && file.embeddingSetId === null) {
+        throw new Error('Deleted canonical binding has no original removal scope.');
+      }
+      await writer.removeScopedFile({
+        fileId: file.fileId,
+        scope:
+          file.rootId === null
+            ? { embeddingSetId: file.embeddingSetId, kind: 'collection' }
+            : workspaceRemoval(file).scope,
+      });
+      await assertAuthorityCurrent();
     }
   };
   const acquire = async (): Promise<NativePort> => {
@@ -171,7 +206,12 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     if (closed) {
       throw new Error('Native index admission closed during root authorization.');
     }
-    if (port && requestedScopes === scopes && requestedBindings === bindings) {
+    if (
+      port &&
+      !bindingRemovalPending &&
+      requestedScopes === scopes &&
+      requestedBindings === bindings
+    ) {
       return port;
     }
     // Retire query snapshots before changing either membership or immutable scopes.
@@ -181,10 +221,12 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     }
     await assertAuthorityCurrent();
     if (port && indexOwner && requestedScopes === scopes) {
+      await retireAbsentBindings(requested, assertAuthorityCurrent);
       await port.replaceFileBindings(requested.fileBindings);
       acknowledgedAuthority = requested;
       acknowledgedPort = port;
       bindings = requestedBindings;
+      bindingRemovalPending = false;
       if (closed) {
         throw new Error('Native index admission closed during binding replacement.');
       }
@@ -294,6 +336,7 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       bindings = '';
       acknowledgedAuthority = undefined;
       acknowledgedPort = undefined;
+      bindingRemovalPending = false;
       outgoingCollectionId = undefined;
       outgoingPort = undefined;
       outgoingFiles = undefined;

@@ -115,6 +115,7 @@ it.each(['TEXT', 'VECTOR'] as const)(
       },
       createProfileOwner: () => ({ acquire: async () => {}, close: async () => {} }),
       getAuthority: async () => authority,
+      getFileInvalidator: () => () => {},
       installQueryTarget: () => {},
     });
     try {

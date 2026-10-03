@@ -114,6 +114,7 @@ it('holds native acknowledgment ahead of real PG cascade and preserves remaining
     },
     createProfileOwner: () => ({ acquire: async () => undefined, close: async () => undefined }),
     getAuthority: async () => authority,
+    getFileInvalidator: () => () => {},
     installQueryTarget: () => undefined,
   });
   let port = await runtime.acquire();

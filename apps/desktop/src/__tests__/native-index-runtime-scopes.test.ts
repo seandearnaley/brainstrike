@@ -77,6 +77,7 @@ function fixture(initial: Authority) {
     createIndexOwner,
     createProfileOwner: () => ({ acquire: async () => undefined, close: async () => undefined }),
     getAuthority: async () => authority,
+    getFileInvalidator: () => vi.fn(),
     getRootIds: async () => authority.rootIds,
     installQueryTarget: () => {
       events.push('reader-installed');
@@ -242,6 +243,67 @@ it('preserves the previous cache and ACK when binding replacement itself fails',
   await f.runtime.closeIndex();
 });
 
+it('joins absent retained files under the original ACK before revoking their native binding', async () => {
+  const preserved = { ...binding, fileId: 'preserved-retained' };
+  const initial = { fileBindings: [binding, preserved], rootIds: [], scopes: [collection] };
+  const f = fixture(initial);
+  await f.runtime.acquire();
+  const captured = f.runtime.captureAcknowledgedAuthority();
+  const held = Promise.withResolvers<boolean>();
+  f.removeScopedFile.mockReturnValueOnce(held.promise);
+  f.setAuthority({ ...initial, fileBindings: [preserved] });
+  const updating = f.runtime.acquire();
+  await vi.waitFor(() =>
+    expect(f.removeScopedFile).toHaveBeenCalledExactlyOnceWith({
+      fileId: binding.fileId,
+      scope: collection,
+    })
+  );
+  expect(f.replaceFileBindings).not.toHaveBeenCalled();
+  expect(captured.readAuthority().fileBindings).toEqual(initial.fileBindings);
+  held.resolve(true);
+  await updating;
+  expect(captured.readAuthority().fileBindings).toEqual([preserved]);
+  expect(f.events.slice(-3)).toEqual(['readers-exited', 'bindings-ack', 'reader-installed']);
+  await f.runtime.closeIndex();
+});
+
+it('retains failed absent-file removal and its ACK for explicit retry before binding replacement', async () => {
+  const initial = { fileBindings: [binding], rootIds: [], scopes: [collection] };
+  const f = fixture(initial);
+  await f.runtime.acquire();
+  const captured = f.runtime.captureAcknowledgedAuthority();
+  const failure = new Error('Deleted canonical data did not retire.');
+  f.removeScopedFile.mockRejectedValueOnce(failure);
+  f.setAuthority({ ...initial, fileBindings: [] });
+  await expect(f.runtime.acquire()).rejects.toBe(failure);
+  expect(f.replaceFileBindings).not.toHaveBeenCalled();
+  expect(captured.readAuthority().fileBindings).toEqual([binding]);
+  await f.runtime.acquire();
+  expect(f.removeScopedFile).toHaveBeenCalledTimes(2);
+  expect(f.replaceFileBindings).toHaveBeenCalledExactlyOnceWith([]);
+  expect(captured.readAuthority().fileBindings).toEqual([]);
+  await f.runtime.closeIndex();
+});
+
+it('refuses authority drift during absent-file removal and revalidates before reusing the original inventory', async () => {
+  const initial = { fileBindings: [binding], rootIds: [], scopes: [collection] };
+  const f = fixture(initial);
+  await f.runtime.acquire();
+  const captured = f.runtime.captureAcknowledgedAuthority();
+  f.removeScopedFile.mockImplementationOnce(async () => {
+    f.setAuthority(initial);
+    return true;
+  });
+  f.setAuthority({ ...initial, fileBindings: [] });
+  await expect(f.runtime.acquire()).rejects.toThrow('authority changed');
+  expect(f.replaceFileBindings).not.toHaveBeenCalled();
+  expect(captured.readAuthority().fileBindings).toEqual([binding]);
+  await f.runtime.acquire();
+  expect(f.replaceFileBindings).toHaveBeenCalledExactlyOnceWith([binding]);
+  await f.runtime.closeIndex();
+});
+
 it('captures one actual writer and reads its complete latest acknowledged inventory after admitted work joins', async () => {
   const initial = {
     fileBindings: [],
@@ -316,7 +378,7 @@ it('joins an admitted reader before acknowledging same-scope membership revocati
   readerExit.resolve();
   await Promise.all([first, second]);
   expect(f.replaceFileBindings).toHaveBeenCalledExactlyOnceWith([]);
-  expect(f.events).toEqual(['bindings-ack', 'reader-installed']);
+  expect(f.events).toEqual(['native-removal-ack', 'bindings-ack', 'reader-installed']);
   expect(f.createIndexOwner).toHaveBeenCalledTimes(1);
 });
 
@@ -332,7 +394,12 @@ it('keeps failed same-scope reader retirement retryable before replacing binding
   expect(f.events).toEqual([]);
   await f.runtime.acquire();
   expect(f.replaceFileBindings).toHaveBeenCalledExactlyOnceWith([]);
-  expect(f.events).toEqual(['readers-exited', 'bindings-ack', 'reader-installed']);
+  expect(f.events).toEqual([
+    'readers-exited',
+    'native-removal-ack',
+    'bindings-ack',
+    'reader-installed',
+  ]);
   expect(f.createIndexOwner).toHaveBeenCalledTimes(1);
 });
 
