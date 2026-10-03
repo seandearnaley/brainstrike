@@ -55,6 +55,15 @@ Guard: `packages/indexer/__tests__/coverage.integration.test.ts`.
 Evidence: `indexer/2026-10-02-independent-package.md`.
 Guard: `packages/indexer/__tests__/indexer.integration.test.ts`.
 
+### Canonical publication DTOs
+
+- Share browser-safe producer DTOs through `@brainstrike/indexing-contract/indexer-producer`; keep process and database ownership outside that contract.
+- Map existing canonical events through `@brainstrike/file-import/canonical-index-publication`. Preserve original source, chunk objects and same-parse graph identities; refuse foreign identities, skipped nonempty sources, incomplete source ranges and invalid graph references.
+- Keep the payload independent of scope; workspace publication adds only supplied root/path authority. Rootless consumers must not invent a workspace. Keep the built public mapper loadable in plain Node without renderer globals or source aliases.
+
+Evidence: `indexer/2026-10-03-publication-contract-prerequisite.md`.
+Guard: `packages/file-import/src/__tests__/canonical-index-publication.test.ts`, `packages/file-import/src/__tests__/canonical-public-node-entry.integration.test.ts`.
+
 ### Persistence and qualification
 
 - Treat the database as derived state. Product cutover must register its owned path and call `destroy()` during factory reset before deleting roots; package `destroy()` joins pending writes and removes only its database/WAL/shared-memory files.

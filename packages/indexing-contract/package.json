@@ -35,6 +35,11 @@
       "types": "./dist/workspace-indexing-qos.d.ts",
       "import": "./dist/workspace-indexing-qos.js",
       "require": "./dist/workspace-indexing-qos.js"
+    },
+    "./indexer-producer": {
+      "types": "./dist/indexer-producer.d.ts",
+      "import": "./dist/indexer-producer.js",
+      "require": "./dist/indexer-producer.js"
     }
   },
   "files": [
