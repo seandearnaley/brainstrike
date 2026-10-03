@@ -1,5 +1,10 @@
 // @vitest-environment node
-import type { CanonicalFileIdentity } from '@brainstrike/canonical-ingestion';
+import type { CanonicalFileIdentity, CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
+import {
+  type ScopedFilePlan,
+  type ScopedIndexerPort,
+  vectorProfileHash,
+} from '@brainstrike/indexer';
 import { describe, expect, it, vi } from 'vitest';
 import { createNativeCanonicalPublication } from '../native-canonical-publication';
 
@@ -13,6 +18,25 @@ const file: CanonicalFileIdentity = {
   sourcePath: null,
 };
 const storeId = 'store';
+function requestedScope(input: unknown): CanonicalSourceScope {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Expected a native scope request.');
+  }
+  const selected: unknown = Reflect.get(input, 'scope');
+  if (!selected || typeof selected !== 'object') {
+    throw new Error('Expected explicit native scope.');
+  }
+  const kind: unknown = Reflect.get(selected, 'kind');
+  const rootId: unknown = Reflect.get(selected, 'rootId');
+  const embeddingSetId: unknown = Reflect.get(selected, 'embeddingSetId');
+  if (kind === 'workspace' && typeof rootId === 'string') {
+    return { kind, rootId };
+  }
+  if (kind === 'collection' && typeof embeddingSetId === 'string') {
+    return { embeddingSetId, kind };
+  }
+  throw new Error('Expected an authorized native scope.');
+}
 function fixture() {
   const port = {
     commitScopedFile: vi.fn(),
@@ -30,21 +54,182 @@ function fixture() {
     })),
     prepareScopedFile: vi.fn(),
     removeScopedFile: vi.fn(async () => true),
-    verifyScopedManifest: vi.fn(async (request) => ({
-      authorityEpoch: 'epoch',
-      authorityRevision: 1,
-      changed: [],
-      complete: true,
-      missing: [],
-      scope: request.scope,
-      storeId,
-      unexpected: [],
-    })),
+    verifyScopedManifest: vi.fn(
+      async (request: Parameters<ScopedIndexerPort['verifyScopedManifest']>[0]) => ({
+        authorityEpoch: 'epoch',
+        authorityRevision: 1,
+        changed: [],
+        complete: true,
+        missing: [],
+        scope: requestedScope(request),
+        storeId,
+        unexpected: [],
+      })
+    ),
   };
   const publication = createNativeCanonicalPublication(port, [scope]);
   return { port, publication };
 }
 const completion = { aborted: false, errors: [], files: [], full: true, truncatedDirectories: [] };
+
+const localProfile = {
+  dimensions: 384,
+  distance: 'cosine',
+  dtype: 'q8',
+  modelId: 'Xenova/all-MiniLM-L6-v2',
+  provider: 'transformers',
+  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+  tokenCap: 512,
+} as const;
+function overlappingFixture() {
+  const { port } = fixture();
+  const workspace = { kind: 'workspace', rootId: 'root' } as const;
+  const rooted = {
+    ...file,
+    relativePath: 'file.txt',
+    rootId: 'root',
+    sourcePath: '/actual/root/file.txt',
+  };
+  const plan: ScopedFilePlan = {
+    authorityEpoch: 'epoch',
+    authorityRevision: 1,
+    chunks: [
+      {
+        chunkId: 'a'.repeat(64),
+        chunkIndex: 0,
+        chunkSize: 384,
+        chunkType: 'text',
+        content: 'canonical',
+        contentHash: 'c'.repeat(64),
+        embeddingHash: 'd'.repeat(64),
+        endLine: 1,
+        endOffset: 9,
+        startLine: 1,
+        startOffset: 0,
+        tokenCount: 2,
+      },
+    ],
+    contentHash: 'c'.repeat(64),
+    embeddingChunkIds: [],
+    previousSnapshotHash: null,
+    profile: localProfile,
+    profileHash: vectorProfileHash(localProfile),
+    snapshot: {
+      ...rooted,
+      content: 'canonical',
+      providedChunks: [
+        {
+          chunkIndex: 0,
+          chunkSize: 384,
+          chunkType: 'text',
+          content: 'canonical',
+          contentHash: 'c'.repeat(64),
+          endLine: 1,
+          endOffset: 9,
+          startLine: 1,
+          startOffset: 0,
+          tokenCount: 2,
+        },
+      ],
+    },
+    storeId,
+  };
+  port.prepareScopedFile.mockResolvedValue(plan);
+  port.commitScopedFile.mockResolvedValue({});
+  port.coverageScope.mockImplementation(async (request: unknown) => ({
+    authorityEpoch: 'epoch',
+    authorityRevision: 1,
+    counts: { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 },
+    profile: localProfile,
+    profileHash: vectorProfileHash(localProfile),
+    scope: requestedScope(request),
+    storeId,
+    vectorCoverageComplete: true,
+  }));
+  const publication = createNativeCanonicalPublication(port, [workspace, scope]);
+  const scan = async (requested: typeof scope | typeof workspace): Promise<void> => {
+    const ticket = await publication.beginScan({
+      requestId: JSON.stringify(requested),
+      scope: requested,
+    });
+    const prepared = await publication.prepareVectorFile({
+      file: rooted,
+      payload: {
+        content: plan.snapshot.content,
+        fileId: rooted.fileId,
+        providedChunks: 'providedChunks' in plan.snapshot ? plan.snapshot.providedChunks : [],
+      },
+      profile: localProfile,
+      ticket,
+    });
+    await publication.commitVectorFile({
+      embeddings: [],
+      file: rooted,
+      plan: prepared,
+      profile: localProfile,
+      ticket,
+    });
+    expect(
+      await publication.finishScan({
+        ...completion,
+        files: [{ ...rooted, contentHash: plan.contentHash }],
+        ticket,
+      })
+    ).toMatchObject({ scanComplete: true });
+  };
+  return { port, publication, scan, scope, workspace };
+}
+
+it('reverifies full workspace manifest and selected-profile coverage after zero-missing VECTOR overlap', async () => {
+  const f = overlappingFixture();
+  await f.scan(f.workspace);
+  await f.scan(f.scope);
+  expect(f.publication.getReadiness()).toContainEqual({ scanComplete: false, scope: f.workspace });
+  expect(await f.publication.reverifyScope(f.workspace, localProfile)).toBe(true);
+  expect(f.publication.getReadiness()).toEqual([
+    { scanComplete: true, scope: f.workspace },
+    { scanComplete: true, scope: f.scope },
+  ]);
+  expect(f.port.verifyScopedManifest).toHaveBeenCalledTimes(3);
+  expect(f.port.coverageScope).toHaveBeenCalledExactlyOnceWith({
+    profile: localProfile,
+    scope: f.workspace,
+  });
+  expect(f.port.prepareScopedFile).toHaveBeenCalledTimes(2);
+  expect(f.port.commitScopedFile).toHaveBeenCalledTimes(2);
+});
+
+it('cannot reuse a complete source proof after explicit source invalidation', async () => {
+  const f = overlappingFixture();
+  await f.scan(f.workspace);
+  f.publication.invalidateScope(f.workspace);
+  expect(await f.publication.reverifyScope(f.workspace, localProfile)).toBe(false);
+  expect(f.port.verifyScopedManifest).toHaveBeenCalledTimes(1);
+  expect(f.publication.getReadiness()).toContainEqual({ scanComplete: false, scope: f.workspace });
+});
+
+it('refuses stale full-scope revalidation when a later mutation races its held native proof', async () => {
+  const f = overlappingFixture();
+  await f.scan(f.workspace);
+  await f.scan(f.scope);
+  const held = Promise.withResolvers<Awaited<ReturnType<typeof f.port.verifyScopedManifest>>>();
+  f.port.verifyScopedManifest.mockReturnValueOnce(held.promise);
+  const rechecking = f.publication.reverifyScope(f.workspace, localProfile);
+  await vi.waitFor(() => expect(f.port.verifyScopedManifest).toHaveBeenCalledTimes(3));
+  await f.scan(f.scope);
+  held.resolve({
+    authorityEpoch: 'epoch',
+    authorityRevision: 1,
+    changed: [],
+    complete: true,
+    missing: [],
+    scope: f.workspace,
+    storeId,
+    unexpected: [],
+  });
+  expect(await rechecking).toBe(false);
+  expect(f.publication.getReadiness()).toContainEqual({ scanComplete: false, scope: f.workspace });
+});
 
 describe('main canonical publication ownership', () => {
   it('joins an admitted rootless removal before abort and refuses late writes', async () => {

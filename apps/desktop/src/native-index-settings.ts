@@ -20,14 +20,7 @@ export function readNativeIndexSettings(value: string | null): NativeIndexSettin
   if (value === null) {
     throw new Error('Choose a native search mode in Workspace Index settings.');
   }
-  const envelope: unknown = JSON.parse(value);
-  if (!envelope || typeof envelope !== 'object') {
-    throw new Error('Native index preferences are invalid.');
-  }
-  const state: unknown = Reflect.get(envelope, 'state');
-  if (!state || typeof state !== 'object') {
-    throw new Error('Native index preferences have no state.');
-  }
+  const state = readPreferenceState(value);
   const mode = validateNativeIndexMode(Reflect.get(state, 'nativeIndexMode'));
   if (mode === null) {
     throw new Error('Choose a native search mode in Workspace Index settings.');
@@ -75,4 +68,31 @@ function readWorktreeOptIns(optIns: unknown): ReadonlySet<string> {
     }
   }
   return worktreeOptIns;
+}
+
+function readPreferenceState(value: string): object {
+  const envelope: unknown = JSON.parse(value);
+  if (!envelope || typeof envelope !== 'object') {
+    throw new Error('Native index preferences are invalid.');
+  }
+  const state: unknown = Reflect.get(envelope, 'state');
+  if (!state || typeof state !== 'object') {
+    throw new Error('Native index preferences have no state.');
+  }
+  return state;
+}
+
+/** Cleanup reads the durable collection choice independently of incomplete new inference choices. */
+export function readNativeManagedCollectionId(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  const id: unknown = Reflect.get(readPreferenceState(value), 'managedCollectionId');
+  if (id === null) {
+    return null;
+  }
+  if (typeof id !== 'string' || !id.trim()) {
+    throw new Error('Saved native collection identity is invalid.');
+  }
+  return id;
 }

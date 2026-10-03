@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { readNativeIndexSettings } from '../native-index-settings';
+import { readNativeIndexSettings, readNativeManagedCollectionId } from '../native-index-settings';
 
 const state = {
   enabled: true,
@@ -15,6 +15,16 @@ const saved = (changes: Record<string, unknown> = {}): string =>
   JSON.stringify({ state: { ...state, ...changes }, version: 6 });
 
 describe('main native indexing settings', () => {
+  it('reads collection retirement independently of incomplete new VECTOR choices', () => {
+    expect(readNativeManagedCollectionId(saved({ nativeIndexMode: 'VECTOR' }))).toBe(
+      'actual-collection'
+    );
+    expect(readNativeManagedCollectionId(saved({ managedCollectionId: null }))).toBeNull();
+    expect(readNativeManagedCollectionId(null)).toBeNull();
+    expect(() => readNativeManagedCollectionId(saved({ managedCollectionId: '' }))).toThrow(
+      'identity is invalid'
+    );
+  });
   it('uses the actual saved TEXT collection and explicit worktree opt-ins', () => {
     expect(readNativeIndexSettings(saved())).toMatchObject({
       enabled: true,

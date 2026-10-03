@@ -11,7 +11,9 @@ import type {
   ScopedFilePlan,
   ScopedIndexerPort,
   ScopedManifestFile,
+  VectorProfile,
 } from '@brainstrike/indexer';
+import { vectorProfileHash } from '@brainstrike/indexer';
 
 type PublicationWriter = Pick<IndexerPort, 'info'> &
   Pick<
@@ -30,6 +32,9 @@ interface ScanState {
   mutationRevision: number;
   readonly pending: Set<Promise<unknown>>;
   scanComplete: boolean;
+  sourceProof:
+    | { readonly files: readonly ScopedManifestFile[]; readonly storeId: string }
+    | undefined;
   ticket: CanonicalScanTicket | undefined;
   writeFailed: boolean;
 }
@@ -83,6 +88,7 @@ export function createNativeCanonicalPublication(
   scopes: readonly CanonicalSourceScope[]
 ): CanonicalVectorPublicationPort & {
   invalidateScope(scope: CanonicalSourceScope): void;
+  reverifyScope(scope: CanonicalSourceScope, profile: VectorProfile | null): Promise<boolean>;
   getReadiness(): readonly {
     readonly scope: CanonicalSourceScope;
     readonly scanComplete: boolean;
@@ -102,6 +108,7 @@ export function createNativeCanonicalPublication(
       mutationRevision: 0,
       pending: new Set(),
       scanComplete: false,
+      sourceProof: undefined,
       ticket: undefined,
       writeFailed: false,
     });
@@ -195,6 +202,7 @@ export function createNativeCanonicalPublication(
       state.aborted = false;
       state.writeFailed = false;
       state.scanComplete = false;
+      state.sourceProof = undefined;
       const provisional = Object.freeze({
         generation: state.generation,
         requestId,
@@ -274,6 +282,9 @@ export function createNativeCanonicalPublication(
             return receipt('manifest-mismatch');
           }
           state.scanComplete = result.complete;
+          if (result.complete) {
+            state.sourceProof = { files, storeId: result.storeId };
+          }
           return receipt(result.complete ? 'complete' : 'manifest-mismatch');
         })
         .finally(() => {
@@ -289,6 +300,7 @@ export function createNativeCanonicalPublication(
       const state = stateFor(scope);
       state.scanComplete = false;
       state.mutationRevision += 1;
+      state.sourceProof = undefined;
     },
     prepareVectorFile: ({ file, payload, profile, ticket }) =>
       runWrite(ticket, file, () =>
@@ -299,6 +311,31 @@ export function createNativeCanonicalPublication(
         await writer.removeScopedFile({ fileId: file.fileId, scope: ticket.scope });
         published.delete(file.fileId);
       }),
+    reverifyScope: async (scope, profile) => {
+      const state = stateFor(scope);
+      const proof = state.sourceProof;
+      if (!proof || state.ticket || state.finishing || state.aborted || state.writeFailed) {
+        return false;
+      }
+      state.scanComplete = false;
+      const revision = state.mutationRevision;
+      await Promise.allSettled([...states.values()].flatMap((other) => [...other.pending]));
+      const result = await writer.verifyScopedManifest({ files: proof.files, scope });
+      if (result.storeId !== proof.storeId || scopeKey(result.scope) !== scopeKey(scope)) {
+        throw new Error('Reverified native manifest differs from its complete source proof.');
+      }
+      const covered =
+        profile === null || (await reverifiedCoverage(writer, result, scope, profile));
+      const current =
+        state.sourceProof === proof &&
+        !state.ticket &&
+        !state.finishing &&
+        !state.aborted &&
+        !state.writeFailed &&
+        state.mutationRevision === revision;
+      state.scanComplete = current && result.complete && covered;
+      return state.scanComplete;
+    },
     vectorCoverage: ({ profile, scope }) => {
       stateFor(scope);
       return writer.coverageScope({ profile, scope });
@@ -352,4 +389,23 @@ function incompleteScanReason(
     return 'partial';
   }
   return null;
+}
+
+async function reverifiedCoverage(
+  writer: PublicationWriter,
+  manifestResult: Awaited<ReturnType<ScopedIndexerPort['verifyScopedManifest']>>,
+  scope: CanonicalSourceScope,
+  profile: VectorProfile
+): Promise<boolean> {
+  const coverage = await writer.coverageScope({ profile, scope });
+  if (
+    coverage.storeId !== manifestResult.storeId ||
+    scopeKey(coverage.scope) !== scopeKey(scope) ||
+    coverage.authorityEpoch !== manifestResult.authorityEpoch ||
+    coverage.authorityRevision !== manifestResult.authorityRevision ||
+    coverage.profileHash !== vectorProfileHash(profile)
+  ) {
+    throw new Error('Reverified native coverage changed scope, profile or authority.');
+  }
+  return coverage.vectorCoverageComplete;
 }

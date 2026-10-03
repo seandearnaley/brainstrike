@@ -30,13 +30,20 @@ interface Dependencies {
   getAuthority(): Promise<NativeIndexAuthority>;
   installQueryTarget(owner: IndexOwner): void;
 }
+export interface CapturedNativeIndexAuthority {
+  readonly port: NativePort;
+  /** Read only after admitted sources settle; tied to this exact retained writer owner. */
+  readAuthority(): NativeIndexAuthority;
+}
 export interface NativeIndexRuntime {
   acquire(): Promise<NativePort>;
   acquireProfile(): Promise<void>;
+  captureAcknowledgedAuthority(): CapturedNativeIndexAuthority;
   closeIndex(): Promise<void>;
   destroyIndex(): Promise<void>;
   resume(): Promise<void>;
   retireProfile(): Promise<void>;
+  retireWorkspaceCollectionFiles(embeddingSetId: string): Promise<void>;
 }
 
 function retainAuthority(authority: NativeIndexAuthority): NativeIndexAuthority {
@@ -104,6 +111,16 @@ function bindingIdentity(authority: NativeIndexAuthority): string {
   );
 }
 
+function workspaceRemoval(file: IndexFileBinding): {
+  readonly fileId: string;
+  readonly scope: Extract<IndexScope, { kind: 'workspace' }>;
+} {
+  if (file.rootId === null) {
+    throw new Error('Outgoing file has no original workspace scope.');
+  }
+  return { fileId: file.fileId, scope: { kind: 'workspace', rootId: file.rootId } };
+}
+
 /** Main owns this admission lifetime. Reset resumes only after releasing its deletion guard. */
 export function createNativeIndexRuntime(dependencies: Dependencies): NativeIndexRuntime {
   let profileOwner: ProfileOwner | undefined;
@@ -113,6 +130,12 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
   let bindings = '';
   let port: NativePort | undefined;
   let acquisition: Promise<NativePort> | undefined;
+  let acknowledgedAuthority: NativeIndexAuthority | undefined;
+  let acknowledgedPort: NativePort | undefined;
+  let outgoingCollectionId: string | undefined;
+  let outgoingPort: NativePort | undefined;
+  let outgoingFiles: Map<string, IndexFileBinding> | undefined;
+  let workspaceRetirement: Promise<void> | undefined;
   let closed = false;
   let closing: Promise<void> | undefined;
   let closingKind: 'close' | 'destroy' | undefined;
@@ -159,6 +182,8 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     await assertAuthorityCurrent();
     if (port && indexOwner && requestedScopes === scopes) {
       await port.replaceFileBindings(requested.fileBindings);
+      acknowledgedAuthority = requested;
+      acknowledgedPort = port;
       if (closed) {
         throw new Error('Native index admission closed during binding replacement.');
       }
@@ -181,6 +206,8 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     }
     await assertAuthorityCurrent();
     const ready = await owner.start();
+    acknowledgedAuthority = requested;
+    acknowledgedPort = ready;
     if (closed) {
       throw new Error('Native index admission closed during writer startup.');
     }
@@ -190,6 +217,52 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     bindings = requestedBindings;
     port = ready;
     return ready;
+  };
+  const settleWorkspaceRetirement = (): Promise<void> => {
+    workspaceRetirement ??= (async () => {
+      await acquisition?.catch(() => undefined);
+      if (!outgoingFiles) {
+        if (!(acknowledgedPort && acknowledgedAuthority)) {
+          if (indexOwner) {
+            throw new Error('Outgoing native files have no acknowledged writer authority.');
+          }
+          return;
+        }
+        outgoingPort = acknowledgedPort;
+        outgoingFiles = new Map(
+          acknowledgedAuthority.fileBindings
+            .filter((file) => file.rootId !== null && file.embeddingSetId === outgoingCollectionId)
+            .map((file) => [file.fileId, file])
+        );
+      }
+      await dependencies.closeQueries();
+      const ready = outgoingPort;
+      if (!ready) {
+        throw new Error('Outgoing native workspace authority is unavailable.');
+      }
+      for (const file of outgoingFiles.values()) {
+        await ready.removeScopedFile(workspaceRemoval(file));
+        outgoingFiles.delete(file.fileId);
+      }
+    })().finally(() => {
+      workspaceRetirement = undefined;
+    });
+    return workspaceRetirement;
+  };
+  const retireWorkspaceCollectionFiles = (embeddingSetId: string): Promise<void> => {
+    if (closing || !embeddingSetId.trim()) {
+      return Promise.reject(
+        new Error('Native workspace retirement cannot change a closing owner.')
+      );
+    }
+    if (outgoingCollectionId !== undefined && outgoingCollectionId !== embeddingSetId) {
+      return Promise.reject(
+        new Error('Original outgoing native collection retirement must settle first.')
+      );
+    }
+    closed = true;
+    outgoingCollectionId = embeddingSetId;
+    return settleWorkspaceRetirement();
   };
   const closeIndex = (destroy = false): Promise<void> => {
     closed = true;
@@ -203,6 +276,9 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     // Keep failed cleanup retryable and keep its owner until it actually exits.
     closing ??= (async () => {
       await acquisition?.catch(() => undefined);
+      if (outgoingCollectionId !== undefined) {
+        await settleWorkspaceRetirement();
+      }
       await dependencies.closeQueries();
       if (destroy && indexOwner) {
         if (!indexOwner.destroy) {
@@ -216,6 +292,11 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       port = undefined;
       scopes = '';
       bindings = '';
+      acknowledgedAuthority = undefined;
+      acknowledgedPort = undefined;
+      outgoingCollectionId = undefined;
+      outgoingPort = undefined;
+      outgoingFiles = undefined;
     })().finally(() => {
       closing = undefined;
       closingKind = undefined;
@@ -233,6 +314,22 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       return acquisition;
     },
     acquireProfile,
+    captureAcknowledgedAuthority: () => {
+      const owner = indexOwner;
+      const capturedPort = acknowledgedPort;
+      if (!(owner && capturedPort && acknowledgedAuthority)) {
+        throw new Error('Native writer has no acknowledged ownership to capture.');
+      }
+      return {
+        port: capturedPort,
+        readAuthority: () => {
+          if (indexOwner !== owner || acknowledgedPort !== capturedPort || !acknowledgedAuthority) {
+            throw new Error('Captured native writer authority has been retired or replaced.');
+          }
+          return retainAuthority(acknowledgedAuthority);
+        },
+      };
+    },
     closeIndex: () => closeIndex(),
     destroyIndex: () => closeIndex(true),
     resume: async (): Promise<void> => {
@@ -249,5 +346,6 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       profileOwner = undefined;
       profileAcquisition = undefined;
     },
+    retireWorkspaceCollectionFiles,
   };
 }
