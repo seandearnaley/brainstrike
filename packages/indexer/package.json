@@ -24,6 +24,7 @@
   ],
   "sideEffects": false,
   "dependencies": {
+    "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/sqlite-native": "workspace:*",
     "effect": "catalog:"

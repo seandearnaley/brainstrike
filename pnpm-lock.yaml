@@ -2702,6 +2702,9 @@ importers:
 
   packages/indexer:
     dependencies:
+      '@brainstrike/chunking-worker':
+        specifier: workspace:*
+        version: link:../chunking-worker
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit

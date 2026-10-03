@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import {
+  buildLineStartOffsets,
+  findLineForOffset,
+  matchesChunkSourceRange,
+} from '@brainstrike/chunking-worker/source-range-validation';
+import {
   decoder,
   type EmbeddingProfile,
   type FileChunk,
@@ -27,6 +32,44 @@ export function embeddingProfileHash(input: unknown): string {
 export function fileChunks(input: unknown, profile: EmbeddingProfile): readonly FileChunk[] {
   const snapshot = decoder(snapshotSchema)(input);
   validateSnapshot(snapshot);
+  if ('providedChunks' in snapshot) {
+    const lines = buildLineStartOffsets(snapshot.content);
+    const indices = new Set<number>();
+    const profileHash = embeddingProfileHash(profile);
+    return snapshot.providedChunks.map((chunk) => {
+      if (
+        indices.has(chunk.chunkIndex) ||
+        sha256(chunk.content) !== chunk.contentHash ||
+        !matchesChunkSourceRange(
+          snapshot.content,
+          chunk.content,
+          chunk.startOffset,
+          chunk.endOffset
+        ) ||
+        findLineForOffset(lines, chunk.startOffset) !== chunk.startLine ||
+        findLineForOffset(lines, chunk.endOffset - 1) !== chunk.endLine
+      ) {
+        throw new TypeError(
+          'Provided chunk identity/hash/source span does not match its canonical snapshot.'
+        );
+      }
+      indices.add(chunk.chunkIndex);
+      return {
+        ...chunk,
+        chunkId: sha256(
+          JSON.stringify([
+            'provided-file-chunk-v1',
+            snapshot.rootId,
+            snapshot.fileId,
+            chunk.chunkIndex,
+            chunk.startOffset,
+            chunk.endOffset,
+          ])
+        ),
+        embeddingHash: sha256(JSON.stringify([profileHash, chunk.contentHash])),
+      };
+    });
+  }
   if (snapshot.content.length === 0) {
     return [];
   }
@@ -41,11 +84,17 @@ export function fileChunks(input: unknown, profile: EmbeddingProfile): readonly 
       chunkId: sha256(
         JSON.stringify(['file-chunk-v1', snapshot.rootId, snapshot.fileId, start + 1, end])
       ),
+      chunkIndex: null,
+      chunkSize: null,
+      chunkType: null,
       content,
       contentHash,
       embeddingHash: sha256(JSON.stringify([profileHash, contentHash])),
       endLine: end,
+      endOffset: null,
       startLine: start + 1,
+      startOffset: null,
+      tokenCount: null,
     });
   }
   return chunks;

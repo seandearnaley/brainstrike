@@ -167,6 +167,24 @@ Guard: `preview-panel.test.tsx`, `preview-panel-deferred-selection.test.tsx`.
 
 ---
 
+## CANONICAL CHUNK SOURCE BOUNDARY
+
+- Preserve the existing chunker/parser's chunkIndex, source offsets and line spans;
+  do not run another parser or replace AST/text chunks with a line-count policy.
+- Validate supplied source spans through the pure chunking-worker
+  `source-range-validation` subpath, which reuses the canonical matcher's exact
+  and whitespace/CRLF-normalized rules within the claimed span. Do not relocate
+  a bad span. Offsets count JavaScript UTF-16 code units, start inclusive/end
+  exclusive; lines are 1-based inclusive.
+- Keep content hashes bound to the exact canonical chunk text. Reject malformed
+  chunks visibly rather than substituting a different segmentation.
+
+Evidence: `indexer/2026-10-03-canonical-provided-chunks.md`.
+Guard: `packages/chunking-worker/src/__tests__/source-range-validation.test.ts`,
+`packages/indexer/__tests__/provided-chunks.integration.test.ts`.
+
+---
+
 ## WORKSPACE INDEX TRAVERSAL
 
 ### Desktop reads are mounted-root capabilities

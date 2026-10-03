@@ -17,6 +17,8 @@ export type {
   FileSyntax,
   IndexerInfo,
   IndexerOptions,
+  ProvidedChunk,
+  ProvidedFileSnapshot,
   SearchRequest,
   SearchResult,
 } from './contracts.js';

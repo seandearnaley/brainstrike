@@ -96,3 +96,26 @@ resolves its entry beside that bundle. There is no implicit child-process
 substitution. Desktop profile/reset/IPC wiring and canonical provided-chunk
 production are pending; the foundation line chunker must not replace the
 existing desktop parser/chunker policy.
+
+Canonical producer preparation uses a separate explicit input shape:
+
+```ts
+const plan = await indexer.prepareFile({ rootId, fileId, relativePath, content,
+  providedChunks: canonicalResult.chunks });
+```
+
+Forward the unchanged `PortableChunk[]` from the existing chunker. Every item
+carries chunkIndex, content, SHA256 contentHash, startLine/endLine, UTF-16
+startOffset inclusive/endOffset exclusive, tokenCount, chunkType and chunkSize.
+The indexer validates each claimed source span with the existing canonical
+matcher and line-offset helper; canonical whitespace/CRLF normalization remains
+supported. It rejects incorrect hashes/spans/indices and mixed `chunkLines`
+inputs, without re-splitting or relocating chunks. Symbols/refs still accompany
+commitFile from that same parser result.
+
+Plan chunks and all search hits preserve the complete producer metadata.
+Legacy line-policy chunks carry explicit null producer metadata. Provided IDs
+hash root/file/chunkIndex/offsets; vectors reuse only with identical text and
+profile hash. Metadata-only changes update persisted metadata without replacing
+vector bytes. Derived schema2 explicitly refuses schema1 with rebuild-required;
+opening never migrates or erases it. No product producer/IPC cutover is implied.

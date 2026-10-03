@@ -14,6 +14,7 @@ import {
   type FilePlan,
   type FileSnapshot,
   type FileSyntax,
+  hitSchema,
   IndexerError,
   type IndexerInfo,
   type IndexerOptions,
@@ -26,7 +27,7 @@ import {
   snapshotSchema,
 } from './contracts.js';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const numberId = Schema.Int.check(
   Schema.isGreaterThan(0),
   Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
@@ -37,20 +38,9 @@ const decodeFile = decoder(
 const decodeChunks = decoder(
   Schema.Array(Schema.Struct({ chunkId: Schema.String, embeddingHash: Schema.String }))
 );
-const decodeHit = decoder(
-  Schema.Struct({
-    chunkId: Schema.String,
-    content: Schema.String,
-    endLine: numberId,
-    fileId: Schema.String,
-    relativePath: Schema.String,
-    rootId: Schema.String,
-    score: Schema.Finite,
-    startLine: numberId,
-  })
-);
+const decodeHit = decoder(hitSchema);
 const hitColumns =
-  'c.id AS chunkId, c.root_id AS rootId, c.file_record_id AS fileId, f.path AS relativePath, c.start_line AS startLine, c.end_line AS endLine, c.content AS content';
+  'c.id AS chunkId, c.root_id AS rootId, c.file_record_id AS fileId, f.path AS relativePath, c.start_line AS startLine, c.end_line AS endLine, c.content AS content, c.content_hash AS contentHash, c.chunk_index AS chunkIndex, c.chunk_size AS chunkSize, c.chunk_type AS chunkType, c.start_offset AS startOffset, c.end_offset AS endOffset, c.token_count AS tokenCount';
 const quote = (text: string): string => `"${text.replaceAll('"', '""')}"`;
 
 function snapshotHash(snapshot: FileSnapshot): string {
@@ -59,7 +49,7 @@ function snapshotHash(snapshot: FileSnapshot): string {
       snapshot.rootId,
       snapshot.fileId,
       snapshot.relativePath,
-      snapshot.chunkLines,
+      'providedChunks' in snapshot ? snapshot.providedChunks : snapshot.chunkLines,
       sha256(snapshot.content),
     ])
   );
@@ -226,7 +216,7 @@ export class IndexWriter {
       this.db.exec(`
         CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY CHECK(singleton=1),schema_version INTEGER NOT NULL,profile_json TEXT NOT NULL,profile_hash TEXT NOT NULL);
         CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT NOT NULL,name TEXT NOT NULL,path TEXT NOT NULL,content_hash TEXT NOT NULL,snapshot_hash TEXT NOT NULL,UNIQUE(root_id,id));
-        CREATE TABLE file_chunks(pk INTEGER PRIMARY KEY,id TEXT UNIQUE NOT NULL,root_id TEXT NOT NULL,file_record_id TEXT NOT NULL,start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,content TEXT NOT NULL,content_hash TEXT NOT NULL,embedding_hash TEXT NOT NULL,FOREIGN KEY(root_id,file_record_id) REFERENCES file_records(root_id,id) ON DELETE CASCADE);
+        CREATE TABLE file_chunks(pk INTEGER PRIMARY KEY,id TEXT UNIQUE NOT NULL,root_id TEXT NOT NULL,file_record_id TEXT NOT NULL,start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,content TEXT NOT NULL,content_hash TEXT NOT NULL,embedding_hash TEXT NOT NULL,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER,CHECK((chunk_index IS NULL AND chunk_size IS NULL AND chunk_type IS NULL AND start_offset IS NULL AND end_offset IS NULL AND token_count IS NULL) OR (chunk_index IS NOT NULL AND chunk_size IS NOT NULL AND chunk_type IS NOT NULL AND start_offset IS NOT NULL AND end_offset IS NOT NULL AND token_count IS NOT NULL AND chunk_index>=0 AND chunk_size>0 AND chunk_type IN ('text','sentence','recursive') AND start_offset>=0 AND end_offset>start_offset AND token_count>0)),FOREIGN KEY(root_id,file_record_id) REFERENCES file_records(root_id,id) ON DELETE CASCADE);
         CREATE INDEX chunks_file ON file_chunks(root_id,file_record_id);
         CREATE TABLE file_symbols(file_record_id TEXT NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,seq INTEGER NOT NULL,name TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('function','class','method','variable','interface','type','enum')),exported INTEGER NOT NULL CHECK(exported IN (0,1)),start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,start_offset INTEGER NOT NULL,end_offset INTEGER NOT NULL,PRIMARY KEY(file_record_id,seq)) WITHOUT ROWID;
         CREATE INDEX idx_file_symbols_name ON file_symbols(name);
@@ -279,6 +269,12 @@ export class IndexWriter {
       chunk.startLine,
       chunk.endLine,
       chunk.content,
+      chunk.chunkIndex,
+      chunk.chunkSize,
+      chunk.chunkType,
+      chunk.startOffset,
+      chunk.endOffset,
+      chunk.tokenCount,
     ];
     if (
       plan.contentHash !== sha256(plan.snapshot.content) ||
@@ -372,6 +368,21 @@ export class IndexWriter {
         reusedEmbeddings += 1;
       }
       if (previous && reusable) {
+        this.db
+          .prepare(
+            'UPDATE file_chunks SET start_line=?,end_line=?,chunk_index=?,chunk_size=?,chunk_type=?,start_offset=?,end_offset=?,token_count=? WHERE pk=?'
+          )
+          .run(
+            chunk.startLine,
+            chunk.endLine,
+            chunk.chunkIndex,
+            chunk.chunkSize,
+            chunk.chunkType,
+            chunk.startOffset,
+            chunk.endOffset,
+            chunk.tokenCount,
+            BigInt(previous.id)
+          );
         continue;
       }
       if (previous) {
@@ -380,7 +391,7 @@ export class IndexWriter {
       const id = decoder(Schema.Struct({ id: numberId }))(
         this.db
           .prepare(
-            'INSERT INTO file_chunks(id,root_id,file_record_id,start_line,end_line,content,content_hash,embedding_hash) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET content=excluded.content,content_hash=excluded.content_hash,embedding_hash=excluded.embedding_hash RETURNING pk AS id'
+            'INSERT INTO file_chunks(id,root_id,file_record_id,start_line,end_line,content,content_hash,embedding_hash,chunk_index,chunk_size,chunk_type,start_offset,end_offset,token_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET start_line=excluded.start_line,end_line=excluded.end_line,content=excluded.content,content_hash=excluded.content_hash,embedding_hash=excluded.embedding_hash,chunk_index=excluded.chunk_index,chunk_size=excluded.chunk_size,chunk_type=excluded.chunk_type,start_offset=excluded.start_offset,end_offset=excluded.end_offset,token_count=excluded.token_count RETURNING pk AS id'
           )
           .get(
             chunk.chunkId,
@@ -390,7 +401,13 @@ export class IndexWriter {
             chunk.endLine,
             chunk.content,
             chunk.contentHash,
-            chunk.embeddingHash
+            chunk.embeddingHash,
+            chunk.chunkIndex,
+            chunk.chunkSize,
+            chunk.chunkType,
+            chunk.startOffset,
+            chunk.endOffset,
+            chunk.tokenCount
           )
       ).id;
       this.db

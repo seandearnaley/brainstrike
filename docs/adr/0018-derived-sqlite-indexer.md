@@ -25,8 +25,12 @@ raises `rebuild-required`. Opening a database never deletes it. An explicit
 `destroy()` joins the process before removing its database, WAL and shared-memory
 files; product factory reset must call this lifecycle before cutover.
 
-The producer submits root-relative file snapshots and an explicit chunk-line
-policy. Stable position identities and content/profile hashes let unchanged
+Canonical producers submit root-relative file snapshots with unchanged provided
+chunks from the existing parser/chunker. The foundation also accepts an explicit
+line policy as a separate input shape. Validate provided SHA hashes and exact or
+canonically normalized source spans without a parse pass or re-splitting.
+Persist original indices/offsets/token/type/size metadata in schema2; opening an
+older schema requires explicit rebuild and preserves its files. Stable position identities and content/profile hashes let unchanged
 chunks retain their embeddings. Preparation captures the previous snapshot hash;
 a writer transaction rejects stale preparation and atomically changes chunks,
 FTS rows, vectors and optional canonical parser symbols/references. The host

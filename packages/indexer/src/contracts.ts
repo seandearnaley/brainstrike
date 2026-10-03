@@ -25,15 +25,48 @@ export const optionsSchema = Schema.Struct({
   rootIds: Schema.Array(nonblank),
 });
 export type IndexerOptions = typeof optionsSchema.Type;
-export const snapshotSchema = Schema.Struct({
-  chunkLines: positive,
+const snapshotFields = {
   content: Schema.String,
   fileId: nonblank,
   relativePath: nonblank,
   rootId: nonblank,
+};
+const producerFields = {
+  chunkIndex: nonnegative,
+  chunkSize: positive,
+  chunkType: Schema.Literals(['text', 'sentence', 'recursive']),
+  endOffset: nonnegative,
+  startOffset: nonnegative,
+  tokenCount: positive,
+};
+export const providedChunkSchema = Schema.Struct({
+  ...producerFields,
+  content: nonblank,
+  contentHash: hash,
+  endLine: positive,
+  startLine: positive,
 });
+export type ProvidedChunk = typeof providedChunkSchema.Type;
+export const providedSnapshotSchema = Schema.Struct({
+  ...snapshotFields,
+  providedChunks: Schema.Array(providedChunkSchema),
+});
+export type ProvidedFileSnapshot = typeof providedSnapshotSchema.Type;
+export const snapshotSchema = Schema.Union([
+  Schema.Struct({ ...snapshotFields, chunkLines: positive }),
+  providedSnapshotSchema,
+]);
 export type FileSnapshot = typeof snapshotSchema.Type;
+const chunkMetadata = {
+  chunkIndex: Schema.NullOr(nonnegative),
+  chunkSize: Schema.NullOr(positive),
+  chunkType: Schema.NullOr(producerFields.chunkType),
+  endOffset: Schema.NullOr(nonnegative),
+  startOffset: Schema.NullOr(nonnegative),
+  tokenCount: Schema.NullOr(positive),
+};
 export const chunkSchema = Schema.Struct({
+  ...chunkMetadata,
   chunkId: hash,
   content: Schema.String,
   contentHash: hash,
@@ -96,8 +129,10 @@ export const searchSchema = Schema.Struct({
 });
 export type SearchRequest = typeof searchSchema.Type;
 export const hitSchema = Schema.Struct({
+  ...chunkMetadata,
   chunkId: hash,
   content: Schema.String,
+  contentHash: hash,
   endLine: positive,
   fileId: nonblank,
   relativePath: nonblank,
