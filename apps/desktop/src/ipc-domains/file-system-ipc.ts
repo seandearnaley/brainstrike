@@ -304,7 +304,19 @@ function toFileReadErrorPayload(error: unknown, filePath: string): FileReadError
   return null;
 }
 
-export function registerFileSystemIpcHandlers({
+export interface FileSystemIpcDomain {
+  close(): Promise<void>;
+  readonly roots: WorkspaceRootRegistry;
+  unregister(): void;
+}
+
+export function registerFileSystemIpcHandlers(
+  options: RegisterFileSystemIpcHandlersOptions
+): () => Promise<void> {
+  return createFileSystemIpcDomain(options).close;
+}
+
+export function createFileSystemIpcDomain({
   disposeCommandSessionsForRoot = disposeDesktopCommandSessionsForRoot,
   evictLspServersForRoot: evictLspServersForRootOverride,
   fileSystem,
@@ -314,7 +326,7 @@ export function registerFileSystemIpcHandlers({
   onWorkspaceRootGranted,
   storage,
   workspaceRootRegistryFileSystemSeams,
-}: RegisterFileSystemIpcHandlersOptions): () => void {
+}: RegisterFileSystemIpcHandlersOptions): FileSystemIpcDomain {
   const notifyRootGranted = (grantedPath: string): void => {
     try {
       onWorkspaceRootGranted?.(grantedPath);
@@ -600,9 +612,20 @@ export function registerFileSystemIpcHandlers({
 
     saveLastFolder: async (folderPath: string) => roots.setLastFolder(folderPath),
   });
-  return () => {
-    registry.unregisterAll();
-    roots.dispose();
-    syntheticFileSystemClassifications.clear();
+  return {
+    close: async (): Promise<void> => {
+      const results = await Promise.allSettled(
+        [() => registry.unregisterAll(), () => roots.dispose()].map(async (retire) => retire())
+      );
+      const errors = results.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : []
+      );
+      if (errors.length > 0) {
+        throw new AggregateError(errors, 'Filesystem IPC owners did not retire.');
+      }
+      syntheticFileSystemClassifications.clear();
+    },
+    roots,
+    unregister: () => registry.unregisterAll(),
   };
 }

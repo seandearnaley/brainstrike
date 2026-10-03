@@ -12,7 +12,10 @@ import {
 
 vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
 
-import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
+import {
+  createFileSystemIpcDomain,
+  registerFileSystemIpcHandlers,
+} from '../../ipc-domains/file-system-ipc';
 import { assignWindowRole, clearWindowRoleByWebContentsId } from '../../window-role';
 import {
   createFileSystem,
@@ -54,6 +57,26 @@ describe('file system IPC domain', () => {
       storage,
     });
   }
+
+  it('joins mounted-root disposal even when handler removal throws', async () => {
+    const domain = createFileSystemIpcDomain({
+      fileSystem,
+      getRootsDatabase,
+      isSyntheticFileSystemPath: () => true,
+      storage,
+    });
+    const dispose = vi.spyOn(domain.roots, 'dispose').mockResolvedValue(undefined);
+    const failure = new Error('Filesystem handler removal failed.');
+    removeHandler.mockImplementationOnce(() => {
+      throw failure;
+    });
+
+    await expect(domain.close()).rejects.toMatchObject({
+      errors: expect.arrayContaining([failure]),
+      name: 'AggregateError',
+    });
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
 
   it('selects, mounts, persists, and stamps a root through the legacy picker channel', async () => {
     register();

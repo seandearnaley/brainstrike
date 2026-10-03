@@ -129,6 +129,7 @@ import { registerFileExportsIpcHandlers } from './ipc-file-exports';
 import { registerGitIpcHandlers } from './ipc-git';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
+  createApplicationIpcDomain,
   getDesktopDatabaseWorkScheduler,
   getDesktopDatabaseWorkSchedulerSnapshot,
   registerIpcHandlers,
@@ -584,6 +585,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       'embedding-host': async () => {
         await embeddingHostManager.dispose();
       },
+      'file-system': () => applicationIpcDomain.close(),
       // Its own step, deliberately NOT nested inside 'git-inventory':
       // `gitInventoryService.stop()`'s final `await toDispose.disposeAll()` is
       // unguarded, and the shutdown sequence catches a rejection at the step
@@ -906,27 +908,31 @@ ipcDisposers.add(
 );
 
 // Register IPC handlers early to avoid renderer calls racing registration during startup.
-ipcDisposers.add(
-  'main',
-  registerIpcHandlers(fileSystem, storage, getSettingsStore, {
-    chunkingHostManager,
-    embeddingHostManager,
-    getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
-    managedWorktreeAuthorizer: async (candidate) => {
-      if (worktreeService && (await worktreeService.isManagedWorktreePath(candidate))) {
-        return 'authorized';
-      }
-      const settings = await readWorktreeSettings(storage, app.getPath('home'));
-      return isPathWithin(candidate, settings.managedDirectory)
-        ? 'managed-but-unauthorized'
-        : 'unmanaged';
-    },
-    onResetLocal: handleResetLocal,
-    onWorkspaceRootGranted: (grantedPath: string) => {
-      pendingRootGrantSubscriber?.(grantedPath);
-    },
-  })
-);
+const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, getSettingsStore, {
+  chunkingHostManager,
+  embeddingHostManager,
+  getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
+  managedWorktreeAuthorizer: async (candidate) => {
+    if (worktreeService && (await worktreeService.isManagedWorktreePath(candidate))) {
+      return 'authorized';
+    }
+    const settings = await readWorktreeSettings(storage, app.getPath('home'));
+    return isPathWithin(candidate, settings.managedDirectory)
+      ? 'managed-but-unauthorized'
+      : 'unmanaged';
+  },
+  onResetLocal: handleResetLocal,
+  onWorkspaceRootGranted: (grantedPath: string) => {
+    pendingRootGrantSubscriber?.(grantedPath);
+  },
+});
+ipcDisposers.add('main', () => {
+  // The graceful filesystem step joins physical retirement. This late ledger
+  // entry repeats idempotent bookkeeping and reports any retained cleanup error.
+  applicationIpcDomain.close().catch((error: unknown) => {
+    logger.error('Application IPC domain cleanup failed during will-quit', { error });
+  });
+});
 ipcDisposers.add('chunking-host', registerChunkingHostIpcHandlers(chunkingHostManager));
 ipcDisposers.add('parser-host', registerParserHostIpcHandlers(parserHostManager));
 ipcDisposers.add('embedding-host', registerEmbeddingHostIpcHandlers(embeddingHostManager));

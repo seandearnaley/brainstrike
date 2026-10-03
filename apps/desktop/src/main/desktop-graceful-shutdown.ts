@@ -17,6 +17,7 @@ export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'renderers',
   'assistant-server',
   'mcp-runtime',
+  'file-system',
   'chunking-host',
   'parser-host',
   'embedding-host',

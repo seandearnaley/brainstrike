@@ -125,9 +125,15 @@ Guard: `packages/canonical-ingestion/__tests__/vector-host.test.ts`, `packages/c
 - Run workspace discovery, bounded secure reads and the existing `WorkspaceIndexingCoordinator` in `CanonicalWorkspaceIngestionRuntime`; borrow narrow operations from the same main-owned pinned mount. Paths, root IDs and projections never acquire a new native root.
 - Forward batches and health from the existing main Parcel producer. Promote native watch work to full affected-root metadata reconciliation, force changed file reads, and preserve unchanged native-covered stat skips; readiness still uses the complete writer manifest predicate.
 - Join admitted listing/read/iterator/subscription work before releasing a borrow. Preserve failed unsubscribe ownership for explicit retry, including `ParcelWatchRetirementError.retire()` when late timed-out acquisition succeeds but cleanup fails. Rejected acquisition joins event work and reports startup errors without an unsubscribe retry owner. Borrow retirement never closes the shared mount.
+- Borrow from the application's actual mounted-root registry with exact durable ID,
+  mounted-object identity and generation fences before and after native operations.
+  Root removal, replacement and registry disposal join borrows before closing mounts.
 
 Evidence: `indexer/2026-10-03-borrowed-workspace-source.md`.
 Guard: `packages/canonical-ingestion/__tests__/workspace-source.test.ts`, `packages/canonical-ingestion/__tests__/workspace-source-child.integration.test.ts`, `packages/file-system/src/__tests__/parcel-watch-retirement.test.ts`.
+Evidence: `platform-contracts/2026-10-03-mounted-source-retirement.md`.
+Guard: `apps/desktop/src/__tests__/ipc-domains/workspace-root-source-lease.test.ts`,
+`apps/desktop/src/__tests__/ipc-domains/workspace-root-source-lease.integration.test.ts`.
 
 ### Persistence and qualification
 
