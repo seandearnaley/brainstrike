@@ -9,6 +9,7 @@ import type {
   CanonicalWorkspaceLease,
 } from '@brainstrike/canonical-ingestion';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
+import { getFileSizeConfig } from '@brainstrike/file-system';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { Schema } from 'effect';
@@ -454,7 +455,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       request: {
         batchSize: 64,
         chunkingOptions: { strategy: 'auto' as const },
-        maxFileBytes: 10 * 1024 * 1024,
+        maxFileBytes: getFileSizeConfig().maxFileSize,
       },
     };
     const pipeline = (

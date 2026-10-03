@@ -8,12 +8,18 @@ import type {
   CanonicalWorkspaceRuntimeDependencies,
 } from '@brainstrike/canonical-ingestion';
 import {
+  DEFAULT_MAX_FILE_SIZE,
+  resetFileSizeConfig,
+  setFileSizeConfig,
+} from '@brainstrike/file-system';
+import { readResolvedWorkspaceFile } from '@brainstrike/file-system/secure-file-read';
+import {
   type IndexerPort,
   type ScopedFilePlan,
   type ScopedIndexerPort,
   vectorProfileHash,
 } from '@brainstrike/indexer';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
@@ -156,6 +162,43 @@ beforeEach(() => {
   mocks.closeReaders.mockResolvedValue(undefined);
   mocks.closeProfile.mockResolvedValue(undefined);
 });
+
+afterEach(resetFileSizeConfig);
+
+it.each([DEFAULT_MAX_FILE_SIZE, 4096])(
+  'activates ordinary TEXT source reads with the actual configured %i-byte limit',
+  async (maxFileSize) => {
+    setFileSizeConfig({ maxFileSize });
+    const readFile = vi.fn(async (_relativePath: string, _maxBytes: number) => ({
+      content: Buffer.from('ordinary source'),
+      status: 'ok' as const,
+    }));
+    mocks.manager.attachCanonicalCollection.mockImplementation(
+      async (dependencies: CanonicalCollectionDependencies) => {
+        const content = await readResolvedWorkspaceFile(
+          '/workspace/ordinary.txt',
+          {
+            mounted: { root: { readFile } },
+            relativePath: 'ordinary.txt',
+            traversedSymlink: false,
+          },
+          dependencies.request.maxFileBytes
+        );
+        expect(content).toBe('ordinary source');
+        return emptyCollection(dependencies);
+      }
+    );
+    const { activation, onReceipt, transport } = fixture();
+    try {
+      await activation.acquire();
+      expect(readFile).toHaveBeenCalledExactlyOnceWith('ordinary.txt', maxFileSize);
+      expect(onReceipt).toHaveBeenCalledOnce();
+      expect(transport.documentEmbeddings).not.toHaveBeenCalled();
+    } finally {
+      await activation.close();
+    }
+  }
+);
 
 it('closes an admitted initial collection scan before joining startup, and joins physical retirement', async () => {
   const scan = Promise.withResolvers<CanonicalScanReceipt>();
