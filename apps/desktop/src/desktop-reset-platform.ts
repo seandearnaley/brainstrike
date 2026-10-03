@@ -1,3 +1,5 @@
+import type { ProfileResetLease } from '@brainstrike/host-lease';
+import { RootLock } from '@brainstrike/state-store';
 import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
 import { clearBrowserPaneSession } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
@@ -23,7 +25,8 @@ export interface CreateDesktopFactoryResetHandlerOptions {
    * outside `userDataPath` and inside the otherwise-preserved `logs` folder. */
   readonly errorLogFilePaths?: readonly string[];
   readonly logger: DesktopResetLogger;
-  readonly resetLocalDatabase: () => Promise<void>;
+  readonly prepareDatabaseProfileReset?: () => Promise<ProfileResetLease>;
+  readonly resetLocalDatabase: (lease?: ProfileResetLease) => Promise<void>;
   /** Clears the long-lived main-process storage cache after userData has been
    * deleted, before a replacement renderer can read or repersist stale data. */
   readonly resetPersistentStorageAfterDataDeletion: () => Promise<void>;
@@ -133,6 +136,10 @@ export function createDesktopFactoryResetHandler({
   completeSuccessfulReset,
   errorLogFilePaths,
   logger,
+  prepareDatabaseProfileReset = async () => {
+    const database = await import('./db-main');
+    return await database.prepareDatabaseProfileReset();
+  },
   resetLocalDatabase,
   resetPersistentStorageAfterDataDeletion,
   resumeAfterReset,
@@ -141,6 +148,7 @@ export function createDesktopFactoryResetHandler({
   userDataPath,
   waitForDatabaseWorkSchedulerIdle,
 }: CreateDesktopFactoryResetHandlerOptions): () => Promise<DesktopFactoryResetResult> {
+  let profileResetLease: ProfileResetLease | null = null;
   const runReset = async (): Promise<DesktopFactoryResetResult> => {
     let failure: ResetFailure = NO_RESET_FAILURE;
     let resetDataSucceeded = false;
@@ -148,10 +156,19 @@ export function createDesktopFactoryResetHandler({
     try {
       await resetDesktopApplicationData({
         ...(errorLogFilePaths === undefined ? {} : { errorLogFilePaths }),
+        getProtectedPaths: () => {
+          if (!profileResetLease || profileResetLease.isReleased) {
+            throw new Error('Desktop factory reset requires an owned profile reset lease');
+          }
+          return [RootLock.dirOf(profileResetLease.root)];
+        },
         resetDatabaseProfile: async () => {
           await resetDesktopDatabaseProfile({
             cleanupLiveSubscriptionsForShutdown,
-            resetLocalDatabase,
+            resetLocalDatabase: async () => {
+              profileResetLease ??= await prepareDatabaseProfileReset();
+              await resetLocalDatabase(profileResetLease);
+            },
             runWithDatabaseResetBarrier,
             waitForDatabaseWorkSchedulerIdle,
           });
@@ -172,6 +189,8 @@ export function createDesktopFactoryResetHandler({
       });
       resetDataSucceeded = true;
       await resetPersistentStorageAfterDataDeletion();
+      profileResetLease?.release();
+      profileResetLease = null;
       await completeSuccessfulReset();
       rendererReplacementSucceeded = true;
     } catch (error) {

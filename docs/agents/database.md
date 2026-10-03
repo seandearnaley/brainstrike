@@ -599,6 +599,16 @@ which proves the patched loop is under test before it simulates a trap.
   cleanup, and in-host live-unsubscribe as barrier → unsubscribe → idle → unsubscribe
   again → reset. Keep `db-host-entry.ts` strictly serial; that seriality is what makes
   desktop overlap impossible.
+- Profile reset joins the legacy owner, then awaits
+  `prepareDatabaseProfileReset({ retireProfileOwner })`'s owned-host retirement
+  callback, then acquires its authoritative reset lease. A failed retirement
+  keeps legacy admission closed and retains its owner callback/cause for retry. Keep new legacy opens refused until release; clearing yields while the
+  guard is held. `prepareDatabaseProfileReset` retains the owner on failure and
+  returns it for retry, and `resetLocalDatabase(lease)` borrows it without release.
+  Standalone developer reset acquires the same guard and releases only on success.
+  Guard: `apps/desktop/src/__tests__/main/db-main.close.test.ts` and
+  `apps/desktop/src/__tests__/main/db-main.remote-reset.test.ts`.
+  Evidence: `platform-contracts/desktop-profile-reset-lease.md`.
 - Web mirrors those seams in `packages/db/src/db-reset-drain.ts` — a reset-barrier
   scheduler facade (reset-internal statements MUST run on the raw connection, never the
   scheduled handle), `waitForDatabaseWorkSchedulerIdle`, and a provider-level live-query

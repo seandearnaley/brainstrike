@@ -226,12 +226,14 @@ never used. Wiping the database alone is not enough.
   auth, and MCP bearer resolution, and the transport caches no token material, so
   the existing `clearAll` is the complete reset authority. Token caching would
   change this contract and its tests together.
-- Desktop userData is wiped wholesale, so the main-process storage keys, the
+- Desktop userData is wiped except for logs and the active reset lock namespace
+  plus its ancestor directories. Purge all other entries inside those ancestors;
+  preserving an ancestor never preserves its unrelated data. The main-process storage keys, the
   bundled CPython unpack directory, and the shadow-git dirs need no per-key
   wiring. If one moves outside `userData`, or `logs` gains a preserved sibling,
   it needs explicit wiring and an update here. The database root is inside
   `userData` only in test runs and on packaged macOS; reset closes the DB host and
-  deletes the profile before any wipe (`database.md` § "DESKTOP DATABASE
+  clears the profile under an authoritative `ProfileResetLease` before any wipe (`database.md` § "DESKTOP DATABASE
   LOCATION"; guard `main/desktop-factory-reset-packaged-layout.test.ts`).
 - The renderer `storage:*` bridge cannot mutate the root, recents, or vault
   authority keys: `setItem`/`removeItem` reject them by exact key, `setItem`
@@ -274,12 +276,29 @@ never used. Wiping the database alone is not enough.
   `getFactoryResetOnlyTables()` and issues a targeted
   `DELETE … WHERE is_default = FALSE` for the MIXED `view_filter_presets`, so
   user presets converge with desktop while migration seeds survive.
-- Desktop factory reset is deliberately different: `resetLocalDatabase` closes
-  the database and recursively deletes the active profile directory (which also holds
-  `.db-init-attempt.json`) — do not add a redundant SQL purge there. Closing the default DB host manager permanently
-  retires that owner, retained `RemoteDbClient` methods reject afterwards, and
-  Mastra memory's caches key on database object identity, so a retired owner
-  fails visibly instead of writing into the replacement profile.
+- Desktop factory reset closes legacy PG, awaits the owned-host retirement
+  callback, then acquires the authoritative profile reset lease. Failed
+  retirement keeps legacy admission closed and retains its callback/cause.
+- Clear all profile data (including `.db-init-attempt.json` and native files)
+  while preserving `RootLock.dirOf(root)` and its ancestors through userData and
+  Electron-storage purge. Release only after the destructive phase succeeds;
+  critical errors retain an accessible owner for retry, and a live external host
+  refuses acquisition before profile deletion. Never recursively remove the
+  profile afterward or add a redundant SQL purge.
+- Developer reset uses the same lease and releases only after its profile clear
+  succeeds. Refuse new legacy opens until release. Reset backups exclude the
+  coordination lock and the existing engine-upgrade backups. The reported
+  pending-trash/NDJSON policy remains unchanged.
+- Closing the default DB host manager permanently retires that owner, retained
+  `RemoteDbClient` methods reject afterwards, and Mastra memory's caches key on
+  database object identity, so a retired owner fails visibly instead of writing
+  into the replacement profile.
+
+Evidence: `platform-contracts/desktop-profile-reset-lease.md`.
+Guard: `main/desktop-factory-reset-packaged-layout.test.ts`,
+`desktop-reset-profile-lease.test.ts`, `main/db-main.close.test.ts`,
+`main/desktop-reset-lease-electron.integration.test.ts`.
+
 - **A relation that can legitimately be ABSENT must be PROBED, not
   deleted-and-caught.** Use `SELECT to_regclass('<table>') IS NOT NULL AS
   present` and skip the `DELETE` when absent. Why: each path runs in ONE
