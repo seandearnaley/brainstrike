@@ -38,3 +38,12 @@ These checks establish this boundary on Mac arm64, not full product integration,
 Linux/Windows packaging, corpus throughput or a passing retrieval-quality gate.
 The earlier corpus measurement remains pinned to a03a8fec and its schema2 runtime;
 it is not reassigned to this layer. Hosted CI remains disabled due to cost.
+
+Follow-up raw-row decoder: the separate query host owns node:sqlite DatabaseSync,
+so accepting a better-sqlite3 connection alone would duplicate metadata validation.
+The metadata subpath also exports decodeIndexIdentityRow(input), accepting exact
+schemaVersion/storeId/indexMode/profileJson/profileHash fields from its existing
+snapshot. readIndexIdentity delegates to that decoder. This is driver-neutral
+within the Node-only package, retaining synchronous complete-profile SHA checks.
+The browser receives only validated DTOs. Paired RED/GREEN checks cover text and
+configured rows plus missing, malformed, older-schema and disagreeing hash data.

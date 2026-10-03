@@ -46,15 +46,10 @@ export function freshIdentity(options: IndexerOptions): IndexerIdentity {
     storeId: randomBytes(32).toString('hex'),
   };
 }
-export function readIndexIdentity(db: Database.Database): IndexerIdentity {
+/** Driver-neutral row boundary; the supplied metadata must come from the caller's owned snapshot. */
+export function decodeIndexIdentityRow(input: unknown): IndexerIdentity {
   try {
-    const row = decoder(metadataSchema)(
-      db
-        .prepare(
-          'SELECT schema_version AS schemaVersion,store_id AS storeId,index_mode AS indexMode,profile_json AS profileJson,profile_hash AS profileHash FROM index_metadata WHERE singleton=1'
-        )
-        .get()
-    );
+    const row = decoder(metadataSchema)(input);
     if (row.schemaVersion !== INDEX_SCHEMA_VERSION) {
       throw new Error('Derived schema changed.');
     }
@@ -76,6 +71,25 @@ export function readIndexIdentity(db: Database.Database): IndexerIdentity {
     throw new IndexerError(
       'rebuild-required',
       `Existing index metadata is invalid: ${error instanceof Error ? error.message : String(error)}; explicitly rebuild in a new index file.`
+    );
+  }
+}
+export function readIndexIdentity(db: Database.Database): IndexerIdentity {
+  try {
+    return decodeIndexIdentityRow(
+      db
+        .prepare(
+          'SELECT schema_version AS schemaVersion,store_id AS storeId,index_mode AS indexMode,profile_json AS profileJson,profile_hash AS profileHash FROM index_metadata WHERE singleton=1'
+        )
+        .get()
+    );
+  } catch (error) {
+    if (error instanceof IndexerError) {
+      throw error;
+    }
+    throw new IndexerError(
+      'rebuild-required',
+      `Existing index metadata cannot be read: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 }
