@@ -17,42 +17,35 @@
 // parses the matrix and asserts the partition holds, converting a comment-only
 // invariant into a checked contract.
 
+import { parse as parseYaml } from 'yaml';
+
 const PKG = /@brainstrike\/([a-z0-9-]+)/;
 
 /**
- * Extracts the `unit-shard` matrix include block and returns, per shard, the
+ * Extracts the full Unit matrix passed to affected selection and returns, per shard, the
  * positive and negation @brainstrike package-name sets for both pr and push
  * filter modes.
  * @param {string} yamlText full contents of test.yml
  * @returns {{ shard: string, partition: string, vitestShard: {index: number, count: number} | null, pr: {positives: string[], negations: string[]}, push: {positives: string[], negations: string[]} }[]}
  */
 export function parseUnitShardMatrix(yamlText) {
-  const includeStart = yamlText.indexOf('matrix:');
-  if (includeStart === -1) {
-    throw new Error('unit-shard matrix block not found in workflow');
+  const workflow = parseYaml(yamlText);
+  const selection = workflow.jobs.static.steps.find((step) => step.id === 'unit-shards');
+  const matrix = JSON.parse(selection.env.UNIT_MATRIX);
+  if (!Array.isArray(matrix.include) || matrix.include.length === 0) {
+    throw new Error('no Unit matrix rows found in workflow');
   }
-  // The matrix lives between `matrix:` and the job's `steps:` key (4-space
-  // indent). Slicing to `\n    steps:` keeps later jobs' filters out of scope.
-  const stepsIdx = yamlText.indexOf('\n    steps:', includeStart);
-  const block = yamlText.slice(includeStart, stepsIdx === -1 ? undefined : stepsIdx);
-
-  // Split into per-shard chunks on the `- shard: <name>` list markers.
-  const parts = block.split(/-\s*shard:\s*/).slice(1);
-  if (parts.length === 0) {
-    throw new Error('no `- shard:` entries found in unit-shard matrix');
-  }
-
-  return parts.map((part) => {
-    const shard = part.split('\n', 1)[0].trim();
-    const partition = scalarKey(part, 'partition');
-    if (!partition) {
+  return matrix.include.map((row) => {
+    const shard = row.shard;
+    const partition = row.partition;
+    if (typeof partition !== 'string' || !partition) {
       throw new Error(`unit-shard matrix row "${shard}" has no explicit partition`);
     }
-    const rawVitestShard = scalarKey(part, 'vitest_shard');
-    if (rawVitestShard === null) {
+    const rawVitestShard = row.vitest_shard;
+    if (typeof rawVitestShard !== 'string') {
       throw new Error(`unit-shard matrix row "${shard}" has no explicit vitest_shard`);
     }
-    const vitestShard = unquote(rawVitestShard);
+    const vitestShard = rawVitestShard;
     const shardMatch = /^(\d+)\/(\d+)$/u.exec(vitestShard);
     if (vitestShard !== '' && !shardMatch) {
       throw new Error(
@@ -60,8 +53,8 @@ export function parseUnitShardMatrix(yamlText) {
           'expected empty or exactly "i/N"'
       );
     }
-    const prBlock = sliceKey(part, 'pr_filters', 'push_filters');
-    const pushBlock = sliceKey(part, 'push_filters', null);
+    const prBlock = row.pr_filters;
+    const pushBlock = row.push_filters;
     return {
       partition,
       pr: classifyFilters(prBlock),
@@ -72,31 +65,6 @@ export function parseUnitShardMatrix(yamlText) {
         : null,
     };
   });
-}
-
-function scalarKey(text, key) {
-  const match = new RegExp(`^\\s*${key}:\\s*(.*?)\\s*$`, 'mu').exec(text);
-  return match?.[1] ?? null;
-}
-
-function unquote(value) {
-  if (
-    value.length >= 2 &&
-    ((value.startsWith("'") && value.endsWith("'")) ||
-      (value.startsWith('"') && value.endsWith('"')))
-  ) {
-    return value.slice(1, -1);
-  }
-  return value;
-}
-
-function sliceKey(text, key, nextKey) {
-  const start = text.indexOf(`${key}:`);
-  if (start === -1) {
-    return '';
-  }
-  const end = nextKey ? text.indexOf(`${nextKey}:`, start) : -1;
-  return text.slice(start, end === -1 ? undefined : end);
 }
 
 function classifyFilters(text) {

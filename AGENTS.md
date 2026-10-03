@@ -53,7 +53,7 @@ Index: `docs/adr/` (0001–0017).
 3. **Third strike stops patching.** The third fix to the same bug class or ticket stops work: write a one-page root-cause note, get the owner's approval, then change the design.
 4. **Numbers before gates.** No new scheduler, budget, throttle, retry or timeout without before/after foreground p95 from the loaded benchmark.
 5. **Test the real shape.** Fixtures come from recorded runtime payloads. No test asserts prose, doc line counts, workflow YAML or source text.
-6. **Red blocks the merge button.** The full regression suites are required checks. A failing spec is fixed or quarantined against an owner-held ticket. Never delete a spec to get green.
+6. **Red blocks the merge button.** The full regression suites must pass local validation while cloud CI is disabled. A failing spec is fixed or quarantined against an owner-held ticket. Never delete a spec to get green.
 7. **Alerts must reach a human.** Every automated alert lands in Linear and is acknowledged, or the automation is switched off.
 8. **Done means demonstrated.** Done is the behaviour shown working in the running app with the full regression green. "Checks green and threads resolved" is not done.
 9. **One review pass.** Bots never block. Fix only owner-confirmed correctness or data-loss findings on product code, in the same PR. No tickets or PRs from bot comments.
@@ -77,11 +77,12 @@ Index: `docs/adr/` (0001–0017).
 - Desktop E2E can be flaky headless — diagnose, don't bypass.
 - Agent-driven Electron renderer debugging (opt-in only, never in default E2E): `pnpm --filter @brainstrike/desktop dev:agent-debug`.
 
-## CI
+## CI — disabled due to cost
 
-- Plain GitHub Actions. No CI *routing* labels, no generated proof artifacts, no custom planner/registry — do not reintroduce them. (Sole exception: the `coverage` label on-demand-triggers the advisory `coverage.yml`; see `docs/agents/ci-quality.md`.) Required PR checks come from `.github/workflows/test.yml`; web + desktop E2E smoke run on every PR; full E2E regression (web, and desktop in two shards) on every PR, schedule and dispatch, with known-red specs quarantined against owner-held tickets.
-- Claude review coverage requires an exact-head completed disposition and actual review content. Self-change skips and incomplete actions are not completed reviews. Use the trusted targeted invocation in `docs/agents/ci-quality.md`; never close/reopen a PR or restart Test merely to request review.
-- React Doctor runs on every PR (`scope: changed` — only NEWLY introduced error-severity issues block). Local: `pnpm run react-doctor`. Its config invariants are pinned in `docs/agents/ci-quality.md`.
+- GitHub Actions and every workflow are disabled. Do not enable workflows, dispatch runs, request automated reviews, rerun checks, or add CI without the user's explicit authorization. Preserved workflow definitions are references for local validation, not active gates.
+- Test locally before handing off changes. Use `pnpm check` for the default validation plan and relevant package tests while iterating; use `pnpm check --full` when the change needs coverage or full E2E regression. A reduced run is not a full pass: report omitted checks and platform limitations.
+- Every handoff and PR description must say: **CI is disabled due to cost; validation must run locally.** List the actual local commands, their results, and any checks that remain unverified. Never claim absent or skipped CI is green.
+- Keep the PR and history protections. Required CI status checks are removed from the default and integration branch rulesets so disabled workflows cannot block merges. Follow `docs/agents/ci-quality.md` for the retained local validation and tooling contracts.
 
 # Ultracite Code Standards
 

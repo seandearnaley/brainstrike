@@ -71,18 +71,18 @@ test('the real unit-shard matrix is a valid partition', () => {
   assert.equal(
     [...workflow.matchAll(/TURBO_SCM_BASE: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/gu)]
       .length,
-    2
+    3
   );
-  assert.equal([...workflow.matchAll(/TURBO_SCM_HEAD: \$\{\{ github\.sha \}\}/gu)].length, 2);
+  assert.equal([...workflow.matchAll(/TURBO_SCM_HEAD: \$\{\{ github\.sha \}\}/gu)].length, 3);
   assert.equal(
     [...workflow.matchAll(/matrix\.pr_filters \}\} --affected --concurrency=/gu)].length,
     2
   );
   assert.doesNotMatch(workflow, /matrix\.test_args|-- --shard=/u);
-  assert.match(workflow, /unit:\n\s+name: Unit[\s\S]*?needs: \[admission, unit-shard\]/u);
+  assert.match(workflow, /unit:\n\s+name: Unit[\s\S]*?needs: \[admission, static, unit-shard\]/u);
   assert.match(
     workflow,
-    /SHARD_RESULT: \$\{\{ needs\.unit-shard\.result \}\}[\s\S]*?if \[ "\$SHARD_RESULT" != "success" \]/u
+    /SHARD_RESULT: \$\{\{ needs\.unit-shard\.result \}\}[\s\S]*?\[ "\$SHARD_RESULT" != "success" \]/u
   );
   const failures = validateUnitShardPartition(matrix);
   assert.deepEqual(
@@ -232,7 +232,7 @@ test('flags native Vitest shard-count drift', () => {
 });
 
 test('money test: malformed native shard environment value fails parsing loudly', () => {
-  const mutated = workflow.replace('vitest_shard: 1/2', 'vitest_shard: shard-one');
+  const mutated = workflow.replace('"vitest_shard": "1/2"', '"vitest_shard": "shard-one"');
   assert.notEqual(mutated, workflow, 'the control mutation must change the real workflow');
   assert.throws(() => parseUnitShardMatrix(mutated), /malformed vitest_shard "shard-one"/);
 });

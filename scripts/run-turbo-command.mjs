@@ -4,10 +4,12 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createSpawnInvocation } from './spawn-command.mjs';
 
 const DEFAULT_TURBO_CACHE_MAX_BYTES = 25 * 1024 * 1024 * 1024;
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// Match turbo-boundaries.mjs: the installed Node entrypoint needs neither PATH
+// discovery nor a Windows .cmd shim/shell.
+const TURBO_ENTRY = path.join(REPO_ROOT, 'node_modules', 'turbo', 'bin', 'turbo');
 const NESTED_TURBO_RUN_LOCK_DIRNAME = 'nested-turbo-run.lock';
 const NESTED_RUN_LOCK_POLL_MS = 200;
 const NESTED_RUN_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
@@ -456,10 +458,9 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
   }
 
   try {
-    const invocation = createSpawnInvocation('turbo', args, platform);
-    const result = spawnSyncImpl(invocation.command, invocation.args, {
+    const result = spawnSyncImpl(process.execPath, [TURBO_ENTRY, ...args], {
       env: markDevDepsPrepared ? { ...env, [DEV_DEPS_PREPARED_ENV]: '1' } : env,
-      shell: invocation.shell,
+      shell: false,
       stdio: 'inherit',
     });
 
