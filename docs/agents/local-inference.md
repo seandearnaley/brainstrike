@@ -71,6 +71,58 @@ assertion or re-exposing the full storage bridge. Evidence:
 Guard: `vector-preferences-store.hidden-host.test.ts`,
 `vector-preferences-storage-key-contract.test.ts`, `storage-preferences-ipc.test.ts`.
 
+### Fused MiniLM input and batching
+
+- An explicit model revision reaches the vendor loader, isolates pipeline caches,
+  and must match the completion revision. Omitted revisions preserve existing behavior.
+- Request the fused export by its explicit `FUSED_MINILM_MODEL_ID`; never substitute
+  it for an existing model ID or reuse that model's derived vectors. Choose dtype
+  explicitly from that export's available assets; a missing dtype fails visibly.
+- Cap this export at 256 tokenizer tokens, including special tokens. Keep input
+  order and each inference batch within both the caller's count ceiling and 8192
+  padded tokens; stream completion reports the maximum observed batch size.
+
+Evidence: `local-inference/fused-minilm-worker.md`.
+Guard: `embedding-input-plan.spec.ts`, `streaming-worker-client-completion.spec.ts`,
+`pipeline-cache-controller.spec.ts`, `embedding-worker-protocol.test.ts`,
+`embedding-telemetry.spec.ts`, `transformers-backend.queue.test.ts`.
+
+### Explicit native vector request plan
+
+- Resolve a native vector identity only from an explicit renderer worker plan:
+  model, immutable revision, device, dtype and dimensions. The pinned export
+  resolver validates supported combinations and token caps; selected model
+  ID/key/dimensions alone establish neither revision nor actual dtype.
+- Native hidden-host query requests carry the full verified `inferencePlan`, matching
+  payload model ID and dimensions. Preserve revision through preload and scalar
+  queue projection; cache the full identity and initialize its explicit target
+  dimensions without legacy catalog or device-preference resolution.
+- Native document requests require the same verified plan and 1–64 unchanged
+  texts; use document `generateEmbeddings` semantics and preserve output order.
+  Query and document work share one FIFO, cache identity and physical inference
+  owner; the public document promise and pending identity settle only after completion or joined retirement on every outcome.
+- Preserve caller cancellation reasons; distinguish the host's exact cancel code from independent failures. Aggregate Stop and every failed destruction attempt in the shared retirement outcome before publishing document rejection. Sending cancel never proves settlement.
+- Keep AbortSignal in the caller renderer. The visible document bridge carries
+  a plain token; main authorizes the visible sender/frame and maps token cancellation
+  to the exact hidden runtime/request, including host startup. Refuse an unavailable
+  cancellation capability or failed delivery explicitly.
+- Require actual completion model, immutable revision, device, dtype, dimensions
+  and vector count to match pinned scalar requests, with no fallback. Missing or
+  mismatched metadata fails before returning a vector.
+- Forward the resolved worker plan unchanged to renderer inference. Refuse
+  unresolved or unsupported vector selections visibly without model substitution.
+  Text-only native store startup does not initialize or download an embedding model.
+
+Evidence: `local-inference/native-vector-request-plan.md`,
+`local-inference/native-hidden-query-plan.md`,
+`local-inference/native-hidden-document-plan.md`, `local-inference/document-transport-settlement.md`.
+Guard: `packages/embeddings/src/__tests__/inference-plan.test.ts`,
+`transformers-backend.queue.test.ts`, `packages/queue/src/__tests__/types.test.ts`,
+`embedding-host-shared.test.ts`, `embedding-host-runtime.test.tsx`,
+`preload-contract-bridges.test.ts`, `embedding-host-document-runtime.test.tsx`, `embedding-host-document-settlement.test.ts`,
+`renderer/document-embeddings.test.ts`, `main/ipc-embedding-host.test.ts`,
+`scripts/probe-pinned-query-embedding.mjs`, `scripts/probe-pinned-document-embeddings.mjs`.
+
 ### Job queue and embedding input hash
 
 - Reserve one runtime-wide in-flight budget before all `claimMany` loops (ceiling

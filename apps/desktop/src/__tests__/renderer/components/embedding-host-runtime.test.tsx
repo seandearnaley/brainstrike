@@ -14,11 +14,13 @@ import {
   currentDbRef,
   dbHandle,
   detectDeviceCapabilitiesMock,
+  disposeQueryEmbeddingServiceMock,
   embeddingCacheRepository,
   embeddingQueueBootstrapMock,
   ensureVectorPreferencesHydratedMock,
   generateQueryEmbeddingMock,
   getEmbeddingQueueMock,
+  initializeMock,
   initializeWithModelMock,
   installEmbeddingHostRuntimeFixture,
   queryEmbeddingListenerRef,
@@ -827,6 +829,96 @@ describe('EmbeddingHostRuntime', () => {
       expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
         expect.objectContaining({ requestId: 'embedding-query:telemetry-active' })
       );
+    });
+  });
+});
+
+describe('native pinned hidden renderer query', () => {
+  installEmbeddingHostRuntimeFixture();
+  const plan = {
+    device: 'wasm',
+    dimensions: 384,
+    dtype: 'q8',
+    modelId: 'Xenova/all-MiniLM-L6-v2',
+    revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+  } as const;
+  async function start(): Promise<(request: unknown) => void> {
+    storeState.hasHydrated = true;
+    render(<EmbeddingHostRuntime />);
+    await waitFor(() => expect(startEmbeddingWorkerMock).toHaveBeenCalled());
+    const listener = queryEmbeddingListenerRef.current;
+    if (!listener) {
+      throw new Error('Missing query listener');
+    }
+    dbHandle.query.mockClear();
+    ensureVectorPreferencesHydratedMock.mockClear();
+    return listener;
+  }
+  function request(
+    inferencePlan: typeof plan | (Omit<typeof plan, 'dtype'> & { dtype: 'fp32' }),
+    id: string
+  ): unknown {
+    return {
+      channel: 'query-embedding',
+      payload: {
+        dimensions: 384,
+        inferencePlan,
+        modelId: plan.modelId,
+        modelKey: 'native:minilm',
+        query: 'find callers',
+      },
+      requestId: id,
+      runtimeId: 'test-runtime',
+      type: 'request',
+    };
+  }
+  function result(dtype = 'q8') {
+    return {
+      dimensions: plan.dimensions,
+      embedding: Array.from({ length: 384 }, () => 0.1),
+      model: plan.modelId,
+      runtime: { device: 'wasm', dtype, fallbackApplied: false, revision: plan.revision },
+    };
+  }
+  it('uses exact pins without catalog/preferences reads and caches all plan fields', async () => {
+    const listener = await start();
+    generateQueryEmbeddingMock.mockResolvedValue(result());
+    listener(request(plan, 'pinned-1'));
+    await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(1));
+    expect(reportQueryEmbeddingResponseMock.mock.calls[0]?.[0]).toMatchObject({ type: 'result' });
+    expect(initializeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...plan,
+        modelConfig: expect.objectContaining({ dimensions: 384, id: plan.modelId }),
+      })
+    );
+    expect(initializeWithModelMock).not.toHaveBeenCalled();
+    expect(dbHandle.query).not.toHaveBeenCalled();
+    expect(ensureVectorPreferencesHydratedMock).not.toHaveBeenCalled();
+    listener(request(plan, 'pinned-2'));
+    await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(2));
+    expect(initializeMock).toHaveBeenCalledTimes(1);
+    generateQueryEmbeddingMock.mockResolvedValue(result('fp32'));
+    listener(request({ ...plan, dtype: 'fp32' }, 'pinned-3'));
+    await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(3));
+    expect(initializeMock).toHaveBeenCalledTimes(2);
+    expect(disposeQueryEmbeddingServiceMock).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    undefined,
+    { ...result().runtime, device: 'webgpu' },
+    { ...result().runtime, dtype: 'fp32' },
+    { ...result().runtime, fallbackApplied: true },
+    { ...result().runtime, revision: 'main' },
+    { device: 'wasm', dtype: 'q8', fallbackApplied: false },
+  ])('rejects absent or mismatched actual worker runtime %j', async (runtime) => {
+    const listener = await start();
+    generateQueryEmbeddingMock.mockResolvedValue({ ...result(), runtime });
+    listener(request(plan, 'bad-runtime'));
+    await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(1));
+    expect(reportQueryEmbeddingResponseMock.mock.calls[0]?.[0]).toMatchObject({
+      payload: { message: expect.stringContaining('pinned') },
+      type: 'error',
     });
   });
 });

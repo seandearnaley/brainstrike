@@ -679,6 +679,16 @@ export function createEmbeddingHostDocumentEmbeddingsErrorReport(
     type: 'error',
   };
 }
+
+export const EMBEDDING_HOST_DOCUMENT_CANCELED_CODE = 'EMBEDDING_HOST_DOCUMENT_CANCELED';
+
+/** Only the exact document cancel listener creates this reason; terminal serialization retains its code. */
+export function createEmbeddingHostDocumentCancellationError(): Error {
+  return Object.assign(new Error('Embedding host document request was canceled.'), {
+    code: EMBEDDING_HOST_DOCUMENT_CANCELED_CODE,
+    name: 'AbortError',
+  });
+}
 export function assertEmbeddingHostDocumentEmbeddingsResponseReport(
   value: unknown
 ): EmbeddingHostDocumentEmbeddingsResponseReport {

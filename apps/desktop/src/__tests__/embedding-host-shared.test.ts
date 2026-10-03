@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   assertEmbeddingHostCommand,
+  assertEmbeddingHostDocumentEmbeddingsPayload,
+  assertEmbeddingHostDocumentEmbeddingsResponseReport,
   assertEmbeddingHostQueryEmbeddingCancel,
+  assertEmbeddingHostQueryEmbeddingPayload,
   assertEmbeddingHostStatus,
   createEmbeddingHostCommand,
+  createEmbeddingHostDocumentCancellationError,
+  createEmbeddingHostDocumentEmbeddingsErrorReport,
+  createEmbeddingHostDocumentEmbeddingsRequest,
   createEmbeddingHostQueryEmbeddingCancel,
   createEmbeddingHostQueryEmbeddingRequest,
+  EMBEDDING_HOST_DOCUMENT_CANCELED_CODE,
 } from '../embedding-host-shared';
 
 describe('embedding host shared command helpers', () => {
@@ -167,5 +174,99 @@ describe('embedding host shared command helpers', () => {
         state: 'running',
       })
     ).toThrow('Embedding telemetry batchTransfer.lastBytes must be a non-negative finite number.');
+  });
+});
+
+describe('explicit native query inference plan', () => {
+  const inferencePlan = {
+    device: 'wasm',
+    dimensions: 384,
+    dtype: 'q8',
+    modelId: 'Xenova/all-MiniLM-L6-v2',
+    revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+  } as const;
+  const payload = {
+    dimensions: 384,
+    inferencePlan,
+    modelId: inferencePlan.modelId,
+    modelKey: 'native:minilm',
+    query: 'find callers',
+  };
+
+  it('preserves the verified plan unchanged', () => {
+    expect(assertEmbeddingHostQueryEmbeddingPayload(payload)).toEqual(payload);
+  });
+  it.each([
+    { inferencePlan: null },
+    { inferencePlan: { ...inferencePlan, revision: undefined } },
+    { inferencePlan: { ...inferencePlan, device: undefined } },
+    { inferencePlan: { ...inferencePlan, dtype: undefined } },
+    { inferencePlan: { ...inferencePlan, revision: 'main' } },
+    { inferencePlan: { ...inferencePlan, dtype: 'q4' } },
+    { modelId: 'selected-model-alias' },
+    { dimensions: 768 },
+  ])('rejects incomplete, unverified or inconsistent plan %j', (overrides) => {
+    expect(() => assertEmbeddingHostQueryEmbeddingPayload({ ...payload, ...overrides })).toThrow();
+  });
+});
+
+describe('pinned document payload', () => {
+  const inferencePlan = {
+    device: 'wasm' as const,
+    dimensions: 384,
+    dtype: 'q8' as const,
+    modelId: 'Xenova/all-MiniLM-L6-v2',
+    revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+  };
+  const payload = {
+    dimensions: 384,
+    inferencePlan,
+    modelId: inferencePlan.modelId,
+    modelKey: 'native:documents',
+    texts: ['  document text\n', 'second document'],
+  };
+  it('preserves document text and full plan', () => {
+    expect(assertEmbeddingHostDocumentEmbeddingsPayload(payload)).toEqual(payload);
+  });
+  it('preserves the exact host cancellation code through the validated terminal envelope', () => {
+    const request = createEmbeddingHostDocumentEmbeddingsRequest(
+      'runtime',
+      assertEmbeddingHostDocumentEmbeddingsPayload(payload)
+    );
+    const report = assertEmbeddingHostDocumentEmbeddingsResponseReport(
+      createEmbeddingHostDocumentEmbeddingsErrorReport(
+        request,
+        createEmbeddingHostDocumentCancellationError()
+      )
+    );
+    expect(report).toMatchObject({
+      payload: { code: EMBEDDING_HOST_DOCUMENT_CANCELED_CODE, name: 'AbortError' },
+      requestId: request.requestId,
+      runtimeId: request.runtimeId,
+      type: 'error',
+    });
+    expect(
+      createEmbeddingHostDocumentEmbeddingsErrorReport(
+        request,
+        new DOMException('independent abort', 'AbortError')
+      )
+    ).toMatchObject({ payload: { name: 'AbortError' } });
+    expect(
+      createEmbeddingHostDocumentEmbeddingsErrorReport(
+        request,
+        new DOMException('independent abort', 'AbortError')
+      ).payload
+    ).not.toHaveProperty('code');
+  });
+  it.each([
+    { ...payload, inferencePlan: undefined },
+    { ...payload, inferencePlan: { ...inferencePlan, revision: 'main' } },
+    { ...payload, texts: [] },
+    { ...payload, texts: [''] },
+    { ...payload, texts: [' '] },
+    { ...payload, texts: Array.from({ length: 65 }, () => 'document') },
+    { ...payload, dimensions: 2 },
+  ])('refuses unresolved plans and invalid batches', (invalid) => {
+    expect(() => assertEmbeddingHostDocumentEmbeddingsPayload(invalid)).toThrow();
   });
 });

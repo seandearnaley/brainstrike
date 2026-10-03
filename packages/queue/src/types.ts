@@ -22,6 +22,7 @@ export interface EmbedTaskPayload {
   readonly maxBatchSize?: number;
   readonly model: string;
   readonly provider?: string;
+  readonly revision?: string;
   readonly targetDimension?: number;
   readonly texts: readonly string[];
   readonly truncateDim?: number;
@@ -292,6 +293,12 @@ export interface QueueHealthMetrics {
 export type QueueHealthListener = (metrics: QueueHealthMetrics) => void;
 
 export function toWorkerRequest(payload: TaskPayload): EmbedWorkerRequest {
+  if (
+    payload.revision !== undefined &&
+    !(typeof payload.revision === 'string' && payload.revision.length > 0)
+  ) {
+    throw new Error('Embedding worker revision must be a non-empty string.');
+  }
   const baseRequest = {
     id: payload.id,
     model: payload.model,
@@ -303,6 +310,7 @@ export function toWorkerRequest(payload: TaskPayload): EmbedWorkerRequest {
     ...baseRequest,
     ...(payload.truncateDim === undefined ? {} : { truncateDim: payload.truncateDim }),
     ...(payload.dtype === undefined ? {} : { dtype: payload.dtype }),
+    ...(payload.revision === undefined ? {} : { revision: payload.revision }),
     deviceHint: payload.deviceHint,
     ...(payload.estimatedModelBytes === undefined
       ? {}

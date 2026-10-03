@@ -35,6 +35,30 @@ describe('WorkerpoolAdapterOptions', () => {
 });
 
 describe('toWorkerRequest', () => {
+  it('preserves an explicit immutable revision in the scalar worker request', () => {
+    const revision = '751bff37182d3f1213fa05d7196b954e230abad9';
+    expect(
+      toWorkerRequest({
+        ...basePayload,
+        id: 'pinned',
+        model: 'Xenova/all-MiniLM-L6-v2',
+        revision,
+        texts: ['query'],
+      })
+    ).toMatchObject({ revision });
+  });
+  it('rejects an empty revision rather than dropping the pin', () => {
+    expect(() =>
+      toWorkerRequest({
+        ...basePayload,
+        id: 'pinned',
+        model: 'Xenova/all-MiniLM-L6-v2',
+        revision: '',
+        texts: ['query'],
+      })
+    ).toThrow('revision');
+  });
+
   it('should convert minimal EmbedTaskPayload to EmbedWorkerRequest', () => {
     const payload: EmbedTaskPayload = {
       ...basePayload,

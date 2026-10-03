@@ -84,6 +84,10 @@ import type {
   EmbeddingHostBackfillProgress,
   EmbeddingHostBackfillRequest,
   EmbeddingHostCommand,
+  EmbeddingHostDocumentEmbeddingsCancel,
+  EmbeddingHostDocumentEmbeddingsPayload,
+  EmbeddingHostDocumentEmbeddingsRequest,
+  EmbeddingHostDocumentEmbeddingsResponseReport,
   EmbeddingHostQueryEmbeddingCancel,
   EmbeddingHostQueryEmbeddingPayload,
   EmbeddingHostQueryEmbeddingRequest,
@@ -240,6 +244,43 @@ function assertPreloadPositiveInteger(value: unknown, message: string): number {
   return value as number;
 }
 
+// The preload cannot import the bare verified resolver. Preserve all pins for
+// authoritative main/renderer verification instead of projecting to legacy fields.
+function assertPreloadQueryInferencePlan(
+  value: unknown
+): NonNullable<EmbeddingHostQueryEmbeddingPayload['inferencePlan']> {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Native pinned query inferencePlan must be a complete object.');
+  }
+  const plan = value as Record<string, unknown>;
+  const device = plan['device'];
+  const dtype = plan['dtype'];
+  if (
+    !(
+      (device === 'wasm' || device === 'webgpu') &&
+      (dtype === 'q8' || dtype === 'fp16' || dtype === 'fp32') &&
+      plan['dimensions'] === 384
+    )
+  ) {
+    throw new Error(
+      'Native pinned query inferencePlan requires explicit device, dtype and dimensions.'
+    );
+  }
+  return {
+    device,
+    dimensions: 384,
+    dtype,
+    modelId: assertPreloadNonEmptyString(
+      plan['modelId'],
+      'Native pinned query inferencePlan requires modelId.'
+    ),
+    revision: assertPreloadNonEmptyString(
+      plan['revision'],
+      'Native pinned query inferencePlan requires revision.'
+    ),
+  };
+}
+
 function assertEmbeddingHostQueryEmbeddingPayload(
   value: unknown
 ): EmbeddingHostQueryEmbeddingPayload {
@@ -247,7 +288,11 @@ function assertEmbeddingHostQueryEmbeddingPayload(
     throw new Error('Embedding host query embedding payload must be an object.');
   }
   const payload = value as Record<string, unknown>;
+  const inferencePlan = Object.hasOwn(payload, 'inferencePlan')
+    ? assertPreloadQueryInferencePlan(payload['inferencePlan'])
+    : undefined;
   return {
+    ...(inferencePlan ? { inferencePlan } : {}),
     dimensions: assertPreloadPositiveInteger(
       payload['dimensions'],
       'Embedding host query embedding payload.dimensions must be a positive integer.'
@@ -264,6 +309,32 @@ function assertEmbeddingHostQueryEmbeddingPayload(
       payload['query'],
       'Embedding host query embedding payload.query must be a non-empty string.'
     ),
+  };
+}
+
+function assertPreloadDocumentPayload(
+  value: EmbeddingHostDocumentEmbeddingsPayload
+): EmbeddingHostDocumentEmbeddingsPayload {
+  const inferencePlan = assertPreloadQueryInferencePlan(value.inferencePlan);
+  if (inferencePlan.modelId !== value.modelId || inferencePlan.dimensions !== value.dimensions) {
+    throw new Error('Document inferencePlan must match model and dimensions.');
+  }
+  if (
+    !(
+      Array.isArray(value.texts) &&
+      value.texts.length > 0 &&
+      value.texts.length <= 64 &&
+      value.texts.every((text) => typeof text === 'string' && text.trim().length > 0)
+    )
+  ) {
+    throw new Error('Document embeddings require 1 to 64 non-empty texts.');
+  }
+  return {
+    dimensions: value.dimensions,
+    inferencePlan,
+    modelId: value.modelId,
+    modelKey: assertPreloadNonEmptyString(value.modelKey, 'Document modelKey must be non-empty.'),
+    texts: [...value.texts],
   };
 }
 
@@ -760,6 +831,22 @@ const embeddingHost = {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.cancelAllBackfills),
   cancelBackfill: (embeddingSetId: string): Promise<void> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.cancelBackfill, embeddingSetId),
+  cancelDocumentEmbeddings: (requestId: string): Promise<void> =>
+    ipcRenderer.invoke(
+      DESKTOP_IPC_CHANNELS.embeddingHost.cancelDocumentEmbeddings,
+      assertPreloadNonEmptyString(requestId, 'Document cancellation requestId must be non-empty.')
+    ),
+  documentEmbeddings: (
+    payload: EmbeddingHostDocumentEmbeddingsPayload,
+    options: { requestId: string }
+  ): Promise<number[][]> =>
+    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddings, {
+      payload: assertPreloadDocumentPayload(payload),
+      requestId: assertPreloadNonEmptyString(
+        options.requestId,
+        'Document requestId must be non-empty.'
+      ),
+    }),
   enqueueBackfill: (request: EmbeddingHostBackfillRequest) =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.enqueueBackfill, request),
   ensureStarted: (): Promise<EmbeddingHostStatus> =>
@@ -781,6 +868,31 @@ const embeddingHost = {
     ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.command, listener);
     return () => {
       ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.embeddingHost.command, listener);
+    };
+  },
+  onDocumentEmbeddingsCancel: (
+    callback: (notice: EmbeddingHostDocumentEmbeddingsCancel) => void
+  ) => {
+    const listener = (_event: unknown, notice: EmbeddingHostDocumentEmbeddingsCancel) =>
+      callback(notice);
+    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddingsCancel, listener);
+    return () =>
+      ipcRenderer.removeListener(
+        DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddingsCancel,
+        listener
+      );
+  },
+  onDocumentEmbeddingsRequest: (
+    callback: (request: EmbeddingHostDocumentEmbeddingsRequest) => void
+  ) => {
+    const listener = (_event: unknown, request: EmbeddingHostDocumentEmbeddingsRequest) =>
+      callback(request);
+    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddingsRequest, listener);
+    return () => {
+      ipcRenderer.removeListener(
+        DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddingsRequest,
+        listener
+      );
     };
   },
   onQueryEmbeddingCancel: (callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void) => {
@@ -813,6 +925,11 @@ const embeddingHost = {
       DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding,
       assertEmbeddingHostQueryEmbeddingPayload(payload)
     ),
+  reportDocumentEmbeddingsResponse: (
+    response: EmbeddingHostDocumentEmbeddingsResponseReport
+  ): void => {
+    ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportDocumentEmbeddingsResponse, response);
+  },
   reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport): void => {
     ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportQueryEmbeddingResponse, response);
   },

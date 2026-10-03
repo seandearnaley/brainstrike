@@ -13,6 +13,11 @@ const {
   disposeQueryEmbeddingServiceMock,
   ensureVectorPreferencesHydratedMock,
   generateQueryEmbeddingMock,
+  generateDocumentEmbeddingsMock,
+  documentEmbeddingsListenerRef,
+  documentEmbeddingsCancelListenerRef,
+  reportDocumentEmbeddingsResponseMock,
+  initializeMock,
   initializeWithModelMock,
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
@@ -32,6 +37,8 @@ const {
   dbHandle: { query: vi.fn() },
   detectDeviceCapabilitiesMock: vi.fn(),
   disposeQueryEmbeddingServiceMock: vi.fn(async () => {}),
+  documentEmbeddingsCancelListenerRef: { current: null as null | ((notice: unknown) => void) },
+  documentEmbeddingsListenerRef: { current: null as null | ((request: unknown) => void) },
   embeddingCacheRepository: {
     get: vi.fn(),
     getBatch: vi.fn(),
@@ -40,7 +47,16 @@ const {
   },
   embeddingQueueBootstrapMock: vi.fn(),
   ensureVectorPreferencesHydratedMock: vi.fn(),
-  generateQueryEmbeddingMock: vi.fn(async () => ({
+  generateDocumentEmbeddingsMock:
+    vi.fn<(...args: unknown[]) => Promise<import('@brainstrike/embeddings').EmbeddingResult[]>>(),
+  generateQueryEmbeddingMock: vi.fn<
+    () => Promise<{
+      embedding: number[];
+      runtime?:
+        | { device: string; dtype: string; fallbackApplied: boolean; revision?: string }
+        | undefined;
+    }>
+  >(async () => ({
     embedding: [0.1, 0.2],
     runtime: {
       device: 'webgpu',
@@ -49,10 +65,12 @@ const {
     },
   })),
   getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),
+  initializeMock: vi.fn(async () => {}),
   initializeWithModelMock: vi.fn(async () => {}),
   queryEmbeddingListenerRef: {
     current: null as null | ((request: unknown) => void),
   },
+  reportDocumentEmbeddingsResponseMock: vi.fn(),
   reportQueryEmbeddingResponseMock: vi.fn(),
   reportStatusMock: vi.fn(),
   setDetectedDevicePrefMock: vi.fn(),
@@ -150,8 +168,10 @@ vi.mock('@brainstrike/embeddings/worker', () => ({
 
 vi.mock('@brainstrike/embeddings/service', () => ({
   SimpleEmbeddingService: class {
+    initialize = initializeMock;
     initializeWithModel = initializeWithModelMock;
     generateQueryEmbedding = generateQueryEmbeddingMock;
+    generateEmbeddings = generateDocumentEmbeddingsMock;
     dispose = disposeQueryEmbeddingServiceMock;
   },
 }));
@@ -174,6 +194,7 @@ vi.mock('../../../renderer/components/embedding-worker-config', () => ({
 export function installEmbeddingHostRuntimeFixture(): void {
   beforeEach(() => {
     vi.clearAllMocks();
+    generateDocumentEmbeddingsMock.mockReset();
     reportStatusMock.mockReset();
     stopMock.mockResolvedValue(undefined);
     resetEmbeddingTelemetryForTests();
@@ -214,6 +235,18 @@ export function installEmbeddingHostRuntimeFixture(): void {
             commandListenerRef.current = null;
           };
         },
+        onDocumentEmbeddingsCancel: (callback: (notice: unknown) => void) => {
+          documentEmbeddingsCancelListenerRef.current = callback;
+          return () => {
+            documentEmbeddingsCancelListenerRef.current = null;
+          };
+        },
+        onDocumentEmbeddingsRequest: (callback: (request: unknown) => void) => {
+          documentEmbeddingsListenerRef.current = callback;
+          return () => {
+            documentEmbeddingsListenerRef.current = null;
+          };
+        },
         onQueryEmbeddingCancel: () => () => {},
         onQueryEmbeddingRequest: (callback: (request: unknown) => void) => {
           queryEmbeddingListenerRef.current = callback;
@@ -221,6 +254,7 @@ export function installEmbeddingHostRuntimeFixture(): void {
             queryEmbeddingListenerRef.current = null;
           };
         },
+        reportDocumentEmbeddingsResponse: reportDocumentEmbeddingsResponseMock,
         reportQueryEmbeddingResponse: reportQueryEmbeddingResponseMock,
         reportStatus: reportStatusMock,
       },
@@ -245,14 +279,19 @@ export {
   dbHandle,
   detectDeviceCapabilitiesMock,
   disposeQueryEmbeddingServiceMock,
+  documentEmbeddingsCancelListenerRef,
+  documentEmbeddingsListenerRef,
   embeddingCacheRepository,
   embeddingQueueBootstrapMock,
   ensureVectorPreferencesHydratedMock,
+  generateDocumentEmbeddingsMock,
   generateQueryEmbeddingMock,
   getEmbeddingQueueMock,
   hostWindow,
+  initializeMock,
   initializeWithModelMock,
   queryEmbeddingListenerRef,
+  reportDocumentEmbeddingsResponseMock,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
   setDetectedDevicePrefMock,

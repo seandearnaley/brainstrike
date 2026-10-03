@@ -97,6 +97,85 @@ describe('preload contract-derived bridges', () => {
     moduleWithLoader._load = originalLoad;
   });
 
+  it('passes document pins, unchanged texts and a plain cancellation token', async () => {
+    mockInvoke.mockClear();
+    const inferencePlan = {
+      device: 'wasm',
+      dimensions: 384,
+      dtype: 'q8',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+    };
+    const payload = {
+      dimensions: 384,
+      inferencePlan,
+      modelId: inferencePlan.modelId,
+      modelKey: 'native:documents',
+      texts: ['  document\n', 'second'],
+    };
+    await exposedApi('embeddingHost')['documentEmbeddings']?.(payload, {
+      requestId: 'renderer-token',
+    });
+    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddings, {
+      payload,
+      requestId: 'renderer-token',
+    });
+    await exposedApi('embeddingHost')['cancelDocumentEmbeddings']?.('renderer-token');
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_CHANNELS.embeddingHost.cancelDocumentEmbeddings,
+      'renderer-token'
+    );
+    mockInvoke.mockClear();
+    expect(() =>
+      exposedApi('embeddingHost')['documentEmbeddings']?.(
+        { ...payload, inferencePlan: undefined },
+        { requestId: 'renderer-token' }
+      )
+    ).toThrow();
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
+  it('preserves complete native inference pins across the actual preload transport', async () => {
+    mockInvoke.mockClear();
+    const inferencePlan = {
+      device: 'wasm',
+      dimensions: 384,
+      dtype: 'q8',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+    };
+    const payload = {
+      dimensions: 384,
+      inferencePlan,
+      modelId: inferencePlan.modelId,
+      modelKey: 'native:minilm',
+      query: 'callers',
+    };
+    await exposedApi('embeddingHost')['queryEmbedding']?.(payload);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding,
+      payload
+    );
+  });
+  it('rejects incomplete native pins before IPC rather than dropping them', () => {
+    mockInvoke.mockClear();
+    expect(() =>
+      exposedApi('embeddingHost')['queryEmbedding']?.({
+        dimensions: 384,
+        inferencePlan: {
+          device: 'wasm',
+          dimensions: 384,
+          dtype: 'q8',
+          modelId: 'Xenova/all-MiniLM-L6-v2',
+        },
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'native:minilm',
+        query: 'callers',
+      })
+    ).toThrow();
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
   it.each(Object.entries(CONTRACT_BRIDGES))(
     "exposes '%s' with exactly the contract's key set",
     (name, contract) => {

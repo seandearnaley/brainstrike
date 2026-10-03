@@ -18,6 +18,32 @@ describe('embedding telemetry store', () => {
     resetEmbeddingTelemetryForTests();
   });
 
+  it('preserves q8 WASM residency at the host snapshot boundary', () => {
+    const entry = {
+      cacheKey: 'fused|wasm|q8',
+      createdAt: 1,
+      device: 'wasm',
+      dtype: 'q8',
+      lastUsedAt: 100,
+      memory: { gpuBytes: 0, heapBytes: 23, reason: 'model-size-estimate' },
+      model: 'fused',
+      residencyMs: 99,
+    } as const;
+    recordEmbeddingPipelineCacheTelemetry('worker-q8', {
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 100,
+      entries: [entry],
+      entry,
+      event: 'loaded',
+      type: 'diagnostic',
+      workerInstanceId: 'worker-q8',
+    });
+    const snapshot = getEmbeddingTelemetrySnapshot();
+    expect(() => assertEmbeddingTelemetrySnapshot(snapshot)).not.toThrow();
+    expect(snapshot.cache.entries[0]).toMatchObject({ device: 'wasm', dtype: 'q8' });
+  });
+
   it('aggregates exact worker transfer bytes and peak vectors in flight', () => {
     const listener = vi.fn();
     const unsubscribe = subscribeEmbeddingTelemetry(listener);
