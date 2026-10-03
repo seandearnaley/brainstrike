@@ -68,3 +68,21 @@ Guard: `launcher.integration.test.ts`, `start-orders.integration.test.ts`,
 Evidence: `host-lease/foundation.md`.
 Guard: `runtime.integration.test.ts`, `process.integration.test.ts` and
 `start-orders.integration.test.ts`.
+
+### Desktop acquisition
+
+- Pass the main-owned resolved profile directory to the desktop lease manager;
+  acquire after app-ready. Keep Electron imports inside the desktop adapter.
+- Own only utility handles this manager forks. Close existing host attachments
+  without signalling their owner; refuse a live unavailable owner.
+- Register exit and startup listeners before awaiting resource registration.
+  Scope-own attachment cleanup and cooperative child close; join observed exit.
+  Preserve failed cleanup on repeated close and forbid new acquisition afterward.
+- Accept only strict parent-channel close control. Exit the utility after joined
+  host cleanup; its Electron parent channel otherwise keeps the process alive.
+- Before deleting a profile, require its authoritative root lease to be released
+  or provably stale. Detaching from a live external CLI owner does not release it.
+
+Evidence: `host-lease/desktop-consumer.md`.
+Guard: `apps/desktop/src/__tests__/main/host-lease-manager.test.ts`,
+`host-lease-control.test.ts` and `host-lease-electron.integration.test.ts`.
