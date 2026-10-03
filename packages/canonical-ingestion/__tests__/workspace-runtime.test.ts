@@ -110,3 +110,61 @@ it('joins revoked catalog preflight without misreporting the exact mount cancell
   expect(dependencies.publication.beginScan).not.toHaveBeenCalled();
   expect(dependencies.source.lease.retire).toHaveBeenCalledOnce();
 });
+
+it('consumes explicit VECTOR dependencies and rejects missing full-root coverage without a ready receipt', async () => {
+  const dependencies = fixture();
+  const profile = {
+    dimensions: 384,
+    distance: 'cosine',
+    dtype: 'q8',
+    modelId: 'Xenova/all-MiniLM-L6-v2',
+    provider: 'local',
+    revision: 'a'.repeat(40),
+    tokenCap: 256,
+  } as const;
+  const resolveProfile = vi.fn(async () => profile);
+  const generate = vi.fn(async () => {
+    throw new Error('Empty source must not infer.');
+  });
+  const proof = {
+    authorityEpoch: 'epoch',
+    authorityRevision: 1,
+    scope: { kind: 'workspace', rootId: 'actual-root' } as const,
+    storeId: 'actual-store',
+  };
+  const runtime = new CanonicalWorkspaceIngestionRuntime({
+    ...dependencies,
+    catalog: { ...dependencies.catalog, resolveProfile },
+    inference: { cancel: async () => {}, generate, join: async () => {} },
+    mode: 'VECTOR',
+    publication: {
+      ...dependencies.publication,
+      commitVectorFile: async () => {
+        throw new Error('Empty source must not publish vectors.');
+      },
+      prepareVectorFile: async () => {
+        throw new Error('Empty source must not prepare a file.');
+      },
+      vectorCoverage: async () => ({
+        ...proof,
+        counts: { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 },
+        profile,
+        profileHash: 'profile',
+        vectorCoverageComplete: false,
+      }),
+      verifyVectorManifest: async () => ({
+        ...proof,
+        changed: [],
+        complete: true,
+        missing: [],
+        unexpected: [],
+      }),
+    },
+  });
+  await runtime.start();
+  await vi.waitFor(() => expect(dependencies.onError).toHaveBeenCalled());
+  expect(resolveProfile).toHaveBeenCalled();
+  expect(generate).not.toHaveBeenCalled();
+  expect(dependencies.onReceipt).not.toHaveBeenCalled();
+  await runtime.close();
+});

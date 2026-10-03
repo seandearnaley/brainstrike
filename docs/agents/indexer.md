@@ -111,6 +111,15 @@ Guard: `apps/desktop/src/__tests__/native-canonical-catalog.test.ts`,
 The adapter is a library seam; actual main/grant/profile/utility wiring and app
 qualification remain separate composition work.
 
+### Explicit canonical vector ingestion
+
+- Bind canonical hosts to TEXT (the default) or explicit VECTOR. TEXT never resolves a profile or invokes inference; VECTOR requires the actual saved local profile, existing scoped writer plans and a physically joined inference port. Refuse unsupported profiles and unwired dependencies without publishing TEXT.
+- Generate only the native plan's ordered missing canonical chunks in batches of 1–64. Recheck current full profile, preserve original source and nullable catalog identity, join inference/cancellation and native publication before PG completion, and retain failed joins/abort notices for explicit close retry.
+- Require the full canonical scoped manifest plus current selected-profile coverage with matching store/scope/authority before finishing VECTOR scans. Counts and receipts alone are insufficient. The current public port cannot supply skipped-file canonical chunk inventory, so VECTOR rereads/parses source even on stat hits; covered chunks require no inference. TEXT keeps its stat shortcut.
+
+Evidence: `indexer/2026-10-03-canonical-vector-pipeline.md`.
+Guard: `packages/canonical-ingestion/__tests__/vector-host.test.ts`, `packages/canonical-ingestion/__tests__/vector-host.integration.test.ts`, `packages/canonical-ingestion/__tests__/workspace-runtime.test.ts`.
+
 ### Borrowed workspace source ingestion
 
 - Run workspace discovery, bounded secure reads and the existing `WorkspaceIndexingCoordinator` in `CanonicalWorkspaceIngestionRuntime`; borrow narrow operations from the same main-owned pinned mount. Paths, root IDs and projections never acquire a new native root.

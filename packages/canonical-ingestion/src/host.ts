@@ -1,16 +1,27 @@
+import { createHash, randomUUID } from 'node:crypto';
 import {
   createNodeChunker,
   type NodeChunker,
   type NodeChunkerOptions,
 } from '@brainstrike/chunking-worker/node';
 import type { CanonicalChunkEvent } from '@brainstrike/file-import';
-import { canonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
+import {
+  type CanonicalIndexPayload,
+  canonicalIndexPayload,
+} from '@brainstrike/file-import/canonical-index-publication';
+import {
+  type ScopedFilePlan,
+  type ScopedManifestFile,
+  type VectorProfile,
+  vectorProfileHash,
+} from '@brainstrike/indexer';
 import type {
   CanonicalCatalogFile,
   CanonicalCatalogPort,
   CanonicalDiscoveredSourceFile,
   CanonicalDiscoveryCompletion,
   CanonicalFileIdentity,
+  CanonicalInferencePort,
   CanonicalManifestFile,
   CanonicalOperationContext,
   CanonicalPublicationPort,
@@ -20,6 +31,7 @@ import type {
   CanonicalSourceFile,
   CanonicalSourcePort,
   CanonicalSourceScope,
+  CanonicalVectorPublicationPort,
 } from './ports.js';
 import {
   assertUniqueWorkspacePaths,
@@ -40,12 +52,24 @@ interface DiscoveryOutcome {
   readonly failure: unknown;
   readonly files: readonly CanonicalManifestFile[];
 }
-export interface CanonicalIngestionDependencies {
-  readonly catalog: CanonicalCatalogPort;
+interface CanonicalIngestionCommon {
   readonly parser: NodeChunkerOptions;
-  readonly publication: CanonicalPublicationPort;
   readonly source: CanonicalSourcePort;
 }
+export type CanonicalIngestionDependencies = CanonicalIngestionCommon &
+  (
+    | {
+        readonly mode?: 'TEXT';
+        readonly catalog: CanonicalCatalogPort;
+        readonly publication: CanonicalPublicationPort;
+      }
+    | {
+        readonly mode: 'VECTOR';
+        readonly catalog: CanonicalCatalogPort<VectorProfile>;
+        readonly publication: CanonicalVectorPublicationPort;
+        readonly inference: CanonicalInferencePort<VectorProfile>;
+      }
+  );
 
 /** One utility-owned scan. Existing source/coalescing and receipt adapters remain the authorities. */
 export class CanonicalIngestionHost {
@@ -53,8 +77,34 @@ export class CanonicalIngestionHost {
   private closed = false;
   private cleanupFailure: unknown;
   private readonly chunk: NodeChunker;
+  private readonly inferenceRequests = new Set<string>();
+  private readonly failedAborts = new Set<CanonicalScanTicket>();
 
   constructor(private readonly dependencies: CanonicalIngestionDependencies) {
+    if (
+      dependencies.mode !== undefined &&
+      dependencies.mode !== 'TEXT' &&
+      dependencies.mode !== 'VECTOR'
+    ) {
+      throw new Error('Canonical ingestion requires explicit TEXT or VECTOR admission.');
+    }
+    if (
+      dependencies.mode === 'VECTOR' &&
+      !(
+        dependencies.inference &&
+        typeof dependencies.inference.generate === 'function' &&
+        typeof dependencies.inference.cancel === 'function' &&
+        typeof dependencies.inference.join === 'function' &&
+        typeof dependencies.publication.prepareVectorFile === 'function' &&
+        typeof dependencies.publication.commitVectorFile === 'function' &&
+        typeof dependencies.publication.verifyVectorManifest === 'function' &&
+        typeof dependencies.publication.vectorCoverage === 'function'
+      )
+    ) {
+      throw new Error(
+        'Explicit VECTOR requires real inference and scoped vector publication dependencies.'
+      );
+    }
     this.chunk = createNodeChunker(dependencies.parser);
   }
 
@@ -74,7 +124,9 @@ export class CanonicalIngestionHost {
       );
     }
     const controller = new AbortController();
-    const run = this.run(request, { requestId: request.requestId, signal: controller.signal });
+    const run = Promise.resolve().then(() =>
+      this.run(request, { requestId: request.requestId, signal: controller.signal })
+    );
     const active: ActiveScan = {
       controller,
       error: undefined,
@@ -118,9 +170,34 @@ export class CanonicalIngestionHost {
         errors.push(error);
       }
     }
+    if (this.dependencies.mode === 'VECTOR') {
+      for (const requestId of this.inferenceRequests) {
+        try {
+          await this.dependencies.inference.cancel(requestId);
+        } catch (error) {
+          errors.push(error);
+        }
+        try {
+          await this.dependencies.inference.join(requestId);
+          this.inferenceRequests.delete(requestId);
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+    }
+    for (const ticket of this.failedAborts) {
+      try {
+        await this.dependencies.publication.abortScan(ticket);
+        this.failedAborts.delete(ticket);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
     try {
       await this.dependencies.source.close();
-      this.cleanupFailure = undefined;
+      if (this.inferenceRequests.size === 0 && this.failedAborts.size === 0) {
+        this.cleanupFailure = undefined;
+      }
     } catch (error) {
       this.cleanupFailure = error;
       errors.push(error);
@@ -135,6 +212,7 @@ export class CanonicalIngestionHost {
     context: CanonicalOperationContext
   ): Promise<CanonicalScanReceipt> {
     const { publication } = this.dependencies;
+    context.signal.throwIfAborted();
     const ticket = await publication.beginScan({
       requestId: request.requestId,
       scope: request.scope,
@@ -149,26 +227,33 @@ export class CanonicalIngestionHost {
         .then(() => publication.abortScan(ticket))
         .catch((error: unknown) => {
           abortFailure = error;
+          this.cleanupFailure = error;
+          this.failedAborts.add(ticket);
         });
     };
     context.signal.addEventListener('abort', abort, { once: true });
     if (context.signal.aborted) {
       abort();
     }
-    const {
-      completion,
-      files,
-      failure: discoveryFailure,
-    } = await this.collectManifest(request, context, ticket);
-    let failure = discoveryFailure;
+    const outcome = await this.discoverScan(request, context, ticket, abort);
+    const { completion, files } = outcome;
+    let failure = outcome.failure;
     let receipt: CanonicalScanReceipt | undefined;
+    if (failure !== undefined) {
+      abort();
+    }
+    if (abortNotice) {
+      await abortNotice;
+    }
     try {
-      receipt = await publication.finishScan({
-        ...completion,
-        aborted: context.signal.aborted,
-        files,
-        ticket,
-      });
+      if (this.inferenceRequests.size === 0) {
+        receipt = await publication.finishScan({
+          ...completion,
+          aborted: context.signal.aborted,
+          files,
+          ticket,
+        });
+      }
     } catch (error) {
       failure =
         failure === undefined
@@ -198,10 +283,54 @@ export class CanonicalIngestionHost {
     return receipt;
   }
 
+  private async discoverScan(
+    request: CanonicalScanRequest,
+    context: CanonicalOperationContext,
+    ticket: CanonicalScanTicket,
+    stopAdmission: () => void
+  ): Promise<DiscoveryOutcome> {
+    const vectorFiles: ScopedManifestFile[] = [];
+    let outcome: DiscoveryOutcome;
+    try {
+      context.signal.throwIfAborted();
+      const profile =
+        this.dependencies.mode === 'VECTOR'
+          ? await this.dependencies.catalog
+              .resolveProfile({ scope: request.scope }, context)
+              .then((resolved) => {
+                assertExecutableProfile(resolved);
+                return resolved;
+              })
+          : undefined;
+      context.signal.throwIfAborted();
+      outcome = await this.collectManifest(
+        request,
+        context,
+        ticket,
+        profile,
+        vectorFiles,
+        stopAdmission
+      );
+      if (profile && hasCompleteDiscovery(outcome)) {
+        await this.verifyVectorCompletion(request, context, ticket, profile, vectorFiles);
+      }
+    } catch (error) {
+      outcome = {
+        completion: { errors: [errorMessage(error)], full: false, truncatedDirectories: [] },
+        failure: error,
+        files: [],
+      };
+    }
+    return outcome;
+  }
+
   private async collectManifest(
     request: CanonicalScanRequest,
     context: CanonicalOperationContext,
-    ticket: CanonicalScanTicket
+    ticket: CanonicalScanTicket,
+    profile: VectorProfile | undefined,
+    vectorFiles: ScopedManifestFile[],
+    stopAdmission: () => void
   ): Promise<DiscoveryOutcome> {
     const files: CanonicalManifestFile[] = [];
     const fileIds = new Set<string>();
@@ -241,11 +370,14 @@ export class CanonicalIngestionHost {
           batch.value.files,
           batch.value.removed,
           discovered,
-          fileIds
+          fileIds,
+          profile,
+          vectorFiles
         );
         files.push(...manifest);
       }
     } catch (error) {
+      stopAdmission();
       failure = error;
       if (!context.signal.aborted) {
         completion = { ...completion, errors: [errorMessage(error)] };
@@ -274,7 +406,9 @@ export class CanonicalIngestionHost {
     files: readonly CanonicalSourceFile[],
     removed: readonly CanonicalFileIdentity[],
     discovered: readonly CanonicalDiscoveredSourceFile[],
-    seenFileIds: Set<string>
+    seenFileIds: Set<string>,
+    profile: VectorProfile | undefined,
+    vectorFiles: ScopedManifestFile[]
   ): Promise<CanonicalManifestFile[]> {
     const { catalog, publication, source } = this.dependencies;
     const authorized = await catalog.loadAuthorizedBatch(
@@ -304,6 +438,7 @@ export class CanonicalIngestionHost {
       context.signal.throwIfAborted();
       const prior = byId.get(file.fileId);
       if (
+        profile === undefined &&
         prior &&
         !force.has(file.fileId) &&
         isStatCacheHit(file, prior) &&
@@ -368,7 +503,11 @@ export class CanonicalIngestionHost {
             };
       context.signal.throwIfAborted();
       const payload = canonicalIndexPayload(event);
-      await publication.commitTextFile({ file: read.file, payload, ticket });
+      if (profile) {
+        vectorFiles.push(await this.publishVector(read.file, payload, profile, context, ticket));
+      } else {
+        await publication.commitTextFile({ file: read.file, payload, ticket });
+      }
       context.signal.throwIfAborted();
       completed.push({
         chunkCount: payload.providedChunks.length,
@@ -388,6 +527,221 @@ export class CanonicalIngestionHost {
       await catalog.removeFiles({ files: removed, scope: request.scope }, context);
     }
     return manifest;
+  }
+  private async publishVector(
+    file: CanonicalFileIdentity,
+    payload: CanonicalIndexPayload,
+    profile: VectorProfile,
+    context: CanonicalOperationContext,
+    ticket: CanonicalScanTicket
+  ): Promise<ScopedManifestFile> {
+    const dependencies = this.dependencies;
+    if (dependencies.mode !== 'VECTOR') {
+      throw new Error('VECTOR publication is not admitted.');
+    }
+    await this.assertCurrentProfile(profile, context, ticket.scope);
+    const plan = await dependencies.publication.prepareVectorFile({
+      file,
+      payload,
+      profile,
+      ticket,
+    });
+    context.signal.throwIfAborted();
+    validateVectorPlan(plan, file, payload, profile, ticket);
+    const missing = new Set(plan.embeddingChunkIds);
+    const chunks = plan.chunks.filter((chunk) => missing.has(chunk.chunkId));
+    const embeddings: { chunkId: string; vector: readonly number[] }[] = [];
+    for (let offset = 0; offset < chunks.length; offset += 64) {
+      context.signal.throwIfAborted();
+      const batch = chunks
+        .slice(offset, offset + 64)
+        .map(({ chunkId, content }) => ({ chunkId, content }));
+      embeddings.push(...(await this.infer(batch, profile, context)));
+    }
+    context.signal.throwIfAborted();
+    await this.assertCurrentProfile(profile, context, ticket.scope);
+    await dependencies.publication.commitVectorFile({
+      embeddings,
+      file,
+      plan,
+      profile,
+      syntax: payload.syntax,
+      ticket,
+    });
+    context.signal.throwIfAborted();
+    const { content: _content, ...binding } = plan.snapshot;
+    return {
+      chunks: plan.chunks.map(
+        ({ content: _text, embeddingHash: _embeddingHash, ...chunk }) => chunk
+      ),
+      contentHash: plan.contentHash,
+      embeddingSetId: binding.embeddingSetId,
+      fileId: binding.fileId,
+      relativePath: binding.relativePath,
+      rootId: binding.rootId,
+      sourcePath: binding.sourcePath,
+    };
+  }
+
+  private async infer(
+    chunks: readonly { readonly chunkId: string; readonly content: string }[],
+    profile: VectorProfile,
+    context: CanonicalOperationContext
+  ): Promise<readonly { readonly chunkId: string; readonly vector: readonly number[] }[]> {
+    const dependencies = this.dependencies;
+    if (dependencies.mode !== 'VECTOR') {
+      throw new Error('VECTOR inference is not admitted.');
+    }
+    const requestId = `${context.requestId}:${randomUUID()}`;
+    this.inferenceRequests.add(requestId);
+    const errors: unknown[] = [];
+    let cancellation: Promise<void> | undefined;
+    let cancellationJoined = false;
+    let inferenceJoined = false;
+    let generationFailed = false;
+    const abort = (): void => {
+      cancellation ??= Promise.resolve()
+        .then(async () => {
+          await dependencies.inference.cancel(requestId);
+          cancellationJoined = true;
+        })
+        .catch((error: unknown) => {
+          errors.push(error);
+        });
+    };
+    context.signal.addEventListener('abort', abort, { once: true });
+    let vectors: readonly { readonly chunkId: string; readonly vector: readonly number[] }[] = [];
+    try {
+      context.signal.throwIfAborted();
+      const result = await dependencies.inference
+        .generate({ chunks, profile, requestId })
+        .catch((error: unknown) => {
+          generationFailed = true;
+          throw error;
+        });
+      context.signal.throwIfAborted();
+      if (
+        result.requestId !== requestId ||
+        vectorProfileHash(result.profile) !== vectorProfileHash(profile) ||
+        result.vectors.length !== chunks.length
+      ) {
+        throw new Error(
+          'Canonical inference response differs from its request or complete profile.'
+        );
+      }
+      for (let index = 0; index < chunks.length; index += 1) {
+        const vector = result.vectors[index];
+        if (
+          !(Object.hasOwn(result.vectors, index) && vector) ||
+          vector.chunkId !== chunks[index]?.chunkId ||
+          vector.vector.length !== profile.dimensions ||
+          Array.from(vector.vector).some((value) => !Number.isFinite(value))
+        ) {
+          throw new Error(
+            'Canonical inference requires exact ordered, dimensioned finite vectors.'
+          );
+        }
+      }
+      vectors = result.vectors;
+    } catch (error) {
+      errors.push(error);
+      abort();
+    } finally {
+      if (cancellation) {
+        await cancellation;
+      }
+      try {
+        await dependencies.inference.join(requestId);
+        inferenceJoined = true;
+        this.inferenceRequests.delete(requestId);
+      } catch (error) {
+        this.cleanupFailure = error;
+        errors.push(error);
+      }
+      if (cancellation) {
+        await cancellation;
+      }
+      context.signal.removeEventListener('abort', abort);
+    }
+    // The inference owner alone recognizes its exact cancellation reason. Its
+    // joined disposition must rethrow independent faults, including AbortError.
+    if (
+      context.signal.aborted &&
+      generationFailed &&
+      cancellationJoined &&
+      inferenceJoined &&
+      errors.length === 1
+    ) {
+      errors[0] = context.signal.reason;
+    }
+    const unique = [...new Set(errors)];
+    if (unique.length === 1) {
+      throw unique[0];
+    }
+    if (unique.length > 1) {
+      throw new AggregateError(unique, 'Canonical inference and retirement failed.');
+    }
+    context.signal.throwIfAborted();
+    return vectors;
+  }
+
+  private async assertCurrentProfile(
+    profile: VectorProfile,
+    context: CanonicalOperationContext,
+    scope: CanonicalSourceScope
+  ): Promise<void> {
+    const dependencies = this.dependencies;
+    if (dependencies.mode !== 'VECTOR') {
+      throw new Error('VECTOR profile is not admitted.');
+    }
+    const current = await dependencies.catalog.resolveProfile({ scope }, context);
+    context.signal.throwIfAborted();
+    if (vectorProfileHash(current) !== vectorProfileHash(profile)) {
+      throw new Error('Canonical saved vector profile changed during its scan.');
+    }
+  }
+
+  private async verifyVectorCompletion(
+    request: CanonicalScanRequest,
+    context: CanonicalOperationContext,
+    ticket: CanonicalScanTicket,
+    profile: VectorProfile,
+    files: readonly ScopedManifestFile[]
+  ): Promise<void> {
+    const dependencies = this.dependencies;
+    if (dependencies.mode !== 'VECTOR') {
+      throw new Error('VECTOR completion is not admitted.');
+    }
+    await this.assertCurrentProfile(profile, context, request.scope);
+    const manifest = await dependencies.publication.verifyVectorManifest({
+      files,
+      scope: request.scope,
+    });
+    context.signal.throwIfAborted();
+    const coverage = await dependencies.publication.vectorCoverage({
+      profile,
+      scope: request.scope,
+    });
+    context.signal.throwIfAborted();
+    if (
+      !(
+        manifest.complete &&
+        coverage.vectorCoverageComplete &&
+        manifest.storeId === ticket.storeId &&
+        coverage.storeId === ticket.storeId &&
+        sameScope(manifest.scope, request.scope) &&
+        sameScope(coverage.scope, request.scope) &&
+        manifest.authorityEpoch === coverage.authorityEpoch &&
+        manifest.authorityRevision === coverage.authorityRevision &&
+        coverage.profile !== null &&
+        coverage.profileHash === vectorProfileHash(profile) &&
+        vectorProfileHash(coverage.profile) === vectorProfileHash(profile)
+      )
+    ) {
+      throw new Error(
+        'Canonical VECTOR completion requires the full current scoped manifest and selected-profile coverage.'
+      );
+    }
   }
 }
 
@@ -464,4 +818,87 @@ function authorizeBatch(
     }
   }
   return byId;
+}
+
+function assertExecutableProfile(profile: VectorProfile): void {
+  vectorProfileHash(profile);
+  if (
+    (profile.provider !== 'local' && profile.provider !== 'transformers') ||
+    profile.distance !== 'cosine' ||
+    profile.dimensions % 8 !== 0
+  ) {
+    throw new Error(
+      'Canonical VECTOR requires an explicitly saved local cosine profile with supported dimensions.'
+    );
+  }
+}
+function validateVectorPlan(
+  plan: ScopedFilePlan,
+  file: CanonicalFileIdentity,
+  payload: CanonicalIndexPayload,
+  profile: VectorProfile,
+  ticket: CanonicalScanTicket
+): void {
+  const snapshot = plan.snapshot;
+  if (
+    plan.storeId !== ticket.storeId ||
+    !plan.profile ||
+    plan.profileHash !== vectorProfileHash(profile) ||
+    vectorProfileHash(plan.profile) !== vectorProfileHash(profile) ||
+    snapshot.fileId !== file.fileId ||
+    payload.fileId !== file.fileId ||
+    snapshot.rootId !== file.rootId ||
+    snapshot.relativePath !== file.relativePath ||
+    snapshot.sourcePath !== file.sourcePath ||
+    snapshot.embeddingSetId !== file.embeddingSetId ||
+    snapshot.content !== payload.content ||
+    plan.contentHash !== createHash('sha256').update(payload.content).digest('hex') ||
+    !('providedChunks' in snapshot) ||
+    snapshot.providedChunks.length !== payload.providedChunks.length ||
+    snapshot.providedChunks.some((actual, index) => {
+      const expected = payload.providedChunks[index];
+      return (
+        !expected ||
+        Object.entries(expected).some(([key, value]) => Reflect.get(actual, key) !== value)
+      );
+    })
+  ) {
+    throw new Error(
+      'Canonical vector plan differs from its source, scope, store or complete profile.'
+    );
+  }
+  if (
+    plan.chunks.length !== payload.providedChunks.length ||
+    new Set(plan.chunks.map((chunk) => chunk.chunkId)).size !== plan.chunks.length ||
+    new Set(plan.embeddingChunkIds).size !== plan.embeddingChunkIds.length
+  ) {
+    throw new Error('Canonical vector plan contains duplicate or incomplete chunks.');
+  }
+  for (let index = 0; index < plan.chunks.length; index += 1) {
+    const actual = plan.chunks[index];
+    const expected = payload.providedChunks[index];
+    if (
+      !(actual && expected) ||
+      Object.entries(expected).some(([key, value]) => Reflect.get(actual, key) !== value)
+    ) {
+      throw new Error('Canonical vector plan changed canonical chunk order or metadata.');
+    }
+  }
+  const missing = new Set(plan.embeddingChunkIds);
+  if (
+    JSON.stringify(
+      plan.chunks.filter((chunk) => missing.has(chunk.chunkId)).map((chunk) => chunk.chunkId)
+    ) !== JSON.stringify(plan.embeddingChunkIds)
+  ) {
+    throw new Error('Canonical missing vector list must be an ordered subset of actual chunks.');
+  }
+}
+
+function hasCompleteDiscovery(outcome: DiscoveryOutcome): boolean {
+  return (
+    outcome.failure === undefined &&
+    outcome.completion.full &&
+    outcome.completion.errors.length === 0 &&
+    outcome.completion.truncatedDirectories.length === 0
+  );
 }
