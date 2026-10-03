@@ -135,6 +135,18 @@ Evidence: `platform-contracts/2026-10-03-mounted-source-retirement.md`.
 Guard: `apps/desktop/src/__tests__/ipc-domains/workspace-root-source-lease.test.ts`,
 `apps/desktop/src/__tests__/ipc-domains/workspace-root-source-lease.integration.test.ts`.
 
+### Canonical utility attachment
+
+- Construct the public canonical workspace runtime or rootless host inside the same desktop indexer utility process. Reuse its existing parser/coordinator and engine writer; the indexer package remains product-independent.
+- Main retains the actual catalog, publication, inventory, inference and pinned lease objects. Forward only bounded validated DTOs and explicit cancellation tokens through the desktop-private channel; owner/root/generation/path projections never acquire filesystem authority. Recheck the same actual lease object, root/generation/path and operation scope/file authority after awaited callbacks before accepting results or admitting downstream completion.
+- Keep cancellation correlated until its remote operation physically settles. Normalize only an explicitly acknowledged owned cancellation; preserve independent failures and aggregate causes. Stop admission synchronously on close or deadline, join main-owned IO/watch retirement after remote exit, and retain failed cleanup for explicit `close()` retry before releasing the engine.
+- Retire only captured original capabilities when their live grant is revoked/replaced. Keep new-work fences strict; cleanup may finish only incomplete scan receipts. Attempt/join main cleanup even when child close rejects, retaining both failures and the owner for retry.
+- Attach explicit VECTOR through the public profile, native prepare/commit/manifest/coverage and inference generate/cancel/join ports. Capture unique inference operation ownership before generation; join the original physical operation after cancellation or remote exit, preserve independent faults and failed retirement for retry, and reject unknown or reused operation IDs.
+- Bound attachment acquisition and returned controls with the manager's caller-supplied deadlines. TEXT never resolves inference. Reject unsupported explicit modes before attachment; no VECTOR-to-TEXT downgrade.
+
+Evidence: `indexer/2026-10-03-canonical-utility-attachment.md`.
+Guard: `apps/desktop/src/__tests__/canonical-utility-channel.test.ts`, `apps/desktop/src/__tests__/canonical-utility-parent.test.ts`, `apps/desktop/src/__tests__/canonical-utility-manager.test.ts`, `apps/desktop/src/__tests__/canonical-utility-runtime.test.ts`, `apps/desktop/src/__tests__/canonical-utility-process.integration.test.ts`.
+
 ### Persistence and qualification
 
 - Treat the database as derived state. Product cutover must register its owned path and call `destroy()` during factory reset before deleting roots; package `destroy()` joins pending writes and removes only its database/WAL/shared-memory files.

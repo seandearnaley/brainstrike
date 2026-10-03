@@ -6,10 +6,10 @@ const finish = (): void => {
   setImmediate(() => process.exit());
 };
 parentPort.once('message', (event: Electron.MessageEvent) => {
-  void import('@brainstrike/indexer/host')
+  void import('./canonical-indexer-process')
     .then(
-      ({ runIndexerProcess }) =>
-        runIndexerProcess(event.data, {
+      ({ runCanonicalIndexerProcess }) =>
+        runCanonicalIndexerProcess(event.data, {
           // Electron owns utility termination when its parent exits. There is no
           // documented ParentPort disconnect event; never emulate Node IPC here.
           finish,
