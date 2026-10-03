@@ -5,6 +5,7 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
   createEmbeddingHostQueryEmbeddingCancel,
   createEmbeddingHostQueryEmbeddingRequest,
+  EMBEDDING_HOST_QUERY_CANCELED_CODE,
 } from '../../../embedding-host-shared';
 import {
   type AdmittedQueryEmbeddingRequest,
@@ -59,6 +60,7 @@ describe('embedding query listener request ownership', () => {
     expect(owner.requests.get(queued.requestId)).toBe(controller);
     expect(owner.requests.get(head.requestId)?.signal.aborted).toBe(false);
     const reason: unknown = controller?.signal.reason;
+    expect(reason).toMatchObject({ code: EMBEDDING_HOST_QUERY_CANCELED_CODE });
     queryEmbeddingCancelListenerRef.current?.(createEmbeddingHostQueryEmbeddingCancel(queued));
     expect(controller?.signal.reason).toBe(reason);
     held.resolve();
@@ -66,7 +68,11 @@ describe('embedding query listener request ownership', () => {
     expect(handle).toHaveBeenCalledOnce();
     expect(owner.requests.size).toBe(0);
     expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
-      expect.objectContaining({ requestId: queued.requestId, type: 'error' })
+      expect.objectContaining({
+        payload: expect.objectContaining({ code: EMBEDDING_HOST_QUERY_CANCELED_CODE }),
+        requestId: queued.requestId,
+        type: 'error',
+      })
     );
     unsubscribe();
     expect(queryEmbeddingListenerRef.current).toBeNull();

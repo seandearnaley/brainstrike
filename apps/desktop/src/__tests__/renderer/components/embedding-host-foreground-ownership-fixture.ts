@@ -71,11 +71,11 @@ const {
 }));
 
 const { hostWindow } = vi.hoisted(() => {
-  const listeners = new Map<string, () => void>();
-  const host = {
+  const { EventEmitter } = process.getBuiltinModule('node:events');
+  const host = Object.assign(new EventEmitter(), {
     destroy: vi.fn(() => {
       host.destroyed = true;
-      listeners.get('closed')?.();
+      host.emit('closed');
     }),
     destroyed: false,
     id: 9176,
@@ -83,20 +83,19 @@ const { hostWindow } = vi.hoisted(() => {
     loadURL: vi.fn(async (url: string) => {
       window.history.replaceState({}, '', new URL(url).search);
     }),
-    on: (name: string, listener: () => void) => listeners.set(name, listener),
-    once: (name: string, listener: () => void) => listeners.set(name, listener),
-    webContents: {
+    webContents: Object.assign(new EventEmitter(), {
       id: 9176,
-      on: vi.fn(),
       send: vi.fn((_channel: string, command: unknown) => commandListenerRef.current?.(command)),
       setWindowOpenHandler: vi.fn(),
-    },
-  };
+    }),
+  });
   return { hostWindow: host };
 });
 
 const createHostWindowMock = vi.hoisted(() =>
   vi.fn(function BrowserWindow() {
+    hostWindow.removeAllListeners();
+    hostWindow.webContents.removeAllListeners();
     hostWindow.destroyed = false;
     return hostWindow;
   })
@@ -157,6 +156,8 @@ vi.mock('../../../renderer/components/embedding-worker-config', () => ({
 
 export function installEmbeddingHostRuntimeFixture(): void {
   beforeEach(() => {
+    hostWindow.removeAllListeners();
+    hostWindow.webContents.removeAllListeners();
     vi.clearAllMocks();
     reportStatusMock.mockReset();
     stopMock.mockResolvedValue(undefined);

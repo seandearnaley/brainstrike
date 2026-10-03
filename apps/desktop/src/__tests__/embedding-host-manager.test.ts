@@ -10,13 +10,15 @@ interface EmbeddingLifecycleStatus {
 }
 
 const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(() => {
-  const hostWindow = {
+  const { EventEmitter } = process.getBuiltinModule('node:events');
+  const hostWindow = Object.assign(new EventEmitter(), {
+    destroy: vi.fn(() => hostWindow.emit('closed')),
     isDestroyed: vi.fn(() => false),
-    webContents: {
+    webContents: Object.assign(new EventEmitter(), {
       id: 91,
       send: vi.fn(),
-    },
-  };
+    }),
+  });
   const currentStatus: EmbeddingLifecycleStatus = {
     active: false,
     lastError: null,
@@ -91,10 +93,7 @@ vi.mock('../renderer-host-lifecycle', () => ({
 
 import { EmbeddingHostManager } from '../embedding-host-manager';
 
-// Omit<T, never> is NOT a no-op: it maps over the class's public keys and
-// yields a plain object type without private members, which is what lets the
-// intersection below redeclare private internals (syncPowerSaveBlocker) as
-// test-visible seams.
+// Map public keys without private members so tests can expose syncPowerSaveBlocker.
 type TestableEmbeddingHostManager = Omit<EmbeddingHostManager, never> & {
   syncPowerSaveBlocker: (status: {
     active: boolean;
@@ -636,7 +635,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(lifecycleState.ensureStarted).toHaveBeenCalledWith({ waitForRunning: true });
   });
 
-  it('rejects pending query embedding requests before destroying and restarting the host', async () => {
+  it('rejects pending query embedding requests after joining destruction and restarting the host', async () => {
     const manager = new EmbeddingHostManager();
     const embeddingPromise = manager.queryEmbedding({
       dimensions: 2,
@@ -654,11 +653,11 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     });
 
     await expect(embeddingPromise).rejects.toThrow(
-      'Embedding host restarted while query embedding requests were in flight.'
+      'Embedding host restarted while inference requests were in flight.'
     );
   });
 
-  it('rejects pending query embedding requests before resetting the host runtime', async () => {
+  it('rejects pending query embedding requests after joining reset of the host runtime', async () => {
     const manager = new EmbeddingHostManager();
     const embeddingPromise = manager.queryEmbedding({
       dimensions: 2,
@@ -673,7 +672,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     await manager.reset();
 
     await expect(embeddingPromise).rejects.toThrow(
-      'Embedding host reset while query embedding requests were in flight.'
+      'Embedding host reset while inference requests were in flight.'
     );
   });
 
@@ -771,13 +770,15 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       runtimeId: request.runtimeId,
       type: 'result',
     });
-    expect(warnedRequestIds).toContain(request.requestId);
+    expect(warnedRequestIds).toContain(`${request.runtimeId}:${request.requestId}`);
   });
 
   it('preserves the original error cause when sending a query embedding request fails', async () => {
     const sendError = new Error('send failed');
-    mockHostWindow.webContents.send.mockImplementation(() => {
-      throw sendError;
+    mockHostWindow.webContents.send.mockImplementation((event: string) => {
+      if (event === 'embedding-host:query-embedding-request') {
+        throw sendError;
+      }
     });
     const manager = new EmbeddingHostManager();
 
