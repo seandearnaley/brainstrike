@@ -7,6 +7,7 @@ export {
 } from './launcher.js';
 export { createNodeHostSpawner, type NodeSpawnerOptions } from './node-spawner.js';
 export { decodeHostRecord, HOST_VERSION, type HostRecord, PROTOCOL_VERSION } from './record.js';
+export { acquireProfileResetLease, type ProfileResetLease } from './reset-root.js';
 export {
   decodeStartOptions,
   type HostLifetime,
