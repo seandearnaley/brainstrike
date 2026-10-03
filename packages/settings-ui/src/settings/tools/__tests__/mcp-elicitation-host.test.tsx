@@ -3,6 +3,7 @@ import {
   type McpElicitationPresentationWire,
   type McpElicitationRetiredWire,
   type McpElicitationSettlement,
+  type McpTaskActionResult,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
@@ -12,6 +13,13 @@ import type { McpElicitationBridge } from '../mcp-elicitation-bridge';
 import { McpElicitationHost } from '../mcp-elicitation-host';
 
 const SERVER_ID = parseConfiguredMcpServerId('team.linear.prod');
+const TASK_HANDLE = {
+  authorityEpoch: '00000000-0000-4000-8000-000000000001',
+  principalId: 'fixture-principal',
+  resource: 'https://tasks.example.test/',
+  serverId: SERVER_ID,
+  taskId: 'pending-task',
+};
 const presentation = (id: string): McpElicitationPresentationWire => ({
   id,
   message: `Message ${id}`,
@@ -63,6 +71,86 @@ afterEach(() => {
 });
 
 describe('McpElicitationHost', () => {
+  it('cancels the host-bound task inside its input modal and waits for observed cancellation', async () => {
+    const user = userEvent.setup();
+    const harness = installBridge();
+    const handle = TASK_HANDLE;
+    const cancellation = Promise.withResolvers<McpTaskActionResult>();
+    const actTask = vi.fn(() => cancellation.promise);
+    Object.assign(harness.bridge, {
+      tasks: { act: actTask, list: vi.fn(), onStatusChanged: vi.fn() },
+    });
+    render(<McpElicitationHost />);
+    const request = presentation('pending');
+    harness.request({ ...request, provenance: { ...request.provenance, taskHandle: handle } });
+    await user.click(await screen.findByRole('button', { name: 'Cancel task' }));
+    await user.dblClick(screen.getByRole('button', { name: 'Cancelling task…' }));
+    expect(actTask).toHaveBeenCalledExactlyOnceWith({ action: 'cancel', handle });
+    expect(harness.bridge.settleElicitation).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /^Accept/u })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Decline/u })).toBeDisabled();
+    harness.retire({ code: 'mcp-elicitation-caller-aborted', id: 'pending' });
+    expect(screen.getByText(/no answer can be sent/u)).toBeInTheDocument();
+    expect(screen.queryByText('Task cancelled.')).not.toBeInTheDocument();
+    cancellation.resolve({
+      ok: true,
+      task: {
+        canCancel: false,
+        createdAt: '2026-10-03T00:00:00.000Z',
+        handle,
+        history: [],
+        omittedHistoryEntries: 0,
+        recovery: 'terminal',
+        status: 'cancelled',
+        statusMessage: null,
+        updatedAt: '2026-10-03T00:00:01.000Z',
+      },
+    });
+    await screen.findByText('Task cancelled.');
+    expect(screen.queryByRole('button', { name: /^Accept|^Decline/u })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Dismiss/u }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(harness.bridge.settleElicitation).not.toHaveBeenCalled();
+  });
+
+  it('shows cancellation failure, permits retry, and refuses a non-cancelled outcome', async () => {
+    const user = userEvent.setup();
+    const harness = installBridge();
+    const actTask = vi
+      .fn()
+      .mockResolvedValueOnce({
+        diagnostic: { code: 'stale_handle', message: 'The task handle is stale.' },
+        ok: false,
+      })
+      .mockResolvedValueOnce({ ok: true, task: { status: 'completed' } });
+    Object.assign(harness.bridge, {
+      tasks: { act: actTask, list: vi.fn(), onStatusChanged: vi.fn() },
+    });
+    render(<McpElicitationHost />);
+    const request = presentation('pending');
+    harness.request({ ...request, provenance: { ...request.provenance, taskHandle: TASK_HANDLE } });
+    await user.click(await screen.findByRole('button', { name: 'Cancel task' }));
+    await screen.findByText('The task handle is stale.');
+    expect(screen.getByRole('button', { name: 'Cancel task' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /^Accept/u })).toBeEnabled();
+    harness.retire({ code: 'mcp-elicitation-caller-aborted', id: 'pending' });
+    await user.click(screen.getByRole('button', { name: 'Cancel task' }));
+    await screen.findByText('MCP task cancellation did not observe a cancelled task.');
+    expect(screen.queryByText('Task cancelled.')).not.toBeInTheDocument();
+    expect(actTask).toHaveBeenCalledTimes(2);
+    expect(harness.bridge.settleElicitation).not.toHaveBeenCalled();
+  });
+
+  it('visibly refuses task cancellation without the complete task capability', async () => {
+    const harness = installBridge();
+    render(<McpElicitationHost />);
+    const request = presentation('pending');
+    harness.request({ ...request, provenance: { ...request.provenance, taskHandle: TASK_HANDLE } });
+    await screen.findByText('Task cancellation is unavailable in this window.');
+    expect(screen.queryByRole('button', { name: 'Cancel task' })).not.toBeInTheDocument();
+    expect(harness.bridge.settleElicitation).not.toHaveBeenCalled();
+  });
+
   it('renders nothing and subscribes to nothing without a complete bridge', () => {
     const { container } = render(<McpElicitationHost />);
     expect(container).toBeEmptyDOMElement();

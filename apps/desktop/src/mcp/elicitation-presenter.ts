@@ -12,7 +12,9 @@ import type {
   McpHostOperation,
   McpHostServerSnapshot,
   McpServerIdentity,
+  McpTaskHandle,
 } from '@brainstrike/assistant-contract';
+import { McpTaskHandleSchema } from '@brainstrike/assistant-contract';
 import type {
   ElicitRequest,
   ElicitRequestFormParams,
@@ -79,6 +81,7 @@ export interface McpElicitationProvenance {
     readonly version: string;
     readonly websiteOrigin?: string;
   };
+  readonly taskHandle?: McpTaskHandle;
   readonly transport: McpHostServerSnapshot['transport'];
 }
 export interface McpFormElicitationPresentation {
@@ -114,6 +117,7 @@ interface InvocationAuthority {
   readonly configuredServerId: ConfiguredMcpServerId;
   readonly id: string;
   readonly operation: McpElicitationOperationProjection;
+  readonly taskHandle?: McpTaskHandle;
 }
 /**
  * Task-scoped elicitation origin (BST-1566). A durable MCP task raises
@@ -125,6 +129,7 @@ export interface McpTaskElicitationBinding {
   readonly configuredServerId: ConfiguredMcpServerId;
   readonly generation: number;
   readonly operation: McpElicitationOperationProjection;
+  readonly taskHandle: McpTaskHandle;
 }
 export interface McpBoundTaskElicitationPresenter {
   readonly presenter: McpElicitationPresenter;
@@ -273,11 +278,16 @@ export class McpElicitationPresenterAuthority {
     if (this.closed) {
       throw new McpElicitationPresenterError('mcp-elicitation-presenter-closed');
     }
+    const taskHandle = McpTaskHandleSchema.parse(binding.taskHandle);
+    if (taskHandle.serverId !== binding.configuredServerId) {
+      throw new McpElicitationPresenterError('mcp-elicitation-stale-authority');
+    }
     const authority: InvocationAuthority = {
       binding: { configuredServerId: binding.configuredServerId, generation: binding.generation },
       configuredServerId: binding.configuredServerId,
       id: `${this.processNonce}:task:${++this.invocationSequence}`,
       operation: { ...binding.operation },
+      taskHandle,
     };
     let released = false;
     const resolve = (): InvocationAuthority => {
@@ -555,6 +565,7 @@ export class McpElicitationPresenterAuthority {
         negotiatedRevision: server.negotiated.revision,
         operation: { ...invocation.operation },
         requestId: context.requestId,
+        ...(invocation.taskHandle ? { taskHandle: { ...invocation.taskHandle } } : {}),
         ...(serverIdentity ? { serverIdentity } : {}),
         transport: server.transport,
       },

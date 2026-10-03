@@ -24,6 +24,7 @@ import {
   parseConfiguredMcpServerId,
 } from './mcp-host.js';
 import type { McpConfiguredProtocol, McpStatusTransport } from './mcp-status.js';
+import type { McpTaskHandle } from './mcp-task-presentation.js';
 
 export const MCP_ELICITATION_PRESENTATION_ID_MAX_LENGTH = 256;
 export const MCP_ELICITATION_REQUEST_ID_MAX_LENGTH = 256;
@@ -113,6 +114,8 @@ export interface McpElicitationProvenanceWire {
   readonly operation: McpElicitationOperationWire;
   readonly requestId: number | string;
   readonly serverIdentity?: McpElicitationServerIdentityWire;
+  /** Supplied only by the host's verified task binding, never by the request. */
+  readonly taskHandle?: McpTaskHandle;
   readonly transport: McpStatusTransport;
 }
 export interface McpFormElicitationPresentationWire {
