@@ -1,0 +1,36 @@
+{
+  "extends": "../config/tsconfig/node-library.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "incremental": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "types": [
+      "node"
+    ],
+    "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
+    ]
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "__tests__"
+  ],
+  "references": [
+    {
+      "path": "../effect-kit"
+    },
+    {
+      "path": "../state-store"
+    }
+  ]
+}
