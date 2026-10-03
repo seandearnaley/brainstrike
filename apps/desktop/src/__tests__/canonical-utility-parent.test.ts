@@ -551,3 +551,129 @@ describe('captured canonical utility capabilities', () => {
     await parent.close();
   });
 });
+
+it('fences nonterminal retirement until physical IO joins, then admits fresh sources', async () => {
+  const deps = fixture();
+  const physical = Promise.withResolvers<void>();
+  deps.source.lease.readFile = vi.fn(async () => {
+    await physical.promise;
+    return { status: 'not-found' as const };
+  });
+  const { parent, owner } = await attached(deps);
+  call(parent, owner, 100, 'read-file', { maxBytes: 10, relativePath: 'file' });
+  await flush();
+  let retired = false;
+  const retiring = parent.retireAttachments().then(() => {
+    retired = true;
+  });
+  await expect(parent.attachWorkspace(fixture())).rejects.toThrow(/retir/);
+  await flush();
+  expect(retired).toBe(false);
+  physical.resolve();
+  await retiring;
+  await parent.attachWorkspace(fixture());
+  await parent.close();
+});
+
+it('retains failed nonterminal cleanup and its admission fence until explicit retry', async () => {
+  const deps = fixture();
+  const cause = new Error('Original source retirement failed.');
+  deps.source.lease.retire = vi.fn().mockRejectedValueOnce(cause).mockResolvedValue(undefined);
+  const { parent } = await attached(deps);
+  await expect(parent.retireAttachments()).rejects.toThrow(/remain owned/);
+  await expect(parent.attachWorkspace(fixture())).rejects.toThrow(/retir/);
+  await parent.retireAttachments();
+  expect(deps.source.lease.retire).toHaveBeenCalledTimes(2);
+  await parent.attachWorkspace(fixture());
+  await parent.close();
+});
+
+it('joins held acquisition under nonterminal retirement and never reopens after terminal close', async () => {
+  const acquisition = Promise.withResolvers<void>();
+  const frames: object[] = [];
+  const parent = new CanonicalUtilityParent((input) => {
+    frames.push(input);
+    const frame = decodeCanonicalFrame(input);
+    if (frame.kind !== 'call') {
+      return;
+    }
+    const respond = (): void =>
+      parent.receive({
+        channel: CANONICAL_CHANNEL,
+        id: frame.id,
+        kind: 'result',
+        ok: true,
+        owner: frame.owner,
+        value: null,
+      });
+    if (frame.op === 'attach') {
+      void acquisition.promise.then(respond);
+    } else {
+      queueMicrotask(respond);
+    }
+  }, vi.fn());
+  const deps = fixture();
+  const read = Promise.withResolvers<void>();
+  deps.source.lease.readFile = vi.fn(async () => {
+    await read.promise;
+    return { status: 'not-found' as const };
+  });
+  const acquiring = parent.attachWorkspace(deps).catch((error: unknown) => error);
+  const owner = decodeCanonicalFrame(frames[0]).owner;
+  call(parent, owner, 100, 'read-file', { maxBytes: 10, relativePath: 'file' });
+  await flush();
+  let settled = false;
+  const retiring = parent.retireAttachments().then(() => {
+    settled = true;
+  });
+  const terminal = parent.close();
+  await flush();
+  expect(settled).toBe(false);
+  acquisition.resolve();
+  read.resolve();
+  await Promise.all([retiring, terminal]);
+  expect(await acquiring).toBeInstanceOf(Error);
+  await expect(parent.attachWorkspace(fixture())).rejects.toThrow(/closed/);
+});
+
+it('retires failed acquisition under its original owner before a replacement can attach', async () => {
+  let failAcquisition = true;
+  const parent = new CanonicalUtilityParent((input) => {
+    const frame = decodeCanonicalFrame(input);
+    if (frame.kind !== 'call') {
+      return;
+    }
+    const fail = frame.op === 'attach' && failAcquisition;
+    if (frame.op === 'attach') {
+      failAcquisition = false;
+    }
+    queueMicrotask(() =>
+      parent.receive(
+        fail
+          ? {
+              channel: CANONICAL_CHANNEL,
+              error: { message: 'Original acquisition failed.', name: 'Error' },
+              id: frame.id,
+              kind: 'result',
+              ok: false,
+              owner: frame.owner,
+            }
+          : {
+              channel: CANONICAL_CHANNEL,
+              id: frame.id,
+              kind: 'result',
+              ok: true,
+              owner: frame.owner,
+              value: null,
+            }
+      )
+    );
+  }, vi.fn());
+  const deps = fixture();
+  await expect(parent.attachWorkspace(deps)).rejects.toThrow('Original acquisition failed.');
+  await expect(parent.attachWorkspace(fixture())).rejects.toThrow('already has an owner');
+  await parent.retireAttachments();
+  expect(deps.source.lease.retire).toHaveBeenCalledOnce();
+  await parent.attachWorkspace(fixture());
+  await parent.close();
+});

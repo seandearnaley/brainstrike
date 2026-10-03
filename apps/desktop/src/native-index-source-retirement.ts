@@ -1,0 +1,87 @@
+import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
+import type { NativeCanonicalCatalogRecord } from './native-canonical-catalog';
+import type { NativeCanonicalInference } from './native-canonical-profile';
+
+export interface NativeIndexSources {
+  readonly attachments: Set<{ close(): Promise<void> }>;
+  collectionInventory?: readonly NativeCanonicalCatalogRecord[];
+  readonly controller: AbortController;
+  readonly inference: Set<NativeCanonicalInference>;
+  readonly leases: Map<string, CanonicalWorkspaceLease>;
+  retirement?: Promise<void> | undefined;
+  scanCollection?: () => Promise<void>;
+  startup?: Promise<void>;
+  readonly workspaceTriggers: Map<string, () => Promise<void>>;
+}
+
+/** Retain every original source capability until physical retirement succeeds. */
+export function retireNativeIndexSources(
+  sources: NativeIndexSources,
+  retireAttachments: () => Promise<void>
+): Promise<void> {
+  sources.controller.abort(new Error('Native ingestion paused.'));
+  sources.retirement ??= (async () => {
+    const attempted = new Set<{ close(): Promise<void> }>();
+    const failures: unknown[] = [];
+    const collect = (results: readonly PromiseSettledResult<unknown>[]): void => {
+      failures.push(
+        ...results.flatMap((result) =>
+          result.status === 'rejected' ? [result.reason as unknown] : []
+        )
+      );
+    };
+    const closeAttached = async (): Promise<void> => {
+      collect(
+        await Promise.allSettled(
+          [...sources.attachments]
+            .filter((attachment) => !attempted.has(attachment))
+            .map(async (attachment) => {
+              attempted.add(attachment);
+              await attachment.close();
+              sources.attachments.delete(attachment);
+            })
+        )
+      );
+    };
+    // Abort borrowed IO and inference even when attachment acquisition has not returned yet.
+    const attemptedLeases = new Set<CanonicalWorkspaceLease>();
+    const attemptedInference = new Set<NativeCanonicalInference>();
+    const retireCapabilities = (): Promise<PromiseSettledResult<unknown>[]> => {
+      const retirement = [...sources.leases]
+        .filter(([, lease]) => !attemptedLeases.has(lease))
+        .map(async ([id, lease]) => {
+          attemptedLeases.add(lease);
+          await lease.retire();
+          sources.leases.delete(id);
+        });
+      retirement.push(
+        ...[...sources.inference]
+          .filter((inference) => !attemptedInference.has(inference))
+          .map(async (inference) => {
+            attemptedInference.add(inference);
+            await inference.close();
+            sources.inference.delete(inference);
+          })
+      );
+      return Promise.allSettled(retirement);
+    };
+    const joined = retireCapabilities();
+    // The parent owns sessions even before acquisition returns a public attachment handle.
+    const parentRetirement = Promise.allSettled([Promise.resolve().then(retireAttachments)]);
+    await closeAttached();
+    await sources.startup?.catch(() => undefined);
+    await closeAttached();
+    collect(await joined);
+    collect(await parentRetirement);
+    collect(await retireCapabilities());
+    if (failures.length > 0) {
+      throw new AggregateError(
+        [...new Set(failures)],
+        'Canonical utility attachments did not retire.'
+      );
+    }
+  })().finally(() => {
+    sources.retirement = undefined;
+  });
+  return sources.retirement;
+}

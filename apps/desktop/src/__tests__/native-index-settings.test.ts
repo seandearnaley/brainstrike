@@ -33,7 +33,10 @@ describe('main native indexing settings', () => {
       selection: null,
     });
     expect([...readNativeIndexSettings(saved()).worktreeOptIns]).toEqual(['allowed']);
-    expect(readNativeIndexSettings(saved({ paused: true })).enabled).toBe(false);
+    expect(readNativeIndexSettings(saved({ paused: true }))).toMatchObject({
+      enabled: true,
+      paused: true,
+    });
   });
   it('refuses absent mode, collection and execution choices', () => {
     expect(() => readNativeIndexSettings(null)).toThrow('Choose a native search mode');

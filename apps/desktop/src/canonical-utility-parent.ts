@@ -44,7 +44,10 @@ export interface CanonicalCollectionAttachment {
 /** Main retains actual capability objects. A child owner token selects only this captured closure. */
 export class CanonicalUtilityParent {
   private readonly sessions = new Map<string, Session>();
+  private readonly acquisitions = new Map<string, Promise<unknown>>();
   private closed = false;
+  private retiringAttachments = false;
+  private attachmentRetirement: Promise<void> | undefined;
   private remoteExited = false;
   readonly channel: CanonicalUtilityChannel;
   constructor(
@@ -121,6 +124,9 @@ export class CanonicalUtilityParent {
     if (this.closed) {
       throw new Error('Canonical utility admission is closed.');
     }
+    if (this.retiringAttachments) {
+      throw new Error('Canonical utility attachment retirement owns admission.');
+    }
     for (const session of this.sessions.values()) {
       if (sameScope(session.config.scope, config.scope)) {
         throw new Error('Canonical utility scope already has an owner.');
@@ -147,7 +153,12 @@ export class CanonicalUtilityParent {
       vectorPublication: dependencies.mode === 'VECTOR' ? dependencies.publication : undefined,
     });
     // A failed acquisition retains the owner; close() is the explicit retry path.
-    await this.channel.call(owner, 'attach', config, Schema.Null);
+    const acquisition = this.channel.call(owner, 'attach', config, Schema.Null);
+    this.acquisitions.set(owner, acquisition);
+    await acquisition;
+    if (this.closed || this.retiringAttachments || !this.sessions.has(owner)) {
+      throw new Error('Canonical utility attachment retired during acquisition.');
+    }
     return owner;
   }
 
@@ -270,6 +281,8 @@ export class CanonicalUtilityParent {
           errors.push(error);
         }
       }
+      // Join the original acquisition even if a close response arrives before its response.
+      await this.acquisitions.get(owner)?.catch(() => undefined);
       try {
         await this.join(session);
       } catch (error) {
@@ -279,6 +292,7 @@ export class CanonicalUtilityParent {
         throw new AggregateError(errors, 'Canonical attachment retirement remains owned.');
       }
       this.sessions.delete(owner);
+      this.acquisitions.delete(owner);
     })().finally(() => {
       session.close = undefined;
     });
@@ -293,6 +307,21 @@ export class CanonicalUtilityParent {
       this.stop(session);
     }
     return this.closeAll();
+  }
+  /** Join source owners without retiring this parent or the utility's native reader/writer. */
+  retireAttachments(): Promise<void> {
+    this.retiringAttachments = true;
+    for (const session of this.sessions.values()) {
+      this.stop(session);
+    }
+    this.attachmentRetirement ??= this.closeAll()
+      .then(() => {
+        this.retiringAttachments = false;
+      })
+      .finally(() => {
+        this.attachmentRetirement = undefined;
+      });
+    return this.attachmentRetirement;
   }
   private async closeAll(): Promise<void> {
     const results = await Promise.allSettled(
@@ -323,6 +352,7 @@ export class CanonicalUtilityParent {
       throw new AggregateError(errors, 'Canonical utility exited with retained main cleanup.');
     }
     this.sessions.clear();
+    this.acquisitions.clear();
   }
   private async join(session: Session): Promise<void> {
     const inferenceErrors = await this.retireInference(session);

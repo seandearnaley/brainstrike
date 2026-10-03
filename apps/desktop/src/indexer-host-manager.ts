@@ -27,6 +27,8 @@ export class IndexerHostManager {
   #exitCleanupFailed = false;
   #transportFailure: unknown;
   #closed = false;
+  #sourceRetirement: Promise<void> | undefined;
+  #sourceRetirementOwned = false;
 
   private constructor(options: IndexerOptions, deadlines: IndexerDeadlines, entryPath: string) {
     const embedding =
@@ -140,8 +142,11 @@ export class IndexerHostManager {
   async attachCanonicalWorkspace(
     dependencies: CanonicalWorkspaceRuntimeDependencies
   ): Promise<CanonicalWorkspaceAttachment> {
+    if (this.#sourceRetirementOwned) {
+      throw new Error('Indexer canonical source retirement owns attachment admission.');
+    }
     await this.start();
-    if (this.#closed || !this.#canonical) {
+    if (this.#closed || this.#sourceRetirementOwned || !this.#canonical) {
       throw new Error('Indexer canonical attachment admission is closed.');
     }
     const attachment = await this.#bounded(
@@ -158,8 +163,11 @@ export class IndexerHostManager {
   async attachCanonicalCollection(
     dependencies: CanonicalCollectionDependencies
   ): Promise<CanonicalCollectionAttachment> {
+    if (this.#sourceRetirementOwned) {
+      throw new Error('Indexer canonical source retirement owns attachment admission.');
+    }
     await this.start();
-    if (this.#closed || !this.#canonical) {
+    if (this.#closed || this.#sourceRetirementOwned || !this.#canonical) {
       throw new Error('Indexer canonical attachment admission is closed.');
     }
     const attachment = await this.#bounded(
@@ -171,6 +179,28 @@ export class IndexerHostManager {
       close: () => this.#bounded(attachment.close(), this.#deadlines.closeMs),
       scan: (requestId) => this.#bounded(attachment.scan(requestId), this.#deadlines.requestMs),
     };
+  }
+
+  retireCanonicalSources(): Promise<void> {
+    this.#sourceRetirementOwned = true;
+    const admitted = this.#canonical?.retireAttachments();
+    this.#sourceRetirement ??= this.#bounded(
+      (async () => {
+        await admitted;
+        await this.#start;
+        if (!admitted) {
+          await this.#canonical?.retireAttachments();
+        }
+      })(),
+      this.#deadlines.closeMs
+    )
+      .then(() => {
+        this.#sourceRetirementOwned = false;
+      })
+      .finally(() => {
+        this.#sourceRetirement = undefined;
+      });
+    return this.#sourceRetirement;
   }
 
   #bounded<T>(work: Promise<T>, timeoutMs: number): Promise<T> {

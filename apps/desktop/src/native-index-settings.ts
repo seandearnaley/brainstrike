@@ -12,6 +12,7 @@ export interface NativeIndexSettings {
   readonly indexingPolicyPreset: BackgroundIndexingPolicyPreset;
   readonly managedCollectionId: string;
   readonly mode: NativeIndexMode;
+  readonly paused: boolean;
   readonly selection: NativeLocalSelection | null;
   readonly worktreeOptIns: ReadonlySet<string>;
 }
@@ -49,10 +50,11 @@ export function readNativeIndexSettings(value: string | null): NativeIndexSettin
   const optIns: unknown = Reflect.get(state, 'worktreeRootIndexingOptInById');
   const worktreeOptIns = readWorktreeOptIns(optIns);
   return {
-    enabled: enabled && !paused,
+    enabled,
     indexingPolicyPreset,
     managedCollectionId,
     mode,
+    paused,
     selection,
     worktreeOptIns,
   };
@@ -95,4 +97,16 @@ export function readNativeManagedCollectionId(value: string | null): string | nu
     throw new Error('Saved native collection identity is invalid.');
   }
   return id;
+}
+
+/** Pause changes source admission only; all other choices define the retained authority. */
+export function nativeIndexConfigurationIdentity(settings: NativeIndexSettings): string {
+  return JSON.stringify([
+    settings.enabled,
+    settings.indexingPolicyPreset,
+    settings.managedCollectionId,
+    settings.mode,
+    settings.selection,
+    [...settings.worktreeOptIns].sort(),
+  ]);
 }

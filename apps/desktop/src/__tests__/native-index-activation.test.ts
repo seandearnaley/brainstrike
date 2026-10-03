@@ -32,7 +32,12 @@ const mocks = vi.hoisted(() => ({
   closeReaders: vi.fn(),
   database: { query: vi.fn(), transaction: vi.fn() },
   destroy: vi.fn(),
-  manager: { attachCanonicalCollection: vi.fn(), attachCanonicalWorkspace: vi.fn() },
+  manager: {
+    attachCanonicalCollection: vi.fn(),
+    attachCanonicalWorkspace: vi.fn(),
+    retireCanonicalSources: vi.fn(),
+    start: vi.fn(),
+  },
   readyPort: vi.fn(),
 }));
 vi.mock('../db-main', () => ({ getDatabase: async () => mocks.database }));
@@ -161,6 +166,8 @@ beforeEach(() => {
   mocks.destroy.mockResolvedValue(undefined);
   mocks.closeReaders.mockResolvedValue(undefined);
   mocks.closeProfile.mockResolvedValue(undefined);
+  mocks.manager.retireCanonicalSources.mockResolvedValue(undefined);
+  mocks.manager.start.mockResolvedValue(writer());
 });
 
 afterEach(resetFileSizeConfig);
@@ -501,7 +508,14 @@ it('joins outgoing rooted collection removal before replacing the main writer', 
   };
   const application = {
     roots: {
-      borrowSourceRoot: async () => lease,
+      borrowSourceRoot: vi
+        .fn()
+        .mockResolvedValueOnce(lease)
+        .mockImplementation(async () => ({
+          ...lease,
+          generation: 'source-borrow',
+          retire: async () => {},
+        })),
       restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
     },
     watches: { subscribe: unused },

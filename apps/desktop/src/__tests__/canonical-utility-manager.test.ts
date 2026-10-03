@@ -183,3 +183,45 @@ it('bounds returned scans, stops canonical admission on timeout and joins admitt
   await close;
   expect(engine.close).toHaveBeenCalledOnce();
 });
+
+it('retires canonical sources without closing the engine and permits a fresh source attachment', async () => {
+  child = Object.assign(new EventEmitter(), {
+    kill: () => true,
+    postMessage: (input: unknown): void => {
+      const frame = decodeCanonicalFrame(input);
+      if (frame.kind !== 'call') {
+        return;
+      }
+      queueMicrotask(() =>
+        child.emit('message', {
+          channel: CANONICAL_CHANNEL,
+          id: frame.id,
+          kind: 'result',
+          ok: true,
+          owner: frame.owner,
+          value: null,
+        })
+      );
+    },
+  });
+  const manager = await IndexerHostManager.create(
+    {
+      dbPath: '/explicit/derived.sqlite',
+      embedding: { indexMode: 'text-only' },
+      fileBindings: [],
+      rootIds: [],
+      scopes: [scope],
+    },
+    { closeMs: 100, exitMs: 100, requestMs: 100, startupMs: 100 },
+    '/explicit/entry.js'
+  );
+  const original = await manager.start();
+  await manager.attachCanonicalCollection(dependencies(async () => {}));
+  await manager.retireCanonicalSources();
+  expect(await manager.start()).toBe(original);
+  expect(engine.close).not.toHaveBeenCalled();
+  expect(engine.destroy).not.toHaveBeenCalled();
+  await manager.attachCanonicalCollection(dependencies(async () => {}));
+  await manager.close();
+  expect(engine.close).toHaveBeenCalledOnce();
+});
