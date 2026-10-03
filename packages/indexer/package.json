@@ -9,6 +9,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./transport": {
+      "types": "./dist/transport.d.ts",
+      "default": "./dist/transport.js"
+    },
+    "./host": {
+      "types": "./dist/process-core.d.ts",
+      "default": "./dist/process-core.js"
     }
   },
   "files": [

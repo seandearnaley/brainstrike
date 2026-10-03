@@ -65,16 +65,11 @@ function parseRepoRootArgument(argv) {
  * whole package is. Keep this list short and justified.
  */
 export const WORKSPACE_SRC_ALIAS_ALLOWLIST = Object.freeze({
-  // (currently empty — every checked lane resolves workspace imports from src.
-  // The THREE B4 dependsOn exceptions are outside this guard's scope by
-  // construction, because none goes through a workspace import specifier:
-  //  - packages/logging logger-dist-singleton.test.ts imports its own dist via a
-  //    file URL (intentional built-artifact regression test);
-  //  - packages/utils typescript-build-contract.test.ts inspects its own dist
-  //    through node:fs;
-  //  - packages/db __tests__/migration-runner-types.test.ts runs a nested
-  //    ts.createProgram whose COMPILER resolution reads @brainstrike/utils
-  //    types from dist/index.d.ts — vitest aliases cannot intercept tsc.)
+  '@brainstrike/indexer': {
+    reason:
+      'The native process integration lane consumes emitted public artifacts so Node can launch the compiled process and writer worker; its own build edge is explicit.',
+    specifiers: ['@brainstrike/indexer'],
+  },
 });
 
 const SOURCE_FILE_RE = /\.(ts|tsx|mts|cts)$/;

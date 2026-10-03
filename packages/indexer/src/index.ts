@@ -1,25 +1,10 @@
 import { fork } from 'node:child_process';
-import { rm } from 'node:fs/promises';
-import path from 'node:path';
-import { Schema } from 'effect';
+import type { CommitResult, FilePlan, IndexerInfo, SearchResult } from './contracts.js';
 import {
-  type CommitResult,
-  commitResultSchema,
-  commitSchema,
-  decoder,
-  type FilePlan,
-  IndexerError,
-  type IndexerInfo,
-  identitySchema,
-  infoSchema,
-  optionsSchema,
-  planSchema,
-  type SearchResult,
-  searchResultSchema,
-  searchSchema,
-  snapshotSchema,
-} from './contracts.js';
-import { RpcClient } from './rpc-client.js';
+  createIndexerConnection,
+  validateIndexerDeadlines,
+  validateIndexerOptions,
+} from './transport.js';
 
 export { embeddingProfileHash, fileChunks } from './chunks.js';
 export type {
@@ -36,6 +21,8 @@ export type {
   SearchResult,
 } from './contracts.js';
 export { IndexerError } from './contracts.js';
+export type { IndexerDeadlines } from './transport.js';
+export { IndexerLifecycleError } from './transport.js';
 export interface IndexerPort {
   close(): Promise<void>;
   commitFile(commit: unknown): Promise<CommitResult>;
@@ -45,77 +32,52 @@ export interface IndexerPort {
   removeFile(identity: unknown): Promise<boolean>;
   search(request: unknown): Promise<SearchResult>;
 }
-export async function openIndexer(input: unknown): Promise<IndexerPort> {
-  const options = decoder(optionsSchema)(input);
-  if (!path.isAbsolute(options.dbPath) || options.dbPath === ':memory:') {
-    throw new TypeError('Indexer requires an absolute persistent database file path.');
+export async function openIndexer(input: unknown, deadlineInput: unknown): Promise<IndexerPort> {
+  if (process.versions['electron']) {
+    throw new Error('Standalone indexer requires Node; use the explicit Electron utility adapter.');
   }
+  const options = validateIndexerOptions(input);
+  const deadlines = validateIndexerDeadlines(deadlineInput);
   const child = fork(new URL('./process-entry.js', import.meta.url), [], {
     execArgv: [],
     serialization: 'advanced',
     stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
   });
-  const client = new RpcClient(
-    (message) => {
+  const sendErrors = new Set<(error: unknown) => void>();
+  const connection = createIndexerConnection(options, deadlines, {
+    kill: () => child.kill(),
+    onError: (listener) => {
+      child.on('error', listener);
+      sendErrors.add(listener);
+      return () => {
+        child.off('error', listener);
+        sendErrors.delete(listener);
+      };
+    },
+    onExit: (listener) => {
+      child.on('exit', listener);
+      return () => {
+        child.off('exit', listener);
+      };
+    },
+    onMessage: (listener) => {
+      child.on('message', listener);
+      return () => {
+        child.off('message', listener);
+      };
+    },
+    send: (message) => {
       child.send(message, (error) => {
         if (error) {
-          client.fail(error);
+          // Route asynchronous send failures through the transport owner.
+          // Re-emitting Node's special 'error' event after exit/listener disposal
+          // would throw; pending operations already fail on the joined exit.
+          for (const listener of sendErrors) {
+            listener(error);
+          }
         }
       });
     },
-    () => {
-      child.kill();
-    }
-  );
-  const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
-  child.on('message', (message: unknown) => client.receive(message));
-  child.on('error', (error) => client.fail(error));
-  child.on('exit', (code, signal) =>
-    client.fail(new IndexerError('indexer-exited', `Indexer process exited (${code}, ${signal}).`))
-  );
-  try {
-    child.send(options, (error) => {
-      if (error) {
-        client.fail(error);
-      }
-    });
-    decoder(infoSchema)(await client.ready);
-  } catch (error) {
-    child.kill();
-    await exited;
-    throw error;
-  }
-  let closePromise: Promise<void> | undefined;
-  const close = (): Promise<void> => {
-    closePromise ??= (async () => {
-      if (!child.connected) {
-        await exited;
-        return;
-      }
-      try {
-        await client.call('close', null, decoder(Schema.Boolean));
-      } finally {
-        await exited;
-      }
-    })();
-    return closePromise;
-  };
-  return {
-    close,
-    commitFile: async (commit) =>
-      client.call('commit-file', decoder(commitSchema)(commit), decoder(commitResultSchema)),
-    destroy: async () => {
-      await close();
-      for (const file of [options.dbPath, `${options.dbPath}-wal`, `${options.dbPath}-shm`]) {
-        await rm(file, { force: true });
-      }
-    },
-    info: () => client.call('info', null, decoder(infoSchema)),
-    prepareFile: async (snapshot) =>
-      client.call('prepare-file', decoder(snapshotSchema)(snapshot), decoder(planSchema)),
-    removeFile: async (identity) =>
-      client.call('remove-file', decoder(identitySchema)(identity), decoder(Schema.Boolean)),
-    search: async (request) =>
-      client.call('search', decoder(searchSchema)(request), decoder(searchResultSchema)),
-  };
+  });
+  return connection.ready;
 }

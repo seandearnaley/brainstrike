@@ -3,8 +3,9 @@
 Independent Node-only derived index. Build with
 `pnpm exec turbo run build --filter=@brainstrike/indexer`; import the emitted
 public package. `openIndexer()` forks `dist/process-entry.js`, which launches
-`dist/writer-worker.js`. The Electron utility-process adapter and product
-cutover are separate work.
+`dist/writer-worker.js`. Electron main uses the explicit utility-process adapter in
+`apps/desktop/src/indexer-host-manager.ts`; product cutover remains separate.
+Both transports use the same process core and compiled writer worker.
 
 ```ts
 import { openIndexer } from '@brainstrike/indexer';
@@ -20,7 +21,7 @@ const indexer = await openIndexer({
   dbPath: '/owned/data-root/derived-index.sqlite',
   profile,
   rootIds: ['authorized-workspace-root'],
-});
+}, { startupMs, requestMs, closeMs, exitMs });
 const plan = await indexer.prepareFile({
   rootId: 'authorized-workspace-root',
   fileId: 'canonical-file-record-id',
@@ -71,3 +72,27 @@ pnpm exec turbo run build test test:integration type-check --filter=@brainstrike
 
 The integration task is uncached and requires actual native dependencies. See
 `docs/agents/indexer.md` and ADR-0018 for the boundary and remaining product gates.
+
+The four deadlines are required finite positive milliseconds supplied by the
+owner. No package default is a product latency policy. A timeout or transport
+failure fails pending work, requests termination once, and joins exit. Refused
+termination or an expired exit join raises `IndexerLifecycleError`, retaining an
+explicit `close()` cleanup handle; do not replace that owner before cleanup.
+
+Electron bootstrap after `app.whenReady()`:
+
+```ts
+const owner = await IndexerHostManager.create(options, deadlines);
+const indexer = await owner.start();
+// owner.databasePath/profile/rootIds are immutable consumer metadata.
+// Use the same IndexerPort methods above.
+await owner.close(); // joins Electron's UtilityProcess exit event
+// A deliberate fresh owner can reopen; destroy() joins before deleting files.
+```
+
+The adapter uses `utilityProcess.fork` and `process.parentPort` exclusively.
+It dynamically imports emitted ESM subpaths from the CJS desktop bundle and
+resolves its entry beside that bundle. There is no implicit child-process
+substitution. Desktop profile/reset/IPC wiring and canonical provided-chunk
+production are pending; the foundation line chunker must not replace the
+existing desktop parser/chunker policy.

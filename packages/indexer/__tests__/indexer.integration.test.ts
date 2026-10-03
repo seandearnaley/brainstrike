@@ -9,6 +9,7 @@ import { Schema } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { decoder, profileSchema, vectorSchema } from '../src/contracts.js';
 
+const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
 const profile = {
   dimensions: 384,
   dtype: 'q8',
@@ -28,7 +29,7 @@ async function fixture() {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-indexer-'));
   cleanup.push(() => rm(directory, { force: true, recursive: true }));
   const dbPath = path.join(directory, 'index.sqlite');
-  const port = await openIndexer({ dbPath, profile, rootIds: ['root-a', 'root-b'] });
+  const port = await openIndexer({ dbPath, profile, rootIds: ['root-a', 'root-b'] }, deadlines);
   cleanup.push(() => port.close());
   return { dbPath, port };
 }
@@ -73,7 +74,7 @@ describe('isolated SQLite indexer', () => {
       rootId: 'root-a',
     });
     await port.close();
-    const reopened = await openIndexer({ dbPath, profile, rootIds: ['root-a'] });
+    const reopened = await openIndexer({ dbPath, profile, rootIds: ['root-a'] }, deadlines);
     cleanup.push(() => reopened.close());
     expect(
       (await reopened.search({ limit: 10, mode: 'trigram', rootIds: ['root-a'], text: 'ite ind' }))
@@ -198,22 +199,20 @@ describe('isolated SQLite indexer', () => {
     ).toEqual([]);
   });
 
-  it('refuses every profile-identity mismatch without deleting the existing index', async () => {
+  it.each([
+    ['tokenCap', { ...profile, tokenCap: 256 }],
+    ['dimensions', { ...profile, dimensions: 768 }],
+    ['dtype', { ...profile, dtype: 'fp32' }],
+    ['revision', { ...profile, revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f' }],
+    ['modelId', { ...profile, modelId: 'fused/minilm' }],
+  ])('refuses changed %s without deleting the existing index', async (_field, replacement) => {
     const { port, dbPath } = await fixture();
     await add(port, 'retained index data');
     await port.close();
-    for (const replacement of [
-      { ...profile, tokenCap: 256 },
-      { ...profile, dimensions: 768 },
-      { ...profile, dtype: 'fp32' },
-      { ...profile, revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f' },
-      { ...profile, modelId: 'fused/minilm' },
-    ]) {
-      await expect(
-        openIndexer({ dbPath, profile: replacement, rootIds: ['root-a'] })
-      ).rejects.toMatchObject({ code: 'rebuild-required' });
-    }
-    const reopened = await openIndexer({ dbPath, profile, rootIds: ['root-a'] });
+    await expect(
+      openIndexer({ dbPath, profile: replacement, rootIds: ['root-a'] }, deadlines)
+    ).rejects.toMatchObject({ code: 'rebuild-required' });
+    const reopened = await openIndexer({ dbPath, profile, rootIds: ['root-a'] }, deadlines);
     cleanup.push(() => reopened.close());
     expect(
       (await reopened.search({ limit: 10, mode: 'bm25', rootIds: ['root-a'], text: 'retained' }))
@@ -237,7 +236,9 @@ describe('isolated SQLite indexer', () => {
     const foreign = openConnection(dbPath);
     foreign.exec("CREATE TABLE precious(content TEXT); INSERT INTO precious VALUES('never wipe')");
     foreign.close();
-    await expect(openIndexer({ dbPath, profile, rootIds: ['root-a'] })).rejects.toMatchObject({
+    await expect(
+      openIndexer({ dbPath, profile, rootIds: ['root-a'] }, deadlines)
+    ).rejects.toMatchObject({
       code: 'rebuild-required',
     });
     const retained = openConnection(dbPath, { readonly: true });
@@ -265,7 +266,7 @@ describe('isolated SQLite indexer', () => {
     process.kill((await port.info()).pid, 'SIGKILL');
     await failure;
     await port.close();
-    const reopened = await openIndexer({ dbPath, profile, rootIds: ['root-a'] });
+    const reopened = await openIndexer({ dbPath, profile, rootIds: ['root-a'] }, deadlines);
     cleanup.push(() => reopened.close());
     expect(
       (await reopened.search({ limit: 10, mode: 'bm25', rootIds: ['root-a'], text: 'committed' }))
@@ -377,7 +378,7 @@ describe('isolated SQLite indexer', () => {
     });
     const { port: initial, dbPath } = await fixture();
     await initial.destroy();
-    const port = await openIndexer({ dbPath, profile: producer, rootIds: ['root-a'] });
+    const port = await openIndexer({ dbPath, profile: producer, rootIds: ['root-a'] }, deadlines);
     cleanup.push(() => port.close());
     const plan = await port.prepareFile({ ...file(recorded.source.text), chunkLines: 100 });
     expect(plan.chunks).toHaveLength(1);
