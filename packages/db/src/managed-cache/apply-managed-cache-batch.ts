@@ -50,6 +50,12 @@ export interface ApplyManagedCacheBatchArgs {
 
 export type ManagedCacheInvalidationTarget =
   | {
+      readonly expectedFileRecordId: string;
+      readonly mode: 'record';
+      readonly relativePath: string | null;
+      readonly rootId: string | null;
+    }
+  | {
       readonly expectedFileRecordId?: string;
       readonly mode?: 'exact';
       readonly relativePath: string;
@@ -539,12 +545,14 @@ async function cancelQueuedOrRunningEmbeddingJobsForChunks(
   return canceledCount;
 }
 
-interface NormalizedManagedCacheInvalidationTarget {
-  readonly expectedFileRecordId: string | null;
-  readonly mode: 'exact' | 'prefix';
-  readonly relativePath: string;
-  readonly rootId: string;
-}
+type NormalizedManagedCacheInvalidationTarget =
+  | Extract<ManagedCacheInvalidationTarget, { readonly mode: 'record' }>
+  | {
+      readonly expectedFileRecordId: string | null;
+      readonly mode: 'exact' | 'prefix';
+      readonly relativePath: string;
+      readonly rootId: string;
+    };
 
 function normalizePrefixInvalidationPath(relativePathPrefix: string): string {
   const normalized = relativePathPrefix.replace(/\/+$/u, '');
@@ -556,10 +564,26 @@ function normalizePrefixInvalidationPath(relativePathPrefix: string): string {
   return normalized;
 }
 
+function assertRecordInvalidationTarget(
+  target: Extract<ManagedCacheInvalidationTarget, { readonly mode: 'record' }>
+): void {
+  if (
+    !isNonEmptyString(target.expectedFileRecordId) ||
+    (target.rootId !== null && !isNonEmptyString(target.rootId)) ||
+    (target.relativePath !== null && typeof target.relativePath !== 'string')
+  ) {
+    throw new Error('Canonical record invalidation requires an exact ID and nullable root/path.');
+  }
+}
+
 function normalizeInvalidationTargets(
   targets: readonly ManagedCacheInvalidationTarget[]
 ): NormalizedManagedCacheInvalidationTarget[] {
   return targets.map((target) => {
+    if (target.mode === 'record') {
+      assertRecordInvalidationTarget(target);
+      return { ...target };
+    }
     if (!isNonEmptyString(target.rootId)) {
       throw new Error('Managed cache invalidation target requires a non-empty rootId.');
     }
@@ -615,11 +639,16 @@ async function listExactPathInvalidationMatches(
   // Every target matches the file at exactly its path: exact targets with
   // their optional expected-id guard, prefix targets unconditionally (a
   // prefix invalidation also removes a file record AT the prefix path).
-  const exactPathTargets = targets.map((target) => ({
-    expectedFileRecordId: target.mode === 'exact' ? target.expectedFileRecordId : null,
-    relativePath: target.relativePath,
-    rootId: target.rootId,
-  }));
+  const exactPathTargets = targets
+    .filter((target) => target.mode !== 'record')
+    .map((target) => ({
+      expectedFileRecordId: target.mode === 'exact' ? target.expectedFileRecordId : null,
+      relativePath: target.relativePath,
+      rootId: target.rootId,
+    }));
+  if (exactPathTargets.length === 0) {
+    return [];
+  }
   const placeholders = buildValuePlaceholders(exactPathTargets.length, 3, 2);
   const values = exactPathTargets.flatMap((target) => [
     target.rootId,
@@ -686,6 +715,39 @@ async function listPrefixDescendantInvalidationMatches(
   return result.rows;
 }
 
+async function listRecordInvalidationMatches(
+  tx: QueryLike,
+  embeddingSetId: string,
+  targets: readonly NormalizedManagedCacheInvalidationTarget[]
+): Promise<InvalidationMatchRow[]> {
+  const recordTargets = targets.filter((target) => target.mode === 'record');
+  if (recordTargets.length === 0) {
+    return [];
+  }
+  const placeholders = buildValuePlaceholders(recordTargets.length, 3, 2);
+  const values = recordTargets.flatMap((target) => [
+    target.expectedFileRecordId,
+    target.rootId,
+    target.relativePath,
+  ]);
+  const result = await tx.query<InvalidationMatchRow>(
+    `WITH targets(file_record_id, root_id, relative_path) AS (
+       VALUES ${placeholders}
+     )
+     SELECT fr.id::text AS file_record_id, fc.id::text AS chunk_id
+       FROM targets t
+       JOIN file_records fr
+         ON fr.id::text = t.file_record_id
+        AND fr.embedding_set_id::text = $1
+        AND fr.root_id IS NOT DISTINCT FROM t.root_id
+        AND fr.path IS NOT DISTINCT FROM t.relative_path
+      LEFT JOIN file_chunks fc ON fc.file_record_id::text = fr.id::text
+      FOR UPDATE OF fr`,
+    [embeddingSetId, ...values]
+  );
+  return result.rows;
+}
+
 async function listInvalidationMatches(
   tx: QueryLike,
   embeddingSetId: string,
@@ -701,7 +763,7 @@ async function listInvalidationMatches(
     };
   }
 
-  // Two separate sargable queries instead of one OR-ed predicate: with the
+  // Separate sargable queries instead of one OR-ed predicate: with the
   // modes OR-ed together the planner could push only root_id into the index
   // condition and re-filtered every file under the root once per target —
   // 11s per 250-target batch at 88K files, and the whole app blocks behind
@@ -709,6 +771,7 @@ async function listInvalidationMatches(
   const rows = [
     ...(await listExactPathInvalidationMatches(tx, embeddingSetId, targets)),
     ...(await listPrefixDescendantInvalidationMatches(tx, embeddingSetId, targets)),
+    ...(await listRecordInvalidationMatches(tx, embeddingSetId, targets)),
   ];
 
   const fileRecordIds = [...new Set(rows.map((row) => row.file_record_id))].sort();

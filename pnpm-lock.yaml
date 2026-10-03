@@ -492,6 +492,9 @@ importers:
       '@brainstrike/assistant-ui':
         specifier: workspace:*
         version: link:../../packages/assistant-ui
+      '@brainstrike/canonical-ingestion':
+        specifier: workspace:*
+        version: link:../../packages/canonical-ingestion
       '@brainstrike/chunking-worker':
         specifier: workspace:*
         version: link:../../packages/chunking-worker

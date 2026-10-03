@@ -92,6 +92,25 @@ Guard: `packages/file-import/src/__tests__/canonical-index-publication.test.ts`,
 Evidence: `indexer/2026-10-03-retained-coordinator-delivery.md`.
 Guard: `packages/canonical-ingestion/__tests__/host.test.ts`, `packages/canonical-ingestion/__tests__/public-node-entry.integration.test.ts`.
 
+### Authoritative desktop catalog adapter
+
+- Resolve catalog scope, profile and canonical identity through main-supplied current
+  authority. Query actual PG source and collection membership; nullable retained
+  root/path metadata must stay nullable and never confer a workspace grant.
+- Prepare discovered original source in the existing managed-cache transaction
+  policy, reusing the actual record ID or allocating a real UUID. Require the exact
+  source hash and full trusted native-binding acknowledgement before parsing.
+- Recheck authority, identity and source hash around awaited work and completion.
+  Native removal must physically join before guarded canonical invalidation cancels
+  matching jobs and deletes PG source. Cancellation retains ownership until admitted
+  catalog work settles, and retained reads enforce their explicit byte bound.
+
+Evidence: `indexer/2026-10-03-authoritative-catalog-delivery.md`.
+Guard: `apps/desktop/src/__tests__/native-canonical-catalog.test.ts`,
+`apps/desktop/src/__tests__/native-canonical-catalog.integration.test.ts`.
+The adapter is a library seam; actual main/grant/profile/utility wiring and app
+qualification remain separate composition work.
+
 ### Persistence and qualification
 
 - Treat the database as derived state. Product cutover must register its owned path and call `destroy()` during factory reset before deleting roots; package `destroy()` joins pending writes and removes only its database/WAL/shared-memory files.
