@@ -17,3 +17,18 @@ it('loads the built public host and canonical parser in plain Node without sourc
     rootlessCollection: true,
   });
 });
+
+it('loads built discovery preparation in plain Node before canonical publication', async () => {
+  const { stdout } = await execute(process.execPath, ['test/discovered-source-smoke.mjs'], {
+    cwd: new URL('..', import.meta.url),
+    timeout: 15_000,
+  });
+  const result = JSON.parse(stdout.trim().split('\n').at(-1) ?? '') as unknown;
+  expect(result).toEqual({
+    canonicalIdentity: true,
+    canonicalParity: true,
+    discoveredSource: true,
+    joinedClose: true,
+    originalSource: true,
+  });
+});

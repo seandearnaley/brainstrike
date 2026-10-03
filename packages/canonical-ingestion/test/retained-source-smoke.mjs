@@ -35,6 +35,9 @@ const host = new CanonicalIngestionHost({
     async loadAuthorizedBatch() {
       return [{ ...file, chunksProcessed: false, contentHash: recorded.sourceHash }];
     },
+    async prepareManagedSourcesBatch() {
+      assert.fail('Registered source requested new identity preparation.');
+    },
     async removeFiles() {
       assert.fail('Unexpected removal.');
     },

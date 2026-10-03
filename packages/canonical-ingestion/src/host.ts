@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   createNodeChunker,
   type NodeChunker,
@@ -9,6 +8,7 @@ import { canonicalIndexPayload } from '@brainstrike/file-import/canonical-index-
 import type {
   CanonicalCatalogFile,
   CanonicalCatalogPort,
+  CanonicalDiscoveredSourceFile,
   CanonicalDiscoveryCompletion,
   CanonicalFileIdentity,
   CanonicalManifestFile,
@@ -21,6 +21,13 @@ import type {
   CanonicalSourcePort,
   CanonicalSourceScope,
 } from './ports.js';
+import {
+  assertUniqueWorkspacePaths,
+  type CanonicalPreparedRead,
+  getDiscoveredSources,
+  prepareDiscoveredSources,
+  readCanonicalSource,
+} from './source-preparation.js';
 
 interface ActiveScan {
   readonly controller: AbortController;
@@ -198,6 +205,7 @@ export class CanonicalIngestionHost {
   ): Promise<DiscoveryOutcome> {
     const files: CanonicalManifestFile[] = [];
     const fileIds = new Set<string>();
+    const workspacePaths = new Set<string>();
     let completion: CanonicalDiscoveryCompletion = {
       errors: [],
       full: false,
@@ -215,21 +223,25 @@ export class CanonicalIngestionHost {
           completion = batch.value;
           break;
         }
-        if (batch.value.files.length + batch.value.removed.length > request.batchSize) {
-          throw new Error('Canonical discovery exceeded its explicit batch bound.');
-        }
+        const discovered = getDiscoveredSources(batch.value, request.batchSize);
         for (const file of [...batch.value.files, ...batch.value.removed]) {
           if (fileIds.has(file.fileId)) {
             throw new Error('Canonical discovery repeated a file identity.');
           }
           fileIds.add(file.fileId);
         }
+        assertUniqueWorkspacePaths(
+          [...batch.value.files, ...batch.value.removed, ...discovered],
+          workspacePaths
+        );
         const manifest = await this.processBatch(
           request,
           context,
           ticket,
           batch.value.files,
-          batch.value.removed
+          batch.value.removed,
+          discovered,
+          fileIds
         );
         files.push(...manifest);
       }
@@ -260,7 +272,9 @@ export class CanonicalIngestionHost {
     context: CanonicalOperationContext,
     ticket: CanonicalScanTicket,
     files: readonly CanonicalSourceFile[],
-    removed: readonly CanonicalFileIdentity[]
+    removed: readonly CanonicalFileIdentity[],
+    discovered: readonly CanonicalDiscoveredSourceFile[],
+    seenFileIds: Set<string>
   ): Promise<CanonicalManifestFile[]> {
     const { catalog, publication, source } = this.dependencies;
     const authorized = await catalog.loadAuthorizedBatch(
@@ -285,12 +299,7 @@ export class CanonicalIngestionHost {
       force.add(fileId);
     }
     const manifest: CanonicalManifestFile[] = [];
-    const reads: {
-      file: CanonicalSourceFile;
-      content: string;
-      stat: CanonicalSourceFile['stat'];
-      contentHash: string;
-    }[] = [];
+    const reads: CanonicalPreparedRead[] = [];
     for (const file of files) {
       context.signal.throwIfAborted();
       const prior = byId.get(file.fileId);
@@ -303,14 +312,9 @@ export class CanonicalIngestionHost {
         manifest.push({ ...file, contentHash: prior.contentHash });
         continue;
       }
-      const read = await source.read(file, request.maxFileBytes, context);
-      context.signal.throwIfAborted();
-      if (Buffer.byteLength(read.content, 'utf8') > request.maxFileBytes) {
-        throw new Error('Canonical source exceeds its explicit read bound.');
-      }
-      const contentHash = createHash('sha256').update(read.content, 'utf8').digest('hex');
-      reads.push({ ...read, contentHash, file });
-      manifest.push({ ...file, contentHash });
+      const read = await readCanonicalSource(source, file, request.maxFileBytes, context);
+      reads.push({ ...read, file });
+      manifest.push({ ...file, contentHash: read.contentHash });
     }
     if (reads.length > 0) {
       await catalog.applyManagedCacheBatch(
@@ -327,6 +331,16 @@ export class CanonicalIngestionHost {
       );
       context.signal.throwIfAborted();
     }
+    const prepared = await prepareDiscoveredSources({
+      catalog,
+      context,
+      discovered,
+      request,
+      seenFileIds,
+      source,
+    });
+    reads.push(...prepared);
+    manifest.push(...prepared.map((read) => ({ ...read.file, contentHash: read.contentHash })));
     const completed: { fileId: string; contentHash: string; chunkCount: number }[] = [];
     for (const read of reads) {
       const original = {
