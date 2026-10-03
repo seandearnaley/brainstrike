@@ -37,7 +37,10 @@ import { EmbeddingHostManager } from '../embedding-host-manager';
 import {
   createEmbeddingHostDocumentCancellationError,
   createEmbeddingHostDocumentEmbeddingsErrorReport,
+  createEmbeddingHostQueryCancellationError,
+  createEmbeddingHostQueryEmbeddingErrorReport,
   type EmbeddingHostDocumentEmbeddingsRequest,
+  type EmbeddingHostQueryEmbeddingRequest,
 } from '../embedding-host-shared';
 
 const QUERY = {
@@ -96,7 +99,7 @@ describe('EmbeddingHostManager query cancellation', () => {
     expect(windowMock.webContents.send).not.toHaveBeenCalled();
   });
 
-  it('releases a pending query request when its tool signal aborts', async () => {
+  it('retains a pending query request until its canceled renderer completes', async () => {
     const manager = new EmbeddingHostManager();
     const controller = new AbortController();
     const reason = new Error('tool stopped');
@@ -108,7 +111,17 @@ describe('EmbeddingHostManager query cancellation', () => {
     await lifecycle.ensureStarted.mock.results[0]?.value;
     await vi.waitFor(() => expect(manager.getPlatformStatus().pendingRequestCount).toBe(1));
 
+    const request = windowMock.webContents.send.mock
+      .calls[0]?.[1] as EmbeddingHostQueryEmbeddingRequest;
     controller.abort(reason);
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
+    manager.acceptQueryEmbeddingResponseReport(
+      91,
+      createEmbeddingHostQueryEmbeddingErrorReport(
+        request,
+        createEmbeddingHostQueryCancellationError()
+      )
+    );
     await expect(observedRejection).resolves.toBe(reason);
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });

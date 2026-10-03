@@ -1,9 +1,12 @@
 import { deserializeRuntimeError } from '@brainstrike/worker-runtime';
 import {
   EMBEDDING_HOST_DOCUMENT_CANCELED_CODE,
+  EMBEDDING_HOST_QUERY_CANCELED_CODE,
   type EmbeddingHostDocumentEmbeddingsPayload,
   type EmbeddingHostDocumentEmbeddingsRequest,
   type EmbeddingHostDocumentEmbeddingsResponseReport,
+  type EmbeddingHostQueryEmbeddingRequest,
+  type EmbeddingHostQueryEmbeddingResponseReport,
 } from './embedding-host-shared';
 import type { HostRequestInterruptionContext } from './platform/host-request-channel';
 
@@ -25,17 +28,61 @@ export function documentResponseFailure(
   return null;
 }
 
-function isDocumentCancellation(error: Error): boolean {
-  return (error as Error & { code?: unknown }).code === EMBEDDING_HOST_DOCUMENT_CANCELED_CODE;
+export function queryResponseFailure(
+  request: EmbeddingHostQueryEmbeddingRequest,
+  report: EmbeddingHostQueryEmbeddingResponseReport
+): Error | null {
+  if (report.type === 'error') {
+    return deserializeRuntimeError(report.payload);
+  }
+  if (
+    report.payload.embedding.length !== request.payload.dimensions ||
+    !report.payload.embedding.every(Number.isFinite)
+  ) {
+    return new Error('Query embedding response dimensions do not match request.');
+  }
+  return null;
 }
 
-/** Join document interruption through a terminal response or the manager-owned retirement. */
-export async function joinDocumentEmbeddingInterruption(
+export function joinDocumentEmbeddingInterruption(
   request: EmbeddingHostDocumentEmbeddingsRequest,
   context: HostRequestInterruptionContext<EmbeddingHostDocumentEmbeddingsResponseReport>,
   retire: () => Promise<unknown>,
   timeoutMs: number
 ): Promise<unknown> {
+  return joinEmbeddingInterruption(context, retire, timeoutMs, {
+    cancellationCode: EMBEDDING_HOST_DOCUMENT_CANCELED_CODE,
+    failure: (report) => documentResponseFailure(request.payload, report),
+    label: 'Document embedding',
+  });
+}
+
+export function joinQueryEmbeddingInterruption(
+  request: EmbeddingHostQueryEmbeddingRequest,
+  context: HostRequestInterruptionContext<EmbeddingHostQueryEmbeddingResponseReport>,
+  retire: () => Promise<unknown>,
+  timeoutMs: number
+): Promise<unknown> {
+  return joinEmbeddingInterruption(context, retire, timeoutMs, {
+    cancellationCode: EMBEDDING_HOST_QUERY_CANCELED_CODE,
+    failure: (report) => queryResponseFailure(request, report),
+    label: 'Query embedding',
+  });
+}
+
+/** Join interruption through a terminal response or the manager-owned retirement. */
+async function joinEmbeddingInterruption<Response>(
+  context: HostRequestInterruptionContext<Response>,
+  retire: () => Promise<unknown>,
+  timeoutMs: number,
+  response: {
+    readonly cancellationCode: string;
+    readonly failure: (report: Response) => Error | null;
+    readonly label: string;
+  }
+): Promise<unknown> {
+  const isCancellation = (error: Error): boolean =>
+    (error as Error & { code?: unknown }).code === response.cancellationCode;
   // Sending cancel is only a request. A terminal response is emitted after owned inference.
   // Give cooperative caller cancellation the existing Stop window, then retire through Stop.
   if (context.source === 'abort' && context.error === context.reason) {
@@ -51,16 +98,16 @@ export async function joinDocumentEmbeddingInterruption(
       return settlement.error
         ? new AggregateError(
             [context.error, settlement.error],
-            'Document embedding host retired during cancellation.'
+            `${response.label} host retired during cancellation.`
           )
         : context.error;
     }
     if (settlement?.type === 'response') {
-      const error = documentResponseFailure(request.payload, settlement.response);
-      if (error && !isDocumentCancellation(error)) {
+      const error = response.failure(settlement.response);
+      if (error && !isCancellation(error)) {
         return new AggregateError(
           [context.error, error],
-          'Document embedding failed during cancellation.'
+          `${response.label} failed during cancellation.`
         );
       }
       return context.error;
@@ -71,8 +118,8 @@ export async function joinDocumentEmbeddingInterruption(
     if (settlement.type === 'retired') {
       completionFailure = settlement.error;
     } else {
-      const error = documentResponseFailure(request.payload, settlement.response);
-      if (error && !isDocumentCancellation(error)) {
+      const error = response.failure(settlement.response);
+      if (error && !isCancellation(error)) {
         completionFailure = error;
       }
     }
@@ -82,7 +129,7 @@ export async function joinDocumentEmbeddingInterruption(
     return completionFailure
       ? new AggregateError(
           [context.error, completionFailure],
-          'Document embedding failed during retirement.'
+          `${response.label} failed during retirement.`
         )
       : context.error;
   } catch (error) {
@@ -91,7 +138,7 @@ export async function joinDocumentEmbeddingInterruption(
       completionFailure && completionFailure !== error
         ? [context.error, completionFailure, error]
         : [context.error, error],
-      'Document embedding interruption required failed host retirement.'
+      `${response.label} interruption required failed host retirement.`
     );
   }
 }

@@ -479,6 +479,16 @@ export function createEmbeddingHostQueryEmbeddingResultReport(
   };
 }
 
+export const EMBEDDING_HOST_QUERY_CANCELED_CODE = 'EMBEDDING_HOST_QUERY_CANCELED';
+
+/** Only the exact query cancel listener creates this reason; terminal serialization retains its code. */
+export function createEmbeddingHostQueryCancellationError(): Error {
+  return Object.assign(new Error('Embedding host query request was canceled.'), {
+    code: EMBEDDING_HOST_QUERY_CANCELED_CODE,
+    name: 'AbortError',
+  });
+}
+
 export function createEmbeddingHostQueryEmbeddingErrorReport(
   request: EmbeddingHostQueryEmbeddingRequest,
   error: unknown

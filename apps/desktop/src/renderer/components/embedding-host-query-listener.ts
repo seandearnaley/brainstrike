@@ -3,6 +3,7 @@ import type { MutableRefObject } from 'react';
 import {
   assertEmbeddingHostQueryEmbeddingCancel,
   assertEmbeddingHostQueryEmbeddingRequest,
+  createEmbeddingHostQueryCancellationError,
   createEmbeddingHostQueryEmbeddingErrorReport,
   type EmbeddingHostQueryEmbeddingRequest,
 } from '../../embedding-host-shared';
@@ -122,9 +123,7 @@ export function subscribeQueryEmbeddingRequests(options: {
       ) {
         return;
       }
-      owner.requests
-        .get(notice.requestId)
-        ?.abort(new DOMException('Embedding host query request was canceled.', 'AbortError'));
+      owner.requests.get(notice.requestId)?.abort(createEmbeddingHostQueryCancellationError());
     } catch (error) {
       logger.error('Rejected invalid embedding host query cancellation', { error });
     }

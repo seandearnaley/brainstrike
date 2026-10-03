@@ -5,14 +5,18 @@ import {
   assertEmbeddingHostDocumentEmbeddingsResponseReport,
   assertEmbeddingHostQueryEmbeddingCancel,
   assertEmbeddingHostQueryEmbeddingPayload,
+  assertEmbeddingHostQueryEmbeddingResponseReport,
   assertEmbeddingHostStatus,
   createEmbeddingHostCommand,
   createEmbeddingHostDocumentCancellationError,
   createEmbeddingHostDocumentEmbeddingsErrorReport,
   createEmbeddingHostDocumentEmbeddingsRequest,
+  createEmbeddingHostQueryCancellationError,
   createEmbeddingHostQueryEmbeddingCancel,
+  createEmbeddingHostQueryEmbeddingErrorReport,
   createEmbeddingHostQueryEmbeddingRequest,
   EMBEDDING_HOST_DOCUMENT_CANCELED_CODE,
+  EMBEDDING_HOST_QUERY_CANCELED_CODE,
 } from '../embedding-host-shared';
 
 describe('embedding host shared command helpers', () => {
@@ -45,6 +49,38 @@ describe('embedding host shared command helpers', () => {
     ]) {
       expect(() => assertEmbeddingHostQueryEmbeddingCancel(invalid)).toThrow();
     }
+  });
+
+  it('retains the exact query cancellation code through the terminal IPC envelope', () => {
+    const request = createEmbeddingHostQueryEmbeddingRequest('runtime-a', {
+      dimensions: 2,
+      modelId: 'model-a',
+      modelKey: 'local:model-a',
+      query: 'fixture',
+    });
+    const report = assertEmbeddingHostQueryEmbeddingResponseReport(
+      JSON.parse(
+        JSON.stringify(
+          createEmbeddingHostQueryEmbeddingErrorReport(
+            request,
+            createEmbeddingHostQueryCancellationError()
+          )
+        )
+      )
+    );
+    expect(report).toMatchObject({
+      payload: { code: EMBEDDING_HOST_QUERY_CANCELED_CODE, name: 'AbortError' },
+      requestId: request.requestId,
+      runtimeId: request.runtimeId,
+      type: 'error',
+    });
+    const independent = assertEmbeddingHostQueryEmbeddingResponseReport(
+      createEmbeddingHostQueryEmbeddingErrorReport(
+        request,
+        new DOMException('independent abort', 'AbortError')
+      )
+    );
+    expect(independent.payload).not.toHaveProperty('code');
   });
 
   it('preserves exact control acknowledgement identity and rejects malformed identities', () => {

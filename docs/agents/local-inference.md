@@ -100,8 +100,8 @@ Guard: `embedding-input-plan.spec.ts`, `streaming-worker-client-completion.spec.
 - Native document requests require the same verified plan and 1–64 unchanged
   texts; use document `generateEmbeddings` semantics and preserve output order.
   Query and document work share one FIFO, cache identity and physical inference
-  owner; the public document promise and pending identity settle only after completion or joined retirement on every outcome.
-- Preserve caller cancellation reasons; distinguish the host's exact cancel code from independent failures. Aggregate Stop and every failed destruction attempt in the shared retirement outcome before publishing document rejection. Sending cancel never proves settlement.
+  owner; both public query and document promises and pending identities settle only after completion or joined retirement on every outcome.
+- Preserve caller cancellation reasons; distinguish the host's exact cancel code from independent failures. Aggregate Stop and every failed destruction attempt in the shared retirement outcome before publishing inference rejection. Sending cancel never proves settlement.
 - Keep AbortSignal in the caller renderer. The visible document bridge carries
   a plain token; main authorizes the visible sender/frame and maps token cancellation
   to the exact hidden runtime/request, including host startup. Refuse an unavailable
@@ -115,11 +115,11 @@ Guard: `embedding-input-plan.spec.ts`, `streaming-worker-client-completion.spec.
 
 Evidence: `local-inference/native-vector-request-plan.md`,
 `local-inference/native-hidden-query-plan.md`,
-`local-inference/native-hidden-document-plan.md`, `local-inference/document-transport-settlement.md`.
+`local-inference/native-hidden-document-plan.md`, `local-inference/document-transport-settlement.md`, `local-inference/query-transport-settlement.md`.
 Guard: `packages/embeddings/src/__tests__/inference-plan.test.ts`,
 `transformers-backend.queue.test.ts`, `packages/queue/src/__tests__/types.test.ts`,
 `embedding-host-shared.test.ts`, `embedding-host-runtime.test.tsx`,
-`preload-contract-bridges.test.ts`, `embedding-host-document-runtime.test.tsx`, `embedding-host-document-settlement.test.ts`,
+`preload-contract-bridges.test.ts`, `embedding-host-document-runtime.test.tsx`, `embedding-host-document-settlement.test.ts`, `embedding-host-query-settlement.test.ts`,
 `renderer/document-embeddings.test.ts`, `main/ipc-embedding-host.test.ts`,
 `scripts/probe-pinned-query-embedding.mjs`, `scripts/probe-pinned-document-embeddings.mjs`.
 
