@@ -87,6 +87,7 @@
     "@brainstrike/assistant-data": "workspace:*",
     "@brainstrike/assistant-service": "workspace:*",
     "@brainstrike/assistant-ui": "workspace:*",
+    "@brainstrike/canonical-ingestion": "workspace:*",
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/effect-kit": "workspace:*",

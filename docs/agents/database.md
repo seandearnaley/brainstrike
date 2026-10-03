@@ -126,6 +126,14 @@ Guard: `apps/desktop/e2e/database-live-query-memory.desktop.test.ts`,
 
 Guard: `packages/db/__tests__/managed-cache-batch-parameter-limit.test.ts`.
 
+### Canonical record invalidation
+
+- Remove canonical sources through `invalidateManagedCacheEntriesByIdentity`, including rootless collection records. Exact-record targets require the actual PG ID, collection membership and nullable root/path guards; never invent a root or path to use the rooted API.
+- In the same transaction, cancel matching queued/running embedding jobs, clear their lease ownership and update cancellation metrics before deleting the source and its chunks. Desktop removal joins native work and rechecks current authority/identity/hash before this mutation.
+
+Evidence: `database/canonical-record-invalidation.md`.
+Guard: `packages/db/__tests__/managed-cache-batch.test.ts`, `apps/desktop/src/__tests__/native-canonical-catalog.integration.test.ts`.
+
 ## DATABASE WORK SCHEDULER FAIRNESS
 
 - `DatabaseWorkScheduler` is the single-process admission boundary around each
