@@ -4,6 +4,7 @@ import path from 'node:path';
 import { SqliteQueryDeadlineError } from '@brainstrike/sqlite-query';
 import { app } from 'electron';
 import { IndexerHostManager } from '../../indexer-host-manager';
+import { createNativeIndexSearchCapability } from '../../native-index-search';
 import {
   closeAllIndexQueries,
   installIndexQueryTarget,
@@ -89,6 +90,34 @@ async function run(): Promise<void> {
     storeId: (await index.info()).storeId,
   });
   assert.equal(grep.rows[0]?.[0], plan.chunks[0]?.chunkId);
+  const capability = createNativeIndexSearchCapability({
+    acquireIndexer: async () => index,
+    getAuthorizedRootIds: async () => ['captured-root'],
+    getRootReadiness: async () => [{ rootId: 'captured-root', scanComplete: false }],
+    openQuery: openIndexQuery,
+  });
+  const projectedGrep = await capability.grep({
+    caseSensitive: false,
+    isRegex: false,
+    limit: 100,
+    pattern: 'embedding',
+    rootIds: ['captured-root'],
+  });
+  assert.equal(projectedGrep.hits[0]?.chunkId, plan.chunks[0]?.chunkId);
+  assert.equal(projectedGrep.hits[0]?.content, fixture.source.text);
+  assert.equal(projectedGrep.scanLimited, false);
+  assert.deepEqual((await capability.status()).kind, 'ready');
+  await assert.rejects(
+    capability.grep({
+      caseSensitive: false,
+      isRegex: false,
+      limit: 100,
+      pattern: 'embedding',
+      rootIds: ['disconnected-root'],
+    }),
+    /not currently authorized/
+  );
+
   let parentTicks = 0;
   const ticker = setInterval(() => {
     parentTicks += 1;
