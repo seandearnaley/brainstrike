@@ -107,6 +107,7 @@ export class WorkspaceRootRegistry {
   private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
   private readonly mounts = new WorkspaceRootMountTable();
   private mutationTail: Promise<void> = Promise.resolve();
+  private readonly retiringSourceRoots = new WeakSet<MountedWorkspaceRoot>();
   private readonly sourceLeases = new Set<{
     readonly lease: CanonicalWorkspaceLease;
     readonly mounted: MountedWorkspaceRoot;
@@ -321,13 +322,13 @@ export class WorkspaceRootRegistry {
   ): CanonicalWorkspaceLease {
     const rootId = mounted.rootId;
     this.assertActive();
-    if (this.mounts.get(rootId) !== mounted) {
+    if (this.mounts.get(rootId) !== mounted || this.retiringSourceRoots.has(mounted)) {
       throw new Error('Mounted source root changed during acquisition.');
     }
     const lease = createWorkspaceRootSourceLease({
       assertCurrent: () => {
         this.assertActive();
-        if (this.mounts.get(rootId) !== mounted) {
+        if (this.mounts.get(rootId) !== mounted || this.retiringSourceRoots.has(mounted)) {
           throw new Error('Mounted source lease was revoked or replaced.');
         }
       },
@@ -356,6 +357,11 @@ export class WorkspaceRootRegistry {
   }
 
   private async retireSourceLeases(mounted?: MountedWorkspaceRoot): Promise<void> {
+    // Fence path borrows still resolving this exact mount before capturing its leases.
+    // Failed retirement keeps admission closed until the owned cleanup is retried.
+    if (mounted) {
+      this.retiringSourceRoots.add(mounted);
+    }
     const entries = [...this.sourceLeases].filter(
       (entry) => mounted === undefined || entry.mounted === mounted
     );

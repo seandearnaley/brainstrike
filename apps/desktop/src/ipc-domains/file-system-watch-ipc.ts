@@ -174,12 +174,16 @@ function subscriptionKey(ownerId: number, resolvedPath: string): string {
   return `${ownerId}\0${resolvedPath}`;
 }
 
-function forgetWatcher(entry: LiveFileSystemWatcher): Promise<void> {
+function forgetWatcherRegistrations(entry: LiveFileSystemWatcher): void {
   liveWatchersBySubscription.delete(entry.subscriptionKey);
   for (const watchId of entry.watchIds) {
     liveWatchersById.delete(watchId);
   }
   entry.watchIds.clear();
+}
+
+function forgetWatcher(entry: LiveFileSystemWatcher): Promise<void> {
+  forgetWatcherRegistrations(entry);
   return stopWatcher(entry);
 }
 
@@ -302,6 +306,10 @@ async function joinWatcherRetirement(retiring: readonly Promise<void>[]): Promis
 
 export function liveFileSystemWatcherCountForTest(): number {
   return liveWatchersBySubscription.size;
+}
+
+export function liveFileSystemWatchRegistrationCountForTest(): number {
+  return liveWatchersById.size;
 }
 
 function liveWatcherCountForOwner(ownerId: number): number {
@@ -479,8 +487,7 @@ async function startNewFileSystemWatcher(
     entry.stop = () => subscription.close();
     entry.retry = () => subscription.retry();
   } catch (error) {
-    liveWatchersBySubscription.delete(key);
-    liveWatchersById.delete(watchId);
+    forgetWatcherRegistrations(entry);
     if (acquired || entry.retiring || error instanceof ParcelWatchRetirementError) {
       try {
         await stopWatcher(entry);
