@@ -21,4 +21,9 @@ graph/ranking and hostile-bound-value assertions. Its prior fixture remains for
 web qualification after the native artifact lands. All three existing cases
 failed RED on the shipped target mismatch (`index` versus `app`), then passed
 GREEN through the real PGlite sandbox after the one-line header correction.
-Normal commit-hook results are recorded with the delivery commit.
+Independent repair review also found the actual-artifact target inventory still
+expected `index`; that existing contract failed RED (one failure among 57 cases).
+The repair aligns its expectation with `app`; all 57 target/lens contract cases
+and all three real PGlite cases then passed. The native port must change that
+expectation with its body/header to `index`. Normal commit-hook results are
+recorded with the delivery commits.

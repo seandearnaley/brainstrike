@@ -48,7 +48,7 @@ describe('querySelf target contract (BST-1924)', () => {
   });
 
   it.each([
-    ['callers-hybrid', 'index'],
+    ['callers-hybrid', 'app'],
     ['estimator-calibration', 'app'],
     ['experiment-outcome-correlation', 'app'],
     ['run-outcome-tool-correlation', 'app'],
