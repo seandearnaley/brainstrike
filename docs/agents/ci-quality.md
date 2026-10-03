@@ -707,6 +707,8 @@ Guard: `scripts/__tests__/package-scripts-canonical-form-contract.test.mjs`.
 
 ### Worktree-scoped local Turbo caches
 
+- The bounded wrapper launches the installed Turbo JavaScript entrypoint through
+  `process.execPath`, without a shell or a Turbo binary on `PATH`.
 - The wrapper's local cache, nested-run lock, and 25-GiB prune are scoped per
   Git worktree root (`--cwd` decides which). `TURBO_CACHE_DIR` and
   `BRAINSTRIKE_TURBO_CACHE_DIR` are exact overrides, required outside a

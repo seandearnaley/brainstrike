@@ -66,6 +66,23 @@ into one HOME-level cache unless Turbo's restore identity becomes content- or
 checkout-aware and the paired same-size/same-mtime concurrency regression proves
 the shared topology safe.
 
+### Direct-node selector entrypoint (2026-10-02, PR 3461)
+
+Routing Unit selection through the bounded wrapper exposed its assumption that
+the caller supplied `node_modules/.bin` on `PATH`. The retained workflow invokes
+the selector with `node`, so a direct invocation failed with `spawnSync turbo
+ENOENT` before it could publish a matrix. The wrapper now launches the installed
+`node_modules/turbo/bin/turbo` through `process.execPath`, matching the existing
+boundary gate. No global binary or shell is consulted; cache scope and ownership
+remain unchanged.
+
+`select-unit-shards.test.mjs` executes the real selector with every directory
+containing a Turbo executable removed from `PATH`, parses its matrix/count
+outputs, and failed before the correction. `run-turbo-command.test.mjs` verifies
+the same Node argv and shell-free invocation for the macOS, Linux and Windows
+platform branches, including a cache path containing spaces. These platform
+branch assertions do not claim native Windows execution.
+
 ### Stale-dist pruning before non-cleaning tsc builds (2026-07-30 cache poisoning)
 
 tsc's incremental builder never deletes outputs whose sources are gone, and the

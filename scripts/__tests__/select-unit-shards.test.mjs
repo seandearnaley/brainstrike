@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { hasUnitTasks, selectUnitShards, unitFilterArguments } from '../select-unit-shards.mjs';
 
@@ -19,6 +23,45 @@ const matrix = {
     { pr_filters: '--filter="!@brainstrike/a"', shard: 'rest', vitest_shard: '' },
   ],
 };
+
+test('direct node execution resolves the installed CLI without a Turbo binary on PATH', (t) => {
+  const scratch = mkdtempSync(join(tmpdir(), 'unit-selector-cli-'));
+  t.after(() => rmSync(scratch, { force: true, recursive: true }));
+  const output = join(scratch, 'github-output');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const row = { pr_filters: '--filter="@brainstrike/assistant-contract"', shard: 'contract' };
+  const cleanPath = (process.env.PATH ?? process.env.Path ?? '')
+    .split(delimiter)
+    .filter(
+      (entry) => !['turbo', 'turbo.cmd', 'turbo.exe'].some((name) => existsSync(join(entry, name)))
+    )
+    .join(delimiter);
+  const result = spawnSync(process.execPath, [resolve('scripts/select-unit-shards.mjs')], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      BRAINSTRIKE_TURBO_CACHE_DIR: join(scratch, 'cache'),
+      EVENT_NAME: 'pull_request',
+      GITHUB_OUTPUT: output,
+      PATH: cleanPath,
+      TURBO_CACHE_DIR: undefined,
+      TURBO_HASH: undefined,
+      TURBO_SCM_BASE: head,
+      TURBO_SCM_HEAD: head,
+      TURBO_TEAM: undefined,
+      TURBO_TELEMETRY_DISABLED: '1',
+      TURBO_TOKEN: undefined,
+      UNIT_MATRIX: JSON.stringify({ include: [row] }),
+    },
+  });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  const lines = readFileSync(output, 'utf8').trim().split('\n');
+  assert.equal(lines.length, 2);
+  const selected = JSON.parse(lines[0].slice('matrix='.length));
+  assert.ok(Array.isArray(selected.include));
+  assert.deepEqual(selected.include, selected.include.length === 0 ? [] : [row]);
+  assert.equal(lines[1], `count=${selected.include.length}`);
+});
 
 test('integration-only work keeps every native shard and drops the empty partition', () => {
   const calls = [];
