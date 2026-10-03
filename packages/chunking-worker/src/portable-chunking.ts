@@ -16,11 +16,14 @@ import {
   splitMarkdownIntoBlocks,
 } from '@brainstrike/text-splitter/chunking-core';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
+import {
+  type CanonicalChunkingRuntime,
+  parseCanonicalSource,
+  supportsCanonicalAst,
+} from './canonical-parser-runtime';
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
-import { type ExtractedSymbols, extractSymbols } from './extract-symbols';
+import type { ExtractedSymbols } from './extract-symbols';
 import { createCooperativeYieldController } from './ordered-batch-map';
-import { getEnabledTreeSitterLanguages } from './parsers/environment';
-import { selectAdapter } from './parsers/select-adapter';
 import type { AstNode } from './parsers/types';
 import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
 import {
@@ -28,39 +31,6 @@ import {
   resolveSourceRanges,
   type TokenCounter,
 } from './source-range-resolution';
-
-// Module-scoped flag for the one-shot "first parse audit" — see the
-// auditFirstSuccessfulParse() helper below.
-let auditFired = false;
-function auditFirstSuccessfulParse(adapterId: string): void {
-  if (auditFired) {
-    return;
-  }
-  auditFired = true;
-  const message = `[chunking-parser] first parse succeeded using adapter "${adapterId}" — IPC chain confirmed`;
-  // When running inside the chunking Web Worker, post a WorkerLog message
-  // so the parent (file-import's chunking-worker-port) can forward it
-  // through the project's logger system at info level. That makes the
-  // audit visible in the unified `pnpm dev` output without requiring
-  // the operator to open the chunking-host renderer's DevTools.
-  // Falls back to console.info for non-worker contexts (unit tests,
-  // direct use from a non-Electron browser).
-  const workerSelf = (globalThis as { self?: { postMessage?: (msg: unknown) => void } }).self;
-  if (
-    workerSelf &&
-    typeof workerSelf.postMessage === 'function' &&
-    (globalThis as { window?: unknown }).window !== workerSelf
-  ) {
-    try {
-      workerSelf.postMessage({ level: 'info', message, type: 'log' });
-      return;
-    } catch {
-      // structured-clone or transport failure — fall through to console
-    }
-  }
-  // biome-ignore lint/suspicious/noConsole: one-time operational signal
-  console.info(message);
-}
 
 const BINARY_DETECTION_PROBE_BYTES = 4096;
 const TOKEN_COUNT_YIELD_CHECK_INTERVAL = 20;
@@ -542,6 +512,7 @@ async function splitCodeByFunctions(
     language,
     separators,
     fileName,
+    runtime,
   }: {
     maxChars: number;
     overlapChars: number;
@@ -552,74 +523,14 @@ async function splitCodeByFunctions(
      * of #998) can route extensions like .py to tree-sitter.
      */
     fileName?: string;
+    runtime?: CanonicalChunkingRuntime;
   }
 ): Promise<{ pieces: string[]; symbols: ExtractedSymbols | null } | null> {
-  let ast: AstNode | null = null;
-  const adapter = selectAdapter(fileName);
-  if (adapter === null) {
-    // selectAdapter returned null (Phase 9 strict): the file is not
-    // AST-chunkable in this configuration. Most common case: a .py file
-    // with tree-sitter Python disabled. We log at warn (same level as
-    // parse failures) and return null so the chunker falls back to the
-    // recursive splitter — the loud-degrade pattern from PRD §8.2.
-    // biome-ignore lint/suspicious/noConsole: visible signal that AST chunking is skipped
-    console.warn(
-      '[portable-chunking] No AST adapter for file; falling back to recursive splitting',
-      {
-        fileName,
-        language,
-      }
-    );
+  const parsed = await parseCanonicalSource(content, language, fileName, runtime);
+  if (!parsed) {
     return null;
   }
-  try {
-    ast = await adapter.parse(content, {
-      errorRecovery: true,
-      jsx: true,
-      language: language === 'typescript' ? 'typescript' : 'javascript',
-    });
-    // First-parse audit (logs once per worker session). This is the
-    // operator's confirmation that selectAdapter picked the right adapter
-    // AND that the first parse round-trip actually completed — without
-    // this, "no errors in the log" is ambiguous between "oxc works" and
-    // "oxc is silently bypassed." After the first successful parse the
-    // audit goes silent so the log isn't spammy.
-    auditFirstSuccessfulParse(adapter.id);
-  } catch (err) {
-    // WARN level (not debug): an AST parse failure means function-aware
-    // chunking degraded to non-AST recursive splitting for this file.
-    // That's a meaningful quality regression for code retrieval, and a
-    // sustained pattern (e.g., every file failing) indicates the parser
-    // is broken — which we want LOUD, not hidden. The caller-side
-    // catch returns null so the pipeline still produces chunks via
-    // the recursive splitter; this log is the signal that we paid a
-    // quality cost to do so.
-    // biome-ignore lint/suspicious/noConsole: visible signal for parser quality regression
-    console.warn('[portable-chunking] AST parsing failed; falling back to recursive splitting', {
-      contentLength: content.length,
-      error: err instanceof Error ? err.message : String(err),
-      language,
-    });
-    return null;
-  }
-
-  // Symbol extraction rides the SAME parse (BST-919): the AST is in hand and
-  // both index paths converge here, so there is no separate walker. An
-  // extractor error degrades LOUDLY to chunks-without-symbols — extraction
-  // must never fail chunking.
-  let symbols: ExtractedSymbols | null = null;
-  try {
-    symbols = extractSymbols({ adapterId: adapter.id, ast, content });
-  } catch (err) {
-    // biome-ignore lint/suspicious/noConsole: visible signal that the symbol graph lost this file
-    console.warn(
-      '[portable-chunking] symbol extraction failed; chunking continues without symbols',
-      {
-        error: err instanceof Error ? err.message : String(err),
-        fileName,
-      }
-    );
-  }
+  const { ast, symbols } = parsed;
 
   const ranges: Array<{ start: number; end: number }> = [];
   collectTopLevelFunctionRanges(ast, [], ranges);
@@ -693,7 +604,8 @@ async function splitCodeByFunctions(
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Chunking strategy routing is intentionally branching.
 export async function chunkContent(
   content: string,
-  options: ChunkingRequestOptions & { fileName?: string; filePath?: string }
+  options: ChunkingRequestOptions & { fileName?: string; filePath?: string },
+  runtime?: CanonicalChunkingRuntime
 ): Promise<PortableChunkingResult> {
   const initialStrategy = resolveChunkingStrategyForFile(
     options.filePath ?? options.fileName ?? '',
@@ -773,18 +685,6 @@ export async function chunkContent(
   const symbolHolder: { current: ExtractedSymbols | null } = { current: null };
 
   const chunkCode = async (): Promise<ChunkGroup[]> => {
-    // AST chunking is supported for:
-    //  - JS/TS (always — via Babel in browser or oxc in chunking-host)
-    //  - Python (when tree-sitter is opted in via
-    //    __BRAINSTRIKE_TREE_SITTER_LANGUAGES__; Phase 5 of #998)
-    // The flag is read at chunk time (not at module load) so the rollout
-    // flip in Phase 8 doesn't require reloading the worker.
-    const enabledTreeSitterLanguages = getEnabledTreeSitterLanguages();
-    const supportsAst =
-      codeLanguage === 'typescript' ||
-      codeLanguage === 'javascript' ||
-      (codeLanguage === 'python' && enabledTreeSitterLanguages.includes('python'));
-
     const chunkWithCodeSeparators = async (): Promise<ChunkGroup[]> => {
       const codeSeparators = getCodeSeparators(options.separators);
       const recursiveChunker = new RecursiveTextSplitter({
@@ -795,13 +695,14 @@ export async function chunkContent(
       return [{ pieces: await recursiveChunker.splitText(content), type: 'recursive' }];
     };
 
-    if (supportsAst) {
+    if (supportsCanonicalAst(codeLanguage, runtime)) {
       const resolvedFileName = options.fileName ?? options.filePath;
       const astSplit = await splitCodeByFunctions(content, {
         language: codeLanguage,
         maxChars,
         overlapChars,
         separators: getCodeSeparators(options.separators),
+        ...(runtime ? { runtime } : {}),
         // Plumb fileName so selectAdapter(fileName) can extension-route
         // (e.g., .py → tree-sitter). For JS/TS the routing ignores
         // fileName and uses the env/flag globals, so this is a no-op for

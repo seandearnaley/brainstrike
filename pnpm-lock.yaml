@@ -1758,6 +1758,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.118
+      oxc-parser:
+        specifier: 'catalog:'
+        version: 0.144.0
       web-tree-sitter:
         specifier: ^0.25.10
         version: 0.25.10
@@ -1774,9 +1777,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
-      oxc-parser:
-        specifier: 'catalog:'
-        version: 0.144.0
       tsup:
         specifier: 'catalog:'
         version: 8.5.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.28)(supports-color@10.2.2)(tsx@4.23.12)(yaml@2.9.0)
