@@ -274,7 +274,7 @@ function fitSemanticContext(
   }
   const codePoints = Array.from(result.context);
   const refinement =
-    'refine: reuse brainstrike.queryEmbeddingSpace with a narrower query, root, filePaths, maxChunks, or tokenBudget';
+    'refine: reuse brainstrike.queryEmbeddingSpace with a narrower query, root, maxChunks, or tokenBudget';
   let low = 0;
   let high = codePoints.length;
   while (low < high) {

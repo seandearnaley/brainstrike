@@ -1678,10 +1678,10 @@ The assistant's search verbs, in the order the default instructions present them
    network errors.
 
 - Inject main's existing scoped native capability into desktop semantic/hybrid tools. Resolve omitted collection inputs from its actual saved authority; require its current authorized collection/root, complete scan and full-profile coverage; forward its exact saved query plan and guarded caller signal to the existing hidden-host manager, joining inference and every admitted read arm before settlement. Keep PG catalog metadata authoritative; absent capability preserves PG retrieval. TEXT, native failures and unsupported profiles never fall through to PG ranking.
-- Native tools use 100 candidates per arm and at most 10 final results, with visible limitation hints. Expose capability-specific schemas and descriptions that omit unsupported file/snapshot/chunk filters, cap limits at 10 and constrain hybrid weights to 1; validate the same schema at execution. Preserve the canonical PG schemas when the capability is absent. Accept hybrid model projections with one, two or three contributing sources. Keep query task semantics distinct from document generation.
+- Native tools use 100 candidates per arm and at most 10 final results, with visible limitation hints. Expose capability-specific schemas and descriptions that omit unsupported file/snapshot/chunk filters, cap limits at 10 and constrain hybrid weights to 1; validate the same schema at execution. Preserve the canonical PG schemas when the capability is absent. Accept hybrid model projections with one, two or three contributing sources. Projection clipping remedies name only supported native query/root/packing inputs. Keep query task semantics distinct from document generation.
 
 Evidence: `assistant-providers/native-assistant-retrieval.md`.
-Guard: `apps/desktop/src/__tests__/assistant-server/native-assistant-retrieval.test.ts`, `native-assistant-retrieval.integration.test.ts`, `native-retrieval-executors.test.ts`.
+Guard: `apps/desktop/src/__tests__/assistant-server/native-assistant-retrieval.test.ts`, `native-assistant-retrieval.integration.test.ts`, `native-retrieval-executors.test.ts`, `workspace-retrieval-model-projections.test.ts`.
 
 - `webExtract` validates every model-supplied URL BEFORE anything is sent
   (http/https only, no embedded credentials, no private/loopback/link-local
