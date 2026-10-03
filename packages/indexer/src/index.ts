@@ -1,5 +1,11 @@
 import { fork } from 'node:child_process';
-import type { CommitResult, FilePlan, IndexerInfo, SearchResult } from './contracts.js';
+import type {
+  CommitResult,
+  FilePlan,
+  IndexerCoverage,
+  IndexerInfo,
+  SearchResult,
+} from './contracts.js';
 import {
   createIndexerConnection,
   validateIndexerDeadlines,
@@ -15,6 +21,7 @@ export type {
   FilePlan,
   FileSnapshot,
   FileSyntax,
+  IndexerCoverage,
   IndexerInfo,
   IndexerOptions,
   ProvidedChunk,
@@ -30,6 +37,7 @@ export interface IndexerPort {
   close(): Promise<void>;
   commitFile(commit: unknown): Promise<CommitResult>;
   commitTextFile(commit: unknown): Promise<CommitResult>;
+  coverage(request: unknown): Promise<IndexerCoverage>;
   destroy(): Promise<void>;
   info(): Promise<IndexerInfo>;
   prepareFile(snapshot: unknown): Promise<FilePlan>;

@@ -103,6 +103,9 @@ export async function runIndexerProcess(
           case 'prepare-file':
             work = connection.prepare(request.payload);
             break;
+          case 'coverage':
+            work = connection.coverage(request.payload);
+            break;
           case 'search':
             work = connection.search(request.payload);
             break;

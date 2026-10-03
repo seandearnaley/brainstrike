@@ -35,9 +35,13 @@ Guard: `packages/indexer/__tests__/text-commit.integration.test.ts`, `apps/deskt
 - Pin the native boundary to sqlite-vec 0.1.9. Keep external-content FTS5 BM25 (`porter unicode61`) and trigram indexes synchronized transactionally with file chunks.
 - Restrict requests to roots authorized when the host opened the index. Query each root's vec0 `root_id TEXT PARTITION KEY` before coarse top100 selection and rescore its auxiliary Float32 embeddings by exact cosine distance.
 - Preserve empty-root results and reject unauthorized roots; never substitute unrestricted retrieval. Do not perform Node inference or silently fuse a different search mode.
+- Report actual per-authorized-root file/chunk/vector/missing counts with the full stored profile and hash. Verify declared vector presence against real rows before returning coverage. Complete vector coverage requires every requested root to have nonempty chunks and all their vectors; it does not establish complete source scans.
+- Keep source-scan readiness a separate canonical producer receipt. Engine readiness and counts never imply a complete authorized corpus. Preserve candidate/scan/result truncation flags; lexical one-extra-row peeks and vector top100 availability checks must not alter selected candidate ranks.
 
 Evidence: `indexer/2026-10-02-independent-package.md`.
 Guard: `packages/indexer/__tests__/indexer.integration.test.ts`.
+Evidence: `indexer/2026-10-03-coverage-runtime-bridge.md`.
+Guard: `packages/indexer/__tests__/coverage.integration.test.ts`.
 
 ### Canonical syntax metadata
 

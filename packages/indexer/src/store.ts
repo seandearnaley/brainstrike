@@ -9,12 +9,15 @@ import {
   authorize,
   type CommitResult,
   commitSchema,
+  coverageRequestSchema,
+  coverageSchema,
   decoder,
   type FileCommit,
   type FilePlan,
   type FileSnapshot,
   type FileSyntax,
   hitSchema,
+  type IndexerCoverage,
   IndexerError,
   type IndexerInfo,
   type IndexerOptions,
@@ -630,6 +633,74 @@ export class IndexReader {
       });
     })();
   }
+  coverage(input: unknown): IndexerCoverage {
+    const request = decoder(coverageRequestSchema)(input);
+    authorize(this.allowed, request.rootIds);
+    if (new Set(request.rootIds).size !== request.rootIds.length) {
+      throw new TypeError('Coverage roots must be unique.');
+    }
+    return this.db.transaction(() => {
+      const roots = request.rootIds.map((rootId) => {
+        const mismatch = decoder(Schema.Int)(
+          this.db
+            .prepare(
+              'SELECT count(*) FROM file_chunks c LEFT JOIN vec_chunks v ON v.id=c.pk WHERE c.root_id=? AND (c.has_vector != (v.id IS NOT NULL) OR (v.id IS NOT NULL AND c.root_id != v.root_id))'
+            )
+            .pluck()
+            .get(rootId)
+        );
+        const orphan = decoder(Schema.Int)(
+          this.db
+            .prepare(
+              'SELECT count(*) FROM vec_chunks v LEFT JOIN file_chunks c ON c.pk=v.id WHERE v.root_id=? AND (c.pk IS NULL OR c.root_id != v.root_id)'
+            )
+            .pluck()
+            .get(rootId)
+        );
+        if (mismatch !== 0 || orphan !== 0) {
+          throw new IndexerError(
+            'rebuild-required',
+            'Native vector presence disagrees with canonical rows.'
+          );
+        }
+        const counts = decoder(
+          Schema.Struct({
+            chunks: Schema.Int,
+            indexedFiles: Schema.Int,
+            missingVectors: Schema.Int,
+            vectors: Schema.Int,
+          })
+        )(
+          this.db
+            .prepare(
+              'SELECT (SELECT count(*) FROM file_records WHERE root_id=@root) AS indexedFiles,(SELECT count(*) FROM file_chunks WHERE root_id=@root) AS chunks,(SELECT count(*) FROM vec_chunks WHERE root_id=@root) AS vectors,(SELECT count(*) FROM file_chunks WHERE root_id=@root AND has_vector=0) AS missingVectors'
+            )
+            .get({ root: rootId })
+        );
+        return { rootId, ...counts };
+      });
+      const totals = roots.reduce(
+        (sum, root) => ({
+          chunks: sum.chunks + root.chunks,
+          indexedFiles: sum.indexedFiles + root.indexedFiles,
+          missingVectors: sum.missingVectors + root.missingVectors,
+          vectors: sum.vectors + root.vectors,
+        }),
+        { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 }
+      );
+      return decoder(coverageSchema)({
+        profile: this.options.profile,
+        profileHash: this.profileHash,
+        roots,
+        totals,
+        vectorCoverageComplete:
+          roots.length > 0 &&
+          roots.every(
+            (root) => root.chunks > 0 && root.vectors === root.chunks && root.missingVectors === 0
+          ),
+      });
+    })();
+  }
   search(input: unknown): SearchResult {
     const request = decoder(searchSchema)(input);
     authorize(this.allowed, request.rootIds);
@@ -659,13 +730,25 @@ export class IndexReader {
       (request.mode === 'trigram' && [...text].length < 3) ||
       (request.mode === 'bm25' && !expression)
     ) {
-      return { candidateCount: 0, hits: [], profileHash: this.profileHash };
+      return {
+        candidateCount: 0,
+        candidatesTruncated: false,
+        hits: [],
+        profileHash: this.profileHash,
+        scanLimited: false,
+        truncated: false,
+      };
     }
     return this.db.transaction(() => {
       const hits: SearchResult['hits'][number][] = [];
       let candidateCount = 0;
+      let candidatesTruncated = false;
       for (const root of new Set(request.rootIds)) {
         if (request.mode === 'vector') {
+          const available = decoder(Schema.Int)(
+            this.db.prepare('SELECT count(*) FROM vec_chunks WHERE root_id=?').pluck().get(root)
+          );
+          candidatesTruncated ||= available > 100;
           const candidates = decoder(
             Schema.Array(Schema.Struct({ id: numberId, score: Schema.Finite }))
           )(
@@ -690,13 +773,22 @@ export class IndexReader {
             .prepare(
               `SELECT ${hitColumns},bm25(${table}) AS score FROM ${table} JOIN file_chunks c ON c.pk=${table}.rowid JOIN file_records f ON f.root_id=c.root_id AND f.id=c.file_record_id WHERE ${table} MATCH ? AND c.root_id=? ORDER BY score,c.id LIMIT ?`
             )
-            .all(expression, root, request.limit);
-          candidateCount += rows.length;
-          hits.push(...rows.map(decodeHit));
+            .all(expression, root, request.limit + 1);
+          candidatesTruncated ||= rows.length > request.limit;
+          const selected = rows.slice(0, request.limit);
+          candidateCount += selected.length;
+          hits.push(...selected.map(decodeHit));
         }
       }
       hits.sort((a, b) => a.score - b.score || a.chunkId.localeCompare(b.chunkId));
-      return { candidateCount, hits: hits.slice(0, request.limit), profileHash: this.profileHash };
+      return {
+        candidateCount,
+        candidatesTruncated,
+        hits: hits.slice(0, request.limit),
+        profileHash: this.profileHash,
+        scanLimited: false,
+        truncated: candidatesTruncated || hits.length > request.limit,
+      };
     })();
   }
 }

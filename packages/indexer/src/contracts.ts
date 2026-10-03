@@ -147,10 +147,28 @@ export const hitSchema = Schema.Struct({
 });
 export const searchResultSchema = Schema.Struct({
   candidateCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  candidatesTruncated: Schema.Boolean,
   hits: Schema.Array(hitSchema),
   profileHash: hash,
+  scanLimited: Schema.Boolean,
+  truncated: Schema.Boolean,
 });
 export type SearchResult = typeof searchResultSchema.Type;
+const coverageCounts = {
+  chunks: nonnegative,
+  indexedFiles: nonnegative,
+  missingVectors: nonnegative,
+  vectors: nonnegative,
+};
+export const coverageRequestSchema = Schema.Struct({ rootIds: Schema.Array(nonblank) });
+export const coverageSchema = Schema.Struct({
+  profile: profileSchema,
+  profileHash: hash,
+  roots: Schema.Array(Schema.Struct({ rootId: nonblank, ...coverageCounts })),
+  totals: Schema.Struct(coverageCounts),
+  vectorCoverageComplete: Schema.Boolean,
+});
+export type IndexerCoverage = typeof coverageSchema.Type;
 export const commitResultSchema = Schema.Struct({
   reusedEmbeddings: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   syntaxStatus: Schema.Literals(['replaced', 'retained', 'not-provided']),
