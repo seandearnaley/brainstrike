@@ -28,6 +28,10 @@
     "./worker": {
       "types": "./dist/chunking.worker.d.ts",
       "import": "./dist/chunking.worker.js"
+    },
+    "./source-range-validation": {
+      "types": "./dist/source-range-validation.d.ts",
+      "import": "./dist/source-range-validation.js"
     }
   },
   "files": [

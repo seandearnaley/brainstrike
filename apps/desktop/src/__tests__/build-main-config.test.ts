@@ -62,6 +62,7 @@ describe('main-process bundle config', () => {
     expect(MAIN_PROCESS_ENTRY_POINTS).toEqual({
       'db-host-entry': 'src/db-host-entry.ts',
       'hidden-preload': 'src/hidden-preload.ts',
+      'indexer-host-entry': 'src/indexer-host-entry.ts',
       main: 'src/main-bootstrap.ts',
       'main-log-transport': 'src/diagnostics/main-log-transport.ts',
       'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
