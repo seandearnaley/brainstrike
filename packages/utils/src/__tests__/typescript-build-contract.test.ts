@@ -77,9 +77,16 @@ describe('utils emitted TypeScript build contract', () => {
     }
   });
 
-  it('MONEY TEST: rejects an export map below the anti-vacuity floor', () => {
+  it('MONEY TEST: accepts the anti-vacuity floor and rejects an export map below it', () => {
+    const exportsAtFloor = runtimeSubpathExportNames(packageJson.exports)
+      .slice(0, MIN_RUNTIME_SUBPATH_EXPORTS)
+      .map((exportName) => [`./${exportName}`, packageJson.exports[`./${exportName}`]]);
+
+    expect(() =>
+      assertMinimumRuntimeSubpathExports(Object.fromEntries(exportsAtFloor))
+    ).not.toThrow();
     const mutatedExports = Object.fromEntries(
-      Object.entries(packageJson.exports).filter(([exportName]) => exportName !== './collator')
+      exportsAtFloor.slice(0, MIN_RUNTIME_SUBPATH_EXPORTS - 1)
     );
 
     expect(() => assertMinimumRuntimeSubpathExports(mutatedExports)).toThrow(
