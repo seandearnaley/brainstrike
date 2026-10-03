@@ -12,6 +12,7 @@ import type {
   ScopedToolOutputArtifactReader,
 } from '@brainstrike/agent';
 import type { DesktopNativeTool, DesktopNativeToolId } from '@brainstrike/assistant-contract';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { CommandSessionManager } from './command-session-manager';
 import type { ReadWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry';
@@ -26,6 +27,7 @@ export type MastraTool = MastraTools[string];
 export interface DesktopAssistantToolDependencies {
   commandSessionManager?: CommandSessionManager | undefined;
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  nativeIndexSearch?: IndexSearchCapability | undefined;
   readWorkspaceFileCursorRegistry?: ReadWorkspaceFileCursorRegistry | undefined;
   resolvedToolResultBudget?: ScaledToolResultBudget | undefined;
   /**

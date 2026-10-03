@@ -16,6 +16,7 @@ import {
   type LspInspectInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   type QueryEmbeddingSpaceInput,
+  resolveGuardedToolSignal,
   type WebExtractInput,
   type WebSearchInput,
 } from '@brainstrike/agent';
@@ -224,8 +225,9 @@ export const SEARCH_TOOL_EXECUTORS = executorGroup({
           runtimeData,
           {
             embeddingHostManager: dependencies.embeddingHostManager,
+            nativeIndexSearch: dependencies.nativeIndexSearch,
           },
-          context?.abortSignal
+          resolveGuardedToolSignal(context)
         );
       } catch (error) {
         logToolFailure('queryEmbeddingSpace failed', error, resolvedInput);
@@ -254,8 +256,9 @@ export const SEARCH_TOOL_EXECUTORS = executorGroup({
           runtimeData,
           {
             embeddingHostManager: dependencies.embeddingHostManager,
+            nativeIndexSearch: dependencies.nativeIndexSearch,
           },
-          context?.abortSignal
+          resolveGuardedToolSignal(context)
         );
       } catch (error) {
         logToolFailure('hybridSearch failed', error, resolvedInput);

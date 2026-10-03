@@ -1662,12 +1662,12 @@ The assistant's search verbs, in the order the default instructions present them
    returns line matches, and both page by `offset`.
 2. `brainstrike.queryEmbeddingSpace` — semantic search when exact wording is unknown.
    Semantic/hybrid embedding requests propagate tool aborts as failures, never empty results.
-3. `brainstrike.hybridSearch` — vector + full-text RRF fusion reusing the SAME
-   `HybridSearchService` as the UI, with `queryEmbeddingSpace`'s explicit-input
+3. `brainstrike.hybridSearch` — native BM25 + grep + vector RRF60 when the main-owned native capability is injected; otherwise vector + full-text fusion reuses the SAME
+   `HybridSearchService` as the PG UI, with `queryEmbeddingSpace`'s explicit-input
    scoping semantics (it does not inherit the implicit UI selection and takes no
    `selectionSnapshotId`). NO SILENT FALLBACK: a failing keyword arm fails the
    call visibly, never degrades to vector-only.
-4. The same fusion backs UI search paths; the lexical arm matches with PostgreSQL
+4. PG fusion backs hosted/web UI search paths; the lexical arm matches with PostgreSQL
    FTS and orders with the pg_textsearch BM25 index plus an `id` tiebreaker. BM25
    orders but never matches — see `docs/agents/database.md`.
 5. The web retrieval pair, external via Tavily: `brainstrike.webSearch`
@@ -1676,6 +1676,12 @@ The assistant's search verbs, in the order the default instructions present them
    provider-native swap — it must stay Tavily-backed). Both are keyless-HONEST
    (`available:false` plus an actionable message, never a throw) and non-fatal on
    network errors.
+
+- Inject main's existing scoped native capability into desktop semantic/hybrid tools. Resolve omitted collection inputs from its actual saved authority; require its current authorized collection/root, complete scan and full-profile coverage; forward its exact saved query plan and guarded caller signal to the existing hidden-host manager, joining inference and every admitted read arm before settlement. Keep PG catalog metadata authoritative; absent capability preserves PG retrieval. TEXT, native failures and unsupported profiles never fall through to PG ranking.
+- Native tools use 100 candidates per arm and at most 10 final results, with visible limitation hints. Refuse explicit file/snapshot/chunk filters, non-equal hybrid weights and limits above 10 because the current capability cannot represent them exactly. Keep query task semantics distinct from document generation.
+
+Evidence: `assistant-providers/native-assistant-retrieval.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/native-assistant-retrieval.test.ts`, `native-assistant-retrieval.integration.test.ts`.
 
 - `webExtract` validates every model-supplied URL BEFORE anything is sent
   (http/https only, no embedded credentials, no private/loopback/link-local

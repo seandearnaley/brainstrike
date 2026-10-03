@@ -906,7 +906,7 @@ async function handleAssistantPostOwned(
           core.runId && core.runtimeData?.memory?.threadId
             ? { runId: core.runId, threadId: core.runtimeData.memory.threadId }
             : undefined;
-        const result = await initializeAgentStream({
+        const result = await initializeAgentStream<DesktopAgentStreamKinds>({
           apiKey: core.apiKey,
           authInput: core.authInput,
           // Initial, approval and suspension-resume requests all enter this
@@ -919,6 +919,13 @@ async function handleAssistantPostOwned(
                 getDesktopMastraMemory(settings, memoryRunId, sink, data, {
                   ...dependencies,
                   snapshots: options.snapshots ?? undefined,
+                }),
+            },
+            tools: {
+              build: (data, dependencies) =>
+                buildDesktopAssistantTools(data, {
+                  ...dependencies,
+                  nativeIndexSearch: options.nativeIndexSearch,
                 }),
             },
           },

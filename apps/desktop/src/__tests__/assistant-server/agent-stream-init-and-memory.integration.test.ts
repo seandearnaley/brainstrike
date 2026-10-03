@@ -116,6 +116,52 @@ describe('agent-stream-init runtime composition and memory', () => {
     expect(options.mcpHost).toEqual(expect.any(Object));
   });
 
+  it('injects the main-owned native search capability into request tools outside runtime data', async () => {
+    const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+    const { streamResponse } = await import('../../assistant-server/http');
+    const { buildDesktopAssistantTools } = await import('../../assistant-server/assistant-tools');
+    const nativeIndexSearch = {
+      coverage: vi.fn(),
+      grep: vi.fn(),
+      rebuild: vi.fn(),
+      search: vi.fn(),
+      status: vi.fn(),
+    };
+    (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+      { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
+    ]);
+    (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+      async *[Symbol.asyncIterator]() {
+        yield { content: 'Response', type: 'text' };
+      },
+    });
+    (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+      (res as { end?: () => void }).end?.();
+    });
+    const response = await runRequest(
+      {
+        body: JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        url: '/',
+      },
+      { nativeIndexSearch }
+    );
+    expect(response.status).toBe(200);
+    expect(buildDesktopAssistantTools).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ nativeIndexSearch })
+    );
+    const call = (buildDesktopAssistantTools as Mock).mock.calls.at(-1);
+    expect(call?.[1]?.nativeIndexSearch).toBe(nativeIndexSearch);
+    expect((toAiSdkStyleStream as Mock).mock.calls.at(-1)?.[1]).not.toHaveProperty(
+      'nativeIndexSearch'
+    );
+  });
+
   it('threads the built-in subagent personas onto the runtime for a hosted provider', async () => {
     const { BUILT_IN_PERSONAS, toAiSdkStyleStream, convertAssistantUiMessages } = await import(
       '@brainstrike/agent'

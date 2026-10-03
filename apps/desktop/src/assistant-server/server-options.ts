@@ -7,6 +7,7 @@
 
 import type { DeprecatedEnvVarReport } from '@brainstrike/assistant-contract/provider-metadata';
 import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/ports';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { DesktopEnvLoadFailure } from '../desktop-env';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { AssistantServerAuth } from './auth';
@@ -51,6 +52,7 @@ export interface AssistantServerOptions {
   host?: string;
   listen?: boolean;
   llmHostManager?: AssistantLlmHostManager | null | undefined;
+  nativeIndexSearch?: IndexSearchCapability | undefined;
   openRouterModelMetadataService?: OpenRouterModelMetadataService;
   /** BST-1357 credential-verification probes; module-level default when unset. */
   providerVerificationService?: ProviderVerificationService;

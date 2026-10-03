@@ -1807,6 +1807,7 @@ if (singleInstanceLockAcquired) {
           embeddingHostManager,
           envFileFailures: desktopEnvLoadResult.failures,
           llmHostManager,
+          nativeIndexSearch,
           resolveForgeService: () => forgeService ?? null,
           resolveWorktreeService: () => worktreeService,
           // T1 injection point (BST-1164): the run-persistence seam's snapshot
