@@ -1,4 +1,5 @@
 -- description: Model-facing characters, call counts, truncation, zero matches, and pagination proxy grouped by tool over an inclusive time window
+-- target: app
 -- param: since text  Inclusive ISO timestamp at the start of the window
 -- param: until text  Inclusive ISO timestamp at the end of the window
 --

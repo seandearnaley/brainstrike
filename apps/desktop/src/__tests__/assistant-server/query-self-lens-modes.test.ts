@@ -58,16 +58,17 @@ function fakeDatabase(calls: CapturedCall[], rows: unknown[][]) {
 const LENS_SCAN: UserLensScanResult = {
   entries: [
     {
-      absPath: '/work/a/.brainstrike/lenses/callers-hybrid.sql',
-      fileName: 'callers-hybrid.sql',
+      absPath: '/work/a/.brainstrike/lenses/app-test-lens.sql',
+      fileName: 'app-test-lens.sql',
       lens: {
         description: 'Caller-graph hybrid retrieval',
-        id: 'callers-hybrid',
+        id: 'app-test-lens',
         params: [
           { description: 'Seed symbol', name: 'symbol', type: 'text' },
           { description: 'Max depth', name: 'depth', type: 'integer' },
         ],
         sql: 'SELECT path FROM t WHERE name = $1 AND depth < $2',
+        target: 'app',
       },
       sourceRootId: 'root-a',
       status: 'ok',
@@ -80,10 +81,10 @@ const LENS_SCAN: UserLensScanResult = {
       status: 'invalid',
     },
     {
-      absPath: '/home/user/.brainstrike/lenses/callers-hybrid.sql',
-      fileName: 'callers-hybrid.sql',
+      absPath: '/home/user/.brainstrike/lenses/app-test-lens.sql',
+      fileName: 'app-test-lens.sql',
       shadowedBy: {
-        absPath: '/work/a/.brainstrike/lenses/callers-hybrid.sql',
+        absPath: '/work/a/.brainstrike/lenses/app-test-lens.sql',
         sourceRootId: 'root-a',
       },
       status: 'shadowed',
@@ -93,12 +94,13 @@ const LENS_SCAN: UserLensScanResult = {
   lenses: [
     {
       description: 'Caller-graph hybrid retrieval',
-      id: 'callers-hybrid',
+      id: 'app-test-lens',
       params: [
         { description: 'Seed symbol', name: 'symbol', type: 'text' },
         { description: 'Max depth', name: 'depth', type: 'integer' },
       ],
       sql: 'SELECT path FROM t WHERE name = $1 AND depth < $2',
+      target: 'app',
     },
   ],
 };
@@ -109,7 +111,7 @@ beforeEach(() => {
 
 describe('mode=listLenses', () => {
   it('lists valid lenses AND invalid entries with their errors', async () => {
-    const result = await runQuerySelf({ mode: 'listLenses' }, undefined, {
+    const result = await runQuerySelf({ mode: 'listLenses', target: 'app' }, undefined, {
       scanLenses: () => LENS_SCAN,
     });
     expect(result.kind).toBe('lenses');
@@ -119,12 +121,13 @@ describe('mode=listLenses', () => {
     expect(result.lenses).toEqual([
       {
         description: 'Caller-graph hybrid retrieval',
-        id: 'callers-hybrid',
+        id: 'app-test-lens',
         params: [
           { description: 'Seed symbol', name: 'symbol', type: 'text' },
           { description: 'Max depth', name: 'depth', type: 'integer' },
         ],
         source: 'root-a',
+        target: 'app',
       },
     ]);
     expect(result.invalid).toEqual([
@@ -137,8 +140,8 @@ describe('mode=listLenses', () => {
     // Shadowing is visible and names the file that WON.
     expect(result.shadowed).toEqual([
       {
-        fileName: 'callers-hybrid.sql',
-        shadowedByPath: '/work/a/.brainstrike/lenses/callers-hybrid.sql',
+        fileName: 'app-test-lens.sql',
+        shadowedByPath: '/work/a/.brainstrike/lenses/app-test-lens.sql',
         source: 'global',
       },
     ]);
@@ -153,7 +156,7 @@ describe('mode=lens', () => {
     getDatabaseMock.mockResolvedValue(fakeDatabase(calls, [['src/a.ts']]));
 
     const result = await runQuerySelf(
-      { lens: 'callers-hybrid', mode: 'lens', values: ['startWorker', '5'] },
+      { lens: 'app-test-lens', mode: 'lens', target: 'app', values: ['startWorker', '5'] },
       undefined,
       { scanLenses: () => LENS_SCAN }
     );
@@ -179,7 +182,7 @@ describe('mode=lens', () => {
     // A broken project file reserves its id; the honest answer is the parse
     // error, not "unknown lens" (and never a same-named global fallback).
     await expect(
-      runQuerySelf({ lens: 'broken', mode: 'lens', values: [] }, undefined, {
+      runQuerySelf({ lens: 'broken', mode: 'lens', target: 'app', values: [] }, undefined, {
         scanLenses: () => LENS_SCAN,
       })
     ).rejects.toThrow(/exists but is invalid.*description/i);
@@ -187,22 +190,27 @@ describe('mode=lens', () => {
 
   it('rejects an unknown lens id naming the available ones', async () => {
     await expect(
-      runQuerySelf({ lens: 'nope', mode: 'lens', values: [] }, undefined, {
+      runQuerySelf({ lens: 'nope', mode: 'lens', target: 'app', values: [] }, undefined, {
         scanLenses: () => LENS_SCAN,
       })
-    ).rejects.toThrow(/Unknown lens "nope".*callers-hybrid/);
+    ).rejects.toThrow(/Unknown lens "nope".*app-test-lens/);
   });
 
   it('rejects a missing lens id with the listLenses pointer', async () => {
     await expect(
-      runQuerySelf({ mode: 'lens' }, undefined, { scanLenses: () => LENS_SCAN })
+      runQuerySelf({ mode: 'lens', target: 'app' }, undefined, { scanLenses: () => LENS_SCAN })
     ).rejects.toThrow(/listLenses/);
   });
 
   it('rejects a value that fails its declared type, naming the param', async () => {
     await expect(
       runQuerySelf(
-        { lens: 'callers-hybrid', mode: 'lens', values: ['startWorker', 'not-a-number'] },
+        {
+          lens: 'app-test-lens',
+          mode: 'lens',
+          target: 'app',
+          values: ['startWorker', 'not-a-number'],
+        },
         undefined,
         { scanLenses: () => LENS_SCAN }
       )
@@ -211,9 +219,13 @@ describe('mode=lens', () => {
 
   it('rejects a value-count mismatch as a ToolInputError', async () => {
     await expect(
-      runQuerySelf({ lens: 'callers-hybrid', mode: 'lens', values: ['only-one'] }, undefined, {
-        scanLenses: () => LENS_SCAN,
-      })
+      runQuerySelf(
+        { lens: 'app-test-lens', mode: 'lens', target: 'app', values: ['only-one'] },
+        undefined,
+        {
+          scanLenses: () => LENS_SCAN,
+        }
+      )
     ).rejects.toThrow(ToolInputError);
   });
 });

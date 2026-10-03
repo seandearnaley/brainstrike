@@ -21,3 +21,31 @@ output, enforces the process-message byte budget, and remains under the owned
 process deadline. Main must validate live authorized roots before this provider
 is exposed through the visible-UI IPC contract. Product fusion/metadata mapping
 and running-app cutover remain separate consumer work; no M2 exit claim.
+
+### Snapshot identity
+
+Every native grep response carries canonical store ID and embedding state decoded from schema4 metadata in the same SQLite statement as its chunk rows. A LEFT JOIN retains identity for an empty requested scope; missing/corrupt/incompatible metadata refuses. The read-only authorizer and query result-limit guard remain unchanged. The protocol uses the canonical identity schema, and the shared row decoder validates all five metadata fields including the configured profile hash.
+
+RED lacked identity; GREEN includes literal/regex/root/cap controls, empty-scope identity and incompatible metadata refusal. All28 engine cases plus actual Electron utility proof passed; the authoritative configured writer/WAL consumer proof validates exact identity and native chunk IDs before deadline kill, writer retention and reopen. Production provider/registration still requires live-root authorization and receipt-based full-scan readiness.
+
+### Main capability adapter
+
+The Node read capability reloads live canonical root IDs before acquisition and before returning results. It rejects empty/duplicate/disconnected scopes before opening the reader, validates native chunk source projections, closes the owned reader on every path, and retains both operation and cleanup causes. Grep preserves canonical path/chunk-ID ordering with no relevance score; it reports actual match count/truncation and scanLimited=false only after the exhaustive reader scan succeeds. Returned search identities must match the currently authoritative index owner. Root readiness comes from an injected producer receipt source, never row counts.
+
+Guards: native-index-search.test.ts tests authorization before either acquisition, changed-store refusal and retained cleanup causes; the actual Electron WAL proof also exercises the capability over the same recorded native source/identity and chunk ID. Main registration/startup remains separate composition.
+
+### Complete response budget review
+
+Independent review of the reader extraction found that the incremental row
+accounting omitted the newly returned snapshot identity. A valid configured
+profile with a large model ID could exceed the IPC limit with no chunk rows.
+The host now checks V8 serialization of the entire successful response before
+either Node IPC or Electron parent-port delivery, retaining the existing
+incremental sandbox guard. The budget includes metadata, column names and the
+correlation envelope; over-budget responses retain a correlated RangeError.
+
+Guards: `packages/sqlite-query/src/__tests__/host-core.test.ts` covers an empty
+result that fits alone but exceeds the limit with its envelope, plus subsequent
+BigInt/blob delivery. `sandbox.integration.test.ts` checks valid oversized
+configured metadata against empty and matching grep, then ordinary recovery.
+The original guard/deadline controls remain enabled throughout verification.

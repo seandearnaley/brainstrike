@@ -1,4 +1,5 @@
 -- description: Tool usage patterns (calls, truncation, zero matches, follow-ups) grouped by tool and run outcome verdict, with per-verdict run denominators, over an inclusive time window
+-- target: app
 -- param: since text  Inclusive ISO timestamp at the start of the window
 -- param: until text  Inclusive ISO timestamp at the end of the window
 --

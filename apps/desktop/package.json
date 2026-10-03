@@ -110,6 +110,7 @@
     "@brainstrike/settings-ui": "workspace:*",
     "@brainstrike/sqlite-native": "workspace:*",
     "@brainstrike/state-store": "workspace:*",
+    "@brainstrike/sqlite-query": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",

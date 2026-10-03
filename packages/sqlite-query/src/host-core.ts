@@ -1,5 +1,16 @@
+import { serialize } from 'node:v8';
 import { decodeRequest, type QueryResponse, type SqliteRows } from './protocol.js';
 import { SqliteSandbox } from './sandbox.js';
+
+function boundedResponse(response: QueryResponse): QueryResponse {
+  // Retain the sandbox's incremental row guard and include all metadata/envelope bytes here.
+  if (serialize(response).byteLength > 1024 * 1024) {
+    throw new RangeError(
+      'Query response exceeds the 1 MiB process-message budget. Refine the query or rebuild oversized index metadata.'
+    );
+  }
+  return response;
+}
 
 export function createQueryHost(
   send: (response: QueryResponse) => void
@@ -20,7 +31,7 @@ export function createQueryHost(
         throw new Error('SQLite query process has not been initialized.');
       }
       if (request.kind === 'grep') {
-        return { id: request.id, kind: 'grepRows', result: sandbox.grep(request) };
+        return boundedResponse({ id: request.id, kind: 'grepRows', result: sandbox.grep(request) });
       }
       let result: SqliteRows;
       switch (request.kind) {
@@ -34,7 +45,7 @@ export function createQueryHost(
           result = sandbox.listTables();
           break;
       }
-      return { id: request.id, kind: 'rows', result };
+      return boundedResponse({ id: request.id, kind: 'rows', result });
     } catch (error) {
       return {
         id: request.id,

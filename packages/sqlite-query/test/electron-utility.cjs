@@ -21,7 +21,9 @@ app
     writer.exec(
       "CREATE TABLE records(id TEXT PRIMARY KEY); INSERT INTO records VALUES('one'); CREATE VIRTUAL TABLE records_fts USING fts5(content); INSERT INTO records_fts VALUES('query index');"
     );
-    writer.exec(`CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
+    writer.exec(`CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY,schema_version INTEGER,store_id TEXT,index_mode TEXT,profile_json TEXT,profile_hash TEXT);
+      INSERT INTO index_metadata VALUES(1,4,'${'a'.repeat(64)}','text-only',NULL,NULL);
+      CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
       CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);
       INSERT INTO file_records VALUES('file-a','root-a','proof.ts');
       INSERT INTO file_chunks VALUES('one','root-a','file-a','CAFÉ alpha','hash-one',1,1,0,10,'text',0,10,3),('two','root-a','file-a','alphabet','hash-two',2,2,1,8,'text',11,19,1);`);
@@ -75,6 +77,10 @@ app
         maxRows: 1,
         pattern: 'alpha',
         rootIds: ['root-a'],
+      });
+      assert.deepEqual(grep.identity, {
+        embedding: { indexMode: 'text-only' },
+        storeId: 'a'.repeat(64),
       });
       assert.equal(grep.matchedChunks, 2);
       assert.equal(grep.truncated, true);

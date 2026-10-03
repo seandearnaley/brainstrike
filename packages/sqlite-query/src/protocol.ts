@@ -1,4 +1,5 @@
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
+import { identityStateSchema } from '@brainstrike/indexer/metadata';
 import { Schema } from 'effect';
 
 const Id = Schema.Int.check(Schema.isGreaterThan(0));
@@ -19,6 +20,7 @@ export type SqliteValue = typeof Value.Type;
 
 export const GrepRowsSchema = Schema.Struct({
   columns: Schema.Array(Schema.String),
+  identity: identityStateSchema,
   matchedChunks: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   rows: Schema.Array(Schema.Array(Value)),
   truncated: Schema.Boolean,

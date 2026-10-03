@@ -1,4 +1,5 @@
 -- description: Estimator-vs-provider prompt-token ratio distribution by model and resolved tool-result budget tier over an inclusive time window (BST-1205/BST-1219)
+-- target: app
 -- param: since text  Inclusive ISO timestamp at the start of the window
 -- param: until text  Inclusive ISO timestamp at the end of the window
 --

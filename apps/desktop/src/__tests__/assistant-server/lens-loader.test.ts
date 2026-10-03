@@ -18,7 +18,7 @@ const ROOT_A = { absPath: '/work/a', displayName: 'A', id: 'root-a' };
 const ROOT_B = { absPath: '/work/b', displayName: 'B', id: 'root-b' };
 
 function lensFile(description: string): string {
-  return `-- description: ${description}\n-- param: symbol text  Seed symbol\nSELECT name FROM file_symbols WHERE name = $1`;
+  return `-- description: ${description}\n-- target: index\n-- param: symbol text  Seed symbol\nSELECT name FROM file_symbols WHERE name = $1`;
 }
 
 /** Build injected fs deps from a map of absolute dir → { fileName: content }. */
