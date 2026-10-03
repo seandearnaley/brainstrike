@@ -750,10 +750,17 @@ Guard: `scripts/__tests__/prune-stale-dist.test.mjs`, `package-scripts-canonical
   resolution under the same `tsc -b` build. Hosted functions load the agent's
   ESM export; pino and tiktoken stay external.
 
+- Desktop main consumes browser-only ESM subpaths through audited exact source
+  aliases in `build-main-config.mjs`; keep all other packages external. Prove
+  the public helper and actual CJS caller load in installed Electron, and retain
+  the external-requires guard. Never add a `require` export pointing at browser ESM.
+
 tsup stays until a replacement ships alone with measured evidence.
 Evidence: `ci-quality/package-build-strategies.md`. Guard:
 `scripts/verify-package-build-strategies.mjs`,
-`packages/agent/scripts/verify-hosted-web-bundle.mjs`.
+`packages/agent/scripts/verify-hosted-web-bundle.mjs`,
+`apps/desktop/src/__tests__/build-main-config.test.ts`,
+`main-process-bundle-external-requires.test.ts`, `native-retrieval-cjs-export.integration.test.ts`.
 
 ### Agent declaration build split
 
