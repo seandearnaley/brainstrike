@@ -5,43 +5,43 @@
 
 ## PR CI FLOW
 
-- CI is plain GitHub Actions: no planner, no committed proof artifact, no
-  command registry, no routing label. The `coverage` label only adds an
-  advisory run (see "Coverage is a separate workflow").
-- Required PR checks are `test.yml`'s `Static`, `Unit`, `Build`, `Web E2E`,
-  `Desktop E2E`. Both E2E smokes run on every PR. `main` pushes: "A red `main` announces itself".
-- Full regression (web, and desktop in two shards behind the `Desktop Full
-  Regression` fan-in) runs on every PR, on `schedule` and on `workflow_dispatch`.
-  A failing spec is quarantined with `test.fixme` plus a `quarantine` annotation
-  naming an owner-held ticket. A quarantine ticket closes only with its `fixme`
-  removed in the same PR; a spec is never deleted to get green.
-- A pull request touching official MCP conformance must link its workflow-dispatch run URL
-  in its body; a self-reported pass count is no substitute (reviewer-enforced).
+- Cloud CI is disabled due to cost: repository GitHub Actions and all workflows
+  are disabled. Do not enable, dispatch, rerun, request an automated review, or
+  introduce another hosted CI provider without the user's explicit authorization.
+- Run validation locally. `pnpm check` runs the default validation plan;
+  `pnpm check --full` adds coverage and full E2E regression. Use scoped tests while
+  iterating, then report exactly what the handoff validation covered.
+- Every handoff and PR description states: **CI is disabled due to cost;
+  validation must run locally.** Include actual commands, results, skipped checks,
+  and platform limitations; absent CI is never evidence of a pass.
+- The default and integration branch rulesets retain PR and history protections
+  but no longer require CI status checks. Never fabricate checks to satisfy them.
+- Workflow YAML is retained as a reference for the existing local validation
+  plan and provisioning contracts. The runner, trigger, hosted review, notifier,
+  and required/advisory gate descriptions below describe these disabled
+  definitions; they do not authorize cloud execution or make CI a delivery gate.
+
+- The preserved full-regression definitions cover web and two desktop shards,
+  with a `Desktop Full Regression` fan-in. Existing quarantines use `test.fixme`
+  plus a `quarantine` annotation naming an owner-held ticket. A quarantine
+  ticket closes only when its `fixme` is removed in the same PR; never delete
+  a spec to get green. These definitions remain disabled with cloud CI.
 
 ### Review and CI budget
 
-- Before implementing, record start time, acceptance criteria, the actual PR
-  base chain, and required checks; search open and recent PRs for the same fix.
-- Review is complete when every finding has a disposition. Collect the whole
-  review for one head, classify it, fix the in-scope batch, run local checks,
-  push once. Do not push each comment separately. Adjacent work becomes a
-  tracked follow-up, never new acceptance criteria.
-- Allow an initial whole-PR review and one re-review after the batch; a third
-  needs a scope checkpoint and user approval. Prefer a targeted review of the fix.
-- At 45 minutes, report elapsed time, exact head, blockers, and the next stop.
-  At 90 minutes without an exact-head-ready PR layer, stop pushes, reviews,
-  reruns, and merges; present a recovery plan. A stack shares one budget.
-- Keep one CI watcher. Reuse green evidence for the same head/base; rerun a
-  failed job only for an identified infrastructure failure; a code fix needs a
-  new head. Do not close/reopen PRs, toggle draft, or push empty commits to
-  solicit review. Why: each can start a complete pipeline.
-- Read the live ruleset. Declare the required gate ready without waiting for
-  advisory Coverage; inspect individual Unit rows while the fan-in is pending.
-- Batch lower-layer fixes before rebasing descendants once. Refresh a stack only
-  for a real conflict, required up-to-date protection, or a relevant base change.
+- Before implementing, record acceptance criteria and the PR base; search open
+  and recent PRs for the same fix. Keep the branch focused on one logical change.
+- Collect a review's findings, classify them, fix the in-scope batch, and validate
+  locally. Adjacent work becomes a follow-up, not new acceptance criteria.
+- At 45 minutes, report elapsed time, blockers, and the next stop. At 90 minutes
+  without a reviewable layer, stop and present a recovery plan. A stack shares
+  one budget. Hosted checks and reviews remain disabled even after local success.
+- Preserve failure visibility, test selection, and platform-specific checks.
+  A local macOS pass does not qualify Windows or Linux native behavior.
 
-These rules hold without the external `pr-scope-guard` skill.
-Evidence: `ci-quality/vercel-parser-dependencies.md`, `ci-quality/build-tooling-dependencies.md`.
+Evidence: `ci-quality/local-only-validation.md`, `ci-quality/ci-minute-audit.md`,
+`ci-quality/vercel-parser-dependencies.md`, `ci-quality/build-tooling-dependencies.md`.
+Guard: `scripts/__tests__/check-ci-parity.test.mjs`.
 
 ### Browser failure traces
 
@@ -58,10 +58,13 @@ Guard: `packages/config/__tests__/vitest-browser.test.ts`.
 
 ### Workload boundaries
 
-- Unit partitions are `test.yml`'s `unit-shard` matrix: DB, Agent, and Desktop
+- Unit partitions are `test.yml`'s full `UNIT_MATRIX`: DB, Agent, and Desktop
   own native Vitest shards, one fork and no file parallelism per runner. A
   `*_TEST_SHARD_REQUIRED` run fails on a missing shard identity; unset locally,
-  the whole suite runs. Required `Unit` rejects any failed or missing shard.
+  the whole suite runs. Static previews both affected Unit phases before runner
+  allocation. `Unit` accepts skipped shards only for a verified empty selection;
+  failed selection, missing output, or an unsuccessful selected shard fails it.
+  Push/manual and local validation retain the complete suite.
 - Job and `--global-timeout` values are failure ceilings; aim for a PR verdict
   in 15 minutes. Judge a ceiling as a ratio to measured runtime and raise or
   split the lane when you add work. An `interrupted` test plus a missing
@@ -645,7 +648,7 @@ Guard: `scripts/__tests__/vitest-worker-global-mutation.test.mjs`,
 - Narrow task inputs only as a guarded pilot. `@brainstrike/types` excludes its
   test/spec files from `topo` and `build`, so nothing outside it may import,
   read, or glob them. Shared helpers live outside excluded paths.
-- A guard script is an input of the tasks that run it, never a global input.
+- Keep guard scripts and formatting policy task-local; include every real reader.
   Coverage enforcement runs outside Turbo.
 - File-node factories live in `@brainstrike/file-tree-test-fixtures`;
   `@brainstrike/test-utils` never depends on `@brainstrike/types`.
@@ -710,6 +713,8 @@ Guard: `scripts/__tests__/package-scripts-canonical-form-contract.test.mjs`.
 
 ### Worktree-scoped local Turbo caches
 
+- The bounded wrapper launches the installed Turbo JavaScript entrypoint through
+  `process.execPath`, without a shell or a Turbo binary on `PATH`.
 - The wrapper's local cache, nested-run lock, and 25-GiB prune are scoped per
   Git worktree root (`--cwd` decides which). `TURBO_CACHE_DIR` and
   `BRAINSTRIKE_TURBO_CACHE_DIR` are exact overrides, required outside a
