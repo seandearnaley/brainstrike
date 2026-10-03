@@ -1,0 +1,21 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "../indexer/__tests__/fixtures/canonical-provided-chunks.json"
+      ]
+    },
+    "test:integration": {
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/file-import#build"]
+    },
+    "test:coverage": {
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/file-import#build"],
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "../indexer/__tests__/fixtures/canonical-provided-chunks.json"
+      ]
+    }
+  }
+}

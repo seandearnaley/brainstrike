@@ -47,6 +47,16 @@
       "types": "./dist/enhanced-import.d.ts",
       "import": "./dist/enhanced-import.js",
       "require": "./dist/enhanced-import.js"
+    },
+    "./canonical-symbol-inserts": {
+      "types": "./dist/canonical-symbol-inserts.d.ts",
+      "import": "./dist/canonical-symbol-inserts.js",
+      "require": "./dist/canonical-symbol-inserts.js"
+    },
+    "./canonical-index-publication": {
+      "types": "./dist/canonical-index-publication.d.ts",
+      "import": "./dist/canonical-index-publication.js",
+      "require": "./dist/canonical-index-publication.js"
     }
   },
   "files": [
