@@ -111,6 +111,15 @@ Guard: `apps/desktop/src/__tests__/native-canonical-catalog.test.ts`,
 The adapter is a library seam; actual main/grant/profile/utility wiring and app
 qualification remain separate composition work.
 
+### Borrowed workspace source ingestion
+
+- Run workspace discovery, bounded secure reads and the existing `WorkspaceIndexingCoordinator` in `CanonicalWorkspaceIngestionRuntime`; borrow narrow operations from the same main-owned pinned mount. Paths, root IDs and projections never acquire a new native root.
+- Forward batches and health from the existing main Parcel producer. Promote native watch work to full affected-root metadata reconciliation, force changed file reads, and preserve unchanged native-covered stat skips; readiness still uses the complete writer manifest predicate.
+- Join admitted listing/read/iterator/subscription work before releasing a borrow. Preserve failed unsubscribe ownership for explicit retry, including `ParcelWatchRetirementError.retire()` when late timed-out acquisition succeeds but cleanup fails. Rejected acquisition joins event work and reports startup errors without an unsubscribe retry owner. Borrow retirement never closes the shared mount.
+
+Evidence: `indexer/2026-10-03-borrowed-workspace-source.md`.
+Guard: `packages/canonical-ingestion/__tests__/workspace-source.test.ts`, `packages/canonical-ingestion/__tests__/workspace-source-child.integration.test.ts`, `packages/file-system/src/__tests__/parcel-watch-retirement.test.ts`.
+
 ### Persistence and qualification
 
 - Treat the database as derived state. Product cutover must register its owned path and call `destroy()` during factory reset before deleting roots; package `destroy()` joins pending writes and removes only its database/WAL/shared-memory files.

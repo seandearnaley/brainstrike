@@ -25,7 +25,7 @@ const { backfillEmbeddingSetAssignmentsMock, readFullTreeWithOptionsMock, runEnh
     runEnhancedImportMock: vi.fn(),
   }));
 
-vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
+vi.mock('@brainstrike/file-system/directory-tree', () => ({
   readFullTreeWithOptions: readFullTreeWithOptionsMock,
 }));
 

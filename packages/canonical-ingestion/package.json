@@ -4,14 +4,25 @@
   "private": true,
   "type": "module",
   "description": "Canonical ingestion owned by the utility or standalone host",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "sideEffects": false,
   "dependencies": {
     "@brainstrike/chunking-worker": "workspace:*",
-    "@brainstrike/file-import": "workspace:*"
+    "@brainstrike/file-import": "workspace:*",
+    "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
+    "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:",

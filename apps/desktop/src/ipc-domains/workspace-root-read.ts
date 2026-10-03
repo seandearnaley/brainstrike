@@ -1,15 +1,7 @@
 import path from 'node:path';
-import {
-  AccessError,
-  formatFileSize,
-  getFileSizeConfig,
-  isFullyQualifiedFileSystemPath,
-} from '@brainstrike/file-system';
+import { AccessError, isFullyQualifiedFileSystemPath } from '@brainstrike/file-system';
 import { isContained, pathsEqual } from './workspace-root-paths';
 import type { SecureWorkspaceRoot } from './workspace-root-types';
-
-/** Native secure-fs reads cap one operation at 16MB. */
-const NATIVE_MAX_READ_BYTES = 16 * 1024 * 1024;
 
 export interface MountedWorkspaceRootReadAuthority {
   readonly canonicalPath: string;
@@ -81,38 +73,4 @@ export async function resolveReadAgainstMountedRoot(
   };
 }
 
-export async function readResolvedWorkspaceFile(
-  requestedPath: string,
-  resolved: ResolvedWorkspaceRead
-): Promise<string> {
-  const { maxFileSize } = getFileSizeConfig();
-  if (maxFileSize > NATIVE_MAX_READ_BYTES) {
-    throw new AccessError(
-      `Configured maxFileSize (${formatFileSize(maxFileSize)}) exceeds the native secure-read cap (${formatFileSize(NATIVE_MAX_READ_BYTES)}).`,
-      requestedPath,
-      'read'
-    );
-  }
-  const result = await resolved.mounted.root.readFile(resolved.relativePath, maxFileSize);
-  if (result.status === 'ok') {
-    return result.content.toString('utf8');
-  }
-  if (result.status === 'oversized') {
-    throw new AccessError(
-      `File too large (max: ${formatFileSize(maxFileSize)})`,
-      requestedPath,
-      'read'
-    );
-  }
-  if (result.status === 'not-found') {
-    throw new AccessError('ENOENT: File not found', requestedPath, 'read');
-  }
-  if (resolved.traversedSymlink) {
-    throw new AccessError(
-      'File is a symbolic link. Links are not followed inside workspace roots.',
-      requestedPath,
-      'read'
-    );
-  }
-  throw new AccessError('File is not accessible.', requestedPath, 'read');
-}
+export { readResolvedWorkspaceFile } from '@brainstrike/file-system/secure-file-read';

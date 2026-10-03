@@ -8,6 +8,6 @@
         "../indexer/__tests__/fixtures/canonical-provided-chunks.json"
       ]
     },
-    "test:integration": { "dependsOn": ["@brainstrike/canonical-ingestion#build"] }
+    "test:integration": { "dependsOn": ["@brainstrike/canonical-ingestion#build", "@brainstrike/secure-fs-native#build"] }
   }
 }

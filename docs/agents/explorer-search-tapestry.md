@@ -237,6 +237,7 @@ Guard: `packages/chunking-worker/src/__tests__/source-range-validation.test.ts`,
   `readDirectory`; cancellation and strict read-error rejection join all admitted
   directory reads before the public walk settles. Preserve path/handle identity,
   entry policy, sorting, snapshots and explicit truncation behavior.
+- Share scan/path/removal/content policy through `@brainstrike/file-system/workspace-scan*` and `workspace-source-content`; browser wrappers reuse these implementations. Utility source orchestration borrows the same pinned main mount, never reopens it from projected paths; explicit read caps reach the native bounded read.
 - Keep unresolved workspace discovery separate from registered PG file identity.
   Secure original-source read/hash precedes bounded main preparation using the
   existing identity/mutation policy. Await real PG source commit and full trusted
@@ -288,11 +289,13 @@ Node projection extraction evidence:
 `explorer-search-tapestry/2026-10-03-shared-workspace-root-projection.md`.
 Discovery preparation evidence:
 `explorer-search-tapestry/2026-10-03-discovered-source-preparation.md`.
+Borrowed source evidence: `indexer/2026-10-03-borrowed-workspace-source.md`.
 Guard: `workspace-root-registry{,.integration}.test.ts`,
 `packages/secure-fs-native/test/secure-root.test.cjs`,
 `parallel-directory-walker.test.ts`, `workspace-collection-sync-service.test.ts`,
 `workspace-collection-sync-scan.test.ts`,
 `workspace-collection-sync-provider.test.tsx`, `file-node-handles.test.ts`.
+Guard: `workspace-root-read-bound.test.ts`, `packages/canonical-ingestion/__tests__/workspace-source.test.ts`, `packages/canonical-ingestion/__tests__/workspace-source-child.integration.test.ts`.
 
 ### Token indexing has TWO trigger sources
 

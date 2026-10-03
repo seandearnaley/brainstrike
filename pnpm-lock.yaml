@@ -1752,7 +1752,19 @@ importers:
       '@brainstrike/file-import':
         specifier: workspace:*
         version: link:../file-import
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
+      '@brainstrike/secure-fs-native':
+        specifier: workspace:*
+        version: link:../secure-fs-native
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
