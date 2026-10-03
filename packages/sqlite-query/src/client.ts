@@ -5,6 +5,8 @@ import {
   decodeResponse,
   type QueryRequest,
   type QueryResponse,
+  type SqliteGrepOptions,
+  type SqliteGrepRows,
   type SqliteRows,
   type SqliteValue,
 } from './protocol.js';
@@ -119,6 +121,16 @@ export class SqliteQueryClient {
       sql,
       values: options.values ?? [],
     });
+  }
+
+  async grep(options: SqliteGrepOptions): Promise<SqliteGrepRows> {
+    const response = await this.#call({ kind: 'grep', ...options }, this.#deadlineMs);
+    if (response.kind !== 'grepRows') {
+      const error = new TypeError('SQLite grep returned an unexpected response.');
+      this.#stop(error);
+      throw error;
+    }
+    return response.result;
   }
 
   describeTable(table: string): Promise<SqliteRows> {

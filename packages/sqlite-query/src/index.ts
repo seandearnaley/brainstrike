@@ -12,5 +12,5 @@ export {
   type SpawnQueryProcessOptions,
   spawnQueryProcess,
 } from './process.js';
-export type { SqliteRows, SqliteValue } from './protocol.js';
+export type { SqliteGrepOptions, SqliteGrepRows, SqliteRows, SqliteValue } from './protocol.js';
 export { type QueryUtilityProcess, spawnUtilityQueryProcess } from './utility-process.js';

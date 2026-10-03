@@ -17,6 +17,23 @@ export const RowsSchema = Schema.Struct({
 export type SqliteRows = typeof RowsSchema.Type;
 export type SqliteValue = typeof Value.Type;
 
+export const GrepRowsSchema = Schema.Struct({
+  columns: Schema.Array(Schema.String),
+  matchedChunks: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  rows: Schema.Array(Schema.Array(Value)),
+  truncated: Schema.Boolean,
+});
+export type SqliteGrepRows = typeof GrepRowsSchema.Type;
+const GrepFields = {
+  caseSensitive: Schema.Boolean,
+  isRegex: Schema.Boolean,
+  maxRows: Schema.Int.check(Schema.isBetween({ maximum: 200, minimum: 1 })),
+  pattern: Schema.String,
+  rootIds: Schema.Array(Schema.String),
+};
+const GrepRequestSchema = Schema.Struct({ id: Id, kind: Schema.Literal('grep'), ...GrepFields });
+export type SqliteGrepOptions = Omit<typeof GrepRequestSchema.Type, 'id' | 'kind'>;
+
 const QueryFields = {
   bindings: Schema.optional(Schema.Record(Schema.String, Value)),
   id: Id,
@@ -25,12 +42,14 @@ const QueryFields = {
   values: Schema.Array(Value),
 };
 const RequestSchema = Schema.Union([
+  GrepRequestSchema,
   Schema.Struct({ databasePath: Schema.String, id: Id, kind: Schema.Literal('open') }),
   Schema.Struct({ kind: Schema.Literal('query'), ...QueryFields }),
   Schema.Struct({ id: Id, kind: Schema.Literal('describeTable'), table: Schema.String }),
   Schema.Struct({ id: Id, kind: Schema.Literal('listTables') }),
 ]);
 const ResponseSchema = Schema.Union([
+  Schema.Struct({ id: Id, kind: Schema.Literal('grepRows'), result: GrepRowsSchema }),
   Schema.Struct({ id: Id, kind: Schema.Literal('ready') }),
   Schema.Struct({ id: Id, kind: Schema.Literal('rows'), result: RowsSchema }),
   Schema.Struct({

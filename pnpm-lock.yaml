@@ -3189,6 +3189,9 @@ importers:
       '@brainstrike/sqlite-native':
         specifier: workspace:*
         version: link:../sqlite-native
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.118
