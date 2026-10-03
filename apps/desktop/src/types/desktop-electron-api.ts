@@ -29,6 +29,7 @@ import type {
   EmbeddingHostDocumentEmbeddingsPayload,
   EmbeddingHostDocumentEmbeddingsRequest,
   EmbeddingHostDocumentEmbeddingsResponseReport,
+  EmbeddingHostQueryCancellationResult,
   EmbeddingHostQueryEmbeddingCancel,
   EmbeddingHostQueryEmbeddingPayload,
   EmbeddingHostQueryEmbeddingRequest,
@@ -187,6 +188,7 @@ export interface VisibleEmbeddingHostBridge {
   cancelAllBackfills: () => Promise<void>;
   cancelBackfill: (embeddingSetId: string) => Promise<void>;
   cancelDocumentEmbeddings: (requestId: string) => Promise<void>;
+  cancelQueryEmbedding: (requestId: string) => Promise<EmbeddingHostQueryCancellationResult>;
   documentEmbeddings: (
     payload: EmbeddingHostDocumentEmbeddingsPayload,
     options: { requestId: string }
@@ -212,7 +214,10 @@ export interface VisibleEmbeddingHostBridge {
     callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
   ) => () => void;
   onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
-  queryEmbedding: (payload: EmbeddingHostQueryEmbeddingPayload) => Promise<number[]>;
+  queryEmbedding: (
+    payload: EmbeddingHostQueryEmbeddingPayload,
+    options?: { readonly requestId: string }
+  ) => Promise<number[]>;
   reportDocumentEmbeddingsResponse: (
     response: EmbeddingHostDocumentEmbeddingsResponseReport
   ) => void;

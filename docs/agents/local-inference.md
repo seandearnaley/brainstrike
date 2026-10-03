@@ -102,10 +102,14 @@ Guard: `embedding-input-plan.spec.ts`, `streaming-worker-client-completion.spec.
   Query and document work share one FIFO, cache identity and physical inference
   owner; both public query and document promises and pending identities settle only after completion or joined retirement on every outcome.
 - Preserve caller cancellation reasons; distinguish the host's exact cancel code from independent failures. Aggregate Stop and every failed destruction attempt in the shared retirement outcome before publishing inference rejection. Sending cancel never proves settlement.
-- Keep AbortSignal in the caller renderer. The visible document bridge carries
+- Keep AbortSignal in the caller renderer. Visible query and document bridges carry
   a plain token; main authorizes the visible sender/frame and maps token cancellation
   to the exact hidden runtime/request, including host startup. Refuse an unavailable
   cancellation capability or failed delivery explicitly.
+- Give each native semantic search its own inference signal; abort it on supersession,
+  cancellation or consumer teardown. Join physical query settlement and cancellation
+  delivery before discarding its result. Normalize only main's explicitly acknowledged
+  owned cancellation; reject duplicate or replayed query tokens for that sender.
 - Require actual completion model, immutable revision, device, dtype, dimensions
   and vector count to match pinned scalar requests, with no fallback. Missing or
   mismatched metadata fails before returning a vector.
@@ -115,12 +119,14 @@ Guard: `embedding-input-plan.spec.ts`, `streaming-worker-client-completion.spec.
 
 Evidence: `local-inference/native-vector-request-plan.md`,
 `local-inference/native-hidden-query-plan.md`,
-`local-inference/native-hidden-document-plan.md`, `local-inference/document-transport-settlement.md`, `local-inference/query-transport-settlement.md`.
+`local-inference/native-hidden-document-plan.md`, `local-inference/document-transport-settlement.md`, `local-inference/query-transport-settlement.md`, `local-inference/native-search-query-cancellation.md`.
 Guard: `packages/embeddings/src/__tests__/inference-plan.test.ts`,
 `transformers-backend.queue.test.ts`, `packages/queue/src/__tests__/types.test.ts`,
 `embedding-host-shared.test.ts`, `embedding-host-runtime.test.tsx`,
 `preload-contract-bridges.test.ts`, `embedding-host-document-runtime.test.tsx`, `embedding-host-document-settlement.test.ts`, `embedding-host-query-settlement.test.ts`,
 `renderer/document-embeddings.test.ts`, `main/ipc-embedding-host.test.ts`,
+`native-search-query-cancellation.test.ts`, `renderer/query-embeddings.test.ts`, `native-search-provider.test.tsx`,
+`embedding-host-physical-stop-ownership.test.tsx`, `use-workspace-search-controller.test.tsx`,
 `scripts/probe-pinned-query-embedding.mjs`, `scripts/probe-pinned-document-embeddings.mjs`.
 
 ### Job queue and embedding input hash

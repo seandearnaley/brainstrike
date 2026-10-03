@@ -152,9 +152,19 @@ describe('preload contract-derived bridges', () => {
       query: 'callers',
     };
     await exposedApi('embeddingHost')['queryEmbedding']?.(payload);
-    expect(mockInvoke).toHaveBeenCalledWith(
-      DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding,
-      payload
+    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, {
+      payload,
+      requestId: expect.any(String),
+    });
+    await exposedApi('embeddingHost')['queryEmbedding']?.(payload, { requestId: 'search-token' });
+    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, {
+      payload,
+      requestId: 'search-token',
+    });
+    await exposedApi('embeddingHost')['cancelQueryEmbedding']?.('search-token');
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_CHANNELS.embeddingHost.cancelQueryEmbedding,
+      'search-token'
     );
   });
   it('rejects incomplete native pins before IPC rather than dropping them', () => {

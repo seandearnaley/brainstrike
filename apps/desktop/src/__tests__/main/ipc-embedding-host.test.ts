@@ -188,7 +188,9 @@ describe('embedding host IPC handlers', () => {
       stop: vi.fn(),
     };
 
-    registerEmbeddingHostIpcHandlers(manager as never);
+    const unregister = registerEmbeddingHostIpcHandlers(manager as never);
+    const sender = Object.assign(new EventEmitter(), { id: 17 });
+    assignWindowRole({ once: vi.fn(), webContents: sender } as never, 'visible-ui');
 
     const queryEmbeddingHandler = handlers.get(EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL);
     if (!queryEmbeddingHandler) {
@@ -197,21 +199,29 @@ describe('embedding host IPC handlers', () => {
 
     await expect(
       queryEmbeddingHandler(
-        { sender: { id: 17 } },
+        { sender, senderFrame: createAllowlistedSenderFrame() },
         {
-          dimensions: 384,
-          modelId: 'embedding-model',
-          modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-          query: 'workspace index benchmark',
+          payload: {
+            dimensions: 384,
+            modelId: 'embedding-model',
+            modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+            query: 'workspace index benchmark',
+          },
+          requestId: 'query-test',
         }
       )
     ).resolves.toEqual([0.125, 0.75]);
-    expect(manager.queryEmbedding).toHaveBeenCalledWith({
-      dimensions: 384,
-      modelId: 'embedding-model',
-      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-      query: 'workspace index benchmark',
-    });
+    expect(manager.queryEmbedding).toHaveBeenCalledWith(
+      {
+        dimensions: 384,
+        modelId: 'embedding-model',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        query: 'workspace index benchmark',
+      },
+      { signal: expect.any(AbortSignal) }
+    );
+    unregister();
+    clearWindowRoleByWebContentsId(sender.id);
   });
 
   it('unregisters lifecycle channels on cleanup', () => {

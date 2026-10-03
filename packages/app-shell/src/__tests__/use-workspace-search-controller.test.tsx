@@ -619,4 +619,90 @@ describe('useWorkspaceSearchController', () => {
     expect(useWorkspaceSearchStore.getState().results).toBeNull();
     expect(useWorkspaceSearchStore.getState().mode).toBe('text');
   });
+
+  it.each(['unmount', 'capability change'] as const)(
+    'cancels owned native inference on %s and holds its promise until completion',
+    async (action) => {
+      const profile = {
+        dimensions: 384,
+        dtype: 'fp16' as const,
+        modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
+        revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
+        tokenCap: 256,
+      };
+      const embedding = {
+        indexMode: 'vector-configured' as const,
+        profile,
+        profileHash: '60a05b1084b11c2add2e01bb8112960f51e83e68c88ad4151b0dc54eb69e1914',
+      };
+      const counts = { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 };
+      const capability: IndexSearchCapability = {
+        coverage: vi.fn(async () => ({
+          embedding,
+          roots: [{ rootId: 'D1', ...counts }],
+          storeId: 'store-a',
+          totals: counts,
+          vectorCoverageComplete: true,
+        })),
+        grep: vi.fn(),
+        rebuild: vi.fn(async () => {}),
+        search: vi.fn(),
+        status: vi.fn(async () => ({
+          authorizedRootIds: ['D1'],
+          embedding,
+          kind: 'ready' as const,
+          rootReadiness: [{ rootId: 'D1', scanComplete: true }],
+          storeId: 'store-a',
+        })),
+      };
+      const physical = Promise.withResolvers<readonly number[]>();
+      const settled = vi.fn();
+      const embedQuery = vi.fn<NativeWorkspaceSearchDependencies['embedQuery']>(async () => {
+        try {
+          return await physical.promise;
+        } finally {
+          settled();
+        }
+      });
+      let dependencies: NativeWorkspaceSearchDependencies = { capability, embedQuery, profile };
+      const identities = new Map([['A1', 'D1']]);
+      function Wrapper({ children }: { children: ReactNode }) {
+        return (
+          <SearchEmbedderProvider>
+            <NativeWorkspaceSearchProvider dependencies={dependencies}>
+              <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+                {children}
+              </RootIdentityProvider>
+            </NativeWorkspaceSearchProvider>
+          </SearchEmbedderProvider>
+        );
+      }
+      useWorkspaceSearchStore.getState().setQuery('needle');
+      useWorkspaceSearchStore.getState().setMode('semantic');
+      const { result, unmount, rerender } = renderHook(() => useWorkspaceSearchController(), {
+        wrapper: Wrapper,
+      });
+      await waitFor(() => expect(result.current.semanticAvailability?.available).toBe(true));
+      act(() => result.current.runSemanticSearch());
+      await waitFor(() => expect(embedQuery).toHaveBeenCalledOnce());
+      const signal = embedQuery.mock.calls[0]?.[2].signal;
+      if (!signal) {
+        throw new Error('Native inference did not receive its owned signal');
+      }
+      if (action === 'unmount') {
+        unmount();
+      } else {
+        dependencies = { ...dependencies, capability: null };
+        rerender();
+      }
+      expect(signal.aborted).toBe(true);
+      expect(settled).not.toHaveBeenCalled();
+      await act(async () => {
+        physical.reject(signal.reason);
+      });
+      expect(settled).toHaveBeenCalledOnce();
+      expect(capability.search).not.toHaveBeenCalled();
+      expect(useWorkspaceSearchStore.getState().results).toBeNull();
+    }
+  );
 });

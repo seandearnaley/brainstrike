@@ -13,6 +13,7 @@ import {
   NativeWorkspaceSearchProvider,
 } from '@brainstrike/workspace-search/core';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { generateDesktopQueryEmbedding } from '../query-embeddings';
 
 type ReadyStatus = Extract<IndexerStatus, { kind: 'ready' }>;
 function matchesSelection(
@@ -127,8 +128,14 @@ export function NativeSearchProvider({
   const queryPlan: ReadyStatus['queryPlan'] =
     status.kind === 'ready' ? status.queryPlan : undefined;
   const embedQuery = useCallback(
-    async (requested: IndexerEmbeddingProfile, query: string): Promise<readonly number[]> => {
+    async (
+      requested: IndexerEmbeddingProfile,
+      query: string,
+      options: { readonly signal: AbortSignal }
+    ): Promise<readonly number[]> => {
+      options.signal.throwIfAborted();
       const current = await capability.status();
+      options.signal.throwIfAborted();
       const saved = useBackgroundIndexingPreferencesStore.getState();
       if (
         saved.nativeIndexMode !== 'VECTOR' ||
@@ -145,17 +152,16 @@ export function NativeSearchProvider({
           'Native query inference no longer matches the explicit saved execution plan.'
         );
       }
-      const host = window.embeddingHost;
-      if (!(host && 'queryEmbedding' in host) || typeof host.queryEmbedding !== 'function') {
-        throw new Error('Hidden renderer query inference capability is unavailable.');
-      }
-      return host.queryEmbedding({
-        dimensions: requested.dimensions,
-        inferencePlan: queryPlan.inferencePlan,
-        modelId: requested.modelId,
-        modelKey: queryPlan.modelKey,
-        query,
-      });
+      return generateDesktopQueryEmbedding(
+        {
+          dimensions: requested.dimensions,
+          inferencePlan: queryPlan.inferencePlan,
+          modelId: requested.modelId,
+          modelKey: queryPlan.modelKey,
+          query,
+        },
+        options
+      );
     },
     [capability, queryPlan]
   );

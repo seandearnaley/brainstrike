@@ -286,9 +286,11 @@ function emptyNativeResults(mode: WorkspaceSearchMode): WorkspaceSearchResults {
 }
 export class NativeWorkspaceSearchExecutor {
   private requestSeq = 0;
+  private inferenceController: AbortController | undefined;
   constructor(private readonly deps: NativeWorkspaceSearchDependencies) {}
   cancelPendingSearch(): void {
     this.requestSeq += 1;
+    this.inferenceController?.abort(new Error('Native semantic search cancelled.'));
   }
   searchText(request: NativeWorkspaceSearchRequest): Promise<WorkspaceSearchResults | null> {
     return this.search(request, 'text');
@@ -321,7 +323,21 @@ export class NativeWorkspaceSearchExecutor {
     if (!availability.available) {
       throw new Error(availability.reason ?? 'Native vector search is unavailable.');
     }
-    const vector = await this.deps.embedQuery(profile, request.query);
+    const controller = new AbortController();
+    this.inferenceController = controller;
+    let vector: readonly number[];
+    try {
+      vector = await this.deps.embedQuery(profile, request.query, { signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted && error === controller.signal.reason) {
+        return null;
+      }
+      throw error;
+    } finally {
+      if (this.inferenceController === controller) {
+        this.inferenceController = undefined;
+      }
+    }
     if (seq !== this.requestSeq) {
       return null;
     }
@@ -346,7 +362,7 @@ export class NativeWorkspaceSearchExecutor {
     request: NativeWorkspaceSearchRequest,
     mode: WorkspaceSearchMode
   ): Promise<WorkspaceSearchResults | null> {
-    this.requestSeq += 1;
+    this.cancelPendingSearch();
     const seq = this.requestSeq;
     const empty = emptyScopeResult(request, mode);
     if (empty !== null) {

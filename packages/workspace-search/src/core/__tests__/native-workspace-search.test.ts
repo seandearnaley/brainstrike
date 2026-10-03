@@ -322,7 +322,9 @@ describe('native search consumer boundary', () => {
         request
       )
     ).rejects.toThrow(/coverage.*incomplete/i);
-    expect(embedQuery).toHaveBeenCalledExactlyOnceWith(profile, 'needle');
+    expect(embedQuery).toHaveBeenCalledExactlyOnceWith(profile, 'needle', {
+      signal: expect.any(AbortSignal),
+    });
     expect(bridge.search).not.toHaveBeenCalled();
     expect(bridge.grep).not.toHaveBeenCalled();
   });
@@ -336,6 +338,54 @@ describe('native search consumer boundary', () => {
       }).searchText({ ...request, collectionId: 'user-selected' })
     ).rejects.toThrow(/collection.*not currently authorized/i);
     expect(bridge.status).toHaveBeenCalledOnce();
+    expect(bridge.search).not.toHaveBeenCalled();
+  });
+
+  it.each(['cancel', 'supersede'] as const)(
+    'requests exact semantic inference cancellation on %s and joins settlement',
+    async (action) => {
+      const bridge = capability();
+      const inference = Promise.withResolvers<readonly number[]>();
+      const embedQuery = vi.fn(
+        (_profile: unknown, _query: string, _options?: { signal: AbortSignal }) => inference.promise
+      );
+      const executor = new NativeWorkspaceSearchExecutor({
+        capability: bridge,
+        embedQuery,
+        profile,
+      });
+      const settled = vi.fn();
+      const search = executor.searchSemantic(request).then((result) => {
+        settled();
+        return result;
+      });
+      await vi.waitFor(() => expect(embedQuery).toHaveBeenCalledOnce());
+      if (action === 'cancel') {
+        executor.cancelPendingSearch();
+      } else {
+        await executor.searchText(request);
+      }
+      const signal = embedQuery.mock.calls[0]?.[2]?.signal;
+      expect(signal?.aborted).toBe(true);
+      expect(settled).not.toHaveBeenCalled();
+      inference.reject(signal?.reason);
+      await expect(search).resolves.toBeNull();
+      expect(settled).toHaveBeenCalledOnce();
+    }
+  );
+
+  it('preserves an independent inference error after semantic cancellation', async () => {
+    const bridge = capability();
+    const inference = Promise.withResolvers<readonly number[]>();
+    const embedQuery = vi.fn(() => inference.promise);
+    const executor = new NativeWorkspaceSearchExecutor({ capability: bridge, embedQuery, profile });
+    const search = executor.searchSemantic(request);
+    const failure = new Error('Independent inference failure');
+    const rejected = expect(search).rejects.toBe(failure);
+    await vi.waitFor(() => expect(embedQuery).toHaveBeenCalledOnce());
+    executor.cancelPendingSearch();
+    inference.reject(failure);
+    await rejected;
     expect(bridge.search).not.toHaveBeenCalled();
   });
   it('rejects a failed vector arm rather than returning lexical hits', async () => {

@@ -100,6 +100,11 @@ export interface EmbeddingHostQueryEmbeddingPayload {
   readonly query: string;
 }
 
+/** True only after the manager physically settles the exact owned cancellation. */
+export interface EmbeddingHostQueryCancellationResult {
+  readonly cancelled: boolean;
+}
+
 export const EMBEDDING_HOST_STATUS_ADAPTER = EMBEDDING_HOST_RUNTIME.statusAdapter;
 export interface EmbeddingHostWorkerRuntimeMetadata {
   readonly device: 'webgpu' | 'wasm';
