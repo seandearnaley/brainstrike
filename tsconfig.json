@@ -137,6 +137,9 @@
       "@brainstrike/sqlite-native": [
         "./packages/sqlite-native/src/index.ts"
       ],
+      "@brainstrike/state-store": [
+        "./packages/state-store/src/index.ts"
+      ],
       "@brainstrike/embeddings": [
         "./packages/embeddings/src"
       ],
