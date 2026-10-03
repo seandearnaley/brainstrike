@@ -184,11 +184,11 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       await port.replaceFileBindings(requested.fileBindings);
       acknowledgedAuthority = requested;
       acknowledgedPort = port;
+      bindings = requestedBindings;
       if (closed) {
         throw new Error('Native index admission closed during binding replacement.');
       }
       await assertAuthorityCurrent();
-      bindings = requestedBindings;
       dependencies.installQueryTarget(indexOwner);
       return port;
     }

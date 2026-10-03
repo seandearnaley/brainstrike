@@ -194,6 +194,54 @@ it('retains the actual replacement ACK inventory when live authority changes imm
   await f.runtime.closeIndex();
 });
 
+it('restores the prior live inventory before reuse after a replacement ACK and authority drift', async () => {
+  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const f = fixture(initial);
+  await f.runtime.acquire();
+  const captured = f.runtime.captureAcknowledgedAuthority();
+  let nativeBindings: readonly IndexFileBinding[] = [];
+  f.replaceFileBindings.mockImplementationOnce(async (next) => {
+    nativeBindings = next;
+    f.setAuthority(initial);
+  });
+  f.setAuthority({ ...initial, fileBindings: [binding] });
+  await expect(f.runtime.acquire()).rejects.toThrow('authority changed');
+  expect(nativeBindings).toEqual([binding]);
+  expect(captured.readAuthority().fileBindings).toEqual([binding]);
+  f.replaceFileBindings.mockImplementation(async (next) => {
+    nativeBindings = next;
+  });
+  await expect(f.runtime.acquire()).resolves.toBe(f.port);
+  expect(f.replaceFileBindings).toHaveBeenCalledTimes(2);
+  expect(f.replaceFileBindings).toHaveBeenLastCalledWith([]);
+  expect(nativeBindings).toEqual([]);
+  expect(captured.readAuthority().fileBindings).toEqual([]);
+  await f.runtime.acquire();
+  expect(f.replaceFileBindings).toHaveBeenCalledTimes(2);
+  expect(f.createIndexOwner).toHaveBeenCalledOnce();
+  await f.runtime.closeIndex();
+});
+
+it('preserves the previous cache and ACK when binding replacement itself fails', async () => {
+  const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
+  const f = fixture(initial);
+  await f.runtime.acquire();
+  const captured = f.runtime.captureAcknowledgedAuthority();
+  const failure = new Error('Independent binding replacement failure.');
+  f.replaceFileBindings.mockRejectedValueOnce(failure);
+  f.setAuthority({ ...initial, fileBindings: [binding] });
+  await expect(f.runtime.acquire()).rejects.toBe(failure);
+  expect(captured.readAuthority().fileBindings).toEqual([]);
+  f.setAuthority(initial);
+  await f.runtime.acquire();
+  expect(f.replaceFileBindings).toHaveBeenCalledOnce();
+  f.setAuthority({ ...initial, fileBindings: [binding] });
+  await f.runtime.acquire();
+  expect(f.replaceFileBindings).toHaveBeenCalledTimes(2);
+  expect(captured.readAuthority().fileBindings).toEqual([binding]);
+  await f.runtime.closeIndex();
+});
+
 it('captures one actual writer and reads its complete latest acknowledged inventory after admitted work joins', async () => {
   const initial = {
     fileBindings: [],
