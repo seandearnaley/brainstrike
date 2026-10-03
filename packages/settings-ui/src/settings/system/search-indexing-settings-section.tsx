@@ -6,6 +6,9 @@ import {
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { useEmbeddingSetsRepository } from '@brainstrike/db/react';
+import { parseEmbeddingProviderModelKey } from '@brainstrike/indexing-contract';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
+import type { NativeLocalSelection } from '@brainstrike/indexing-contract/indexer-producer';
 import {
   Badge,
   Button,
@@ -33,7 +36,9 @@ import { useEffect, useMemo, useState } from 'react';
 
 interface CollectionOption {
   createdAt: string;
+  dimensions: number;
   id: string;
+  modelId: string;
   modelKey: string;
   name: string;
 }
@@ -50,6 +55,7 @@ function compareCollectionsDesc(left: CollectionOption, right: CollectionOption)
 
 function toCollectionOption(collection: {
   createdAt: string;
+  dimensions: number;
   id: string;
   modelId: string;
   modelKey: string;
@@ -57,7 +63,9 @@ function toCollectionOption(collection: {
 }): CollectionOption {
   return {
     createdAt: collection.createdAt,
+    dimensions: collection.dimensions,
     id: collection.id,
+    modelId: collection.modelId,
     modelKey: collection.modelKey,
     name: collection.name?.trim() || collection.modelId,
   };
@@ -159,7 +167,127 @@ function getStatusBadge(
   }
 }
 
-export function SearchIndexingSettingsSection() {
+function NativeIndexControls({
+  nativeIndex,
+  selectedCollection,
+}: {
+  readonly nativeIndex: Pick<IndexSearchCapability, 'rebuild'>;
+  readonly selectedCollection: CollectionOption | null;
+}) {
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildError, setRebuildError] = useState<string | null>(null);
+  const rebuild = async (): Promise<void> => {
+    if (rebuilding) {
+      return;
+    }
+    setRebuilding(true);
+    setRebuildError(null);
+    try {
+      await nativeIndex.rebuild();
+    } catch (error) {
+      setRebuildError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRebuilding(false);
+    }
+  };
+  const nativeIndexMode = useBackgroundIndexingPreferencesStore((state) => state.nativeIndexMode);
+  const nativeLocalSelection = useBackgroundIndexingPreferencesStore(
+    (state) => state.nativeLocalSelection
+  );
+  const setNativeIndexMode = useBackgroundIndexingPreferencesStore(
+    (state) => state.setNativeIndexMode
+  );
+  const setNativeLocalSelection = useBackgroundIndexingPreferencesStore(
+    (state) => state.setNativeLocalSelection
+  );
+  const localPlans = selectedCollection ? getNativeLocalPlans(selectedCollection) : [];
+  return (
+    <>
+      <div className="space-y-2">
+        <Label htmlFor="native-index-mode">Search mode</Label>
+        <Select
+          {...(nativeIndexMode === null ? {} : { value: nativeIndexMode })}
+          onValueChange={(value) => {
+            if (value === 'TEXT' || value === 'VECTOR') {
+              setNativeIndexMode(value);
+            }
+          }}
+        >
+          <SelectTrigger aria-label="Search mode" id="native-index-mode">
+            <SelectValue placeholder="Choose a search mode" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="TEXT">Text search</SelectItem>
+            <SelectItem value="VECTOR">Text and semantic search</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-muted-foreground text-sm">
+          Text search indexes files without running an embedding model. Semantic search also uses
+          your selected collection's local model.
+        </p>
+      </div>
+      {nativeIndexMode === 'VECTOR' ? (
+        <div className="space-y-2">
+          <Label htmlFor="native-inference-plan">Local model execution</Label>
+          <Select
+            {...(nativeLocalSelection ? { value: JSON.stringify(nativeLocalSelection) } : {})}
+            onValueChange={(value) => {
+              const selection = localPlans.find((plan) => JSON.stringify(plan.selection) === value);
+              if (!selection) {
+                throw new Error('Selected local model execution is unavailable.');
+              }
+              setNativeLocalSelection(selection.selection);
+            }}
+          >
+            <SelectTrigger aria-label="Local model execution" id="native-inference-plan">
+              <SelectValue placeholder="Choose local model execution" />
+            </SelectTrigger>
+            <SelectContent>
+              {localPlans.map((plan) => (
+                <SelectItem key={plan.label} value={JSON.stringify(plan.selection)}>
+                  {plan.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {localPlans.length === 0 ? (
+            <p className="text-muted-foreground text-sm" role="status">
+              The selected collection has no supported local execution plan. Choose a supported
+              local collection.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="space-y-2">
+        <Button
+          disabled={rebuilding}
+          onClick={() => {
+            void rebuild();
+          }}
+          type="button"
+          variant="outline"
+        >
+          {rebuilding ? 'Rebuilding search index…' : 'Rebuild search index'}
+        </Button>
+        <p className="text-muted-foreground text-sm">
+          Recreates the search index from your files and collection. Chats, application data,
+          collections, and model choices are preserved.
+        </p>
+        {rebuildError ? (
+          <p className="text-destructive text-sm" role="alert">
+            {rebuildError}
+          </p>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+export function SearchIndexingSettingsSection({
+  nativeIndex,
+}: {
+  readonly nativeIndex?: Pick<IndexSearchCapability, 'rebuild'>;
+} = {}) {
   const repository = useEmbeddingSetsRepository();
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
   const managedCollectionId = useBackgroundIndexingPreferencesStore(
@@ -329,6 +457,9 @@ export function SearchIndexingSettingsSection() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        {nativeIndex ? (
+          <NativeIndexControls nativeIndex={nativeIndex} selectedCollection={selectedCollection} />
+        ) : null}
         <div className="flex items-center justify-between gap-4">
           <div>
             <Label className="font-medium text-sm">Workspace Index</Label>
@@ -454,4 +585,30 @@ export function SearchIndexingSettingsSection() {
       </CardContent>
     </Card>
   );
+}
+
+function getNativeLocalPlans(collection: CollectionOption): readonly {
+  readonly label: string;
+  readonly selection: NativeLocalSelection;
+}[] {
+  const provider = parseEmbeddingProviderModelKey(collection.modelKey)?.provider;
+  if ((provider !== 'local' && provider !== 'transformers') || collection.dimensions !== 384) {
+    return [];
+  }
+  const base = { dimensions: collection.dimensions, modelId: collection.modelId };
+  if (collection.modelId === 'onnx-community/all-MiniLM-L6-v2-ONNX') {
+    const revision = 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f';
+    return [
+      { label: 'WebGPU · FP16', selection: { ...base, device: 'webgpu', dtype: 'fp16', revision } },
+      { label: 'WASM · FP32', selection: { ...base, device: 'wasm', dtype: 'fp32', revision } },
+    ];
+  }
+  if (collection.modelId === 'Xenova/all-MiniLM-L6-v2') {
+    const revision = '751bff37182d3f1213fa05d7196b954e230abad9';
+    return [
+      { label: 'WASM · Q8', selection: { ...base, device: 'wasm', dtype: 'q8', revision } },
+      { label: 'WASM · FP32', selection: { ...base, device: 'wasm', dtype: 'fp32', revision } },
+    ];
+  }
+  return [];
 }

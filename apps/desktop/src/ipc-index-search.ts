@@ -14,6 +14,7 @@ export function registerIndexSearchIpcHandlers(capability: IndexSearchCapability
   registerDomain(registry, 'workspace', indexSearchContract, {
     coverage: (request) => settleIpcResult(failure, () => capability.coverage(request)),
     grep: (request) => settleIpcResult(failure, () => capability.grep(request)),
+    rebuild: () => settleIpcResult(failure, () => capability.rebuild()),
     search: (request) => settleIpcResult(failure, () => capability.search(request)),
     status: () => settleIpcResult(failure, () => capability.status()),
   });

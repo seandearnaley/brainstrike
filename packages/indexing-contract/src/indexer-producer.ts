@@ -151,3 +151,48 @@ export interface IndexProducerCapability {
 export interface IndexerScanReadiness {
   getRootReadiness(): readonly IndexerRootReadiness[];
 }
+/** Explicit durable inference choices; model names alone never select revision/device/dtype. */
+export interface NativeLocalSelection {
+  readonly device: 'webgpu' | 'wasm';
+  readonly dimensions: number;
+  readonly dtype: string;
+  readonly modelId: string;
+  readonly revision: string;
+}
+export type NativeIndexMode = 'TEXT' | 'VECTOR';
+export function validateNativeIndexMode(input: unknown): NativeIndexMode | null {
+  if (input === undefined || input === null) {
+    return null;
+  }
+  if (input === 'TEXT' || input === 'VECTOR') {
+    return input;
+  }
+  throw new Error('Native indexing requires explicit TEXT or VECTOR mode.');
+}
+export function validateNativeLocalSelection(input: unknown): NativeLocalSelection {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('Native local inference requires explicit saved choices.');
+  }
+  const modelId: unknown = Reflect.get(input, 'modelId');
+  const dimensions: unknown = Reflect.get(input, 'dimensions');
+  const revision: unknown = Reflect.get(input, 'revision');
+  const device: unknown = Reflect.get(input, 'device');
+  const dtype: unknown = Reflect.get(input, 'dtype');
+  if (
+    typeof modelId !== 'string' ||
+    !modelId.trim() ||
+    typeof dimensions !== 'number' ||
+    !Number.isSafeInteger(dimensions) ||
+    dimensions <= 0 ||
+    typeof revision !== 'string' ||
+    !/^[a-f0-9]{40}$/u.test(revision) ||
+    (device !== 'wasm' && device !== 'webgpu') ||
+    typeof dtype !== 'string' ||
+    !dtype.trim()
+  ) {
+    throw new Error(
+      'Native local inference requires explicit saved model, dimensions, revision, device and dtype.'
+    );
+  }
+  return { device, dimensions, dtype, modelId, revision };
+}

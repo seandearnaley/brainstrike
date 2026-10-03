@@ -1,4 +1,4 @@
-import type { IndexerPort } from '@brainstrike/indexer';
+import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import { IndexerHostManager } from './indexer-host-manager';
 
 interface IndexerOwner {
@@ -6,11 +6,11 @@ interface IndexerOwner {
   readonly creation: Promise<IndexerHostManager>;
   readonly identity: string;
   manager?: IndexerHostManager;
-  port?: IndexerPort;
+  port?: IndexerPort & ScopedIndexerPort;
   start?: Promise<IndexerHostManager>;
   startupFailure?: unknown;
-  stop?: Promise<void>;
-  stopKind?: 'close' | 'destroy';
+  stop?: Promise<void> | undefined;
+  stopKind?: 'close' | 'destroy' | undefined;
 }
 let owner: IndexerOwner | undefined;
 
@@ -28,6 +28,7 @@ export async function acquireIndexerHost(
     options.dbPath,
     options.embedding,
     [...options.rootIds].sort(),
+    [...(options.scopes ?? [])].map((scope) => JSON.stringify(scope)).sort(),
     deadlines.startupMs,
     deadlines.requestMs,
     deadlines.closeMs,
@@ -69,6 +70,14 @@ export function getReadyIndexerPort(): IndexerPort {
   getReadyIndexerHost();
   if (!owner?.port) {
     throw new Error('Native indexer port is unavailable.');
+  }
+  return owner.port;
+}
+
+export function getReadyScopedIndexerPort(): IndexerPort & ScopedIndexerPort {
+  getReadyIndexerHost();
+  if (!owner?.port) {
+    throw new Error('Native scoped indexer port is unavailable.');
   }
   return owner.port;
 }

@@ -2,7 +2,7 @@ import { cn, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@b
 import { FileText, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
-import { useSemanticAvailability } from './use-semantic-availability';
+import { type SemanticAvailability, useSemanticAvailability } from './use-semantic-availability';
 
 const BUTTON_BASE =
   'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium text-xs transition-colors';
@@ -44,12 +44,18 @@ function modeButtonClass(isActive: boolean, gated: boolean): string {
  * reason in the error card rather than letting the hybrid executor return
  * lexical-only results.
  */
-export function SearchModeToggle(): ReactNode {
+export function SearchModeToggle({
+  semanticAvailability,
+}: {
+  semanticAvailability?: SemanticAvailability;
+} = {}): ReactNode {
   const mode = useWorkspaceSearchStore((state) => state.mode);
   const setMode = useWorkspaceSearchStore((state) => state.setMode);
   const collectionId = useWorkspaceSearchStore((state) => state.collectionId);
-  const { available: semanticAvailable, reason: semanticReason } =
-    useSemanticAvailability(collectionId);
+  const { available: semanticAvailable, reason: semanticReason } = useSemanticAvailability(
+    collectionId,
+    semanticAvailability
+  );
 
   const semanticGated = !semanticAvailable;
 

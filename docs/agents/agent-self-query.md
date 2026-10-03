@@ -46,7 +46,9 @@ Guard: `packages/db/__tests__/agent-sql-service.test.ts`.
   Production startup/reset composition remains separate consumer work.
 
 - Run canonical grep in the same killable read-only process, never the writer.
-  Require explicit root IDs, preserve native chunk IDs/source metadata, and
+  Require explicit root IDs or main-authorized canonical file IDs. Empty file ID
+  lists match nothing; nullable-root collection rows retain their actual identity.
+  Preserve native chunk IDs/source metadata, and
   share the existing JavaScript line matcher with the PGlite service. Exhaust
   the requested scope before reporting the actual matched-chunk count; cap
   output visibly and fail the operation on deadline instead of returning partial
@@ -58,7 +60,8 @@ Tests: `apps/desktop/src/__tests__/assistant-server/query-self-index-target.test
 `apps/desktop/src/__tests__/sqlite-query-index.integration.test.ts`,
 `packages/sqlite-query/src/__tests__/client-ownership.test.ts`,
 `packages/sqlite-query/src/__tests__/protocol.test.ts`,
-`packages/sqlite-query/src/__tests__/sandbox.integration.test.ts`.
+`packages/sqlite-query/src/__tests__/sandbox.integration.test.ts`,
+`packages/sqlite-query/src/__tests__/scoped-grep.integration.test.ts`.
 
 ### User Stop and owned readers
 
@@ -72,7 +75,7 @@ Guard: `apps/desktop/src/__tests__/assistant-server/query-self-user-cancel.test.
 ### Native caller-vector lenses
 
 - Declare index caller-vector requirements explicitly as `-- requires: caller-vectors <text seed param>`; parse malformed, duplicate, app-target or undeclared/non-text requirements visibly. Retain and list the typed requirement, resolve the seed by declared parameter name, and keep its value bound.
-- Check the configured schema4 identity, existing seed and containing vector, and complete finite/nonzero 384-dimensional vectors with matching stored profile/hash for all depth10 name-resolved graph chunks in the same owned read snapshot as lens execution. Reject missing prerequisites visibly; never return a lexical-only caller result.
+- Check the configured schema5 identity, existing seed and containing vector, and complete finite/nonzero 384-dimensional vectors with matching stored profile/hash for all depth10 name-resolved graph chunks in the same owned read snapshot as lens execution. Reject missing prerequisites visibly; never return a lexical-only caller result.
 - Keep trusted synchronous BEGIN/ROLLBACK ownership private to that snapshot. User transaction SQL, writes, attachments, extension loading, limits and deadlines retain their existing refusals.
 - Run canonical index `callers-hybrid` with materialized FTS5 BM25 scores before window ranking, actual vec row IDs joined to chunk primary keys, exact graph-scoped cosine, top50 per arm, and RRF60. Preserve chunk IDs/line spans, cycle/depth10 caller-name semantics, and the separate PGlite fixture for hosted web.
 

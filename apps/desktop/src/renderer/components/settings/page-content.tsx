@@ -446,7 +446,7 @@ export default function SettingsPageContent() {
 
     return [
       createAppearanceSettingsCategory(),
-      createSearchIndexingSettingsCategory(),
+      createSearchIndexingSettingsCategory(window.indexSearch),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),

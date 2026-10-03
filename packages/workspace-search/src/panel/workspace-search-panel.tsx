@@ -11,6 +11,7 @@ import { SearchModeToggle } from './search-mode-toggle';
 import { type SearchOpenTarget, SearchResultsTree } from './search-results-tree';
 import {
   SEMANTIC_UNAVAILABLE_NO_CHUNKS,
+  type SemanticAvailability,
   useSemanticAvailability,
 } from './use-semantic-availability';
 
@@ -20,10 +21,12 @@ const TEXT_DEBOUNCE_MS = 250;
 const MIN_TEXT_QUERY_LENGTH = 3;
 
 export interface WorkspaceSearchPanelProps {
+  allowTextPaging?: boolean;
   onOpenFile: (compositeKey: string, target?: SearchOpenTarget) => void;
   resolveAdapterRootId: (dbRootId: string) => string | null;
   runSemanticSearch: () => void;
   runTextSearch: () => void;
+  semanticAvailability?: SemanticAvailability;
   /** DB root ids of currently mounted, live workspace roots (query scope). */
   workspaceDbRootIds: readonly string[];
 }
@@ -35,6 +38,8 @@ export interface WorkspaceSearchPanelProps {
  * layer (Task 11) and is passed down as the two run callbacks.
  */
 export function WorkspaceSearchPanel({
+  allowTextPaging = true,
+  semanticAvailability,
   onOpenFile,
   workspaceDbRootIds,
   resolveAdapterRootId,
@@ -53,8 +58,10 @@ export function WorkspaceSearchPanel({
   // Same live-stats signal (shared query + cache key) the mode toggle gates on
   // — see {@link useSemanticAvailability}. Load-bearing for the SUBMIT gate
   // below, not just the toggle's entry gate.
-  const { available: semanticAvailable, reason: semanticReason } =
-    useSemanticAvailability(collectionId);
+  const { available: semanticAvailable, reason: semanticReason } = useSemanticAvailability(
+    collectionId,
+    semanticAvailability
+  );
 
   // Output (post-range) tokens match the per-file range model + the meters'
   // locked "output" language — source tokens would show a huge-file total even
@@ -158,7 +165,7 @@ export function WorkspaceSearchPanel({
       {/* Fixed header: search controls, query input, coverage status. */}
       <div className="flex flex-col gap-2 border-b p-2">
         <div className="flex items-center gap-2">
-          <SearchModeToggle />
+          <SearchModeToggle {...(semanticAvailability ? { semanticAvailability } : {})} />
           <div className="min-w-0 flex-1">
             <SearchCollectionPicker />
           </div>
@@ -210,7 +217,7 @@ export function WorkspaceSearchPanel({
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2">
             <SearchResultsTree
               onOpenFile={onOpenFile}
-              onShowMore={handleShowMore}
+              {...(allowTextPaging ? { onShowMore: handleShowMore } : {})}
               resolveAdapterRootId={resolveAdapterRootId}
               workspaceRootCount={workspaceDbRootIds.length}
             />

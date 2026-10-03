@@ -37,6 +37,7 @@ function capability(): IndexSearchCapability {
     grep: vi.fn(async () => {
       throw new Error('Grep failure');
     }),
+    rebuild: vi.fn(async () => {}),
     search: vi.fn(async () => {
       throw new Error('Search failure');
     }),

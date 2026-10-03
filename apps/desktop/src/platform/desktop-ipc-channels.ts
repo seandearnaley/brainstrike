@@ -185,6 +185,7 @@ export const DESKTOP_IPC_CHANNELS = {
   indexSearch: {
     coverage: 'index-search:coverage',
     grep: 'index-search:grep',
+    rebuild: 'index-search:rebuild',
     search: 'index-search:search',
     status: 'index-search:status',
   },

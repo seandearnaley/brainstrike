@@ -194,9 +194,16 @@ export class SqliteSandbox {
   grep(options: SqliteGrepOptions): SqliteGrepRows {
     validateGrepOptions(options);
     const matcher = createGrepLineMatcher(options.pattern, options.isRegex, options.caseSensitive);
-    const placeholders = options.rootIds.map(() => '?').join(',');
+    const selectedIds = options.fileIds ?? options.rootIds;
+    const placeholders = selectedIds.map(() => '?').join(',');
+    const scopePredicate =
+      options.fileIds === undefined
+        ? `ch.root_id IN (${placeholders})`
+        : `fr.id IN (${placeholders || 'NULL'})`;
+    const collectionProjection =
+      options.fileIds === undefined ? '' : ',fr.embedding_set_id,fr.source_path';
     const statement = this.#database.prepare(
-      `SELECT md.schema_version,md.store_id,md.index_mode,md.profile_json,md.profile_hash,native_chunks.* FROM index_metadata md LEFT JOIN (SELECT ch.id,ch.root_id,ch.file_record_id,fr.path,ch.content,ch.content_hash,ch.start_line,ch.end_line,ch.chunk_index,ch.chunk_size,ch.chunk_type,ch.start_offset,ch.end_offset,ch.token_count FROM file_chunks ch JOIN file_records fr ON fr.id=ch.file_record_id AND fr.root_id=ch.root_id WHERE ch.root_id IN (${placeholders})) native_chunks ON 1=1 WHERE md.singleton=1 ORDER BY native_chunks.path,native_chunks.id`
+      `SELECT md.schema_version,md.store_id,md.index_mode,md.profile_json,md.profile_hash,native_chunks.* FROM index_metadata md LEFT JOIN (SELECT ch.id,ch.root_id,ch.file_record_id,fr.path,ch.content,ch.content_hash,ch.start_line,ch.end_line,ch.chunk_index,ch.chunk_size,ch.chunk_type,ch.start_offset,ch.end_offset,ch.token_count${collectionProjection} FROM file_chunks ch JOIN file_records fr ON fr.id=ch.file_record_id AND fr.root_id IS ch.root_id WHERE ${scopePredicate}) native_chunks ON 1=1 WHERE md.singleton=1 ORDER BY native_chunks.path,native_chunks.id`
     );
     statement.setReturnArrays(true);
     const columns = statement
@@ -207,7 +214,7 @@ export class SqliteSandbox {
     let matchedChunks = 0;
     let identity: IndexerIdentity | undefined;
     let resultBytes = columns.reduce((total, column) => total + Buffer.byteLength(column) + 16, 0);
-    for (const output of statement.iterate(...options.rootIds)) {
+    for (const output of statement.iterate(...selectedIds)) {
       const snapshotRow = decodeRow(output);
       identity ??= decodeIndexIdentityRow({
         indexMode: snapshotRow[2],
@@ -282,12 +289,19 @@ function grepRowBytes(row: readonly SqliteValue[]): number {
 
 function validateGrepOptions(options: SqliteGrepOptions): void {
   if (
-    options.rootIds.length === 0 ||
+    (options.rootIds.length === 0 && options.fileIds === undefined) ||
     options.rootIds.length > 100 ||
     options.rootIds.some((root) => !root.trim()) ||
     new Set(options.rootIds).size !== options.rootIds.length
   ) {
     throw new TypeError('Grep requires between 1 and 100 distinct nonempty root IDs.');
+  }
+  if (
+    options.fileIds !== undefined &&
+    (options.fileIds.some((id) => !id.trim()) ||
+      new Set(options.fileIds).size !== options.fileIds.length)
+  ) {
+    throw new TypeError('Grep requires distinct nonempty canonical file IDs.');
   }
   if (options.pattern.length < 2 || options.pattern.length > LENGTH_LIMIT) {
     throw new TypeError('Grep pattern must have at least two characters and fit the value limit.');

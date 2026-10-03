@@ -20,6 +20,7 @@ const child = spawn(
     'run',
     'src/__tests__/sandbox.integration.test.ts',
     'src/__tests__/callers-lens.integration.test.ts',
+    'src/__tests__/scoped-grep.integration.test.ts',
   ],
   {
     cwd: fileURLToPath(new URL('..', import.meta.url)),

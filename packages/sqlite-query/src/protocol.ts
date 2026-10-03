@@ -28,6 +28,7 @@ export const GrepRowsSchema = Schema.Struct({
 export type SqliteGrepRows = typeof GrepRowsSchema.Type;
 const GrepFields = {
   caseSensitive: Schema.Boolean,
+  fileIds: Schema.optional(Schema.Array(Schema.String)),
   isRegex: Schema.Boolean,
   maxRows: Schema.Int.check(Schema.isBetween({ maximum: 200, minimum: 1 })),
   pattern: Schema.String,

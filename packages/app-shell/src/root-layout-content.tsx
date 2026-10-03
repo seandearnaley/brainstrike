@@ -23,6 +23,7 @@ import {
 } from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { McpElicitationHost } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-host';
 import {
@@ -90,7 +91,13 @@ interface DebouncedPanelLayoutState {
   readonly sizes: [number, number, number];
 }
 
-function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
+function FileTreeWrapper({
+  children,
+  nativeIndexSearch,
+}: {
+  children: ReactNode;
+  nativeIndexSearch?: IndexSearchCapability | null;
+}): ReactElement {
   const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
   // Storage v5: pass the durable RootId so the FileTreeProvider keys its index
   // and stamps IFileNode.rootFolderId with the UUID instead of the handle path.
@@ -119,7 +126,9 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
       {...(rootId !== undefined && { rootId })}
     >
       <RootDataDeletionProvider deleteRootData={deleteRootData}>
-        <WorkspaceCollectionSyncProvider>{children}</WorkspaceCollectionSyncProvider>
+        <WorkspaceCollectionSyncProvider nativeIndexSearch={nativeIndexSearch ?? null}>
+          {children}
+        </WorkspaceCollectionSyncProvider>
       </RootDataDeletionProvider>
     </FileTreeProvider>
   );
@@ -170,6 +179,7 @@ export interface RootLayoutContentProps {
   readonly gitPageContent?: ReactNode;
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
+  readonly nativeIndexSearch?: IndexSearchCapability | null;
   readonly navigationItems: NavigationItem[];
   /**
    * Optional markdown notes vault surface. Supplied by app wrappers when the
@@ -469,6 +479,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   terminalPageContent,
   worktreeMapPageContent,
   visible,
+  nativeIndexSearch,
 }: {
   readonly canvasPanelContent?: ReactNode;
   readonly changesPageContent?: ReactNode;
@@ -480,6 +491,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly terminalPageContent?: ReactNode;
   readonly worktreeMapPageContent?: ReactNode;
   readonly visible: boolean;
+  readonly nativeIndexSearch?: IndexSearchCapability | null;
 }): ReactElement {
   // Platform-injected markdown preview capabilities (external links, image src
   // resolution). Detected by the `window.platform` bridge (capability presence,
@@ -524,7 +536,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           the Files app) because the tab strip lives in the panel HEADER and file
           bodies render at the workspace level — both need the file-explorer
           context from a common ancestor. */}
-      <FileTreeWrapper>
+      <FileTreeWrapper nativeIndexSearch={nativeIndexSearch ?? null}>
         <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
           <DelegatedWorkspaceTabsProvider apps={workspaceApps}>
             {/* Thread⇄workspace binding (BST-1268): snapshots the live stores
@@ -593,6 +605,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
 });
 
 export function RootLayoutContent({
+  nativeIndexSearch,
   browserPageContent,
   canvasPanelContent,
   changesPageContent,
@@ -731,6 +744,7 @@ export function RootLayoutContent({
                         contextExplorerPageContent={contextExplorerPageContent}
                         contextExplorerPanelContent={contextExplorerPanelContent}
                         loadEmbeddingQueue={loadEmbeddingQueue}
+                        nativeIndexSearch={nativeIndexSearch ?? null}
                         {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                         preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
                         terminalPageContent={terminalPageContent}

@@ -47,12 +47,14 @@ const decodeHit = makeThrowingDecoder(
     chunkType: Schema.NullOr(Schema.Literals(['text', 'sentence', 'recursive'])),
     content: Schema.String,
     contentHash: hash,
+    embeddingSetId: Schema.optional(Schema.NullOr(nonblank)),
     endLine: positive,
     endOffset: Schema.NullOr(nonnegative),
     fileId: nonblank,
-    relativePath: nonblank,
-    rootId: nonblank,
+    relativePath: Schema.NullOr(nonblank),
+    rootId: Schema.NullOr(nonblank),
     score: Schema.Finite,
+    sourcePath: Schema.optional(Schema.NullOr(nonblank)),
     startLine: positive,
     startOffset: Schema.NullOr(nonnegative),
     tokenCount: Schema.NullOr(positive),
@@ -60,10 +62,11 @@ const decodeHit = makeThrowingDecoder(
   { onExcessProperty: 'error' }
 );
 function grepHit(row: readonly unknown[]): IndexerSearchHit {
-  if (row.length !== columns.length) {
+  if (row.length !== columns.length && row.length !== columns.length + 2) {
     throw new TypeError('Native grep returned an invalid chunk projection.');
   }
-  return decodeHit({
+  const decoded = decodeHit({
+    ...(row.length === columns.length + 2 ? { embeddingSetId: row[14], sourcePath: row[15] } : {}),
     chunkId: row[0],
     chunkIndex: row[8],
     chunkSize: row[9],
@@ -81,26 +84,45 @@ function grepHit(row: readonly unknown[]): IndexerSearchHit {
     startOffset: row[11],
     tokenCount: row[13],
   });
+  const { embeddingSetId, sourcePath, ...core } = decoded;
+  return {
+    ...core,
+    ...(embeddingSetId === undefined ? {} : { embeddingSetId }),
+    ...(sourcePath === undefined ? {} : { sourcePath }),
+  };
 }
-async function grepSnapshot(
+export async function grepSnapshot(
   request: IndexerGrepRequest,
-  openQuery: Dependencies['openQuery']
+  openQuery: Dependencies['openQuery'],
+  fileIds?: readonly string[]
 ): Promise<IndexerGrepResult> {
   const client = await openQuery();
   let result: IndexerGrepResult;
   try {
     const rows = await client.grep({
+      ...(fileIds === undefined ? {} : { fileIds }),
       caseSensitive: request.caseSensitive,
       isRegex: request.isRegex,
       maxRows: request.limit,
       pattern: request.pattern,
       rootIds: request.rootIds,
     });
-    if (JSON.stringify(rows.columns) !== JSON.stringify(columns)) {
+    if (
+      JSON.stringify(rows.columns) !==
+      JSON.stringify(
+        fileIds === undefined ? columns : [...columns, 'embedding_set_id', 'source_path']
+      )
+    ) {
       throw new TypeError('Native grep returned a different source projection.');
     }
     const hits = rows.rows.map(grepHit);
-    if (hits.some((hit) => !request.rootIds.includes(hit.rootId))) {
+    if (
+      hits.some((hit) =>
+        fileIds === undefined
+          ? hit.rootId === null || !request.rootIds.includes(hit.rootId)
+          : !fileIds.includes(hit.fileId)
+      )
+    ) {
       throw new Error('Native grep returned a chunk outside its authorized scope.');
     }
     result = {
@@ -164,6 +186,9 @@ export function createNativeIndexSearchCapability(
       await authorize(request.rootIds);
       await assertIdentity(result);
       return result;
+    },
+    rebuild: async () => {
+      throw new Error('Native index rebuild ownership is unavailable.');
     },
     search: async (request) => {
       await authorize(request.rootIds);

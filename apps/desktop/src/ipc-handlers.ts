@@ -48,6 +48,7 @@ interface RegisterIpcHandlerOptions {
   readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
   readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
+  readonly onStorageChanged?: (key: string) => void;
   readonly onWorkspaceRootGranted?: (grantedPath: string) => void;
 }
 
@@ -82,6 +83,7 @@ export function createApplicationIpcDomain(
   const unregisterStoragePreferencesIpcHandlers = registerStoragePreferencesIpcHandlers({
     getStore,
     storage,
+    ...(options?.onStorageChanged ? { onStorageChanged: options.onStorageChanged } : {}),
   });
   const fileSystemDomain = createFileSystemIpcDomain({
     fileSystem,

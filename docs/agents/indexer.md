@@ -108,8 +108,6 @@ Guard: `packages/canonical-ingestion/__tests__/host.test.ts`, `packages/canonica
 Evidence: `indexer/2026-10-03-authoritative-catalog-delivery.md`.
 Guard: `apps/desktop/src/__tests__/native-canonical-catalog.test.ts`,
 `apps/desktop/src/__tests__/native-canonical-catalog.integration.test.ts`.
-The adapter is a library seam; actual main/grant/profile/utility wiring and app
-qualification remain separate composition work.
 
 ### Explicit canonical vector ingestion
 
@@ -163,12 +161,15 @@ Guard: `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/index
 Evidence: `indexer/2026-10-03-canonical-manifest.md`.
 Guard: `packages/indexer/__tests__/manifest.integration.test.ts`.
 
-### Visible producer transport and scan ownership (composition pending)
+### Main-owned production activation
 
-- Expose writes only through the visible-ui authorized producer manifest and the canonical IPC result envelope. Main supplies mandatory live root/file binding and complete-profile authorization; renderer requests never choose database paths, process budgets or SQL. Keep the four search channels read-only and the hidden preload unchanged.
-- Forward canonical events through the browser-safe publication mapper into one provided-snapshot text commit. Keep vector preparation/commit separate and require a complete explicit profile plus the native returned plan. Do not manufacture plans or invoke inference to publish text.
-- Bind full-scan completion to the active store/root/scan/generation ticket. Require the exact ticket for every write/removal during that scan; refuse overlapping starts and late/missing tickets. Close write admission while finishing and join all owned publication/removal promises before verifying the native manifest.
-- Publish scan readiness only for an error-free, untruncated, unaborted full scan with matching native identities. Partial scans, failed writes and mismatched manifests explicitly remain incomplete. Consume completion tickets once; ordinary out-of-scan writes invalidate readiness. Restart requires a new full scan.
+- Compose canonical workspace and retained collection ingestion in the sole main-owned indexer utility. Read actual saved collection/mode/full local execution choices and PG records, borrow the application's existing mounted-root leases, and preserve canonical file IDs and nullable rootless metadata. Missing or unsupported choices refuse activation visibly.
+- Retire the desktop visible scanner/queue producer when the native capability exists. The visible provider restores actual root identity and observes scoped receipts/coverage; closing the visible window does not own source, parser, inference or writer lifetime. Keep the hosted web producer unchanged.
+- Begin publication tickets before awaited native work. Any admitted write/removal invalidates all overlapping scope receipts; full completion joins admitted writes and verifies the full canonical manifest against the same unchanged authority/mutation revision. Watch degradation invalidates readiness and refuses reads until actual recovery reconciliation.
+- Allow scoped read ownership while initial ingestion is pending, but report incomplete source receipts explicitly. Capture and recheck the full store/profile/authority/binding identity around every scoped search, coverage and killable grep read; reject foreign/stale hits. Main alone supplies explicit canonical grep file IDs, including actual nullable-root collection records.
+- Keep fixed RRF60 fusion over bounded native arms (100 per arm, final10), exact canonical metadata and truncation notices. Require complete actual receipts and selected-profile coverage for semantic execution. Query inference uses the main-resolved exact saved plan through the existing hidden renderer; TEXT never invokes inference and native unavailability never routes to PG search.
+- Close admission synchronously, abort the owned graph, close admitted attachments before joining startup, then join late attachments, physical inference, borrowed roots and native readers before writer close/destroy/profile release. Retain independent cleanup failures and owners for explicit retry.
+- Expose derived-only rebuild through the visible-ui `index-search:rebuild` capability and Workspace Index settings. Destroy/recreate only the owned derived SQLite files after all source/read owners settle; preserve PG application data, collections, chats and saved choices. Factory/developer resets use the same retirement owner before their separately authorized PG deletion.
 
-These requirements remain pending product composition. The visible producer/receipt
-adapter and its dedicated evidence and guards have not landed in integration.
+Evidence: `indexer/2026-10-03-production-activation.md`.
+Guard: `apps/desktop/src/__tests__/native-index-activation.test.ts`, `native-index-runtime.test.ts`, `native-index-runtime-scopes.test.ts`, `native-canonical-publication.test.ts`, `native-scoped-search.test.ts`, `native-index-settings.test.ts`, `packages/workspace-search/src/core/__tests__/native-workspace-search.test.ts`, `packages/settings-ui/src/__tests__/search-indexing-settings-section.test.tsx`.

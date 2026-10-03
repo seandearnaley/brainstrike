@@ -117,6 +117,7 @@ describe('desktop graceful shutdown', () => {
       'renderers',
       'assistant-server',
       'mcp-runtime',
+      'native-index',
       'file-system',
       'chunking-host',
       'parser-host',
