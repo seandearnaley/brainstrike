@@ -24,10 +24,9 @@ export async function acquireIndexerHost(
   );
   const options = validateIndexerOptions(input);
   const deadlines = validateIndexerDeadlines(deadlineInput);
-  const { embeddingProfileHash } = await import('@brainstrike/indexer');
   const identity = JSON.stringify([
     options.dbPath,
-    embeddingProfileHash(options.profile),
+    options.embedding,
     [...options.rootIds].sort(),
     deadlines.startupMs,
     deadlines.requestMs,

@@ -8,6 +8,8 @@ import {
 import {
   decoder,
   type EmbeddingProfile,
+  type EmbeddingState,
+  embeddingStateSchema,
   type FileChunk,
   type FileSnapshot,
   profileSchema,
@@ -29,13 +31,29 @@ export function embeddingProfileHash(input: unknown): string {
     ])
   );
 }
-export function fileChunks(input: unknown, profile: EmbeddingProfile): readonly FileChunk[] {
+function chunkProfileHash(input: EmbeddingProfile | EmbeddingState): string | null {
+  if (!('indexMode' in input)) {
+    return embeddingProfileHash(input);
+  }
+  const embedding = decoder(embeddingStateSchema)(input);
+  if (embedding.indexMode === 'text-only') {
+    return null;
+  }
+  if (embedding.profileHash !== embeddingProfileHash(embedding.profile)) {
+    throw new TypeError('Chunk embedding profile hash disagrees with its complete profile.');
+  }
+  return embedding.profileHash;
+}
+export function fileChunks(
+  input: unknown,
+  profile: EmbeddingProfile | EmbeddingState
+): readonly FileChunk[] {
   const snapshot = decoder(snapshotSchema)(input);
   validateSnapshot(snapshot);
   if ('providedChunks' in snapshot) {
     const lines = buildLineStartOffsets(snapshot.content);
     const indices = new Set<number>();
-    const profileHash = embeddingProfileHash(profile);
+    const profileHash = chunkProfileHash(profile);
     return snapshot.providedChunks.map((chunk) => {
       if (
         indices.has(chunk.chunkIndex) ||
@@ -66,14 +84,15 @@ export function fileChunks(input: unknown, profile: EmbeddingProfile): readonly 
             chunk.endOffset,
           ])
         ),
-        embeddingHash: sha256(JSON.stringify([profileHash, chunk.contentHash])),
+        embeddingHash:
+          profileHash === null ? null : sha256(JSON.stringify([profileHash, chunk.contentHash])),
       };
     });
   }
   if (snapshot.content.length === 0) {
     return [];
   }
-  const profileHash = embeddingProfileHash(profile);
+  const profileHash = chunkProfileHash(profile);
   const lines = snapshot.content.match(/[^\n]*\n|[^\n]+$/gu) ?? [];
   const chunks: FileChunk[] = [];
   for (let start = 0; start < lines.length; start += snapshot.chunkLines) {
@@ -89,7 +108,8 @@ export function fileChunks(input: unknown, profile: EmbeddingProfile): readonly 
       chunkType: null,
       content,
       contentHash,
-      embeddingHash: sha256(JSON.stringify([profileHash, contentHash])),
+      embeddingHash:
+        profileHash === null ? null : sha256(JSON.stringify([profileHash, contentHash])),
       endLine: end,
       endOffset: null,
       startLine: start + 1,

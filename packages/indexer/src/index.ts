@@ -3,6 +3,7 @@ import type {
   CommitResult,
   FilePlan,
   IndexerCoverage,
+  IndexerIdentity,
   IndexerInfo,
   SearchResult,
 } from './contracts.js';
@@ -16,12 +17,14 @@ export { embeddingProfileHash, fileChunks } from './chunks.js';
 export type {
   CommitResult,
   EmbeddingProfile,
+  EmbeddingState,
   FileChunk,
   FileCommit,
   FilePlan,
   FileSnapshot,
   FileSyntax,
   IndexerCoverage,
+  IndexerIdentity,
   IndexerInfo,
   IndexerOptions,
   ProvidedChunk,
@@ -37,6 +40,7 @@ export interface IndexerPort {
   close(): Promise<void>;
   commitFile(commit: unknown): Promise<CommitResult>;
   commitTextFile(commit: unknown): Promise<CommitResult>;
+  configureVectorProfile(profile: unknown): Promise<IndexerIdentity>;
   coverage(request: unknown): Promise<IndexerCoverage>;
   destroy(): Promise<void>;
   info(): Promise<IndexerInfo>;

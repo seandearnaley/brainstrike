@@ -40,7 +40,11 @@ async function fixture(killMode: 'real' | 'refuse' | 'throw') {
   let attempts = 0;
   let permitted = killMode === 'real';
   const connection = createIndexerConnection(
-    { dbPath: path.join(directory, 'index.sqlite'), profile, rootIds: ['root-a'] },
+    {
+      dbPath: path.join(directory, 'index.sqlite'),
+      embedding: { indexMode: 'vector-configured', profile },
+      rootIds: ['root-a'],
+    },
     { closeMs: 100, exitMs: 100, requestMs: 100, startupMs: 100 },
     {
       kill: () => {

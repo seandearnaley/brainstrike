@@ -6,6 +6,13 @@ export interface IndexerEmbeddingProfile {
   readonly revision: string;
   readonly tokenCap: number;
 }
+export type IndexerEmbeddingState =
+  | { readonly indexMode: 'text-only' }
+  | {
+      readonly indexMode: 'vector-configured';
+      readonly profile: IndexerEmbeddingProfile;
+      readonly profileHash: string;
+    };
 export interface IndexerRootReadiness {
   readonly rootId: string;
   /** Receipt from the canonical producer's complete scan, never inferred from row counts. */
@@ -15,8 +22,8 @@ export type IndexerStatus =
   | { readonly kind: 'unavailable'; readonly reason: string }
   | {
       readonly kind: 'ready';
-      readonly profile: IndexerEmbeddingProfile;
-      readonly profileHash: string;
+      readonly embedding: IndexerEmbeddingState;
+      readonly storeId: string;
       readonly authorizedRootIds: readonly string[];
       readonly rootReadiness: readonly IndexerRootReadiness[];
     };
@@ -30,9 +37,9 @@ export interface IndexerCoverageCounts {
   readonly vectors: number;
 }
 export interface IndexerCoverage {
-  readonly profile: IndexerEmbeddingProfile;
-  readonly profileHash: string;
+  readonly embedding: IndexerEmbeddingState;
   readonly roots: readonly (IndexerCoverageCounts & { readonly rootId: string })[];
+  readonly storeId: string;
   readonly totals: IndexerCoverageCounts;
   /** Complete vector coverage of nonempty indexed rows; does not establish complete root scans. */
   readonly vectorCoverageComplete: boolean;
@@ -68,9 +75,10 @@ export interface IndexerSearchHit {
 export interface IndexerSearchResult {
   readonly candidateCount: number;
   readonly candidatesTruncated: boolean;
+  readonly embedding: IndexerEmbeddingState;
   readonly hits: readonly IndexerSearchHit[];
-  readonly profileHash: string;
   readonly scanLimited: boolean;
+  readonly storeId: string;
   readonly truncated: boolean;
 }
 export interface IndexerGrepRequest {

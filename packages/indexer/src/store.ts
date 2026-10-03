@@ -19,19 +19,28 @@ import {
   hitSchema,
   type IndexerCoverage,
   IndexerError,
+  type IndexerIdentity,
   type IndexerInfo,
   type IndexerOptions,
   identitySchema,
   optionsSchema,
   planSchema,
-  profileSchema,
   type SearchResult,
   searchSchema,
   snapshotSchema,
   textCommitSchema,
 } from './contracts.js';
 
-const SCHEMA_VERSION = 3;
+import {
+  configuredEmbedding,
+  freshIdentity,
+  INDEX_SCHEMA_VERSION,
+  readIndexIdentity,
+  validateAcquisition,
+  validateChunkEmbeddingState,
+} from './index-metadata.js';
+
+type PreparedCommit = Pick<FileCommit, 'plan' | 'syntax' | 'embeddings'>;
 const numberId = Schema.Int.check(
   Schema.isGreaterThan(0),
   Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
@@ -40,7 +49,9 @@ const decodeFile = decoder(
   Schema.NullOr(Schema.Struct({ contentHash: Schema.String, snapshotHash: Schema.String }))
 );
 const decodeChunks = decoder(
-  Schema.Array(Schema.Struct({ chunkId: Schema.String, embeddingHash: Schema.String }))
+  Schema.Array(
+    Schema.Struct({ chunkId: Schema.String, embeddingHash: Schema.NullOr(Schema.String) })
+  )
 );
 const decodeHit = decoder(hitSchema);
 const hitColumns =
@@ -70,32 +81,6 @@ function existingFile(
       .get(snapshot.rootId, snapshot.fileId) ?? null
   );
 }
-function loadProfile(db: Database.Database, options: IndexerOptions): void {
-  const metadata = decoder(
-    Schema.Struct({
-      profileHash: Schema.String,
-      profileJson: Schema.String,
-      schemaVersion: Schema.Int,
-    })
-  )(
-    db
-      .prepare(
-        'SELECT schema_version AS schemaVersion,profile_json AS profileJson,profile_hash AS profileHash FROM index_metadata WHERE singleton=1'
-      )
-      .get()
-  );
-  const profile = decoder(profileSchema)(JSON.parse(metadata.profileJson));
-  if (
-    metadata.schemaVersion !== SCHEMA_VERSION ||
-    metadata.profileHash !== embeddingProfileHash(profile) ||
-    metadata.profileHash !== embeddingProfileHash(options.profile)
-  ) {
-    throw new IndexerError(
-      'rebuild-required',
-      'The derived index schema or embedding profile changed; explicitly rebuild in a new index file.'
-    );
-  }
-}
 function assertVec(db: Database.Database): string {
   const version = decoder(Schema.String)(db.prepare('SELECT vec_version()').pluck().get());
   if (version !== 'v0.1.9') {
@@ -118,8 +103,15 @@ function decodeBlob(blob: Uint8Array): Buffer {
   return buffer;
 }
 
+function requireEmbeddingHash(value: string | null): string {
+  if (value === null) {
+    throw new TypeError('Vector writes require a configured embedding hash.');
+  }
+  return value;
+}
+
 function resolveEmbedding(
-  previous: { embeddingHash: string; emb: Uint8Array | null } | undefined,
+  previous: { embeddingHash: string | null; emb: Uint8Array | null } | undefined,
   supplied: Buffer | undefined,
   hash: string
 ): Buffer {
@@ -138,18 +130,19 @@ export class IndexWriter {
   readonly db: Database.Database;
   readonly options: IndexerOptions;
   readonly allowed: ReadonlySet<string>;
-  readonly profileHash: string;
   readonly info: IndexerInfo;
   constructor(input: unknown) {
     this.options = decoder(optionsSchema)(input);
     this.allowed = new Set(this.options.rootIds);
-    this.profileHash = embeddingProfileHash(this.options.profile);
     const fresh = !existsSync(this.options.dbPath);
-    if (fresh && this.options.profile.dimensions !== 384) {
+    if (fresh && this.options.embedding.indexMode === 'open-existing') {
       throw new IndexerError(
-        'unsupported-profile',
-        'This index schema supports qualified 384-dimension MiniLM profiles only.'
+        'index-not-found',
+        'Explicit open-existing requires an existing index file.'
       );
+    }
+    if (fresh && this.options.embedding.indexMode === 'vector-configured') {
+      configuredEmbedding(this.options.embedding.profile);
     }
     mkdirSync(path.dirname(this.options.dbPath), { recursive: true });
     this.db = openConnection(this.options.dbPath);
@@ -159,7 +152,7 @@ export class IndexWriter {
         this.initialize();
       } else {
         try {
-          loadProfile(this.db, this.options);
+          validateAcquisition(this.db, this.options);
         } catch (error) {
           if (error instanceof IndexerError) {
             throw error;
@@ -169,12 +162,6 @@ export class IndexWriter {
             `Existing index metadata is invalid: ${error instanceof Error ? error.message : String(error)}`
           );
         }
-      }
-      if (this.options.profile.dimensions !== 384) {
-        throw new IndexerError(
-          'rebuild-required',
-          'This index schema supports the qualified 384-dimension MiniLM profiles only.'
-        );
       }
       const integrity = decoder(Schema.Array(Schema.String))(
         this.db.prepare('PRAGMA integrity_check').pluck().all()
@@ -217,11 +204,12 @@ export class IndexWriter {
       if (counts.chunks !== counts.vectors || mismatches !== 0 || orphans !== 0) {
         throw new IndexerError('rebuild-required', 'Derived chunk/vector counts disagree.');
       }
+      validateChunkEmbeddingState(this.db, this.identity);
       this.info = {
         dbPath: this.options.dbPath,
         journalMode: decoder(Schema.String)(this.db.pragma('journal_mode', { simple: true })),
         pid: process.pid,
-        profileHash: this.profileHash,
+        ...this.identity,
         readerQueryOnly: 0,
         vecVersion,
         writerThreadId: threadId,
@@ -231,12 +219,15 @@ export class IndexWriter {
       throw error;
     }
   }
+  get identity(): IndexerIdentity {
+    return readIndexIdentity(this.db);
+  }
   private initialize(): void {
     this.db.transaction(() => {
       this.db.exec(`
-        CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY CHECK(singleton=1),schema_version INTEGER NOT NULL,profile_json TEXT NOT NULL,profile_hash TEXT NOT NULL);
+        CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY CHECK(singleton=1),schema_version INTEGER NOT NULL,store_id TEXT NOT NULL,index_mode TEXT NOT NULL CHECK(index_mode IN ('text-only','vector-configured')),profile_json TEXT,profile_hash TEXT,CHECK((index_mode='text-only' AND profile_json IS NULL AND profile_hash IS NULL) OR (index_mode='vector-configured' AND profile_json IS NOT NULL AND profile_hash IS NOT NULL)));
         CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT NOT NULL,name TEXT NOT NULL,path TEXT NOT NULL,content_hash TEXT NOT NULL,snapshot_hash TEXT NOT NULL,UNIQUE(root_id,id));
-        CREATE TABLE file_chunks(pk INTEGER PRIMARY KEY,id TEXT UNIQUE NOT NULL,root_id TEXT NOT NULL,file_record_id TEXT NOT NULL,start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,content TEXT NOT NULL,content_hash TEXT NOT NULL,embedding_hash TEXT NOT NULL,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER,has_vector INTEGER NOT NULL CHECK(has_vector IN (0,1)),CHECK((chunk_index IS NULL AND chunk_size IS NULL AND chunk_type IS NULL AND start_offset IS NULL AND end_offset IS NULL AND token_count IS NULL) OR (chunk_index IS NOT NULL AND chunk_size IS NOT NULL AND chunk_type IS NOT NULL AND start_offset IS NOT NULL AND end_offset IS NOT NULL AND token_count IS NOT NULL AND chunk_index>=0 AND chunk_size>0 AND chunk_type IN ('text','sentence','recursive') AND start_offset>=0 AND end_offset>start_offset AND token_count>0)),FOREIGN KEY(root_id,file_record_id) REFERENCES file_records(root_id,id) ON DELETE CASCADE);
+        CREATE TABLE file_chunks(pk INTEGER PRIMARY KEY,id TEXT UNIQUE NOT NULL,root_id TEXT NOT NULL,file_record_id TEXT NOT NULL,start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,content TEXT NOT NULL,content_hash TEXT NOT NULL,embedding_hash TEXT,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER,has_vector INTEGER NOT NULL CHECK(has_vector IN (0,1)),CHECK(has_vector=0 OR embedding_hash IS NOT NULL),CHECK((chunk_index IS NULL AND chunk_size IS NULL AND chunk_type IS NULL AND start_offset IS NULL AND end_offset IS NULL AND token_count IS NULL) OR (chunk_index IS NOT NULL AND chunk_size IS NOT NULL AND chunk_type IS NOT NULL AND start_offset IS NOT NULL AND end_offset IS NOT NULL AND token_count IS NOT NULL AND chunk_index>=0 AND chunk_size>0 AND chunk_type IN ('text','sentence','recursive') AND start_offset>=0 AND end_offset>start_offset AND token_count>0)),FOREIGN KEY(root_id,file_record_id) REFERENCES file_records(root_id,id) ON DELETE CASCADE);
         CREATE INDEX chunks_file ON file_chunks(root_id,file_record_id);
         CREATE TABLE file_symbols(file_record_id TEXT NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,seq INTEGER NOT NULL,name TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('function','class','method','variable','interface','type','enum')),exported INTEGER NOT NULL CHECK(exported IN (0,1)),start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,start_offset INTEGER NOT NULL,end_offset INTEGER NOT NULL,PRIMARY KEY(file_record_id,seq)) WITHOUT ROWID;
         CREATE INDEX idx_file_symbols_name ON file_symbols(name);
@@ -260,29 +251,85 @@ export class IndexWriter {
           INSERT INTO file_chunks_trigram(rowid,content) VALUES(new.pk,new.content);
         END;
       `);
+      const identity = freshIdentity(this.options);
+      const embedding = identity.embedding;
       this.db
-        .prepare('INSERT INTO index_metadata VALUES(1,?,?,?)')
-        .run(SCHEMA_VERSION, JSON.stringify(this.options.profile), this.profileHash);
+        .prepare('INSERT INTO index_metadata VALUES(1,?,?,?,?,?)')
+        .run(
+          INDEX_SCHEMA_VERSION,
+          identity.storeId,
+          embedding.indexMode,
+          embedding.indexMode === 'vector-configured' ? JSON.stringify(embedding.profile) : null,
+          embedding.indexMode === 'vector-configured' ? embedding.profileHash : null
+        );
+    })();
+  }
+  configureVectorProfile(input: unknown): IndexerIdentity {
+    const embedding = configuredEmbedding(input);
+    return this.db.transaction(() => {
+      const current = this.identity;
+      if (current.embedding.indexMode === 'vector-configured') {
+        if (current.embedding.profileHash !== embedding.profileHash) {
+          throw new IndexerError(
+            'rebuild-required',
+            'A different vector profile requires an explicit rebuild.'
+          );
+        }
+        return current;
+      }
+      validateChunkEmbeddingState(this.db, current);
+      const vectors = decoder(Schema.Int)(
+        this.db.prepare('SELECT count(*) FROM vec_chunks').pluck().get()
+      );
+      if (vectors !== 0) {
+        throw new IndexerError('rebuild-required', 'Text-only index contains unexpected vectors.');
+      }
+      const chunks = decoder(
+        Schema.Array(Schema.Struct({ contentHash: Schema.String, id: Schema.String }))
+      )(this.db.prepare('SELECT id,content_hash AS contentHash FROM file_chunks').all());
+      this.db
+        .prepare(
+          'UPDATE index_metadata SET index_mode=?,profile_json=?,profile_hash=? WHERE singleton=1'
+        )
+        .run(embedding.indexMode, JSON.stringify(embedding.profile), embedding.profileHash);
+      const update = this.db.prepare(
+        'UPDATE file_chunks SET embedding_hash=? WHERE id=? AND has_vector=0'
+      );
+      for (const chunk of chunks) {
+        update.run(sha256(JSON.stringify([embedding.profileHash, chunk.contentHash])), chunk.id);
+      }
+      return { embedding, storeId: current.storeId };
     })();
   }
   commit(input: unknown): CommitResult {
     const request = decoder(commitSchema)(input);
+    const embedding = this.identity.embedding;
+    if (embedding.indexMode !== 'vector-configured') {
+      throw new IndexerError(
+        'vector-not-configured',
+        'Vector profile is not configured for this text store.'
+      );
+    }
+    if (embeddingProfileHash(request.profile) !== embedding.profileHash) {
+      throw new IndexerError('rebuild-required', 'Embedding plan profile differs from this index.');
+    }
     return this.commitValidated(request, true);
   }
   commitText(input: unknown): CommitResult {
     const request = decoder(textCommitSchema)(input);
-    return this.commitValidated(
-      { ...request, embeddings: [], profile: this.options.profile },
-      false
-    );
+    return this.commitValidated({ ...request, embeddings: [] }, false);
   }
-  private commitValidated(request: FileCommit, vectorsRequired: boolean): CommitResult {
+  private commitValidated(request: PreparedCommit, vectorsRequired: boolean): CommitResult {
     authorize(this.allowed, [request.plan.snapshot.rootId]);
+    const identity = this.identity;
     if (
-      request.plan.profileHash !== this.profileHash ||
-      embeddingProfileHash(request.profile) !== this.profileHash
+      request.plan.storeId !== identity.storeId ||
+      JSON.stringify(request.plan.embedding) !== JSON.stringify(identity.embedding)
     ) {
-      throw new IndexerError('rebuild-required', 'Embedding plan profile differs from this index.');
+      throw new IndexerError(
+        'stale-index-state',
+        'File plan embedding state differs from the current store state; prepare again.'
+      );
     }
     this.validatePlan(request, vectorsRequired);
     if (request.syntax) {
@@ -290,8 +337,8 @@ export class IndexWriter {
     }
     return this.db.transaction(() => this.apply(request, vectorsRequired))();
   }
-  private validatePlan({ plan, embeddings }: FileCommit, vectorsRequired: boolean): void {
-    const chunks = fileChunks(plan.snapshot, this.options.profile);
+  private validatePlan({ plan, embeddings }: PreparedCommit, vectorsRequired: boolean): void {
+    const chunks = fileChunks(plan.snapshot, this.identity.embedding);
     const identity = (chunk: (typeof chunks)[number]): readonly unknown[] => [
       chunk.chunkId,
       chunk.contentHash,
@@ -332,7 +379,10 @@ export class IndexWriter {
       throw new TypeError('Every requested embedding must be supplied exactly once.');
     }
   }
-  private apply({ plan, embeddings, syntax }: FileCommit, vectorsRequired: boolean): CommitResult {
+  private apply(
+    { plan, embeddings, syntax }: PreparedCommit,
+    vectorsRequired: boolean
+  ): CommitResult {
     const existing = existingFile(this.db, plan.snapshot);
     if ((existing?.snapshotHash ?? null) !== plan.previousSnapshotHash) {
       throw new IndexerError(
@@ -349,9 +399,12 @@ export class IndexWriter {
           .all(plan.snapshot.rootId, plan.snapshot.fileId)
       ).map((chunk) => [chunk.chunkId, chunk.embeddingHash])
     );
-    const missing = plan.chunks
-      .filter((chunk) => vectorIdentities.get(chunk.chunkId) !== chunk.embeddingHash)
-      .map((chunk) => chunk.chunkId);
+    const missing =
+      plan.embedding.indexMode === 'text-only'
+        ? []
+        : plan.chunks
+            .filter((chunk) => vectorIdentities.get(chunk.chunkId) !== chunk.embeddingHash)
+            .map((chunk) => chunk.chunkId);
     if (JSON.stringify(missing) !== JSON.stringify(plan.embeddingChunkIds)) {
       throw new TypeError('Embedding plan must identify every missing current-profile vector.');
     }
@@ -368,7 +421,7 @@ export class IndexWriter {
         Schema.Struct({
           chunkId: Schema.String,
           emb: Schema.NullOr(Schema.Uint8Array),
-          embeddingHash: Schema.String,
+          embeddingHash: Schema.NullOr(Schema.String),
           id: numberId,
         })
       )
@@ -429,7 +482,7 @@ export class IndexWriter {
   private writeChunk(
     chunk: FilePlan['chunks'][number],
     previous:
-      | { id: number; chunkId: string; embeddingHash: string; emb: Uint8Array | null }
+      | { id: number; chunkId: string; embeddingHash: string | null; emb: Uint8Array | null }
       | undefined,
     supplied: Buffer | undefined,
     snapshot: FileSnapshot,
@@ -437,7 +490,7 @@ export class IndexWriter {
   ): Pick<CommitResult, 'reusedEmbeddings' | 'writtenChunks'> {
     const reusable = previous?.embeddingHash === chunk.embeddingHash;
     const emb = vectorsRequired
-      ? resolveEmbedding(previous, supplied, chunk.embeddingHash)
+      ? resolveEmbedding(previous, supplied, requireEmbeddingHash(chunk.embeddingHash))
       : reusable && previous?.emb
         ? decodeBlob(previous.emb)
         : undefined;
@@ -589,27 +642,29 @@ export class IndexWriter {
 
 export class IndexReader {
   readonly db: Database.Database;
-  readonly profileHash: string;
   readonly options: IndexerOptions;
   readonly allowed: ReadonlySet<string>;
   constructor(input: unknown) {
     this.options = decoder(optionsSchema)(input);
-    this.profileHash = embeddingProfileHash(this.options.profile);
     this.allowed = new Set(this.options.rootIds);
     this.db = openConnection(this.options.dbPath, { fileMustExist: true, readonly: true });
     try {
-      loadProfile(this.db, this.options);
+      validateAcquisition(this.db, this.options);
       this.db.pragma('query_only = ON');
     } catch (error) {
       this.db.close();
       throw error;
     }
   }
+  get identity(): IndexerIdentity {
+    return readIndexIdentity(this.db);
+  }
   prepare(input: unknown): FilePlan {
     const snapshot = decoder(snapshotSchema)(input);
     authorize(this.allowed, [snapshot.rootId]);
-    const chunks = fileChunks(snapshot, this.options.profile);
     return this.db.transaction(() => {
+      const identity = this.identity;
+      const chunks = fileChunks(snapshot, identity.embedding);
       const existing = existingFile(this.db, snapshot);
       const cached = new Map(
         decodeChunks(
@@ -623,11 +678,14 @@ export class IndexReader {
       return decoder(planSchema)({
         chunks,
         contentHash: sha256(snapshot.content),
-        embeddingChunkIds: chunks
-          .filter((chunk) => cached.get(chunk.chunkId) !== chunk.embeddingHash)
-          .map((chunk) => chunk.chunkId),
+        embeddingChunkIds:
+          identity.embedding.indexMode === 'text-only'
+            ? []
+            : chunks
+                .filter((chunk) => cached.get(chunk.chunkId) !== chunk.embeddingHash)
+                .map((chunk) => chunk.chunkId),
         previousSnapshotHash: existing?.snapshotHash ?? null,
-        profileHash: this.profileHash,
+        ...identity,
         snapshot,
         unchanged: existing?.snapshotHash === snapshotHash(snapshot),
       });
@@ -640,6 +698,7 @@ export class IndexReader {
       throw new TypeError('Coverage roots must be unique.');
     }
     return this.db.transaction(() => {
+      validateChunkEmbeddingState(this.db, this.identity, request.rootIds);
       const roots = request.rootIds.map((rootId) => {
         const mismatch = decoder(Schema.Int)(
           this.db
@@ -689,8 +748,7 @@ export class IndexReader {
         { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 }
       );
       return decoder(coverageSchema)({
-        profile: this.options.profile,
-        profileHash: this.profileHash,
+        ...this.identity,
         roots,
         totals,
         vectorCoverageComplete:
@@ -702,6 +760,9 @@ export class IndexReader {
     })();
   }
   search(input: unknown): SearchResult {
+    return this.db.transaction(() => this.searchSnapshot(input))();
+  }
+  private searchSnapshot(input: unknown): SearchResult {
     const request = decoder(searchSchema)(input);
     authorize(this.allowed, request.rootIds);
     if (
@@ -713,7 +774,18 @@ export class IndexReader {
     ) {
       throw new TypeError('Search must carry only the input required by its mode.');
     }
-    if (request.profile && embeddingProfileHash(request.profile) !== this.profileHash) {
+    const identity = this.identity;
+    if (request.mode === 'vector' && identity.embedding.indexMode !== 'vector-configured') {
+      throw new IndexerError(
+        'vector-not-configured',
+        'Vector profile is not configured for this text store.'
+      );
+    }
+    if (
+      request.profile &&
+      identity.embedding.indexMode === 'vector-configured' &&
+      embeddingProfileHash(request.profile) !== identity.embedding.profileHash
+    ) {
       throw new IndexerError(
         'rebuild-required',
         'Query embedding profile differs from this index.'
@@ -734,7 +806,7 @@ export class IndexReader {
         candidateCount: 0,
         candidatesTruncated: false,
         hits: [],
-        profileHash: this.profileHash,
+        ...identity,
         scanLimited: false,
         truncated: false,
       };
@@ -785,7 +857,7 @@ export class IndexReader {
         candidateCount,
         candidatesTruncated,
         hits: hits.slice(0, request.limit),
-        profileHash: this.profileHash,
+        ...identity,
         scanLimited: false,
         truncated: candidatesTruncated || hits.length > request.limit,
       };

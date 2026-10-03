@@ -19,6 +19,9 @@ try {
       id = request.id;
       let value: unknown;
       switch (request.op) {
+        case 'configure-vector-profile':
+          value = writer.configureVectorProfile(request.payload);
+          break;
         case 'commit-file':
           value = writer.commit(request.payload);
           break;

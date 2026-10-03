@@ -17,7 +17,11 @@ const vector = Array.from({ length: 384 }, (_, index) => (index === 0 ? 1 : 0));
 it('reports only actual authorized native coverage and never equates empty roots with vector readiness', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-index-coverage-'));
   const port = await openIndexer(
-    { dbPath: path.join(directory, 'index.sqlite'), profile, rootIds: ['a', 'b'] },
+    {
+      dbPath: path.join(directory, 'index.sqlite'),
+      embedding: { indexMode: 'vector-configured', profile },
+      rootIds: ['a', 'b'],
+    },
     deadlines
   );
   try {
@@ -31,9 +35,13 @@ it('reports only actual authorized native coverage and never equates empty roots
     await port.commitTextFile({ plan });
     const coverage = await port.coverage({ rootIds: ['a'] });
     expect(coverage).toEqual({
-      profile,
-      profileHash: embeddingProfileHash(profile),
+      embedding: {
+        indexMode: 'vector-configured',
+        profile,
+        profileHash: embeddingProfileHash(profile),
+      },
       roots: [{ chunks: 2, indexedFiles: 1, missingVectors: 2, rootId: 'a', vectors: 0 }],
+      storeId: (await port.info()).storeId,
       totals: { chunks: 2, indexedFiles: 1, missingVectors: 2, vectors: 0 },
       vectorCoverageComplete: false,
     });

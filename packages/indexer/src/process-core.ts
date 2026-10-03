@@ -6,6 +6,7 @@ import {
   fault,
   IndexerError,
   type IndexerInfo,
+  identityStateSchema,
   infoSchema,
   optionsSchema,
   requestSchema,
@@ -98,7 +99,7 @@ export async function runIndexerProcess(
         switch (request.op) {
           case 'info':
             decoder(Schema.Null)(request.payload);
-            work = nativeInfo;
+            work = { ...nativeInfo, ...connection.identity };
             break;
           case 'prepare-file':
             work = connection.prepare(request.payload);
@@ -108,6 +109,9 @@ export async function runIndexerProcess(
             break;
           case 'search':
             work = connection.search(request.payload);
+            break;
+          case 'configure-vector-profile':
+            work = client.call(request.op, request.payload, decoder(identityStateSchema));
             break;
           case 'commit-file':
           case 'commit-text-file':

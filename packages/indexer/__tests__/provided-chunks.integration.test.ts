@@ -41,7 +41,10 @@ async function host() {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-provided-chunks-'));
   cleanup.push(() => rm(directory, { force: true, recursive: true }));
   const dbPath = path.join(directory, 'index.sqlite');
-  const port = await openIndexer({ dbPath, profile, rootIds: ['r'] }, deadlines);
+  const port = await openIndexer(
+    { dbPath, embedding: { indexMode: 'vector-configured', profile }, rootIds: ['r'] },
+    deadlines
+  );
   cleanup.push(() => port.close());
   return { dbPath, port };
 }
@@ -69,7 +72,10 @@ describe('canonical provided chunks through actual index process', () => {
       expect(hits).toContainEqual(expect.objectContaining(chunk));
     }
     await port.close();
-    const reopened = await openIndexer({ dbPath, profile, rootIds: ['r'] }, deadlines);
+    const reopened = await openIndexer(
+      { dbPath, embedding: { indexMode: 'vector-configured', profile }, rootIds: ['r'] },
+      deadlines
+    );
     cleanup.push(() => reopened.close());
     expect((await reopened.search(query)).hits).toEqual(hits);
     expect((await reopened.prepareFile(snapshot)).embeddingChunkIds).toEqual([]);

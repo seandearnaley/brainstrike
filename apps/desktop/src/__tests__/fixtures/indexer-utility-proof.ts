@@ -39,10 +39,20 @@ async function run(): Promise<void> {
   await app.whenReady();
   const { openIndexer } = await import('@brainstrike/indexer');
   await assert.rejects(
-    openIndexer({ dbPath, profile, rootIds: ['root-a'] }, deadlines),
+    openIndexer(
+      { dbPath, embedding: { indexMode: 'vector-configured', profile }, rootIds: ['root-a'] },
+      deadlines
+    ),
     /Standalone indexer requires Node/
   );
-  const options = { dbPath, profile, rootIds: ['root-a', 'root-b'] };
+  const options = {
+    dbPath,
+    embedding:
+      mode === 'positive'
+        ? { indexMode: 'text-only' as const }
+        : { indexMode: 'vector-configured' as const, profile },
+    rootIds: ['root-a', 'root-b'],
+  };
   if (mode === 'positive') {
     assert.throws(getReadyIndexerHost, /unavailable/);
   }
@@ -50,7 +60,11 @@ async function run(): Promise<void> {
     mode === 'positive'
       ? await acquireIndexerHost(options, deadlines)
       : await IndexerHostManager.create(
-          { dbPath, profile, rootIds: ['root-a', 'root-b'] },
+          {
+            dbPath,
+            embedding: { indexMode: 'vector-configured', profile },
+            rootIds: ['root-a', 'root-b'],
+          },
           deadlines,
           mode === 'positive' ? undefined : entryPath
         );
@@ -129,11 +143,22 @@ async function run(): Promise<void> {
       .length,
     1
   );
-  assert.equal(
-    (await activePort.search({ limit: 10, mode: 'vector', profile, rootIds: ['root-a'], vector }))
-      .hits.length,
-    0
-  );
+  if (mode === 'positive') {
+    const textInfo = await activePort.info();
+    assert.deepEqual(textInfo.embedding, { indexMode: 'text-only' });
+    await assert.rejects(
+      activePort.search({ limit: 10, mode: 'vector', profile, rootIds: ['root-a'], vector }),
+      /not configured/
+    );
+    const configured = await activePort.configureVectorProfile(profile);
+    assert.equal(configured.storeId, textInfo.storeId);
+  } else {
+    assert.equal(
+      (await activePort.search({ limit: 10, mode: 'vector', profile, rootIds: ['root-a'], vector }))
+        .hits.length,
+      0
+    );
+  }
   const backfill = await activePort.prepareFile(snapshot);
   assert.equal(backfill.unchanged, true);
   assert.equal(backfill.embeddingChunkIds.length, 1);
@@ -170,9 +195,16 @@ async function run(): Promise<void> {
   assert.equal(activeManager.exited, true);
   const reopened =
     mode === 'positive'
-      ? await acquireIndexerHost(options, deadlines)
+      ? await acquireIndexerHost(
+          { ...options, embedding: { indexMode: 'open-existing' } },
+          deadlines
+        )
       : await IndexerHostManager.create(
-          { dbPath, profile, rootIds: ['root-a', 'root-b'] },
+          {
+            dbPath,
+            embedding: { indexMode: 'vector-configured', profile },
+            rootIds: ['root-a', 'root-b'],
+          },
           deadlines,
           mode === 'positive' ? undefined : entryPath
         );

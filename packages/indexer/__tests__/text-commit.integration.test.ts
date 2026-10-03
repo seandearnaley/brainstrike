@@ -20,7 +20,11 @@ const vector = Array.from({ length: 384 }, (_, index) => (index === 0 ? 1 : 0));
 it('explicit text commits need no inference, preserve valid vectors and permit strict later backfill', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-text-index-'));
   const port = await openIndexer(
-    { dbPath: path.join(directory, 'index.sqlite'), profile, rootIds: ['r'] },
+    {
+      dbPath: path.join(directory, 'index.sqlite'),
+      embedding: { indexMode: 'vector-configured', profile },
+      rootIds: ['r'],
+    },
     deadlines
   );
   const snapshot = {
@@ -94,7 +98,7 @@ it('retains captured canonical symbols and refs during unchanged vector backfill
   };
   const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-text-graph-'));
   const dbPath = path.join(directory, 'index.sqlite');
-  const options = { dbPath, profile, rootIds: ['r'] };
+  const options = { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['r'] };
   let port = await openIndexer(options, deadlines);
   try {
     const snapshot = {
@@ -123,6 +127,15 @@ it('retains captured canonical symbols and refs during unchanged vector backfill
     });
     await port.close();
     port = await openIndexer(options, deadlines);
+    const before = openConnection(dbPath, { readonly: true });
+    const symbols = before.prepare('SELECT * FROM file_symbols ORDER BY seq').all();
+    const refs = before.prepare('SELECT * FROM file_symbol_refs ORDER BY seq').all();
+    before.close();
+    await port.configureVectorProfile(profile);
+    const after = openConnection(dbPath, { readonly: true });
+    expect(after.prepare('SELECT * FROM file_symbols ORDER BY seq').all()).toEqual(symbols);
+    expect(after.prepare('SELECT * FROM file_symbol_refs ORDER BY seq').all()).toEqual(refs);
+    after.close();
     const backfill = await port.prepareFile(snapshot);
     const result = await port.commitFile({
       embeddings: backfill.embeddingChunkIds.map((chunkId) => ({ chunkId, vector })),
@@ -152,9 +165,9 @@ it('retains captured canonical symbols and refs during unchanged vector backfill
     } finally {
       corrupt.close();
     }
-    await expect(openIndexer(options, deadlines)).rejects.toThrow(
-      'Derived chunk/vector counts disagree'
-    );
+    await expect(
+      openIndexer({ ...options, embedding: { indexMode: 'open-existing' } }, deadlines)
+    ).rejects.toThrow('Derived chunk/vector counts disagree');
   } finally {
     await port.close();
     await rm(directory, { force: true, recursive: true });
