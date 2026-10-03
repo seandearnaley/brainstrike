@@ -23,17 +23,18 @@ import type {
   CanonicalWorkspaceSourceDependencies,
 } from './workspace-source-ports.js';
 
-export interface CanonicalWorkspaceRuntimeDependencies
-  extends Omit<CanonicalIngestionDependencies, 'source'> {
-  readonly managedCollectionId: string;
-  readonly onError: (operation: string, error: unknown) => void;
-  readonly onReceipt: (receipt: CanonicalScanReceipt) => void;
-  readonly onWatchHealth: (health: WatcherHealthTransition) => void;
-  readonly request: Omit<CanonicalScanRequest, 'requestId' | 'scope' | 'forceFileIds'>;
-  readonly source: Omit<CanonicalWorkspaceSourceDependencies, 'lease' | 'resolveScanScope'> & {
-    readonly lease: CanonicalWorkspaceLease;
+type WithoutSource<T> = T extends unknown ? Omit<T, 'source'> : never;
+export type CanonicalWorkspaceRuntimeDependencies =
+  WithoutSource<CanonicalIngestionDependencies> & {
+    readonly managedCollectionId: string;
+    readonly onError: (operation: string, error: unknown) => void;
+    readonly onReceipt: (receipt: CanonicalScanReceipt) => void;
+    readonly onWatchHealth: (health: WatcherHealthTransition) => void;
+    readonly request: Omit<CanonicalScanRequest, 'requestId' | 'scope' | 'forceFileIds'>;
+    readonly source: Omit<CanonicalWorkspaceSourceDependencies, 'lease' | 'resolveScanScope'> & {
+      readonly lease: CanonicalWorkspaceLease;
+    };
   };
-}
 interface ActivePass {
   readonly context: CanonicalOperationContext;
   readonly controller: AbortController;

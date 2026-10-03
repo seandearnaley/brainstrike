@@ -317,22 +317,22 @@ catalogs:
       version: 5.0.15
 
 overrides:
-  "tsup@8.5.1>esbuild": 0.28.2
-  "@vercel/node@5.9.3>tsx": 4.23.12
-  "@vercel/backends@0.8.30>tsx": 4.23.12
-  "drizzle-kit@0.31.10>@esbuild-kit/esm-loader": '-'
-  "drizzle-kit@0.31.10>tsx": 4.23.12
-  "vite-plugin-top-level-await@1.6.0>uuid": 11.1.1
-  "brace-expansion@5.0.0 - 5.0.11": 5.0.12
-  "brace-expansion@2.0.0 - 2.1.6": 2.1.7
-  "brace-expansion@1.0.0 - 1.1.20": 1.1.21
-  "@vercel/fun@1.3.0>path-to-regexp": 8.4.2
-  "@vercel/hono@0.2.110>path-to-regexp": 8.4.2
-  "@vercel/express@0.1.121>path-to-regexp": 8.4.2
-  "@vercel/backends@0.8.30>path-to-regexp": 8.4.2
-  "@vercel/remix-builder@5.9.1>path-to-regexp": 6.3.0
-  "@vercel/node@5.9.3>path-to-regexp": 6.3.0
-  'js-yaml@4.0.0 - 4.3.1': 4.3.2
+  tsup@8.5.1>esbuild: 0.28.2
+  '@vercel/node@5.9.3>tsx': 4.23.12
+  '@vercel/backends@0.8.30>tsx': 4.23.12
+  drizzle-kit@0.31.10>@esbuild-kit/esm-loader: '-'
+  drizzle-kit@0.31.10>tsx: 4.23.12
+  vite-plugin-top-level-await@1.6.0>uuid: 11.1.1
+  brace-expansion@5.0.0 - 5.0.11: 5.0.12
+  brace-expansion@2.0.0 - 2.1.6: 2.1.7
+  brace-expansion@1.0.0 - 1.1.20: 1.1.21
+  '@vercel/fun@1.3.0>path-to-regexp': 8.4.2
+  '@vercel/hono@0.2.110>path-to-regexp': 8.4.2
+  '@vercel/express@0.1.121>path-to-regexp': 8.4.2
+  '@vercel/backends@0.8.30>path-to-regexp': 8.4.2
+  '@vercel/remix-builder@5.9.1>path-to-regexp': 6.3.0
+  '@vercel/node@5.9.3>path-to-regexp': 6.3.0
+  js-yaml@4.0.0 - 4.3.1: 4.3.2
   vercel@58.4.4>smol-toml: 1.8.0
   '@vercel/python-analysis@0.12.0>smol-toml': 1.8.0
   '@vercel/rust@1.4.0>smol-toml': 1.8.0
@@ -1755,6 +1755,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
+      '@brainstrike/indexer':
+        specifier: workspace:*
+        version: link:../indexer
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -2817,8 +2820,6 @@ importers:
         specifier: 'catalog:'
         version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@8.3.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))
 
-
-
   packages/indexing-contract:
     dependencies:
       '@brainstrike/logging':
@@ -3336,7 +3337,6 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@8.3.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))
-
 
   packages/state-store:
     dependencies:
@@ -6208,7 +6208,7 @@ packages:
       react-dom:
         optional: true
 
-  "@modelcontextprotocol/node@2.1.0":
+  '@modelcontextprotocol/node@2.1.0':
     resolution: {integrity: sha512-6xg3iWVcOfiL8Y7rI6xUqXD0lI2AY5q3djsa/cOi1IJUSwx06t0gvhSwU/6mIIohrFlt40/ANUG56DQ0HLhILQ==}
     engines: {node: '>=20'}
     peerDependencies:
@@ -6228,7 +6228,7 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
-  "@modelcontextprotocol/server-legacy@2.1.0":
+  '@modelcontextprotocol/server-legacy@2.1.0':
     resolution: {integrity: sha512-Ax84OEIzSQw+GIYeuJmlQZP/Yg+jvPVfUd5GYdpChn9fCHrSsDNxE+X+klvxB6hjmacRsa1S11EnZ6P6P2WXgQ==}
     engines: {node: '>=20'}
     deprecated: This package is a frozen copy of v1's SSE transport and OAuth Authorization Server helpers for migration purposes only. Use StreamableHTTP from @modelcontextprotocol/server and a dedicated OAuth server in production. Will not receive new features.
@@ -15170,7 +15170,7 @@ snapshots:
 
   '@adobe/css-tools@4.5.0': {}
 
-  "@ai-sdk/amazon-bedrock@5.0.76(zod@4.6.5)":
+  '@ai-sdk/amazon-bedrock@5.0.76(zod@4.6.5)':
     dependencies:
       '@ai-sdk/anthropic': 4.0.49(zod@4.6.5)
       '@ai-sdk/openai': 4.0.60(zod@4.6.5)
@@ -15181,45 +15181,45 @@ snapshots:
       aws4fetch: 1.0.20
       zod: 4.6.5
 
-  "@ai-sdk/anthropic@4.0.49(zod@4.6.5)":
+  '@ai-sdk/anthropic@4.0.49(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.10
       '@ai-sdk/provider-utils': 5.0.36(zod@4.6.5)
       zod: 4.6.5
 
-  "@ai-sdk/gateway@3.0.174(zod@4.6.5)":
+  '@ai-sdk/gateway@3.0.174(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 3.0.15
       '@ai-sdk/provider-utils': 4.0.46(zod@4.6.5)
       '@vercel/oidc': 3.2.0
       zod: 4.6.5
 
-  "@ai-sdk/google@4.0.64(zod@4.6.5)":
+  '@ai-sdk/google@4.0.64(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.10
       '@ai-sdk/provider-utils': 5.0.36(zod@4.6.5)
       zod: 4.6.5
 
-  "@ai-sdk/openai@4.0.49(zod@4.6.5)":
+  '@ai-sdk/openai@4.0.49(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.8
       '@ai-sdk/provider-utils': 5.0.32(zod@4.6.5)
       zod: 4.6.5
 
-  "@ai-sdk/openai@4.0.60(zod@4.6.5)":
+  '@ai-sdk/openai@4.0.60(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.10
       '@ai-sdk/provider-utils': 5.0.36(zod@4.6.5)
       zod: 4.6.5
 
-  "@ai-sdk/provider-utils@4.0.40(zod@4.6.5)":
+  '@ai-sdk/provider-utils@4.0.40(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 3.0.14
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.1.0
       zod: 4.6.5
 
-  "@ai-sdk/provider-utils@4.0.46(zod@4.6.5)":
+  '@ai-sdk/provider-utils@4.0.46(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 3.0.15
       '@standard-schema/spec': 1.1.0
@@ -15227,7 +15227,7 @@ snapshots:
       undici: 6.28.1
       zod: 4.6.5
 
-  "@ai-sdk/provider-utils@5.0.13(zod@4.6.5)":
+  '@ai-sdk/provider-utils@5.0.13(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.4
       '@standard-schema/spec': 1.1.0
@@ -15235,7 +15235,7 @@ snapshots:
       eventsource-parser: 3.1.0
       zod: 4.6.5
 
-  "@ai-sdk/provider-utils@5.0.32(zod@4.6.5)":
+  '@ai-sdk/provider-utils@5.0.32(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.8
       '@standard-schema/spec': 1.1.0
@@ -15244,7 +15244,7 @@ snapshots:
       undici: 7.29.1
       zod: 4.6.5
 
-  "@ai-sdk/provider-utils@5.0.36(zod@4.6.5)":
+  '@ai-sdk/provider-utils@5.0.36(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.10
       '@standard-schema/spec': 1.1.0
@@ -17361,7 +17361,7 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.3': {}
 
-  "@mastra/core@1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@6.0.256(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)":
+  '@mastra/core@1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@6.0.256(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)':
     dependencies:
       '@a2a-js/sdk-v0_3': '@a2a-js/sdk@0.3.14(express@5.2.1(supports-color@10.2.2))'
       '@a2a-js/sdk-v1': '@a2a-js/sdk@1.0.1(express@5.2.1(supports-color@10.2.2))'
@@ -17413,7 +17413,7 @@ snapshots:
       - zod-openapi
       - zod-to-json-schema
 
-  "@mastra/memory@1.32.1(@mastra/core@1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@6.0.256(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5))(supports-color@10.2.2)":
+  '@mastra/memory@1.32.1(@mastra/core@1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@6.0.256(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5))(supports-color@10.2.2)':
     dependencies:
       '@mastra/core': 1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@6.0.256(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
       '@mastra/schema-compat': 1.3.11(zod@4.6.5)
@@ -17510,7 +17510,7 @@ snapshots:
     dependencies:
       zod: 4.6.5
 
-  "@modelcontextprotocol/ext-apps@1.7.5(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.5)":
+  '@modelcontextprotocol/ext-apps@1.7.5(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.5))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.5)':
     dependencies:
       '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.6.5)
       '@standard-schema/spec': 1.1.0
@@ -17519,7 +17519,7 @@ snapshots:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
 
-  "@modelcontextprotocol/node@2.1.0(@modelcontextprotocol/server@2.1.0)(hono@4.13.7)":
+  '@modelcontextprotocol/node@2.1.0(@modelcontextprotocol/server@2.1.0)(hono@4.13.7)':
     dependencies:
       '@hono/node-server': 1.19.17(hono@4.13.7)
       '@modelcontextprotocol/server': 2.1.0
@@ -17548,7 +17548,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  "@modelcontextprotocol/server-legacy@2.1.0(express@5.2.1(supports-color@10.2.2))":
+  '@modelcontextprotocol/server-legacy@2.1.0(express@5.2.1(supports-color@10.2.2))':
     dependencies:
       '@modelcontextprotocol/core': 2.1.0
       content-type: 1.0.5
@@ -17760,7 +17760,7 @@ snapshots:
     dependencies:
       '@octokit/openapi-types': 27.0.0
 
-  "@openrouter/ai-sdk-provider@2.10.0(ai@6.0.256(zod@4.6.5))(zod@4.6.5)":
+  '@openrouter/ai-sdk-provider@2.10.0(ai@6.0.256(zod@4.6.5))(zod@4.6.5)':
     dependencies:
       ai: 6.0.256(zod@4.6.5)
       zod: 4.6.5
@@ -19469,7 +19469,7 @@ snapshots:
       '@smithy/core': 3.33.3
       tslib: 2.8.1
 
-  "@standard-community/standard-json@0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)":
+  '@standard-community/standard-json@0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)':
     dependencies:
       '@standard-schema/spec': 1.1.0
       '@types/json-schema': 7.0.15
@@ -19478,7 +19478,7 @@ snapshots:
       zod: 4.6.5
       zod-to-json-schema: 3.25.2(zod@4.6.5)
 
-  "@standard-community/standard-openapi@0.2.10(@standard-community/standard-json@0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod@4.6.5)":
+  '@standard-community/standard-openapi@0.2.10(@standard-community/standard-json@0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod@4.6.5)':
     dependencies:
       '@standard-community/standard-json': 0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
       '@standard-schema/spec': 1.1.0

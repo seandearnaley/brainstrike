@@ -46,6 +46,13 @@ Evidence: `local-inference/2026-10-03-canonical-profile-adapter.md`.
 Guard: `native-canonical-profile.test.ts`,
 `native-canonical-profile.integration.test.ts`, `inference-plan.test.ts`.
 
+### Canonical VECTOR consumption
+
+- Admit inference only through an explicit VECTOR canonical host with current authorized saved profile and native missing-chunk plan. Join generate/cancel/join and cancellation notices before publication/completion, preserving independent errors and failed cleanup ownership.
+
+Evidence: `indexer/2026-10-03-canonical-vector-pipeline.md`.
+Guard: `packages/canonical-ingestion/__tests__/vector-host.test.ts`.
+
 ### Vector device preference
 
 - Host and visible UI resolve `devicePref`/`devicePrefConfigured` from the SAME

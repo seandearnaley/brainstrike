@@ -1,5 +1,12 @@
 import type { ChunkingRequestOptions } from '@brainstrike/chunking-worker/node';
 import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
+import type {
+  ScopedCoverage,
+  ScopedFilePlan,
+  ScopedManifestFile,
+  ScopedManifestResult,
+  VectorProfile,
+} from '@brainstrike/indexer';
 
 export type CanonicalSourceScope =
   | { readonly kind: 'workspace'; readonly rootId: string }
@@ -182,6 +189,7 @@ export interface CanonicalPublicationPort {
 
 /** Exact engine-owned profile is generic until the additive profile DTO is integrated. */
 export interface CanonicalInferencePort<Profile> {
+  /** Abort and physically join this operation. Only its exact owned cancellation reason is expected; independent failures reject. */
   cancel(requestId: string): Promise<void>;
   /** At most 64 ordered missing canonical chunks; the existing host relay validates the exact profile. */
   generate(request: {
@@ -193,5 +201,35 @@ export interface CanonicalInferencePort<Profile> {
     readonly requestId: string;
     readonly vectors: readonly { readonly chunkId: string; readonly vector: readonly number[] }[];
   }>;
+  /** Physically join, preserving independent generate/cleanup faults even when the caller cancelled. Expected owned cancellation may settle normally. */
   join(requestId: string): Promise<void>;
+}
+
+/** Explicit vector publication through the existing scoped writer, with no TEXT downgrade. */
+export interface CanonicalVectorPublicationPort extends CanonicalPublicationPort {
+  commitVectorFile(request: {
+    readonly file: CanonicalFileIdentity;
+    readonly plan: ScopedFilePlan;
+    readonly profile: VectorProfile;
+    readonly embeddings: readonly {
+      readonly chunkId: string;
+      readonly vector: readonly number[];
+    }[];
+    readonly syntax?: CanonicalIndexPayload['syntax'];
+    readonly ticket: CanonicalScanTicket;
+  }): Promise<void>;
+  prepareVectorFile(request: {
+    readonly file: CanonicalFileIdentity;
+    readonly payload: CanonicalIndexPayload;
+    readonly profile: VectorProfile;
+    readonly ticket: CanonicalScanTicket;
+  }): Promise<ScopedFilePlan>;
+  vectorCoverage(request: {
+    readonly profile: VectorProfile;
+    readonly scope: CanonicalSourceScope;
+  }): Promise<ScopedCoverage>;
+  verifyVectorManifest(request: {
+    readonly files: readonly ScopedManifestFile[];
+    readonly scope: CanonicalSourceScope;
+  }): Promise<ScopedManifestResult>;
 }

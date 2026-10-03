@@ -18,6 +18,7 @@
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/indexer": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },
