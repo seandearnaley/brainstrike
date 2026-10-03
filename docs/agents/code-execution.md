@@ -243,7 +243,7 @@ srt stays external in tsup. Runtime-free readiness diagnostics are exported by
   exactly that key set. Refuse un-injected languages. Await construction: its
   fixed offline shell probe uses the real fence before advertising readiness.
 - Desktop injects Python's absolute path via `resolveDesktopPythonExecutable()`; agent code
-  never imports `apps/desktop/src/python-runtime/`. Hosts: macOS arm64/x64 or Linux glibc x64 (no `_dbm`).
+  never imports `apps/desktop/src/python-runtime/`. Hosts: macOS arm64/x64 or Linux glibc arm64/x64 (no `_dbm`).
   It unpacks under `userData/python-runtime/`, outside always-deny stores; keep typed
   `python_*` errors separate from fence codes. Never download or guess PATH interpreters.
   Use absolute Linux tar/gzip and validated physical helpers via the injected host capability.

@@ -22,10 +22,10 @@ const resourcesDir = path.resolve(import.meta.dirname, '../../../resources/pytho
 
 function resolveSkipReason(): { archivePath?: string; skipReason?: string } {
   const darwin = process.platform === 'darwin' && ['arm64', 'x64'].includes(process.arch);
-  const linux = process.platform === 'linux' && process.arch === 'x64';
+  const linux = process.platform === 'linux' && ['arm64', 'x64'].includes(process.arch);
   if (!(darwin || linux)) {
     return {
-      skipReason: `bundled Python supports darwin arm64/x64 and linux glibc x64; this host is ${process.platform}/${process.arch}`,
+      skipReason: `bundled Python supports darwin arm64/x64 and linux glibc arm64/x64; this host is ${process.platform}/${process.arch}`,
     };
   }
   const manifestPath = path.join(resourcesDir, 'manifest.json');
@@ -34,7 +34,9 @@ function resolveSkipReason(): { archivePath?: string; skipReason?: string } {
   }
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as PythonRuntimeManifest;
   const triple = linux
-    ? 'x86_64-unknown-linux-gnu'
+    ? process.arch === 'arm64'
+      ? 'aarch64-unknown-linux-gnu'
+      : 'x86_64-unknown-linux-gnu'
     : process.arch === 'arm64'
       ? 'aarch64-apple-darwin'
       : 'x86_64-apple-darwin';
