@@ -60,8 +60,10 @@ Guard: `packages/indexer/__tests__/indexer.integration.test.ts`.
 - Share browser-safe producer DTOs through `@brainstrike/indexing-contract/indexer-producer`; keep process and database ownership outside that contract.
 - Map existing canonical events through `@brainstrike/file-import/canonical-index-publication`. Preserve original source, chunk objects and same-parse graph identities; refuse foreign identities, skipped nonempty sources, incomplete source ranges and invalid graph references.
 - Keep the payload independent of scope; workspace publication adds only supplied root/path authority. Rootless consumers must not invent a workspace. Keep the built public mapper loadable in plain Node without renderer globals or source aliases.
+- Hash each consuming package's own source/tests and the external canonical recording in deterministic unit/coverage tasks. Declare default files explicitly alongside inherited inputs; build public artifacts before integration lanes that import them.
 
 Evidence: `indexer/2026-10-03-publication-contract-prerequisite.md`.
+Evidence: `indexer/2026-10-03-node-fixture-test-input.md`.
 Guard: `packages/file-import/src/__tests__/canonical-index-publication.test.ts`, `packages/file-import/src/__tests__/canonical-public-node-entry.integration.test.ts`.
 
 ### Retained canonical ingestion
