@@ -175,6 +175,27 @@ function findSourceMatchEndOffset(
   return chunkOffset === chunkContent.length ? contentOffset : null;
 }
 
+/** Validate a supplied span with the chunker's existing matcher; do not relocate it. */
+export function matchesChunkSourceRange(
+  content: string,
+  chunkContent: string,
+  startOffset: number,
+  endOffset: number
+): boolean {
+  if (
+    !(Number.isSafeInteger(startOffset) && Number.isSafeInteger(endOffset)) ||
+    startOffset < 0 ||
+    endOffset <= startOffset ||
+    endOffset > content.length ||
+    chunkContent.length === 0
+  ) {
+    return false;
+  }
+  const source = content.slice(startOffset, endOffset);
+  const match = findSourceRangeForChunkContent(source, chunkContent, 0);
+  return match?.startOffset === 0 && match.endOffset === source.length;
+}
+
 function findSourceMatchStartOffset(
   content: string,
   chunkContent: string,

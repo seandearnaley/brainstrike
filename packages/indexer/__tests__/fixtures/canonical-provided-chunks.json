@@ -1,0 +1,72 @@
+{
+  "relativePath": "apps/desktop/src/assistant-server/artifact-reader-model-projection.ts",
+  "sourceHash": "3fc55549428046ddd0bea2541a5ff993c786dca904e198bddcad17a8f940e10e",
+  "fileId": "e20bc6da87afe6f2ebd74781176bab42727d9bf52e488b847828d024345a6728",
+  "result": {
+    "chunks": [
+      {
+        "chunkIndex": 0,
+        "chunkSize": 256,
+        "chunkType": "recursive",
+        "content": "import { projectToolOutputArtifactPage } from '@brainstrike/agent';\n\n/** The central model-projection wrapper invokes this with the sanitized tool as receiver, including its exact callable id. */\nexport",
+        "contentHash": "e1f8c75f1573d20c9e85245ed1ec8d2557598b726b070e48e98d7a14dac5e9a4",
+        "endLine": 4,
+        "endOffset": 202,
+        "startLine": 1,
+        "startOffset": 0,
+        "tokenCount": 39
+      },
+      {
+        "chunkIndex": 1,
+        "chunkSize": 256,
+        "chunkType": "recursive",
+        "content": "function createArtifactReaderModelProjection(\n  resolveBudget: () => number\n): (this: { id: string }, output: unknown) => unknown {\n  return function projectArtifactReaderModelOutput(this: { id: string }, output: unknown): unknown {\n    return projectToolOutputArtifactPage(output, resolveBudget(), this.id);\n  };\n}",
+        "contentHash": "911cb9ebeb33ab318b0567f1b4f37f008e43940936a256852e329f7898aebc6e",
+        "endLine": 10,
+        "endOffset": 518,
+        "startLine": 4,
+        "startOffset": 203,
+        "tokenCount": 70
+      }
+    ],
+    "fileRecordId": "e20bc6da87afe6f2ebd74781176bab42727d9bf52e488b847828d024345a6728",
+    "id": "chunk-8",
+    "skipped": false,
+    "strategyUsed": "recursive",
+    "totalTokens": 109,
+    "type": "result",
+    "symbols": [
+      {
+        "endLine": 10,
+        "endOffset": 518,
+        "exported": true,
+        "kind": "function",
+        "name": "createArtifactReaderModelProjection",
+        "startLine": 4,
+        "startOffset": 203
+      }
+    ],
+    "symbolRefs": [
+      {
+        "kind": "import",
+        "line": 1,
+        "name": "projectToolOutputArtifactPage",
+        "module": "@brainstrike/agent"
+      },
+      {
+        "kind": "call",
+        "line": 8,
+        "name": "projectToolOutputArtifactPage",
+        "enclosingSymbolIndex": 0
+      },
+      {
+        "kind": "call",
+        "line": 8,
+        "name": "resolveBudget",
+        "enclosingSymbolIndex": 0
+      }
+    ]
+  },
+  "sourceCommit": "ed97957e030dd3345c232650199dbc88929dad24",
+  "content": "import { projectToolOutputArtifactPage } from '@brainstrike/agent';\n\n/** The central model-projection wrapper invokes this with the sanitized tool as receiver, including its exact callable id. */\nexport function createArtifactReaderModelProjection(\n  resolveBudget: () => number\n): (this: { id: string }, output: unknown) => unknown {\n  return function projectArtifactReaderModelOutput(this: { id: string }, output: unknown): unknown {\n    return projectToolOutputArtifactPage(output, resolveBudget(), this.id);\n  };\n}\n"
+}
