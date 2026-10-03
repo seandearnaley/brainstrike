@@ -35,7 +35,10 @@ async function run(): Promise<void> {
   const manager = await IndexerHostManager.create(
     {
       dbPath: databasePath,
-      profile: { dimensions, dtype, modelId, revision, tokenCap },
+      embedding: {
+        indexMode: 'vector-configured',
+        profile: { dimensions, dtype, modelId, revision, tokenCap },
+      },
       rootIds: ['captured-root'],
     },
     { closeMs: 5000, exitMs: 1000, requestMs: 5000, startupMs: 5000 }
@@ -74,6 +77,18 @@ async function run(): Promise<void> {
     1
   );
   assert.equal((await query.query('SELECT count(*) FROM vec_chunks')).rows[0]?.[0], 1);
+  const grep = await query.grep({
+    caseSensitive: false,
+    isRegex: false,
+    maxRows: 100,
+    pattern: 'embedding',
+    rootIds: ['captured-root'],
+  });
+  assert.deepEqual(grep.identity, {
+    embedding: (await index.info()).embedding,
+    storeId: (await index.info()).storeId,
+  });
+  assert.equal(grep.rows[0]?.[0], plan.chunks[0]?.chunkId);
   let parentTicks = 0;
   const ticker = setInterval(() => {
     parentTicks += 1;
@@ -103,7 +118,10 @@ async function run(): Promise<void> {
   const reopened = await IndexerHostManager.create(
     {
       dbPath: databasePath,
-      profile: { dimensions, dtype, modelId, revision, tokenCap },
+      embedding: {
+        indexMode: 'vector-configured',
+        profile: { dimensions, dtype, modelId, revision, tokenCap },
+      },
       rootIds: ['captured-root'],
     },
     { closeMs: 5000, exitMs: 1000, requestMs: 5000, startupMs: 5000 }

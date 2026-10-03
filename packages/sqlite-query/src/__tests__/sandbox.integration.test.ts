@@ -104,7 +104,9 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
   it('runs canonical literal and regex grep over authorized native chunk identities', async () => {
     const grepPath = join(directory, 'grep.sqlite');
     const writer = new DatabaseSync(grepPath);
-    writer.exec(`CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
+    writer.exec(`CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY,schema_version INTEGER,store_id TEXT,index_mode TEXT,profile_json TEXT,profile_hash TEXT);
+      INSERT INTO index_metadata VALUES(1,4,'${'a'.repeat(64)}','text-only',NULL,NULL);
+      CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
       CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);
       INSERT INTO file_records VALUES('f-a','root-a','a.ts'),('f-b','root-b','b.ts');
       INSERT INTO file_chunks VALUES('chunk-1','root-a','f-a','CAFÉ Alpha','hash-1',1,1,0,10,'text',0,10,3),('chunk-2','root-a','f-a','alphabet','hash-2',2,2,1,8,'text',11,19,1),('chunk-3','root-b','f-b','café alpha','hash-3',1,1,0,10,'text',0,10,3);`);
@@ -127,6 +129,10 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
         rootIds: ['root-a'],
       });
       expect(literal.rows.map((row) => row[0])).toEqual(['chunk-1']);
+      expect(literal).toHaveProperty('identity', {
+        embedding: { indexMode: 'text-only' },
+        storeId: 'a'.repeat(64),
+      });
       expect(literal.matchedChunks).toBe(1);
       expect(literal.truncated).toBe(false);
       expect(
@@ -161,6 +167,33 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
       expect(capped.rows.map((row) => row[0])).toEqual(['chunk-1']);
       expect(capped.matchedChunks).toBe(2);
       expect(capped.truncated).toBe(true);
+      const emptyScope = await grepClient.grep({
+        caseSensitive: false,
+        isRegex: false,
+        maxRows: 100,
+        pattern: 'alpha',
+        rootIds: ['empty-root'],
+      });
+      expect(emptyScope.rows).toEqual([]);
+      expect(emptyScope.matchedChunks).toBe(0);
+      expect(emptyScope.identity).toEqual(literal.identity);
+      const metadataWriter = new DatabaseSync(grepPath);
+      try {
+        metadataWriter.exec('UPDATE index_metadata SET schema_version=3');
+        await expect(
+          grepClient.grep({
+            caseSensitive: false,
+            isRegex: false,
+            maxRows: 100,
+            pattern: 'alpha',
+            rootIds: ['root-a'],
+          })
+        ).rejects.toThrow('Derived schema changed');
+        metadataWriter.exec('UPDATE index_metadata SET schema_version=4');
+      } finally {
+        metadataWriter.close();
+      }
+
       await expect(
         grepClient.grep({
           caseSensitive: false,

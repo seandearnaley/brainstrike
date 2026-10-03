@@ -41,7 +41,7 @@ export function installIndexQueryTarget(
 }
 
 export async function openIndexQuery(): Promise<
-  Pick<SqliteQueryClient, 'query' | 'listTables' | 'describeTable' | 'close'>
+  Pick<SqliteQueryClient, 'query' | 'grep' | 'listTables' | 'describeTable' | 'close'>
 > {
   const registered = target;
   if (!registered) {
@@ -82,6 +82,7 @@ export async function openIndexQuery(): Promise<
         owners.delete(client);
       },
       describeTable: client.describeTable.bind(client),
+      grep: client.grep.bind(client),
       listTables: client.listTables.bind(client),
       query: client.query.bind(client),
     };

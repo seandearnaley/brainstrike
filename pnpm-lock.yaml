@@ -3265,6 +3265,9 @@ importers:
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit
+      '@brainstrike/indexer':
+        specifier: workspace:*
+        version: link:../indexer
       '@brainstrike/sqlite-native':
         specifier: workspace:*
         version: link:../sqlite-native

@@ -21,3 +21,9 @@ output, enforces the process-message byte budget, and remains under the owned
 process deadline. Main must validate live authorized roots before this provider
 is exposed through the visible-UI IPC contract. Product fusion/metadata mapping
 and running-app cutover remain separate consumer work; no M2 exit claim.
+
+### Snapshot identity
+
+Every native grep response carries canonical store ID and embedding state decoded from schema4 metadata in the same SQLite statement as its chunk rows. A LEFT JOIN retains identity for an empty requested scope; missing/corrupt/incompatible metadata refuses. The read-only authorizer and query result-limit guard remain unchanged. The protocol uses the canonical identity schema, and the shared row decoder validates all five metadata fields including the configured profile hash.
+
+RED lacked identity; GREEN includes literal/regex/root/cap controls, empty-scope identity and incompatible metadata refusal. All28 engine cases plus actual Electron utility proof passed; the authoritative configured writer/WAL consumer proof validates exact identity and native chunk IDs before deadline kill, writer retention and reopen. Production provider/registration still requires live-root authorization and receipt-based full-scan readiness.

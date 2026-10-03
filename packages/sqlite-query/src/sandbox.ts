@@ -1,5 +1,6 @@
 import { constants, DatabaseSync } from 'node:sqlite';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
+import { decodeIndexIdentityRow, type IndexerIdentity } from '@brainstrike/indexer/metadata';
 import { sqliteVecExtensionPath } from '@brainstrike/sqlite-native';
 import { createGrepLineMatcher } from '@brainstrike/utils/grep-line-matcher';
 import { Schema } from 'effect';
@@ -143,15 +144,30 @@ export class SqliteSandbox {
     const matcher = createGrepLineMatcher(options.pattern, options.isRegex, options.caseSensitive);
     const placeholders = options.rootIds.map(() => '?').join(',');
     const statement = this.#database.prepare(
-      `SELECT ch.id,ch.root_id,ch.file_record_id,fr.path,ch.content,ch.content_hash,ch.start_line,ch.end_line,ch.chunk_index,ch.chunk_size,ch.chunk_type,ch.start_offset,ch.end_offset,ch.token_count FROM file_chunks ch JOIN file_records fr ON fr.id=ch.file_record_id AND fr.root_id=ch.root_id WHERE ch.root_id IN (${placeholders}) ORDER BY fr.path,ch.id`
+      `SELECT md.schema_version,md.store_id,md.index_mode,md.profile_json,md.profile_hash,native_chunks.* FROM index_metadata md LEFT JOIN (SELECT ch.id,ch.root_id,ch.file_record_id,fr.path,ch.content,ch.content_hash,ch.start_line,ch.end_line,ch.chunk_index,ch.chunk_size,ch.chunk_type,ch.start_offset,ch.end_offset,ch.token_count FROM file_chunks ch JOIN file_records fr ON fr.id=ch.file_record_id AND fr.root_id=ch.root_id WHERE ch.root_id IN (${placeholders})) native_chunks ON 1=1 WHERE md.singleton=1 ORDER BY native_chunks.path,native_chunks.id`
     );
     statement.setReturnArrays(true);
-    const columns = statement.columns().map((column) => column.name);
+    const columns = statement
+      .columns()
+      .slice(5)
+      .map((column) => column.name);
     const rows: (readonly SqliteValue[])[] = [];
     let matchedChunks = 0;
+    let identity: IndexerIdentity | undefined;
     let resultBytes = columns.reduce((total, column) => total + Buffer.byteLength(column) + 16, 0);
     for (const output of statement.iterate(...options.rootIds)) {
-      const row = decodeRow(output);
+      const snapshotRow = decodeRow(output);
+      identity ??= decodeIndexIdentityRow({
+        indexMode: snapshotRow[2],
+        profileHash: snapshotRow[4],
+        profileJson: snapshotRow[3],
+        schemaVersion: snapshotRow[0],
+        storeId: snapshotRow[1],
+      });
+      const row = snapshotRow.slice(5);
+      if (row[0] === null) {
+        continue;
+      }
       const content = row[4];
       if (typeof content !== 'string') {
         throw new TypeError('Native grep chunk content must be text.');
@@ -163,15 +179,7 @@ export class SqliteSandbox {
       if (rows.length === options.maxRows) {
         continue;
       }
-      for (const cell of row) {
-        resultBytes +=
-          16 +
-          (typeof cell === 'string'
-            ? Buffer.byteLength(cell)
-            : cell instanceof Uint8Array
-              ? cell.byteLength
-              : 32);
-      }
+      resultBytes += grepRowBytes(row);
       if (resultBytes > RESULT_LIMIT) {
         throw new RangeError(
           'Grep result exceeds the 1 MiB process-message budget. Reduce the result limit or refine the pattern.'
@@ -179,7 +187,10 @@ export class SqliteSandbox {
       }
       rows.push(row);
     }
-    return { columns, matchedChunks, rows, truncated: matchedChunks > rows.length };
+    if (!identity) {
+      throw new TypeError('Native index metadata is missing; grep cannot identify its snapshot.');
+    }
+    return { columns, identity, matchedChunks, rows, truncated: matchedChunks > rows.length };
   }
 
   listTables(): SqliteRows {
@@ -201,6 +212,20 @@ export class SqliteSandbox {
   close(): void {
     this.#database.close();
   }
+}
+
+function grepRowBytes(row: readonly SqliteValue[]): number {
+  return row.reduce<number>(
+    (bytes, cell) =>
+      bytes +
+      16 +
+      (typeof cell === 'string'
+        ? Buffer.byteLength(cell)
+        : cell instanceof Uint8Array
+          ? cell.byteLength
+          : 32),
+    0
+  );
 }
 
 function validateGrepOptions(options: SqliteGrepOptions): void {
