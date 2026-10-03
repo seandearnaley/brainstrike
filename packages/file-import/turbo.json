@@ -3,6 +3,7 @@
   "tasks": {
     "test": {
       "inputs": [
+        "$TURBO_DEFAULT$",
         "$TURBO_EXTENDS$",
         "../indexer/__tests__/fixtures/canonical-provided-chunks.json"
       ]
@@ -13,6 +14,7 @@
     "test:coverage": {
       "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/file-import#build"],
       "inputs": [
+        "$TURBO_DEFAULT$",
         "$TURBO_EXTENDS$",
         "../indexer/__tests__/fixtures/canonical-provided-chunks.json"
       ]
