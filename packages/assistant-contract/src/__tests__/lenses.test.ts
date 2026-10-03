@@ -23,6 +23,41 @@ const VALID = [
 ].join('\n');
 
 describe('parseLensFile', () => {
+  it('retains an explicit caller-vector requirement tied to a declared text seed', () => {
+    const parsed = parseLensFile(
+      'custom-name.sql',
+      VALID.replace('-- target: index', '-- target: index\n-- requires: caller-vectors symbol')
+    );
+    expect(parsed.ok && parsed.lens).toMatchObject({
+      requirement: { kind: 'caller-vectors', seedParam: 'symbol' },
+    });
+  });
+
+  it.each([
+    ['unknown requirement', '-- requires: other symbol'],
+    ['missing seed name', '-- requires: caller-vectors'],
+    ['undeclared seed', '-- requires: caller-vectors missing'],
+    ['non-text seed', '-- requires: caller-vectors depth'],
+    [
+      'duplicate requirement',
+      '-- requires: caller-vectors symbol\n-- requires: caller-vectors symbol',
+    ],
+  ])('rejects %s visibly', (_label, declaration) => {
+    const parsed = parseLensFile(
+      'custom-name.sql',
+      VALID.replace('-- target: index', `-- target: index\n${declaration}`)
+    );
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('rejects caller-vector requirements on the app target', () => {
+    const parsed = parseLensFile(
+      'custom-name.sql',
+      VALID.replace('-- target: index', '-- target: app\n-- requires: caller-vectors symbol')
+    );
+    expect(parsed.ok).toBe(false);
+  });
+
   it.each(['app', 'index'])('requires and retains the explicit %s lens target', (target) => {
     const result = parseLensFile(
       'routed.sql',

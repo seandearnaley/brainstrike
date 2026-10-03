@@ -1,7 +1,18 @@
 import type { QuerySelfInput } from '@brainstrike/agent';
-import { ToolInputError } from '@brainstrike/assistant-contract';
+import {
+  type LensParamSpec,
+  type LensRequirement,
+  ToolInputError,
+} from '@brainstrike/assistant-contract';
 import type { SqliteQueryClient, SqliteValue } from '@brainstrike/sqlite-query';
 import { type QuerySelfResult, shapeQuerySelfRows } from './query-self-tool';
+
+interface IndexLensInvocation {
+  paramSpecs?: readonly LensParamSpec[];
+  params: readonly unknown[];
+  requirement?: LensRequirement;
+  sql: string;
+}
 
 export type QuerySelfIndexClient = Pick<
   SqliteQueryClient,
@@ -24,9 +35,23 @@ function lensBindings(values: readonly unknown[]): Readonly<Record<string, Sqlit
   );
 }
 
+function resolveRequirement(invocation: IndexLensInvocation): {
+  kind: 'caller-vectors';
+  symbol: string;
+} {
+  const index = invocation.paramSpecs?.findIndex(
+    (param) => param.name === invocation.requirement?.seedParam
+  );
+  const value = index === undefined || index < 0 ? undefined : invocation.params[index];
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new ToolInputError('Caller-vector lens requires its declared nonempty text seed value.');
+  }
+  return { kind: 'caller-vectors', symbol: value };
+}
+
 async function executeIndexQuery(
   input: QuerySelfInput,
-  invocation: { params: readonly unknown[]; sql: string } | undefined,
+  invocation: IndexLensInvocation | undefined,
   client: QuerySelfIndexClient
 ): Promise<QuerySelfResult> {
   const sql = invocation?.sql ?? input.sql?.trim();
@@ -77,6 +102,7 @@ async function executeIndexQuery(
   const result = await client.query(sql, {
     maxRows,
     ...(invocation ? { bindings: lensBindings(invocation.params) } : {}),
+    ...(invocation?.requirement ? { requirement: resolveRequirement(invocation) } : {}),
   });
   return shapeQuerySelfRows(result, maxRows, 'index');
 }
@@ -107,7 +133,7 @@ async function withIndexQueryClient(
 
 export async function runIndexQuerySelf(
   input: QuerySelfInput,
-  invocation: { params: readonly unknown[]; sql: string } | undefined,
+  invocation: IndexLensInvocation | undefined,
   acquire?: () => Promise<QuerySelfIndexClient>
 ): Promise<QuerySelfResult> {
   // Validate unsupported operations before acquiring a process.

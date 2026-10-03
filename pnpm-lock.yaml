@@ -3278,6 +3278,9 @@ importers:
         specifier: 'catalog:'
         version: 4.0.0-rc.118
     devDependencies:
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils

@@ -26,6 +26,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",

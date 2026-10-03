@@ -1,4 +1,4 @@
-import { ToolInputError } from '@brainstrike/assistant-contract';
+import { parseLensFile, ToolInputError } from '@brainstrike/assistant-contract';
 import { SqliteQueryInputError } from '@brainstrike/sqlite-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -115,5 +115,54 @@ describe('explicit index query target', () => {
     ).toEqual({ analyzed: false, kind: 'plan', plan: ['1\t2'], target: 'index' });
     expect(client.query).toHaveBeenCalledWith('EXPLAIN QUERY PLAN SELECT 1', { maxRows: 200 });
     expect(client.close).toHaveBeenCalledOnce();
+  });
+  it('routes an explicitly declared vector requirement by parameter name, independent of lens filename', async () => {
+    const parsed = parseLensFile(
+      'custom-seed-query.sql',
+      [
+        '-- description: Explicit vectors',
+        '-- target: index',
+        '-- requires: caller-vectors symbol',
+        '-- param: terms text',
+        '-- param: symbol text',
+        'SELECT $1,$2',
+      ].join('\n')
+    );
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+    const scan = {
+      entries: [
+        {
+          absPath: '/root/.brainstrike/lenses/custom-seed-query.sql',
+          fileName: 'custom-seed-query.sql',
+          lens: parsed.lens,
+          sourceRootId: 'root',
+          status: 'ok' as const,
+        },
+      ],
+      incompleteDirs: [],
+      lenses: [parsed.lens],
+    };
+    const client = createClient();
+    const hostile = "add'; DELETE FROM file_chunks; --";
+    await runQuerySelf(
+      { lens: 'custom-seed-query', mode: 'lens', target: 'index', values: ['disposer', hostile] },
+      undefined,
+      { openIndexQuery: async () => client, scanLenses: () => scan }
+    );
+    expect(client.query).toHaveBeenCalledWith('SELECT $1,$2', {
+      bindings: { ['$1']: 'disposer', ['$2']: hostile },
+      maxRows: 50,
+      requirement: { kind: 'caller-vectors', symbol: hostile },
+    });
+    expect(client.close).toHaveBeenCalledOnce();
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    const listing = await runQuerySelf({ mode: 'listLenses', target: 'index' }, undefined, {
+      scanLenses: () => scan,
+    });
+    expect(listing).toMatchObject({
+      lenses: [{ requirement: { kind: 'caller-vectors', seedParam: 'symbol' } }],
+    });
   });
 });
