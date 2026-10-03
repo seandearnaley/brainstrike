@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type {
-  CanonicalCatalogFile,
   CanonicalIngestionDependencies,
   CanonicalOperationContext,
   CanonicalScanReceipt,
@@ -43,6 +42,7 @@ import {
   triggerCatalogWorkspaces,
 } from './native-index-catalog-observation';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
+import { createNativeScanAdmission } from './native-index-scan-admission';
 import {
   NATIVE_INDEX_SETTINGS_KEY,
   type NativeIndexSettings,
@@ -50,6 +50,7 @@ import {
   readNativeIndexSettings,
   readNativeManagedCollectionId,
 } from './native-index-settings';
+import { createNativeSourceInventory } from './native-index-source-inventory';
 import {
   type NativeIndexSources,
   retireNativeIndexSources,
@@ -69,7 +70,6 @@ const decodeRoots = makeThrowingDecoder(
 const decodeSelectedCollections = makeThrowingDecoder(
   Schema.Array(Schema.Struct({ id: Schema.NonEmptyString }))
 );
-const catalogBatchSize = 250;
 
 type WithoutSource<T> = T extends unknown ? Omit<T, 'source'> : never;
 interface Dependencies {
@@ -91,14 +91,6 @@ interface Graph {
   sources?: NativeIndexSources | undefined;
   readonly watchFailures: Map<string, string>;
 }
-const scopeMatches = (left: CanonicalSourceScope, right: CanonicalSourceScope): boolean =>
-  left.kind === right.kind &&
-  (left.kind === 'workspace' && right.kind === 'workspace'
-    ? left.rootId === right.rootId
-    : left.kind === 'collection' &&
-      right.kind === 'collection' &&
-      left.embeddingSetId === right.embeddingSetId);
-
 /** Desktop main's actual catalog/grant/inference callbacks; the utility owns parsing and scans. */
 export function createNativeIndexActivation(dependencies: Dependencies) {
   let generation = 0;
@@ -224,7 +216,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
             )
           ).profile
         : null;
-    const records = await loadRecords(current);
+    const records = current.sources?.scanAdmission?.getInventory() ?? (await loadRecords(current));
     const rootIds = [...current.leases.keys()].sort();
     return {
       fileBindings: records.map((record) => {
@@ -391,6 +383,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         throw new Error('Native source borrow differs from its original mounted read authority.');
       }
     }
+    const scanAdmission = createNativeScanAdmission(assertSource, sources.controller.signal);
+    sources.scanAdmission = scanAdmission;
     const profileResolver = resolver(current);
     const catalog = createNativeCanonicalCatalog<VectorProfile>({
       database,
@@ -400,8 +394,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         }
         assertSource();
       },
-      replaceTrustedBindings: async () => {
-        await runtime.acquire();
+      replaceTrustedBindings: async (_scope, context) => {
+        await scanAdmission.acquireBindings(context, () => runtime.acquire());
         assertSource();
       },
       resolveProfile: (scope, _authority, context) =>
@@ -436,43 +430,18 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         };
       },
     });
-    const inventory = (scope: CanonicalSourceScope) => ({
-      loadFiles: async (requested: CanonicalSourceScope, context: CanonicalOperationContext) => {
-        if (!scopeMatches(scope, requested)) {
-          throw new Error('Canonical source inventory scope changed.');
-        }
-        const records = (await loadRecords(current)).filter(
-          (record) => requested.kind === 'collection' || record.rootId === requested.rootId
-        );
-        const files: CanonicalCatalogFile[] = [];
-        for (let offset = 0; offset < records.length; offset += catalogBatchSize) {
-          context.signal.throwIfAborted();
-          assertSource();
-          files.push(
-            ...(await catalog.loadAuthorizedBatch(
-              {
-                files: records
-                  .slice(offset, offset + catalogBatchSize)
-                  .map((record) => identity(current, record)),
-                scope,
-              },
-              context
-            ))
-          );
-          context.signal.throwIfAborted();
-          assertSource();
-        }
-        if (scope.kind === 'collection') {
+    const inventory = (scope: CanonicalSourceScope) =>
+      createNativeSourceInventory({
+        assertSource,
+        catalog,
+        identity: (record) => identity(current, record),
+        loadRecords: () => loadRecords(current),
+        retainCollection: (records) => {
           sources.collectionInventory = records;
-        }
-        return files;
-      },
-      readRetained: (
-        file: Parameters<typeof catalog.readRetainedSource>[0],
-        maxBytes: number,
-        context: CanonicalOperationContext
-      ) => catalog.readRetainedSource(file, maxBytes, scope, context),
-    });
+        },
+        scanAdmission,
+        scope,
+      });
     const manager = getReadyIndexerHost();
     const common = {
       parser: { parser: 'oxc' as const, treeSitterLanguages: [] },
@@ -486,7 +455,15 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       scope: CanonicalSourceScope
     ): WithoutSource<CanonicalIngestionDependencies> => {
       if (settings.mode === 'TEXT') {
-        return { catalog, mode: 'TEXT', parser: common.parser, publication };
+        return {
+          catalog,
+          mode: 'TEXT',
+          parser: common.parser,
+          publication:
+            scope.kind === 'workspace'
+              ? scanAdmission.workspacePublication(publication)
+              : publication,
+        };
       }
       const inference = new NativeCanonicalInference({
         resolver: profileResolver,
@@ -494,7 +471,16 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         transport: dependencies.embedding,
       });
       sources.inference.add(inference);
-      return { catalog, inference, mode: 'VECTOR', parser: common.parser, publication };
+      return {
+        catalog,
+        inference,
+        mode: 'VECTOR',
+        parser: common.parser,
+        publication:
+          scope.kind === 'workspace'
+            ? scanAdmission.workspacePublication(publication)
+            : publication,
+      };
     };
     const firstReceipts: Promise<CanonicalScanReceipt>[] = [];
     for (const lease of sources.leases.values()) {
@@ -512,10 +498,14 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         ...pipeline(scope),
         managedCollectionId: settings.managedCollectionId,
         onError: (operation, error) => {
+          if (operation === 'sync' || operation === 'sync loop') {
+            scanAdmission.failWorkspace(lease.rootId, error);
+          }
           first.reject(error);
           dependencies.onError(operation, error);
         },
         onReceipt: (receipt) => {
+          scanAdmission.completeWorkspace(receipt);
           dependencies.onReceipt?.(receipt);
           if (receipt.scanComplete) {
             first.resolve(receipt);
@@ -600,22 +590,26 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           while (requested) {
             requested = false;
             assertSource();
-            await runtime.acquire();
-            assertSource();
-            sources.collectionInventory = await loadRecords(current);
-            await refreshCatalog(current, false, sources.collectionInventory);
-            const receipt = await collection.scan(randomUUID());
-            dependencies.onReceipt?.(receipt);
-            assertSource();
-            if (!receipt.scanComplete) {
-              throw new Error(`Native collection scan was ${receipt.reason}.`);
-            }
-            await reverifyWorkspaces();
-            const latest = await loadRecords(current);
-            await refreshCatalog(current, false, latest);
-            if (catalogFingerprint(latest) !== catalogFingerprint(sources.collectionInventory)) {
-              requested = true;
-            }
+            const requestId = randomUUID();
+            await scanAdmission.runCollection(requestId, async () => {
+              sources.collectionInventory = await loadRecords(current);
+              scanAdmission.retainInventory(sources.collectionInventory);
+              await runtime.acquire();
+              assertSource();
+              await refreshCatalog(current, false, sources.collectionInventory);
+              const receipt = await collection.scan(requestId);
+              dependencies.onReceipt?.(receipt);
+              assertSource();
+              if (!receipt.scanComplete) {
+                throw new Error(`Native collection scan was ${receipt.reason}.`);
+              }
+              await reverifyWorkspaces();
+              const latest = await loadRecords(current);
+              await refreshCatalog(current, false, latest);
+              if (catalogFingerprint(latest) !== catalogFingerprint(sources.collectionInventory)) {
+                requested = true;
+              }
+            });
           }
         })
         .finally(() => {
@@ -727,7 +721,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (current) {
       await refreshCatalog(current, false);
     }
-    return runtime.acquire();
+    return current?.sources?.scanAdmission
+      ? current.sources.scanAdmission.acquireRead(() => runtime.acquire())
+      : runtime.acquire();
   };
   const acquire = async (): Promise<IndexerPort & ScopedIndexerPort> => {
     if (closed || terminalRequested) {
@@ -751,7 +747,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (current) {
       await refreshCatalog(current, true);
     }
-    return runtime.acquire();
+    return current?.sources?.scanAdmission
+      ? current.sources.scanAdmission.acquireRead(() => runtime.acquire())
+      : runtime.acquire();
   };
   const closeOwned = (): Promise<void> => {
     stopping ??= stopSourcesOwned()

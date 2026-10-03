@@ -1,6 +1,7 @@
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import type { NativeCanonicalCatalogRecord } from './native-canonical-catalog';
 import type { NativeCanonicalInference } from './native-canonical-profile';
+import type { createNativeScanAdmission } from './native-index-scan-admission';
 
 export interface NativeIndexSources {
   readonly attachments: Set<{ close(): Promise<void> }>;
@@ -10,6 +11,7 @@ export interface NativeIndexSources {
   readonly inference: Set<NativeCanonicalInference>;
   readonly leases: Map<string, CanonicalWorkspaceLease>;
   retirement?: Promise<void> | undefined;
+  scanAdmission?: ReturnType<typeof createNativeScanAdmission>;
   scanCollection?: () => Promise<void>;
   startup?: Promise<void>;
   waitForCollection?: () => Promise<void>;

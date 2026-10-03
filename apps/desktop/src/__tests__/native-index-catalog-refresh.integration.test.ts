@@ -3,7 +3,11 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { CanonicalScanReceipt } from '@brainstrike/canonical-ingestion';
+import type {
+  CanonicalScanReceipt,
+  CanonicalWorkspaceLease,
+  CanonicalWorkspaceRuntimeDependencies,
+} from '@brainstrike/canonical-ingestion';
 import type {
   IndexFileBinding,
   ScopedManifestRequest,
@@ -25,7 +29,11 @@ const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
   close: vi.fn(),
   database: { query: vi.fn(), transaction: vi.fn() },
-  manager: { attachCanonicalCollection: vi.fn(), retireCanonicalSources: vi.fn() },
+  manager: {
+    attachCanonicalCollection: vi.fn(),
+    attachCanonicalWorkspace: vi.fn(),
+    retireCanonicalSources: vi.fn(),
+  },
   readyPort: vi.fn(),
 }));
 vi.mock('../db-main', () => ({ getDatabase: async () => mocks.database }));
@@ -62,7 +70,7 @@ function records(count: number): NativeCanonicalCatalogRecord[] {
     stat: { mtimeMs: 1, size: source.length },
   }));
 }
-async function fixture() {
+async function fixture(withWorkspace = false) {
   vi.resetAllMocks();
   const directory = await mkdtemp(path.join(os.tmpdir(), 'native-catalog-refresh-'));
   const native = await openIndexer(
@@ -70,8 +78,8 @@ async function fixture() {
       dbPath: path.join(directory, 'index.sqlite'),
       embedding: { indexMode: 'text-only' },
       fileBindings: [],
-      rootIds: [],
-      scopes: [scope],
+      rootIds: withWorkspace ? ['root'] : [],
+      scopes: withWorkspace ? [{ kind: 'workspace', rootId: 'root' }, scope] : [scope],
     },
     { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
   );
@@ -80,6 +88,15 @@ async function fixture() {
   const nextEntered = Promise.withResolvers<void>();
   const nextGate = Promise.withResolvers<void>();
   const sawNewInventory = Promise.withResolvers<void>();
+  const sawSingleInventory = Promise.withResolvers<void>();
+  const inventoryEntered = Promise.withResolvers<void>();
+  const inventoryGate = Promise.withResolvers<void>();
+  const workspaceEntered = Promise.withResolvers<void>();
+  const workspaceGate = Promise.withResolvers<void>();
+  const workspaceInventorySeen = Promise.withResolvers<void>();
+  const workspacePasses = new Map<string, ReturnType<typeof Promise.withResolvers<void>>>();
+  const batchEntered = Promise.withResolvers<void>();
+  const batchGate = Promise.withResolvers<void>();
   const bindings: string[][] = [];
   const finished = Promise.withResolvers<CanonicalScanReceipt>();
   const proofs: ScopedManifestResult[] = [];
@@ -89,11 +106,16 @@ async function fixture() {
   const state = {
     files: records(0),
     hold: false,
+    holdBatch: false,
+    holdInventoryAfterReads: -1,
     holdNext: false,
+    holdWorkspace: false,
     nativeFailure: undefined as Error | undefined,
+    observeWorkspaceInventory: false,
     populateOnAttachment: false,
     removeNativeFile: false,
     sourceFailure: undefined as Error | undefined,
+    workspaceLoading: false,
   };
   const writer = {
     ...native,
@@ -131,16 +153,34 @@ async function fixture() {
       return { rows: [{ id: scope.embeddingSetId }] };
     }
     if (sql.includes('FROM roots')) {
-      return { rows: [] };
+      return { rows: withWorkspace ? [{ id: 'root', kind: 'path' }] : [] };
     }
     const ids = params[0];
+    const snapshot = state.files;
+    if (!Array.isArray(ids) && state.holdInventoryAfterReads >= 0) {
+      if (state.holdInventoryAfterReads === 0) {
+        state.holdInventoryAfterReads = -1;
+        inventoryEntered.resolve();
+        await inventoryGate.promise;
+      } else {
+        state.holdInventoryAfterReads -= 1;
+      }
+    }
+    if (Array.isArray(ids) && state.holdBatch) {
+      state.holdBatch = false;
+      batchEntered.resolve();
+      await batchGate.promise;
+    }
+    if (!Array.isArray(ids) && state.files.length === 1) {
+      sawSingleInventory.resolve();
+    }
     if (!Array.isArray(ids) && state.files.length === 2) {
       sawNewInventory.resolve();
     }
     return {
       rows: Array.isArray(ids)
         ? state.files.filter((record) => ids.includes(record.fileId))
-        : state.files,
+        : snapshot,
     };
   });
   const parent = new CanonicalUtilityParent(
@@ -149,6 +189,83 @@ async function fixture() {
   );
   const child = new CanonicalUtilityChild((frame) =>
     queueMicrotask(() => parent.receive(structuredClone(frame)))
+  );
+  const workspaceBegins: string[] = [];
+  const workspaceReceipts: CanonicalScanReceipt[] = [];
+  let workspaceTrigger: (() => Promise<void>) | undefined;
+  const lease: CanonicalWorkspaceLease = {
+    canonicalPath: '/owned/root',
+    generation: 'generation',
+    listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
+    readFile: async () => {
+      throw new Error('Unexpected empty workspace read.');
+    },
+    retire: async () => {},
+    rootId: 'root',
+    signal: new AbortController().signal,
+    subscribe: async () => ({ close: async () => {} }),
+  };
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(
+    async (dependencies: CanonicalWorkspaceRuntimeDependencies) => {
+      if (dependencies.mode !== 'TEXT') {
+        throw new Error('Workspace refresh fixture requires explicit TEXT admission.');
+      }
+      const attachment = await parent.attachWorkspace({
+        ...dependencies,
+        onError: (operation, error) => {
+          if (operation === 'sync' || operation === 'sync loop') {
+            for (const pass of workspacePasses.values()) {
+              pass.resolve();
+            }
+            workspacePasses.clear();
+          }
+          dependencies.onError(operation, error);
+        },
+        onReceipt: (receipt) => {
+          workspacePasses.get(receipt.ticket.requestId)?.resolve();
+          workspacePasses.delete(receipt.ticket.requestId);
+          workspaceReceipts.push(receipt);
+          dependencies.onReceipt(receipt);
+        },
+        publication: {
+          ...dependencies.publication,
+          beginScan: async (request) => {
+            workspacePasses.set(request.requestId, Promise.withResolvers<void>());
+            const ticket = await dependencies.publication.beginScan(request);
+            workspaceBegins.push(request.requestId);
+            return ticket;
+          },
+          finishScan: async (request) => {
+            const receipt = await dependencies.publication.finishScan(request);
+            if (state.holdWorkspace) {
+              state.holdWorkspace = false;
+              workspaceEntered.resolve();
+              await workspaceGate.promise;
+            }
+            return receipt;
+          },
+        },
+        source: {
+          ...dependencies.source,
+          inventory: {
+            ...dependencies.source.inventory,
+            loadFiles: async (requested, context) => {
+              if (state.observeWorkspaceInventory) {
+                state.workspaceLoading = true;
+                workspaceInventorySeen.resolve();
+              }
+              try {
+                return await dependencies.source.inventory.loadFiles(requested, context);
+              } finally {
+                state.workspaceLoading = false;
+              }
+            },
+          },
+        },
+      });
+      workspaceTrigger = () => attachment.trigger();
+      return attachment;
+    }
   );
   mocks.manager.retireCanonicalSources.mockImplementation(() => parent.retireAttachments());
   mocks.manager.attachCanonicalCollection.mockImplementation(
@@ -204,8 +321,12 @@ async function fixture() {
   const onError = vi.fn();
   const activation = createNativeIndexActivation({
     application: {
-      roots: { restoreRoots: async () => [] },
-      watches: {},
+      roots: {
+        borrowSourceRoot: async () => lease,
+        restoreRoots: async () =>
+          withWorkspace ? [{ permissionState: 'granted', rootId: 'root' }] : [],
+      },
+      watches: { subscribe: async () => {} },
     } as unknown as ApplicationIpcDomain,
     embedding: { documentEmbeddings: vi.fn() },
     onError,
@@ -226,6 +347,8 @@ async function fixture() {
   });
   return {
     activation,
+    batchEntered,
+    batchGate,
     bindings,
     capability: createNativeScopedSearchCapability({
       acquireIndexer: activation.acquireRead,
@@ -236,9 +359,17 @@ async function fixture() {
       rebuild: activation.rebuild,
     }),
     close: async () => {
+      inventoryGate.resolve();
+      workspaceGate.resolve();
+      batchGate.resolve();
       gate.resolve();
       nextGate.resolve();
-      await Promise.allSettled([...activeScans]);
+      while (workspacePasses.size > 0 || activeScans.size > 0) {
+        await Promise.allSettled([
+          ...activeScans,
+          ...[...workspacePasses.values()].map((pass) => pass.promise),
+        ]);
+      }
       try {
         await activation.close();
         await parent.close();
@@ -251,6 +382,8 @@ async function fixture() {
     entered,
     finished,
     gate,
+    inventoryEntered,
+    inventoryGate,
     manifests,
     native,
     nextEntered,
@@ -259,7 +392,19 @@ async function fixture() {
     proofs,
     receipts,
     sawNewInventory,
+    sawSingleInventory,
     state,
+    triggerWorkspace: async () => {
+      if (!workspaceTrigger) {
+        throw new Error('Workspace fixture has no actual attachment.');
+      }
+      await workspaceTrigger();
+    },
+    workspaceBegins,
+    workspaceEntered,
+    workspaceGate,
+    workspaceInventorySeen,
+    workspaceReceipts,
   };
 }
 
@@ -528,6 +673,112 @@ it('joins a queued inventory that reverts before the old verified scan settles w
     expect(test.manifests).toEqual([[], ['retained-0']]);
     expect(test.bindings.at(-1)).toEqual(['retained-0']);
     expect(test.activation.getReadiness()).toEqual([{ scanComplete: true, scope }]);
+    expect(test.onError).not.toHaveBeenCalled();
+  } finally {
+    await test.close();
+  }
+});
+
+it.each([false, true])(
+  'keeps the admitted real native inventory during catalog loading with newer inventory=%s',
+  async (newer) => {
+    const test = await fixture();
+    try {
+      await test.activation.acquire();
+      test.state.files = records(1);
+      test.state.holdBatch = true;
+      await test.activation.acquireRead();
+      await test.batchEntered.promise;
+      if (newer) {
+        test.state.files = records(2);
+      }
+      const joining = test.activation.acquire().catch((error: unknown) => error);
+      if (newer) {
+        await test.sawNewInventory.promise;
+        expect(test.activation.getReadiness()).toEqual([{ scanComplete: false, scope }]);
+      }
+      expect(test.bindings.at(-1)).toEqual(['retained-0']);
+      test.batchGate.resolve();
+      expect(await joining).toHaveProperty('info');
+      expect(test.onError).not.toHaveBeenCalled();
+      expect(test.manifests).toEqual(
+        newer ? [[], ['retained-0'], ['retained-0', 'retained-1']] : [[], ['retained-0']]
+      );
+      expect(test.receipts.every((receipt) => receipt.scanComplete)).toBe(true);
+      expect((await test.activation.getSearchAuthority()).readiness).toEqual([
+        { scanComplete: true, scope },
+      ]);
+    } finally {
+      await test.close();
+    }
+  }
+);
+
+it('uses one snapshot for admission, bindings and source inventory when PG changes during admission loading', async () => {
+  const test = await fixture();
+  try {
+    await test.activation.acquire();
+    test.state.files = records(1);
+    test.state.holdInventoryAfterReads = 1;
+    const initial = test.activation.acquireRead().catch((error: unknown) => error);
+    await test.inventoryEntered.promise;
+    test.state.files = records(2);
+    const latest = test.activation.acquire().catch((error: unknown) => error);
+    await test.sawNewInventory.promise;
+    test.inventoryGate.resolve();
+    expect(await initial).toHaveProperty('info');
+    expect(await latest).toHaveProperty('info');
+    expect(test.manifests).toEqual([[], ['retained-0'], ['retained-0', 'retained-1']]);
+    expect(test.receipts.every((receipt) => receipt.scanComplete)).toBe(true);
+    expect(test.onError).not.toHaveBeenCalled();
+  } finally {
+    await test.close();
+  }
+});
+
+it('drains a real workspace pass through the private-channel receipt before collection loading', async () => {
+  const test = await fixture(true);
+  try {
+    await test.activation.acquire();
+    test.state.holdWorkspace = true;
+    await test.triggerWorkspace();
+    await test.workspaceEntered.promise;
+    test.state.files = records(1);
+    const refresh = test.activation.acquire().catch((error: unknown) => error);
+    await test.sawSingleInventory.promise;
+    await test.native.info();
+    expect(test.bindings).toEqual([]);
+    expect(test.receipts).toHaveLength(1);
+    test.workspaceGate.resolve();
+    expect(await refresh).toHaveProperty('info');
+    expect(test.workspaceReceipts).toHaveLength(2);
+    expect(test.manifests).toContainEqual(['retained-0']);
+    expect(test.onError).not.toHaveBeenCalled();
+  } finally {
+    await test.close();
+  }
+});
+
+it('admits a later real workspace pass only after the owned collection host/channel settles', async () => {
+  const test = await fixture(true);
+  try {
+    await test.activation.acquire();
+    const count = test.workspaceBegins.length;
+    test.state.files = records(1);
+    test.state.holdBatch = true;
+    await test.activation.acquireRead();
+    await test.batchEntered.promise;
+    test.state.observeWorkspaceInventory = true;
+    await test.triggerWorkspace();
+    await test.workspaceInventorySeen.promise;
+    await test.native.info();
+    expect(test.state.workspaceLoading).toBe(true);
+    expect(test.workspaceBegins).toHaveLength(count);
+    test.batchGate.resolve();
+    await test.activation.acquire();
+    await vi.waitFor(() => expect(test.workspaceReceipts).toHaveLength(2));
+    expect(test.workspaceBegins).toHaveLength(count + 1);
+    expect(test.receipts.every((receipt) => receipt.scanComplete)).toBe(true);
     expect(test.onError).not.toHaveBeenCalled();
   } finally {
     await test.close();
