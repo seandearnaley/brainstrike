@@ -2589,6 +2589,9 @@ importers:
       electron:
         specifier: 'catalog:'
         version: 44.4.5(supports-color@10.2.2)
+      esbuild:
+        specifier: 'catalog:'
+        version: 0.28.2
       fake-indexeddb:
         specifier: 'catalog:'
         version: 6.2.5

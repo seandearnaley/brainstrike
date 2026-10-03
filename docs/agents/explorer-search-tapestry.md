@@ -228,6 +228,11 @@ Guard: `packages/chunking-worker/src/__tests__/source-range-validation.test.ts`,
   `DirectoryListingTruncatedError`, both scan modes install the handler, and the
   visible summary carries the deduped count. Treat `expectedFileCount` as a
   floor.
+- Keep traversal owned once by `@brainstrike/file-system/directory-tree`, with
+  legacy UI modules re-exporting it. Its only adapter requirement is
+  `readDirectory`; cancellation and strict read-error rejection join all admitted
+  directory reads before the public walk settles. Preserve path/handle identity,
+  entry policy, sorting, snapshots and explicit truncation behavior.
 - Keep unresolved workspace discovery separate from registered PG file identity.
   Secure original-source read/hash precedes bounded main preparation using the
   existing identity/mutation policy. Await real PG source commit and full trusted
@@ -273,6 +278,8 @@ Truncation is reported, never thrown; the re-dispatch budget is
 deliberately non-persistent, so a renderer restart grants a fresh one. Evidence:
 `explorer-search-tapestry/secure-root-capabilities.md`,
 `explorer-search-tapestry/traversal-policy-and-truncation.md`.
+Shared traversal retirement evidence:
+`explorer-search-tapestry/2026-10-03-shared-directory-retirement.md`.
 Discovery preparation evidence:
 `explorer-search-tapestry/2026-10-03-discovered-source-preparation.md`.
 Guard: `workspace-root-registry{,.integration}.test.ts`,

@@ -1,7 +1,8 @@
-import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { DirectoryReadCapability } from '@brainstrike/file-system/directory-tree';
 import type { IFileNode } from '@brainstrike/types';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DirectoryListingTruncatedError,
   walkDirectoryParallel,
@@ -44,14 +45,9 @@ function createTruncatedEntry(parentPath: string): IFileNode {
 }
 
 function createFileSystemAdapter(
-  readDirectory: FileSystemAdapter['readDirectory']
-): FileSystemAdapter {
-  return {
-    exists: vi.fn(),
-    readDirectory,
-    readFile: vi.fn(),
-    requestDirectoryAccess: vi.fn(),
-  } as unknown as FileSystemAdapter;
+  readDirectory: DirectoryReadCapability['readDirectory']
+): DirectoryReadCapability {
+  return { readDirectory };
 }
 
 describe('walkDirectoryParallel', () => {
@@ -450,4 +446,73 @@ describe('walkDirectoryParallel', () => {
       }),
     ]);
   });
+});
+
+describe('physical directory read retirement', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each(['abort', 'read-error'] as const)(
+    'joins admitted reads before rejecting on %s',
+    async (reason) => {
+      vi.useFakeTimers();
+      const slow = Promise.withResolvers<IFileNode[]>();
+      const other = Promise.withResolvers<IFileNode[]>();
+      const failure = new Error('Directory read failed');
+      const controller = new AbortController();
+      const readDirectory = vi.fn(async (handle: DirectoryHandle): Promise<IFileNode[]> => {
+        if (handle.path === rootHandle.path) {
+          return [
+            createDirectoryEntry('slow', `${rootHandle.path}/slow`),
+            createDirectoryEntry('other', `${rootHandle.path}/other`),
+          ];
+        }
+        return handle.name === 'slow' ? slow.promise : other.promise;
+      });
+      let settled = false;
+      const outcome = walkDirectoryParallel(createFileSystemAdapter(readDirectory), rootHandle, {
+        abortSignal: controller.signal,
+        concurrency: 2,
+        propagateDirectoryReadErrors: true,
+      }).then(
+        () => {
+          settled = true;
+          return;
+        },
+        (error: unknown) => {
+          settled = true;
+          return error;
+        }
+      );
+      try {
+        await vi.advanceTimersByTimeAsync(1);
+        expect(readDirectory).toHaveBeenCalledTimes(3);
+        if (reason === 'abort') {
+          controller.abort();
+        } else {
+          other.reject(failure);
+        }
+        await vi.advanceTimersByTimeAsync(1);
+        expect(settled).toBe(false);
+        if (reason === 'read-error') {
+          controller.abort();
+        }
+        slow.resolve([]);
+        other.resolve([]);
+        await vi.runOnlyPendingTimersAsync();
+        const error = await outcome;
+        if (reason === 'abort') {
+          expect(error).toMatchObject({ name: 'AbortError' });
+        } else {
+          expect(error).toBe(failure);
+        }
+      } finally {
+        slow.resolve([]);
+        other.resolve([]);
+        await vi.runOnlyPendingTimersAsync();
+        await outcome;
+      }
+    }
+  );
 });
