@@ -13,6 +13,8 @@ import {
   type FileChunk,
   type FileSnapshot,
   profileSchema,
+  type ScopedFileSnapshot,
+  scopedSnapshotSchema,
   snapshotSchema,
 } from './contracts.js';
 
@@ -48,12 +50,19 @@ export function fileChunks(
   input: unknown,
   profile: EmbeddingProfile | EmbeddingState
 ): readonly FileChunk[] {
-  const snapshot = decoder(snapshotSchema)(input);
+  return buildFileChunks(decoder(snapshotSchema)(input), chunkProfileHash(profile));
+}
+export function scopedFileChunks(input: unknown, profileHash: string | null): readonly FileChunk[] {
+  return buildFileChunks(decoder(scopedSnapshotSchema)(input), profileHash);
+}
+function buildFileChunks(
+  snapshot: FileSnapshot | ScopedFileSnapshot,
+  profileHash: string | null
+): readonly FileChunk[] {
   validateSnapshot(snapshot);
   if ('providedChunks' in snapshot) {
     const lines = buildLineStartOffsets(snapshot.content);
     const indices = new Set<number>();
-    const profileHash = chunkProfileHash(profile);
     return snapshot.providedChunks.map((chunk) => {
       if (
         indices.has(chunk.chunkIndex) ||
@@ -76,8 +85,9 @@ export function fileChunks(
         ...chunk,
         chunkId: sha256(
           JSON.stringify([
-            'provided-file-chunk-v1',
-            snapshot.rootId,
+            ...('embeddingSetId' in snapshot
+              ? ['provided-file-chunk-v2']
+              : ['provided-file-chunk-v1', snapshot.rootId]),
             snapshot.fileId,
             chunk.chunkIndex,
             chunk.startOffset,
@@ -92,7 +102,6 @@ export function fileChunks(
   if (snapshot.content.length === 0) {
     return [];
   }
-  const profileHash = chunkProfileHash(profile);
   const lines = snapshot.content.match(/[^\n]*\n|[^\n]+$/gu) ?? [];
   const chunks: FileChunk[] = [];
   for (let start = 0; start < lines.length; start += snapshot.chunkLines) {
@@ -101,7 +110,14 @@ export function fileChunks(
     const contentHash = sha256(content);
     chunks.push({
       chunkId: sha256(
-        JSON.stringify(['file-chunk-v1', snapshot.rootId, snapshot.fileId, start + 1, end])
+        JSON.stringify([
+          ...('embeddingSetId' in snapshot
+            ? ['file-chunk-v2']
+            : ['file-chunk-v1', snapshot.rootId]),
+          snapshot.fileId,
+          start + 1,
+          end,
+        ])
       ),
       chunkIndex: null,
       chunkSize: null,
@@ -119,7 +135,16 @@ export function fileChunks(
   }
   return chunks;
 }
-export function validateSnapshot(snapshot: FileSnapshot): void {
+export function validateSnapshot(snapshot: FileSnapshot | ScopedFileSnapshot): void {
+  if (snapshot.rootId === null) {
+    if (snapshot.relativePath !== null) {
+      throw new TypeError('Rootless files cannot have workspace-relative paths.');
+    }
+    return;
+  }
+  if (snapshot.relativePath === null) {
+    throw new TypeError('Workspace files require a normalized relative path.');
+  }
   if (
     path.posix.isAbsolute(snapshot.relativePath) ||
     snapshot.relativePath.includes('\\') ||

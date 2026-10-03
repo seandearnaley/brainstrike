@@ -10,6 +10,7 @@ import {
   infoSchema,
   optionsSchema,
   requestSchema,
+  scopedRemoveSchema,
 } from './contracts.js';
 import { RpcClient } from './rpc-client.js';
 import { IndexReader } from './store.js';
@@ -97,12 +98,39 @@ export async function runIndexerProcess(
         }
         let work: unknown | Promise<unknown>;
         switch (request.op) {
+          case 'replace-file-bindings':
+            connection.scoped.replaceBindings(request.payload);
+            work = client.call(request.op, request.payload, decoder(Schema.Boolean));
+            break;
+          case 'prepare-scoped-file':
+            work = connection.scoped.prepare(request.payload);
+            break;
+          case 'search-scopes':
+            work = connection.scoped.search(request.payload);
+            break;
+          case 'coverage-scope':
+            work = connection.scoped.coverage(request.payload);
+            break;
+          case 'verify-scoped-manifest':
+            work = connection.scoped.verifyManifest(request.payload);
+            break;
+          case 'remove-scoped-file': {
+            const removal = decoder(scopedRemoveSchema)(request.payload);
+            connection.scoped.authority.authorize([removal.scope]);
+            connection.scoped.authority.file(removal.fileId, removal.scope);
+            connection.scoped.authority.revision += 1;
+            work = client.call(request.op, removal, decoder(Schema.Boolean));
+            break;
+          }
           case 'info':
             decoder(Schema.Null)(request.payload);
             work = { ...nativeInfo, ...connection.identity };
             break;
           case 'prepare-file':
             work = connection.prepare(request.payload);
+            break;
+          case 'verify-manifest':
+            work = connection.verifyManifest(request.payload);
             break;
           case 'coverage':
             work = connection.coverage(request.payload);
@@ -113,6 +141,8 @@ export async function runIndexerProcess(
           case 'configure-vector-profile':
             work = client.call(request.op, request.payload, decoder(identityStateSchema));
             break;
+          case 'commit-scoped-file':
+          case 'commit-scoped-text-file':
           case 'commit-file':
           case 'commit-text-file':
             work = client.call(request.op, request.payload, decoder(commitResultSchema));

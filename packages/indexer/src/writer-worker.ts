@@ -19,6 +19,18 @@ try {
       id = request.id;
       let value: unknown;
       switch (request.op) {
+        case 'replace-file-bindings':
+          value = writer.scoped.replaceBindings(request.payload);
+          break;
+        case 'commit-scoped-text-file':
+          value = writer.scoped.commitText(request.payload);
+          break;
+        case 'commit-scoped-file':
+          value = writer.scoped.commitVector(request.payload);
+          break;
+        case 'remove-scoped-file':
+          value = writer.scoped.remove(request.payload);
+          break;
         case 'configure-vector-profile':
           value = writer.configureVectorProfile(request.payload);
           break;

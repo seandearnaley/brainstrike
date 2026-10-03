@@ -33,6 +33,41 @@ export const identityStateSchema = Schema.Struct({
   storeId: hash,
 });
 export type IndexerIdentity = typeof identityStateSchema.Type;
+export const scopeSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal('workspace'), rootId: nonblank }),
+  Schema.Struct({ embeddingSetId: nonblank, kind: Schema.Literal('collection') }),
+]);
+export type IndexScope = typeof scopeSchema.Type;
+const vectorProfileFields = {
+  dimensions: positive.check(Schema.isLessThanOrEqualTo(16_000)),
+  distance: Schema.Literals(['cosine', 'l2', 'ip']),
+  modelId: nonblank,
+};
+export const vectorProfileSchema = Schema.Union([
+  Schema.Struct({
+    ...profileSchema.fields,
+    ...vectorProfileFields,
+    provider: Schema.Literals(['local', 'transformers']),
+  }),
+  Schema.Struct({
+    ...vectorProfileFields,
+    provider: Schema.Literals(['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio']),
+  }),
+]);
+export type VectorProfile = typeof vectorProfileSchema.Type;
+const bindingFields = {
+  embeddingSetId: Schema.NullOr(nonblank),
+  fileId: nonblank,
+  relativePath: Schema.NullOr(nonblank),
+  rootId: Schema.NullOr(nonblank),
+  sourcePath: Schema.NullOr(nonblank),
+};
+export const fileBindingSchema = Schema.Struct({
+  ...bindingFields,
+  profile: Schema.NullOr(vectorProfileSchema),
+});
+export const fileBindingsSchema = Schema.Array(fileBindingSchema);
+export type IndexFileBinding = typeof fileBindingSchema.Type;
 export const optionsSchema = Schema.Struct({
   dbPath: nonblank,
   embedding: Schema.Union([
@@ -40,7 +75,9 @@ export const optionsSchema = Schema.Struct({
     Schema.Struct({ indexMode: Schema.Literal('open-existing') }),
     Schema.Struct({ indexMode: Schema.Literal('vector-configured'), profile: profileSchema }),
   ]),
+  fileBindings: Schema.optional(fileBindingsSchema),
   rootIds: Schema.Array(nonblank),
+  scopes: Schema.optional(Schema.Array(scopeSchema)),
 });
 export type IndexerOptions = typeof optionsSchema.Type;
 const snapshotFields = {
@@ -189,6 +226,25 @@ export const coverageSchema = Schema.Struct({
   vectorCoverageComplete: Schema.Boolean,
 });
 export type IndexerCoverage = typeof coverageSchema.Type;
+export const manifestFileSchema = Schema.Struct({
+  contentHash: hash,
+  fileId: nonblank,
+  relativePath: nonblank,
+});
+export const manifestRequestSchema = Schema.Struct({
+  files: Schema.Array(manifestFileSchema),
+  rootId: nonblank,
+});
+export const manifestResultSchema = Schema.Struct({
+  ...identityStateSchema.fields,
+  changed: Schema.Array(manifestFileSchema),
+  complete: Schema.Boolean,
+  missing: Schema.Array(manifestFileSchema),
+  rootId: nonblank,
+  unexpected: Schema.Array(manifestFileSchema),
+});
+export type IndexerManifestRequest = typeof manifestRequestSchema.Type;
+export type IndexerManifestResult = typeof manifestResultSchema.Type;
 export const commitResultSchema = Schema.Struct({
   reusedEmbeddings: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   syntaxStatus: Schema.Literals(['replaced', 'retained', 'not-provided']),
@@ -209,6 +265,111 @@ export const infoSchema = Schema.Struct({
   writerThreadId: positive,
 });
 export type IndexerInfo = typeof infoSchema.Type;
+export const scopedSnapshotSchema = Schema.Union([
+  Schema.Struct({ ...bindingFields, chunkLines: positive, content: Schema.String }),
+  Schema.Struct({
+    ...bindingFields,
+    content: Schema.String,
+    providedChunks: Schema.Array(providedChunkSchema),
+  }),
+]);
+export type ScopedFileSnapshot = typeof scopedSnapshotSchema.Type;
+export const scopedPrepareSchema = Schema.Struct({
+  profile: Schema.optional(vectorProfileSchema),
+  snapshot: scopedSnapshotSchema,
+});
+export const scopedPlanSchema = Schema.Struct({
+  authorityEpoch: hash,
+  authorityRevision: nonnegative,
+  chunks: Schema.Array(chunkSchema),
+  contentHash: hash,
+  embeddingChunkIds: Schema.Array(hash),
+  previousSnapshotHash: Schema.NullOr(hash),
+  profile: Schema.NullOr(vectorProfileSchema),
+  profileHash: Schema.NullOr(hash),
+  snapshot: scopedSnapshotSchema,
+  storeId: hash,
+});
+export type ScopedFilePlan = typeof scopedPlanSchema.Type;
+export const scopedTextCommitSchema = Schema.Struct({
+  plan: scopedPlanSchema,
+  syntax: Schema.optional(syntaxSchema),
+});
+const flexibleVector = Schema.Array(Schema.Finite).check(Schema.isBetweenLength(1, 16_000));
+export const scopedCommitSchema = Schema.Struct({
+  ...scopedTextCommitSchema.fields,
+  embeddings: Schema.Array(Schema.Struct({ chunkId: hash, vector: flexibleVector })),
+  profile: vectorProfileSchema,
+});
+export const scopedRemoveSchema = Schema.Struct({ fileId: nonblank, scope: scopeSchema });
+export const scopedSearchSchema = Schema.Struct({
+  fileIds: Schema.optional(Schema.Array(nonblank)),
+  limit: positive.check(Schema.isLessThanOrEqualTo(100)),
+  mode: Schema.Literals(['bm25', 'trigram', 'vector']),
+  profile: Schema.optional(vectorProfileSchema),
+  scopes: Schema.Array(scopeSchema),
+  text: Schema.optional(Schema.String),
+  vector: Schema.optional(flexibleVector),
+});
+export const scopedHitSchema = Schema.Struct({ ...hitSchema.fields, ...bindingFields });
+export const scopedSearchResultSchema = Schema.Struct({
+  candidateCount: nonnegative,
+  candidatesTruncated: Schema.Boolean,
+  hits: Schema.Array(scopedHitSchema),
+  profile: Schema.NullOr(vectorProfileSchema),
+  profileHash: Schema.NullOr(hash),
+  scanLimited: Schema.Boolean,
+  storeId: hash,
+  truncated: Schema.Boolean,
+});
+export type ScopedSearchResult = typeof scopedSearchResultSchema.Type;
+export const scopedProofIdentitySchema = Schema.Struct({
+  authorityEpoch: hash,
+  authorityRevision: nonnegative,
+  storeId: hash,
+});
+export const scopedManifestChunkSchema = Schema.Struct({
+  ...chunkMetadata,
+  chunkId: hash,
+  contentHash: hash,
+  endLine: positive,
+  startLine: positive,
+});
+export const scopedManifestFileSchema = Schema.Struct({
+  ...bindingFields,
+  chunks: Schema.Array(scopedManifestChunkSchema),
+  contentHash: hash,
+});
+export type ScopedManifestChunk = typeof scopedManifestChunkSchema.Type;
+export type ScopedManifestFile = typeof scopedManifestFileSchema.Type;
+export const scopedManifestRequestSchema = Schema.Struct({
+  files: Schema.Array(scopedManifestFileSchema),
+  scope: scopeSchema,
+});
+export type ScopedManifestRequest = typeof scopedManifestRequestSchema.Type;
+export const scopedManifestResultSchema = Schema.Struct({
+  ...scopedProofIdentitySchema.fields,
+  changed: Schema.Array(scopedManifestFileSchema),
+  complete: Schema.Boolean,
+  missing: Schema.Array(scopedManifestFileSchema),
+  scope: scopeSchema,
+  unexpected: Schema.Array(scopedManifestFileSchema),
+});
+export type ScopedManifestResult = typeof scopedManifestResultSchema.Type;
+export const scopedCoverageRequestSchema = Schema.Struct({
+  profile: Schema.optional(vectorProfileSchema),
+  scope: scopeSchema,
+});
+export type ScopedCoverageRequest = typeof scopedCoverageRequestSchema.Type;
+export const scopedCoverageSchema = Schema.Struct({
+  ...scopedProofIdentitySchema.fields,
+  counts: Schema.Struct(coverageCounts),
+  profile: Schema.NullOr(vectorProfileSchema),
+  profileHash: Schema.NullOr(hash),
+  scope: scopeSchema,
+  vectorCoverageComplete: Schema.Boolean,
+});
+export type ScopedCoverage = typeof scopedCoverageSchema.Type;
 export const faultSchema = Schema.Struct({ code: nonblank, message: Schema.String });
 export const requestSchema = Schema.Struct({ id: positive, op: nonblank, payload: Schema.Unknown });
 export const frameSchema = Schema.Union([

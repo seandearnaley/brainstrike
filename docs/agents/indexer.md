@@ -18,7 +18,7 @@ Guard: `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/index
 - Validate the complete producer profile at commit and vector search: model ID, immutable revision, dtype, dimensions and token cap. Hash every field; the initial vector schema is 384 dimensions.
 - Refuse profile/schema mismatches with `rebuild-required` and preserve the existing file. Never erase databases during startup.
 - Canonical producers must prepare with explicit `providedChunks`, preserving the existing parser/chunker output and its source offsets, indices, token/type/size metadata. Validate hashes and source spans with the canonical matcher; reject invalid or mixed policy inputs without re-splitting, relocation or a second parse. Keep line-policy producer metadata explicitly null.
-- Persist all canonical source metadata; preserve vector bytes when only that metadata changes. Derived schema4 must refuse prior schema versions with rebuild-required, never silently migrate or wipe.
+- Persist all canonical source metadata; preserve vector bytes when only that metadata changes. Derived schema5 must refuse prior schema versions with rebuild-required, never silently migrate or wipe.
 - Prepare deterministic, byte-preserving line chunks from an authorized root-relative snapshot and explicit chunk-line policy. Reject stale snapshot plans; reuse a vector only when its stable chunk ID and content/profile hash agree.
 
 Evidence: `indexer/2026-10-02-independent-package.md`.
@@ -46,6 +46,23 @@ Evidence: `indexer/2026-10-02-independent-package.md`.
 Guard: `packages/indexer/__tests__/indexer.integration.test.ts`.
 Evidence: `indexer/2026-10-03-coverage-runtime-bridge.md`.
 Guard: `packages/indexer/__tests__/coverage.integration.test.ts`.
+
+### Canonical collection scope and vector profiles
+
+- Keep the additive `ScopedIndexerPort` separate from retained workspace APIs. Main supplies exact PG-authorized file bindings and workspace/collection selectors; never expose binding replacement to renderer input. Retain canonical file IDs, scalar embedding-set membership and nullable workspace/path metadata, including when adopting an existing workspace file. Rootless files have no workspace-relative path. Legacy publication refuses adopted scoped files.
+- Replace owner bindings before forwarding writes; invalidate prepared plans on every replacement/removal intent and writer restart. Match each snapshot/profile to the current binding and refuse changed ownership until explicit derived removal/republication. Search scopes union canonical file IDs before ranking; empty scopes or explicit empty file IDs match nothing.
+- Keep the profile registry and Float32 source vectors keyed by complete provider/model/dimensions/distance plus defined local revision/dtype/token-cap. Preserve other profiles' vectors through selection changes and unchanged TEXT publication. Refuse unsupported distance/dimensions visibly; saved catalog choices remain authoritative.
+- Query dimension-specific sqlite-vec 0.1.9 binary tables with full profile partition and authorized vector IDs before top100; rerank only those candidates by exact cosine. Validate registry/vector/coarse-row integrity on reopen. Factory reset joins the same writer and destroys the same owned database files.
+- Bind complete scope/authorization/file-filter lists through SQLite JSON tables with a fixed parameter count. Validate every selected binding and apply exact membership before lexical ranking or vector candidate selection; never truncate lists or combine independently ranked batches.
+- Verify scoped source manifests against the full current trusted binding inventory and all native scope rows in one snapshot. Refuse partial declarations; compare exact file membership/source hashes and complete canonical chunk identities/hashes/metadata, including zero-chunk files and stale extra rows. Reuse the existing authority epoch/revision; main's full-scan receipt still owns readiness.
+- Report scoped coverage only for the explicit current full profile and actual authorized file/chunk/source/coarse rows. TEXT carries null profile and counts no cached other-profile vectors. Empty scopes and missing canonical files cannot claim vector completeness; coverage alone never proves source completeness.
+- Production scoped snapshots carry canonical provided chunks. Explicit line-policy fixtures retain the existing foundation input; there is no production parser fallback. Scoped profile storage qualification does not qualify model inference or retrieval quality.
+
+Evidence: `indexer/2026-10-03-collection-profile-storage.md`.
+Guard: `packages/indexer/__tests__/collection-scopes.integration.test.ts`, `packages/indexer/__tests__/scoped-electron.integration.test.ts`, `packages/indexer/__tests__/large-scopes.integration.test.ts`.
+Evidence: `indexer/2026-10-03-scoped-source-proofs.md`.
+Guard: `packages/indexer/__tests__/scoped-proofs.integration.test.ts`, `packages/indexer/__tests__/large-scopes.integration.test.ts`.
+
 
 ### Canonical syntax metadata
 
@@ -82,3 +99,21 @@ Guard: `packages/canonical-ingestion/__tests__/host.test.ts`, `packages/canonica
 
 Evidence: `indexer/2026-10-02-independent-package.md`.
 Guard: `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/indexer/turbo.json`.
+
+### Canonical scan manifests
+
+- Compare the canonical scanner's complete eligible file manifest against native file IDs, root-relative paths and source hashes in one read snapshot. Authorize the requested root before reading its rows. Reject duplicate identities/paths, non-normalized paths and excess fields.
+- Report missing, changed and unexpected files explicitly; equal row counts do not establish completeness. Empty manifests match only actually empty native roots. Manifest equality does not itself publish a full-scan receipt: the producer must also prove full scope, joined publication/removal and absence of aborts, errors or truncation.
+
+Evidence: `indexer/2026-10-03-canonical-manifest.md`.
+Guard: `packages/indexer/__tests__/manifest.integration.test.ts`.
+
+### Visible producer transport and scan ownership
+
+- Expose writes only through the visible-ui authorized producer manifest and the canonical IPC result envelope. Main supplies mandatory live root/file binding and complete-profile authorization; renderer requests never choose database paths, process budgets or SQL. Keep the four search channels read-only and the hidden preload unchanged.
+- Forward canonical events through the browser-safe publication mapper into one provided-snapshot text commit. Keep vector preparation/commit separate and require a complete explicit profile plus the native returned plan. Do not manufacture plans or invoke inference to publish text.
+- Bind full-scan completion to the active store/root/scan/generation ticket. Require the exact ticket for every write/removal during that scan; refuse overlapping starts and late/missing tickets. Close write admission while finishing and join all owned publication/removal promises before verifying the native manifest.
+- Publish scan readiness only for an error-free, untruncated, unaborted full scan with matching native identities. Partial scans, failed writes and mismatched manifests explicitly remain incomplete. Consume completion tickets once; ordinary out-of-scan writes invalidate readiness. Restart requires a new full scan.
+
+Evidence: `indexer/2026-10-03-visible-producer-receipts.md`.
+Guard: `apps/desktop/src/__tests__/ipc-index-producer.test.ts`, `apps/desktop/src/__tests__/indexer-scan-receipts.test.ts`, `apps/desktop/src/__tests__/indexer-scan-receipts.integration.test.ts`, `apps/desktop/src/__tests__/preload-contract-bridges.test.ts`.

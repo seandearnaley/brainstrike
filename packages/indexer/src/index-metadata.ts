@@ -9,9 +9,10 @@ import {
   type IndexerIdentity,
   type IndexerOptions,
   profileSchema,
+  scopedProofIdentitySchema,
 } from './contracts.js';
 
-export const INDEX_SCHEMA_VERSION = 4;
+export const INDEX_SCHEMA_VERSION = 5;
 const metadataSchema = Schema.Struct({
   indexMode: Schema.Literals(['text-only', 'vector-configured']),
   profileHash: Schema.NullOr(Schema.String),
@@ -93,6 +94,28 @@ export function readIndexIdentity(db: Database.Database): IndexerIdentity {
     );
   }
 }
+export function readScopeEpoch(db: Database.Database): string {
+  try {
+    return decoder(scopedProofIdentitySchema.fields.authorityEpoch)(
+      db.prepare('SELECT epoch FROM index_scope_authority WHERE singleton=1').pluck().get()
+    );
+  } catch (error) {
+    throw new IndexerError(
+      'rebuild-required',
+      `Stored scope authority is invalid: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+export function readScopedIdentity(
+  db: Database.Database,
+  authorityRevision: number
+): typeof scopedProofIdentitySchema.Type {
+  return decoder(scopedProofIdentitySchema)({
+    authorityEpoch: readScopeEpoch(db),
+    authorityRevision,
+    storeId: readIndexIdentity(db).storeId,
+  });
+}
 export function validateAcquisition(
   db: Database.Database,
   options: IndexerOptions
@@ -126,7 +149,7 @@ export function validateChunkEmbeddingState(
   if (rootIds?.length === 0) {
     return;
   }
-  const predicate = rootIds ? ` WHERE root_id IN (${rootIds.map(() => '?').join(',')})` : '';
+  const predicate = rootIds ? ` AND c.root_id IN (${rootIds.map(() => '?').join(',')})` : '';
   const rows = decoder(
     Schema.Array(
       Schema.Struct({
@@ -138,7 +161,7 @@ export function validateChunkEmbeddingState(
   )(
     db
       .prepare(
-        `SELECT content_hash AS contentHash,embedding_hash AS embeddingHash,has_vector AS hasVector FROM file_chunks${predicate}`
+        `SELECT c.content_hash AS contentHash,c.embedding_hash AS embeddingHash,c.has_vector AS hasVector FROM file_chunks c JOIN file_records f ON f.id=c.file_record_id WHERE f.scoped=0${predicate}`
       )
       .all(...(rootIds ?? []))
   );
