@@ -4,13 +4,22 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { CanonicalScanReceipt } from '@brainstrike/canonical-ingestion';
-import type { ScopedManifestRequest, ScopedManifestResult } from '@brainstrike/indexer';
+import type {
+  IndexFileBinding,
+  ScopedManifestRequest,
+  ScopedManifestResult,
+} from '@brainstrike/indexer';
 import { expect, it, vi } from 'vitest';
 import { openIndexer } from '../../../../packages/indexer/dist/index.js';
-import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
+import { CanonicalUtilityChild } from '../canonical-utility-child';
+import {
+  type CanonicalCollectionDependencies,
+  CanonicalUtilityParent,
+} from '../canonical-utility-parent';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
+import { createNativeScopedSearchCapability } from '../native-scoped-search';
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
@@ -68,18 +77,30 @@ async function fixture() {
   );
   const entered = Promise.withResolvers<void>();
   const gate = Promise.withResolvers<void>();
+  const nextEntered = Promise.withResolvers<void>();
+  const nextGate = Promise.withResolvers<void>();
+  const sawNewInventory = Promise.withResolvers<void>();
+  const bindings: string[][] = [];
   const finished = Promise.withResolvers<CanonicalScanReceipt>();
   const proofs: ScopedManifestResult[] = [];
   const manifests: string[][] = [];
   const receipts: CanonicalScanReceipt[] = [];
+  const activeScans = new Set<Promise<CanonicalScanReceipt>>();
   const state = {
     files: records(0),
     hold: false,
+    holdNext: false,
+    nativeFailure: undefined as Error | undefined,
     populateOnAttachment: false,
     removeNativeFile: false,
+    sourceFailure: undefined as Error | undefined,
   };
   const writer = {
     ...native,
+    replaceFileBindings: async (files: readonly IndexFileBinding[]) => {
+      bindings.push(files.map((file) => file.fileId));
+      await native.replaceFileBindings(files);
+    },
     verifyScopedManifest: async (request: ScopedManifestRequest) => {
       if (state.removeNativeFile && request.files[0]) {
         await native.removeScopedFile({ fileId: request.files[0].fileId, scope });
@@ -90,6 +111,13 @@ async function fixture() {
       if (state.hold && request.files.length === 1) {
         entered.resolve();
         await gate.promise;
+      }
+      if (state.holdNext && request.files.length === 2) {
+        nextEntered.resolve();
+        await nextGate.promise;
+      }
+      if (state.nativeFailure) {
+        throw state.nativeFailure;
       }
       return result;
     },
@@ -106,62 +134,69 @@ async function fixture() {
       return { rows: [] };
     }
     const ids = params[0];
+    if (!Array.isArray(ids) && state.files.length === 2) {
+      sawNewInventory.resolve();
+    }
     return {
       rows: Array.isArray(ids)
         ? state.files.filter((record) => ids.includes(record.fileId))
         : state.files,
     };
   });
+  const parent = new CanonicalUtilityParent(
+    (frame) => queueMicrotask(() => child.receive(structuredClone(frame))),
+    vi.fn()
+  );
+  const child = new CanonicalUtilityChild((frame) =>
+    queueMicrotask(() => parent.receive(structuredClone(frame)))
+  );
+  mocks.manager.retireCanonicalSources.mockImplementation(() => parent.retireAttachments());
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => {
+      if (dependencies.mode !== 'TEXT') {
+        throw new Error('Catalog refresh fixture requires explicit TEXT admission.');
+      }
       if (state.populateOnAttachment) {
         state.files = records(1);
       }
+      const attachment = await parent.attachCollection({
+        ...dependencies,
+        catalog: {
+          ...dependencies.catalog,
+          applyManagedCacheBatch: async () => {},
+          completeFiles: async () => {},
+        },
+        publication: {
+          ...dependencies.publication,
+          finishScan: async (request) => {
+            const receipt = await dependencies.publication.finishScan(request);
+            receipts.push(receipt);
+            if (state.hold) {
+              finished.resolve(receipt);
+            }
+            return receipt;
+          },
+        },
+        source: {
+          ...dependencies.source,
+          inventory: {
+            ...dependencies.source.inventory,
+            readRetained: async () => {
+              if (state.sourceFailure) {
+                throw state.sourceFailure;
+              }
+              return { content: source, stat: { mtimeMs: 1, size: source.length } };
+            },
+          },
+        },
+      });
       return {
-        close: async () => {},
-        scan: async (requestId: string) => {
-          const ticket = await dependencies.publication.beginScan({ requestId, scope });
-          const files = await dependencies.source.inventory.loadFiles(scope, {
-            requestId,
-            signal: new AbortController().signal,
-          });
-          for (const file of files) {
-            await dependencies.publication.commitTextFile({
-              file,
-              payload: {
-                content: source,
-                fileId: file.fileId,
-                providedChunks: [
-                  {
-                    chunkIndex: 0,
-                    chunkSize: 384,
-                    chunkType: 'text',
-                    content: source,
-                    contentHash,
-                    endLine: 1,
-                    endOffset: source.length,
-                    startLine: 1,
-                    startOffset: 0,
-                    tokenCount: 4,
-                  },
-                ],
-              },
-              ticket,
-            });
-          }
-          const receipt = await dependencies.publication.finishScan({
-            aborted: false,
-            errors: [],
-            files: files.map((file) => ({ ...file, contentHash })),
-            full: true,
-            ticket,
-            truncatedDirectories: [],
-          });
-          receipts.push(receipt);
-          if (state.hold) {
-            finished.resolve(receipt);
-          }
-          return receipt;
+        ...attachment,
+        scan: (requestId: string) => {
+          const scan = attachment.scan(requestId);
+          activeScans.add(scan);
+          scan.finally(() => activeScans.delete(scan)).catch(() => undefined);
+          return scan;
         },
       };
     }
@@ -191,20 +226,39 @@ async function fixture() {
   });
   return {
     activation,
+    bindings,
+    capability: createNativeScopedSearchCapability({
+      acquireIndexer: activation.acquireRead,
+      getAuthority: activation.getSearchAuthority,
+      openQuery: async () => {
+        throw new Error('Unexpected SQLite query opening.');
+      },
+      rebuild: activation.rebuild,
+    }),
     close: async () => {
       gate.resolve();
-      await activation.close();
-      await native.close();
-      await rm(directory, { force: true, recursive: true });
+      nextGate.resolve();
+      await Promise.allSettled([...activeScans]);
+      try {
+        await activation.close();
+        await parent.close();
+        await child.close();
+      } finally {
+        await native.close();
+        await rm(directory, { force: true, recursive: true });
+      }
     },
     entered,
     finished,
     gate,
     manifests,
     native,
+    nextEntered,
+    nextGate,
     onError,
     proofs,
     receipts,
+    sawNewInventory,
     state,
   };
 }
@@ -267,12 +321,13 @@ it.each([false, true])(
   }
 );
 
-it('rejects the superseded receipt and reconciles a genuinely newer catalog inventory observed during native verification', async () => {
+it('queues a newer inventory until the actual host and private channel join the old verified scan, gating every readiness projection', async () => {
   const test = await fixture();
   try {
     await test.activation.acquire();
     test.state.files = records(1);
     test.state.hold = true;
+    test.state.holdNext = true;
     await test.activation.acquireRead();
     await test.entered.promise;
     expect(test.proofs.at(-1)).toMatchObject({
@@ -282,18 +337,47 @@ it('rejects the superseded receipt and reconciles a genuinely newer catalog inve
       unexpected: [],
     });
     test.state.files = records(2);
-    await test.activation.acquireRead();
+    let updated = false;
+    const updating = test.activation
+      .acquireRead()
+      .then(() => {
+        updated = true;
+      })
+      .catch((error: unknown) => error);
+    await test.sawNewInventory.promise;
+    let statusSettled = false;
+    const status = test.capability
+      .status()
+      .then((value) => {
+        statusSettled = true;
+        return value;
+      })
+      .catch((error: unknown) => error);
     expect((await test.activation.getSearchAuthority()).readiness).toEqual([
       { scanComplete: false, scope },
     ]);
+    expect(test.bindings.at(-1)).toEqual(['retained-0']);
+    expect(updated).toBe(false);
+    expect(statusSettled).toBe(false);
     test.gate.resolve();
-    expect(await test.finished.promise).toMatchObject({
-      reason: 'manifest-mismatch',
-      scanComplete: false,
+    expect(await test.finished.promise).toMatchObject({ reason: 'complete', scanComplete: true });
+    await test.nextEntered.promise;
+    expect(test.activation.getReadiness()).toEqual([{ scanComplete: false, scope }]);
+    expect((await test.activation.getSearchAuthority()).readiness).toEqual([
+      { scanComplete: false, scope },
+    ]);
+    expect(test.bindings.at(-1)).toEqual(['retained-0', 'retained-1']);
+    expect(updated).toBe(false);
+    expect(statusSettled).toBe(false);
+    test.nextGate.resolve();
+    expect(await updating).toBeUndefined();
+    expect(await status).toMatchObject({
+      collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: true }],
+      kind: 'ready',
     });
     await test.activation.acquire();
     expect(test.receipts).toHaveLength(3);
-    expect(test.receipts.at(-1)).toMatchObject({ reason: 'complete', scanComplete: true });
+    expect(test.receipts.every((receipt) => receipt.scanComplete)).toBe(true);
     expect(test.manifests).toEqual([[], ['retained-0'], ['retained-0', 'retained-1']]);
     expect(test.proofs.at(-1)).toMatchObject({
       changed: [],
@@ -301,6 +385,7 @@ it('rejects the superseded receipt and reconciles a genuinely newer catalog inve
       missing: [],
       unexpected: [],
     });
+    expect(test.activation.getReadiness()).toEqual([{ scanComplete: true, scope }]);
     expect((await test.activation.getSearchAuthority()).readiness).toEqual([
       { scanComplete: true, scope },
     ]);
@@ -310,31 +395,46 @@ it('rejects the superseded receipt and reconciles a genuinely newer catalog inve
   }
 });
 
-it('refuses an actually missing native row despite unchanged repeated catalog observations', async () => {
-  const test = await fixture();
-  try {
-    await test.activation.acquire();
-    test.state.files = records(1);
-    test.state.hold = true;
-    test.state.removeNativeFile = true;
-    await test.activation.acquireRead();
-    await test.entered.promise;
-    await test.activation.acquireRead();
-    expect(test.proofs.at(-1)).toMatchObject({
-      complete: false,
-      missing: [expect.objectContaining({ fileId: 'retained-0' })],
-    });
-    test.gate.resolve();
-    expect(await test.finished.promise).toMatchObject({
-      reason: 'manifest-mismatch',
-      scanComplete: false,
-    });
-    await vi.waitFor(() => expect(test.onError).toHaveBeenCalled());
-    await expect(test.activation.acquireRead()).rejects.toThrow('Canonical native scan failed');
-  } finally {
-    await test.close();
+it.each([false, true])(
+  'refuses an actually missing native row through the actual host/channel with newer inventory=%s',
+  async (newer) => {
+    const test = await fixture();
+    try {
+      await test.activation.acquire();
+      test.state.files = records(1);
+      test.state.hold = true;
+      test.state.removeNativeFile = true;
+      await test.activation.acquireRead();
+      await test.entered.promise;
+      await test.activation.acquireRead();
+      expect(test.proofs.at(-1)).toMatchObject({
+        complete: false,
+        missing: [expect.objectContaining({ fileId: 'retained-0' })],
+      });
+      const updating = newer
+        ? (() => {
+            test.state.files = records(2);
+            return test.activation.acquireRead().catch((error: unknown) => error);
+          })()
+        : undefined;
+      if (newer) {
+        await test.sawNewInventory.promise;
+        await test.activation.getSearchAuthority();
+      }
+      test.gate.resolve();
+      expect(await test.finished.promise).toMatchObject({
+        reason: 'manifest-mismatch',
+        scanComplete: false,
+      });
+      await updating;
+      await vi.waitFor(() => expect(test.onError).toHaveBeenCalled());
+      await expect(test.activation.acquireRead()).rejects.toThrow('Canonical native scan failed');
+      expect(test.manifests).toEqual([[], ['retained-0']]);
+    } finally {
+      await test.close();
+    }
   }
-});
+);
 
 it('observes catalog population before the initial collection scan so concurrent reads preserve its complete native receipt', async () => {
   const test = await fixture();
@@ -359,6 +459,76 @@ it('observes catalog population before the initial collection scan so concurrent
     expect((await test.activation.getSearchAuthority()).readiness).toEqual([
       { scanComplete: true, scope },
     ]);
+  } finally {
+    await test.close();
+  }
+});
+
+it.each([false, true])(
+  'preserves genuine aggregate verification failure across the actual host/channel with newer inventory=%s',
+  async (newer) => {
+    const test = await fixture();
+    try {
+      await test.activation.acquire();
+      test.state.files = records(1);
+      test.state.hold = true;
+      await test.activation.acquireRead();
+      await test.entered.promise;
+      test.state.nativeFailure = new AggregateError(
+        [new Error('independent writer failure')],
+        'genuine verification failure',
+        { cause: new Error('original verification cause') }
+      );
+      const updating = newer
+        ? (() => {
+            test.state.files = records(2);
+            return test.activation.acquireRead().catch((error: unknown) => error);
+          })()
+        : undefined;
+      if (newer) {
+        await test.sawNewInventory.promise;
+        await test.activation.getSearchAuthority();
+      }
+      test.gate.resolve();
+      await updating;
+      await vi.waitFor(() => expect(test.onError).toHaveBeenCalled());
+      expect(test.onError.mock.calls[0]?.[1]).toMatchObject({
+        cause: expect.objectContaining({ message: 'original verification cause' }),
+        errors: [expect.objectContaining({ message: 'independent writer failure' })],
+        message: 'genuine verification failure',
+      });
+      await expect(test.activation.acquireRead()).rejects.toThrow('Canonical native scan failed');
+      expect(test.manifests).toEqual([[], ['retained-0']]);
+      expect(test.activation.getReadiness()).toEqual([{ scanComplete: false, scope }]);
+    } finally {
+      await test.close();
+    }
+  }
+);
+
+it('joins a queued inventory that reverts before the old verified scan settles without leaving readiness gated', async () => {
+  const test = await fixture();
+  try {
+    await test.activation.acquire();
+    test.state.files = records(1);
+    test.state.hold = true;
+    await test.activation.acquireRead();
+    await test.entered.promise;
+    test.state.files = records(2);
+    const updating = test.activation.acquireRead().catch((error: unknown) => error);
+    await test.sawNewInventory.promise;
+    await test.activation.getSearchAuthority();
+    test.state.files = records(1);
+    const reverted = test.activation.acquireRead().catch((error: unknown) => error);
+    expect(test.activation.getReadiness()).toEqual([{ scanComplete: false, scope }]);
+    test.gate.resolve();
+    expect(await test.finished.promise).toMatchObject({ reason: 'complete', scanComplete: true });
+    expect(await updating).toHaveProperty('info');
+    expect(await reverted).toHaveProperty('info');
+    expect(test.manifests).toEqual([[], ['retained-0']]);
+    expect(test.bindings.at(-1)).toEqual(['retained-0']);
+    expect(test.activation.getReadiness()).toEqual([{ scanComplete: true, scope }]);
+    expect(test.onError).not.toHaveBeenCalled();
   } finally {
     await test.close();
   }

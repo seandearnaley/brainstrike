@@ -5,6 +5,7 @@ import type { NativeCanonicalInference } from './native-canonical-profile';
 export interface NativeIndexSources {
   readonly attachments: Set<{ close(): Promise<void> }>;
   collectionInventory?: readonly NativeCanonicalCatalogRecord[];
+  collectionScan?: Promise<void> | undefined;
   readonly controller: AbortController;
   readonly inference: Set<NativeCanonicalInference>;
   readonly leases: Map<string, CanonicalWorkspaceLease>;

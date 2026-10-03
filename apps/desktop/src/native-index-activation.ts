@@ -37,7 +37,8 @@ import {
 import { createNativeCanonicalPublication } from './native-canonical-publication';
 import {
   catalogFingerprint,
-  isSupersededCatalogScan,
+  catalogReadiness,
+  deferNativeIndexCatalog,
   observeNativeIndexCatalog,
   triggerCatalogWorkspaces,
 } from './native-index-catalog-observation';
@@ -85,6 +86,7 @@ interface Graph {
   observedCatalogFingerprint?: string;
   observedCatalogRecords?: readonly NativeCanonicalCatalogRecord[];
   publication?: ReturnType<typeof createNativeCanonicalPublication>;
+  queuedCatalogRecords?: readonly NativeCanonicalCatalogRecord[] | undefined;
   settings: NativeIndexSettings;
   sources?: NativeIndexSources | undefined;
   readonly watchFailures: Map<string, string>;
@@ -606,29 +608,21 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
             dependencies.onReceipt?.(receipt);
             assertSource();
             if (!receipt.scanComplete) {
-              if (
-                isSupersededCatalogScan(
-                  receipt,
-                  current.observedCatalogFingerprint,
-                  sources.collectionInventory
-                )
-              ) {
-                requested = true;
-                continue;
-              }
               throw new Error(`Native collection scan was ${receipt.reason}.`);
             }
             await reverifyWorkspaces();
             const latest = await loadRecords(current);
+            await refreshCatalog(current, false, latest);
             if (catalogFingerprint(latest) !== catalogFingerprint(sources.collectionInventory)) {
-              await refreshCatalog(current, false, latest);
               requested = true;
             }
           }
         })
         .finally(() => {
           collectionScan = undefined;
+          sources.collectionScan = undefined;
         });
+      sources.collectionScan = collectionScan;
       return collectionScan;
     };
     await sources.scanCollection();
@@ -676,6 +670,14 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     inventory?: readonly NativeCanonicalCatalogRecord[]
   ): Promise<void> => {
     const records = inventory ?? (await loadRecords(current));
+    const pending = inventory
+      ? undefined
+      : deferNativeIndexCatalog(current, records, current.sources?.collectionScan);
+    if (pending) {
+      await pending;
+      await refreshCatalog(current, join);
+      return;
+    }
     const changedRoots = observeNativeIndexCatalog(current, records);
     if (!changedRoots) {
       if (join) {
@@ -957,7 +959,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     },
     close,
     destroyAndRetireProfile,
-    getReadiness: () => graph?.publication?.getReadiness() ?? [],
+    getReadiness: () => (graph ? catalogReadiness(graph) : []),
     getSearchAuthority: async (): Promise<NativeSearchAuthority> => {
       if (settingsReads.size > 0) {
         throw new Error('Native saved configuration is being revalidated.');
@@ -990,7 +992,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         queryPlan: resolved?.workerPlan
           ? { inferencePlan: resolved.workerPlan, modelKey: resolved.modelKey }
           : undefined,
-        readiness: current.publication?.getReadiness() ?? [],
+        readiness: catalogReadiness(current),
         rootIds: authorized.rootIds,
       };
     },

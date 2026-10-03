@@ -1,21 +1,9 @@
-import type { CanonicalScanReceipt, CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
+import type { CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
 import type { NativeCanonicalCatalogRecord } from './native-canonical-catalog';
 
 export function catalogFingerprint(records: readonly NativeCanonicalCatalogRecord[]): string {
   return JSON.stringify(
     records.map(({ chunksProcessed: _processed, content: _content, ...record }) => record)
-  );
-}
-
-export function isSupersededCatalogScan(
-  receipt: CanonicalScanReceipt,
-  observedFingerprint: string | undefined,
-  scanned: readonly NativeCanonicalCatalogRecord[]
-): boolean {
-  return (
-    receipt.reason === 'manifest-mismatch' &&
-    observedFingerprint !== undefined &&
-    observedFingerprint !== catalogFingerprint(scanned)
   );
 }
 
@@ -33,8 +21,51 @@ interface CatalogObservation {
   readonly leases: ReadonlyMap<string, unknown>;
   observedCatalogFingerprint?: string;
   observedCatalogRecords?: readonly NativeCanonicalCatalogRecord[];
-  readonly publication?: { invalidateScope(scope: CanonicalSourceScope): void };
+  readonly publication?: {
+    invalidateScope(scope: CanonicalSourceScope): void;
+    getReadiness(): readonly {
+      readonly scope: CanonicalSourceScope;
+      readonly scanComplete: boolean;
+    }[];
+  };
+  queuedCatalogRecords?: readonly NativeCanonicalCatalogRecord[] | undefined;
   readonly settings: { readonly managedCollectionId: string };
+}
+
+/** A read cannot replace bindings while the previous canonical scan still owns completion. */
+export function deferNativeIndexCatalog(
+  current: CatalogObservation,
+  records: readonly NativeCanonicalCatalogRecord[],
+  scan: Promise<void> | undefined
+): Promise<void> | undefined {
+  if (
+    !scan ||
+    (!current.queuedCatalogRecords &&
+      current.observedCatalogFingerprint === catalogFingerprint(records))
+  ) {
+    return undefined;
+  }
+  current.queuedCatalogRecords = records;
+  return scan;
+}
+
+export function catalogReadiness(current: CatalogObservation): readonly {
+  readonly scope: CanonicalSourceScope;
+  readonly scanComplete: boolean;
+}[] {
+  const queued = current.queuedCatalogRecords;
+  const observed = current.observedCatalogRecords ?? [];
+  return (current.publication?.getReadiness() ?? []).map((readiness) => {
+    const scope = readiness.scope;
+    if (!queued) {
+      return readiness;
+    }
+    const changed =
+      scope.kind === 'collection' ||
+      catalogFingerprint(observed.filter((record) => record.rootId === scope.rootId)) !==
+        catalogFingerprint(queued.filter((record) => record.rootId === scope.rootId));
+    return changed ? { ...readiness, scanComplete: false } : readiness;
+  });
 }
 
 /** Record invalidation admission, independently of the publication owner's complete proof. */
@@ -44,6 +75,7 @@ export function observeNativeIndexCatalog(
 ): readonly string[] | undefined {
   const fingerprint = catalogFingerprint(records);
   if (current.observedCatalogFingerprint === fingerprint) {
+    current.queuedCatalogRecords = undefined;
     return undefined;
   }
   const before = current.observedCatalogRecords ?? [];
@@ -61,5 +93,6 @@ export function observeNativeIndexCatalog(
   for (const rootId of changedRoots) {
     current.publication?.invalidateScope({ kind: 'workspace', rootId });
   }
+  current.queuedCatalogRecords = undefined;
   return changedRoots;
 }
