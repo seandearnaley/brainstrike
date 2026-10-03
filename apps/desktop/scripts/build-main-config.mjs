@@ -9,6 +9,7 @@
  * - dist/hidden-preload.js  role-selected hidden renderer capability manifest
  * - dist/db-host-entry.js   utilityProcess.fork target, resolved as a SIBLING
  * - dist/parser-host-entry.js  of the bundled main.js via module.filename
+ * - dist/host-lease-entry.js  shared root-discovery utility process
  * - dist/main-log-transport.js  Pino worker target, unpacked beside app.asar
  * - dist/main-watchdog-worker.js  freeze watchdog, unpacked beside app.asar
  *
@@ -47,6 +48,7 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const MAIN_PROCESS_ENTRY_POINTS = {
   'db-host-entry': 'src/db-host-entry.ts',
   'hidden-preload': 'src/hidden-preload.ts',
+  'host-lease-entry': 'src/host-lease-entry.ts',
   main: 'src/main-bootstrap.ts',
   'main-log-transport': 'src/diagnostics/main-log-transport.ts',
   'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
