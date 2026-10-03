@@ -182,6 +182,7 @@ import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { purgeMcpOAuthRuntimeState } from './mcp/oauth-client-provider';
 import { createNativeIndexActivation } from './native-index-activation';
 import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
+import { createNativeRootDataDeletion } from './native-root-data-deletion';
 import { createNativeScopedSearchCapability } from './native-scoped-search';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
@@ -942,13 +943,14 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
       ? 'managed-but-unauthorized'
       : 'unmanaged';
   },
-  onResetLocal: handleResetLocal,
+  onDeleteRootData: (rootId) => nativeRootDataDeletion.deleteRootData(rootId),
+  onResetLocal: () => nativeRootDataDeletion.transition(() => handleResetLocal()),
   onStorageChanged: (key) => {
     if (key !== NATIVE_INDEX_SETTINGS_KEY || !app.isReady() || isDesktopShuttingDown()) {
       return;
     }
-    nativeIndexActivation
-      .reconfigure()
+    nativeRootDataDeletion
+      .transition(() => nativeIndexActivation.reconfigure())
       .catch((error: unknown) =>
         logger.error('Saved native index configuration could not activate', { error })
       );
@@ -956,8 +958,8 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
   onWorkspaceRootGranted: (grantedPath: string) => {
     pendingRootGrantSubscriber?.(grantedPath);
     if (app.isReady() && !isDesktopShuttingDown()) {
-      nativeIndexActivation
-        .reconfigure()
+      nativeRootDataDeletion
+        .transition(() => nativeIndexActivation.reconfigure())
         .catch((error: unknown) =>
           logger.error('Mounted native source configuration could not activate', { error })
         );
@@ -973,11 +975,29 @@ const nativeIndexActivation = createNativeIndexActivation({
     logger.info('Canonical native scan settled', { receipt, settledAt: new Date().toISOString() }),
   storage,
 });
+const nativeRootDataDeletion = createNativeRootDataDeletion({
+  acquire: () => nativeIndexActivation.acquire(),
+  captureOwner: async () => {
+    await nativeIndexActivation.getSearchAuthority();
+    return nativeIndexActivation.captureAcknowledgedAuthority();
+  },
+  closeOwner: () => nativeIndexActivation.close(),
+  deleteCanonicalRoot: async (mounted) => {
+    const { deleteManagedRootData } = await import('@brainstrike/db');
+    await deleteManagedRootData(await getDbHostManager().getDatabase(), {
+      paths: [mounted.canonicalPath, mounted.presentationPath],
+      rootId: mounted.rootId,
+    });
+  },
+  reserveRoot: (rootId) => applicationIpcDomain.roots.reserveRootDataDeletion(rootId),
+  resume: () => nativeIndexActivation.resume(),
+  stopSources: () => nativeIndexActivation.stopSources(),
+});
 const nativeIndexSearch = createNativeScopedSearchCapability({
   acquireIndexer: () => nativeIndexActivation.acquireRead(),
   getAuthority: () => nativeIndexActivation.getSearchAuthority(),
   openQuery: openIndexQuery,
-  rebuild: () => nativeIndexActivation.rebuild(),
+  rebuild: () => nativeRootDataDeletion.transition(() => nativeIndexActivation.rebuild()),
 });
 ipcDisposers.add('index-search', registerIndexSearchIpcHandlers(nativeIndexSearch));
 ipcDisposers.add('main', () => {
@@ -1649,25 +1669,27 @@ if (singleInstanceLockAcquired) {
                   // BST-1330: same drains as shutdown/factory reset — a bare
                   // resetLocalDatabase() could race in-flight live refreshes.
                   // Join native producers, readers, and writer before resetting this profile.
-                  await nativeIndexActivation.stopSources();
-                  const developerProfileResetLease = await prepareDatabaseProfileReset({
-                    retireProfileOwner: () => nativeIndexActivation.destroyAndRetireProfile(),
-                  });
-                  try {
-                    await resetDesktopDatabaseProfile({
-                      cleanupLiveSubscriptionsForShutdown:
-                        cleanupDesktopLiveSubscriptionsForShutdown,
-                      resetLocalDatabase: () =>
-                        createDatabaseResetMarkingReplaced('developer-reset')(
-                          developerProfileResetLease
-                        ),
-                      runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
-                      waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
+                  await nativeRootDataDeletion.transition(async () => {
+                    await nativeIndexActivation.stopSources();
+                    const developerProfileResetLease = await prepareDatabaseProfileReset({
+                      retireProfileOwner: () => nativeIndexActivation.destroyAndRetireProfile(),
                     });
-                  } finally {
-                    await developerProfileResetLease.release();
-                  }
-                  await nativeIndexActivation.resume();
+                    try {
+                      await resetDesktopDatabaseProfile({
+                        cleanupLiveSubscriptionsForShutdown:
+                          cleanupDesktopLiveSubscriptionsForShutdown,
+                        resetLocalDatabase: () =>
+                          createDatabaseResetMarkingReplaced('developer-reset')(
+                            developerProfileResetLease
+                          ),
+                        runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
+                        waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
+                      });
+                    } finally {
+                      await developerProfileResetLease.release();
+                    }
+                    await nativeIndexActivation.resume();
+                  });
                   await dialog.showMessageBox({
                     buttons: ['OK'],
                     message: 'Local database has been reset. The app will reload.',

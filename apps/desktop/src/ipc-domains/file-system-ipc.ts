@@ -48,6 +48,7 @@ interface RegisterFileSystemIpcHandlersOptions {
    */
   readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
   readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
+  readonly onDeleteRootData?: (rootId: string) => Promise<void>;
   /**
    * Fired after a successful grant-recording mount (BST-1393). main uses it to
    * push the folder into the OS recent-documents list and to rebuild the File
@@ -324,6 +325,7 @@ export function createFileSystemIpcDomain({
   isSyntheticFileSystemPath = isMockFileSystemIpcPath,
   managedWorktreeAuthorizer,
   onWorkspaceRootGranted,
+  onDeleteRootData,
   storage,
   workspaceRootRegistryFileSystemSeams,
 }: RegisterFileSystemIpcHandlersOptions): FileSystemIpcDomain {
@@ -500,6 +502,13 @@ export function createFileSystemIpcDomain({
       return roots.addRootByPath(requestedPath);
     },
 
+    deleteRootData: async (rootId: string) => {
+      if (!onDeleteRootData) {
+        throw new Error('The main-owned root data deletion capability is unavailable.');
+      }
+      await onDeleteRootData(rootId);
+    },
+
     exists: async (requestedPath: string) => ipcPathExists(fileSystem, requestedPath),
 
     listRecentRoots: async () => roots.listRecentRoots(),
@@ -602,7 +611,6 @@ export function createFileSystemIpcDomain({
         throw error;
       }
     },
-
     removeRoot: async (rootId: string) => roots.removeRoot(rootId),
     requestDirectoryAccess: async () => (await addSelectedRoot()).handle,
 

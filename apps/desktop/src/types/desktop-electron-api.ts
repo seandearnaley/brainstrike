@@ -48,6 +48,7 @@ export interface DesktopStorageBridge {
 export interface DesktopFileSystemBridge {
   addRoot: () => Promise<RootDescriptor>;
   addRootByPath: (path: string) => Promise<RootDescriptor>;
+  deleteRootData: (rootId: string) => Promise<void>;
   exists: (path: string) => Promise<boolean>;
   getWatcherTelemetry: () => Promise<{
     activeWatchers: number;

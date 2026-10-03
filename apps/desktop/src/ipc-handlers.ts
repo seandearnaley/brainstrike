@@ -47,6 +47,7 @@ interface RegisterIpcHandlerOptions {
   /** Explicit test-harness seam for synthetic filesystem adapters. */
   readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
   readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
+  readonly onDeleteRootData?: (rootId: string) => Promise<void>;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
   readonly onStorageChanged?: (key: string) => void;
   readonly onWorkspaceRootGranted?: (grantedPath: string) => void;
@@ -87,6 +88,7 @@ export function createApplicationIpcDomain(
   });
   const fileSystemDomain = createFileSystemIpcDomain({
     fileSystem,
+    ...(options?.onDeleteRootData ? { onDeleteRootData: options.onDeleteRootData } : {}),
     // Dynamic import (matches db-ipc): keep db-main — and its native
     // secure-fs-native dependency — OUT of this module's eager graph, so
     // importing ipc-handlers (e.g. the main-boot tests) never eagerly loads

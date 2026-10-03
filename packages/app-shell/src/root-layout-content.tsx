@@ -65,7 +65,7 @@ import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
 import { DelegatedWorkspaceTabsProvider } from './delegated-workspace-apps';
-import { deleteRootDataFromDb } from './delete-root-data';
+import { deleteRootData as deleteOwnedRootData } from './delete-root-data';
 import {
   type RendererDiagnosticSurface,
   rendererLongTaskTelemetry,
@@ -94,9 +94,11 @@ interface DebouncedPanelLayoutState {
 function FileTreeWrapper({
   children,
   nativeIndexSearch,
+  deleteRootData: platformDeleteRootData,
 }: {
   children: ReactNode;
   nativeIndexSearch?: IndexSearchCapability | null;
+  deleteRootData?: (rootId: string) => Promise<void>;
 }): ReactElement {
   const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
   // Storage v5: pass the durable RootId so the FileTreeProvider keys its index
@@ -107,18 +109,10 @@ function FileTreeWrapper({
     ? (rootDirectoryHandle.rootId ?? rootIdByPath?.get(rootDirectoryHandle.path))
     : undefined;
   const db = usePGliteDatabase();
-  // Cascade-delete seam (Phase 6): file-explorer-ui doesn't own the db, so
-  // app-shell injects the deletion. Migration 039: file_records.root_id →
-  // roots.id ON DELETE CASCADE; chunks cascade from file_records. MUST throw
-  // on failure — the disconnect flow aborts and keeps the root connected.
   const deleteRootData = useCallback(
-    async (rootIdToDelete: string) => {
-      if (!db) {
-        throw new Error('Cannot delete root data: database is not ready.');
-      }
-      await deleteRootDataFromDb(db, rootIdToDelete);
-    },
-    [db]
+    (rootIdToDelete: string): Promise<void> =>
+      deleteOwnedRootData(db, rootIdToDelete, platformDeleteRootData),
+    [db, platformDeleteRootData]
   );
   return (
     <FileTreeProvider
@@ -160,6 +154,7 @@ export interface RootLayoutContentProps {
   readonly contextExplorerPageContent: ReactNode;
   readonly contextExplorerPanelContent?: ReactNode;
   readonly databaseTabChunkingMode?: 'host-proxy' | 'local';
+  readonly deleteRootData?: (rootId: string) => Promise<void>;
   /**
    * Active flags from an authoritative app-owned feature-flag registry.
    * Omit when the app has no such registry; diagnostics surfaces that absence.
@@ -480,6 +475,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   worktreeMapPageContent,
   visible,
   nativeIndexSearch,
+  deleteRootData,
 }: {
   readonly canvasPanelContent?: ReactNode;
   readonly changesPageContent?: ReactNode;
@@ -492,6 +488,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly worktreeMapPageContent?: ReactNode;
   readonly visible: boolean;
   readonly nativeIndexSearch?: IndexSearchCapability | null;
+  readonly deleteRootData?: (rootId: string) => Promise<void>;
 }): ReactElement {
   // Platform-injected markdown preview capabilities (external links, image src
   // resolution). Detected by the `window.platform` bridge (capability presence,
@@ -536,7 +533,10 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           the Files app) because the tab strip lives in the panel HEADER and file
           bodies render at the workspace level — both need the file-explorer
           context from a common ancestor. */}
-      <FileTreeWrapper nativeIndexSearch={nativeIndexSearch ?? null}>
+      <FileTreeWrapper
+        nativeIndexSearch={nativeIndexSearch ?? null}
+        {...(deleteRootData ? { deleteRootData } : {})}
+      >
         <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
           <DelegatedWorkspaceTabsProvider apps={workspaceApps}>
             {/* Thread⇄workspace binding (BST-1268): snapshots the live stores
@@ -606,6 +606,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
 
 export function RootLayoutContent({
   nativeIndexSearch,
+  deleteRootData,
   browserPageContent,
   canvasPanelContent,
   changesPageContent,
@@ -745,6 +746,7 @@ export function RootLayoutContent({
                         contextExplorerPanelContent={contextExplorerPanelContent}
                         loadEmbeddingQueue={loadEmbeddingQueue}
                         nativeIndexSearch={nativeIndexSearch ?? null}
+                        {...(deleteRootData ? { deleteRootData } : {})}
                         {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                         preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
                         terminalPageContent={terminalPageContent}

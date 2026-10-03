@@ -58,6 +58,36 @@ describe('file system IPC domain', () => {
     });
   }
 
+  it('awaits the actual main deletion callback and propagates its cleanup failure', async () => {
+    const held = Promise.withResolvers<void>();
+    const onDeleteRootData = vi.fn(() => held.promise);
+    const domain = createFileSystemIpcDomain({
+      fileSystem,
+      getRootsDatabase,
+      isSyntheticFileSystemPath: () => true,
+      onDeleteRootData,
+      storage,
+    });
+    const deletion = handlers.get('fs:deleteRootData')?.(createTrustedInvokeEvent(), 'actual-root');
+    expect(onDeleteRootData).toHaveBeenCalledWith('actual-root');
+    held.resolve();
+    await deletion;
+    onDeleteRootData.mockRejectedValueOnce(new Error('Native owner cleanup failed'));
+    await expect(
+      handlers.get('fs:deleteRootData')?.(createTrustedInvokeEvent(), 'actual-root')
+    ).rejects.toThrow('Native owner cleanup failed');
+    expect(rootsDbQuery).not.toHaveBeenCalled();
+    await domain.close();
+  });
+
+  it('refuses deletion when its main owner has not been composed', async () => {
+    register();
+    await expect(
+      handlers.get('fs:deleteRootData')?.(createTrustedInvokeEvent(), 'root')
+    ).rejects.toThrow('capability is unavailable');
+    expect(rootsDbQuery).not.toHaveBeenCalled();
+  });
+
   it('joins mounted-root disposal even when handler removal throws', async () => {
     const domain = createFileSystemIpcDomain({
       fileSystem,
@@ -445,6 +475,7 @@ describe('file system IPC domain', () => {
         'fs:addRootByPath',
         'fs:readFileByPath',
         'fs:requestDirectoryAccess',
+        'fs:deleteRootData',
         'fs:removeRoot',
       ])
     );

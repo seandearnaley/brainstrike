@@ -164,6 +164,13 @@ export default function RootLayoutContent() {
     canvasPanelContent: <CanvasPanel shellSrc="brainstrike-canvas://shell/" />,
     contextExplorerPageContent: <ContextExplorerPageContent />,
     databaseTabChunkingMode: 'host-proxy',
+    deleteRootData: (rootId) => {
+      const bridge = window.electronAPI;
+      if (!(bridge && 'fileSystem' in bridge)) {
+        throw new Error('Desktop root data deletion bridge is unavailable.');
+      }
+      return bridge.fileSystem.deleteRootData(rootId);
+    },
     nativeIndexSearch: window.indexSearch ?? null,
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,

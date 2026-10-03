@@ -949,3 +949,10 @@ Guard: `packages/db/__tests__/migration-140-assistant-native-runs.integration.te
 `background-idle-loop.spec.ts`, `background-ledger-generation.integration.spec.ts`,
 `decide-endpoint.test.ts`, `stream-init-tool-budget.test.ts`,
 `assistant-run-schema-upgrade-path.test.ts`.
+
+### Whole-root canonical data deletion
+
+- Lock the captured root ID and actual mounted path before cascading its records. Reuse managed-cache job cancellation, lease clearing and lifetime outcome accounting for all actual rooted chunks, including nullable collection membership, in the same transaction as the root cascade. Preserve rootless and other-root records; refuse an unmatched captured root.
+
+Evidence: `indexer/2026-10-03-root-data-deletion.md`.
+Guard: `packages/db/__tests__/managed-root-data-deletion.integration.test.ts`.
