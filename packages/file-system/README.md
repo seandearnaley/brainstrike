@@ -2,6 +2,21 @@
 
 Platform-agnostic file system abstraction layer with adapters for web, desktop (Electron), and testing environments.
 
+`@brainstrike/file-system/directory-tree` is the shared browser-safe traversal
+entry. It exports the existing `readFullTree`, `readFullTreeWithOptions`,
+`walkDirectoryParallel`, their option types and `DirectoryListingTruncatedError`.
+Its `DirectoryReadCapability` requires only `readDirectory`; Node owners do not
+need browser or dialog stubs. Existing UI entry points re-export this authority.
+Cancellation and read-error rejection join every admitted directory read.
+Traversal filters, path/handle identity, sorting, truncation and streaming options
+retain their existing behavior. Indexing callers explicitly enable strict child
+read errors and report truncated listings.
+
+`@brainstrike/file-system/workspace-root-nodes` exposes the existing pure Node
+projection for mounted-root descriptors and directory listings. It preserves
+root identity, dirs-first sorting, metadata, file-shaped symlinks and visible
+truncation. Its root ID/path input is projection data and grants no read authority.
+
 ## Overview
 
 This package provides a unified file system API that works across different platforms:

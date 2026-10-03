@@ -21,7 +21,8 @@
     "fake-indexeddb": "catalog:",
     "happy-dom": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "esbuild": "catalog:"
   },
   "exports": {
     ".": {
@@ -47,6 +48,14 @@
     "./testing/parcel-producer": {
       "types": "./dist/testing/parcel-producer.d.ts",
       "default": "./dist/testing/parcel-producer.js"
+    },
+    "./directory-tree": {
+      "types": "./dist/directory-tree.d.ts",
+      "default": "./dist/directory-tree.js"
+    },
+    "./workspace-root-nodes": {
+      "types": "./dist/workspace-root-nodes.d.ts",
+      "default": "./dist/workspace-root-nodes.js"
     }
   },
   "main": "./dist/index.js",
