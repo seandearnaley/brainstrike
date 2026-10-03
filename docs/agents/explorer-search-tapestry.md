@@ -209,6 +209,10 @@ Guard: `packages/chunking-worker/src/__tests__/source-range-validation.test.ts`,
   read-path resolvers together.
 - Keep symlink/reparse entries as explicit file-shaped Explorer rows; native
   reads never follow them, and file bytes are bounded before crossing into JS.
+- Share descriptor/listing projection through the Node-only
+  `@brainstrike/file-system/workspace-root-nodes` entry; desktop callers re-export
+  it. Root IDs and paths supplied to that pure projection grant no read authority.
+  Preserve dirs-first collation, file metadata and the visible truncation marker.
 - Bound listings by inspected entries and append a trailing `'truncated'`
   pseudo-node rather than throwing or dropping the partial result. The Explorer
   renders it as a visible, non-selectable, non-expandable tail row, and
@@ -280,6 +284,8 @@ deliberately non-persistent, so a renderer restart grants a fresh one. Evidence:
 `explorer-search-tapestry/traversal-policy-and-truncation.md`.
 Shared traversal retirement evidence:
 `explorer-search-tapestry/2026-10-03-shared-directory-retirement.md`.
+Node projection extraction evidence:
+`explorer-search-tapestry/2026-10-03-shared-workspace-root-projection.md`.
 Discovery preparation evidence:
 `explorer-search-tapestry/2026-10-03-discovered-source-preparation.md`.
 Guard: `workspace-root-registry{,.integration}.test.ts`,

@@ -12,6 +12,11 @@ Traversal filters, path/handle identity, sorting, truncation and streaming optio
 retain their existing behavior. Indexing callers explicitly enable strict child
 read errors and report truncated listings.
 
+`@brainstrike/file-system/workspace-root-nodes` exposes the existing pure Node
+projection for mounted-root descriptors and directory listings. It preserves
+root identity, dirs-first sorting, metadata, file-shaped symlinks and visible
+truncation. Its root ID/path input is projection data and grants no read authority.
+
 ## Overview
 
 This package provides a unified file system API that works across different platforms:

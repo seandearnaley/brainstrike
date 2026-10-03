@@ -52,6 +52,10 @@
     "./directory-tree": {
       "types": "./dist/directory-tree.d.ts",
       "default": "./dist/directory-tree.js"
+    },
+    "./workspace-root-nodes": {
+      "types": "./dist/workspace-root-nodes.d.ts",
+      "default": "./dist/workspace-root-nodes.js"
     }
   },
   "main": "./dist/index.js",
