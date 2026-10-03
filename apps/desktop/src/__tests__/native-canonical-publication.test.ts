@@ -205,6 +205,74 @@ it('preserves surviving complete proofs when an already-retired binding is ackno
   expect(f.publication.getReadiness().every((scope) => scope.scanComplete)).toBe(true);
 });
 
+it.each(['TEXT', 'VECTOR'] as const)(
+  'fences a late %s commit ACK after file invalidation until a new scan republishes',
+  async (mode) => {
+    const f = overlappingFixture();
+    const ticket = await f.publication.beginScan({ requestId: 'before-delete', scope: f.scope });
+    const plan = await f.port.prepareScopedFile({});
+    const held = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    const commit = async (): Promise<void> => {
+      entered.resolve();
+      await held.promise;
+    };
+    f.port.commitScopedTextFile.mockImplementation(commit);
+    f.port.commitScopedFile.mockImplementation(commit);
+    const publishing =
+      mode === 'TEXT'
+        ? f.publication.commitTextFile({
+            file: f.file,
+            payload: { content: 'canonical', fileId: f.file.fileId, providedChunks: [] },
+            ticket,
+          })
+        : f.publication.commitVectorFile({
+            embeddings: [],
+            file: f.file,
+            plan,
+            profile: localProfile,
+            ticket,
+          });
+    const outcome = publishing.catch((error: unknown) => error);
+    await entered.promise;
+    f.publication.invalidateFile(f.file);
+    held.resolve();
+    expect(await outcome).toMatchObject({ message: expect.stringContaining('invalidated') });
+    const declared = { ...f.file, contentHash: f.contentHash };
+    expect(await f.publication.verifyManifest({ files: [declared], scope: f.scope })).toMatchObject(
+      { complete: false, missing: [declared] }
+    );
+    await expect(
+      f.publication.commitTextFile({
+        file: f.file,
+        payload: { content: 'canonical', fileId: f.file.fileId, providedChunks: [] },
+        ticket,
+      })
+    ).rejects.toThrow('invalidated');
+    await f.publication.abortScan(ticket);
+    await f.publication.finishScan({ ...completion, aborted: true, ticket });
+    const next = await f.publication.beginScan({ requestId: 'returned-id', scope: f.scope });
+    if (mode === 'TEXT') {
+      await f.publication.commitTextFile({
+        file: f.file,
+        payload: { content: 'canonical', fileId: f.file.fileId, providedChunks: [] },
+        ticket: next,
+      });
+    } else {
+      await f.publication.commitVectorFile({
+        embeddings: [],
+        file: f.file,
+        plan,
+        profile: localProfile,
+        ticket: next,
+      });
+    }
+    expect(await f.publication.verifyManifest({ files: [declared], scope: f.scope })).toMatchObject(
+      { complete: true, missing: [] }
+    );
+  }
+);
+
 it('reverifies full workspace manifest and selected-profile coverage after zero-missing VECTOR overlap', async () => {
   const f = overlappingFixture();
   await f.scan(f.workspace);

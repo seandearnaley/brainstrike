@@ -29,6 +29,7 @@ interface ScanState {
   aborted: boolean;
   finishing: Promise<CanonicalScanReceipt> | undefined;
   generation: number;
+  readonly invalidatedFiles: Set<string>;
   mutationRevision: number;
   readonly pending: Set<Promise<unknown>>;
   scanComplete: boolean;
@@ -106,6 +107,7 @@ export function createNativeCanonicalPublication(
       aborted: false,
       finishing: undefined,
       generation: 0,
+      invalidatedFiles: new Set(),
       mutationRevision: 0,
       pending: new Set(),
       scanComplete: false,
@@ -137,12 +139,18 @@ export function createNativeCanonicalPublication(
   const runWrite = async <T>(
     ticket: CanonicalScanTicket,
     file: CanonicalFileIdentity,
-    work: () => Promise<T>
+    work: (assertFileCurrent: () => void) => Promise<T>
   ): Promise<T> => {
     const state = stateForTicket(ticket);
     if (state.aborted || state.finishing) {
       throw new Error('Canonical publication write admission is closed.');
     }
+    const assertFileCurrent = (): void => {
+      if (state.invalidatedFiles.has(file.fileId)) {
+        throw new Error('Canonical publication file was invalidated during this scan.');
+      }
+    };
+    assertFileCurrent();
     for (const scope of ownedScopes) {
       if (
         scope.kind === 'workspace'
@@ -154,7 +162,7 @@ export function createNativeCanonicalPublication(
         affected.mutationRevision += 1;
       }
     }
-    const pending = Promise.resolve().then(work);
+    const pending = Promise.resolve().then(() => work(assertFileCurrent));
     state.pending.add(pending);
     try {
       return await pending;
@@ -200,6 +208,7 @@ export function createNativeCanonicalPublication(
       }
       // Reserve admission before the asynchronous store lookup.
       state.generation += 1;
+      state.invalidatedFiles.clear();
       state.aborted = false;
       state.writeFailed = false;
       state.scanComplete = false;
@@ -221,16 +230,20 @@ export function createNativeCanonicalPublication(
       }
     },
     commitTextFile: ({ file, payload, ticket }) =>
-      runWrite(ticket, file, async () => {
+      runWrite(ticket, file, async (assertFileCurrent) => {
+        assertFileCurrent();
         const plan = await writer.prepareScopedFile({ snapshot: snapshot(file, payload) });
+        assertFileCurrent();
         await writer.commitScopedTextFile({
           plan,
           ...(payload.syntax === undefined ? {} : { syntax: payload.syntax }),
         });
+        assertFileCurrent();
         published.set(file.fileId, manifest(plan));
       }),
     commitVectorFile: ({ file, plan, profile, embeddings, syntax, ticket }) =>
-      runWrite(ticket, file, async () => {
+      runWrite(ticket, file, async (assertFileCurrent) => {
+        assertFileCurrent();
         if (!matches(file, manifest(plan))) {
           throw new Error('Canonical vector plan differs from its catalog binding.');
         }
@@ -240,6 +253,7 @@ export function createNativeCanonicalPublication(
           profile,
           ...(syntax === undefined ? {} : { syntax }),
         });
+        assertFileCurrent();
         published.set(file.fileId, manifest(plan));
       }),
     finishScan: async (request) => {
@@ -308,6 +322,7 @@ export function createNativeCanonicalPublication(
           continue;
         }
         const state = stateFor(scope);
+        state.invalidatedFiles.add(file.fileId);
         if (
           !(
             acknowledgedPlan ||
