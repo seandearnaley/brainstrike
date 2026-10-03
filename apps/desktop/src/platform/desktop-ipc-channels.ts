@@ -177,6 +177,12 @@ export const DESKTOP_IPC_CHANNELS = {
     getProjectHooksForReview: 'hooks:get-project-hooks-for-review',
     resolveTrustedRootIds: 'hooks:resolve-trusted-root-ids',
   },
+  indexSearch: {
+    coverage: 'index-search:coverage',
+    grep: 'index-search:grep',
+    search: 'index-search:search',
+    status: 'index-search:status',
+  },
   // Hidden local-LLM host; same pinning as chunkingHost (llm-host-shared.ts).
   llmHost: {
     cancel: 'llm-host:cancel',

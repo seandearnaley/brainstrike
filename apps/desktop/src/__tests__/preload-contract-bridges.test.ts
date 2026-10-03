@@ -12,6 +12,7 @@ import {
 } from '../ipc-domains/database.contract';
 import { forgeContract } from '../ipc-domains/forge.contract';
 import { gitContract } from '../ipc-domains/git.contract';
+import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import {
   mcpAppsContract,
   mcpContract,
@@ -62,6 +63,7 @@ const CONTRACT_BRIDGES = {
   databaseIntegrity: databaseIntegrityContract,
   forge: forgeContract,
   git: gitContract,
+  indexSearch: indexSearchContract,
   notesVault: notesVaultContract,
   settings: settingsContract,
   skills: skillsContract,

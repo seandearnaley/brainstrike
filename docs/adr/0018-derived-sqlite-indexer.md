@@ -18,9 +18,16 @@ partition before binary coarse top100 selection, then sorts those candidates by
 exact cosine distance using the auxiliary Float32 blob. Root authorization is a
 host capability established when opening the port, not a post-filter of results.
 
-Persist the complete embedding profile (model ID, immutable revision, dtype,
-dimensions, token cap) and its hash. The initial schema qualifies 384-dimensional
-MiniLM profiles. Changed profile/schema identity or invalid existing metadata
+Persist a stable random store identity independently of vector identity. New text
+stores explicitly acquire `embedding: {indexMode: 'text-only'}` without loading a
+model. Vector opt-in explicitly configures the complete embedding profile (model
+ID, immutable revision, dtype, dimensions, token cap) and its hash. The initial
+vector schema qualifies 384-dimensional MiniLM profiles. This first configuration
+is one writer transaction that retains text, canonical graph metadata and store
+identity; failure leaves the previous state intact. A configured profile cannot
+be replaced by another profile. Explicit `open-existing` acquisition validates
+stored metadata inside the utility, preserves its recorded state, and refuses
+missing or invalid stores; it never creates or downgrades them. Changed profile/schema identity or invalid existing metadata
 raises `rebuild-required`. Opening a database never deletes it. An explicit
 `destroy()` joins the process before removing its database, WAL and shared-memory
 files; product factory reset must call this lifecycle before cutover.
@@ -29,7 +36,7 @@ Canonical producers submit root-relative file snapshots with unchanged provided
 chunks from the existing parser/chunker. The foundation also accepts an explicit
 line policy as a separate input shape. Validate provided SHA hashes and exact or
 canonically normalized source spans without a parse pass or re-splitting.
-Persist original indices/offsets/token/type/size metadata and explicit vector presence in schema3; opening an
+Persist original indices/offsets/token/type/size metadata and explicit vector presence in schema4; opening an
 older schema requires explicit rebuild and preserves its files. Stable position identities and content/profile hashes let unchanged
 chunks retain their embeddings. Preparation captures the previous snapshot hash;
 a writer transaction rejects stale preparation and atomically changes chunks,
@@ -40,8 +47,9 @@ forwards the parser output it already produced; the indexer does not parse again
 
 Runtime inputs, IPC envelopes, worker results and SQL rows have Effect Schema
 boundaries. No fallback engine, inference in Node, retry loop, silent rebuild or
-second persistence authority is introduced. Profile changes require a deliberate
-rebuild and newly produced vectors. The current line chunker is a deterministic
+second persistence authority is introduced. A different configured profile requires
+a deliberate rebuild and newly produced vectors. Text search results carry store
+identity and explicit embedding state; text mode invents no vector profile/hash. The current line chunker is a deterministic
 package input contract, not a replacement for product parser/chunker policy.
 
 The package is unwired. Hardware inference throughput, retrieval-quality gates,

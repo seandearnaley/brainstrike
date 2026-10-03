@@ -129,6 +129,11 @@ Guard: `apps/desktop/src/__tests__/platform/desktop-ipc-registry.test.ts`,
 
 ## IPC CONTRACT MODULES
 
+- The visible `indexSearch` contract exposes native status/coverage/search and a separately owned read-only grep provider. Hidden preloads omit it. Its pure manifest owns visible-ui role policy and strict arguments; main preserves the canonical failure envelope and frame authorization. Source-scan readiness must come from the canonical producer, independently of native row counts. Writer retirement joins read-only owners before deleting its registered index files.
+
+Evidence: `indexer/2026-10-03-coverage-runtime-bridge.md`.
+Guard: `apps/desktop/src/__tests__/ipc-index-search.test.ts`, `apps/desktop/src/__tests__/preload-contract-bridges.test.ts`, `apps/desktop/src/__tests__/fixtures/indexer-utility-proof.ts`.
+
 - `platform/desktop-ipc-channels.ts` (`DESKTOP_IPC_CHANNELS`) is the ONE place a
   channel string lives. Neither preload holds a channel literal, and the hidden
   preload may reference only the manifest groups its test pins, so the
