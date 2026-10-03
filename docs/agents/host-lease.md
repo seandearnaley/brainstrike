@@ -80,8 +80,18 @@ Guard: `runtime.integration.test.ts`, `process.integration.test.ts` and
   Preserve failed cleanup on repeated close and forbid new acquisition afterward.
 - Accept only strict parent-channel close control. Exit the utility after joined
   host cleanup; its Electron parent channel otherwise keeps the process alive.
-- Before deleting a profile, require its authoritative root lease to be released
-  or provably stale. Detaching from a live external CLI owner does not release it.
+- Before destructive reset, join every owned profile writer and acquire
+  `acquireProfileResetLease(root)`. A live external CLI owner refuses acquisition;
+  detaching its client does not release ownership.
+- Keep that accessible guard through profile contents, userData and storage purge.
+  Preserve the existing profile `lock` namespace and its ancestor paths; never
+  recursively delete the active profile or remove its lock namespace afterward.
+  Clearing removes other entries but does not release. Release only after the
+  whole destructive phase succeeds; errors retain ownership for retry/policy.
+  Release while clearing and clear after release both refuse.
+- Retain the released generation as coordination residue, containing ownership
+  metadata rather than application data. The next legitimate acquisition prunes
+  older generations. No new persistent namespace is introduced.
 
 Evidence: `host-lease/desktop-consumer.md`.
 Guard: `apps/desktop/src/__tests__/main/host-lease-manager.test.ts`,
