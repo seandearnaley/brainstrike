@@ -27,7 +27,9 @@ Guard: `packages/db/__tests__/agent-sql-service.test.ts`.
   introspection pragmas, a single compiled statement and at most 200 rows.
   Every unrecognized authorizer action is denied. Load only sqlite-vec's default
   entry point before installing the authorizer; no runtime SQL extension loading.
-  Refuse results over the 1 MiB IPC budget before parent deserialization.
+  Refuse results over the 1 MiB IPC budget before parent deserialization. Count
+  the complete serialized response, including snapshot identity and envelope,
+  even when no rows match; retain the incremental row budget as well.
 - Refuse a runtime that lacks limits, ignores the requested limits, or compiles
   SQLite with `DEFAULT_MEMSTATUS=0`. Accepting a heap-limit pragma is insufficient.
   Electron-engine qualification does not establish Electron-free Node/CLI support;

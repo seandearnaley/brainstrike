@@ -217,6 +217,71 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
     }
   });
 
+  it('counts a valid stored vector identity in empty and matching grep responses', async () => {
+    const grepPath = join(directory, 'grep-identity-budget.sqlite');
+    const writer = new DatabaseSync(grepPath);
+    writer.exec(`CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY,schema_version INTEGER,store_id TEXT,index_mode TEXT,profile_json TEXT,profile_hash TEXT);
+      CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
+      CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);
+      INSERT INTO file_records VALUES('file','root','a.ts');
+      INSERT INTO file_chunks VALUES('chunk','root','file','budget match','hash',1,1,0,12,'text',0,12,2);`);
+    const setProfile = (modelId: string): void => {
+      const profile = {
+        dimensions: 384,
+        dtype: 'fp32',
+        modelId,
+        revision: 'a'.repeat(40),
+        tokenCap: 256,
+      };
+      const profileHash = createHash('sha256')
+        .update(
+          JSON.stringify([
+            profile.modelId,
+            profile.revision,
+            profile.dtype,
+            profile.dimensions,
+            profile.tokenCap,
+          ])
+        )
+        .digest('hex');
+      writer
+        .prepare("INSERT OR REPLACE INTO index_metadata VALUES(1,4,?,'vector-configured',?,?)")
+        .run('b'.repeat(64), JSON.stringify(profile), profileHash);
+    };
+    setProfile('qualified-model');
+    if (!executable) {
+      throw new Error('Qualified integration executable is required.');
+    }
+    const grepClient = await SqliteQueryClient.open({
+      databasePath: grepPath,
+      deadlineMs: 1000,
+      spawn: () => spawnQueryProcess({ environment: { ELECTRON_RUN_AS_NODE: '1' }, executable }),
+      startupDeadlineMs: 5000,
+    });
+    const options = {
+      caseSensitive: false,
+      isRegex: false,
+      maxRows: 1,
+      pattern: 'budget',
+      rootIds: ['root'],
+    };
+    try {
+      expect((await grepClient.grep(options)).rows).toHaveLength(1);
+      setProfile('λ'.repeat(600_000));
+      await expect(grepClient.grep({ ...options, rootIds: ['empty-root'] })).rejects.toThrow(
+        'process-message budget'
+      );
+      await expect(grepClient.grep(options)).rejects.toThrow('process-message budget');
+      setProfile('qualified-model');
+      const recovered = await grepClient.grep(options);
+      expect(recovered.rows).toHaveLength(1);
+      expect(recovered.identity.embedding).toHaveProperty('profile.modelId', 'qualified-model');
+    } finally {
+      await grepClient.close();
+      writer.close();
+    }
+  });
+
   it('binds repeated numbered lens parameters without SQL interpolation', async () => {
     const value = "x'; DROP TABLE file_records; --";
     const result = await client.query('SELECT $1 AS first, $1 AS repeated, $2 AS second', {

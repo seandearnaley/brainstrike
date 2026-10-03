@@ -33,3 +33,19 @@ RED lacked identity; GREEN includes literal/regex/root/cap controls, empty-scope
 The Node read capability reloads live canonical root IDs before acquisition and before returning results. It rejects empty/duplicate/disconnected scopes before opening the reader, validates native chunk source projections, closes the owned reader on every path, and retains both operation and cleanup causes. Grep preserves canonical path/chunk-ID ordering with no relevance score; it reports actual match count/truncation and scanLimited=false only after the exhaustive reader scan succeeds. Returned search identities must match the currently authoritative index owner. Root readiness comes from an injected producer receipt source, never row counts.
 
 Guards: native-index-search.test.ts tests authorization before either acquisition, changed-store refusal and retained cleanup causes; the actual Electron WAL proof also exercises the capability over the same recorded native source/identity and chunk ID. Main registration/startup remains separate composition.
+
+### Complete response budget review
+
+Independent review of the reader extraction found that the incremental row
+accounting omitted the newly returned snapshot identity. A valid configured
+profile with a large model ID could exceed the IPC limit with no chunk rows.
+The host now checks V8 serialization of the entire successful response before
+either Node IPC or Electron parent-port delivery, retaining the existing
+incremental sandbox guard. The budget includes metadata, column names and the
+correlation envelope; over-budget responses retain a correlated RangeError.
+
+Guards: `packages/sqlite-query/src/__tests__/host-core.test.ts` covers an empty
+result that fits alone but exceeds the limit with its envelope, plus subsequent
+BigInt/blob delivery. `sandbox.integration.test.ts` checks valid oversized
+configured metadata against empty and matching grep, then ordinary recovery.
+The original guard/deadline controls remain enabled throughout verification.
