@@ -6,16 +6,27 @@ import { createLogger } from '@brainstrike/logging';
 import { createRuntimeId, deserializeRuntimeError } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import {
+  documentResponseFailure,
+  joinDocumentEmbeddingInterruption,
+} from './embedding-host-document-settlement';
+import {
   createEmbeddingHostCommand,
+  createEmbeddingHostDocumentEmbeddingsCancel,
+  createEmbeddingHostDocumentEmbeddingsRequest,
   createEmbeddingHostQueryEmbeddingCancel,
   createEmbeddingHostQueryEmbeddingRequest,
   createStoppedEmbeddingHostStatus,
   EMBEDDING_HOST_COMMAND_EVENT,
+  EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_CANCEL_EVENT,
+  EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_REQUEST_EVENT,
   EMBEDDING_HOST_QUERY_EMBEDDING_CANCEL_EVENT,
   EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT,
   EMBEDDING_HOST_STATUS_ADAPTER,
   EMBEDDING_HOST_STATUS_EVENT,
   EMBEDDING_HOST_STOPPED_RUNTIME_ID,
+  type EmbeddingHostDocumentEmbeddingsPayload,
+  type EmbeddingHostDocumentEmbeddingsRequest,
+  type EmbeddingHostDocumentEmbeddingsResponseReport,
   type EmbeddingHostQueryEmbeddingPayload,
   type EmbeddingHostQueryEmbeddingRequest,
   type EmbeddingHostQueryEmbeddingResponseReport,
@@ -80,6 +91,9 @@ export class EmbeddingHostManager {
   private disposing = false;
   private reportedRuntimeId: string | null = null;
   private pendingReset: { requestId: string; runtimeId: string } | null = null;
+  private stopping: Promise<EmbeddingHostStatus> | null = null;
+  private retirement: { readonly failures: unknown[]; readonly promise: Promise<void> } | null =
+    null;
   private readonly lifecycle: RendererHostLifecycle<EmbeddingHostStatus>;
   private readonly powerSaveBlockerEnabled: boolean;
   private pendingInactiveStatusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -90,6 +104,10 @@ export class EmbeddingHostManager {
   private readonly queryRequests: HostRequestChannel<
     EmbeddingHostQueryEmbeddingRequest,
     EmbeddingHostQueryEmbeddingResponseReport
+  >;
+  private readonly documentRequests: HostRequestChannel<
+    EmbeddingHostDocumentEmbeddingsRequest,
+    EmbeddingHostDocumentEmbeddingsResponseReport
   >;
 
   constructor(options: EmbeddingHostManagerOptions = {}) {
@@ -131,6 +149,63 @@ export class EmbeddingHostManager {
       },
       timeoutMs: () => QUERY_EMBEDDING_TIMEOUT_MS,
     });
+    this.documentRequests = createHostRequestChannel<
+      EmbeddingHostDocumentEmbeddingsRequest,
+      EmbeddingHostDocumentEmbeddingsResponseReport
+    >({
+      joinOnInterrupt: (request, context) =>
+        joinDocumentEmbeddingInterruption(
+          request,
+          context,
+          () => this.stopHost(),
+          EMBEDDING_HOST_STOP_TIMEOUT_MS
+        ),
+      onAbort: (request, { reason }) => {
+        try {
+          this.cancelDocumentEmbeddingsRequest(request);
+          return reason;
+        } catch (error) {
+          return new AggregateError(
+            [reason, error],
+            'Document embedding cancellation delivery failed.'
+          );
+        }
+      },
+      onTimeout: (request, context) => {
+        logger.warn('Embedding host document batch timed out', {
+          elapsedMs: Math.max(0, context.timedOutAt - context.startedAt),
+          pendingCount: context.pendingCount,
+          provider: 'local',
+          stage: 'host-response',
+          timeoutMs: context.timeoutMs,
+        });
+        let error: Error = new Error(
+          `Embedding host request ${context.requestId} timed out after ${context.timeoutMs}ms.`
+        );
+        try {
+          this.cancelDocumentEmbeddingsRequest(request);
+        } catch (deliveryError) {
+          error = new AggregateError(
+            [error, deliveryError],
+            'Document embedding timeout cancellation failed.'
+          );
+        }
+        return {
+          error,
+          policy: 'abandon',
+        };
+      },
+      requestId: (request) => `${request.runtimeId}:${request.requestId}`,
+      responseId: (report) => `${report.runtimeId}:${report.requestId}`,
+      role: 'Embedding host',
+      send: (request) => {
+        this.requireHostWindow().webContents.send(
+          EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_REQUEST_EVENT,
+          request
+        );
+      },
+      timeoutMs: () => QUERY_EMBEDDING_TIMEOUT_MS,
+    });
     this.lifecycle = new RendererHostLifecycle<EmbeddingHostStatus>({
       createStatus: EMBEDDING_HOST_STATUS_ADAPTER.createStatus,
       createStoppedStatus: createStoppedEmbeddingHostStatus,
@@ -147,10 +222,20 @@ export class EmbeddingHostManager {
             state: 'error',
           })
         );
+        if (this.documentRequests.size() > 0) {
+          void this.retireDocumentHost(message).catch((error: unknown) => {
+            logger.error('Embedding host load failure retirement failed', { error });
+          });
+        }
       },
       onRenderProcessGone: ({ exitCode, message, reason }) => {
         this.clearPendingInactiveStatus();
         this.rejectPendingQueryEmbeddingRequests(message);
+        if (this.retirement) {
+          this.retirement.failures.push(new Error(message));
+        } else {
+          this.rejectSettledDocumentRequests(message, true);
+        }
         logger.error(message, {
           exitCode,
           reason,
@@ -173,6 +258,12 @@ export class EmbeddingHostManager {
         this.rejectPendingQueryEmbeddingRequests(
           'Embedding host window closed while query embedding requests were in flight.'
         );
+        if (!this.retirement) {
+          this.rejectSettledDocumentRequests(
+            'Embedding host window closed while document requests were in flight.',
+            true
+          );
+        }
         this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
       },
       role: 'embedding-host',
@@ -192,7 +283,7 @@ export class EmbeddingHostManager {
         : this.controlState
           ? { controlState: this.controlState }
           : {}),
-      pendingRequestCount: this.queryRequests.size(),
+      pendingRequestCount: this.queryRequests.size() + this.documentRequests.size(),
     });
   }
 
@@ -206,6 +297,13 @@ export class EmbeddingHostManager {
 
   async ensureStarted(options?: { waitForRunning?: boolean }): Promise<EmbeddingHostStatus> {
     this.assertNotDisposed('ensureStarted');
+    if (this.stopping) {
+      await this.stopping;
+    }
+    if (this.retirement) {
+      await this.retirement.promise;
+    }
+    this.assertNotDisposed('ensureStarted');
     return this.lifecycle.ensureStarted(options);
   }
 
@@ -215,13 +313,58 @@ export class EmbeddingHostManager {
   }
 
   private async stopHost(timeoutMs = EMBEDDING_HOST_STOP_TIMEOUT_MS): Promise<EmbeddingHostStatus> {
+    if (this.stopping) {
+      if (timeoutMs === EMBEDDING_HOST_STOP_TIMEOUT_MS) {
+        return this.stopping;
+      }
+      // Shutdown's shorter budget still owns the deadline when an ordinary Stop is underway.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          this.stopping,
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(
+              () => reject(new Error('Timed out waiting for embedding host state transition.')),
+              timeoutMs
+            );
+          }),
+        ]);
+      } catch (error) {
+        await this.destroyDocumentHostWindow([error]);
+        this.rejectSettledDocumentRequests(
+          error instanceof Error ? error : new Error(String(error)),
+          true
+        );
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    const stop = this.stopHostOnce(timeoutMs);
+    this.stopping = stop;
+    try {
+      return await stop;
+    } finally {
+      if (this.stopping === stop) {
+        this.stopping = null;
+      }
+    }
+  }
+
+  private async stopHostOnce(timeoutMs: number): Promise<EmbeddingHostStatus> {
     this.rejectPendingQueryEmbeddingRequests(
       'Embedding host stopped while query embedding requests were in flight.'
     );
     const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
+      if (window) {
+        await this.destroyDocumentHostWindow();
+      }
       this.lifecycle.clearHostWindow();
       this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
+      this.rejectSettledDocumentRequests(
+        'Embedding host stopped while document requests were in flight.'
+      );
       return this.getStatus();
     }
 
@@ -237,9 +380,8 @@ export class EmbeddingHostManager {
     const { runtimeId } = this.getStatus();
 
     const command = createEmbeddingHostCommand('stop', runtimeId);
-    window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, command);
-
     try {
+      window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, command);
       const status = await this.lifecycle.waitForStatus(
         (nextStatus) =>
           nextStatus.commandId === command.requestId &&
@@ -249,16 +391,35 @@ export class EmbeddingHostManager {
       if (status.state === 'error') {
         throw new Error(status.lastError ?? 'Embedding renderer reported a failed stop.');
       }
+      this.rejectSettledDocumentRequests(
+        'Embedding host stopped while document requests were in flight.'
+      );
       return status;
     } catch (error) {
-      this.lifecycle.destroyHostWindow();
+      let failure = error;
+      try {
+        await this.destroyDocumentHostWindow([error]);
+      } catch (retirementError) {
+        failure = retirementError;
+      }
       this.lifecycle.clearHostWindow();
       this.lifecycle.setStatus(createStoppedEmbeddingHostStatus(runtimeId));
-      throw error;
+      this.rejectSettledDocumentRequests(
+        failure instanceof Error ? failure : new Error(String(failure)),
+        true
+      );
+      throw failure;
     }
   }
 
   async reset(): Promise<EmbeddingHostStatus> {
+    this.assertNotDisposed('reset');
+    if (this.stopping) {
+      await this.stopping;
+    }
+    if (this.retirement) {
+      await this.retirement.promise;
+    }
     this.assertNotDisposed('reset');
     this.rejectPendingQueryEmbeddingRequests(
       'Embedding host reset while query embedding requests were in flight.'
@@ -283,8 +444,8 @@ export class EmbeddingHostManager {
     );
     this.clearPendingInactiveStatus();
 
-    window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, command);
     try {
+      window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, command);
       const status = await this.lifecycle.waitForStatus(
         (nextStatus) =>
           (nextStatus.runtimeId === nextRuntimeId &&
@@ -296,12 +457,24 @@ export class EmbeddingHostManager {
       );
       if (status.state === 'error') {
         // A failed drain or replacement startup retires this renderer before any new start.
-        this.lifecycle.destroyHostWindow();
+        await this.destroyDocumentHostWindow([
+          new Error(status.lastError ?? 'Embedding host reset failed.'),
+        ]);
         this.lifecycle.setStatus(status);
       }
+      this.rejectSettledDocumentRequests(
+        status.state === 'error'
+          ? new Error(status.lastError ?? 'Embedding host reset failed.')
+          : 'Embedding host reset while document requests were in flight.',
+        status.state === 'error'
+      );
       return status;
     } catch (error) {
-      this.lifecycle.destroyHostWindow();
+      await this.destroyDocumentHostWindow([error]);
+      this.rejectSettledDocumentRequests(
+        error instanceof Error ? error : new Error(String(error)),
+        true
+      );
       const message = error instanceof Error ? error.message : String(error);
       this.lifecycle.setStatus(
         EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
@@ -333,10 +506,13 @@ export class EmbeddingHostManager {
       'Embedding host restarted while query embedding requests were in flight.'
     );
     this.controlState = 'restarting';
-    this.clearPendingInactiveStatus();
-    this.lifecycle.destroyHostWindow();
-    this.lifecycle.clearHostWindow();
     try {
+      this.clearPendingInactiveStatus();
+      await this.destroyDocumentHostWindow();
+      this.rejectSettledDocumentRequests(
+        'Embedding host restarted while document requests were in flight.'
+      );
+      this.lifecycle.clearHostWindow();
       return await this.ensureStarted({ waitForRunning: true });
     } finally {
       this.controlState = null;
@@ -360,7 +536,7 @@ export class EmbeddingHostManager {
       );
     }
     this.requireHostWindow();
-    const pendingCount = this.queryRequests.size();
+    const pendingCount = this.queryRequests.size() + this.documentRequests.size();
     if (pendingCount >= MAX_PENDING_QUERY_EMBEDDING_REQUESTS) {
       throw new Error(
         `Embedding host has ${pendingCount} query embedding requests in flight; retry after one completes.`
@@ -384,6 +560,127 @@ export class EmbeddingHostManager {
     } catch (error) {
       throw new Error('Embedding host query cancellation could not be sent.', { cause: error });
     }
+  }
+
+  async documentEmbeddings(
+    payload: EmbeddingHostDocumentEmbeddingsPayload,
+    options?: { signal?: AbortSignal }
+  ): Promise<number[][]> {
+    options?.signal?.throwIfAborted();
+    this.assertNotDisposed('documentEmbeddings');
+    const status = await waitForHostStartup(
+      this.ensureStarted({ waitForRunning: true }),
+      options?.signal
+    );
+    options?.signal?.throwIfAborted();
+    if (status.state !== 'running') {
+      throw new Error(
+        status.lastError ?? 'Embedding host is not running and cannot generate document embeddings.'
+      );
+    }
+    this.requireHostWindow();
+    const pendingCount = this.documentRequests.size() + this.queryRequests.size();
+    if (pendingCount >= MAX_PENDING_QUERY_EMBEDDING_REQUESTS) {
+      throw new Error(
+        `Embedding host has ${pendingCount} inference requests in flight; retry after one completes.`
+      );
+    }
+
+    const request = createEmbeddingHostDocumentEmbeddingsRequest(status.runtimeId, payload);
+    const report = await this.documentRequests.request(request, options);
+    const failure = documentResponseFailure(payload, report);
+    if (failure) {
+      throw failure;
+    }
+    if (report.type !== 'result') {
+      throw new Error('Document embedding response is not a result.');
+    }
+    return report.payload.embeddings;
+  }
+
+  private cancelDocumentEmbeddingsRequest(request: EmbeddingHostDocumentEmbeddingsRequest): void {
+    try {
+      this.requireHostWindow().webContents.send(
+        EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_CANCEL_EVENT,
+        createEmbeddingHostDocumentEmbeddingsCancel(request)
+      );
+    } catch (error) {
+      throw new Error('Embedding host document cancellation could not be sent.', { cause: error });
+    }
+  }
+
+  /** Join the actual close/exit event; isDestroyed and a destroy send are not a completion ack. */
+  private async destroyDocumentHostWindow(initialFailures: readonly unknown[] = []): Promise<void> {
+    if (this.retirement) {
+      this.retirement.failures.push(...initialFailures);
+      const window = this.lifecycle.getHostWindow();
+      if (window && !window.isDestroyed()) {
+        try {
+          window.destroy();
+        } catch (error) {
+          this.retirement.failures.push(error);
+          logger.error(
+            'Embedding host retirement retry failed; physical settlement is still pending',
+            {
+              error,
+            }
+          );
+        }
+      }
+      return this.retirement.promise;
+    }
+    const window = this.lifecycle.getHostWindow();
+    if (!window || this.documentRequests.size() === 0) {
+      try {
+        this.lifecycle.destroyHostWindow();
+      } catch (error) {
+        throw initialFailures.length > 0
+          ? new AggregateError([...initialFailures, error], 'Embedding host retirement failed.')
+          : error;
+      }
+      return;
+    }
+    const closed = new Promise<void>((resolve) => {
+      const retired = (): void => {
+        window.removeListener('closed', retired);
+        window.webContents.removeListener('render-process-gone', retired);
+        this.lifecycle.clearHostWindow(window);
+        resolve();
+      };
+      window.once('closed', retired);
+      window.webContents.once('render-process-gone', retired);
+    });
+    const failures = [...initialFailures];
+    const promise = closed.then(() => {
+      this.retirement = null;
+      if (failures.length === 0) {
+        return;
+      }
+      const failure =
+        failures.length === 1
+          ? failures[0]
+          : new AggregateError(failures, 'Embedding host retirement failed.');
+      this.rejectSettledDocumentRequests(
+        failure instanceof Error ? failure : new Error(String(failure)),
+        true
+      );
+      throw failure;
+    });
+    this.retirement = { failures, promise };
+    try {
+      window.destroy();
+    } catch (error) {
+      failures.push(error);
+      logger.error('Embedding host destruction failed; physical settlement is still pending', {
+        error,
+      });
+    }
+    return promise;
+  }
+
+  private async retireDocumentHost(message: string): Promise<void> {
+    await this.destroyDocumentHostWindow([new Error(message)]);
+    this.rejectSettledDocumentRequests(message, true);
   }
 
   private requireHostWindow(): BrowserWindow {
@@ -412,7 +709,10 @@ export class EmbeddingHostManager {
         'Embedding host disposed while query embedding requests were in flight.'
       );
       this.clearPendingInactiveStatus();
-      this.lifecycle.destroyHostWindow();
+      await this.destroyDocumentHostWindow();
+      this.rejectSettledDocumentRequests(
+        'Embedding host disposed while document requests were in flight.'
+      );
       this.stopPowerSaveBlocker();
       this.lifecycle.dispose();
     }
@@ -489,6 +789,17 @@ export class EmbeddingHostManager {
       return;
     }
     this.queryRequests.accept(report);
+  }
+
+  acceptDocumentEmbeddingsResponseReport(
+    senderId: number,
+    report: EmbeddingHostDocumentEmbeddingsResponseReport
+  ): void {
+    const window = this.lifecycle.getHostWindow();
+    if (!window || window.isDestroyed() || window.webContents.id !== senderId) {
+      return;
+    }
+    this.documentRequests.accept(report);
   }
 
   private syncPowerSaveBlocker(status: EmbeddingHostStatus): void {
@@ -618,7 +929,13 @@ export class EmbeddingHostManager {
   }
 
   private assertNotDisposed(
-    methodName: 'destroyAndRestart' | 'ensureStarted' | 'queryEmbedding' | 'reset' | 'stop'
+    methodName:
+      | 'destroyAndRestart'
+      | 'ensureStarted'
+      | 'queryEmbedding'
+      | 'documentEmbeddings'
+      | 'reset'
+      | 'stop'
   ): void {
     if (this.disposed || this.disposing) {
       throw new Error(`EmbeddingHostManager.${methodName} cannot be called after dispose().`);
@@ -627,5 +944,13 @@ export class EmbeddingHostManager {
 
   private rejectPendingQueryEmbeddingRequests(message: string): void {
     this.queryRequests.rejectAll((requestId) => new Error(`${message} (request ${requestId})`));
+  }
+
+  private rejectSettledDocumentRequests(reason: string | Error, interruptionFailure = false): void {
+    this.documentRequests.rejectAll(
+      (requestId) =>
+        typeof reason === 'string' ? new Error(`${reason} (request ${requestId})`) : reason,
+      { interruptionFailure }
+    );
   }
 }

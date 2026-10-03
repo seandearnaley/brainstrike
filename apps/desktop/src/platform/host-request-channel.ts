@@ -64,15 +64,37 @@ export interface HostRequestAbortContext {
   readonly requestId: string;
 }
 
+export type HostRequestSettlement<TResponse> =
+  | { readonly type: 'response'; readonly response: TResponse }
+  | { readonly type: 'retired'; readonly error: Error | null };
+
+export interface HostRequestInterruptionContext<TResponse> {
+  readonly error: unknown;
+  readonly reason: unknown;
+  /** Only a matching terminal response or rejectAll after joined host retirement resolves this. */
+  readonly settlement: Promise<HostRequestSettlement<TResponse>>;
+  readonly source: 'abort' | 'timeout' | 'send-failure';
+}
+
 export interface HostRequestChannelOptions<TRequest, TResponse> {
   /** Progress responses re-arm the deadline and reach `onProgress`; they never settle the request. Default: nothing is progress. */
   readonly isProgress?: (response: TResponse) => boolean;
+  /**
+   * Opt in to physical settlement on interruption. Retains the entry, identity and capacity
+   * until the join returns its rejection reason. For this mode, rejectAll MUST only run after
+   * physical host retirement or a cooperative completion join, never at the start of Stop.
+   * Other hosts keep the existing immediate-release behavior.
+   */
+  readonly joinOnInterrupt?: (
+    request: TRequest,
+    context: HostRequestInterruptionContext<TResponse>
+  ) => Promise<unknown>;
   /**
    * Decide the error a request rejects with when its `signal` fires, and run
    * any abort side effect (e.g. send a cancel to the host). Default: the
    * signal's reason when it is an Error, else `<role> request <id> was aborted.`
    *
-   * Unlike `onTimeout`, this runs AFTER the entry is released: `has()` and
+   * Unless `joinOnInterrupt` is installed, this runs AFTER the entry is released: `has()` and
    * `inFlight()` report the post-release state, so an adapter moving the entry
    * into its own ledger will not find it in the channel. Deliberate — the
    * abort side effect is a send, and the request is already unrecoverable.
@@ -81,7 +103,7 @@ export interface HostRequestChannelOptions<TRequest, TResponse> {
    * time: nothing was sent, so there is nothing to cancel, and the rejection
    * uses the signal's reason (or the default abort error) directly.
    */
-  readonly onAbort?: (request: TRequest, context: HostRequestAbortContext) => Error;
+  readonly onAbort?: (request: TRequest, context: HostRequestAbortContext) => unknown;
   /**
    * A response whose id is not pending (timed out, aborted, rejected, or never
    * known). Default logs at warn — a late response is never dropped silently.
@@ -117,7 +139,7 @@ export interface HostRequestChannelOptions<TRequest, TResponse> {
 
 export interface HostRequestOptions<TResponse> {
   readonly onProgress?: ((response: TResponse) => void) | undefined;
-  /** Aborting rejects with `signal.reason` when it is an Error, else a per-role abort error. */
+  /** Default abort uses an Error reason or a per-role error; onAbort may preserve arbitrary reasons. */
   readonly signal?: AbortSignal | undefined;
 }
 
@@ -128,20 +150,26 @@ export interface HostRequestChannel<TRequest, TResponse> {
   ids(): readonly string[];
   inFlight(): readonly TRequest[];
   /** Reject every in-flight request (process gone, window closed, stop, dispose). A factory mints a fresh Error per request. */
-  rejectAll(reason: Error | ((requestId: string, request: TRequest) => Error)): void;
+  rejectAll(
+    reason: Error | ((requestId: string, request: TRequest) => Error),
+    /** False marks an intentional joined Stop/reset; independent retirement failures remain true. */
+    options?: { readonly interruptionFailure?: boolean }
+  ): void;
   /** Send and await the terminal response. The adapter interprets result vs error payloads. */
   request(request: TRequest, options?: HostRequestOptions<TResponse>): Promise<TResponse>;
   size(): number;
 }
 
 interface PendingHostRequest<TRequest, TResponse> {
+  interruption: Promise<HostRequestSettlement<TResponse>> | null;
   readonly onProgress: ((response: TResponse) => void) | undefined;
   progressCount: number;
-  readonly reject: (error: Error) => void;
+  readonly reject: (error: unknown) => void;
   releaseAbortListener: (() => void) | null;
   readonly request: TRequest;
   readonly requestId: string;
   readonly resolve: (response: TResponse) => void;
+  settleInterruption: ((settlement: HostRequestSettlement<TResponse>) => void) | null;
   readonly startedAt: number;
   /** The window currently armed: the request's own until a progress report supplies another. */
   timeoutMs: number;
@@ -176,16 +204,74 @@ export function createHostRequestChannel<TRequest, TResponse>(
     clearTimeout(entry.timer);
     entry.releaseAbortListener?.();
     entry.releaseAbortListener = null;
-    pending.delete(entry.requestId);
+    if (pending.get(entry.requestId) === entry) {
+      pending.delete(entry.requestId);
+    }
   };
 
-  const rejectAll = (reason: Error | ((requestId: string, request: TRequest) => Error)): void => {
-    for (const [requestId, entry] of pending.drain()) {
-      clearTimeout(entry.timer);
-      entry.releaseAbortListener?.();
-      entry.releaseAbortListener = null;
-      entry.reject(typeof reason === 'function' ? reason(requestId, entry.request) : reason);
+  const rejectAll: HostRequestChannel<TRequest, TResponse>['rejectAll'] = (
+    reason,
+    rejectionOptions
+  ) => {
+    const entries = options.joinOnInterrupt ? pending.entries() : pending.drain();
+    for (const [requestId, entry] of entries) {
+      const error = typeof reason === 'function' ? reason(requestId, entry.request) : reason;
+      if (entry.settleInterruption) {
+        entry.settleInterruption({
+          error: rejectionOptions?.interruptionFailure === false ? null : error,
+          type: 'retired',
+        });
+        continue;
+      }
+      release(entry);
+      entry.reject(error);
     }
+  };
+
+  const prepareInterruption = (entry: PendingHostRequest<TRequest, TResponse>): void => {
+    if (!options.joinOnInterrupt || entry.interruption) {
+      return;
+    }
+    clearTimeout(entry.timer);
+    entry.releaseAbortListener?.();
+    entry.releaseAbortListener = null;
+    const completion = Promise.withResolvers<HostRequestSettlement<TResponse>>();
+    entry.interruption = completion.promise;
+    entry.settleInterruption = completion.resolve;
+  };
+
+  const interrupt = (
+    entry: PendingHostRequest<TRequest, TResponse>,
+    error: unknown,
+    source: HostRequestInterruptionContext<TResponse>['source'],
+    reason: unknown = error
+  ): void => {
+    const join = options.joinOnInterrupt;
+    if (!join) {
+      release(entry);
+      entry.reject(error);
+      return;
+    }
+    prepareInterruption(entry);
+    const settlement = entry.interruption;
+    if (!settlement) {
+      throw new Error(`${role} interruption has no settlement owner.`);
+    }
+    void (async () => {
+      let rejection: unknown;
+      try {
+        rejection = await join(entry.request, {
+          error,
+          reason,
+          settlement,
+          source,
+        });
+      } catch (joinError) {
+        rejection = new AggregateError([error, joinError], `${role} interruption join failed.`);
+      }
+      release(entry);
+      entry.reject(rejection);
+    })();
   };
 
   const decideTimeout = (
@@ -219,11 +305,13 @@ export function createHostRequestChannel<TRequest, TResponse>(
     if (pending.get(entry.requestId) !== entry) {
       return;
     }
+    prepareInterruption(entry);
     const decision = decideTimeout(entry);
-    release(entry);
-    entry.reject(decision.error);
+    interrupt(entry, decision.error, 'timeout');
     if (decision.policy === 'terminate') {
-      rejectAll(decision.error);
+      if (!options.joinOnInterrupt) {
+        rejectAll(decision.error);
+      }
       try {
         decision.terminate(decision.error);
       } catch (error) {
@@ -264,6 +352,7 @@ export function createHostRequestChannel<TRequest, TResponse>(
 
     return await new Promise<TResponse>((resolve, reject) => {
       const entry: PendingHostRequest<TRequest, TResponse> = {
+        interruption: null,
         onProgress: requestOptions.onProgress,
         progressCount: 0,
         reject,
@@ -271,6 +360,7 @@ export function createHostRequestChannel<TRequest, TResponse>(
         request,
         requestId,
         resolve,
+        settleInterruption: null,
         startedAt: Date.now(),
         timeoutMs: options.timeoutMs(request),
         // Armed right below: the deadline closure needs the entry to exist first.
@@ -283,8 +373,11 @@ export function createHostRequestChannel<TRequest, TResponse>(
           if (pending.get(requestId) !== entry) {
             return;
           }
-          release(entry);
-          let abortError: Error;
+          if (!options.joinOnInterrupt) {
+            release(entry);
+          }
+          prepareInterruption(entry);
+          let abortError: unknown;
           try {
             abortError = options.onAbort
               ? options.onAbort(request, { reason: signal.reason, requestId })
@@ -294,7 +387,7 @@ export function createHostRequestChannel<TRequest, TResponse>(
             // that is already gone); the request must still settle.
             abortError = toThrownError(error);
           }
-          reject(abortError);
+          interrupt(entry, abortError, 'abort', signal.reason);
         };
         signal.addEventListener('abort', onAbort, { once: true });
         entry.releaseAbortListener = () => {
@@ -306,8 +399,7 @@ export function createHostRequestChannel<TRequest, TResponse>(
       try {
         options.send(request);
       } catch (error) {
-        release(entry);
-        reject(toSendFailure(role, requestId, error));
+        interrupt(entry, toSendFailure(role, requestId, error), 'send-failure');
       }
     });
   };
@@ -388,7 +480,14 @@ export function createHostRequestChannel<TRequest, TResponse>(
       return;
     }
     if (options.isProgress?.(response)) {
+      if (entry.settleInterruption) {
+        return;
+      }
       acceptProgress(entry, response);
+      return;
+    }
+    if (entry.settleInterruption) {
+      entry.settleInterruption({ response, type: 'response' });
       return;
     }
     release(entry);

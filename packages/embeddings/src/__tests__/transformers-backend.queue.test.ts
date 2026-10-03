@@ -59,6 +59,91 @@ describe('TransformersBackend queue integration', () => {
     vi.unstubAllGlobals();
   });
 
+  it('requests explicit q8 WASM without changing the model ID', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('Worker', class {});
+    const { queue, add } = createQueueStub();
+    const model = 'Xenova/all-MiniLM-L6-v2';
+    const revision = '751bff37182d3f1213fa05d7196b954e230abad9';
+    const result = createQueueResult('task', [0.4, 0.6]);
+    add.mockResolvedValueOnce({
+      ...result,
+      metadata: { ...result.metadata, device: 'wasm', dtype: 'q8', model, revision },
+    });
+    const { TransformersBackend } = await import('../transformers-backend.js');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config.js'
+    );
+    registerEmbeddingQueueFactory(() => queue);
+    const backend = new TransformersBackend();
+    try {
+      backend.setTargetDimensions(2);
+      await backend.initialize({
+        device: 'wasm',
+        dtype: 'q8',
+        modelId: model,
+        quantized: false,
+        revision,
+      });
+      await backend.generateEmbedding('hello world', model);
+      expect(add).toHaveBeenCalledWith(
+        expect.objectContaining({ deviceHint: 'wasm', dtype: 'q8', model, revision }),
+        undefined
+      );
+      expect(pipelineMock).not.toHaveBeenCalled();
+    } finally {
+      await backend.dispose();
+      resetEmbeddingQueueFactory();
+    }
+  });
+
+  it.each([
+    { revision: undefined },
+    { revision: 'main' },
+    { model: 'other-model' },
+    { device: 'webgpu' },
+    { dtype: 'q4' },
+    { fallbackApplied: true },
+    { dimensions: 768 },
+  ] as const)('rejects mismatched pinned queue completion %j', async (metadata) => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('Worker', class {});
+    const { queue, add } = createQueueStub();
+    const model = 'Xenova/all-MiniLM-L6-v2';
+    const revision = '751bff37182d3f1213fa05d7196b954e230abad9';
+    const result = createQueueResult('task', [0.4, 0.6]);
+    const completion = {
+      ...result.metadata,
+      device: 'wasm' as const,
+      dtype: 'q8' as const,
+      model,
+      revision,
+      ...metadata,
+    };
+    const { revision: completionRevision, ...completionFields } = completion;
+    add.mockResolvedValueOnce({
+      ...result,
+      metadata: {
+        ...completionFields,
+        ...(completionRevision === undefined ? {} : { revision: completionRevision }),
+      },
+    });
+    const { TransformersBackend } = await import('../transformers-backend.js');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config.js'
+    );
+    registerEmbeddingQueueFactory(() => queue);
+    const backend = new TransformersBackend();
+    try {
+      backend.setTargetDimensions(2);
+      await backend.initialize({ device: 'wasm', dtype: 'q8', modelId: model, revision });
+      await expect(backend.generateEmbedding('hello', model)).rejects.toThrow('pinned');
+    } finally {
+      await backend.dispose();
+      resetEmbeddingQueueFactory();
+    }
+  });
+
   it('prefers the browser queue when available', {
     timeout: QUEUE_BACKEND_TEST_TIMEOUT_MS,
   }, async () => {

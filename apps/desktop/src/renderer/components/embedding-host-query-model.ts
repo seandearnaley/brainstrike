@@ -1,7 +1,7 @@
 import { createPriorityDbHandle } from '@brainstrike/db';
 import type { usePGliteDatabase } from '@brainstrike/db/react';
 import type { ModelConfig } from '@brainstrike/embeddings';
-import type { EmbeddingHostQueryEmbeddingRequest } from '../../embedding-host-shared';
+import type { EmbeddingHostInferenceRequest } from '../../embedding-host-shared';
 
 interface DbModelRow {
   readonly capabilities: unknown;
@@ -40,8 +40,19 @@ function resolveOptionalNumber(value: unknown): number | undefined {
 
 export async function loadQueryEmbeddingModelConfig(
   db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
-  request: EmbeddingHostQueryEmbeddingRequest
+  request: EmbeddingHostInferenceRequest
 ): Promise<ModelConfig> {
+  const plan = request.payload.inferencePlan;
+  if (plan) {
+    return {
+      description: 'Explicit pinned native inference',
+      dimensions: plan.dimensions,
+      id: plan.modelId,
+      name: plan.modelId,
+      quantized: false,
+      tags: ['local', 'embedding'],
+    };
+  }
   // A user's search waits on this read. Host-window work defaults to background,
   // which the desktop scheduler rejects while database integrity is contained
   // (BST-1870), so the read runs on the foreground lane.
@@ -87,4 +98,50 @@ export async function loadQueryEmbeddingModelConfig(
       ? { contextWindow: resolveOptionalNumber(parameters['contextWindow']) }
       : {}),
   };
+}
+
+export function queryEmbeddingServiceIdentity(request: EmbeddingHostInferenceRequest): string {
+  const { modelKey, modelId, dimensions, inferencePlan: plan } = request.payload;
+  return JSON.stringify([
+    modelKey,
+    modelId,
+    dimensions,
+    plan?.revision ?? null,
+    plan?.device ?? null,
+    plan?.dtype ?? null,
+  ]);
+}
+
+export function assertPinnedQueryEmbeddingResult(
+  request: EmbeddingHostInferenceRequest,
+  result: import('@brainstrike/embeddings').EmbeddingResult
+): void {
+  const plan = request.payload.inferencePlan;
+  if (!plan) {
+    return;
+  }
+  if (
+    !(
+      result.model === plan.modelId &&
+      result.dimensions === plan.dimensions &&
+      result.embedding.length === plan.dimensions &&
+      result.embedding.every(Number.isFinite)
+    )
+  ) {
+    throw new Error('Native pinned embedding returned invalid model, dimensions or vector values.');
+  }
+  const runtime = result.runtime;
+  if (
+    !(
+      runtime &&
+      runtime.device === plan.device &&
+      runtime.dtype === plan.dtype &&
+      runtime.fallbackApplied === false &&
+      runtime.revision === plan.revision
+    )
+  ) {
+    throw new Error(
+      'Native pinned query embedding returned mismatched or missing worker runtime metadata.'
+    );
+  }
 }

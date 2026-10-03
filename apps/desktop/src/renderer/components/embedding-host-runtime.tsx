@@ -24,26 +24,34 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { type MutableRefObject, useEffect, useRef } from 'react';
 import {
+  createEmbeddingHostDocumentEmbeddingsErrorReport,
+  createEmbeddingHostDocumentEmbeddingsResultReport,
   createEmbeddingHostQueryEmbeddingErrorReport,
   createEmbeddingHostQueryEmbeddingResultReport,
-  type EmbeddingHostQueryEmbeddingRequest,
+  type EmbeddingHostInferenceRequest,
   type EmbeddingHostRuntimeMetadata,
   type EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
 import {
   getEmbeddingHostBridge,
   getPowerBridge,
+  reportDocumentEmbeddingsResponse,
   reportEmbeddingHostRuntimeStatus,
   reportEmbeddingHostRuntimeStatusForRuntimeId,
   reportQueryEmbeddingResponse,
 } from './embedding-host-bridge';
+import { subscribeDocumentEmbeddingsRequests } from './embedding-host-document-listener';
 import {
   createEmbeddingHostCommandHandler,
   createEmbeddingHostLifecycleFailureHandler,
   runEmbeddingHostCleanupStep,
 } from './embedding-host-lifecycle';
 import { subscribeQueryEmbeddingRequests } from './embedding-host-query-listener';
-import { loadQueryEmbeddingModelConfig } from './embedding-host-query-model';
+import {
+  assertPinnedQueryEmbeddingResult,
+  loadQueryEmbeddingModelConfig,
+  queryEmbeddingServiceIdentity,
+} from './embedding-host-query-model';
 import {
   closeQueryEmbeddingRuntimeOwner,
   createQueryEmbeddingRuntimeOwner,
@@ -224,7 +232,7 @@ async function resolveHydratedVectorDevicePreference(): Promise<EmbeddingDeviceT
 }
 
 function assertEmbeddingResultDimensions(
-  request: EmbeddingHostQueryEmbeddingRequest,
+  request: EmbeddingHostInferenceRequest,
   result: EmbeddingResult
 ): void {
   if (result.embedding.length === request.payload.dimensions) {
@@ -243,7 +251,7 @@ function assertQueryEmbeddingRuntimeCurrent(isCurrent: () => boolean): void {
 
 async function getQueryEmbeddingService(
   db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
-  request: EmbeddingHostQueryEmbeddingRequest,
+  request: EmbeddingHostInferenceRequest,
   runtimeIdRef: MutableRefObject<string>,
   owner: QueryEmbeddingRuntimeOwner,
   isCurrent: () => boolean,
@@ -254,7 +262,8 @@ async function getQueryEmbeddingService(
   const serviceStateRef = owner.serviceStateRef;
   assertQueryEmbeddingRuntimeCurrent(isCurrent);
   const existing = serviceStateRef.current;
-  if (existing?.modelKey === request.payload.modelKey) {
+  const identity = queryEmbeddingServiceIdentity(request);
+  if (existing?.identity === identity) {
     return existing.service;
   }
   try {
@@ -272,18 +281,24 @@ async function getQueryEmbeddingService(
   const modelConfig = await loadQueryEmbeddingModelConfig(db, request);
   assertQueryEmbeddingRuntimeCurrent(isCurrent);
   signal.throwIfAborted();
-  const hydratedDevicePref = await resolveHydratedVectorDevicePreference();
+  const plan = request.payload.inferencePlan;
+  const hydratedDevicePref = plan?.device ?? (await resolveHydratedVectorDevicePreference());
   assertQueryEmbeddingRuntimeCurrent(isCurrent);
   signal.throwIfAborted();
   const service = new SimpleEmbeddingService({
     streamingWorkerUrl: resolveViteEmbeddingWorkerUrlHref(),
   });
-  await service.initializeWithModel(modelConfig, undefined, hydratedDevicePref);
+  if (plan) {
+    await service.initialize({ ...plan, modelConfig });
+  } else {
+    await service.initializeWithModel(modelConfig, undefined, hydratedDevicePref);
+  }
   if (!isCurrent()) {
     await service.dispose();
     assertQueryEmbeddingRuntimeCurrent(isCurrent);
   }
   serviceStateRef.current = {
+    identity,
     modelKey: request.payload.modelKey,
     service,
   };
@@ -301,7 +316,7 @@ async function handleQueryEmbeddingRequest(options: {
   readonly queryOwner: QueryEmbeddingRuntimeOwner;
   readonly signal: AbortSignal;
   readonly queryEmbeddingActiveCountRef: MutableRefObject<number>;
-  readonly request: EmbeddingHostQueryEmbeddingRequest;
+  readonly request: EmbeddingHostInferenceRequest;
   readonly runtimeIdRef: MutableRefObject<string>;
 }): Promise<void> {
   const {
@@ -354,21 +369,37 @@ async function handleQueryEmbeddingRequest(options: {
           signal
         );
         assertQueryEmbeddingRuntimeCurrent(isCurrent);
-        const generated = await runOwnedQueryEmbeddingInference(
+        const generated = await runOwnedQueryEmbeddingInference<
+          EmbeddingResult | EmbeddingResult[]
+        >(
           queryOwner,
           (inferenceSignal) =>
-            service.generateQueryEmbedding(request.payload.query, { signal: inferenceSignal }),
+            request.channel === 'document-embeddings'
+              ? service.generateEmbeddings(request.payload.texts, { signal: inferenceSignal })
+              : service.generateQueryEmbedding(request.payload.query, { signal: inferenceSignal }),
           signal
         );
         assertQueryEmbeddingRuntimeCurrent(isCurrent);
         signal.throwIfAborted();
-        assertEmbeddingResultDimensions(request, generated);
-        if (generated.runtime) {
+        const results = Array.isArray(generated) ? generated : [generated];
+        const expectedCount =
+          request.channel === 'document-embeddings' ? request.payload.texts.length : 1;
+        if (results.length !== expectedCount) {
+          throw new Error('Embedding host returned an incorrect vector count.');
+        }
+        for (const result of results) {
+          assertEmbeddingResultDimensions(request, result);
+          assertPinnedQueryEmbeddingResult(request, result);
+        }
+        const runtime = results[0]?.runtime;
+        if (runtime) {
           const selectedDevicePreference =
-            embeddingRuntimeRef.current?.selectedDevicePreference ?? generated.runtime.device;
+            request.payload.inferencePlan?.device ??
+            embeddingRuntimeRef.current?.selectedDevicePreference ??
+            runtime.device;
           embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
             selectedDevicePreference,
-            generated.runtime
+            runtime
           );
           reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
             active: true,
@@ -386,9 +417,20 @@ async function handleQueryEmbeddingRequest(options: {
       },
       signal,
     });
-    reportQueryEmbeddingResponse(
-      createEmbeddingHostQueryEmbeddingResultReport(request, result.embedding)
-    );
+    if (request.channel === 'document-embeddings' && Array.isArray(result)) {
+      reportDocumentEmbeddingsResponse(
+        createEmbeddingHostDocumentEmbeddingsResultReport(
+          request,
+          result.map((item) => item.embedding)
+        )
+      );
+    } else if (request.channel === 'query-embedding' && !Array.isArray(result)) {
+      reportQueryEmbeddingResponse(
+        createEmbeddingHostQueryEmbeddingResultReport(request, result.embedding)
+      );
+    } else {
+      throw new Error('Embedding response did not match request kind.');
+    }
   } catch (error) {
     logger.error('Embedding host query embedding request failed', {
       error: error instanceof Error ? error.message : String(error),
@@ -396,7 +438,13 @@ async function handleQueryEmbeddingRequest(options: {
       requestId: request.requestId,
       runtimeId: request.runtimeId,
     });
-    reportQueryEmbeddingResponse(createEmbeddingHostQueryEmbeddingErrorReport(request, error));
+    if (request.channel === 'document-embeddings') {
+      reportDocumentEmbeddingsResponse(
+        createEmbeddingHostDocumentEmbeddingsErrorReport(request, error)
+      );
+    } else {
+      reportQueryEmbeddingResponse(createEmbeddingHostQueryEmbeddingErrorReport(request, error));
+    }
   } finally {
     if (isCurrent()) {
       queryEmbeddingActiveCountRef.current = Math.max(queryEmbeddingActiveCountRef.current - 1, 0);
@@ -847,6 +895,29 @@ export function EmbeddingHostRuntime(): null {
   useEffect(
     () =>
       subscribeQueryEmbeddingRequests({
+        handle: ({ queryOwner, request, signal, isCurrent }) =>
+          handleQueryEmbeddingRequest({
+            activeRef,
+            db: queryOwner.db,
+            embeddingRuntimeRef,
+            fatalErrorRef,
+            gate: gateRef.current,
+            isCurrent,
+            queryEmbeddingActiveCountRef: queryOwner.activeCountRef,
+            queryOwner,
+            request,
+            runtimeIdRef,
+            signal,
+          }),
+        isStopping: () => stoppedByCommandRef.current || stopPromiseRef.current !== null,
+        ownerRef: queryEmbeddingOwnerRef,
+        runtimeIdRef,
+      }),
+    []
+  );
+  useEffect(
+    () =>
+      subscribeDocumentEmbeddingsRequests({
         handle: ({ queryOwner, request, signal, isCurrent }) =>
           handleQueryEmbeddingRequest({
             activeRef,

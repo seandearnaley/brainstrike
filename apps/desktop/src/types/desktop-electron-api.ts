@@ -25,6 +25,10 @@ import type {
   EmbeddingHostBackfillProgress,
   EmbeddingHostBackfillRequest,
   EmbeddingHostCommand,
+  EmbeddingHostDocumentEmbeddingsCancel,
+  EmbeddingHostDocumentEmbeddingsPayload,
+  EmbeddingHostDocumentEmbeddingsRequest,
+  EmbeddingHostDocumentEmbeddingsResponseReport,
   EmbeddingHostQueryEmbeddingCancel,
   EmbeddingHostQueryEmbeddingPayload,
   EmbeddingHostQueryEmbeddingRequest,
@@ -182,6 +186,11 @@ export type ChunkingHostRuntimeBridge = Pick<
 export interface VisibleEmbeddingHostBridge {
   cancelAllBackfills: () => Promise<void>;
   cancelBackfill: (embeddingSetId: string) => Promise<void>;
+  cancelDocumentEmbeddings: (requestId: string) => Promise<void>;
+  documentEmbeddings: (
+    payload: EmbeddingHostDocumentEmbeddingsPayload,
+    options: { requestId: string }
+  ) => Promise<number[][]>;
   enqueueBackfill: (
     request: EmbeddingHostBackfillRequest
   ) => Promise<{ requestId: string } | { canceled: true }>;
@@ -190,6 +199,12 @@ export interface VisibleEmbeddingHostBridge {
   getStatus: () => Promise<EmbeddingHostStatus>;
   onBackfillProgress: (callback: (progress: EmbeddingHostBackfillProgress) => void) => () => void;
   onCommand: (callback: (command: EmbeddingHostCommand) => void) => () => void;
+  onDocumentEmbeddingsCancel: (
+    callback: (notice: EmbeddingHostDocumentEmbeddingsCancel) => void
+  ) => () => void;
+  onDocumentEmbeddingsRequest: (
+    callback: (request: EmbeddingHostDocumentEmbeddingsRequest) => void
+  ) => () => void;
   onQueryEmbeddingCancel: (
     callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void
   ) => () => void;
@@ -198,6 +213,9 @@ export interface VisibleEmbeddingHostBridge {
   ) => () => void;
   onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
   queryEmbedding: (payload: EmbeddingHostQueryEmbeddingPayload) => Promise<number[]>;
+  reportDocumentEmbeddingsResponse: (
+    response: EmbeddingHostDocumentEmbeddingsResponseReport
+  ) => void;
   reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
   reportStatus: (status: EmbeddingHostStatus) => void;
   reset: () => Promise<EmbeddingHostStatus>;
@@ -207,6 +225,9 @@ export interface VisibleEmbeddingHostBridge {
 export type EmbeddingHostRuntimeBridge = Pick<
   VisibleEmbeddingHostBridge,
   | 'onCommand'
+  | 'onDocumentEmbeddingsRequest'
+  | 'onDocumentEmbeddingsCancel'
+  | 'reportDocumentEmbeddingsResponse'
   | 'onQueryEmbeddingRequest'
   | 'onQueryEmbeddingCancel'
   | 'reportQueryEmbeddingResponse'

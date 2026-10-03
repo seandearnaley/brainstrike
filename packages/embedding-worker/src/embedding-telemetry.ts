@@ -127,7 +127,7 @@ function assertCacheEntry(
   if (device !== 'webgpu' && device !== 'wasm') {
     throw new Error(`Embedding telemetry cache.entries[${index}].device is invalid.`);
   }
-  if (dtype !== 'fp16' && dtype !== 'fp32' && dtype !== 'q4') {
+  if (dtype !== 'fp16' && dtype !== 'fp32' && dtype !== 'q4' && dtype !== 'q8') {
     throw new Error(`Embedding telemetry cache.entries[${index}].dtype is invalid.`);
   }
   if (!(typeof model === 'string' && model.length > 0)) {

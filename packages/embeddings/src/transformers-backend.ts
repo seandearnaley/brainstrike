@@ -232,6 +232,7 @@ export class TransformersBackend {
   private _streamBatchSize: number | null = null;
   private _targetDimensions: number | null = null;
   private _selectedDType: EmbeddingDType | null = null;
+  private _revision: string | undefined;
   private _estimatedModelBytes: number | null = null;
 
   private resolveDTypeForDevice(device: 'webgpu' | 'wasm', quantized?: boolean): EmbeddingDType {
@@ -257,7 +258,9 @@ export class TransformersBackend {
 
     this._selectedDevice = determineDevice(config.device);
     this._quantized = config.quantized;
-    this._selectedDType = this.resolveDTypeForDevice(this._selectedDevice, this._quantized);
+    this._revision = config.revision;
+    this._selectedDType =
+      config.dtype ?? this.resolveDTypeForDevice(this._selectedDevice, this._quantized);
     this._streamingWorkerUrl = config.streamingWorkerUrl ?? null;
     this._streamBatchSize = this.resolveStreamBatchSize(config.streamBatchSize);
     this._estimatedModelBytes = parseModelSizeEstimateBytes(config.modelConfig?.size);
@@ -408,6 +411,26 @@ export class TransformersBackend {
         throw new Error('Embedding worker returned no vectors');
       }
 
+      if (
+        this._revision !== undefined &&
+        !(
+          response.metadata.model === modelId &&
+          response.metadata.revision === this._revision &&
+          response.metadata.device === this._selectedDevice &&
+          response.metadata.dtype === this._selectedDType &&
+          response.metadata.fallbackApplied === false &&
+          response.metadata.dimensions ===
+            (this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION) &&
+          response.vectors.length === texts.length &&
+          response.vectors.every(
+            (vector) => vector.length === (this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION)
+          )
+        )
+      ) {
+        throw new Error(
+          `Embedding worker returned mismatched pinned completion metadata or vectors: ${JSON.stringify({ actual: response.metadata, expected: { batchSize: texts.length, device: this._selectedDevice, dimensions: this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION, dtype: this._selectedDType, model: modelId, revision: this._revision }, vectorDimensions: response.vectors.map((vector) => vector.length) })}`
+        );
+      }
       TransformersBackend._inferenceCount += texts.length;
 
       return response.vectors.map((vector) => {
@@ -417,6 +440,9 @@ export class TransformersBackend {
           embedding,
           model: modelId,
           runtime: {
+            ...(response.metadata.revision === undefined
+              ? {}
+              : { revision: response.metadata.revision }),
             device: response.metadata.device,
             dtype: response.metadata.dtype,
             fallbackApplied: response.metadata.fallbackApplied,
@@ -472,6 +498,7 @@ export class TransformersBackend {
       ...(this._targetDimensions ? { truncateDim: this._targetDimensions } : {}),
       deviceHint: this.resolveDeviceHint(),
       dtype: this.resolveQueueDType(),
+      ...(this._revision === undefined ? {} : { revision: this._revision }),
       ...(this._estimatedModelBytes === null
         ? {}
         : { estimatedModelBytes: this._estimatedModelBytes }),

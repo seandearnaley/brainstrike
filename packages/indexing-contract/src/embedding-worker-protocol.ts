@@ -2,7 +2,9 @@ export type EmbeddingDevice = 'webgpu' | 'wasm';
 
 export type EmbeddingDeviceHint = EmbeddingDevice;
 
-export type EmbeddingDType = 'fp16' | 'q4' | 'fp32';
+export type EmbeddingDType = 'fp16' | 'q4' | 'q8' | 'fp32';
+
+export const FUSED_MINILM_MODEL_ID = 'onnx-community/all-MiniLM-L6-v2-ONNX';
 
 export type EmbeddingDimensionParameter =
   | 'dimensions'
@@ -18,6 +20,7 @@ export interface EmbedWorkerRequest {
   readonly maxBatchSize?: number;
   readonly model: string;
   readonly provider?: string;
+  readonly revision?: string;
   readonly targetDimension?: number;
   readonly texts: readonly string[];
   readonly truncateDim?: number;
@@ -269,8 +272,13 @@ function assertEmbedWorkerPipelineCacheEntryDiagnostic(
   if (entry['device'] !== 'webgpu' && entry['device'] !== 'wasm') {
     throw new Error(`${path}.device must be "webgpu" or "wasm".`);
   }
-  if (entry['dtype'] !== 'fp16' && entry['dtype'] !== 'fp32' && entry['dtype'] !== 'q4') {
-    throw new Error(`${path}.dtype must be "fp16", "fp32", or "q4".`);
+  if (
+    entry['dtype'] !== 'fp16' &&
+    entry['dtype'] !== 'fp32' &&
+    entry['dtype'] !== 'q4' &&
+    entry['dtype'] !== 'q8'
+  ) {
+    throw new Error(`${path}.dtype must be "fp16", "fp32", "q4", or "q8".`);
   }
   assertNonNegativePipelineCacheDiagnosticNumber(entry['lastUsedAt'], `${path}.lastUsedAt`);
   assertNonEmptyPipelineCacheDiagnosticString(entry['model'], `${path}.model`);
@@ -597,6 +605,7 @@ export interface EmbedWorkerSuccess {
   readonly id: string;
   readonly metadata: {
     readonly model: string;
+    readonly revision?: string;
     readonly device: EmbeddingDevice;
     readonly dtype: EmbeddingDType;
     readonly batchSize: number;
@@ -621,6 +630,12 @@ export interface EmbedWorkerComplete {
   readonly type: 'complete';
 }
 
+function assertOptionalModelRevision(value: unknown, path: string): void {
+  if (value !== undefined && !(typeof value === 'string' && value.length > 0)) {
+    throw new Error(`${path} must be a non-empty string.`);
+  }
+}
+
 export function assertEmbedWorkerComplete(value: unknown): asserts value is EmbedWorkerComplete {
   const path = 'Embedding worker complete';
   if (!(value && typeof value === 'object' && !Array.isArray(value))) {
@@ -641,10 +656,16 @@ export function assertEmbedWorkerComplete(value: unknown): asserts value is Embe
   if (!(typeof metadata['model'] === 'string' && metadata['model'].length > 0)) {
     throw new Error(`${path}.metadata.model must be a non-empty string.`);
   }
+  assertOptionalModelRevision(metadata['revision'], `${path}.metadata.revision`);
   if (metadata['device'] !== 'webgpu' && metadata['device'] !== 'wasm') {
     throw new Error(`${path}.metadata.device is invalid.`);
   }
-  if (metadata['dtype'] !== 'fp16' && metadata['dtype'] !== 'q4' && metadata['dtype'] !== 'fp32') {
+  if (
+    metadata['dtype'] !== 'fp16' &&
+    metadata['dtype'] !== 'q4' &&
+    metadata['dtype'] !== 'q8' &&
+    metadata['dtype'] !== 'fp32'
+  ) {
     throw new Error(`${path}.metadata.dtype is invalid.`);
   }
   if (

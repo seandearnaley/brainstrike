@@ -29,6 +29,7 @@ export interface EmbeddingPipelineCacheLoadRequest {
   readonly dtype: EmbeddingDType;
   readonly estimatedModelBytes: number | null;
   readonly model: string;
+  readonly revision?: string;
 }
 
 export interface EmbeddingPipelineCacheController<Resource extends EmbeddingPipelineResource> {
@@ -57,7 +58,8 @@ interface EmbeddingPipelineCacheControllerOptions<Resource extends EmbeddingPipe
   readonly load: (
     model: string,
     device: EmbeddingDevice,
-    dtype: EmbeddingDType
+    dtype: EmbeddingDType,
+    revision?: string
   ) => Promise<Resource>;
   readonly now?: () => number;
   readonly onDisposed?: (details: { readonly cacheKey: string }) => void;
@@ -96,6 +98,12 @@ function defaultNow(): number {
 function assertValidLoadRequest(request: EmbeddingPipelineCacheLoadRequest): void {
   if (request.model.length === 0) {
     throw new Error('Embedding pipeline cache requires a non-empty model identifier.');
+  }
+  if (
+    request.revision !== undefined &&
+    !(typeof request.revision === 'string' && request.revision.length > 0)
+  ) {
+    throw new Error('Embedding pipeline revision must be a non-empty string.');
   }
   if (
     request.estimatedModelBytes !== null &&
@@ -374,7 +382,11 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
   const load = async (request: EmbeddingPipelineCacheLoadRequest): Promise<Resource> => {
     assertValidLoadRequest(request);
     assertCacheCanLoad();
-    const cacheKey = `${request.model}|${request.device}|${request.dtype}`;
+    const identity =
+      request.revision === undefined
+        ? request.model
+        : `${request.model}@${encodeURIComponent(request.revision)}`;
+    const cacheKey = `${identity}|${request.device}|${request.dtype}`;
     const existing = entries.get(cacheKey);
     if (existing) {
       if (
@@ -408,7 +420,9 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
     }
     const pipeline = Promise.all(victimDisposals).then(async () => {
       assertCacheCanLoad();
-      return await options.load(request.model, request.device, request.dtype);
+      return request.revision === undefined
+        ? await options.load(request.model, request.device, request.dtype)
+        : await options.load(request.model, request.device, request.dtype, request.revision);
     });
     const entry: PipelineCacheEntry<Resource> = {
       cacheKey,

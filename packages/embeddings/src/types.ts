@@ -1,4 +1,4 @@
-import type { EmbeddingModelConfig } from '@brainstrike/indexing-contract';
+import type { EmbeddingDType, EmbeddingModelConfig } from '@brainstrike/indexing-contract';
 
 export type ModelConfig = EmbeddingModelConfig;
 
@@ -10,6 +10,8 @@ export interface EmbeddingConfig {
   cacheDir?: string;
   /** Device preference (no automatic fallbacks) */
   device?: 'webgpu' | 'wasm';
+  /** Explicit model dtype; overrides the legacy quantized flag. No fallback. */
+  dtype?: EmbeddingDType;
   /** Model ID for the embedding model */
   modelId: string;
   /** Quantization level */
@@ -81,6 +83,7 @@ export interface EmbeddingWorkerRuntimeMetadata {
   readonly device: 'webgpu' | 'wasm';
   readonly dtype: string;
   readonly fallbackApplied: boolean;
+  readonly revision?: string;
 }
 
 export interface EmbeddingExecutionOptions {

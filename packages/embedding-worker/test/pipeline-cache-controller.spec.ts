@@ -22,6 +22,31 @@ function createDeferred<T>(): Deferred<T> {
 }
 
 describe('embedding pipeline cache controller', () => {
+  it('separates explicitly pinned revisions of the same model and dtype', async () => {
+    const load = vi.fn(async () => ({ dispose: vi.fn() }));
+    const controller = createEmbeddingPipelineCacheController({
+      load,
+      publishDiagnostic: vi.fn(),
+      workerInstanceId: 'pinned-worker',
+    });
+    const request = {
+      device: 'wasm',
+      dtype: 'q8',
+      estimatedModelBytes: null,
+      model: 'minilm',
+    } as const;
+    try {
+      const first = await controller.load({ ...request, revision: 'a'.repeat(40) });
+      const second = await controller.load({ ...request, revision: 'b'.repeat(40) });
+      expect(first).not.toBe(second);
+      expect(await controller.load({ ...request, revision: 'a'.repeat(40) })).toBe(first);
+      expect(load).toHaveBeenCalledTimes(2);
+      expect(load).toHaveBeenNthCalledWith(1, 'minilm', 'wasm', 'q8', 'a'.repeat(40));
+      expect(load).toHaveBeenNthCalledWith(2, 'minilm', 'wasm', 'q8', 'b'.repeat(40));
+    } finally {
+      await controller.close();
+    }
+  });
   it('rejects invalid identity and load metadata before invoking the loader', async () => {
     const load = vi.fn(async () => ({ dispose: vi.fn() }));
 
@@ -38,6 +63,15 @@ describe('embedding pipeline cache controller', () => {
       publishDiagnostic: vi.fn(),
       workerInstanceId: 'validation-worker',
     });
+    await expect(
+      controller.load({
+        device: 'wasm',
+        dtype: 'q8',
+        estimatedModelBytes: null,
+        model: 'minilm',
+        revision: '',
+      })
+    ).rejects.toThrow('Embedding pipeline revision must be a non-empty string.');
     await expect(
       controller.load({
         device: 'wasm',

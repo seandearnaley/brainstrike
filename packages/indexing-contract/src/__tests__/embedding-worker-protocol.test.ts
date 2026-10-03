@@ -365,6 +365,22 @@ describe('assertEmbedWorkerComplete', () => {
     expect(() => assertEmbedWorkerComplete(makeComplete())).not.toThrow();
   });
 
+  it('accepts q8 WASM completion and residency diagnostics', () => {
+    expect(() => assertEmbedWorkerComplete(makeComplete({ dtype: 'q8' }))).not.toThrow();
+    expect(() =>
+      assertEmbedWorkerPipelineCacheDiagnostic(
+        makeCacheDiagnostic({
+          entry: makeEntry({
+            device: 'wasm',
+            dtype: 'q8',
+            memory: makeMemory({ gpuBytes: 0, heapBytes: 2048 }),
+          }),
+          event: 'hit',
+        })
+      )
+    ).not.toThrow();
+  });
+
   it('rejects envelope violations', () => {
     expect(() => assertEmbedWorkerComplete([])).toThrow('must be an object');
     expect(() => assertEmbedWorkerComplete({ id: 'job-1', metadata: {}, type: 'result' })).toThrow(
@@ -373,6 +389,12 @@ describe('assertEmbedWorkerComplete', () => {
   });
 
   it('validates every metadata field', () => {
+    expect(() => assertEmbedWorkerComplete(makeComplete({ revision: '' }))).toThrow(
+      'metadata.revision must be a non-empty string'
+    );
+    expect(() => assertEmbedWorkerComplete(makeComplete({ revision: 123 }))).toThrow(
+      'metadata.revision must be a non-empty string'
+    );
     expect(() => assertEmbedWorkerComplete({ id: '', metadata: {}, type: 'complete' })).toThrow(
       '.id must be a non-empty string'
     );
