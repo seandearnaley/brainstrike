@@ -91,6 +91,17 @@ export class ParcelSubscribeTimeoutError extends Error {
   }
 }
 
+/** Failed late acquisition cleanup remains physically owned and retryable. */
+export class ParcelWatchRetirementError extends AggregateError {
+  constructor(
+    errors: readonly unknown[],
+    readonly retire: () => Promise<void>
+  ) {
+    super(errors, 'Parcel subscribe retirement failed.');
+    this.name = 'ParcelWatchRetirementError';
+  }
+}
+
 export interface StartParcelWatchOptions {
   /**
    * Per-subscription ignore override (BST-1112): when provided, REPLACES
@@ -137,15 +148,32 @@ interface ParcelEvent {
   type: 'create' | 'delete' | 'update';
 }
 
+async function retireParcelSubscription(
+  subscription: { unsubscribe(): Promise<void> },
+  eventQueue: Promise<void>
+): Promise<void> {
+  const results = await Promise.allSettled([
+    Promise.resolve().then(() => subscription.unsubscribe()),
+    eventQueue,
+  ]);
+  const failures = results.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : []
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'Parcel watch retirement failed.');
+  }
+}
+
 function nativeIgnoreGlobs(patterns: readonly string[]): string[] {
   return patterns.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`]);
 }
 
-export async function startParcelWatch(
+async function startParcelWatchOwned(
   handle: DirectoryHandle,
   callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
-  options: StartParcelWatchOptions = {}
-): Promise<() => void> {
+  options: StartParcelWatchOptions,
+  joinRetirement: boolean
+): Promise<() => Promise<void>> {
   assertValidParcelWatchFilterOptions(options);
   const backend = selectParcelBackend();
   const timeoutMs = options.subscribeTimeoutMs ?? PARCEL_SUBSCRIBE_TIMEOUT_MS;
@@ -288,6 +316,9 @@ export async function startParcelWatch(
   };
 
   const processEvent = async (event: ParcelEvent, eventPath: string): Promise<void> => {
+    if (stopped) {
+      return;
+    }
     if (event.type === 'delete') {
       // The path is gone; kind is unknowable. Directory removal is the safe
       // invalidation shape (same-path record plus stale descendants).
@@ -412,19 +443,58 @@ export async function startParcelWatch(
         () => clearTimeout(timer)
       );
     }),
-  ]).catch((error: unknown) => {
+  ]).catch(async (error: unknown) => {
+    stopped = true;
     batcher.dispose();
-    if (timedOut) {
-      // Late-resolution cleanup: if the hung subscribe eventually resolves,
-      // release it instead of leaking a live native subscription.
-      subscribePromise.then((late) => late.unsubscribe()).catch(() => undefined);
-    }
     transitionHealth('failed', {
       code: timedOut ? 'subscribe-timeout' : 'subscribe-failed',
       message: error instanceof Error ? error.message : String(error),
       retryable: true,
       terminal: false,
     });
+    if (timedOut) {
+      if (!joinRetirement) {
+        subscribePromise
+          .then(
+            (late) => retireParcelSubscription(late, eventQueue),
+            () => eventQueue
+          )
+          .catch(() => undefined);
+        throw error;
+      }
+      // A rejected acquisition owns no subscription. Join admitted event work
+      // and preserve both startup failures without inventing an unsubscribe retry.
+      const acquisition = await subscribePromise.then(
+        (late) => ({ status: 'acquired' as const, subscription: late }),
+        (acquisitionError: unknown) => ({ error: acquisitionError, status: 'failed' as const })
+      );
+      if (acquisition.status === 'failed') {
+        const results = await Promise.allSettled([eventQueue]);
+        const failures = results.flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
+        );
+        throw new AggregateError(
+          [error, acquisition.error, ...failures],
+          'Parcel subscription acquisition failed after timeout.'
+        );
+      }
+      // An acquired subscription remains owned until actual unsubscribe succeeds.
+      let cleanup: Promise<void> | undefined;
+      const retire = (): Promise<void> => {
+        cleanup ??= retireParcelSubscription(acquisition.subscription, eventQueue);
+        cleanup.catch(() => {
+          cleanup = undefined;
+        });
+        return cleanup;
+      };
+      try {
+        await retire();
+      } catch (cleanupError) {
+        throw new ParcelWatchRetirementError([error, cleanupError], retire);
+      }
+    } else if (joinRetirement) {
+      await eventQueue;
+    }
     throw error;
   });
 
@@ -435,18 +505,43 @@ export async function startParcelWatch(
   });
   transitionHealth('healthy');
 
+  let retiring: Promise<void> | undefined;
   return () => {
-    if (stopped) {
-      return;
+    if (retiring) {
+      return retiring;
     }
-    stopped = true;
-    transitionHealth('stopped');
-    batcher.dispose();
-    subscription.unsubscribe().catch((error: unknown) => {
-      logger.error('Failed to unsubscribe parcel watcher', {
-        error,
-        path: handle.path,
-      });
+    if (!stopped) {
+      stopped = true;
+      transitionHealth('stopped');
+      batcher.dispose();
+    }
+    retiring = retireParcelSubscription(subscription, eventQueue);
+    retiring.catch(() => {
+      retiring = undefined;
+    });
+    return retiring;
+  };
+}
+
+/** Existing producer with physical unsubscribe/event-stat retirement acknowledgment. */
+export function startJoinedParcelWatch(
+  handle: DirectoryHandle,
+  callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
+  options: StartParcelWatchOptions = {}
+): Promise<() => Promise<void>> {
+  return startParcelWatchOwned(handle, callback, options, true);
+}
+
+/** Preserve the legacy void disposer contract for existing Explorer callers. */
+export async function startParcelWatch(
+  handle: DirectoryHandle,
+  callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
+  options: StartParcelWatchOptions = {}
+): Promise<() => void> {
+  const retire = await startParcelWatchOwned(handle, callback, options, false);
+  return () => {
+    retire().catch((error: unknown) => {
+      logger.error('Failed to unsubscribe parcel watcher', { error, path: handle.path });
     });
   };
 }
