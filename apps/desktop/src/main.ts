@@ -105,6 +105,7 @@ import {
 } from './dimension-index-maintenance-capabilities';
 import { createDesktopDimensionIndexMaintenanceScheduler } from './dimension-index-maintenance-scheduler';
 import { resolveBuiltRendererPath } from './dist-root';
+import { installE2eForegroundLatencyProbes } from './e2e-foreground-latency-probes';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
@@ -1087,6 +1088,10 @@ const singleInstanceLockAcquired = isElectronE2ETestMode()
 
 if (singleInstanceLockAcquired) {
   const e2eTestMode = isElectronE2ETestMode();
+  if (e2eTestMode) {
+    // The loaded foreground-latency benchmark times main-process operations (BST-1925).
+    installE2eForegroundLatencyProbes();
+  }
 
   const workspaceOpenQueue = createWorkspaceOpenQueue(DESKTOP_IPC_CHANNELS.workspace.openPath);
 

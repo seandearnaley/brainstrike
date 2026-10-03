@@ -1,3 +1,8 @@
+# Cloud CI is disabled due to cost; repository GitHub Actions is disabled.
+# Preserved workflow definition only: do not enable, dispatch, or rerun it.
+# Test locally with pnpm check and report the commands and results.
+# Tell the user: CI is disabled due to cost; validation must run locally.
+
 name: React Doctor
 
 # React Doctor owns React/JS lint. Its changed-scope scan does not run graph rules.

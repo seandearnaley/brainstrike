@@ -1,6 +1,13 @@
 {
   "extends": ["//"],
   "tasks": {
+    "test": {
+      // exports.test.ts reads the repository's formatting policy directly.
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/biome.json"]
+    },
+    "test:coverage": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/biome.json"]
+    },
     "build": {
       "outputs": ["tsconfig/**", "biome/**", "tailwind/**"]
     }

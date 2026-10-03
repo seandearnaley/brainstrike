@@ -126,8 +126,9 @@ function globalInputsFromTurboConfig(config) {
     'turbo.jsonc must declare the Turborepo 3.0 global.inputs array'
   );
   assert.ok(
-    config.global.inputs.length >= 7,
-    `Only ${config.global.inputs.length} global input(s) remain (expected >= 7 after task-local guard inputs) — discovery or migration collapsed.`
+    // Formatting policy is now task-local, alongside guard-script inputs.
+    config.global.inputs.length >= 6,
+    `Only ${config.global.inputs.length} global input(s) remain (expected >= 6 after task-local inputs) — discovery or migration collapsed.`
   );
   return config.global.inputs;
 }
