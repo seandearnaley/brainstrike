@@ -432,6 +432,13 @@ describe('McpElicitationPresenterAuthority task-scoped binding (BST-1566)', () =
       configuredServerId: SERVER_ID,
       generation: 7,
       operation: { target: 'long_running_tool', type: 'tools/call' },
+      taskHandle: {
+        authorityEpoch: '00000000-0000-4000-8000-000000000001',
+        principalId: 'fixture-principal',
+        resource: 'https://tasks.example.test/',
+        serverId: SERVER_ID,
+        taskId: 'pending-task',
+      },
     });
     let release: (() => void) | undefined;
     const toolCall = authority.runWithOperation(
@@ -451,6 +458,13 @@ describe('McpElicitationPresenterAuthority task-scoped binding (BST-1566)', () =
       generation: 7,
       operation: { target: 'long_running_tool', type: 'tools/call' },
       requestId: 'input-1',
+      taskHandle: {
+        authorityEpoch: '00000000-0000-4000-8000-000000000001',
+        principalId: 'fixture-principal',
+        resource: 'https://tasks.example.test/',
+        serverId: SERVER_ID,
+        taskId: 'pending-task',
+      },
     });
     authority.settle({
       action: 'accept',
@@ -473,7 +487,28 @@ describe('McpElicitationPresenterAuthority task-scoped binding (BST-1566)', () =
       configuredServerId: SERVER_ID,
       generation: 7,
       operation: { type: 'tools/call' },
+      taskHandle: {
+        authorityEpoch: '00000000-0000-4000-8000-000000000001',
+        principalId: 'fixture-principal',
+        resource: 'https://tasks.example.test/',
+        serverId: SERVER_ID,
+        taskId: 'pending-task',
+      },
     });
+    expect(() =>
+      authority.bindTaskPresenter({
+        configuredServerId: SERVER_ID,
+        generation: 7,
+        operation: { type: 'tools/call' },
+        taskHandle: {
+          authorityEpoch: '00000000-0000-4000-8000-000000000001',
+          principalId: 'fixture-principal',
+          resource: 'https://tasks.example.test/',
+          serverId: 'foreign-server',
+          taskId: 'pending-task',
+        },
+      })
+    ).toThrow(/stale/u);
     await expect(
       staleBinding.presenter.presentForm(formRequest, taskContext('input-2'))
     ).rejects.toMatchObject({ code: 'mcp-elicitation-stale-authority' });

@@ -1121,12 +1121,28 @@ Guard: `packages/agent/src/__tests__/mcp-tasks-subscription-acknowledgement.inte
   `bindTaskPresenter`, not `runWithOperation`, because the
   single-matching-operation guard would misattribute provenance. The renderer
   seam is `mcp:task:status-changed` / `:list` / `:act`, all visible-UI.
+- Import task runtime classes and the extension registry from the same public
+  `@brainstrike/agent/mcp-client` bundle. Registered request contracts use object
+  identity; separately emitted bundles do not share those objects.
+- Task-bound input carries only a validated host-derived task handle. Its modal
+  exposes `Cancel task` through the existing fenced Tasks capability, keeps the
+  action mounted across input retirement, and blocks duplicate actions and input
+  settlement while cancellation is pending. Missing capability and failed
+  cancellation remain visible. A cancel acknowledgement is not a terminal state;
+  show cancellation success only after observing `cancelled`.
+- Desktop type-check and E2E tasks build the public MCP test-lab fixture explicitly
+  before consuming it. Keep that test prerequisite outside application package
+  dependencies and source aliases (`mcp-conformance.md`).
 
-Evidence: `assistant-providers/mcp-tasks-host.md`.
+Evidence: `assistant-providers/mcp-tasks-host.md`,
+`assistant-providers/mcp-task-pending-input-cancel.md`.
 Guard: `apps/desktop/src/__tests__/main/mcp-server-actor.test.ts` (retirement AND
 streak resets), `mcp-host-service.test.ts`,
 `mcp-progress-cancellation.integration.test.ts`,
-`mcp-host-runtime-tasks.test.ts`.
+`mcp-host-runtime-tasks.test.ts`, `mcp-task-contract-bundle.integration.test.ts`,
+`mcp-elicitation-presenter.test.ts`,
+`packages/settings-ui/src/settings/tools/__tests__/mcp-elicitation-host.test.tsx`,
+`apps/desktop/e2e/mcp-task-pending-input-cancellation.desktop.test.ts`.
 
 #### Registered extension off switch
 

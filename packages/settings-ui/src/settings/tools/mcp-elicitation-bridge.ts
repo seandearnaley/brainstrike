@@ -7,6 +7,7 @@ import type {
   McpElicitationPresentationWire,
   McpElicitationRetiredWire,
   McpElicitationSettlement,
+  McpTaskBridge,
 } from '@brainstrike/assistant-contract';
 
 export interface McpElicitationBridge {
@@ -17,6 +18,22 @@ export interface McpElicitationBridge {
     callback: (retired: McpElicitationRetiredWire) => void
   ) => () => void;
   readonly settleElicitation: (settlement: McpElicitationSettlement) => Promise<void>;
+}
+
+/** The existing fenced task-control capability, distinct from input settlement. */
+export function resolveMcpTaskInputBridge(): McpTaskBridge | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const candidate = (window as Window & { mcp?: { tasks?: Partial<McpTaskBridge> } }).mcp?.tasks;
+  if (!candidate) {
+    return null;
+  }
+  return (['act', 'list', 'onStatusChanged'] as const).every(
+    (method) => typeof candidate[method] === 'function'
+  )
+    ? (candidate as McpTaskBridge)
+    : null;
 }
 
 const BRIDGE_METHODS = [

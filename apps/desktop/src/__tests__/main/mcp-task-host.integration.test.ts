@@ -282,6 +282,7 @@ describe('McpDesktopTaskHost', () => {
         configuredServerId: SERVER_ID,
         generation: 1,
         operation: { target: 'long_job', type: 'tools/call' },
+        taskHandle: initial.handle,
       },
     ]);
     expect(server.listened).toEqual([['t-1']]);

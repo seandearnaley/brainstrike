@@ -34,23 +34,23 @@ import {
   createMcpElicitationCapability,
   type McpClientExtensionRegistry,
   type McpElicitationCapability,
+  McpTaskInteraction,
   type McpTaskInteractionElicitationAuthority,
+  McpTaskLifecycle,
   type McpTaskLifecycleLimits,
   type McpTaskLifecycleStopReason,
-} from '@brainstrike/agent/mcp-client';
-import {
-  type McpClientExtensionRequestContract,
-  McpTaskInteraction,
-  type McpTaskInteractionClient,
-  McpTaskLifecycle,
   McpTaskObservationPort,
   McpTaskPresentationController,
-  type McpTaskSettlementOptions,
-  type McpTaskSettlementOutcome,
-  type McpTaskTrackingCapability,
-  type McpTaskTrackingRequest,
-  type McpTrackedTask,
   projectMcpTaskRecord,
+} from '@brainstrike/agent/mcp-client';
+import type {
+  McpClientExtensionRequestContract,
+  McpTaskInteractionClient,
+  McpTaskSettlementOptions,
+  McpTaskSettlementOutcome,
+  McpTaskTrackingCapability,
+  McpTaskTrackingRequest,
+  McpTrackedTask,
 } from '@brainstrike/agent/mcp-tasks';
 import type { ConfiguredMcpServerId, McpTaskListResult } from '@brainstrike/assistant-contract';
 import {
@@ -535,6 +535,7 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
       configuredServerId: session.configuredServerId,
       generation: session.generation,
       operation: { ...(toolName ? { target: toolName } : {}), type: 'tools/call' },
+      taskHandle: projectMcpTaskRecord(tracked.record, 'live').handle,
     } satisfies McpTaskElicitationBinding);
     const entry: TrackedEntry = {
       binding,
