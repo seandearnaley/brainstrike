@@ -108,12 +108,12 @@ Guard: `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/index
 Evidence: `indexer/2026-10-03-canonical-manifest.md`.
 Guard: `packages/indexer/__tests__/manifest.integration.test.ts`.
 
-### Visible producer transport and scan ownership
+### Visible producer transport and scan ownership (composition pending)
 
 - Expose writes only through the visible-ui authorized producer manifest and the canonical IPC result envelope. Main supplies mandatory live root/file binding and complete-profile authorization; renderer requests never choose database paths, process budgets or SQL. Keep the four search channels read-only and the hidden preload unchanged.
 - Forward canonical events through the browser-safe publication mapper into one provided-snapshot text commit. Keep vector preparation/commit separate and require a complete explicit profile plus the native returned plan. Do not manufacture plans or invoke inference to publish text.
 - Bind full-scan completion to the active store/root/scan/generation ticket. Require the exact ticket for every write/removal during that scan; refuse overlapping starts and late/missing tickets. Close write admission while finishing and join all owned publication/removal promises before verifying the native manifest.
 - Publish scan readiness only for an error-free, untruncated, unaborted full scan with matching native identities. Partial scans, failed writes and mismatched manifests explicitly remain incomplete. Consume completion tickets once; ordinary out-of-scan writes invalidate readiness. Restart requires a new full scan.
 
-Evidence: `indexer/2026-10-03-visible-producer-receipts.md`.
-Guard: `apps/desktop/src/__tests__/ipc-index-producer.test.ts`, `apps/desktop/src/__tests__/indexer-scan-receipts.test.ts`, `apps/desktop/src/__tests__/indexer-scan-receipts.integration.test.ts`, `apps/desktop/src/__tests__/preload-contract-bridges.test.ts`.
+These requirements remain pending product composition. The visible producer/receipt
+adapter and its dedicated evidence and guards have not landed in integration.
