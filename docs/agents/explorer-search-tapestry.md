@@ -228,6 +228,16 @@ Guard: `packages/chunking-worker/src/__tests__/source-range-validation.test.ts`,
   `DirectoryListingTruncatedError`, both scan modes install the handler, and the
   visible summary carries the deduped count. Treat `expectedFileCount` as a
   floor.
+- Keep unresolved workspace discovery separate from registered PG file identity.
+  Secure original-source read/hash precedes bounded main preparation using the
+  existing identity/mutation policy. Await real PG source commit and full trusted
+  native binding acknowledgement, validate the exact returned identity/hash,
+  then parse/publish and complete PG metadata. Never allocate source IDs from
+  hashes or write placeholder source. Use one scan-local root/path uniqueness
+  guard across registered, removed and unresolved forms before read/preparation;
+  nullable retained roots/paths do not form a workspace identity.
+  Cancellation joins preparation; root/path
+  metadata grants no read authority. Retained collection roots/paths stay nullable.
 - Retain, never delete, on partial knowledge: absence from a truncated listing
   is not evidence of deletion. Missing-file reconciliation skips cached rows
   under any truncated directory, scoped removal neither prefix-wipes nor
@@ -263,6 +273,8 @@ Truncation is reported, never thrown; the re-dispatch budget is
 deliberately non-persistent, so a renderer restart grants a fresh one. Evidence:
 `explorer-search-tapestry/secure-root-capabilities.md`,
 `explorer-search-tapestry/traversal-policy-and-truncation.md`.
+Discovery preparation evidence:
+`explorer-search-tapestry/2026-10-03-discovered-source-preparation.md`.
 Guard: `workspace-root-registry{,.integration}.test.ts`,
 `packages/secure-fs-native/test/secure-root.test.cjs`,
 `parallel-directory-walker.test.ts`, `workspace-collection-sync-service.test.ts`,

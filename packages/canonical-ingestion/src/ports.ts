@@ -21,6 +21,14 @@ export interface CanonicalSourceStat {
 export interface CanonicalSourceFile extends CanonicalFileIdentity {
   readonly stat: CanonicalSourceStat;
 }
+/** Granted filesystem discovery data; no canonical ID or membership exists here. */
+export interface CanonicalDiscoveredSourceFile {
+  readonly fileName: string;
+  readonly relativePath: string;
+  readonly rootId: string;
+  readonly sourcePath: string;
+  readonly stat: CanonicalSourceStat;
+}
 export interface CanonicalCatalogFile extends CanonicalFileIdentity {
   readonly chunksProcessed: boolean;
   readonly contentHash: string | null;
@@ -48,6 +56,7 @@ export interface CanonicalDiscoveryCompletion {
   readonly truncatedDirectories: readonly string[];
 }
 export interface CanonicalSourceBatch {
+  readonly discovered?: readonly CanonicalDiscoveredSourceFile[];
   readonly files: readonly CanonicalSourceFile[];
   readonly removed: readonly CanonicalFileIdentity[];
 }
@@ -59,7 +68,7 @@ export interface CanonicalSourcePort {
     context: CanonicalOperationContext
   ): AsyncGenerator<CanonicalSourceBatch, CanonicalDiscoveryCompletion>;
   read(
-    file: CanonicalSourceFile,
+    file: CanonicalSourceFile | CanonicalDiscoveredSourceFile,
     maxFileBytes: number,
     context: CanonicalOperationContext
   ): Promise<{ readonly content: string; readonly stat: CanonicalSourceStat }>;
@@ -94,6 +103,17 @@ export interface CanonicalCatalogPort<Profile = unknown> {
     },
     context: CanonicalOperationContext
   ): Promise<readonly CanonicalCatalogFile[]>;
+  /** Commit real PG source using existing identity lookup/UUID allocation, then await full trusted binding acknowledgement. */
+  prepareManagedSourcesBatch(
+    request: {
+      readonly files: readonly (CanonicalDiscoveredSourceFile & {
+        readonly content: string;
+        readonly contentHash: string;
+      })[];
+      readonly scope: Extract<CanonicalSourceScope, { readonly kind: 'workspace' }>;
+    },
+    context: CanonicalOperationContext
+  ): Promise<readonly CanonicalManifestFile[]>;
   removeFiles(
     request: {
       readonly files: readonly CanonicalFileIdentity[];

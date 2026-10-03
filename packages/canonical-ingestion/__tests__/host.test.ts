@@ -4,7 +4,9 @@ import { CanonicalIngestionHost } from '../src/host.js';
 import type {
   CanonicalCatalogFile,
   CanonicalCatalogPort,
+  CanonicalDiscoveredSourceFile,
   CanonicalDiscoveryCompletion,
+  CanonicalManifestFile,
   CanonicalPublicationPort,
   CanonicalScanRequest,
   CanonicalScanTicket,
@@ -80,6 +82,9 @@ async function fixture(scope: CanonicalSourceScope = { kind: 'workspace', rootId
     loadAuthorizedBatch: vi.fn<CanonicalCatalogPort['loadAuthorizedBatch']>(async (request) =>
       request.files.map((entry) => ({ ...catalogFile, ...entry }))
     ),
+    prepareManagedSourcesBatch: vi.fn(async () => {
+      throw new Error('Registered source unexpectedly requested new identity preparation.');
+    }),
     removeFiles: vi.fn(async () => {
       order.push('catalog-remove');
     }),
@@ -147,7 +152,357 @@ async function fixture(scope: CanonicalSourceScope = { kind: 'workspace', rootId
   };
 }
 
+async function discoveredFixture() {
+  const f = await fixture();
+  const discovered: CanonicalDiscoveredSourceFile = {
+    fileName: f.file.fileName,
+    relativePath: f.recorded.relativePath,
+    rootId: 'root',
+    sourcePath: f.recorded.relativePath,
+    stat: f.file.stat,
+  };
+  f.source.discover = async function* () {
+    yield { discovered: [discovered], files: [], removed: [] };
+    return f.completion;
+  };
+  vi.mocked(f.catalog.prepareManagedSourcesBatch).mockResolvedValue([
+    { ...f.file, contentHash: f.recorded.sourceHash },
+  ]);
+  return { ...f, discovered };
+}
+
 describe('utility canonical retained-source ingestion', () => {
+  it.each(['registered-then-unresolved', 'unresolved-then-registered', 'same-batch'] as const)(
+    'rejects a shared workspace path across %s identity forms before conflicting work',
+    async (order) => {
+      const f = await discoveredFixture();
+      vi.mocked(f.catalog.prepareManagedSourcesBatch).mockResolvedValue([
+        { ...f.file, contentHash: f.recorded.sourceHash, fileId: 'distinct-catalog-file-id' },
+      ]);
+      f.source.discover = async function* () {
+        if (order === 'same-batch') {
+          yield { discovered: [f.discovered], files: [f.file], removed: [] };
+        } else if (order === 'registered-then-unresolved') {
+          yield { files: [f.file], removed: [] };
+          yield { discovered: [f.discovered], files: [], removed: [] };
+        } else {
+          yield { discovered: [f.discovered], files: [], removed: [] };
+          yield { files: [f.file], removed: [] };
+        }
+        return f.completion;
+      };
+      try {
+        await expect(f.host.scan(f.request)).rejects.toThrow('repeated a workspace path');
+        const admittedFiles = order === 'same-batch' ? 0 : 1;
+        expect(f.source.read).toHaveBeenCalledTimes(admittedFiles);
+        expect(f.publication.commitTextFile).toHaveBeenCalledTimes(admittedFiles);
+        expect(f.catalog.completeFiles).toHaveBeenCalledTimes(admittedFiles);
+        expect(f.catalog.prepareManagedSourcesBatch).toHaveBeenCalledTimes(
+          order === 'unresolved-then-registered' ? 1 : 0
+        );
+        expect(f.publication.finishScan).toHaveBeenCalledWith(
+          expect.objectContaining({ errors: [expect.any(String)], full: false })
+        );
+      } finally {
+        await f.host.close();
+      }
+    }
+  );
+
+  it('prepares discovered original source in main before publishing its returned canonical identity', async () => {
+    const f = await discoveredFixture();
+    try {
+      expect((await f.host.scan(f.request)).scanComplete).toBe(true);
+      expect(f.catalog.prepareManagedSourcesBatch).toHaveBeenCalledOnce();
+      const prepared = vi.mocked(f.catalog.prepareManagedSourcesBatch).mock.calls[0]?.[0];
+      expect(prepared).toEqual({
+        files: [
+          { ...f.discovered, content: f.recorded.content, contentHash: f.recorded.sourceHash },
+        ],
+        scope: f.request.scope,
+      });
+      expect(f.catalog.loadAuthorizedBatch).toHaveBeenCalledWith(
+        { files: [], scope: f.request.scope },
+        expect.anything()
+      );
+      const publication = vi.mocked(f.publication.commitTextFile).mock.calls[0]?.[0];
+      expect(publication?.file).toMatchObject(f.file);
+      expect(publication?.payload.providedChunks).toEqual(f.recorded.result.chunks);
+      expect(f.catalog.completeFiles).toHaveBeenCalledWith(
+        {
+          files: [
+            {
+              chunkCount: f.recorded.result.chunks.length,
+              contentHash: f.recorded.sourceHash,
+              fileId: f.file.fileId,
+            },
+          ],
+          scope: f.request.scope,
+        },
+        expect.anything()
+      );
+    } finally {
+      await f.host.close();
+    }
+  });
+
+  it('waits for main preparation and trusted binding acknowledgement before publication', async () => {
+    const f = await discoveredFixture();
+    const entered = deferred();
+    const release = deferred();
+    vi.mocked(f.catalog.prepareManagedSourcesBatch).mockImplementation(async () => {
+      entered.resolve();
+      await release.promise;
+      return [{ ...f.file, contentHash: f.recorded.sourceHash }];
+    });
+    let settled = false;
+    const scan = f.host.scan(f.request).finally(() => {
+      settled = true;
+    });
+    try {
+      await entered.promise;
+      expect(settled).toBe(false);
+      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.catalog.completeFiles).not.toHaveBeenCalled();
+      expect(vi.mocked(f.source.read).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(f.catalog.prepareManagedSourcesBatch).mock.invocationCallOrder[0] ?? 0
+      );
+      release.resolve();
+      expect((await scan).scanComplete).toBe(true);
+    } finally {
+      release.resolve();
+      await Promise.allSettled([scan]);
+      await f.host.close();
+    }
+  });
+
+  it('cancels held main preparation only after physical settlement and suppresses publication', async () => {
+    const f = await discoveredFixture();
+    const entered = deferred();
+    const release = deferred();
+    vi.mocked(f.catalog.prepareManagedSourcesBatch).mockImplementation(async () => {
+      entered.resolve();
+      await release.promise;
+      return [{ ...f.file, contentHash: f.recorded.sourceHash }];
+    });
+    const scan = f.host.scan(f.request);
+    const outcome = scan.then(
+      () => ({ status: 'fulfilled' as const }),
+      (error: unknown) => ({ error, status: 'rejected' as const })
+    );
+    let cancellation: Promise<void> | undefined;
+    let cancelSettled = false;
+    try {
+      await entered.promise;
+      cancellation = f.host.cancel(f.request.requestId).then(() => {
+        cancelSettled = true;
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(cancelSettled).toBe(false);
+      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.catalog.completeFiles).not.toHaveBeenCalled();
+      release.resolve();
+      await cancellation;
+      expect(await outcome).toMatchObject({ error: { name: 'AbortError' }, status: 'rejected' });
+      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.catalog.completeFiles).not.toHaveBeenCalled();
+      expect(f.publication.finishScan).toHaveBeenCalledWith(
+        expect.objectContaining({ aborted: true })
+      );
+    } finally {
+      release.resolve();
+      await Promise.allSettled([outcome, ...(cancellation ? [cancellation] : [])]);
+      await f.host.close();
+    }
+  });
+
+  it.each([
+    'missing',
+    'extra',
+    'root',
+    'relative-path',
+    'name',
+    'source-path',
+    'hash',
+    'membership',
+    'blank-id',
+  ] as const)('rejects a %s catalog preparation reply before publication', async (invalid) => {
+    const f = await discoveredFixture();
+    const binding: CanonicalManifestFile = { ...f.file, contentHash: f.recorded.sourceHash };
+    const replacements: Partial<CanonicalManifestFile> =
+      invalid === 'root'
+        ? { rootId: 'foreign-root' }
+        : invalid === 'relative-path'
+          ? { relativePath: 'foreign.ts' }
+          : invalid === 'name'
+            ? { fileName: 'foreign.ts' }
+            : invalid === 'source-path'
+              ? { sourcePath: 'foreign.ts' }
+              : invalid === 'hash'
+                ? { contentHash: 'foreign-hash' }
+                : invalid === 'membership'
+                  ? { embeddingSetId: null }
+                  : invalid === 'blank-id'
+                    ? { fileId: '' }
+                    : {};
+    const bindings =
+      invalid === 'missing'
+        ? []
+        : invalid === 'extra'
+          ? [binding, { ...binding, fileId: 'extra', relativePath: 'extra.ts' }]
+          : [{ ...binding, ...replacements }];
+    vi.mocked(f.catalog.prepareManagedSourcesBatch).mockResolvedValue(bindings);
+    try {
+      await expect(f.host.scan(f.request)).rejects.toThrow(/Canonical prepar/u);
+      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.catalog.completeFiles).not.toHaveBeenCalled();
+      expect(f.publication.finishScan).toHaveBeenCalledWith(
+        expect.objectContaining({ errors: [expect.any(String)], full: false })
+      );
+    } finally {
+      await f.host.close();
+    }
+  });
+
+  it('counts unresolved discoveries in the existing explicit batch bound', async () => {
+    const f = await discoveredFixture();
+    f.source.discover = async function* () {
+      yield {
+        discovered: [f.discovered, { ...f.discovered, relativePath: 'second.ts' }],
+        files: [],
+        removed: [],
+      };
+      return f.completion;
+    };
+    try {
+      await expect(f.host.scan({ ...f.request, batchSize: 1 })).rejects.toThrow('batch bound');
+      expect(f.source.read).not.toHaveBeenCalled();
+      expect(f.catalog.prepareManagedSourcesBatch).not.toHaveBeenCalled();
+    } finally {
+      await f.host.close();
+    }
+  });
+
+  it('rejects a foreign discovery root before reading any original source', async () => {
+    const f = await discoveredFixture();
+    f.source.discover = async function* () {
+      yield { discovered: [{ ...f.discovered, rootId: 'foreign-root' }], files: [], removed: [] };
+      return f.completion;
+    };
+    try {
+      await expect(f.host.scan(f.request)).rejects.toThrow('outside its workspace binding');
+      expect(f.source.read).not.toHaveBeenCalled();
+      expect(f.catalog.prepareManagedSourcesBatch).not.toHaveBeenCalled();
+    } finally {
+      await f.host.close();
+    }
+  });
+
+  it('rejects a repeated unresolved path before its second read or preparation', async () => {
+    const f = await discoveredFixture();
+    f.source.discover = async function* () {
+      yield { discovered: [f.discovered], files: [], removed: [] };
+      yield { discovered: [f.discovered], files: [], removed: [] };
+      return f.completion;
+    };
+    try {
+      await expect(f.host.scan(f.request)).rejects.toThrow('repeated a workspace path');
+      expect(f.source.read).toHaveBeenCalledOnce();
+      expect(f.catalog.prepareManagedSourcesBatch).toHaveBeenCalledOnce();
+      expect(f.publication.commitTextFile).toHaveBeenCalledOnce();
+    } finally {
+      await f.host.close();
+    }
+  });
+
+  it('rejects a prepared canonical ID already published in the same scan', async () => {
+    const f = await discoveredFixture();
+    const second = { ...f.discovered, relativePath: 'second.ts', sourcePath: 'second.ts' };
+    vi.mocked(f.catalog.prepareManagedSourcesBatch).mockResolvedValue([
+      {
+        ...f.file,
+        contentHash: f.recorded.sourceHash,
+        relativePath: second.relativePath,
+        sourcePath: second.sourcePath,
+      },
+    ]);
+    f.source.discover = async function* () {
+      yield { files: [f.file], removed: [] };
+      yield { discovered: [second], files: [], removed: [] };
+      return f.completion;
+    };
+    try {
+      await expect(f.host.scan(f.request)).rejects.toThrow('repeated a file identity');
+      expect(f.catalog.prepareManagedSourcesBatch).toHaveBeenCalledOnce();
+      expect(f.publication.commitTextFile).toHaveBeenCalledOnce();
+      expect(f.catalog.completeFiles).toHaveBeenCalledOnce();
+    } finally {
+      await f.host.close();
+    }
+  });
+
+  it('rejects repeated canonical IDs in one preparation reply before either file publishes', async () => {
+    const f = await discoveredFixture();
+    const second = { ...f.discovered, relativePath: 'second.ts', sourcePath: 'second.ts' };
+    f.source.discover = async function* () {
+      yield { discovered: [f.discovered, second], files: [], removed: [] };
+      return f.completion;
+    };
+    const binding = { ...f.file, contentHash: f.recorded.sourceHash };
+    vi.mocked(f.catalog.prepareManagedSourcesBatch).mockResolvedValue([
+      binding,
+      { ...binding, relativePath: second.relativePath, sourcePath: second.sourcePath },
+    ]);
+    try {
+      await expect(f.host.scan(f.request)).rejects.toThrow('exact discovered batch');
+      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.catalog.completeFiles).not.toHaveBeenCalled();
+    } finally {
+      await f.host.close();
+    }
+  });
+
+  it('does not publish when main preparation or its binding acknowledgement fails', async () => {
+    const f = await discoveredFixture();
+    const failure = new Error('Real source committed but trusted binding acknowledgement failed.');
+    vi.mocked(f.catalog.prepareManagedSourcesBatch).mockRejectedValue(failure);
+    try {
+      await expect(f.host.scan(f.request)).rejects.toBe(failure);
+      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+      expect(f.catalog.completeFiles).not.toHaveBeenCalled();
+    } finally {
+      await f.host.close();
+    }
+  });
+
+  it('does not convert retained collection scope into new filesystem membership', async () => {
+    const f = await fixture({ embeddingSetId: 'retained-set', kind: 'collection' });
+    f.source.discover = async function* () {
+      yield {
+        discovered: [
+          {
+            fileName: f.file.fileName,
+            relativePath: f.recorded.relativePath,
+            rootId: 'root',
+            sourcePath: f.recorded.relativePath,
+            stat: f.file.stat,
+          },
+        ],
+        files: [],
+        removed: [],
+      };
+      return f.completion;
+    };
+    try {
+      await expect(f.host.scan(f.request)).rejects.toThrow('authorized workspace scope');
+      expect(f.source.read).not.toHaveBeenCalled();
+      expect(f.catalog.prepareManagedSourcesBatch).not.toHaveBeenCalled();
+    } finally {
+      await f.host.close();
+    }
+  });
+
   it('publishes the actual recorded chunks and graph and completes PG metadata after native writes', async () => {
     const f = await fixture();
     expect((await f.host.scan(f.request)).scanComplete).toBe(true);
@@ -177,6 +532,37 @@ describe('utility canonical retained-source ingestion', () => {
     expect(vi.mocked(f.publication.commitTextFile).mock.calls[0]?.[0].payload).not.toHaveProperty(
       'rootId'
     );
+  });
+
+  it('keeps distinct retained file IDs when both collection roots and paths are null', async () => {
+    const f = await fixture({ embeddingSetId: 'saved-set', kind: 'collection' });
+    const second = { ...f.file, fileId: 'second-retained-id', fileName: 'second-retained.ts' };
+    f.source.discover = async function* () {
+      yield { files: [f.file, second], removed: [] };
+      return f.completion;
+    };
+    try {
+      expect((await f.host.scan(f.request)).scanComplete).toBe(true);
+      const files = vi.mocked(f.publication.commitTextFile).mock.calls.map(([call]) => call.file);
+      expect(files.map((file) => file.fileId)).toEqual([f.file.fileId, second.fileId]);
+      expect(files).toEqual([
+        expect.objectContaining({
+          embeddingSetId: 'saved-set',
+          relativePath: null,
+          rootId: null,
+          sourcePath: null,
+        }),
+        expect.objectContaining({
+          embeddingSetId: 'saved-set',
+          relativePath: null,
+          rootId: null,
+          sourcePath: null,
+        }),
+      ]);
+      expect(f.catalog.prepareManagedSourcesBatch).not.toHaveBeenCalled();
+    } finally {
+      await f.host.close();
+    }
   });
 
   it('uses the existing stat-skip principle only when native coverage agrees', async () => {

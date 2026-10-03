@@ -19,9 +19,20 @@ root/path metadata remains nullable for standalone collections. TEXT never calls
 model/profile resolution or inference. The generic inference profile is owned by
 the engine; this foundation implements no vector execution or model substitution.
 
-This retained-source milestone accepts already registered catalog bindings.
-Actual filesystem discovery/watch/coalescing and new-file canonical preparation
-must reuse the current scanner algorithm through a concrete utility adapter.
+Workspace discoveries without a canonical ID use `CanonicalDiscoveredSourceFile`.
+They count against the same scan batch bound and carry only granted source
+metadata. After secure original-source read/hash, the required main catalog
+`prepareManagedSourcesBatch` commits real source using the existing identity
+lookup/UUID/mutation policy and awaits full trusted native binding acknowledgement.
+Only its exact canonical identity/hash reply becomes publishable. Missing, extra,
+repeated or mismatched bindings fail visibly before parser/native publication.
+Cancellation joins a held preparation operation before retiring the scan.
+Registered authorization/stat-skip behavior and retained rootless collection
+source remain unchanged. Collection scope does not establish new filesystem
+membership through this workspace preparation operation.
+
+Actual filesystem discovery/watch/coalescing must reuse the current scanner
+algorithm through a concrete utility adapter.
 Those adapters, main PG transport, engine scope DTO integration, real utility
 process/closed-window proof, reset, packaging and other platforms remain pending.
 Controlled port tests are not a claim that those production paths are connected.
