@@ -1,9 +1,10 @@
 // M0-A2 item 6 (spike test/i6-synced.test.ts): refuse data roots inside sync-provider folders (path rules). Nothing is
 // created under the real home.
-import { mkdirSync, symlinkSync } from 'node:fs';
+import { mkdirSync, readdirSync, symlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
+import { StateStore } from '../src/state-store.js';
 import { assertNotSyncedRoot, SyncedRootError } from '../src/sync-roots.js';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 
@@ -109,5 +110,24 @@ describe('item 6 · synced data roots', () => {
         platform: 'win32',
       })
     ).not.toThrow();
+  });
+});
+
+describe('item 6 · StateStore.open refuses a synced root', () => {
+  test.skipIf(process.platform !== 'darwin')(
+    'the refusal happens before anything is created (macOS iCloud path)',
+    async () => {
+      const fakeHome = freshDir('i6open');
+      const root = join(fakeHome, 'Library', 'Mobile Documents', 'com~apple~CloudDocs', 'bs');
+      await expect(StateStore.open(root, { home: fakeHome })).rejects.toThrow(SyncedRootError);
+      expect(readdirSync(fakeHome)).toEqual([]);
+    }
+  );
+
+  test('the refusal happens before anything is created (Dropbox in the home)', async () => {
+    const fakeHome = freshDir('i6open2');
+    const root = join(fakeHome, 'Dropbox', 'bs');
+    await expect(StateStore.open(root, { home: fakeHome })).rejects.toThrow(SyncedRootError);
+    expect(readdirSync(fakeHome)).toEqual([]);
   });
 });

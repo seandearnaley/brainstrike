@@ -2,7 +2,9 @@
 // GetProcessTimes via PowerShell's Process.StartTime; POSIX: ps -o lstart. The pid-reuse test derives "the real start"
 // through the same function, so it cannot catch a wrong source (a constant passes it); this test checks the value
 // against the real spawn time.
+
 import { spawn } from 'node:child_process';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { expect, test } from 'vitest';
 import { processStartTime } from '../src/lock.js';
 
@@ -43,3 +45,24 @@ test('L-gone: an exited pid has no start time (null), it does not throw', async 
   });
   expect(processStartTime(p.pid as number)).toBeNull();
 }, 60_000);
+
+// An unavailable OS identity source must never be interpreted as a dead owner.
+test.skipIf(process.platform === 'win32')(
+  'L-error: a missing ps executable rejects identity instead of claiming the pid is gone',
+  () => {
+    const cp = createRequire(import.meta.url)(
+      'node:child_process'
+    ) as typeof import('node:child_process');
+    const original = cp.execFileSync;
+    (cp as { execFileSync: unknown }).execFileSync = () => {
+      throw Object.assign(new Error('ps unavailable'), { code: 'ENOENT' });
+    };
+    syncBuiltinESMExports();
+    try {
+      expect(() => processStartTime(99_999_999)).toThrow(/ps unavailable/);
+    } finally {
+      (cp as { execFileSync: unknown }).execFileSync = original;
+      syncBuiltinESMExports();
+    }
+  }
+);

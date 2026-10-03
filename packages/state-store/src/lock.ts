@@ -6,8 +6,8 @@
 // renames or unlinks someone else's live lock.
 //
 // The lock lives INSIDE the root (`<root>/lock/`), so any file-level copy of a root (Time Machine, Migration Assistant,
-// `cp -R`, the export bundle) carries it, and the owner records the root's realpath. A lock from another host, or one
-// copied from another root, cannot be judged by pid: the opener is ASKED and takes over only on confirmation.
+// `cp -R`, the export bundle) carries it, and the owner records the root's realpath. A lock from another host is refused unconditionally. A same-host lock copied from another root cannot be judged
+// by pid: the opener confirms the copied-root takeover explicitly.
 //
 // Owner identity = { pid, start, host, root, token }. `start` is the OS-reported start time of `pid`, read the SAME way
 // for the owner (at acquisition) and for a checker, so the comparison is exact and defeats pid reuse:
@@ -57,7 +57,7 @@ export class ForeignLockError extends Error {
 
   constructor(owner: LockOwner) {
     super(
-      `data root is locked by ${owner.host} pid ${owner.pid} for ${owner.root}; it cannot be checked from here. Confirm the takeover only if that app is not running on this data.`
+      `data root is locked by ${owner.host} pid ${owner.pid} for ${owner.root}; it cannot be checked from here. Foreign host locks cannot be taken over; a copied same-host root requires explicit confirmation.`
     );
     this.name = 'ForeignLockError';
     this.owner = owner;
@@ -94,8 +94,11 @@ function posixStartTime(pid: number): string | null {
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
     return out.length > 0 ? out : null;
-  } catch {
-    return null; // ps exits 1 when the pid does not exist
+  } catch (e) {
+    if (e !== null && typeof e === 'object' && 'status' in e && e.status === 1) {
+      return null; // ps exits 1 when the pid does not exist
+    }
+    throw e; // an unavailable OS identity source never implies a stale owner
   }
 }
 
@@ -135,7 +138,14 @@ function pidExists(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM';
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') {
+      return false;
+    }
+    if (code === 'EPERM') {
+      return true;
+    }
+    throw e;
   }
 }
 
@@ -163,6 +173,8 @@ function readOwner(path: string): LockOwner | null {
   const o = JSON.parse(raw) as LockOwner;
   if (
     typeof o.pid !== 'number' ||
+    !Number.isSafeInteger(o.pid) ||
+    o.pid <= 0 ||
     typeof o.start !== 'string' ||
     typeof o.host !== 'string' ||
     typeof o.root !== 'string' ||
@@ -198,14 +210,14 @@ const unlinkIfExists = (p: string): void => {
 export interface LockOptions {
   /** Identity of this machine. Defaults to os.hostname(); tests inject a fake one. */
   readonly host?: string;
-  /** Asked when the current lock cannot be judged (other host, or copied from another root). true = take over. */
+  /** Asked only for a same-host lock copied from another root. Foreign host locks are always refused. */
   readonly onForeignLock?: (owner: LockOwner) => boolean | Promise<boolean>;
   readonly onStaleBroken?: (owner: LockOwner) => void;
 }
 
 /**
  * Judge a held (not released) lock: return it when it may be taken over (stale: a dead or reused pid; or a foreign lock
- * whose takeover was confirmed), throw when it is live or the takeover was declined.
+ * from a copied same-host root whose takeover was confirmed), throw when it is live or the takeover was declined.
  */
 async function judgeHeld(
   cur: LockOwner,
@@ -213,7 +225,10 @@ async function judgeHeld(
   realRoot: string,
   opts: LockOptions
 ): Promise<LockOwner> {
-  const judgeable = cur.host === host && cur.root === realRoot;
+  if (cur.host !== host) {
+    throw new ForeignLockError(cur);
+  }
+  const judgeable = cur.root === realRoot;
   if (!judgeable) {
     const ok = await opts.onForeignLock?.(cur);
     if (ok !== true) {
@@ -221,8 +236,14 @@ async function judgeHeld(
     }
     return cur;
   }
-  if (pidExists(cur.pid) && processStartTime(cur.pid) === cur.start) {
-    throw new RootLockedError(cur);
+  if (pidExists(cur.pid)) {
+    const observed = processStartTime(cur.pid);
+    if (observed === null) {
+      throw new Error(`lock: cannot verify process start time for live pid ${cur.pid}`);
+    }
+    if (observed === cur.start) {
+      throw new RootLockedError(cur);
+    }
   }
   return cur;
 }
