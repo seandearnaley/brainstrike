@@ -101,6 +101,89 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
     expect(result.truncated).toBe(true);
   });
 
+  it('runs canonical literal and regex grep over authorized native chunk identities', async () => {
+    const grepPath = join(directory, 'grep.sqlite');
+    const writer = new DatabaseSync(grepPath);
+    writer.exec(`CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
+      CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);
+      INSERT INTO file_records VALUES('f-a','root-a','a.ts'),('f-b','root-b','b.ts');
+      INSERT INTO file_chunks VALUES('chunk-1','root-a','f-a','CAFÉ Alpha','hash-1',1,1,0,10,'text',0,10,3),('chunk-2','root-a','f-a','alphabet','hash-2',2,2,1,8,'text',11,19,1),('chunk-3','root-b','f-b','café alpha','hash-3',1,1,0,10,'text',0,10,3);`);
+    writer.close();
+    if (!executable) {
+      throw new Error('Qualified integration executable is required.');
+    }
+    const grepClient = await SqliteQueryClient.open({
+      databasePath: grepPath,
+      deadlineMs: 1000,
+      spawn: () => spawnQueryProcess({ environment: { ELECTRON_RUN_AS_NODE: '1' }, executable }),
+      startupDeadlineMs: 5000,
+    });
+    try {
+      const literal = await grepClient.grep({
+        caseSensitive: false,
+        isRegex: false,
+        maxRows: 100,
+        pattern: 'café',
+        rootIds: ['root-a'],
+      });
+      expect(literal.rows.map((row) => row[0])).toEqual(['chunk-1']);
+      expect(literal.matchedChunks).toBe(1);
+      expect(literal.truncated).toBe(false);
+      expect(
+        (
+          await grepClient.grep({
+            caseSensitive: true,
+            isRegex: false,
+            maxRows: 100,
+            pattern: 'café',
+            rootIds: ['root-a'],
+          })
+        ).rows
+      ).toEqual([]);
+      expect(
+        (
+          await grepClient.grep({
+            caseSensitive: false,
+            isRegex: true,
+            maxRows: 100,
+            pattern: String.raw`\balpha\b`,
+            rootIds: ['root-a'],
+          })
+        ).rows.map((row) => row[0])
+      ).toEqual(['chunk-1']);
+      const capped = await grepClient.grep({
+        caseSensitive: false,
+        isRegex: false,
+        maxRows: 1,
+        pattern: 'alpha',
+        rootIds: ['root-a'],
+      });
+      expect(capped.rows.map((row) => row[0])).toEqual(['chunk-1']);
+      expect(capped.matchedChunks).toBe(2);
+      expect(capped.truncated).toBe(true);
+      await expect(
+        grepClient.grep({
+          caseSensitive: false,
+          isRegex: true,
+          maxRows: 100,
+          pattern: '(a+)+$',
+          rootIds: ['root-a'],
+        })
+      ).rejects.toThrow('catastrophic backtracking');
+      await expect(
+        grepClient.grep({
+          caseSensitive: false,
+          isRegex: false,
+          maxRows: 100,
+          pattern: 'alpha',
+          rootIds: [],
+        })
+      ).rejects.toThrow();
+    } finally {
+      await grepClient.close();
+    }
+  });
+
   it('binds repeated numbered lens parameters without SQL interpolation', async () => {
     const value = "x'; DROP TABLE file_records; --";
     const result = await client.query('SELECT $1 AS first, $1 AS repeated, $2 AS second', {

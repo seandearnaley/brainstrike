@@ -35,6 +35,12 @@ Guard: `packages/db/__tests__/agent-sql-service.test.ts`.
 - Bind named lens values with SQLite's native named-parameter API; never rewrite
   or interpolate SQL. Expose failed startup cleanup's retained owner so its
   caller can retry exit-joined close before deleting index files.
+- Run canonical grep in the same killable read-only process, never the writer.
+  Require explicit root IDs, preserve native chunk IDs/source metadata, and
+  share the existing JavaScript line matcher with the PGlite service. Exhaust
+  the requested scope before reporting the actual matched-chunk count; cap
+  output visibly and fail the operation on deadline instead of returning partial
+  success.
 - The foundation is unwired. Existing application queries retain all four
   PGlite layers below; desktop target/lens routing and running-app
   qualification are separate required M2 consumer work.

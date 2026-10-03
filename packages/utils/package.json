@@ -122,6 +122,10 @@
     "./window-focus-bridge": {
       "types": "./dist/window-focus-bridge.d.ts",
       "default": "./dist/window-focus-bridge.js"
+    },
+    "./grep-line-matcher": {
+      "types": "./dist/grep-line-matcher.d.ts",
+      "default": "./dist/grep-line-matcher.js"
     }
   },
   "files": [

@@ -21,6 +21,7 @@
   "dependencies": {
     "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/sqlite-native": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
