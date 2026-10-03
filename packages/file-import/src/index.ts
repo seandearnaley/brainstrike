@@ -3,6 +3,11 @@ export {
   createBrowserEmbeddingQueuePort,
   type QueueProgressEventDetail,
 } from './browser-queue-port';
+export type {
+  CanonicalChunkEvent,
+  CanonicalChunkSource,
+  CanonicalTextChunkProducer,
+} from './canonical-chunk-producer';
 export * from './chunking';
 export * from './chunking-strategy';
 export * from './chunking-worker-context';
