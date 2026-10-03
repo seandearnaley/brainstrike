@@ -195,7 +195,7 @@ function isHybridItem(value: unknown): value is HybridItem {
     isPositiveInteger(value['position']) &&
     isOptionalString(value['rootName']) &&
     isFiniteNumber(value['rrfScore']) &&
-    (value['sourceCount'] === 1 || value['sourceCount'] === 2) &&
+    (value['sourceCount'] === 1 || value['sourceCount'] === 2 || value['sourceCount'] === 3) &&
     (value['vectorSimilarity'] === undefined || isFiniteNumber(value['vectorSimilarity']))
   );
 }

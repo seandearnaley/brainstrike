@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createIndexerConnection } from '../../../../../packages/indexer/dist/transport.js';
 import {
@@ -27,6 +28,7 @@ vi.mock('@brainstrike/db', async (original) => ({
 }));
 
 import { runHybridSearch } from '../../assistant-server/hybrid-search-tool';
+import { SEARCH_TOOL_EXECUTORS } from '../../assistant-server/native-tool-executors-search';
 import { runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
 
 const profile = {
@@ -230,6 +232,19 @@ it('composes production tools with the scoped SQLite writer and real separate qu
       sourceCount: 3,
       vectorSimilarity: 1,
     });
+    const entry = SEARCH_TOOL_EXECUTORS[NATIVE_TOOL_ID.hybridSearch]({
+      dependencies,
+      isLocalProvider: false,
+      readFileCursorRegistry: {} as never,
+      resolveActiveDomainCharBudget: () => 6000,
+      resolvedDomainCharBudget: 6000,
+      runtimeData: undefined,
+    });
+    if (!(entry && 'toModelOutput' in entry) || typeof entry.toModelOutput !== 'function') {
+      throw new Error('Missing hybrid model projection');
+    }
+    const project = entry.toModelOutput;
+    expect(() => project(hybrid)).not.toThrow();
     expect(queryEmbedding).toHaveBeenCalledWith(
       {
         dimensions: 384,
