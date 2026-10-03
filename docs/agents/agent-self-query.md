@@ -32,12 +32,16 @@ Guard: `packages/db/__tests__/agent-sql-service.test.ts`.
   SQLite with `DEFAULT_MEMSTATUS=0`. Accepting a heap-limit pragma is insufficient.
   Electron-engine qualification does not establish Electron-free Node/CLI support;
   that supported-runtime requirement remains attached to BST-1941 host discovery.
+- Bind named lens values with SQLite's native named-parameter API; never rewrite
+  or interpolate SQL. Expose failed startup cleanup's retained owner so its
+  caller can retry exit-joined close before deleting index files.
 - The foundation is unwired. Existing application queries retain all four
   PGlite layers below; desktop target/lens routing and running-app
   qualification are separate required M2 consumer work.
 
 Evidence: `agent-self-query/sqlite-index-foundation.md`.
-Tests: `packages/sqlite-query/src/__tests__/protocol.test.ts`,
+Tests: `packages/sqlite-query/src/__tests__/client-ownership.test.ts`,
+`packages/sqlite-query/src/__tests__/protocol.test.ts`,
 `packages/sqlite-query/src/__tests__/sandbox.integration.test.ts`.
 
 ## The sandbox: four independent, engine-enforced layers

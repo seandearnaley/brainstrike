@@ -101,6 +101,15 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
     expect(result.truncated).toBe(true);
   });
 
+  it('binds repeated numbered lens parameters without SQL interpolation', async () => {
+    const value = "x'; DROP TABLE file_records; --";
+    const result = await client.query('SELECT $1 AS first, $1 AS repeated, $2 AS second', {
+      bindings: { ['$1']: value, ['$2']: 2 },
+    });
+    expect(result.rows).toEqual([[value, value, 2]]);
+    expect(hash()).toBe(originalHash);
+  });
+
   it('preserves duplicate columns and introspects a bound table', async () => {
     const result = await client.query('SELECT 1 AS id, 2 AS id;');
     expect(result.columns).toEqual(['id', 'id']);

@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./utility-host": {
+      "types": "./dist/utility-query-host.d.ts",
+      "default": "./dist/utility-query-host.js"
     }
   },
   "files": [

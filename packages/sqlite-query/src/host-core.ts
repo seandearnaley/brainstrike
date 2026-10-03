@@ -22,7 +22,7 @@ export function createQueryHost(
       let result: SqliteRows;
       switch (request.kind) {
         case 'query':
-          result = sandbox.query(request.sql, request.values, request.maxRows);
+          result = sandbox.query(request.sql, request.values, request.maxRows, request.bindings);
           break;
         case 'describeTable':
           result = sandbox.describeTable(request.table);

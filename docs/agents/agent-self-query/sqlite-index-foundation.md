@@ -56,3 +56,22 @@ interrupted mutation test was not executed and is unqualified, with no retry.
 No claim that this specific guard is mutation-qualified is made. Build/types
 +3protocolunits:6tasks passed(3cached), Effect12files0diagnostics;
 18Effect contract checks and source-alias guard passed. Formatting15files clean.
+
+## Typed consumer seam, 2026-10-03
+
+Named bindings are decoded as SQLite values and passed to the native statement
+API, including repeated `$1` parameters; SQL is never rewritten. The regression
+first returned NULLs when bindings were ignored, then passed with an injection
+string preserved as data. Startup cleanup failure exposes the retained client
+owner through `SqliteQueryStartupCleanupError`; the refusal control subsequently
+joins that owner after the vendor permits termination. Electron fatal-error
+callbacks consume the documented type/location/report arguments. The utility
+adapter accepts an explicit built entry path for desktop packaging.
+
+Current focused checks: four units, 27 real Electron-engine integration cases,
+and the actual utility-process refusal/lifecycle proof all pass; ordinary strict
+TypeScript and Effect diagnostics pass. Logs: /private/tmp/query-api-unit.log,
+/private/tmp/query-api-integration.log, /private/tmp/query-api-types.log.
+Production registration, index target/lens routing and full application
+qualification remain separate consumer work. The interrupted mutation control
+is still unqualified; no retry was performed.

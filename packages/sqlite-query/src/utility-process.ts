@@ -7,20 +7,21 @@ export interface QueryUtilityProcess {
   readonly off: {
     (event: 'message', listener: (message: unknown) => void): unknown;
     (event: 'exit', listener: () => void): unknown;
-    (event: 'error', listener: (error: Error) => void): unknown;
+    (event: 'error', listener: (type: string, location: string, report: string) => void): unknown;
   };
   readonly on: {
     (event: 'message', listener: (message: unknown) => void): unknown;
     (event: 'exit', listener: () => void): unknown;
-    (event: 'error', listener: (error: Error) => void): unknown;
+    (event: 'error', listener: (type: string, location: string, report: string) => void): unknown;
   };
   readonly postMessage: (message: QueryRequest) => void;
 }
 
 export function spawnUtilityQueryProcess(
-  fork: (entryPath: string) => QueryUtilityProcess
+  fork: (entryPath: string) => QueryUtilityProcess,
+  entryPath = queryHostEntryPath('utility')
 ): QueryProcess {
-  const host = fork(queryHostEntryPath('utility'));
+  const host = fork(entryPath);
   let exited = false;
   const observeExit = (): void => {
     exited = true;
@@ -34,9 +35,11 @@ export function spawnUtilityQueryProcess(
       }
     },
     onError: (listener): (() => void) => {
-      host.on('error', listener);
+      const onError = (type: string, location: string, report: string): void =>
+        listener(new Error(`SQLite query utility ${type} at ${location}: ${report}`));
+      host.on('error', onError);
       return () => {
-        host.off('error', listener);
+        host.off('error', onError);
       };
     },
     onExit: (listener): (() => void) => {

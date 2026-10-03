@@ -17,6 +17,7 @@ export interface OpenSqliteQueryOptions {
 }
 
 export interface QueryOptions {
+  readonly bindings?: Readonly<Record<string, SqliteValue>>;
   readonly maxRows?: number;
   readonly values?: readonly SqliteValue[];
 }
@@ -104,7 +105,7 @@ export class SqliteQueryClient {
       try {
         await client.close();
       } catch (cleanup) {
-        throw new AggregateError([error, cleanup], 'SQLite query startup and cleanup failed.');
+        throw new SqliteQueryStartupCleanupError(client, error, cleanup);
       }
       throw error;
     }
@@ -112,6 +113,7 @@ export class SqliteQueryClient {
 
   query(sql: string, options: QueryOptions = {}): Promise<SqliteRows> {
     return this.#rows({
+      ...(options.bindings === undefined ? {} : { bindings: options.bindings }),
       kind: 'query',
       maxRows: options.maxRows ?? 50,
       sql,
@@ -231,5 +233,18 @@ export class SqliteQueryInputError extends Error {
     super(message);
     this.name = 'SqliteQueryInputError';
     this.engineErrorName = engineErrorName;
+  }
+}
+
+/** Failed acquisition still returns its resource owner for explicit cleanup. */
+export class SqliteQueryStartupCleanupError extends AggregateError {
+  readonly owner: SqliteQueryClient;
+
+  constructor(owner: SqliteQueryClient, startup: unknown, cleanup: unknown) {
+    super([startup, cleanup], 'SQLite query startup and cleanup failed; ownership is retained.', {
+      cause: startup,
+    });
+    this.name = 'SqliteQueryStartupCleanupError';
+    this.owner = owner;
   }
 }

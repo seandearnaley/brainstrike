@@ -18,6 +18,7 @@ export type SqliteRows = typeof RowsSchema.Type;
 export type SqliteValue = typeof Value.Type;
 
 const QueryFields = {
+  bindings: Schema.optional(Schema.Record(Schema.String, Value)),
   id: Id,
   maxRows: Schema.Int.check(Schema.isBetween({ maximum: 200, minimum: 1 })),
   sql: Schema.String,

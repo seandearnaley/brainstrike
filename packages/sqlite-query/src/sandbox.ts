@@ -84,7 +84,12 @@ export class SqliteSandbox {
     }
   }
 
-  query(sql: string, values: readonly SqliteValue[] = [], maxRows = 50): SqliteRows {
+  query(
+    sql: string,
+    values: readonly SqliteValue[] = [],
+    maxRows = 50,
+    bindings?: Readonly<Record<string, SqliteValue>>
+  ): SqliteRows {
     if (!(Number.isInteger(maxRows) && maxRows >= 1 && maxRows <= 200)) {
       throw new RangeError('maxRows must be an integer between 1 and 200.');
     }
@@ -101,7 +106,11 @@ export class SqliteSandbox {
     let resultBytes = columns.reduce((total, column) => total + Buffer.byteLength(column) + 16, 0);
     const rows: (readonly SqliteValue[])[] = [];
     let truncated = false;
-    for (const output of statement.iterate(...values)) {
+    const outputRows =
+      bindings === undefined
+        ? statement.iterate(...values)
+        : statement.iterate(bindings, ...values);
+    for (const output of outputRows) {
       if (rows.length === maxRows) {
         truncated = true;
         break;
