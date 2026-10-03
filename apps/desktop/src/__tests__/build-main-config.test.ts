@@ -70,6 +70,7 @@ describe('main-process bundle config', () => {
       'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
       'parser-host-entry': 'src/parser-host-entry.ts',
       preload: 'src/preload.ts',
+      'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
     });
   });
 

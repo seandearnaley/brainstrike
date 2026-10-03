@@ -35,18 +35,26 @@ Guard: `packages/db/__tests__/agent-sql-service.test.ts`.
 - Bind named lens values with SQLite's native named-parameter API; never rewrite
   or interpolate SQL. Expose failed startup cleanup's retained owner so its
   caller can retry exit-joined close before deleting index files.
+- Desktop index queries require registration of the authoritative ready index
+  host. Refuse missing capability instead of acquiring the application database.
+  Return the target in every result; SQLite schema reads carry no invented row
+  estimate or planner cost, and explain uses EXPLAIN QUERY PLAN without analyze.
+- Close query admission and join all in-flight/read-only owners before indexer
+  destruction. Retain owners and files when startup or exit cleanup fails.
+  Production startup/reset composition remains separate consumer work.
+
 - Run canonical grep in the same killable read-only process, never the writer.
   Require explicit root IDs, preserve native chunk IDs/source metadata, and
   share the existing JavaScript line matcher with the PGlite service. Exhaust
   the requested scope before reporting the actual matched-chunk count; cap
   output visibly and fail the operation on deadline instead of returning partial
   success.
-- The foundation is unwired. Existing application queries retain all four
-  PGlite layers below; desktop target/lens routing and running-app
-  qualification are separate required M2 consumer work.
 
-Evidence: `agent-self-query/sqlite-index-foundation.md`.
-Tests: `packages/sqlite-query/src/__tests__/client-ownership.test.ts`,
+Evidence: `agent-self-query/sqlite-index-foundation.md`,
+`agent-self-query/index-consumer.md`.
+Tests: `apps/desktop/src/__tests__/assistant-server/query-self-index-target.test.ts`,
+`apps/desktop/src/__tests__/sqlite-query-index.integration.test.ts`,
+`packages/sqlite-query/src/__tests__/client-ownership.test.ts`,
 `packages/sqlite-query/src/__tests__/protocol.test.ts`,
 `packages/sqlite-query/src/__tests__/sandbox.integration.test.ts`.
 
@@ -252,10 +260,9 @@ Settled: name-based refs and composite keys, both measured. Evidence:
 `agent-self-query/symbol-graph-design.md`, `agent-self-query/symbol-rollback-review.md`.
 Guard: `packages/db/__tests__/search-hybrid-symbol-retrieval.test.ts`, `packages/db/__tests__/migration-075-rollback.integration.test.ts`.
 
-### The hybrid one-statement query (BST-935) — PROVEN admitted
+### The PGlite hybrid one-statement golden — PROVEN admitted
 
-- The traversal-plus-BM25-plus-vector statement runs through the sandbox as-is and
-  ships as the `callers-hybrid` lens, the readable copy of its shape.
+- Retain the app-target traversal/BM25/vector statement in `packages/db/__tests__/fixtures/callers-hybrid-pglite.sql` for hosted web until M6. The canonical index-target artifact uses the native caller-vector contract above.
 - Its top level drains (`GROUP BY … ORDER BY`), so the row cap plays NO part: admission
   rests on the recursion-bound heuristic plus the cost gate. Do not cite the row cap.
 - Scope the vector arm to the seed's `embedding_set_id` (`IS NOT DISTINCT FROM`):

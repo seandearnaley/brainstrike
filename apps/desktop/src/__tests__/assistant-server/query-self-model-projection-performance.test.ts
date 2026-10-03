@@ -35,6 +35,7 @@ it('bounds full-projection serialization while fitting the maximum row fixture',
     kind: 'rows',
     rowCount: rows.length,
     rows,
+    target: 'app',
     truncated: false,
   });
 

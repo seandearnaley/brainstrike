@@ -153,7 +153,9 @@
     "src/provider-api-key.ts",
     "src/types/**/*.d.ts",
     "src/indexer-host-entry.ts",
-    "src/indexer-host-manager.ts"
+    "src/indexer-host-manager.ts",
+    "src/sqlite-query-host-entry.ts",
+    "src/sqlite-query-host-manager.ts"
   ],
   "exclude": [
     "node_modules",
