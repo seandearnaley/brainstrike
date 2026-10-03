@@ -25,9 +25,10 @@ import {
   type SearchResult,
   searchSchema,
   snapshotSchema,
+  textCommitSchema,
 } from './contracts.js';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const numberId = Schema.Int.check(
   Schema.isGreaterThan(0),
   Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
@@ -115,15 +116,15 @@ function decodeBlob(blob: Uint8Array): Buffer {
 }
 
 function resolveEmbedding(
-  previous: { embeddingHash: string; emb: Uint8Array } | undefined,
+  previous: { embeddingHash: string; emb: Uint8Array | null } | undefined,
   supplied: Buffer | undefined,
   hash: string
 ): Buffer {
-  const reusable = previous?.embeddingHash === hash;
+  const reusable = previous?.embeddingHash === hash && previous.emb !== null;
   if (supplied && reusable) {
     throw new TypeError('An unchanged embedding was unexpectedly supplied.');
   }
-  const emb = supplied ?? (reusable && previous ? decodeBlob(previous.emb) : undefined);
+  const emb = supplied ?? (reusable && previous?.emb ? decodeBlob(previous.emb) : undefined);
   if (!emb) {
     throw new TypeError('Embedding content/profile identity changed without a replacement vector.');
   }
@@ -190,11 +191,27 @@ export class IndexWriter {
       const counts = decoder(Schema.Struct({ chunks: Schema.Int, vectors: Schema.Int }))(
         this.db
           .prepare(
-            'SELECT (SELECT count(*) FROM file_chunks) AS chunks,(SELECT count(*) FROM vec_chunks) AS vectors'
+            'SELECT (SELECT count(*) FROM file_chunks WHERE has_vector=1) AS chunks,(SELECT count(*) FROM vec_chunks) AS vectors'
           )
           .get()
       );
-      if (counts.chunks !== counts.vectors) {
+      const mismatches = decoder(Schema.Int)(
+        this.db
+          .prepare(
+            'SELECT count(*) FROM file_chunks c LEFT JOIN vec_chunks v ON v.id=c.pk WHERE c.has_vector != (v.id IS NOT NULL) OR (v.id IS NOT NULL AND c.root_id != v.root_id)'
+          )
+          .pluck()
+          .get()
+      );
+      const orphans = decoder(Schema.Int)(
+        this.db
+          .prepare(
+            'SELECT count(*) FROM vec_chunks v LEFT JOIN file_chunks c ON c.pk=v.id WHERE c.pk IS NULL'
+          )
+          .pluck()
+          .get()
+      );
+      if (counts.chunks !== counts.vectors || mismatches !== 0 || orphans !== 0) {
         throw new IndexerError('rebuild-required', 'Derived chunk/vector counts disagree.');
       }
       this.info = {
@@ -216,7 +233,7 @@ export class IndexWriter {
       this.db.exec(`
         CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY CHECK(singleton=1),schema_version INTEGER NOT NULL,profile_json TEXT NOT NULL,profile_hash TEXT NOT NULL);
         CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT NOT NULL,name TEXT NOT NULL,path TEXT NOT NULL,content_hash TEXT NOT NULL,snapshot_hash TEXT NOT NULL,UNIQUE(root_id,id));
-        CREATE TABLE file_chunks(pk INTEGER PRIMARY KEY,id TEXT UNIQUE NOT NULL,root_id TEXT NOT NULL,file_record_id TEXT NOT NULL,start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,content TEXT NOT NULL,content_hash TEXT NOT NULL,embedding_hash TEXT NOT NULL,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER,CHECK((chunk_index IS NULL AND chunk_size IS NULL AND chunk_type IS NULL AND start_offset IS NULL AND end_offset IS NULL AND token_count IS NULL) OR (chunk_index IS NOT NULL AND chunk_size IS NOT NULL AND chunk_type IS NOT NULL AND start_offset IS NOT NULL AND end_offset IS NOT NULL AND token_count IS NOT NULL AND chunk_index>=0 AND chunk_size>0 AND chunk_type IN ('text','sentence','recursive') AND start_offset>=0 AND end_offset>start_offset AND token_count>0)),FOREIGN KEY(root_id,file_record_id) REFERENCES file_records(root_id,id) ON DELETE CASCADE);
+        CREATE TABLE file_chunks(pk INTEGER PRIMARY KEY,id TEXT UNIQUE NOT NULL,root_id TEXT NOT NULL,file_record_id TEXT NOT NULL,start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,content TEXT NOT NULL,content_hash TEXT NOT NULL,embedding_hash TEXT NOT NULL,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER,has_vector INTEGER NOT NULL CHECK(has_vector IN (0,1)),CHECK((chunk_index IS NULL AND chunk_size IS NULL AND chunk_type IS NULL AND start_offset IS NULL AND end_offset IS NULL AND token_count IS NULL) OR (chunk_index IS NOT NULL AND chunk_size IS NOT NULL AND chunk_type IS NOT NULL AND start_offset IS NOT NULL AND end_offset IS NOT NULL AND token_count IS NOT NULL AND chunk_index>=0 AND chunk_size>0 AND chunk_type IN ('text','sentence','recursive') AND start_offset>=0 AND end_offset>start_offset AND token_count>0)),FOREIGN KEY(root_id,file_record_id) REFERENCES file_records(root_id,id) ON DELETE CASCADE);
         CREATE INDEX chunks_file ON file_chunks(root_id,file_record_id);
         CREATE TABLE file_symbols(file_record_id TEXT NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,seq INTEGER NOT NULL,name TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('function','class','method','variable','interface','type','enum')),exported INTEGER NOT NULL CHECK(exported IN (0,1)),start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,start_offset INTEGER NOT NULL,end_offset INTEGER NOT NULL,PRIMARY KEY(file_record_id,seq)) WITHOUT ROWID;
         CREATE INDEX idx_file_symbols_name ON file_symbols(name);
@@ -247,6 +264,16 @@ export class IndexWriter {
   }
   commit(input: unknown): CommitResult {
     const request = decoder(commitSchema)(input);
+    return this.commitValidated(request, true);
+  }
+  commitText(input: unknown): CommitResult {
+    const request = decoder(textCommitSchema)(input);
+    return this.commitValidated(
+      { ...request, embeddings: [], profile: this.options.profile },
+      false
+    );
+  }
+  private commitValidated(request: FileCommit, vectorsRequired: boolean): CommitResult {
     authorize(this.allowed, [request.plan.snapshot.rootId]);
     if (
       request.plan.profileHash !== this.profileHash ||
@@ -254,13 +281,13 @@ export class IndexWriter {
     ) {
       throw new IndexerError('rebuild-required', 'Embedding plan profile differs from this index.');
     }
-    this.validatePlan(request);
+    this.validatePlan(request, vectorsRequired);
     if (request.syntax) {
       this.validateSyntax(request.syntax, request.plan.snapshot.fileId);
     }
-    return this.db.transaction(() => this.apply(request))();
+    return this.db.transaction(() => this.apply(request, vectorsRequired))();
   }
-  private validatePlan({ plan, embeddings }: FileCommit): void {
+  private validatePlan({ plan, embeddings }: FileCommit, vectorsRequired: boolean): void {
     const chunks = fileChunks(plan.snapshot, this.options.profile);
     const identity = (chunk: (typeof chunks)[number]): readonly unknown[] => [
       chunk.chunkId,
@@ -296,13 +323,13 @@ export class IndexWriter {
       vectorBlob(embedding.vector);
     }
     if (
-      supplied.size !== plan.embeddingChunkIds.length ||
+      (vectorsRequired && supplied.size !== plan.embeddingChunkIds.length) ||
       new Set(plan.embeddingChunkIds).size !== plan.embeddingChunkIds.length
     ) {
       throw new TypeError('Every requested embedding must be supplied exactly once.');
     }
   }
-  private apply({ plan, embeddings, syntax }: FileCommit): CommitResult {
+  private apply({ plan, embeddings, syntax }: FileCommit, vectorsRequired: boolean): CommitResult {
     const existing = existingFile(this.db, plan.snapshot);
     if ((existing?.snapshotHash ?? null) !== plan.previousSnapshotHash) {
       throw new IndexerError(
@@ -310,9 +337,24 @@ export class IndexWriter {
         'The file changed after embedding preparation; prepare it again.'
       );
     }
-    if (existing?.snapshotHash === snapshotHash(plan.snapshot)) {
+    const vectorIdentities = new Map(
+      decodeChunks(
+        this.db
+          .prepare(
+            'SELECT c.id AS chunkId,c.embedding_hash AS embeddingHash FROM file_chunks c JOIN vec_chunks v ON v.id=c.pk WHERE c.root_id=? AND c.file_record_id=?'
+          )
+          .all(plan.snapshot.rootId, plan.snapshot.fileId)
+      ).map((chunk) => [chunk.chunkId, chunk.embeddingHash])
+    );
+    const missing = plan.chunks
+      .filter((chunk) => vectorIdentities.get(chunk.chunkId) !== chunk.embeddingHash)
+      .map((chunk) => chunk.chunkId);
+    if (JSON.stringify(missing) !== JSON.stringify(plan.embeddingChunkIds)) {
+      throw new TypeError('Embedding plan must identify every missing current-profile vector.');
+    }
+    if (existing?.snapshotHash === snapshotHash(plan.snapshot) && embeddings.length === 0) {
       return {
-        reusedEmbeddings: plan.chunks.length,
+        reusedEmbeddings: plan.chunks.length - plan.embeddingChunkIds.length,
         unchanged: true,
         writtenChunks: 0,
         ...this.replaceSyntax(syntax, plan.snapshot.fileId, false),
@@ -322,7 +364,7 @@ export class IndexWriter {
       Schema.Array(
         Schema.Struct({
           chunkId: Schema.String,
-          emb: Schema.Uint8Array,
+          emb: Schema.NullOr(Schema.Uint8Array),
           embeddingHash: Schema.String,
           id: numberId,
         })
@@ -330,7 +372,7 @@ export class IndexWriter {
     )(
       this.db
         .prepare(
-          'SELECT c.pk AS id,c.id AS chunkId,c.embedding_hash AS embeddingHash,v.emb FROM file_chunks c JOIN vec_chunks v ON v.id=c.pk WHERE c.root_id=? AND c.file_record_id=?'
+          'SELECT c.pk AS id,c.id AS chunkId,c.embedding_hash AS embeddingHash,v.emb FROM file_chunks c LEFT JOIN vec_chunks v ON v.id=c.pk WHERE c.root_id=? AND c.file_record_id=?'
         )
         .all(plan.snapshot.rootId, plan.snapshot.fileId)
     );
@@ -360,67 +402,92 @@ export class IndexWriter {
     let writtenChunks = 0;
     let reusedEmbeddings = 0;
     for (const chunk of plan.chunks) {
-      const previous = cached.get(chunk.chunkId);
-      const supplied = provided.get(chunk.chunkId);
-      const reusable = previous?.embeddingHash === chunk.embeddingHash;
-      const emb = resolveEmbedding(previous, supplied, chunk.embeddingHash);
-      if (!supplied) {
-        reusedEmbeddings += 1;
-      }
-      if (previous && reusable) {
-        this.db
-          .prepare(
-            'UPDATE file_chunks SET start_line=?,end_line=?,chunk_index=?,chunk_size=?,chunk_type=?,start_offset=?,end_offset=?,token_count=? WHERE pk=?'
-          )
-          .run(
-            chunk.startLine,
-            chunk.endLine,
-            chunk.chunkIndex,
-            chunk.chunkSize,
-            chunk.chunkType,
-            chunk.startOffset,
-            chunk.endOffset,
-            chunk.tokenCount,
-            BigInt(previous.id)
-          );
-        continue;
-      }
-      if (previous) {
-        this.db.prepare('DELETE FROM vec_chunks WHERE id=?').run(BigInt(previous.id));
-      }
-      const id = decoder(Schema.Struct({ id: numberId }))(
-        this.db
-          .prepare(
-            'INSERT INTO file_chunks(id,root_id,file_record_id,start_line,end_line,content,content_hash,embedding_hash,chunk_index,chunk_size,chunk_type,start_offset,end_offset,token_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET start_line=excluded.start_line,end_line=excluded.end_line,content=excluded.content,content_hash=excluded.content_hash,embedding_hash=excluded.embedding_hash,chunk_index=excluded.chunk_index,chunk_size=excluded.chunk_size,chunk_type=excluded.chunk_type,start_offset=excluded.start_offset,end_offset=excluded.end_offset,token_count=excluded.token_count RETURNING pk AS id'
-          )
-          .get(
-            chunk.chunkId,
-            plan.snapshot.rootId,
-            plan.snapshot.fileId,
-            chunk.startLine,
-            chunk.endLine,
-            chunk.content,
-            chunk.contentHash,
-            chunk.embeddingHash,
-            chunk.chunkIndex,
-            chunk.chunkSize,
-            chunk.chunkType,
-            chunk.startOffset,
-            chunk.endOffset,
-            chunk.tokenCount
-          )
-      ).id;
-      this.db
-        .prepare('INSERT INTO vec_chunks(id,root_id,bin,emb) VALUES(?,?,vec_quantize_binary(?),?)')
-        .run(BigInt(id), plan.snapshot.rootId, emb, emb);
-      writtenChunks += 1;
+      const result = this.writeChunk(
+        chunk,
+        cached.get(chunk.chunkId),
+        provided.get(chunk.chunkId),
+        plan.snapshot,
+        vectorsRequired
+      );
+      writtenChunks += result.writtenChunks;
+      reusedEmbeddings += result.reusedEmbeddings;
     }
     return {
       reusedEmbeddings,
       unchanged: false,
       writtenChunks,
-      ...this.replaceSyntax(syntax, plan.snapshot.fileId, true),
+      ...this.replaceSyntax(
+        syntax,
+        plan.snapshot.fileId,
+        existing?.snapshotHash !== snapshotHash(plan.snapshot)
+      ),
     };
+  }
+  private writeChunk(
+    chunk: FilePlan['chunks'][number],
+    previous:
+      | { id: number; chunkId: string; embeddingHash: string; emb: Uint8Array | null }
+      | undefined,
+    supplied: Buffer | undefined,
+    snapshot: FileSnapshot,
+    vectorsRequired: boolean
+  ): Pick<CommitResult, 'reusedEmbeddings' | 'writtenChunks'> {
+    const reusable = previous?.embeddingHash === chunk.embeddingHash;
+    const emb = vectorsRequired
+      ? resolveEmbedding(previous, supplied, chunk.embeddingHash)
+      : reusable && previous?.emb
+        ? decodeBlob(previous.emb)
+        : undefined;
+    if (previous && reusable && !supplied) {
+      this.db
+        .prepare(
+          'UPDATE file_chunks SET start_line=?,end_line=?,chunk_index=?,chunk_size=?,chunk_type=?,start_offset=?,end_offset=?,token_count=? WHERE pk=?'
+        )
+        .run(
+          chunk.startLine,
+          chunk.endLine,
+          chunk.chunkIndex,
+          chunk.chunkSize,
+          chunk.chunkType,
+          chunk.startOffset,
+          chunk.endOffset,
+          chunk.tokenCount,
+          BigInt(previous.id)
+        );
+      return { reusedEmbeddings: emb ? 1 : 0, writtenChunks: 0 };
+    }
+    if (previous) {
+      this.db.prepare('DELETE FROM vec_chunks WHERE id=?').run(BigInt(previous.id));
+    }
+    const id = decoder(Schema.Struct({ id: numberId }))(
+      this.db
+        .prepare(
+          'INSERT INTO file_chunks(id,root_id,file_record_id,start_line,end_line,content,content_hash,embedding_hash,chunk_index,chunk_size,chunk_type,start_offset,end_offset,token_count,has_vector) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET start_line=excluded.start_line,end_line=excluded.end_line,content=excluded.content,content_hash=excluded.content_hash,embedding_hash=excluded.embedding_hash,chunk_index=excluded.chunk_index,chunk_size=excluded.chunk_size,chunk_type=excluded.chunk_type,start_offset=excluded.start_offset,end_offset=excluded.end_offset,token_count=excluded.token_count,has_vector=excluded.has_vector RETURNING pk AS id'
+        )
+        .get(
+          chunk.chunkId,
+          snapshot.rootId,
+          snapshot.fileId,
+          chunk.startLine,
+          chunk.endLine,
+          chunk.content,
+          chunk.contentHash,
+          chunk.embeddingHash,
+          chunk.chunkIndex,
+          chunk.chunkSize,
+          chunk.chunkType,
+          chunk.startOffset,
+          chunk.endOffset,
+          chunk.tokenCount,
+          emb ? 1 : 0
+        )
+    ).id;
+    if (emb) {
+      this.db
+        .prepare('INSERT INTO vec_chunks(id,root_id,bin,emb) VALUES(?,?,vec_quantize_binary(?),?)')
+        .run(BigInt(id), snapshot.rootId, emb, emb);
+    }
+    return { reusedEmbeddings: !supplied && emb ? 1 : 0, writtenChunks: 1 };
   }
   private validateSyntax(syntax: FileSyntax, fileId: string): void {
     const symbols = new Set<number>();
@@ -545,7 +612,7 @@ export class IndexReader {
         decodeChunks(
           this.db
             .prepare(
-              'SELECT id AS chunkId,embedding_hash AS embeddingHash FROM file_chunks WHERE root_id=? AND file_record_id=?'
+              'SELECT c.id AS chunkId,c.embedding_hash AS embeddingHash FROM file_chunks c JOIN vec_chunks v ON v.id=c.pk WHERE c.root_id=? AND c.file_record_id=?'
             )
             .all(snapshot.rootId, snapshot.fileId)
         ).map((chunk) => [chunk.chunkId, chunk.embeddingHash])

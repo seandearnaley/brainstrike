@@ -117,5 +117,7 @@ Plan chunks and all search hits preserve the complete producer metadata.
 Legacy line-policy chunks carry explicit null producer metadata. Provided IDs
 hash root/file/chunkIndex/offsets; vectors reuse only with identical text and
 profile hash. Metadata-only changes update persisted metadata without replacing
-vector bytes. Derived schema2 explicitly refuses schema1 with rebuild-required;
+vector bytes. Derived schema3 explicitly refuses schemas1/2 with rebuild-required;
 opening never migrates or erases it. No product producer/IPC cutover is implied.
+
+Text-only ingestion uses explicit `port.commitTextFile({plan,syntax?})`. It never requests inference or accepts embeddings. The host still requires a complete configured profile. Text writes retain valid unchanged vectors and remove stale ones; strict `commitFile` requires every missing vector, including explicit backfill after text ingestion. Vector search returns only persisted vector rows.

@@ -15,12 +15,20 @@ Guard: `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/index
 - Validate the complete producer profile at commit and vector search: model ID, immutable revision, dtype, dimensions and token cap. Hash every field; the initial vector schema is 384 dimensions.
 - Refuse profile/schema mismatches with `rebuild-required` and preserve the existing file. Never erase databases during startup.
 - Canonical producers must prepare with explicit `providedChunks`, preserving the existing parser/chunker output and its source offsets, indices, token/type/size metadata. Validate hashes and source spans with the canonical matcher; reject invalid or mixed policy inputs without re-splitting, relocation or a second parse. Keep line-policy producer metadata explicitly null.
-- Persist all canonical source metadata; preserve vector bytes when only that metadata changes. Derived schema2 must refuse prior schema versions with rebuild-required, never silently migrate or wipe.
+- Persist all canonical source metadata; preserve vector bytes when only that metadata changes. Derived schema3 must refuse prior schema versions with rebuild-required, never silently migrate or wipe.
 - Prepare deterministic, byte-preserving line chunks from an authorized root-relative snapshot and explicit chunk-line policy. Reject stale snapshot plans; reuse a vector only when its stable chunk ID and content/profile hash agree.
 
 Evidence: `indexer/2026-10-02-independent-package.md`.
 Evidence: `indexer/2026-10-03-canonical-provided-chunks.md`.
 Guard: `packages/indexer/__tests__/chunks.test.ts`, `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/indexer/__tests__/provided-chunks.integration.test.ts`, `packages/chunking-worker/src/__tests__/source-range-validation.test.ts`.
+
+### Explicit write policy
+
+- Make text-only writes explicit with `commitTextFile({plan, syntax?})`; reject embedding payloads on this path. Keep the host's complete validated configured profile, without invoking inference or inventing a model default.
+- Text replacement preserves vectors only for unchanged chunk/content/profile identity and deletes stale vectors for changed or removed chunks. Persist explicit per-chunk vector presence and verify it against real vec rows on reopen, including orphan rejection. Missing vectors remain absent; vector search only returns actual vector rows. Strict `commitFile` continues to require every missing vector exactly once, including unchanged files explicitly opted into vector backfill. Backfill retains unchanged canonical graph metadata.
+
+Evidence: `indexer/2026-10-03-explicit-text-commits.md`.
+Guard: `packages/indexer/__tests__/text-commit.integration.test.ts`, `apps/desktop/src/__tests__/fixtures/indexer-utility-proof.ts`.
 
 ### Retrieval and root authority
 

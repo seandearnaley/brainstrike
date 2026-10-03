@@ -14,6 +14,7 @@ import {
   searchResultSchema,
   searchSchema,
   snapshotSchema,
+  textCommitSchema,
 } from './contracts.js';
 import type { IndexerPort } from './index.js';
 import { RpcClient } from './rpc-client.js';
@@ -221,6 +222,8 @@ export function createIndexerConnection(
     close,
     commitFile: async (commit) =>
       call('commit-file', decoder(commitSchema)(commit), decoder(commitResultSchema)),
+    commitTextFile: async (commit) =>
+      call('commit-text-file', decoder(textCommitSchema)(commit), decoder(commitResultSchema)),
     destroy: async () => {
       await close();
       for (const file of [options.dbPath, `${options.dbPath}-wal`, `${options.dbPath}-shm`]) {

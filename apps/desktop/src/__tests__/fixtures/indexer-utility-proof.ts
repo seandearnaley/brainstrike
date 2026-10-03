@@ -77,9 +77,23 @@ async function run(): Promise<void> {
     rootId: 'root-a',
   };
   const plan = await port.prepareFile(snapshot);
+  await port.commitTextFile({ plan });
+  assert.equal(
+    (await port.search({ limit: 10, mode: 'bm25', rootIds: ['root-a'], text: 'sqlite' })).hits
+      .length,
+    1
+  );
+  assert.equal(
+    (await port.search({ limit: 10, mode: 'vector', profile, rootIds: ['root-a'], vector })).hits
+      .length,
+    0
+  );
+  const backfill = await port.prepareFile(snapshot);
+  assert.equal(backfill.unchanged, true);
+  assert.equal(backfill.embeddingChunkIds.length, 1);
   await port.commitFile({
-    embeddings: plan.embeddingChunkIds.map((chunkId) => ({ chunkId, vector })),
-    plan,
+    embeddings: backfill.embeddingChunkIds.map((chunkId) => ({ chunkId, vector })),
+    plan: backfill,
     profile,
   });
   const search = { limit: 10, mode: 'bm25', rootIds: ['root-a'], text: 'sqlite' };

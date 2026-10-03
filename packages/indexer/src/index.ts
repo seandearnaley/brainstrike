@@ -21,6 +21,7 @@ export type {
   ProvidedFileSnapshot,
   SearchRequest,
   SearchResult,
+  TextFileCommit,
 } from './contracts.js';
 export { IndexerError } from './contracts.js';
 export type { IndexerDeadlines } from './transport.js';
@@ -28,6 +29,7 @@ export { IndexerLifecycleError } from './transport.js';
 export interface IndexerPort {
   close(): Promise<void>;
   commitFile(commit: unknown): Promise<CommitResult>;
+  commitTextFile(commit: unknown): Promise<CommitResult>;
   destroy(): Promise<void>;
   info(): Promise<IndexerInfo>;
   prepareFile(snapshot: unknown): Promise<FilePlan>;

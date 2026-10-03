@@ -107,6 +107,7 @@ export async function runIndexerProcess(
             work = connection.search(request.payload);
             break;
           case 'commit-file':
+          case 'commit-text-file':
             work = client.call(request.op, request.payload, decoder(commitResultSchema));
             break;
           case 'remove-file':

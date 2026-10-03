@@ -118,6 +118,11 @@ export const commitSchema = Schema.Struct({
   syntax: Schema.optional(syntaxSchema),
 });
 export type FileCommit = typeof commitSchema.Type;
+export const textCommitSchema = Schema.Struct({
+  plan: planSchema,
+  syntax: Schema.optional(syntaxSchema),
+});
+export type TextFileCommit = typeof textCommitSchema.Type;
 export const identitySchema = Schema.Struct({ fileId: nonblank, rootId: nonblank });
 export const searchSchema = Schema.Struct({
   limit: positive.check(Schema.isLessThanOrEqualTo(100)),

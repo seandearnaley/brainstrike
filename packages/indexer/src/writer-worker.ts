@@ -22,6 +22,9 @@ try {
         case 'commit-file':
           value = writer.commit(request.payload);
           break;
+        case 'commit-text-file':
+          value = writer.commitText(request.payload);
+          break;
         case 'remove-file':
           value = writer.remove(request.payload);
           break;

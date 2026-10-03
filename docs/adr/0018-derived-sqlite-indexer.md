@@ -29,7 +29,7 @@ Canonical producers submit root-relative file snapshots with unchanged provided
 chunks from the existing parser/chunker. The foundation also accepts an explicit
 line policy as a separate input shape. Validate provided SHA hashes and exact or
 canonically normalized source spans without a parse pass or re-splitting.
-Persist original indices/offsets/token/type/size metadata in schema2; opening an
+Persist original indices/offsets/token/type/size metadata and explicit vector presence in schema3; opening an
 older schema requires explicit rebuild and preserves its files. Stable position identities and content/profile hashes let unchanged
 chunks retain their embeddings. Preparation captures the previous snapshot hash;
 a writer transaction rejects stale preparation and atomically changes chunks,
