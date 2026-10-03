@@ -60,6 +60,15 @@ Tests: `apps/desktop/src/__tests__/assistant-server/query-self-index-target.test
 `packages/sqlite-query/src/__tests__/protocol.test.ts`,
 `packages/sqlite-query/src/__tests__/sandbox.integration.test.ts`.
 
+### User Stop and owned readers
+
+- Propagate the tool execution signal plus its guard deadline through index acquisition and every querySelf index mode. Keep signals process-local; refuse prior-abort acquisition before spawning. Cancellation kills that call's owned reader and joins actual exit before rejecting; late responses and retired request signals cannot publish results or cancel newer work.
+- Retain failed cleanup ownership. Log index cancellation with its startup/query phase and existing request ID and vendor owner PID, distinct from deadline errors; never log SQL or authorization secrets. Fresh requests acquire a fresh reader after cancellation.
+- App-target Stop rejects prior-abort acquisition and suppresses late results after joining admitted SQL. It does not interrupt a statement in the shared PGlite host.
+
+Evidence: `agent-self-query/user-stop-cancellation.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/query-self-user-cancel.test.ts`, `query-self-tool.test.ts`, `packages/sqlite-query/src/__tests__/client-cancellation.test.ts`, `packages/sqlite-query/test/electron-utility.cjs`.
+
 ### Native caller-vector lenses
 
 - Declare index caller-vector requirements explicitly as `-- requires: caller-vectors <text seed param>`; parse malformed, duplicate, app-target or undeclared/non-text requirements visibly. Retain and list the typed requirement, resolve the seed by declared parameter name, and keep its value bound.

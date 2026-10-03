@@ -52,12 +52,14 @@ function resolveRequirement(invocation: IndexLensInvocation): {
 async function executeIndexQuery(
   input: QuerySelfInput,
   invocation: IndexLensInvocation | undefined,
-  client: QuerySelfIndexClient
+  client: QuerySelfIndexClient,
+  signal?: AbortSignal
 ): Promise<QuerySelfResult> {
+  const cancellation = signal ? { signal } : {};
   const sql = invocation?.sql ?? input.sql?.trim();
   const table = input.table?.trim();
   if (input.mode === 'listTables') {
-    const result = await client.listTables();
+    const result = await client.listTables(cancellation);
     const tables = result.rows.map((row) => {
       if (typeof row[0] !== 'string') {
         throw new TypeError('SQLite table listing returned an invalid name.');
@@ -72,7 +74,7 @@ async function executeIndexQuery(
     };
   }
   if (input.mode === 'describeTable' && table) {
-    const result = await client.describeTable(table);
+    const result = await client.describeTable(table, cancellation);
     const columns = result.rows.map((row) => {
       if (typeof row[0] !== 'string' || typeof row[1] !== 'string' || typeof row[2] !== 'number') {
         throw new TypeError('SQLite table description returned invalid columns.');
@@ -91,7 +93,10 @@ async function executeIndexQuery(
     throw new ToolInputError('SQLite query requires a statement.');
   }
   if (input.mode === 'explain') {
-    const result = await client.query(`EXPLAIN QUERY PLAN ${sql}`, { maxRows: 200 });
+    const result = await client.query(`EXPLAIN QUERY PLAN ${sql}`, {
+      maxRows: 200,
+      ...cancellation,
+    });
     const plan = result.rows.map((row) => row.map(String).join('\t'));
     if (result.truncated) {
       plan.push('More plan rows omitted by the 200-row cap.');
@@ -101,6 +106,7 @@ async function executeIndexQuery(
   const maxRows = input.maxRows ?? 50;
   const result = await client.query(sql, {
     maxRows,
+    ...cancellation,
     ...(invocation ? { bindings: lensBindings(invocation.params) } : {}),
     ...(invocation?.requirement ? { requirement: resolveRequirement(invocation) } : {}),
   });
@@ -134,8 +140,10 @@ async function withIndexQueryClient(
 export async function runIndexQuerySelf(
   input: QuerySelfInput,
   invocation: IndexLensInvocation | undefined,
-  acquire?: () => Promise<QuerySelfIndexClient>
+  acquire?: (signal?: AbortSignal) => Promise<QuerySelfIndexClient>,
+  signal?: AbortSignal
 ): Promise<QuerySelfResult> {
+  signal?.throwIfAborted();
   // Validate unsupported operations before acquiring a process.
   if (input.analyze === true) {
     throw new ToolInputError(
@@ -155,10 +163,13 @@ export async function runIndexQuerySelf(
   }
   const open =
     acquire ??
-    (async () => {
+    (async (signal?: AbortSignal) => {
       const { openIndexQuery } = await import('../sqlite-query-host-manager');
-      return openIndexQuery();
+      return openIndexQuery(signal);
     });
-  const client = await open();
-  return withIndexQueryClient(client, () => executeIndexQuery(input, invocation, client));
+  const client = await open(signal);
+  return withIndexQueryClient(client, () => {
+    signal?.throwIfAborted();
+    return executeIndexQuery(input, invocation, client, signal);
+  });
 }

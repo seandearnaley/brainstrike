@@ -61,6 +61,34 @@ beforeEach(() => {
 });
 
 describe('runQuerySelf', () => {
+  it('joins admitted app SQL and suppresses its result after Stop', async () => {
+    const admitted = Promise.withResolvers<void>();
+    const rows = Promise.withResolvers<FakeQueryResult>();
+    getDatabaseMock.mockResolvedValue(
+      fakeDatabase((sql) => {
+        if (sql.startsWith('EXPLAIN')) {
+          return explainRows(1);
+        }
+        admitted.resolve();
+        return rows.promise;
+      })
+    );
+    const controller = new AbortController();
+    const reason = new Error('User Stop');
+    const outcome = runQuerySelf({ mode: 'query', sql: 'SELECT 1', target: 'app' }, undefined, {
+      signal: controller.signal,
+    }).catch((error: unknown) => error);
+    await admitted.promise;
+    controller.abort(reason);
+    let settled = false;
+    void outcome.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    rows.resolve({ fields: [{ name: 'n' }], rows: [[1]] });
+    expect(await outcome).toBe(reason);
+  });
   it('returns column names once and rendered positional rows', async () => {
     getDatabaseMock.mockResolvedValue(
       fakeDatabase((sql) =>

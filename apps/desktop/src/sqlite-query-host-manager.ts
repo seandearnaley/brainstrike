@@ -40,9 +40,10 @@ export function installIndexQueryTarget(
   target = { acquire, deadlines: { ...deadlines } };
 }
 
-export async function openIndexQuery(): Promise<
-  Pick<SqliteQueryClient, 'query' | 'grep' | 'listTables' | 'describeTable' | 'close'>
-> {
+export async function openIndexQuery(
+  signal?: AbortSignal
+): Promise<Pick<SqliteQueryClient, 'query' | 'grep' | 'listTables' | 'describeTable' | 'close'>> {
+  signal?.throwIfAborted();
   const registered = target;
   if (!registered) {
     throw new ToolInputError(
@@ -55,6 +56,7 @@ export async function openIndexQuery(): Promise<
   }
   const acquisition = SqliteQueryClient.open({
     databasePath: index.databasePath,
+    signal,
     ...registered.deadlines,
     spawn: () => {
       if (target !== registered || registered.acquire() !== index) {

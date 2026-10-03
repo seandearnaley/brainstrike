@@ -1,6 +1,7 @@
 export {
   type OpenSqliteQueryOptions,
   type QueryOptions,
+  SqliteQueryCancelledError,
   SqliteQueryClient,
   SqliteQueryDeadlineError,
   SqliteQueryInputError,
