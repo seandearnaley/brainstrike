@@ -33,7 +33,11 @@ import {
   AgentSqlUnboundedRecursionError,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
-import { SqliteQueryDeadlineError, SqliteQueryInputError } from '@brainstrike/sqlite-query';
+import {
+  SqliteQueryCancelledError,
+  SqliteQueryDeadlineError,
+  SqliteQueryInputError,
+} from '@brainstrike/sqlite-query';
 import { getDatabase } from '../db-main';
 import { scanUserLenses, type UserLensScanResult } from './lens-loader';
 import { createNodeFsScanDeps } from './node-fs-scan-deps';
@@ -173,7 +177,22 @@ function redactErrorForLog(error: unknown): {
  * statement, which the model authored, so echoing it leaks nothing the model
  * did not already have and is the only way it can self-correct.
  */
-function handleQuerySelfError(error: unknown): never {
+function handleQuerySelfError(error: unknown, signal?: AbortSignal): never {
+  if (error instanceof SqliteQueryCancelledError) {
+    logger.info('Index self-query cancelled', {
+      code: error.code,
+      ownerPid: error.ownerPid,
+      phase: error.phase,
+      requestId: error.requestId,
+      requestKind: error.requestKind,
+      target: 'index',
+    });
+    throw error;
+  }
+  if (signal?.aborted) {
+    throw error;
+  }
+
   // Every admission rejection belongs here, not just the two original ones. A
   // guard that fires correctly but reports "the tool did not complete
   // successfully" is indistinguishable from a crash: observed live, the model
@@ -320,11 +339,24 @@ function resolveLensInvocation(
 
 /** Test seam: inject the lens scan; production scans the request's roots. */
 export interface QuerySelfToolOptions {
-  readonly openIndexQuery?: () => Promise<QuerySelfIndexClient>;
+  readonly openIndexQuery?: (signal?: AbortSignal) => Promise<QuerySelfIndexClient>;
   readonly scanLenses?: () => UserLensScanResult;
+  readonly signal?: AbortSignal | undefined;
 }
 
 export async function runQuerySelf(
+  input: QuerySelfInput,
+  runtimeData: RuntimeData | undefined,
+  options: QuerySelfToolOptions = {}
+): Promise<QuerySelfResult> {
+  options.signal?.throwIfAborted();
+  const result = await executeQuerySelf(input, runtimeData, options);
+  // Shared app SQL is joined, not interrupted; Stop must still suppress its late result.
+  options.signal?.throwIfAborted();
+  return result;
+}
+
+async function executeQuerySelf(
   input: QuerySelfInput,
   runtimeData: RuntimeData | undefined,
   options: QuerySelfToolOptions = {}
@@ -350,12 +382,13 @@ export async function runQuerySelf(
     const invocation =
       input.mode === 'lens' ? resolveLensInvocation(input, scanLenses()) : undefined;
     if (input.target === 'index') {
-      return await runIndexQuerySelf(input, invocation, options.openIndexQuery);
+      return await runIndexQuerySelf(input, invocation, options.openIndexQuery, options.signal);
     }
     if (input.target !== 'app') {
       throw new AgentSqlInputError('querySelf requires target="app" or target="index".');
     }
     const db = await getDatabase();
+    options.signal?.throwIfAborted();
     const service = new AgentSqlService(db);
 
     if (input.mode === 'listTables') {
@@ -391,7 +424,7 @@ export async function runQuerySelf(
 
     return await runRowsQuery(service, sql, input.maxRows);
   } catch (error) {
-    handleQuerySelfError(error);
+    handleQuerySelfError(error, options.signal);
   }
 }
 

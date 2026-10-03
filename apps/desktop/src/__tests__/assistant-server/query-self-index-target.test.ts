@@ -30,6 +30,22 @@ beforeEach(() => {
 });
 
 describe('explicit index query target', () => {
+  it('closes an acquired reader when Stop wins before query admission', async () => {
+    const client = createClient();
+    const acquisition = Promise.withResolvers<typeof client>();
+    const controller = new AbortController();
+    const reason = new Error('Stop during acquisition');
+    const outcome = runQuerySelf({ mode: 'query', sql: 'SELECT 1', target: 'index' }, undefined, {
+      openIndexQuery: () => acquisition.promise,
+      signal: controller.signal,
+    }).catch((error: unknown) => error);
+    controller.abort(reason);
+    acquisition.resolve(client);
+    expect(await outcome).toBe(reason);
+    expect(client.query).not.toHaveBeenCalled();
+    expect(client.close).toHaveBeenCalledOnce();
+  });
+
   it('reports an unavailable index without acquiring the application database', async () => {
     await expect(runQuerySelf({ mode: 'listTables', target: 'index' }, undefined)).rejects.toThrow(
       'SQLite workspace index is unavailable'

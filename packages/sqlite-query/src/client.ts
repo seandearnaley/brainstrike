@@ -15,6 +15,7 @@ import {
 export interface OpenSqliteQueryOptions {
   readonly databasePath: string;
   readonly deadlineMs: number;
+  readonly signal?: AbortSignal | undefined;
   readonly spawn: () => QueryProcess;
   readonly startupDeadlineMs: number;
 }
@@ -23,6 +24,7 @@ export interface QueryOptions {
   readonly bindings?: Readonly<Record<string, SqliteValue>>;
   readonly maxRows?: number;
   readonly requirement?: SqliteQueryRequirement;
+  readonly signal?: AbortSignal | undefined;
   readonly values?: readonly SqliteValue[];
 }
 
@@ -95,11 +97,13 @@ export class SqliteQueryClient {
         throw new RangeError('SQLite query deadlines must be positive finite milliseconds.');
       }
     }
+    options.signal?.throwIfAborted();
     const client = new SqliteQueryClient(options.spawn(), options.deadlineMs);
     try {
       const response = await client.#call(
         { databasePath: options.databasePath, kind: 'open' },
-        options.startupDeadlineMs
+        options.startupDeadlineMs,
+        options.signal
       );
       if (response.kind !== 'ready') {
         throw new TypeError('SQLite query startup returned an unexpected response.');
@@ -116,14 +120,17 @@ export class SqliteQueryClient {
   }
 
   query(sql: string, options: QueryOptions = {}): Promise<SqliteRows> {
-    return this.#rows({
-      ...(options.bindings === undefined ? {} : { bindings: options.bindings }),
-      ...(options.requirement === undefined ? {} : { requirement: options.requirement }),
-      kind: 'query',
-      maxRows: options.maxRows ?? 50,
-      sql,
-      values: options.values ?? [],
-    });
+    return this.#rows(
+      {
+        ...(options.bindings === undefined ? {} : { bindings: options.bindings }),
+        ...(options.requirement === undefined ? {} : { requirement: options.requirement }),
+        kind: 'query',
+        maxRows: options.maxRows ?? 50,
+        sql,
+        values: options.values ?? [],
+      },
+      options.signal
+    );
   }
 
   async grep(options: SqliteGrepOptions): Promise<SqliteGrepRows> {
@@ -136,12 +143,12 @@ export class SqliteQueryClient {
     return response.result;
   }
 
-  describeTable(table: string): Promise<SqliteRows> {
-    return this.#rows({ kind: 'describeTable', table });
+  describeTable(table: string, options: Pick<QueryOptions, 'signal'> = {}): Promise<SqliteRows> {
+    return this.#rows({ kind: 'describeTable', table }, options.signal);
   }
 
-  listTables(): Promise<SqliteRows> {
-    return this.#rows({ kind: 'listTables' });
+  listTables(options: Pick<QueryOptions, 'signal'> = {}): Promise<SqliteRows> {
+    return this.#rows({ kind: 'listTables' }, options.signal);
   }
 
   async close(): Promise<void> {
@@ -158,19 +165,20 @@ export class SqliteQueryClient {
   }
 
   #stop(reason: Error): void {
+    this.#terminal ??= reason;
     try {
       if (!(this.#hasExited || this.#killRequested)) {
         this.#process.kill();
         this.#killRequested = true;
       }
     } catch (cleanup) {
-      this.#fail(
-        new AggregateError(
-          [reason, cleanup],
-          `${reason.message} Process kill failed; ownership is retained.`,
-          { cause: reason }
-        )
+      const failure = new AggregateError(
+        [reason, cleanup],
+        `${reason.message} Process kill failed; ownership is retained.`,
+        { cause: reason }
       );
+      this.#terminal = failure;
+      this.#fail(failure);
       return;
     }
     this.#fail(reason);
@@ -184,8 +192,8 @@ export class SqliteQueryClient {
     this.#pending.clear();
   }
 
-  async #rows(body: RequestBody): Promise<SqliteRows> {
-    const response = await this.#call(body, this.#deadlineMs);
+  async #rows(body: RequestBody, signal?: AbortSignal): Promise<SqliteRows> {
+    const response = await this.#call(body, this.#deadlineMs, signal);
     if (response.kind !== 'rows') {
       const error = new TypeError('SQLite query returned an unexpected response.');
       this.#stop(error);
@@ -194,7 +202,10 @@ export class SqliteQueryClient {
     return response.result;
   }
 
-  #call(body: RequestBody, timeoutMs: number): Promise<QueryResponse> {
+  #call(body: RequestBody, timeoutMs: number, signal?: AbortSignal): Promise<QueryResponse> {
+    if (signal?.aborted) {
+      return Promise.reject(signal.reason);
+    }
     if (this.#terminal) {
       return Promise.reject(this.#terminal);
     }
@@ -205,10 +216,26 @@ export class SqliteQueryClient {
     } catch (error) {
       return Promise.reject(error);
     }
+    let cancelled = false;
+    const abort = (): void => {
+      // The response wins settlement. A stale call must never kill newer work.
+      if (!this.#pending.has(id)) {
+        return;
+      }
+      cancelled = true;
+      this.#stop(
+        new SqliteQueryCancelledError(request.kind, id, signal?.reason, this.#process.pid)
+      );
+    };
     return runWithTimeout(
       () =>
         new Promise<QueryResponse>((resolve, reject) => {
+          if (signal?.aborted) {
+            reject(signal.reason);
+            return;
+          }
           this.#pending.set(id, { kind: request.kind, reject, resolve });
+          signal?.addEventListener('abort', abort, { once: true });
           try {
             this.#process.postMessage(request);
           } catch (error) {
@@ -222,9 +249,25 @@ export class SqliteQueryClient {
         },
         timeoutMs,
       }
-    ).finally(() => {
-      this.#pending.delete(id);
-    });
+    )
+      .catch(async (error: unknown) => {
+        if (cancelled) {
+          try {
+            await this.close();
+          } catch (cleanup) {
+            throw new AggregateError(
+              [error, cleanup],
+              'SQLite query cancellation cleanup failed; ownership is retained.',
+              { cause: error }
+            );
+          }
+        }
+        throw error;
+      })
+      .finally(() => {
+        signal?.removeEventListener('abort', abort);
+        this.#pending.delete(id);
+      });
   }
 }
 
@@ -261,5 +304,23 @@ export class SqliteQueryStartupCleanupError extends AggregateError {
     });
     this.name = 'SqliteQueryStartupCleanupError';
     this.owner = owner;
+  }
+}
+
+/** Main-process cancellation identity; never serialized as authorization. */
+export class SqliteQueryCancelledError extends Error {
+  readonly code = 'sqlite_query_cancelled';
+  readonly phase: 'startup' | 'query';
+  readonly ownerPid: number | undefined;
+  readonly requestId: number;
+  readonly requestKind: QueryRequest['kind'];
+
+  constructor(kind: QueryRequest['kind'], requestId: number, reason: unknown, ownerPid?: number) {
+    super('SQLite query cancelled; its owned process was stopped.', { cause: reason });
+    this.name = 'SqliteQueryCancelledError';
+    this.ownerPid = ownerPid;
+    this.phase = kind === 'open' ? 'startup' : 'query';
+    this.requestId = requestId;
+    this.requestKind = kind;
   }
 }

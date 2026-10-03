@@ -7,6 +7,7 @@ export interface QueryProcess {
   readonly onError: (listener: (error: Error) => void) => () => void;
   readonly onExit: (listener: () => void) => () => void;
   readonly onMessage: (listener: (message: unknown) => void) => () => void;
+  readonly pid?: number | undefined;
   readonly postMessage: (message: QueryRequest) => void;
 }
 
@@ -60,6 +61,9 @@ export function spawnQueryProcess(options: SpawnQueryProcessOptions = {}): Query
       return () => {
         child.off('message', listener);
       };
+    },
+    get pid(): number | undefined {
+      return child.pid;
     },
     postMessage: (message: QueryRequest): void => {
       if (!child.connected) {

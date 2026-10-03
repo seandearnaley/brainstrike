@@ -16,7 +16,9 @@ const hash = () => createHash('sha256').update(readFileSync(databasePath)).diges
 app
   .whenReady()
   .then(async () => {
-    const { SqliteQueryClient, spawnUtilityQueryProcess } = await import('../dist/index.js');
+    const { SqliteQueryClient, SqliteQueryCancelledError, spawnUtilityQueryProcess } = await import(
+      '../dist/index.js'
+    );
     const writer = new DatabaseSync(databasePath);
     writer.exec(
       "CREATE TABLE records(id TEXT PRIMARY KEY); INSERT INTO records VALUES('one'); CREATE VIRTUAL TABLE records_fts USING fts5(content); INSERT INTO records_fts VALUES('query index');"
@@ -143,6 +145,52 @@ app
       } finally {
         clearInterval(interval);
       }
+      const cancelled = await open();
+      const cancellationHost = processes.at(-1);
+      const cancellationPid = cancellationHost.pid;
+      assert(Number.isInteger(cancellationPid));
+      let cancellationExited = false;
+      cancellationHost.once('exit', () => {
+        cancellationExited = true;
+      });
+      const controller = new AbortController();
+      const started = performance.now();
+      const timer = setTimeout(() => controller.abort(new Error('User Stop proof')), 50);
+      try {
+        await assert.rejects(
+          cancelled.query(
+            'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r) SELECT count(*) FROM r',
+            { signal: controller.signal }
+          ),
+          (error) =>
+            error instanceof SqliteQueryCancelledError &&
+            error.phase === 'query' &&
+            error.requestId === 2 &&
+            error.ownerPid === cancellationPid
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+      const cancellationMs = performance.now() - started;
+      assert(
+        cancellationMs < 1000,
+        'Cancellation must settle before the unchanged production deadline.'
+      );
+      assert(cancellationExited, 'Rejection joins actual utility exit.');
+      assert.throws(() => process.kill(cancellationPid, 0), { code: 'ESRCH' });
+      const metricsContainsExitedPid = app
+        .getAppMetrics()
+        .some((metric) => metric.pid === cancellationPid);
+      await cancelled.close();
+      assert.equal(hash(), before);
+      const cancellation = {
+        cancellationMs,
+        cancellationPid,
+        code: 'sqlite_query_cancelled',
+        joinedExit: cancellationExited,
+        metricsContainsExitedPid,
+        phase: 'query',
+      };
       const afterKillWriter = new DatabaseSync(databasePath);
       afterKillWriter.exec("INSERT INTO records VALUES('after-kill')");
       afterKillWriter.close();
@@ -152,6 +200,7 @@ app
       ]);
       process.stdout.write(
         `${JSON.stringify({
+          cancellation,
           canonicalGrep: true,
           electron: process.versions.electron,
           freshHost: true,

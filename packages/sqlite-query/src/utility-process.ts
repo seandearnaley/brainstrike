@@ -14,6 +14,7 @@ export interface QueryUtilityProcess {
     (event: 'exit', listener: () => void): unknown;
     (event: 'error', listener: (type: string, location: string, report: string) => void): unknown;
   };
+  readonly pid?: number | undefined;
   readonly postMessage: (message: QueryRequest) => void;
 }
 
@@ -57,6 +58,9 @@ export function spawnUtilityQueryProcess(
       return () => {
         host.off('message', listener);
       };
+    },
+    get pid(): number | undefined {
+      return host.pid;
     },
     postMessage: (message): void => {
       host.postMessage(message);
