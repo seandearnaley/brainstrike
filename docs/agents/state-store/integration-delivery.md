@@ -90,3 +90,12 @@ strace, and the automatic-checkpoint negative control detected nine display
 syncs. The 100 MB purge had zero secret occurrences at resolve, with observed
 maximum append 254.6 ms and event-loop delay 50.5 ms. No timeout, assertion,
 discovery rule or implementation changed for these checks.
+
+After the state composition, a normal merge adds the independent query
+foundation's authoritative integration ancestry
+`7308c89e7f7c2fdd903f19889d6e796d38870e80`. Its lock conflict is resolved by
+preserving the already composed native/state lock and adding exactly the
+sqlite-query importer, again checked through parsed YAML equality. State source
+and runtime inputs remain byte-identical. The initial state merge's normal
+hooks passed all 110 type/build tasks, selected 631 desktop test files and
+reported zero diagnostics across 637 Effect files.
