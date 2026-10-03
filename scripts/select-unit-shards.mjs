@@ -3,7 +3,7 @@
 // native Turbo commands; the workflow remains the sole owner of matrix rows.
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export function unitFilterArguments(filters) {
   if (typeof filters !== 'string' || filters.trim() === '') {
@@ -82,11 +82,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     (filters) =>
       JSON.parse(
         execFileSync(
-          'pnpm',
+          process.execPath,
           [
-            '-s',
-            'exec',
-            'turbo',
+            fileURLToPath(new URL('./run-turbo-command.mjs', import.meta.url)),
+            '--',
             'run',
             'test',
             'test:integration',
