@@ -28,6 +28,24 @@
 Evidence: `local-inference/hidden-host-manifest.md`.
 Guard: `hidden-preload-contract.test.ts`, `hidden-preload-runtime.test.ts`.
 
+### Canonical profile and document adapter
+
+- Resolve the actual authorized PGlite embedding-set metadata without writing
+  preferences or enabling vectors. Preserve hosted provider/model identity;
+  local execution requires explicit saved device, dtype and revision choices
+  accepted by the public `@brainstrike/embeddings/inference-plan` resolver.
+- Admit 1–64 ordered, unique, nonblank chunks. Reject missing own array entries
+  before authority lookup or transport; validate complete profile identity,
+  vector cardinality, dimensions and finite values before publication.
+- Supply `NativeCanonicalInference` only with a document relay whose promise
+  settles after physical hidden-renderer completion or joined host retirement
+  on every outcome. Keep cancellation ownership until that settlement and
+  preserve independent errors through generate/cancel/join/close.
+
+Evidence: `local-inference/2026-10-03-canonical-profile-adapter.md`.
+Guard: `native-canonical-profile.test.ts`,
+`native-canonical-profile.integration.test.ts`, `inference-plan.test.ts`.
+
 ### Vector device preference
 
 - Host and visible UI resolve `devicePref`/`devicePrefConfigured` from the SAME
