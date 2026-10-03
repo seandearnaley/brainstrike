@@ -197,9 +197,9 @@ Guard: `apps/desktop/src/__tests__/assistant-server/query-self-tool.test.ts`.
 - Require exactly one `-- target: app` or `-- target: index` in a lens header.
   Retain it in `LensDefinition`; missing, invalid and duplicate declarations are
   visible parse errors. Never infer a target from SQL or a lens filename.
-- Declare telemetry/history lenses as `app` and canonical `callers-hybrid` as
-  `index`. Preserve the PGlite caller SQL and its behavioral golden for hosted web
-  until M6 when the canonical index artifact moves to SQLite.
+- Declare telemetry/history lenses as `app`. Keep `callers-hybrid` declared `app`
+  while it ships PGlite SQL, then land its native body and `index` target together.
+  Preserve the PGlite caller SQL and its behavioral golden for hosted web until M6.
 
 Evidence: `agent-self-query/target-routing.md`.
 Guard: `packages/assistant-contract/src/__tests__/query-self-target.test.ts`,
@@ -264,7 +264,7 @@ Guard: `packages/db/__tests__/search-hybrid-symbol-retrieval.test.ts`, `packages
 
 ### The PGlite hybrid one-statement golden — PROVEN admitted
 
-- Retain the app-target traversal/BM25/vector statement in `packages/db/__tests__/fixtures/callers-hybrid-pglite.sql` for hosted web until M6. The canonical index-target artifact uses the native caller-vector contract above.
+- Retain the app-target traversal/BM25/vector statement in `packages/db/__tests__/fixtures/callers-hybrid-pglite.sql` for hosted web until M6. Keep the shipped PGlite caller artifact declared `app` until its native SQL port lands; change its target and body together.
 - Its top level drains (`GROUP BY … ORDER BY`), so the row cap plays NO part: admission
   rests on the recursion-bound heuristic plus the cost gate. Do not cite the row cap.
 - Scope the vector arm to the seed's `embedding_set_id` (`IS NOT DISTINCT FROM`):
@@ -295,7 +295,9 @@ convention). Grammar: `packages/assistant-contract/src/lenses.ts`; loader:
 - **Placeholder discipline is a PARSE-time error**: the highest `$n` equals the declared
   param count and every `$1..$n` appears.
 - **Every lens ships with a golden test** reading the checked-in file, so the artifact
-  is the single source of truth. `.brainstrike/lenses/` is the inventory.
+  is the single source of truth. Execute it through its declared target's real
+  sandbox; a separate fixture cannot prove the shipped dialect is routable.
+  `.brainstrike/lenses/` is the inventory.
 - **Normalize `tool_id` before grouping** in telemetry lenses
   (`brainstrike.grepSearch` → `grepSearch`): the writer stores the id verbatim, so one
   tool lands under both spellings and a split halves its score.
