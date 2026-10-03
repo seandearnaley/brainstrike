@@ -1,6 +1,6 @@
 # AGENT GUIDELINES
 
-Detailed subsystem contracts live in `docs/agents/`. **Before changing one of these areas, read its doc first** — they record hard-won invariants and settled rulings (many marked "do not relitigate"). They are living documents: update the doc and its paired tests in the same change, written per `docs/agents/README.md` — rules in the contract, their history in `docs/agents/<area>/` evidence files. Some local Claude Code setups may mirror these contracts through ignored `.claude/skills/`; that integration is optional and untracked, so the table below is the canonical agent-agnostic map.
+Detailed subsystem contracts live in `docs/agents/`. **Before changing one of these areas, read its doc first** — they record hard-won invariants and settled rulings (many marked "do not relitigate"). Update a contract only when the behaviour it describes changes (working rule 11). Some local Claude Code setups may mirror these contracts through ignored `.claude/skills/`; that integration is optional and untracked, so the table below is the canonical agent-agnostic map.
 
 Nearest `AGENTS.md` files add package-local rules; they supplement rather than
 replace this root policy. Treat `docs/agents/*.md` as living contracts,
@@ -34,13 +34,34 @@ tests, and live contracts when they disagree with a historical document.
 
 Cross-cutting invariants (full detail + rationale in the docs):
 
-- Local inference (embeddings + local LLM) runs ONLY in hidden renderer hosts — never in Electron main.
+- Local inference (embeddings + local LLM) runs ONLY in hidden renderer hosts — never in Electron main. See ADR-0007.
 - Schema/catalog changes add to `migrations/index.ts` with a `ledgerKey`; the Drizzle ledger is derived. New `packages/db` tests need no lane registration: the recursive Vitest unit-project glob discovers them, and required Unit plus nightly coverage split that one project with the same native `--shard` set. `scripts/__tests__/db-test-discovery-contract.test.mjs` guards the recursive glob and a minimum file floor.
 - Every PGlite construction site loads the full engine-extension set.
-- Feature gating is capability-based (does the bridge exist?) — never `isElectron()` checks in shared code. Web omits desktop-only capabilities rather than stubbing them.
-- Any new persistent store/state must be wired into factory reset.
-- `@mastra/core` is Node-only (its shared chunk statically imports `fs`/`child_process`/`os`) — it MUST stay externalized in browser bundles, and Mastra stays an embedded library runtime with no HTTP surface of its own.
+- Feature gating is capability-based (does the bridge exist?) — never `isElectron()` checks in shared code. Web omits desktop-only capabilities rather than stubbing them. See ADR-0008.
+- Any new persistent store/state must be wired into factory reset. See ADR-0015.
+- `@mastra/core` is Node-only (its shared chunk statically imports `fs`/`child_process`/`os`) — it MUST stay externalized in browser bundles, and Mastra stays an embedded library runtime with no HTTP surface of its own. See ADR-0012.
 - Non-native typed libraries build JavaScript and declarations with `tsc -b`. Use tsup only when the package produces a real bundle boundary (workers/assets, required CJS interop, or a deliberately self-contained server bundle); never add tsup just to duplicate plain library emit. Native-addon packages remain `node-gyp` builds. Packages extending `packages/config/tsconfig/node-library.json` use TypeScript's `NodeNext` mode, emit Node-compatible ESM, and use `.js` in relative source specifiers.
+
+## Working rules (Architecture Reset, BST-1914)
+
+These override any older directive, contract or "settled" marker that conflicts with them. "Settled" and "do not relitigate" markers in `docs/agents/` are historical evidence, not binding rulings; binding decisions live in `docs/adr/`.
+
+Index: `docs/adr/` (0001–0017).
+
+1. **One owner per fact.** Every fact has one durable record, one writer process and one ID, named in an ADR. A fix that needs a new alias, ID kind, backfill or reconciliation step is a design change: stop and escalate to the owner.
+2. **Vendor primitive first, mature tech only.** Use the library's documented primitive before building around it. Anything experimental or pre-1.0 needs a spike that proves the capabilities you need. A workaround is a code comment with an upstream link and a removal condition.
+3. **Third strike stops patching.** The third fix to the same bug class or ticket stops work: write a one-page root-cause note, get the owner's approval, then change the design.
+4. **Numbers before gates.** No new scheduler, budget, throttle, retry or timeout without before/after foreground p95 from the loaded benchmark.
+5. **Test the real shape.** Fixtures come from recorded runtime payloads. No test asserts prose, doc line counts, workflow YAML or source text.
+6. **Red blocks the merge button.** The full regression suites must pass local validation while cloud CI is disabled. A failing spec is fixed or quarantined against an owner-held ticket. Never delete a spec to get green.
+7. **Alerts must reach a human.** Every automated alert lands in Linear and is acknowledged, or the automation is switched off.
+8. **Done means demonstrated.** Done is the behaviour shown working in the running app with the full regression green. "Checks green and threads resolved" is not done.
+9. **One review pass.** Bots never block. Fix only owner-confirmed correctness or data-loss findings on product code, in the same PR. No tickets or PRs from bot comments.
+10. **Small WIP, real tickets.** At most 3 open PRs. Follow-ups amend the original PR. A ticket is a user-visible outcome, not a slice, finding or proof.
+11. **Docs are not a per-PR tax.** AGENTS.md stays under 150 lines, and real decisions go in `docs/adr/`. No exact line pins, and no requirement to edit docs alongside code.
+12. **Guards need an incident.** A new guard links the real defect it would have caught. Never write a guard that checks another guard.
+13. **Spike before fleet.** Engine swaps, migrations, CI systems and agent fleets start as a spike of at most two days, with the owner's written go/no-go before fan-out. Scheduled automation that opens PRs or issues, other than failure alerts under rule 7, stays off until v1.
+14. **Release is the critical path.** Until v1 ships: release first, then red-suite fixes. Everything else needs the owner's explicit yes.
 
 ## Stack & style
 

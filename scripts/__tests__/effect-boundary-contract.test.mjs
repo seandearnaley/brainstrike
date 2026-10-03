@@ -471,64 +471,6 @@ test('the effect usage detector fires on known violations and ignores look-alike
   assert.equal(isProductionSource('packages/x/src/a.integration.test.ts'), false);
 });
 
-test('AGENTS.md routes the effect boundary contract exactly once', () => {
-  const agents = readRepoFile('AGENTS.md');
-  assert.equal(agents.split('docs/agents/effect-boundary.md').length - 1, 1);
-  assert.match(agents, /Effect 4 is part of the essential runtime stack/u);
-  assert.match(
-    agents,
-    /Read `packages\/effect-kit\/node_modules\/effect\/AGENTS.md` completely before writing Effect code/u
-  );
-});
-
-test('token-cache retry adoption records its bounded schedule and timer decision', () => {
-  const contract = readRepoFile('docs/agents/effect-boundary.md');
-  const evidence = readRepoFile('docs/agents/effect-boundary/token-cache-retry.md');
-  assert.match(
-    contract,
-    /Retry token-cache transactions with `Effect\.retry` and a bounded `Schedule`/u
-  );
-  assert.match(
-    contract,
-    /preserve rollback, failure identity and logs; reject out-of-range delays/u
-  );
-  assert.match(evidence, /native timer range/u);
-});
-
-test('desktop composition refactors keep lifecycle owners and require a separate Layer decision', () => {
-  const contract = readRepoFile('docs/agents/effect-boundary.md');
-  const section = contract.match(/### Desktop composition refactors\n([\s\S]*?)(?:\n### |$)/u)?.[1];
-  assert.ok(section, 'effect boundary contract must have desktop composition refactor rules');
-  assert.match(section, /pre-ready[\s\S]*app-ready/u);
-  assert.match(section, /runShutdownSequence[\s\S]*factory reset/u);
-  assert.match(section, /whole-main Layer graph[\s\S]*separate decision/u);
-  assert.match(section, /current startup-failure, reset and stale DB-client behavior/u);
-});
-
-test('desktop maintenance scope ownership preserves SQL drain and native cadence', () => {
-  const contract = readRepoFile('docs/agents/effect-boundary.md');
-  const decision = readRepoFile('docs/adr/0006-scoped-desktop-maintenance.md');
-  assert.match(
-    contract,
-    /Context\/Layer scope owns both maintenance triggers and subscriptions, never admitted SQL/u
-  );
-  assert.match(
-    contract,
-    /Stop fences automatic dispatch synchronously; close joins finalizers before DB drain/u
-  );
-  assert.match(
-    contract,
-    /native unref interval cadence, separate admission policies and reset barriers/u
-  );
-  assert.match(decision, /Failed acquisition releases/u);
-  assert.match(contract, /partial graph acquisition rolls back both triggers/u);
-  assert.match(decision, /Startup is atomic across the pair/u);
-  assert.match(
-    decision,
-    /Finalizer failures remain visible and do not bypass the existing database drain/u
-  );
-});
-
 test('both desktop maintenance schedulers delegate trigger resources to the scoped owner', () => {
   for (const name of ['database', 'dimension-index']) {
     const source = readRepoFile(`apps/desktop/src/${name}-maintenance-scheduler.ts`);

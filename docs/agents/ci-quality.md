@@ -52,10 +52,13 @@ Guard: `packages/config/__tests__/vitest-browser.test.ts`.
 
 ### Workload boundaries
 
-- Unit partitions are `test.yml`'s `unit-shard` matrix: DB, Agent, and Desktop
+- Unit partitions are `test.yml`'s full `UNIT_MATRIX`: DB, Agent, and Desktop
   own native Vitest shards, one fork and no file parallelism per runner. A
   `*_TEST_SHARD_REQUIRED` run fails on a missing shard identity; unset locally,
-  the whole suite runs. Required `Unit` rejects any failed or missing shard.
+  the whole suite runs. Static previews both affected Unit phases before runner
+  allocation. `Unit` accepts skipped shards only for a verified empty selection;
+  failed selection, missing output, or an unsuccessful selected shard fails it.
+  Push/manual and local validation retain the complete suite.
 - Job and `--global-timeout` values are failure ceilings; aim for a PR verdict
   in 15 minutes. Judge a ceiling as a ratio to measured runtime and raise or
   split the lane when you add work. An `interrupted` test plus a missing
@@ -70,17 +73,16 @@ Guard: `packages/config/__tests__/vitest-browser.test.ts`.
 - A Radix menu or popover fixture finishes close and trigger focus in its own `afterEach`;
   never suppress the unhandled error, stub Event, sleep, or drop timers.
 
-Settled: delegated smoke specs stay in the PR gate, not nightly. Evidence:
+Delegated smoke specs stay in the PR gate, not nightly. Evidence:
 `ci-quality/workload-boundaries.md`, `ci-quality/e2e-lane-timeout-budgets.md`.
 Guard: `scripts/__tests__/unit-shard-partition.test.mjs`,
-`scripts/__tests__/ci-input-locality.test.mjs`,
 `scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs`.
 
 ### MCP verifier lanes
 
-- Required `Static` and local `pnpm check` both run the representative profile,
-  with no `continue-on-error`, event predicate, or second selection planner:
-  `pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json`.
+- Required `Static` always runs; its representative-profile step runs only on PRs
+  whose turbo change set includes `@brainstrike/mcp-test-lab` (the lab or a dependency, or any global file) or that edit its root wrapper, and on every push (local `pnpm check` always runs it),
+  with no `continue-on-error`: `pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json`.
 - `mcp-verification.yml` runs the exhaustive profile on `schedule` and
   `workflow_dispatch` only; its `push` trigger serves the official jobs:
   `pnpm run verify:mcp -- --profile exhaustive --output artifacts/exhaustive-evidence.json`.
@@ -100,7 +102,7 @@ Guard: `scripts/__tests__/unit-shard-partition.test.mjs`,
   redaction is why these artifacts can be published at all.
 - When one goes red, fix forward or revert before the next MCP-touching merge
   and attach the run URL to that merge's ticket. `notify-main-failure` does not
-  cover this workflow: whoever merges checks the run on their own commit.
+  cover this workflow's pushes: whoever merges checks the run on their own commit.
 
 ```bash
 pnpm run verify:mcp:official
@@ -108,16 +110,12 @@ pnpm run verify:mcp:official -- --profile core
 pnpm run verify:mcp:official -- --profile modern-closeout
 ```
 
-Settled: official jobs gate post-merge on `main`, not in the PR lane; change a
+Official jobs gate post-merge on `main`, not in the PR lane; change a
 timeout only with its budget arithmetic. Evidence: `ci-quality/mcp-verifier-lanes.md`.
 Guard: `scripts/__tests__/mcp-verification-ci-contract.test.mjs`,
 `scripts/__tests__/run-mcp-verification.test.mjs`.
 
 #### MCP 2026 fleet working agreements (BST-1590)
-
-This heading keeps its identifier because
-`scripts/__tests__/mcp-verification-ci-contract.test.mjs` pins it verbatim; every
-other heading drops the suffix.
 
 The WIP limit, ladder freeze, and daily status update lapsed when
 [BST-1472](https://linear.app/brainstrike/issue/BST-1472) closed (Done,
@@ -167,8 +165,7 @@ Guard: `scripts/__tests__/check-open-pr-linear-conformance.test.mjs`.
 Evidence: `ci-quality/desktop-electron-provisioning.md`,
 `ci-quality/packaged-mcp-lanes.md`, `ci-quality/desktop-memory-calibration.md`,
 `ci-quality/ai-tools-smoke-lanes.md`, `ci-quality/electron-collection-readiness.md`.
-Guard: `scripts/__tests__/desktop-electron-provisioning-contract.test.mjs`,
-`e2e-lane-coverage.test.mjs`, `mcp-*-packaged-ci-contract.test.mjs`,
+Guard: `scripts/__tests__/e2e-lane-coverage.test.mjs`,
 `ai-tools-e2e-pr-gate-contract.test.mjs`; `desktop-e2e-harness-contract.test.ts`, `search-collection-picker.test.tsx`.
 
 ### Every Linux apt site drops the unused Google Chrome source first
@@ -200,7 +197,7 @@ Guard: `scripts/__tests__/run-turbo-command.test.mjs`.
 - Do not upgrade Turbo to >=2.11.3 until vendor walking judges tracked files
   under ignore patterns; recheck the real tracked-source guard before upgrading.
 
-Settled: git decides what is generated. Evidence: `ci-quality/package-boundary-gate.md`.
+Git decides what is generated. Evidence: `ci-quality/package-boundary-gate.md`.
 Guard: `scripts/__tests__/turbo-boundaries-gate.test.mjs`.
 
 ### App test-tsconfig programs (`tsconfig.test.json`)
@@ -263,8 +260,8 @@ Guard: `scripts/__tests__/main-failure-notifier-contract.test.mjs`.
 
 #### The scope line is required-check status, not "important lanes"
 
-- Watch required checks minus the two flaky E2E lanes (their scheduled notifiers
-  cover them). `Browser tests`, `Native Windows`, and `Native Electron Package`
+- Watch required checks minus the two flaky E2E lanes (their scheduled Linear
+  alerts cover them). `Browser tests`, `Native Windows`, and `Native Electron Package`
   are not required; a job promoted into the ruleset joins `needs:` in that change.
 
 #### `== 'failure'` is necessary but NOT sufficient — `!cancelled()` is what makes cancelled runs silent
@@ -289,9 +286,21 @@ Detection only; requiring up-to-date branches is the repo owner's ruleset call.
   `ubuntu-latest`, and keep their `gh` steps in `check-ci-parity.test.mjs`'s
   `PROVISIONING_STEPS` so `pnpm check` never files or closes issues.
 - Every tracking notifier's label step is `gh label create --force` with no
-  `|| true`, failing before an unlabelled issue can be created. The scheduled
-  web, desktop, coverage, and performance notifiers stay human-closed.
-  Guard: `scripts/__tests__/nightly-notifier-label-contract.test.mjs`.
+  `|| true`, failing before an unlabelled issue can be created.
+
+### Nightly failures file one Linear issue per workflow
+
+- `web-e2e`, `desktop-e2e`, `nightly-coverage`, `performance`,
+  `mcp-verification` and `knip` end in a `notify-linear` job (`needs:` every
+  other job) calling `nightly-linear-alert.yml`: one open Linear issue per
+  workflow, `Nightly red: <workflow>`, labels `nightly-alert`, `area-ci`,
+  `needs-human`. A human closes it; green nights only comment.
+- Keep `if: always() && github.event_name == 'schedule'`, never `!cancelled()`.
+  Why: on `schedule` only a timeout cancels a run, and a timed-out nightly must
+  alert; this differs from the push notifiers' ruling above.
+
+Evidence: `ci-quality/nightly-linear-alerts.md`. Live check: the first scheduled
+run after `LINEAR_API_KEY` is set; the unit tests script `fetch`, never Linear.
 
 ### Biome 2.5.8 cleared the 2.5.3/2.5.4 module-graph hold
 
@@ -374,7 +383,7 @@ Guard: `apps/web/e2e/utils/__tests__/performance-benchmark-contract.vitest.ts`.
 - On failure, grep the job log for `CLAUDE_REVIEW_CLI_FAILED:` or
   `CLAUDE_REVIEW_PUBLICATION_FAILED:`.
 
-Settled: the `pull_request` trigger (not `pull_request_target`), the direct CLI
+Choices: the `pull_request` trigger (not `pull_request_target`), the direct CLI
 (not `anthropics/claude-code-action`), stdin delivery, the raw UUID-fenced diff
 (not JSON-encoded), and the empty tool set (not `allowedTools`). Evidence:
 `ci-quality/claude-review.md`.
@@ -430,7 +439,6 @@ parenthesised `scripts/__tests__/<name>.test.mjs` contracts above.
   `test:coverage` may run uninstrumented.
 
 Evidence: `ci-quality/coverage-workflow.md`.
-Guard: `scripts/__tests__/nightly-coverage-sharding-contract.test.mjs`.
 
 #### The embeddings integration lane is serialized
 
@@ -484,7 +492,7 @@ Guard: `scripts/verify-lost-file-reporter.mjs`, and in `scripts/__tests__/`
 - The guard runs in required Static: it never passes vacuously and never fails
   a valid config.
 
-Settled: patch coverage does not gate. Evidence: `ci-quality/codecov-non-gating.md`.
+Patch coverage does not gate. Evidence: `ci-quality/codecov-non-gating.md`.
 Guard: `scripts/verify-codecov-status-contract.mjs`.
 
 ### Assistant stop/retry verifier
@@ -512,7 +520,7 @@ Evidence: `ci-quality/assistant-stop-retry-verifier.md`.
   `vitest.setup`, `@brainstrike/test-utils/vitest.timeouts.setup`, or
   `createBrowserProject`'s required `asyncUtilTimeout` and `setupFiles`.
 
-Settled: the parity test compares invoked commands, not step names or verbatim
+The parity test compares invoked commands, not step names or verbatim
 `run:` blocks. Evidence: `ci-quality/pnpm-check-parity.md`,
 `ci-quality/test-timeout-multiplier.md`.
 Guard: `scripts/__tests__/check-ci-parity.test.mjs`,
@@ -538,8 +546,7 @@ Guard: `scripts/__tests__/verify-script-entrypoints.test.mjs`.
 
 Settled: no retries, global promise pin, or timeout increase. Evidence:
 `ci-quality/desktop-assistant-setup-promise.md`.
-Guard: `apps/desktop/e2e/assistant-panel.desktop.test.ts`,
-`scripts/__tests__/desktop-smoke-artifacts-contract.test.mjs`.
+Guard: `apps/desktop/e2e/assistant-panel.desktop.test.ts`.
 
 ### Desktop E2E process-exit guard
 
@@ -552,7 +559,7 @@ Guard: `apps/desktop/e2e/assistant-panel.desktop.test.ts`,
   failures, requires exit code zero, and removes the workspace only after
   confirmed exit.
 
-Settled: no warn-and-relaunch. Evidence:
+There is no warn-and-relaunch. Evidence:
 `ci-quality/desktop-e2e-process-exit-guard.md`.
 Guard: `apps/desktop/src/__tests__/electron-process-exit-guard.test.ts`,
 `electron-harness-state-seeding.test.ts`, `interactive-child-fixture.test.ts`.
@@ -577,7 +584,7 @@ Guard: `scripts/__tests__/e2e-module-format-contract.test.mjs`.
 - Web full-regression runs through `scripts/run-e2e-lane-sequence.mjs`
   (fail-late); `web-e2e.yml`'s timeout covers every lane timeout plus startup.
 
-Settled: reachability is per title, with exact Playwright grep semantics.
+Reachability is per title, with exact Playwright grep semantics.
 Evidence: `ci-quality/e2e-lane-coverage.md`.
 Guard: `scripts/__tests__/e2e-lane-coverage.test.mjs`,
 `scripts/__tests__/run-e2e-lane-sequence.test.mjs`.
@@ -612,7 +619,7 @@ Evidence: `ci-quality/vitest-5-migration.md`.
 - The `@stryker-mutator/vitest-runner@10.0.0` pnpm patch carries an unreleased
   upstream fix; remove it on a fixed release, after re-running mutation lanes.
 
-Settled: no `@vitest/runner` teardown patch. Evidence:
+There is no `@vitest/runner` teardown patch. Evidence:
 `ci-quality/vitest-worker-mutation-guard.md`.
 Guard: `scripts/__tests__/vitest-worker-global-mutation.test.mjs`,
 `scripts/__tests__/stryker-vitest-5-compatibility.test.mjs`.
@@ -669,7 +676,7 @@ Guard: `scripts/__tests__/verify-stryker-mutation-contracts.test.mjs`.
   Parity covers `--noEmit` only; verify `apps/web`'s emitting type-check in a
   clean worktree.
 
-Settled: the side-by-side topology; two aliases of plain `typescript` make the
+Keep the side-by-side topology; two aliases of plain `typescript` make the
 `tsc` bin ambiguous. Evidence: `ci-quality/typescript-side-by-side.md`, `ci-quality/lsp-webgpu-fixture.md`.
 Guard: `scripts/__tests__/typescript-compiler-wiring.test.mjs`,
 `apps/desktop/src/__tests__/build-main-config.test.ts`.
@@ -685,7 +692,7 @@ Guard: `scripts/__tests__/typescript-compiler-wiring.test.mjs`,
 - Enable another future flag only with an adopted call site and a proving test.
   Share package config only through Turbo's native `extends`.
 
-Settled: no config micro-package or registry; `turbo query affected` is not a
+Add no config micro-package or registry; `turbo query affected` is not a
 CI planner. Evidence: `ci-quality/turbo-configuration.md`.
 Guard: `scripts/__tests__/turbo-global-configuration.test.mjs`,
 `scripts/__tests__/tsconfig-global-deps-contract.test.mjs`.
@@ -700,6 +707,8 @@ Guard: `scripts/__tests__/package-scripts-canonical-form-contract.test.mjs`.
 
 ### Worktree-scoped local Turbo caches
 
+- The bounded wrapper launches the installed Turbo JavaScript entrypoint through
+  `process.execPath`, without a shell or a Turbo binary on `PATH`.
 - The wrapper's local cache, nested-run lock, and 25-GiB prune are scoped per
   Git worktree root (`--cwd` decides which). `TURBO_CACHE_DIR` and
   `BRAINSTRIKE_TURBO_CACHE_DIR` are exact overrides, required outside a
@@ -707,7 +716,7 @@ Guard: `scripts/__tests__/package-scripts-canonical-form-contract.test.mjs`.
 - Never describe the local cache as content-safe: same-size/same-mtime stale
   bytes remain possible within one worktree.
 
-Settled: no shared HOME-level cache until Turbo's restore identity is content-
+Use no shared HOME-level cache until Turbo's restore identity is content-
 or checkout-aware. Evidence: `ci-quality/turbo-cache-and-dist-hygiene.md`.
 Guard: `scripts/__tests__/run-turbo-command.test.mjs`.
 
@@ -720,7 +729,7 @@ Guard: `scripts/__tests__/run-turbo-command.test.mjs`.
   stays in `turbo.jsonc` `global.inputs`. A type-check never runs `tsc --build
   --force`: it rewrites dist that concurrent type-checks read (BST-1818).
 
-Settled: prune, not clean, for wired packages. Evidence: `ci-quality/turbo-cache-and-dist-hygiene.md`.
+Prune, not clean, for wired packages. Evidence: `ci-quality/turbo-cache-and-dist-hygiene.md`.
 Guard: `scripts/__tests__/prune-stale-dist.test.mjs`, `package-scripts-canonical-form-contract.test.mjs`.
 
 ### Canonical package build strategies
@@ -735,7 +744,7 @@ Guard: `scripts/__tests__/prune-stale-dist.test.mjs`, `package-scripts-canonical
   resolution under the same `tsc -b` build. Hosted functions load the agent's
   ESM export; pino and tiktoken stay external.
 
-Settled: tsup stays until a replacement ships alone with measured evidence.
+tsup stays until a replacement ships alone with measured evidence.
 Evidence: `ci-quality/package-build-strategies.md`. Guard:
 `scripts/verify-package-build-strategies.mjs`,
 `packages/agent/scripts/verify-hosted-web-bundle.mjs`.
@@ -755,7 +764,7 @@ Guard: `scripts/__tests__/agent-declaration-build-contract.test.mjs`.
   `dts: false`. The tsup-only set is exactly `chunking-worker`,
   `file-tree-worker`, `token-cache`; each MUST emit declarations.
 
-Settled: no shared `createTsupConfig` factory; dynamic values are rejected.
+There is no shared `createTsupConfig` factory; dynamic values are rejected.
 Evidence: `ci-quality/tsup-build-invariants.md`. Guard:
 `scripts/verify-tsup-build-invariants.mjs` and its test.
 
@@ -832,8 +841,7 @@ Evidence: `ci-quality/agent-debug.md`.
 - Give every new file-size guard this shape, never a cap with headroom.
 
 Guard: `packages/app-shell/src/__tests__/assistant-contract-boundary.test.ts`
-(its comment block is the evidence),
-`scripts/__tests__/agent-contract-budget-contract.test.mjs`.
+(its comment block is the evidence).
 
 ## REACT DOCTOR (LINT)
 
@@ -888,12 +896,11 @@ together with that config and this section.
   `npx react-doctor . --scope changed --verbose`. The CLI takes exactly one
   positional argument, a directory — one invocation per path.
 
-Settled: both categories off, manual-memoization rule off, Knip over React
+Choices: both categories off, manual-memoization rule off, Knip over React
 Doctor graph rules, ESLint over Biome for Fast Refresh, per-rule ratchet over a
 scalar `--max-warnings`. Evidence: `ci-quality/react-doctor.md`,
 `ci-quality/knip-audit.md`, `ci-quality/eslint-warning-ratchet.md`.
-Guard: `scripts/__tests__/react-doctor-version-contract.test.mjs`,
-`scripts/__tests__/knip-workflow.test.mjs`,
+Guard: `scripts/__tests__/knip-workflow.test.mjs`,
 `scripts/__tests__/eslint-warning-baseline-contract.test.mjs`,
 `scripts/__tests__/pnpm-shadowed-builtin-contract.test.mjs`.
 

@@ -21,7 +21,7 @@ Present tense, imperative, checkable. One topic per `###` heading, shaped:
 - <Rule an agent can obey or verify.>
 - <Rule.> Why: <one clause, only when the rule looks wrong without it>.
 
-Settled: <ruling that stays closed>. Evidence: `<area>/<topic>.md`.
+Evidence: `<area>/<topic>.md`.
 Guard: `<test or script that fails when the rule breaks>`.
 ```
 
@@ -45,25 +45,7 @@ already says line by line. Point at the file; it cannot go stale.
 
 ## Adding knowledge
 
-A new rule is one or two contract lines plus a guard. Its story goes in an
-evidence file in the same change.
-
-`scripts/__tests__/agent-contract-budget-contract.test.mjs` pins every contract
-to an exact line count, so a new rule is normally paid for by moving at least as
-much material out to evidence. Both directions fail:
-
-- **Growth** fails. The fix is to move material to evidence, not to raise the
-  number.
-- **Shrinking** fails too, naming the new count — including when an unrelated
-  change deletes a stale line. Lower the pin in the same commit; a tolerance
-  band would let those lines be added back later while still passing.
-
-When a contract legitimately must grow (a genuinely new subsystem area, or
-restoring a rule that was wrongly cut), re-baseline the pin in the same commit
-and say why in the commit message. The number moves on purpose, never silently.
-A new contract file is registered in `CONTRACT_LINE_BUDGETS` in the commit that
-adds it. Generated or `_`-prefixed docs are not contracts and carry no pin.
-
-The same test checks the back-reference graph, which is the part most likely to
-rot: every evidence file names a section its contract actually has, and every
-`<area>/<topic>.md` pointer resolves.
+Update a contract only when the behaviour it describes changes (AGENTS.md
+working rule 11). A rule is one or two contract lines, and its story goes in an
+evidence file. Contracts carry no line-count pins; real decisions go in
+`docs/adr/`.

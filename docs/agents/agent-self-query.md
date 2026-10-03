@@ -142,8 +142,8 @@ Extending `QuerySelfInputSchema`
 - No cross-field `.refine()`: it is invisible in the emitted JSON Schema, so the model
   only learns it by failing.
 
-Settled: an optional-field pair made exclusive by `.refine()` failed 100% of real calls.
-Evidence: `agent-self-query/strict-function-calling-schema.md`.
+Why: an optional-field pair made exclusive by `.refine()` failed 100% of real calls.
+See ADR-0009. Evidence: `agent-self-query/strict-function-calling-schema.md`.
 Guard: `apps/desktop/src/__tests__/assistant-server/query-self-tool.test.ts`.
 
 ### The second half of the same failure

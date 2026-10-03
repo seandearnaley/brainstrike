@@ -1,7 +1,6 @@
 # Effect boundary contract
 
 Owns where `effect` runs, its Promise boundary, and `@brainstrike/effect-kit`; staging: `docs/adr/0004-effect-at-runtime-boundaries.md`.
-Update this file and `scripts/__tests__/effect-boundary-contract.test.mjs` together.
 
 ## Adoption
 

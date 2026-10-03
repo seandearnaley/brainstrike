@@ -231,3 +231,14 @@ jobs:
           path: packages/mcp-test-lab/artifacts/official-auth-modern-closeout-evidence.json
           if-no-files-found: error
           retention-days: 14
+
+  notify-linear:
+    name: Notify Linear
+    needs: [verify, official_auth, official_core, official_modern_auth]
+    if: ${{ always() && github.event_name == 'schedule' }}
+    uses: ./.github/workflows/nightly-linear-alert.yml
+    with:
+      workflow_name: ${{ github.workflow }}
+      results: verify=${{ needs.verify.result }},official_auth=${{ needs.official_auth.result }},official_core=${{ needs.official_core.result }},official_modern_auth=${{ needs.official_modern_auth.result }}
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

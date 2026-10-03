@@ -80,6 +80,31 @@ describe('run turbo command helper', () => {
     assert.deepEqual(args, ['run', 'build', '--cache-dir=.turbo']);
   });
 
+  it('launches the installed Node entrypoint without a shell on every platform', (t) => {
+    const cacheDir = mkdtempSync(join(tmpdir(), 'turbo cli cache '));
+    t.after(() => rmSync(cacheDir, { force: true, recursive: true }));
+    for (const platform of ['darwin', 'linux', 'win32']) {
+      let invocation;
+      const status = turboCommand.runTurboCommand(
+        ['node', 'run-turbo-command.mjs', '--', 'run', 'test'],
+        platform,
+        {
+          env: { BRAINSTRIKE_TURBO_CACHE_DIR: cacheDir },
+          spawnSyncImpl: (command, args, options) => {
+            invocation = { args, command, shell: options.shell };
+            return { status: 0 };
+          },
+        }
+      );
+      assert.equal(status, 0);
+      assert.deepEqual(invocation, {
+        args: [resolve('node_modules/turbo/bin/turbo'), 'run', 'test', `--cache-dir=${cacheDir}`],
+        command: process.execPath,
+        shell: false,
+      });
+    }
+  });
+
   it('restores correct bytes when default-cache worktrees build concurrently', async (t) => {
     const fixtureRoot = mkdtempSync(join(tmpdir(), 'turbo-worktree-concurrency-'));
     const home = makeFakeHome();
@@ -422,7 +447,7 @@ describe('run turbo command helper', () => {
     assert.equal(status, 0);
     assert.deepEqual(logs, []);
     assert.equal(spawnCalls.length, 1);
-    assert.deepEqual(spawnCalls[0].args.slice(0, 2), ['run', 'build']);
+    assert.deepEqual(spawnCalls[0].args.slice(1, 3), ['run', 'build']);
   });
 
   it('skips prepared dev dependency builds only with the explicit root marker', () => {
@@ -514,7 +539,7 @@ describe('run turbo command helper', () => {
     assert.equal(status, 0);
     assert.deepEqual(logs, []);
     assert.equal(spawnCalls.length, 1);
-    assert.deepEqual(spawnCalls[0].args.slice(0, 2), ['run', 'build']);
+    assert.deepEqual(spawnCalls[0].args.slice(1, 3), ['run', 'build']);
   });
 
   it('treats cache pruning errors as non-fatal housekeeping warnings', () => {

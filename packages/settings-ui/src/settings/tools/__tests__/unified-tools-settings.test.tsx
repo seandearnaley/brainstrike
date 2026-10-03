@@ -25,7 +25,7 @@ const { usePGliteLiveQueryMock } = vi.hoisted(() => ({
     error: null,
     loading: false,
     refresh: vi.fn(),
-    rows: [],
+    rows: [] as ToolDisplayMetadata[],
   })),
 }));
 
@@ -2822,6 +2822,503 @@ describe('UnifiedToolsSettings', () => {
       await waitFor(() => {
         expect(screen.getByTestId('token-budget-summary')).toBeInTheDocument();
       });
+    });
+  });
+  describe('reload tool preferences', () => {
+    const faultStats: ToolStats = {
+      ...mockStats,
+      preferencesFault: {
+        kind: 'invalid',
+        message: 'Repair the preferences file, then Reload tool preferences',
+        path: '/profile/mcp/tool-preferences.json',
+      },
+    };
+    const reloadButton = (): HTMLElement =>
+      screen.getByRole('button', { name: 'Reload tool preferences' });
+
+    it('hides reload when the host has no recovery capability', async () => {
+      const operations = createMockOperations();
+      render(<UnifiedToolsSettings operations={operations} />);
+      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      expect(
+        screen.queryByRole('button', { name: 'Reload tool preferences' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('offers explicit reload while healthy without reading automatically', async () => {
+      const operations = createMockOperations();
+      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
+      render(<UnifiedToolsSettings operations={operations} />);
+      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      expect(reloadButton()).toBeEnabled();
+      expect(operations.reloadToolPreferences).not.toHaveBeenCalled();
+    });
+
+    it('recovers a fault with zero tools and refreshes restored tool rows', async () => {
+      const operations = createMockOperations();
+      const onToolsChanged = vi.fn();
+      operations.getTools = vi.fn().mockResolvedValueOnce([]).mockResolvedValue(mockTools);
+      operations.getStats = vi.fn().mockResolvedValueOnce(faultStats).mockResolvedValue(mockStats);
+      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
+      render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
+      await screen.findByText(faultStats.preferencesFault?.message ?? '');
+      expect(screen.queryByTestId('toggle-brainstrike.hybridSearch')).not.toBeInTheDocument();
+      fireEvent.click(reloadButton());
+      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      await waitFor(() =>
+        expect(
+          screen.queryByText(faultStats.preferencesFault?.message ?? '')
+        ).not.toBeInTheDocument()
+      );
+      expect(operations.reloadToolPreferences).toHaveBeenCalledOnce();
+      expect(onToolsChanged).toHaveBeenCalledOnce();
+    });
+
+    it('keeps the fault visible when reload rejects and reports no success', async () => {
+      const operations = createMockOperations();
+      const onToolsChanged = vi.fn();
+      operations.getStats = vi.fn().mockResolvedValue(faultStats);
+      operations.reloadToolPreferences = vi
+        .fn()
+        .mockRejectedValue(new Error('Preferences remain unreadable'));
+      render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
+      await screen.findByText(faultStats.preferencesFault?.message ?? '');
+      fireEvent.click(reloadButton());
+      await screen.findByText('Preferences remain unreadable');
+      expect(screen.getByText(faultStats.preferencesFault?.message ?? '')).toBeInTheDocument();
+      expect(onToolsChanged).not.toHaveBeenCalled();
+      expect(reloadButton()).toBeEnabled();
+    });
+
+    it('blocks duplicate reload submissions until IPC settles', async () => {
+      const operations = createMockOperations();
+      const pending = Promise.withResolvers<void>();
+      operations.reloadToolPreferences = vi.fn(() => pending.promise);
+      render(<UnifiedToolsSettings operations={operations} />);
+      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      fireEvent.click(reloadButton());
+      fireEvent.click(reloadButton());
+      expect(reloadButton()).toBeDisabled();
+      expect(reloadButton()).toHaveAttribute('aria-busy', 'true');
+      expect(operations.reloadToolPreferences).toHaveBeenCalledOnce();
+      await act(async () => {
+        pending.resolve();
+      });
+      await waitFor(() => expect(reloadButton()).toBeEnabled());
+    });
+
+    it('keeps reload pending until refreshed metadata arrives', async () => {
+      const operations = createMockOperations();
+      const refreshed = Promise.withResolvers<ToolStats>();
+      const onToolsChanged = vi.fn();
+      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
+      operations.getStats = vi
+        .fn()
+        .mockResolvedValueOnce(mockStats)
+        .mockReturnValueOnce(refreshed.promise);
+      render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
+      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      fireEvent.click(reloadButton());
+      await waitFor(() => expect(operations.getStats).toHaveBeenCalledTimes(2));
+      expect(reloadButton()).toBeDisabled();
+      expect(onToolsChanged).not.toHaveBeenCalled();
+      await act(async () => {
+        refreshed.resolve(mockStats);
+      });
+      await waitFor(() => expect(reloadButton()).toBeEnabled());
+      expect(onToolsChanged).toHaveBeenCalledOnce();
+    });
+
+    it('refreshes live-query rows and stats without fetching the unused catalog', async () => {
+      const operations = createMockOperations();
+      const refreshed = Promise.withResolvers<ToolStats>();
+      const refresh = vi.fn().mockResolvedValue(undefined);
+      const onToolsChanged = vi.fn();
+      operations.toolsLiveQuery = { query: 'SELECT * FROM tools' };
+      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
+      operations.getStats = vi.fn(() => refreshed.promise);
+      usePGliteLiveQueryMock.mockReturnValue({
+        error: null,
+        loading: false,
+        refresh,
+        rows: mockTools,
+      });
+      render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
+      fireEvent.click(reloadButton());
+      await waitFor(() => expect(operations.getStats).toHaveBeenCalledOnce());
+      expect(refresh).toHaveBeenCalledOnce();
+      expect(operations.getTools).not.toHaveBeenCalled();
+      expect(reloadButton()).toBeDisabled();
+      expect(onToolsChanged).not.toHaveBeenCalled();
+      await act(async () => refreshed.resolve(mockStats));
+      await waitFor(() => expect(reloadButton()).toBeEnabled());
+      expect(screen.getByTestId('toggle-brainstrike.hybridSearch')).toBeInTheDocument();
+      expect(onToolsChanged).toHaveBeenCalledOnce();
+    });
+
+    it('keeps live-query recovery pending through the latest notification stats refresh', async () => {
+      const operations = createMockOperations();
+      const first = Promise.withResolvers<ToolStats>();
+      const latest = Promise.withResolvers<ToolStats>();
+      const onToolsChanged = vi.fn();
+      let notify: (() => void) | undefined;
+      operations.toolsLiveQuery = { query: 'SELECT * FROM tools' };
+      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
+      operations.subscribeMcpTools = (listener) => {
+        notify = listener;
+        return () => {};
+      };
+      operations.getStats = vi
+        .fn()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(latest.promise);
+      usePGliteLiveQueryMock.mockReturnValue({
+        error: null,
+        loading: false,
+        refresh: vi.fn().mockResolvedValue(undefined),
+        rows: mockTools,
+      });
+      render(
+        <UnifiedToolsSettings
+          mcpAvailable={true}
+          onToolsChanged={onToolsChanged}
+          operations={operations}
+        />
+      );
+      fireEvent.click(reloadButton());
+      await waitFor(() => expect(operations.getStats).toHaveBeenCalledOnce());
+      act(() => notify?.());
+      await waitFor(() => expect(operations.getStats).toHaveBeenCalledTimes(2));
+      await act(async () => first.resolve(faultStats));
+      expect(reloadButton()).toBeDisabled();
+      expect(onToolsChanged).not.toHaveBeenCalled();
+      expect(
+        screen.queryByText(faultStats.preferencesFault?.message ?? '')
+      ).not.toBeInTheDocument();
+      await act(async () => latest.resolve(mockStats));
+      await waitFor(() => expect(reloadButton()).toBeEnabled());
+      expect(operations.getTools).not.toHaveBeenCalled();
+      expect(onToolsChanged).toHaveBeenCalledOnce();
+    });
+
+    it('clears an obsolete reload rejection when retry IPC succeeds but stats refresh fails', async () => {
+      const operations = createMockOperations();
+      const onToolsChanged = vi.fn();
+      operations.reloadToolPreferences = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Reload still unreadable'))
+        .mockResolvedValue(undefined);
+      operations.getStats = vi
+        .fn()
+        .mockResolvedValueOnce(mockStats)
+        .mockRejectedValueOnce(new Error('Stats unavailable'));
+      render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
+      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      fireEvent.click(reloadButton());
+      await screen.findByText('Reload still unreadable');
+      fireEvent.click(reloadButton());
+      await screen.findByText('Stats unavailable');
+      expect(screen.queryByText('Reload still unreadable')).not.toBeInTheDocument();
+      expect(reloadButton()).toBeEnabled();
+      expect(onToolsChanged).not.toHaveBeenCalled();
+    });
+
+    it('preserves a separate MCP configuration error after preference recovery', async () => {
+      const operations = createMockOperations();
+      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({
+        error: 'Configuration still invalid',
+        exists: true,
+        path: '/profile/config.json',
+      });
+      operations.getStats = vi.fn().mockResolvedValueOnce(faultStats).mockResolvedValue(mockStats);
+      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      await screen.findByText('Configuration still invalid');
+      await screen.findByText(faultStats.preferencesFault?.message ?? '');
+      fireEvent.click(reloadButton());
+      await waitFor(() =>
+        expect(
+          screen.queryByText(faultStats.preferencesFault?.message ?? '')
+        ).not.toBeInTheDocument()
+      );
+      expect(screen.getByText('Configuration still invalid')).toBeInTheDocument();
+    });
+
+    it('preserves a separate tool action error after preference recovery', async () => {
+      const operations = createMockOperations();
+      operations.disableTools = vi.fn().mockRejectedValueOnce(new Error('Unrelated action failed'));
+      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
+      render(<UnifiedToolsSettings operations={operations} />);
+      fireEvent.click(await screen.findByTestId('toggle-brainstrike.hybridSearch'));
+      await screen.findByText('Unrelated action failed');
+      fireEvent.click(reloadButton());
+      await waitFor(() => expect(operations.getStats).toHaveBeenCalledTimes(2));
+      expect(screen.getByText('Unrelated action failed')).toBeInTheDocument();
+    });
+
+    it('clears a refused MCP toggle fault after recovery', async () => {
+      const operations = createMockOperations();
+      const faultMessage = faultStats.preferencesFault?.message ?? '';
+      operations.getTools = vi
+        .fn()
+        .mockResolvedValue(
+          mockTools.map((tool) => (tool.source === 'mcp' ? { ...tool, enabled: false } : tool))
+        );
+      operations.getStats = vi.fn().mockResolvedValueOnce(faultStats).mockResolvedValue(mockStats);
+      operations.enableTools = vi.fn().mockRejectedValueOnce(new Error(faultMessage));
+      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
+      const onToolsChanged = vi.fn();
+      render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
+      await screen.findByText(faultMessage);
+      fireEvent.click(screen.getByTestId('toggle-mcp__github__search_code'));
+      await waitFor(() => expect(screen.getAllByText(faultMessage)).toHaveLength(2));
+      expect(onToolsChanged).not.toHaveBeenCalled();
+      fireEvent.click(reloadButton());
+      await waitFor(() => expect(onToolsChanged).toHaveBeenCalledOnce());
+      expect(screen.queryByText(faultMessage)).not.toBeInTheDocument();
+    });
+
+    it('preserves a distinct action failure that merely includes the preference fault text', async () => {
+      const operations = createMockOperations();
+      const faultMessage = faultStats.preferencesFault?.message ?? '';
+      const unrelatedMessage = `Unrelated failure after reading status: ${faultMessage}`;
+      operations.getStats = vi.fn().mockResolvedValueOnce(faultStats).mockResolvedValue(mockStats);
+      operations.disableTools = vi.fn().mockRejectedValueOnce(new Error(unrelatedMessage));
+      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
+      const onToolsChanged = vi.fn();
+      render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
+      await screen.findByText(faultMessage);
+      fireEvent.click(screen.getByTestId('toggle-brainstrike.hybridSearch'));
+      await screen.findByText(unrelatedMessage);
+      fireEvent.click(reloadButton());
+      await waitFor(() => expect(onToolsChanged).toHaveBeenCalledOnce());
+      expect(screen.getByText(unrelatedMessage)).toBeInTheDocument();
+      expect(screen.queryByText(faultMessage)).not.toBeInTheDocument();
+    });
+
+    it('keeps a recovery retry pending through its superseding notification refresh', async () => {
+      const operations = createMockOperations();
+      const first = Promise.withResolvers<ToolStats>();
+      const latest = Promise.withResolvers<ToolStats>();
+      let notify: (() => void) | undefined;
+      operations.subscribeMcpTools = (listener) => {
+        notify = listener;
+        return () => {};
+      };
+      operations.getStats = vi
+        .fn()
+        .mockResolvedValueOnce(faultStats)
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(latest.promise);
+      operations.reloadToolPreferences = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Reload still unreadable'))
+        .mockResolvedValue(undefined);
+      const onToolsChanged = vi.fn();
+      render(
+        <UnifiedToolsSettings
+          mcpAvailable={true}
+          onToolsChanged={onToolsChanged}
+          operations={operations}
+        />
+      );
+      await screen.findByText(faultStats.preferencesFault?.message ?? '');
+      fireEvent.click(reloadButton());
+      await screen.findByText('Reload still unreadable');
+      fireEvent.click(reloadButton());
+      await waitFor(() => expect(operations.getStats).toHaveBeenCalledTimes(2));
+      act(() => notify?.());
+      await waitFor(() => expect(operations.getStats).toHaveBeenCalledTimes(3));
+      await act(async () => {
+        first.resolve(mockStats);
+      });
+      expect(reloadButton()).toBeDisabled();
+      expect(onToolsChanged).not.toHaveBeenCalled();
+      await act(async () => {
+        latest.resolve(mockStats);
+      });
+      await waitFor(() => expect(reloadButton()).toBeEnabled());
+      expect(screen.queryByText('Reload still unreadable')).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(faultStats.preferencesFault?.message ?? '')
+      ).not.toBeInTheDocument();
+      expect(onToolsChanged).toHaveBeenCalledOnce();
+    });
+
+    it('does not resurrect a refused toggle fault that arrives after recovery', async () => {
+      const operations = createMockOperations();
+      const refused = Promise.withResolvers<void>();
+      const faultMessage = faultStats.preferencesFault?.message ?? '';
+      operations.getTools = vi
+        .fn()
+        .mockResolvedValue(
+          mockTools.map((tool) => (tool.source === 'mcp' ? { ...tool, enabled: false } : tool))
+        );
+      operations.getStats = vi.fn().mockResolvedValueOnce(faultStats).mockResolvedValue(mockStats);
+      operations.enableTools = vi.fn(() => refused.promise);
+      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
+      const onToolsChanged = vi.fn();
+      render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
+      await screen.findByText(faultMessage);
+      fireEvent.click(screen.getByTestId('toggle-mcp__github__search_code'));
+      fireEvent.click(reloadButton());
+      await waitFor(() => expect(onToolsChanged).toHaveBeenCalledOnce());
+      await act(async () => {
+        refused.reject(new Error(faultMessage));
+      });
+      expect(screen.queryByText(faultMessage)).not.toBeInTheDocument();
+      expect(onToolsChanged).toHaveBeenCalledOnce();
+    });
+
+    it('ignores a stale pre-reload response that carries the old fault', async () => {
+      const operations = createMockOperations();
+      const stale = Promise.withResolvers<ToolStats>();
+      let notify: (() => void) | undefined;
+      operations.subscribeMcpTools = (listener) => {
+        notify = listener;
+        return () => {};
+      };
+      operations.getStats = vi
+        .fn()
+        .mockResolvedValueOnce(mockStats)
+        .mockReturnValueOnce(stale.promise)
+        .mockResolvedValue(mockStats);
+      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      act(() => notify?.());
+      await waitFor(() => expect(operations.getStats).toHaveBeenCalledTimes(2));
+      fireEvent.click(reloadButton());
+      await waitFor(() => expect(operations.getStats).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(reloadButton()).toBeEnabled());
+      await act(async () => {
+        stale.resolve(faultStats);
+      });
+      expect(
+        screen.queryByText(faultStats.preferencesFault?.message ?? '')
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  describe('tool operation error recovery', () => {
+    const cases = [
+      { operation: 'disableTools', testId: 'toggle-brainstrike.hybridSearch' },
+      { operation: 'enableTools', testId: 'enable-all-native' },
+      { operation: 'disableTools', testId: 'disable-all-native' },
+    ] as const;
+
+    it('retains a config error beneath a higher-priority action error until that action recovers', async () => {
+      const operations = createMockOperations();
+      const onToolsChanged = vi.fn();
+      operations.getMcpConfigInfo = vi.fn().mockResolvedValue({
+        error: 'Configuration still invalid',
+        exists: true,
+        path: '/profile/config.json',
+      });
+      operations.disableTools = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Disable failed'))
+        .mockResolvedValue(undefined);
+      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
+      render(
+        <UnifiedToolsSettings
+          mcpAvailable={true}
+          onToolsChanged={onToolsChanged}
+          operations={operations}
+        />
+      );
+      await screen.findByText('Configuration still invalid');
+      fireEvent.click(await screen.findByTestId('toggle-brainstrike.hybridSearch'));
+      await screen.findByText('Disable failed');
+      expect(screen.queryByText('Configuration still invalid')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Reload tool preferences' }));
+      await waitFor(() => expect(onToolsChanged).toHaveBeenCalledOnce());
+      expect(screen.queryByText('Configuration still invalid')).not.toBeInTheDocument();
+      expect(screen.getByText('Disable failed')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('toggle-brainstrike.hybridSearch'));
+      await waitFor(() => expect(screen.queryByText('Disable failed')).not.toBeInTheDocument());
+      expect(screen.getByText('Configuration still invalid')).toBeInTheDocument();
+    });
+
+    it.each(cases)(
+      'clears $testId failure after the same action succeeds',
+      async ({ testId, operation }) => {
+        const operations = createMockOperations();
+        const onToolsChanged = vi.fn();
+        operations[operation] = vi
+          .fn()
+          .mockRejectedValueOnce(new Error('Action failed'))
+          .mockResolvedValue(undefined);
+        render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
+        fireEvent.click(await screen.findByTestId(testId));
+        await screen.findByText('Action failed');
+        fireEvent.click(screen.getByTestId(testId));
+        await waitFor(() => expect(screen.queryByText('Action failed')).not.toBeInTheDocument());
+        await waitFor(() => expect(onToolsChanged).toHaveBeenCalledOnce());
+      }
+    );
+
+    it.each(cases)(
+      'reports $testId metadata refresh failure without false success',
+      async ({ testId }) => {
+        const operations = createMockOperations();
+        const onToolsChanged = vi.fn();
+        operations.getTools = vi
+          .fn()
+          .mockResolvedValueOnce(mockTools)
+          .mockRejectedValueOnce(new Error('Refresh failed'));
+        render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
+        fireEvent.click(await screen.findByTestId(testId));
+        await screen.findByText('Refresh failed');
+        expect(onToolsChanged).not.toHaveBeenCalled();
+      }
+    );
+
+    it('does not clear another action failure when an unrelated action succeeds', async () => {
+      const operations = createMockOperations();
+      const onToolsChanged = vi.fn();
+      operations.disableTools = vi.fn().mockRejectedValueOnce(new Error('Disable failed'));
+      render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
+      fireEvent.click(await screen.findByTestId('toggle-brainstrike.hybridSearch'));
+      await screen.findByText('Disable failed');
+      fireEvent.click(screen.getByTestId('enable-all-native'));
+      await waitFor(() => expect(onToolsChanged).toHaveBeenCalledOnce());
+      expect(screen.getByText('Disable failed')).toBeInTheDocument();
+    });
+
+    it('clears the sample-config error after successful same-action retry', async () => {
+      const operations = createMockOperations();
+      operations.getMcpConfigInfo = vi
+        .fn()
+        .mockResolvedValue({ exists: false, path: '/profile/config.json' });
+      operations.createSampleConfig = vi
+        .fn()
+        .mockResolvedValueOnce({ error: 'Template write failed', success: false })
+        .mockResolvedValue({ success: true });
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+      fireEvent.click(await screen.findByTestId('create-sample-config'));
+      await screen.findByText('Failed to create sample config: Template write failed');
+      fireEvent.click(screen.getByTestId('create-sample-config'));
+      await waitFor(() =>
+        expect(
+          screen.queryByText('Failed to create sample config: Template write failed')
+        ).not.toBeInTheDocument()
+      );
+    });
+
+    it('reports a reload metadata refresh failure without announcing success', async () => {
+      const operations = createMockOperations();
+      const onToolsChanged = vi.fn();
+      operations.reloadToolPreferences = vi.fn().mockResolvedValue(undefined);
+      operations.getStats = vi
+        .fn()
+        .mockResolvedValueOnce(mockStats)
+        .mockRejectedValueOnce(new Error('Stats unavailable'));
+      render(<UnifiedToolsSettings onToolsChanged={onToolsChanged} operations={operations} />);
+      await screen.findByTestId('toggle-brainstrike.hybridSearch');
+      fireEvent.click(screen.getByRole('button', { name: 'Reload tool preferences' }));
+      await screen.findByText('Stats unavailable');
+      expect(onToolsChanged).not.toHaveBeenCalled();
     });
   });
 });

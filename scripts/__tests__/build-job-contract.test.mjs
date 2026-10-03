@@ -46,12 +46,6 @@ test('local validation preserves every smoke lane while cloud CI stays disabled'
     /needs\.build\.outputs\.\w*_selected/,
     'E2E jobs must not gate on a build-selection output'
   );
-  const agents = readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
-  assert.match(
-    agents,
-    /GitHub Actions and every workflow are disabled/,
-    'the local-only policy must not authorize hosted smoke runs'
-  );
   const plan = buildPlan();
   for (const id of ['web-e2e-smoke', 'desktop-e2e-smoke', 'desktop-e2e-delegated-smoke']) {
     assert.ok(

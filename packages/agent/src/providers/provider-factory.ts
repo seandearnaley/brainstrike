@@ -22,6 +22,7 @@ import { createLlmHostChatModel } from './local/llm-host-chat-model';
 import type { LocalLanguageModelSettings } from './local/local-language-model';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content';
 import { wrapModelWithDeclaredPromptCaching } from './prompt-caching';
+import { wrapModelWithCallTransform } from './prompt-transform-proxy';
 import {
   apiKeyAuthInput,
   assertExactlyOneAwsCredential,
@@ -187,7 +188,23 @@ export function createProvider(
       );
       // Catalog ids are `codex/`-prefixed (the models table's id is a global
       // primary key); the Codex backend wants the bare id.
-      return codexProvider(resolveCodexModelId(modelName));
+      //
+      // BST-1918: `store` must be false BEFORE the SDK serializes the request.
+      // The codex-fetch rewrite to `store:false` runs after serialization, too
+      // late: the SDK has already built `item_reference`s for earlier reasoning
+      // that OpenAI never stored and left out its encrypted content. With
+      // `store:false` set here the SDK sends reasoning inline and adds
+      // `include: ['reasoning.encrypted_content']` itself.
+      return wrapModelWithCallTransform(
+        codexProvider(resolveCodexModelId(modelName)),
+        (params) => ({
+          ...params,
+          providerOptions: {
+            ...params.providerOptions,
+            openai: { ...params.providerOptions?.['openai'], store: false },
+          },
+        })
+      );
     }
 
     case 'anthropic': {

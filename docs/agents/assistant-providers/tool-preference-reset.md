@@ -23,3 +23,9 @@ revision preserved them by symmetry with the toggle; that was wrong. Reset is an
 explicit, labelled discard, not the incidental loss BST-1621 protects against,
 and a half-reset that silently leaves entries behind is both surprising and an
 unreliable remediation.
+
+## BST-1620 recovery added, 2026-09-30
+
+Reset is no longer the only in-app recovery: explicit Reload tool preferences reads
+a repaired or removed file without altering it. Reset remains ungated, deliberate
+discard recovery. See `tool-preference-recovery.md` for the new ordering proof.

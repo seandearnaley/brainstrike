@@ -22,11 +22,6 @@ const officialBaselineCommand = 'pnpm run verify:mcp:official';
 const officialCoreCommand = 'pnpm run verify:mcp:official -- --profile core';
 const officialModernCommand = 'pnpm run verify:mcp:official -- --profile modern-closeout';
 const officialJobIds = ['official_auth', 'official_core', 'official_modern_auth'];
-const officialGreenRunUrls = [
-  'https://github.com/seandearnaley/brainstrike/actions/runs/33541373505',
-  'https://github.com/seandearnaley/brainstrike/actions/runs/33545728828',
-  'https://github.com/seandearnaley/brainstrike/actions/runs/33545945643',
-];
 
 function findStep(workflow, jobName, stepName) {
   const step = workflow.jobs[jobName].steps.find((candidate) => candidate.name === stepName);
@@ -300,78 +295,4 @@ test('PR and exhaustive lanes use the same command apart from profile and output
     packageJson.scripts['verify:mcp:official'],
     'pnpm --filter @brainstrike/assistant-contract build && pnpm --filter @brainstrike/desktop prebuild && pnpm --filter @brainstrike/desktop build:main && node scripts/run-official-mcp-client-conformance.mjs'
   );
-});
-
-test('living contracts publish the exact local and CI commands', () => {
-  // BST-1590: conformance prose lives in mcp-conformance.md, not the provider contract.
-  const conformanceContract = readRepoFile('docs/agents/mcp-conformance.md');
-  assert.match(
-    conformanceContract,
-    /Runtime SDK versions match installed packages; fixture source tags and commits stay historical/u
-  );
-  assert.match(
-    conformanceContract,
-    /Live provenance shares a 30-second I\/O abort per test within a 35-second assertion ceiling/u
-  );
-  assert.match(conformanceContract, /Read exact GitHub refs\/tag objects/u);
-  assert.match(conformanceContract, /without cache\/retry\/skip/u);
-  const ciContract = readRepoFile('docs/agents/ci-quality.md');
-
-  for (const command of [representativeCommand, exhaustiveCommand]) {
-    assert.match(conformanceContract, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    assert.match(ciContract, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  }
-  for (const command of [officialBaselineCommand, officialCoreCommand, officialModernCommand]) {
-    const exactLine = new RegExp(`^${command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'mu');
-    assert.match(conformanceContract, exactLine);
-    assert.match(ciContract, exactLine);
-  }
-  assert.match(conformanceContract, /Evidence schema `1\.1\.0`/u);
-  assert.match(ciContract, /evidence-schema `1\.1\.0`/u);
-  for (const contract of [conformanceContract, ciContract]) {
-    assert.match(contract, /protocol-lab-only/u);
-  }
-  // The POSIX teardown ruling is behaviour, not commentary: EPERM on a group of
-  // our own descendants is the post-reap race, so it must neither fail the
-  // invocation nor be read as success.
-  assert.match(conformanceContract, /`ESRCH` is the only proof the group is gone/u);
-  // The ruling is portable; the kernel mechanism behind it is not. Recording
-  // only the Darwin half would mislead the next reader into pinning EPERM.
-  assert.match(conformanceContract, /The ruling ports but its mechanism does not/u);
-});
-
-test('living contracts retain official conformance evidence and require local validation', () => {
-  const conformanceContract = readRepoFile('docs/agents/mcp-conformance.md');
-  const ciContract = readRepoFile('docs/agents/ci-quality.md');
-
-  for (const runUrl of officialGreenRunUrls) {
-    assert.ok(conformanceContract.includes(runUrl), `missing run URL: ${runUrl}`);
-  }
-  assert.match(conformanceContract, /28\/28 baseline auth/u);
-  assert.match(conformanceContract, /11\/11 modern auth closeout/u);
-  assert.match(ciContract, /Do not enable, dispatch, rerun, request an automated review/u);
-  assert.match(ciContract, /CI is disabled due to cost;\s+validation must run locally/u);
-});
-
-test('the conformance contract is routed once from AGENTS.md and owns the moved prose', () => {
-  // BST-1590 rule 7: conformance/verification sections no longer live in the
-  // provider contract, so every landing stops rewriting that file.
-  const agents = readRepoFile('AGENTS.md');
-  const providerContract = readRepoFile('docs/agents/assistant-providers.md');
-  const conformanceContract = readRepoFile('docs/agents/mcp-conformance.md');
-  const ciContract = readRepoFile('docs/agents/ci-quality.md');
-  const routeRows = agents
-    .split('\n')
-    .filter((row) => row.startsWith('|') && row.includes('docs/agents/mcp-conformance.md'));
-  assert.equal(
-    routeRows.length,
-    1,
-    'AGENTS.md must route mcp-conformance.md from exactly one table row'
-  );
-  assert.match(conformanceContract, /^## MCP verification harness$/mu);
-  assert.match(conformanceContract, /^## Official conformance evidence \(BST-1589\)$/mu);
-  assert.doesNotMatch(providerContract, /^### MCP verification harness$/mu);
-  assert.doesNotMatch(providerContract, /run-official-mcp-client-conformance\.mjs/u);
-  assert.match(providerContract, /docs\/agents\/mcp-conformance\.md/u);
-  assert.match(ciContract, /#### MCP 2026 fleet working agreements \(BST-1590\)/u);
 });

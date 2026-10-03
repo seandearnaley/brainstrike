@@ -4,8 +4,6 @@ Owns the MCP verification harness (`@brainstrike/mcp-test-lab`), the production
 official-conformance client, the bounded official-runner driver, the evidence
 schemas, and the durable official conformance run links. CI trigger shape,
 budgets, and the red-`main` exit condition stay in `docs/agents/ci-quality.md`.
-Update this file and `scripts/__tests__/mcp-verification-ci-contract.test.mjs`
-together.
 
 ## MCP verification harness
 
@@ -44,9 +42,9 @@ Guard: `packages/mcp-test-lab/__tests__/package-contract.test.ts`.
   listener and closes on token-free zero counts; `stdio-reference` spawns one
   lab-owned child with an explicit empty environment and proves it gone.
 
-Settled: against the pinned SDK a Tasks listen lease cannot be honored, so the
+Against the pinned SDK a Tasks listen lease cannot be honored, so the
 production client rejects it, polling stays authoritative, and both ends share
-one closed alias bridge (`tasks-wire-alias.ts`). Do not relitigate.
+one closed alias bridge (`tasks-wire-alias.ts`).
 Evidence: `mcp-conformance/scenario-manifest.md`.
 Guard: `packages/mcp-test-lab/__tests__/scenario-provenance.integration.test.ts`.
 
@@ -94,7 +92,7 @@ Guard: `packages/mcp-test-lab/__tests__/evidence-artifact-integrity.test.ts`,
   ticket to `BST-1486`; the repository wrapper rejects a dirty checkout or a
   `GITHUB_SHA` that differs from `HEAD`. Both lanes reach that one CLI:
   `pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json`
-  (PR-required) and
+  (PRs that change the lab, its dependencies or its wrapper, and every push) and
   `pnpm run verify:mcp -- --profile exhaustive --output artifacts/exhaustive-evidence.json`
   (schedule/manual).
 
@@ -167,7 +165,7 @@ pnpm run verify:mcp:official -- --profile modern-closeout
   on the official jobs, not whether the run happened in CI, so a local run
   writes the same value.
 
-Settled: the official package stays prerelease, its three jobs are required
+The official package stays prerelease, its three jobs are required
 post-merge gates that detect rather than block, and both ledgers stay empty.
 Evidence: `mcp-conformance/official-run-evidence.md`.
 Guard: `scripts/__tests__/mcp-verification-ci-contract.test.mjs`.
@@ -193,6 +191,6 @@ Guard: `scripts/__tests__/mcp-verification-ci-contract.test.mjs`.
 - Timeout, failed start, failed exit, and cleanup failure stay visible; there is
   no process-enumeration fallback.
 
-Settled: same teardown ruling as `packages/agent/src/fence/fence-executor.ts`.
-Do not relitigate. Evidence: `mcp-conformance/posix-group-teardown.md`.
+Teardown follows the same rule as `packages/agent/src/fence/fence-executor.ts`.
+Evidence: `mcp-conformance/posix-group-teardown.md`.
 Guard: `scripts/__tests__/run-official-mcp-client-conformance-process-group.test.mjs`.

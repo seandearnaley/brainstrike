@@ -4,7 +4,6 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const readRepoFile = (relativePath) => readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -85,17 +84,4 @@ test('shared MCP grammar stays subpath-owned with capability-scoped adapters', (
   }
   assert.ok(callCount(runtime, 'parseMcpConfigValue') > 0);
   assert.equal(callCount(runtime, 'parse', 'McpConfigSchema'), 0);
-});
-
-test('the ownership contract runs in required Static', () => {
-  const manifest = JSON.parse(readRepoFile('package.json'));
-  const contractManifest = JSON.parse(readRepoFile('packages/assistant-contract/package.json'));
-  const workflow = parseYaml(readRepoFile('.github/workflows/test.yml'));
-  assert.equal(contractManifest.exports['./mcp-config'].types, './dist/mcp-config.d.ts');
-  assert.equal(manifest.scripts['test:scripts'], 'node --test scripts/__tests__/*.test.mjs');
-  assert.ok(
-    workflow.jobs.static.steps.some(
-      (step) => step.name === 'Script tests' && step.run === 'pnpm test:scripts'
-    )
-  );
 });

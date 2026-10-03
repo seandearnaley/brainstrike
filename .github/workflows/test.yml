@@ -101,6 +101,9 @@ jobs:
 
   static:
     name: Static
+    outputs:
+      unit-matrix: ${{ steps.unit-shards.outputs.matrix }}
+      unit-shard-count: ${{ steps.unit-shards.outputs.count }}
     if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission]
     # Series C R9b: arm64 runners became available for private repos on
@@ -125,8 +128,12 @@ jobs:
       # Checkout MUST stay here, ahead of the composite: a local `uses: ./...`
       # action is read off the runner's filesystem, so the repo has to be on
       # disk before it can resolve. See setup-workspace/action.yml's header.
+      # Full history also supplies the exact PR base used by Unit admission.
+      # MCP lab detection still compares the merge commit to its first parent.
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       # BST-1324: MUST run before `Setup workspace` — the composite ends with
       # `pnpm install --frozen-lockfile`, which is exactly where a textually
@@ -143,6 +150,88 @@ jobs:
         uses: ./.github/actions/setup-workspace
         with:
           turbo-cache: 'true'
+
+      # Preview exactly the Unit task/filter selection before allocating any
+      # shard runner. Reuse Static's installation; no additional runner or
+      # package/command registry. Push and manual runs retain every row.
+      - name: Select affected Unit shards
+        id: unit-shards
+        env:
+          UNIT_MATRIX: >-
+            {
+              "include": [
+                {
+                  "shard": "db-1",
+                  "partition": "db",
+                  "pr_filters": "--filter=\"@brainstrike/db\"",
+                  "push_filters": "--filter=\"@brainstrike/db\"",
+                  "vitest_shard": "1/2"
+                },
+                {
+                  "shard": "db-2",
+                  "partition": "db",
+                  "pr_filters": "--filter=\"@brainstrike/db\"",
+                  "push_filters": "--filter=\"@brainstrike/db\"",
+                  "vitest_shard": "2/2"
+                },
+                {
+                  "shard": "agent-1",
+                  "partition": "agent",
+                  "pr_filters": "--filter=\"@brainstrike/agent\"",
+                  "push_filters": "--filter=\"@brainstrike/agent\"",
+                  "vitest_shard": "1/2"
+                },
+                {
+                  "shard": "agent-2",
+                  "partition": "agent",
+                  "pr_filters": "--filter=\"@brainstrike/agent\"",
+                  "push_filters": "--filter=\"@brainstrike/agent\"",
+                  "vitest_shard": "2/2"
+                },
+                {
+                  "shard": "desktop-1",
+                  "partition": "desktop",
+                  "pr_filters": "--filter=\"@brainstrike/desktop\"",
+                  "push_filters": "--filter=\"@brainstrike/desktop\"",
+                  "vitest_shard": "1/3"
+                },
+                {
+                  "shard": "desktop-2",
+                  "partition": "desktop",
+                  "pr_filters": "--filter=\"@brainstrike/desktop\"",
+                  "push_filters": "--filter=\"@brainstrike/desktop\"",
+                  "vitest_shard": "2/3"
+                },
+                {
+                  "shard": "desktop-3",
+                  "partition": "desktop",
+                  "pr_filters": "--filter=\"@brainstrike/desktop\"",
+                  "push_filters": "--filter=\"@brainstrike/desktop\"",
+                  "vitest_shard": "3/3"
+                },
+                {
+                  "shard": "heavy",
+                  "partition": "heavy",
+                  "pr_filters": "--filter=\"@brainstrike/ui\" --filter=\"@brainstrike/file-explorer-ui\" --filter=\"@brainstrike/app-shell\"",
+                  "push_filters": "--filter=\"@brainstrike/ui\" --filter=\"@brainstrike/file-explorer-ui\" --filter=\"@brainstrike/app-shell\"",
+                  "vitest_shard": ""
+                },
+                {
+                  "shard": "rest",
+                  "partition": "rest",
+                  "pr_filters": "--filter=\"!@brainstrike/db\" --filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\"",
+                  "vitest_shard": "",
+                  "push_filters": "--filter=\"!@brainstrike/db\" --filter=\"!@brainstrike/agent\" --filter=\"!@brainstrike/desktop\" --filter=\"!@brainstrike/ui\" --filter=\"!@brainstrike/file-explorer-ui\" --filter=\"!@brainstrike/app-shell\""
+                }
+              ]
+            }
+          EVENT_NAME: ${{ github.event_name }}
+          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
+          TURBO_SCM_HEAD: ${{ github.sha }}
+          COVERAGE: "false"
+          TEST_TIMEOUT_MULTIPLIER: "2"
+          TURBO_TEST_MODE: unit
+        run: node scripts/select-unit-shards.mjs
 
       - name: Secret scan
         run: pnpm secrets:scan
@@ -180,13 +269,35 @@ jobs:
           TURBO_CONCURRENCY: 4
         run: pnpm run type-check
 
+      # The lab is self-contained (it spawns its own reference servers), so it
+      # needs to run when turbo's package graph says @brainstrike/mcp-test-lab
+      # or one of its dependencies changed, or when its wrapper, this workflow
+      # or the setup composite changed. Turbo also marks every package changed
+      # on a global-file edit. The range is the checked-out merge commit
+      # against its first parent: the PR event's base.sha goes stale when the
+      # base branch moves, and is then absent from the depth-2 clone.
+      - name: Detect MCP lab changes
+        id: mcp-paths
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          base="$(git rev-parse HEAD^1)"
+          head="$(git rev-parse HEAD)"
+          pnpm -s exec turbo ls --filter="...[${base}...${head}]" --output=json > "$RUNNER_TEMP/turbo-changed.json"
+          changed="$(node -e 'const s=require("node:fs").readFileSync(process.argv[1],"utf8");const i=s.indexOf("{");if(i<0){throw new Error("turbo ls printed no JSON")}process.stdout.write(String(JSON.parse(s.slice(i)).packages.items.some((p)=>p.name==="@brainstrike/mcp-test-lab")))' "$RUNNER_TEMP/turbo-changed.json")"
+          if [ "$changed" != true ] && ! git diff --quiet "$base" "$head" -- scripts/run-mcp-verification.mjs package.json .github/workflows/test.yml .github/actions/setup-workspace; then
+            changed=true
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
       - name: MCP representative verification
+        if: github.event_name != 'pull_request' || steps.mcp-paths.outputs.changed == 'true'
         run: pnpm run verify:mcp -- --profile pr --output artifacts/pr-evidence.json
 
   unit-shard:
     name: Unit (${{ matrix.shard }})
-    if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
-    needs: [admission]
+    if: needs.admission.outputs.admitted == 'true' && needs.static.outputs.unit-shard-count != '0'
+    needs: [admission, static]
     # The Unit matrix runs on the same explicit 4-vCPU/16-GB Ubicloud class as
     # the other Linux x64 jobs. GitHub's hosted ARM pool terminated the `rest`
     # shard without a test assertion on five consecutive attempts across two
@@ -207,71 +318,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - shard: db-1
-            partition: db
-            pr_filters: --filter="@brainstrike/db"
-            push_filters: --filter="@brainstrike/db"
-            vitest_shard: 1/2
-          - shard: db-2
-            partition: db
-            pr_filters: --filter="@brainstrike/db"
-            push_filters: --filter="@brainstrike/db"
-            vitest_shard: 2/2
-          - shard: agent-1
-            partition: agent
-            pr_filters: --filter="@brainstrike/agent"
-            push_filters: --filter="@brainstrike/agent"
-            vitest_shard: 1/2
-          - shard: agent-2
-            partition: agent
-            pr_filters: --filter="@brainstrike/agent"
-            push_filters: --filter="@brainstrike/agent"
-            vitest_shard: 2/2
-          - shard: desktop-1
-            partition: desktop
-            pr_filters: --filter="@brainstrike/desktop"
-            push_filters: --filter="@brainstrike/desktop"
-            vitest_shard: 1/3
-          - shard: desktop-2
-            partition: desktop
-            pr_filters: --filter="@brainstrike/desktop"
-            push_filters: --filter="@brainstrike/desktop"
-            vitest_shard: 2/3
-          - shard: desktop-3
-            partition: desktop
-            pr_filters: --filter="@brainstrike/desktop"
-            push_filters: --filter="@brainstrike/desktop"
-            vitest_shard: 3/3
-          - shard: heavy
-            partition: heavy
-            pr_filters: >-
-              --filter="@brainstrike/ui"
-              --filter="@brainstrike/file-explorer-ui"
-              --filter="@brainstrike/app-shell"
-            push_filters: >-
-              --filter="@brainstrike/ui"
-              --filter="@brainstrike/file-explorer-ui"
-              --filter="@brainstrike/app-shell"
-            vitest_shard: ''
-          - shard: rest
-            partition: rest
-            pr_filters: >-
-              --filter="!@brainstrike/db"
-              --filter="!@brainstrike/agent"
-              --filter="!@brainstrike/desktop"
-              --filter="!@brainstrike/ui"
-              --filter="!@brainstrike/file-explorer-ui"
-              --filter="!@brainstrike/app-shell"
-            vitest_shard: ''
-            push_filters: >-
-              --filter="!@brainstrike/db"
-              --filter="!@brainstrike/agent"
-              --filter="!@brainstrike/desktop"
-              --filter="!@brainstrike/ui"
-              --filter="!@brainstrike/file-explorer-ui"
-              --filter="!@brainstrike/app-shell"
+      matrix: ${{ fromJSON(needs.static.outputs.unit-matrix) }}
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
@@ -379,8 +426,7 @@ jobs:
       # with the exact base/checkout pair. Explicit SCM refs avoid Turbo's
       # inferred main~1 range, including on stacked PRs and merge commits.
       # Cross-package inputs select their actual readers without making every
-      # document a global cache dependency. ci-input-locality.test.mjs proves
-      # doc-only selection, upstream-source propagation, and partition filters.
+      # document a global cache dependency.
       # Push/manual and local checks continue to execute the complete suite.
       #
       # TURBO_TEST_MODE=unit and TEST_TIMEOUT_MULTIPLIER=2 are set EXPLICITLY
@@ -507,18 +553,13 @@ jobs:
   # points at this single check, not at the per-shard matrix jobs, so shard
   # membership can change without touching repo settings.
   #
-  # It carries the SAME quiet-head admission gate as `unit-shard` (and every
-  # other job): when the head is not admitted, both the shards and this fan-in
-  # skip together, so the required "Unit" check is neutral (not a red failure)
-  # exactly as it was when Unit was a single job. When the job DOES run
-  # (admitted, or admission itself failed), `needs.unit-shard.result` is a
-  # definitive success/failure — anything but `success` fails this job loudly
-  # instead of greying out the merge box (an admission failure propagates here
-  # because `unit-shard`'s own "Require successful admission" step fails it).
+  # A verified empty selection may skip the matrix; every nonempty selection
+  # must succeed. Selection failure, missing output, cancellation and a skipped
+  # nonempty matrix fail Unit instead of silently satisfying branch protection.
   unit:
     name: Unit
     if: always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
-    needs: [admission, unit-shard]
+    needs: [admission, static, unit-shard]
     # This fan-in only checks one dependency result and completes in ~3s. Use
     # GitHub's 1-core slim runner so per-job minute rounding does not charge the
     # ARM compute rate for a job that performs no build or test work.
@@ -533,10 +574,22 @@ jobs:
 
       - name: Check shard results
         env:
+          STATIC_RESULT: ${{ needs.static.result }}
+          SHARD_COUNT: ${{ needs.static.outputs.unit-shard-count }}
           SHARD_RESULT: ${{ needs.unit-shard.result }}
         run: |
-          echo "unit-shard result: $SHARD_RESULT"
-          if [ "$SHARD_RESULT" != "success" ]; then
+          set -euo pipefail
+          if [ "$STATIC_RESULT" != "success" ]; then
+            echo "::error::Static or affected selection failed; Unit cannot pass."
+            exit 1
+          fi
+          case "$SHARD_COUNT" in
+            '' | *[!0-9]*) echo "::error::Missing or invalid shard count"; exit 1 ;;
+          esac
+          echo "unit-shard result: $SHARD_RESULT ($SHARD_COUNT selected)"
+          if [ "$SHARD_COUNT" = "0" ] && [ "$SHARD_RESULT" = "skipped" ]; then
+            echo "Turbo verified that no Unit tasks are affected."
+          elif [ "$SHARD_COUNT" = "0" ] || [ "$SHARD_RESULT" != "success" ]; then
             exit 1
           fi
 
@@ -1306,8 +1359,8 @@ jobs:
   # `desktop-e2e` are then excluded on a second, separate ground: they are the
   # documented flaky-headless class (AGENTS.md), and a canary that cries wolf
   # gets ignored, which is precisely the failure this job exists to prevent.
-  # Persistent E2E breakage is still caught within 24h by the scheduled
-  # notifiers in web-e2e.yml / desktop-e2e.yml.
+  # Persistent E2E breakage is still caught within 24h by the scheduled Linear
+  # alerts in web-e2e.yml / desktop-e2e.yml.
   #
   # `browser-tests`, `native-windows`, and `native-electron` also run
   # on pushes to `main` and are also NOT notified — not on flakiness grounds,

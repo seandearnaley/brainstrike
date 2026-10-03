@@ -377,67 +377,13 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  notify-failure:
-    name: Notify nightly coverage failure
-    needs:
-      - package-coverage
-      - db-coverage-shard
-      - db-coverage
-      - coverage
-      - pg-textsearch-durability
-      - sigkill-crash-gate
-    if: >-
-      always() &&
-      github.event_name == 'schedule' &&
-      (needs.package-coverage.result != 'success' ||
-       needs.db-coverage-shard.result != 'success' ||
-       needs.db-coverage.result != 'success' ||
-       needs.coverage.result != 'success' ||
-       needs.pg-textsearch-durability.result != 'success' ||
-       needs.sigkill-crash-gate.result != 'success')
-    runs-on: ubuntu-latest
-    # gh issue create / comment are sub-second under normal conditions; cap at
-    # 5 min so a GitHub API hang can't burn the GHA default 6-hour wall clock.
-    timeout-minutes: 5
-    permissions:
-      issues: write
-      contents: read
-    steps:
-      - name: Ensure tracking label exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          if ! gh label create "nightly-coverage-failure" \
-            --repo "$REPO" \
-            --force \
-            --color d93f0b \
-            --description "Auto-opened by nightly-coverage.yml when the scheduled coverage run fails"; then
-            echo "::error::Could not ensure the 'nightly-coverage-failure' label exists, so the tracking issue can be neither filed nor de-duplicated."
-            exit 1
-          fi
-
-      - name: Open or update tracking issue
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          existing=$(gh issue list --repo "$REPO" \
-            --label "nightly-coverage-failure" --state open \
-            --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" --repo "$REPO" \
-              --body "Nightly coverage failed again. Run: $RUN_URL"
-          else
-            gh issue create --repo "$REPO" \
-              --title "Nightly coverage failure ($(date -u +%Y-%m-%d))" \
-              --label "nightly-coverage-failure" \
-              --body "Nightly coverage workflow failed.
-
-          Run: $RUN_URL
-
-          This issue stays open while the failure persists and gets a new comment on each subsequent failure. Close it once the next nightly is green."
-          fi
+  notify-linear:
+    name: Notify Linear
+    needs: [pg-textsearch-durability, sigkill-crash-gate, package-coverage, db-coverage-shard, db-coverage, coverage]
+    if: ${{ always() && github.event_name == 'schedule' }}
+    uses: ./.github/workflows/nightly-linear-alert.yml
+    with:
+      workflow_name: ${{ github.workflow }}
+      results: pg-textsearch-durability=${{ needs.pg-textsearch-durability.result }},sigkill-crash-gate=${{ needs.sigkill-crash-gate.result }},package-coverage=${{ needs.package-coverage.result }},db-coverage-shard=${{ needs.db-coverage-shard.result }},db-coverage=${{ needs.db-coverage.result }},coverage=${{ needs.coverage.result }}
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

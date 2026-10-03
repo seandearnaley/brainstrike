@@ -2,6 +2,7 @@ import {
   type McpExtensionEnablement,
   type McpHostSnapshot,
   type McpHostWatchEvent,
+  type McpToolPreferencesFault,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { render } from '@testing-library/react';
@@ -71,6 +72,7 @@ interface CapturedToolsOperations {
   readMcpConfigText?: () => Promise<{ content: string; path: string }>;
   readMcpResource?: (request: unknown) => Promise<unknown>;
   refreshMcpServers: () => Promise<void>;
+  reloadToolPreferences?: () => Promise<void>;
   resetMcpConfig: () => Promise<void>;
   resetTools: () => Promise<void>;
   setMcpConfigPath?: (configPath: string | null) => Promise<void>;
@@ -304,7 +306,12 @@ interface DesktopTestWindow {
     getExtensionPreferences?: () => Promise<McpExtensionEnablement>;
     getPath?: () => Promise<string>;
     getServerStatusSnapshot?: () => Promise<McpHostSnapshot>;
-    getToolStats?: () => Promise<{ enabled: number; servers: number; total: number }>;
+    getToolStats?: () => Promise<{
+      enabled: number;
+      servers: number;
+      total: number;
+      preferencesFault?: McpToolPreferencesFault;
+    }>;
     listTools?: () => Promise<
       Record<
         string,
@@ -328,6 +335,7 @@ interface DesktopTestWindow {
     ) => (() => void) | undefined;
     onToolsUpdated?: (listener: (tools: unknown) => void) => (() => void) | undefined;
     readConfigText?: () => Promise<{ content: string; path: string } | null>;
+    reloadToolPreferences?: () => Promise<void>;
     resetTools?: () => Promise<void>;
     selectPath?: () => Promise<string | null>;
     setExtensionPreferences?: (
@@ -388,7 +396,11 @@ describe('desktop SettingsPageContent tool operations', () => {
       onExtensionPreferencesUpdated: vi.fn(() => vi.fn()),
       onServerStatusUpdated: vi.fn(() => vi.fn()),
       onToolsUpdated: vi.fn(() => vi.fn()),
-      readConfigText: vi.fn(async () => ({ content: '{}', path: '/tmp/mcp.json' })),
+      readConfigText: vi.fn(async () => ({
+        content: '{}',
+        error: 'invalid_mcp_config: servers: required',
+        path: '/tmp/mcp.json',
+      })),
       readResource: vi.fn(async () => ({
         result: { contents: [{ text: '# BST-1585', uri: 'linear://issue/BST-1585' }] },
         type: 'resources/read',
@@ -399,6 +411,146 @@ describe('desktop SettingsPageContent tool operations', () => {
       setPath: vi.fn(async (path) => ({ path: path ?? '/tmp/default.json', success: true })),
       writeConfigText: vi.fn(async () => ({ path: '/tmp/mcp.json', success: true })),
     };
+  });
+
+  it('forwards tool preference reload through the desktop capability', async () => {
+    const desktopWindow = getDesktopWindow();
+    if (!desktopWindow.mcp) {
+      throw new Error('Expected MCP test bridge');
+    }
+    const reload = vi.fn(async (): Promise<void> => {});
+    desktopWindow.mcp.reloadToolPreferences = reload;
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+    render(<SettingsPageContent />);
+    if (!capturedOperations?.reloadToolPreferences) {
+      throw new Error('Expected reload operation');
+    }
+    await capturedOperations.reloadToolPreferences();
+    expect(reload).toHaveBeenCalledOnce();
+    expect(resetToolsMock).not.toHaveBeenCalled();
+    expect(desktopWindow.mcp.resetTools).not.toHaveBeenCalled();
+  });
+
+  it('omits tool preference reload when its bridge capability is unavailable', async () => {
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+    render(<SettingsPageContent />);
+    if (!capturedOperations) {
+      throw new Error('Expected tools operations');
+    }
+    expect(capturedOperations.reloadToolPreferences).toBeUndefined();
+  });
+
+  it.each(['enableTools', 'disableTools'] as const)(
+    'normalizes the exact Electron transport wrapper for %s rejection',
+    async (operation) => {
+      const mcp = getDesktopWindow().mcp;
+      if (!mcp) {
+        throw new Error('Expected MCP bridge');
+      }
+      const faultMessage = 'Preferences could not be loaded. Repair and Reload tool preferences.';
+      const channel = operation === 'enableTools' ? 'mcp:tools:enable' : 'mcp:tools:disable';
+      mcp.getToolStats = vi.fn().mockResolvedValue({
+        enabled: 0,
+        preferencesFault: {
+          kind: 'invalid',
+          message: faultMessage,
+          path: '/profile/mcp/tool-preferences.json',
+        },
+        servers: 1,
+        total: 2,
+      });
+      mcp[operation] = vi
+        .fn()
+        .mockRejectedValue(
+          new Error(`Error invoking remote method '${channel}': Error: ${faultMessage}`)
+        );
+      const { default: SettingsPageContent } = await import(
+        '../../../../renderer/components/settings/page-content'
+      );
+      render(<SettingsPageContent />);
+      if (!capturedOperations) {
+        throw new Error('Expected tools operations');
+      }
+      await expect(capturedOperations[operation](['mcp-search'])).rejects.toMatchObject({
+        message: faultMessage,
+      });
+    }
+  );
+
+  it('preserves distinct failure content while normalizing its Electron transport wrapper', async () => {
+    const mcp = getDesktopWindow().mcp;
+    if (!mcp) {
+      throw new Error('Expected MCP bridge');
+    }
+    const faultMessage = 'Preferences could not be loaded. Repair and Reload tool preferences.';
+    const error = new Error(
+      `Error invoking remote method 'mcp:tools:enable': Error: Another failure; ${faultMessage}`
+    );
+    mcp.getToolStats = vi.fn().mockResolvedValue({
+      enabled: 0,
+      preferencesFault: {
+        kind: 'invalid',
+        message: faultMessage,
+        path: '/profile/mcp/tool-preferences.json',
+      },
+      servers: 1,
+      total: 2,
+    });
+    mcp.enableTools = vi.fn().mockRejectedValue(error);
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+    render(<SettingsPageContent />);
+    if (!capturedOperations) {
+      throw new Error('Expected tools operations');
+    }
+    await expect(capturedOperations.enableTools(['mcp-search'])).rejects.toMatchObject({
+      cause: error,
+      message: `Another failure; ${faultMessage}`,
+    });
+  });
+
+  it('normalizes an in-flight refusal after reload has cleared main fault stats', async () => {
+    const mcp = getDesktopWindow().mcp;
+    if (!mcp) {
+      throw new Error('Expected MCP bridge');
+    }
+    const faultMessage = 'Preferences could not be loaded. Repair and Reload tool preferences.';
+    const refused = Promise.withResolvers<void>();
+    mcp.enableTools = vi.fn(() => refused.promise);
+    mcp.getToolStats = vi.fn().mockResolvedValue({
+      enabled: 0,
+      preferencesFault: {
+        kind: 'invalid',
+        message: faultMessage,
+        path: '/profile/mcp/tool-preferences.json',
+      },
+      servers: 1,
+      total: 2,
+    });
+    mcp.reloadToolPreferences = vi.fn(async (): Promise<void> => {
+      mcp.getToolStats = vi.fn().mockResolvedValue({ enabled: 2, servers: 1, total: 2 });
+    });
+    const { default: SettingsPageContent } = await import(
+      '../../../../renderer/components/settings/page-content'
+    );
+    render(<SettingsPageContent />);
+    if (!capturedOperations?.reloadToolPreferences) {
+      throw new Error('Expected tools operations');
+    }
+    await capturedOperations.getStats();
+    const attempt = capturedOperations.enableTools(['mcp-search']);
+    const rejected = expect(attempt).rejects.toMatchObject({ message: faultMessage });
+    await capturedOperations.reloadToolPreferences();
+    await capturedOperations.getStats();
+    refused.reject(
+      new Error(`Error invoking remote method 'mcp:tools:enable': Error: ${faultMessage}`)
+    );
+    await rejected;
   });
 
   it('wires desktop MCP and native tool operations through the settings category', async () => {
@@ -459,6 +611,7 @@ describe('desktop SettingsPageContent tool operations', () => {
     await expect(capturedOperations.getMcpConfigPath?.()).resolves.toBe('/tmp/mcp.json');
     await expect(capturedOperations.readMcpConfigText?.()).resolves.toEqual({
       content: '{}',
+      error: 'invalid_mcp_config: servers: required',
       path: '/tmp/mcp.json',
     });
     await expect(capturedOperations.writeMcpConfigText?.('{"servers":{}}')).resolves.toEqual({

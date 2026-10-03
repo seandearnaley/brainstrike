@@ -19,9 +19,9 @@ describe('MCP IPC contracts', () => {
     mcpTasksContract,
   ];
 
-  it('owns all 31 invokes and seven pushes in the desktop MCP manifest', () => {
+  it('owns all 32 invokes and seven pushes in the desktop MCP manifest', () => {
     const specs = contracts.flatMap((contract) => Object.values(contract));
-    expect(specs.filter(({ kind }) => kind === 'invoke')).toHaveLength(31);
+    expect(specs.filter(({ kind }) => kind === 'invoke')).toHaveLength(32);
     expect(specs.filter(({ kind }) => kind === 'push')).toHaveLength(7);
     expect(new Set(specs.map(({ channel }) => channel))).toEqual(
       new Set(Object.values(DESKTOP_IPC_CHANNELS.mcp))

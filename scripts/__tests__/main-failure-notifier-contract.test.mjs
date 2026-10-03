@@ -205,7 +205,7 @@ test('the notifier can file an issue, stays cheap, and never touches the paid po
   );
 
   // The workflow-level default is read-only, so the elevation above must be
-  // job-scoped — the same shape the four existing notify-failure jobs use.
+  // job-scoped.
   const workflow = parseYaml(workflowSource());
   assert.equal(workflow.permissions?.issues, undefined);
 
