@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, realpathSync } from 'node:fs';
 import { rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
@@ -23,6 +23,8 @@ export interface ResetDesktopApplicationDataOptions {
    * though the DB rows it mirrors do not. Optional so callers/tests that
    * don't exercise this behavior can omit it. */
   errorLogFilePaths?: readonly string[];
+  /** Resolved after profile reset acquires its guard, before staging userData. */
+  getProtectedPaths?: () => readonly string[];
   resetDatabaseProfile: () => Promise<void>;
   stopBackgroundRuntimes: () => Promise<void>;
   userDataPath: string;
@@ -104,6 +106,9 @@ async function stageUserDataEntryForDeletion({
 }): Promise<{ deletedPath: string; stagedPath: string }> {
   const targetPath = path.join(userDataPath, entryName);
   const stagedPath = path.join(trashPath, entryName);
+  if (path.dirname(stagedPath) !== trashPath) {
+    mkdirSync(path.dirname(stagedPath), { recursive: true });
+  }
   await rename(targetPath, stagedPath);
   return { deletedPath: targetPath, stagedPath };
 }
@@ -145,6 +150,7 @@ async function purgeErrorLogFiles(
 
 export async function resetDesktopApplicationData({
   errorLogFilePaths,
+  getProtectedPaths,
   resetDatabaseProfile,
   stopBackgroundRuntimes,
   userDataPath,
@@ -171,39 +177,68 @@ export async function resetDesktopApplicationData({
     const trashPath = createResetTrashPath(userDataPath);
     mkdirSync(trashPath, { recursive: true });
 
-    for (const entryName of listUserDataEntries(userDataPath)) {
-      if (isPreservedUserDataEntry(entryName)) {
-        preservedPaths.push(path.join(userDataPath, entryName));
-        continue;
-      }
-      if (path.join(userDataPath, entryName) === trashPath) {
-        continue;
-      }
-      const targetPath = path.join(userDataPath, entryName);
-      try {
-        const stagedEntry = await stageUserDataEntryForDeletion({
-          entryName,
-          trashPath,
-          userDataPath,
-        });
-        deletedPaths.push(stagedEntry.deletedPath);
-        stagedPaths.push(stagedEntry.stagedPath);
-      } catch (error: unknown) {
-        switch (
-          classifyStageDeletionError({
-            error,
-            targetPath,
-            userDataPath,
-          })
-        ) {
-          case 'missing':
-            deletedPaths.push(targetPath);
-            continue;
-          case 'failed':
-            deletionFailures.push({ error, targetPath });
-        }
+    const protectedPaths = [...(getProtectedPaths?.() ?? [])];
+    for (const protectedPath of protectedPaths) {
+      if (!path.isAbsolute(protectedPath)) {
+        throw new Error(
+          `Desktop factory reset requires an absolute protected path: ${protectedPath}`
+        );
       }
     }
+    // RootLock owns a canonical path; compare against the same namespace even
+    // when Electron's userData path reaches it through a filesystem alias.
+    const canonicalUserDataPath =
+      protectedPaths.length === 0 ? userDataPath : realpathSync(userDataPath);
+    const containsProtectedPath = (target: string): boolean =>
+      protectedPaths.some((protectedPath) => {
+        const relative = path.relative(target, protectedPath);
+        return (
+          relative === '' ||
+          (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`))
+        );
+      });
+    const recordStageFailure = (error: unknown, targetPath: string): void => {
+      if (classifyStageDeletionError({ error, targetPath, userDataPath }) === 'missing') {
+        deletedPaths.push(targetPath);
+        return;
+      }
+      deletionFailures.push({ error, targetPath });
+    };
+    const stageEntries = async (directory: string): Promise<void> => {
+      for (const entryName of listUserDataEntries(directory)) {
+        const targetPath = path.join(directory, entryName);
+        const relativeEntry = path.relative(userDataPath, targetPath);
+        const canonicalTarget = path.join(canonicalUserDataPath, relativeEntry);
+        if (directory === userDataPath && isPreservedUserDataEntry(entryName)) {
+          preservedPaths.push(targetPath);
+          continue;
+        }
+        if (targetPath === trashPath) {
+          continue;
+        }
+        if (protectedPaths.includes(canonicalTarget)) {
+          preservedPaths.push(canonicalTarget);
+          continue;
+        }
+        try {
+          if (containsProtectedPath(canonicalTarget)) {
+            // Retain every ancestor, but still purge all its unprotected siblings.
+            await stageEntries(targetPath);
+            continue;
+          }
+          const stagedEntry = await stageUserDataEntryForDeletion({
+            entryName: relativeEntry,
+            trashPath,
+            userDataPath,
+          });
+          deletedPaths.push(stagedEntry.deletedPath);
+          stagedPaths.push(stagedEntry.stagedPath);
+        } catch (error: unknown) {
+          recordStageFailure(error, targetPath);
+        }
+      }
+    };
+    await stageEntries(userDataPath);
 
     if (deletionFailures.length > 0) {
       logger.error('Desktop application data reset failed to stage entries for deletion', {

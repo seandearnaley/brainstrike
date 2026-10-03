@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const profileLeaseMocks = vi.hoisted(() => ({
+  acquire: vi.fn(),
+  clear: vi.fn(async () => undefined),
+  release: vi.fn(),
+}));
+vi.mock('@brainstrike/host-lease', () => ({ acquireProfileResetLease: profileLeaseMocks.acquire }));
+
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
 
 function installUtilityProcessParentPort(): void {
@@ -105,6 +112,21 @@ function mockSuccessfulDatabaseModules(options?: {
 describe('db-main coverage helpers', () => {
   beforeEach(() => {
     vi.resetModules();
+    profileLeaseMocks.acquire.mockImplementation(async (root: string) => {
+      let released = false;
+      return {
+        clearRootContents: profileLeaseMocks.clear,
+        get isReleased() {
+          return released;
+        },
+        release() {
+          released = true;
+          profileLeaseMocks.release();
+        },
+        root,
+      };
+    });
+    profileLeaseMocks.clear.mockResolvedValue(undefined);
     vi.doUnmock('@brainstrike/db');
     vi.doUnmock('@brainstrike/db/pglite-factory');
     vi.doUnmock('@electric-sql/pglite');

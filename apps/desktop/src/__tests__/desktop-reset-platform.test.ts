@@ -4,6 +4,15 @@ const resetDesktopApplicationDataMock = vi.hoisted(() => vi.fn());
 const completeSuccessfulResetMock = vi.hoisted(() => vi.fn(async () => undefined));
 const resetPersistentStorageAfterDataDeletionMock = vi.hoisted(() => vi.fn(async () => undefined));
 
+vi.mock('../db-main', () => ({
+  prepareDatabaseProfileReset: async () => ({
+    clearRootContents: async () => undefined,
+    isReleased: false,
+    release: () => undefined,
+    root: '/mock/profile',
+  }),
+}));
+
 vi.mock('../desktop-factory-reset', () => ({
   resetDesktopApplicationData: resetDesktopApplicationDataMock,
 }));
@@ -79,6 +88,7 @@ describe('createDesktopFactoryResetHandler', () => {
     await expect(handleReset()).resolves.toEqual({ success: true });
 
     expect(resetDesktopApplicationDataMock).toHaveBeenCalledWith({
+      getProtectedPaths: expect.any(Function),
       resetDatabaseProfile: expect.any(Function),
       stopBackgroundRuntimes: expect.any(Function),
       userDataPath: '/mock/userData',

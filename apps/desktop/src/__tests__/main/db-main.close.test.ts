@@ -47,6 +47,26 @@ vi.mock('node:fs', async (importOriginal) => {
   return { ...probed, default: probed };
 });
 
+vi.mock('@brainstrike/host-lease', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/host-lease')>();
+  return {
+    ...actual,
+    acquireProfileResetLease: async (root: string) => {
+      const guard = await actual.acquireProfileResetLease(root);
+      return {
+        ...guard,
+        clearRootContents: async () => {
+          fsProbe.events.push(`rm:${path.basename(root)}-contents`);
+          await guard.clearRootContents();
+        },
+        get isReleased() {
+          return guard.isReleased;
+        },
+      };
+    },
+  };
+});
+
 const engine = vi.hoisted(() => ({
   close: vi.fn(async () => undefined),
   createBrainstrikePglite: vi.fn(),
@@ -343,6 +363,29 @@ describe('db-main close and open', () => {
       await resetLocalDatabase();
 
       expect(existsSync(attemptRecordPath)).toBe(false);
+    });
+
+    it('blocks a new legacy database owner throughout an owned profile reset', async () => {
+      const {
+        prepareDatabaseProfileReset,
+        initializeMainDatabase,
+        getDatabase,
+        resetLocalDatabase,
+      } = await import('../../db-main');
+      await initializeMainDatabase();
+      seedDatabaseDirectory({ marker: false });
+      const lease = await prepareDatabaseProfileReset();
+      try {
+        await expect(getDatabase()).rejects.toThrow('profile reset lease');
+        await expect(initializeMainDatabase()).rejects.toThrow('profile reset lease');
+        await resetLocalDatabase(lease);
+        expect(lease.isReleased).toBe(false);
+        expect(existsSync(pgVersionPath())).toBe(false);
+        await expect(getDatabase()).rejects.toThrow('profile reset lease');
+      } finally {
+        lease.release();
+      }
+      await expect(getDatabase()).resolves.toBeDefined();
     });
 
     it('resets normally once the close is clean', async () => {

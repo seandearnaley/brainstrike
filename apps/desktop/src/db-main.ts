@@ -15,7 +15,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { BrainstrikePglite, createBrainstrikePglite } from '@brainstrike/db/pglite-factory';
+import { acquireProfileResetLease, type ProfileResetLease } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
+import { RootLock } from '@brainstrike/state-store';
 import type {
   DatabaseCrashRecoveryIndexRebuildResult,
   DatabaseDiagnosticsSnapshot,
@@ -207,6 +209,22 @@ let openingHandle: unknown = null;
 // Without this we can spawn multiple PGlite initializations at once, which causes
 // nondeterministic wasm aborts and noisy pgvector initialization failures.
 let dbInitializationPromise: Promise<DesktopDatabase> | null = null;
+let profileResetLease: ProfileResetLease | null = null;
+let profileResetPreparation: Promise<ProfileResetLease> | null = null;
+let profileResetAdmissionClosed = false;
+let profileOwnerRetirement: (() => Promise<void>) | undefined;
+let profileOwnerRetirementFailure: { readonly cause: unknown } | null = null;
+
+function assertNoProfileReset(): void {
+  if (profileResetAdmissionClosed) {
+    throw new Error(
+      'Database access refused while a profile reset lease is preparing or owned',
+      profileOwnerRetirementFailure === null
+        ? undefined
+        : { cause: profileOwnerRetirementFailure.cause }
+    );
+  }
+}
 interface DatabaseMutableState {
   // Set when a live handle could not be closed; it may still own the data directory, so nothing
   // reopens, resets or reports a close until the process exits. No API clears it.
@@ -411,13 +429,14 @@ function createResetBackup(appDataDir: string): string | null {
     // retention window — re-bloating disk exactly when space is tight.
     //
     // CONSEQUENCE: because the `.bak` is excluded here AND the reset then
-    // `rmSync`s the whole appDataDir (see resetLocalDatabaseInternal), an
+    // clears the profile under its reset lease, an
     // engine-upgrade `.bak` does NOT survive a reset — a user-confirmed reset
     // landing inside the 14-day retention window destroys the moved-aside old DB
     // with no surviving copy. This is intentional: a reset is an explicit nuke of
     // the profile, and the old dir is unopenable anyway; the retention guarantee is
     // "kept across normal boots", not "kept across an explicit reset".
-    filter: (source) => !isEngineUpgradeBackupName(path.basename(source)),
+    filter: (source) =>
+      source !== RootLock.dirOf(appDataDir) && !isEngineUpgradeBackupName(path.basename(source)),
     force: false,
     recursive: true,
   });
@@ -817,6 +836,12 @@ export function __resetDatabaseModuleStateForTests(): void {
     throw new Error('__resetDatabaseModuleStateForTests can only be used in test mode');
   }
 
+  profileResetLease?.release();
+  profileResetLease = null;
+  profileResetPreparation = null;
+  profileResetAdmissionClosed = false;
+  profileOwnerRetirement = undefined;
+  profileOwnerRetirementFailure = null;
   db = null;
   openingHandle = null;
   dbInitializationPromise = null;
@@ -1200,6 +1225,7 @@ async function initializeMainDatabaseInternal(
 async function initializeLocalMainDatabase(
   onPhase: (report: DatabaseInitPhaseReport) => void = () => undefined
 ): Promise<DesktopDatabase> {
+  assertNoProfileReset();
   if (db) {
     return db as DesktopDatabase;
   }
@@ -1297,6 +1323,7 @@ function writeMarkerBeforeReleasingLock(): void {
 }
 
 export async function reinitializeDatabase(): Promise<DesktopDatabase> {
+  assertNoProfileReset();
   if (!isUtilityProcessRuntime()) {
     const manager = await getRemoteDbHostManager();
     await manager.close();
@@ -1308,17 +1335,15 @@ export async function reinitializeDatabase(): Promise<DesktopDatabase> {
 
 const RESET_QUIESCE_MAX_CLOSES = 3;
 
-/**
- * Reset local database by removing the active profile directory and closing any open connection.
- * This deletes the profile-scoped pgdata and lock files while leaving other profiles untouched.
- * Next access will lazily recreate and migrate from scratch.
+/** Close every legacy DB owner before acquiring the authoritative profile guard.
+ * The returned guard is retained on errors and reused for a retry. Its caller
+ * must preserve the lock and its ancestors through all later destructive work.
  */
-async function resetLocalDatabaseInternal(): Promise<void> {
-  // A close failure aborts the reset before anything is backed up or deleted. An open that starts
-  // after the close would open a directory about to be removed, so settle it too; the code after
-  // this loop is synchronous, so nothing can start an open between the check and the deletes.
-  // Bounded: a caller that reopens the database on every lock release would otherwise livelock
-  // the reset. Giving up deletes nothing.
+async function prepareDatabaseProfileResetInternal(): Promise<ProfileResetLease> {
+  if (!isUtilityProcessRuntime()) {
+    profileResetAdmissionClosed = true;
+    await closeRemoteDbHostManager();
+  }
   let closes = 0;
   do {
     if (closes === RESET_QUIESCE_MAX_CLOSES) {
@@ -1330,40 +1355,97 @@ async function resetLocalDatabaseInternal(): Promise<void> {
     await closeLocalDatabase();
   } while (dbInitializationPromise !== null || db !== null);
 
-  const appDataDir = getAppDataPath();
-  const dataDir = getDatabasePath();
-  let backupDir: string | null = null;
-
-  try {
-    backupDir = createResetBackup(appDataDir);
-    if (backupDir) {
-      logger.warn(`Created database backup before reset: ${backupDir}`);
+  // The old delete was synchronous. Lease clearing yields, so no legacy owner
+  // may reopen between quiescence and the end of the guarded destructive phase.
+  profileResetAdmissionClosed = true;
+  if (profileOwnerRetirement) {
+    try {
+      await profileOwnerRetirement();
+    } catch (cause) {
+      profileOwnerRetirementFailure ??= { cause };
+      throw cause;
     }
-  } catch (err) {
-    logger.error('Failed to backup app data directory before reset', {
-      appDataDir,
-      error: getErrorDetails(err),
+    profileOwnerRetirement = undefined;
+    profileOwnerRetirementFailure = null;
+  }
+  const appDataDir = getAppDataPath();
+  const profileExisted = existsSync(appDataDir);
+  let guard: ProfileResetLease;
+  try {
+    mkdirSync(appDataDir, { recursive: true });
+    guard = await acquireProfileResetLease(appDataDir);
+  } catch (error) {
+    profileResetAdmissionClosed = false;
+    throw error;
+  }
+  let clearing: Promise<void> | null = null;
+  const clear = async (): Promise<void> => {
+    if (guard.isReleased) {
+      throw new Error('Profile reset lease is released');
+    }
+    if (profileExisted) {
+      const backupDir = createResetBackup(appDataDir);
+      if (backupDir) {
+        logger.warn(`Created database backup before reset: ${backupDir}`);
+      }
+    }
+    await guard.clearRootContents();
+    mkdirSync(getDatabasePath(), { recursive: true });
+    logger.info(`Cleared database profile under reset lease: ${appDataDir}`);
+  };
+  const lease: ProfileResetLease = {
+    clearRootContents(): Promise<void> {
+      clearing ??= clear().finally(() => {
+        clearing = null;
+      });
+      return clearing;
+    },
+    get isReleased(): boolean {
+      return guard.isReleased;
+    },
+    release(): void {
+      if (clearing) {
+        throw new Error('Cannot release profile reset lease while clearing');
+      }
+      guard.release();
+      if (profileResetLease === lease) {
+        profileResetLease = null;
+        profileResetAdmissionClosed = false;
+      }
+    },
+    root: guard.root,
+  };
+  profileResetLease = lease;
+  return lease;
+}
+
+export interface PrepareDatabaseProfileResetOptions {
+  /** Join the owned native host only after the legacy PG writer has exited. */
+  readonly retireProfileOwner?: () => Promise<void>;
+}
+
+export async function prepareDatabaseProfileReset(
+  options: PrepareDatabaseProfileResetOptions = {}
+): Promise<ProfileResetLease> {
+  if (profileResetLease && !profileResetLease.isReleased) {
+    return profileResetLease;
+  }
+  if (profileResetPreparation) {
+    return await profileResetPreparation;
+  }
+  // A failed retirement retains its exact owner callback; retry cannot bypass it.
+  profileOwnerRetirement ??= options.retireProfileOwner;
+  profileResetPreparation ??= prepareDatabaseProfileResetInternal()
+    .catch((cause: unknown) => {
+      if (!profileResetLease && profileOwnerRetirementFailure === null) {
+        profileResetAdmissionClosed = false;
+      }
+      throw cause;
+    })
+    .finally(() => {
+      profileResetPreparation = null;
     });
-    throw err;
-  }
-
-  // Delete the active profile directory for a complete profile-scoped reset.
-  try {
-    rmSync(appDataDir, { force: true, recursive: true });
-    logger.info(`Removed app data directory: ${appDataDir}`);
-  } catch (err) {
-    logger.error('Failed to remove app data directory:', err);
-    throw err;
-  }
-
-  // Recreate empty pgdata dir to avoid first-run permission flakiness
-  try {
-    mkdirSync(dataDir, { recursive: true });
-    logger.info(`Recreated database directory: ${dataDir}`);
-  } catch (err) {
-    logger.error('Failed to recreate database directory:', err);
-    throw err;
-  }
+  return await profileResetPreparation;
 }
 
 export interface InitializeMainDatabaseOptions {
@@ -1377,6 +1459,7 @@ export interface InitializeMainDatabaseOptions {
 export async function initializeMainDatabase(
   options: InitializeMainDatabaseOptions = {}
 ): Promise<DesktopDatabase> {
+  assertNoProfileReset();
   if (isUtilityProcessRuntime()) {
     return await initializeLocalMainDatabase(options.onPhase);
   }
@@ -1390,6 +1473,8 @@ export async function initializeMainDatabase(
 }
 
 export async function getDatabase(): Promise<DesktopDatabase> {
+  assertNoProfileReset();
+  assertNoProfileReset();
   if (isUtilityProcessRuntime()) {
     return await getLocalDatabase();
   }
@@ -1405,11 +1490,14 @@ export async function closeDatabase(): Promise<void> {
   await closeRemoteDbHostManager();
 }
 
-export async function resetLocalDatabase(): Promise<void> {
-  if (isUtilityProcessRuntime()) {
-    await resetLocalDatabaseInternal();
-    return;
+/** A supplied guard is borrowed; only the standalone developer reset releases its own guard. */
+export async function resetLocalDatabase(lease?: ProfileResetLease): Promise<void> {
+  const owned = lease ?? (await prepareDatabaseProfileReset());
+  if (owned !== profileResetLease || owned.isReleased) {
+    throw new Error('Database reset requires the active owned profile reset lease');
   }
-  await closeRemoteDbHostManager();
-  await resetLocalDatabaseInternal();
+  await owned.clearRootContents();
+  if (lease === undefined) {
+    owned.release();
+  }
 }
