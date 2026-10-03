@@ -8,19 +8,33 @@ import {
   coverageRequestSchema,
   coverageSchema,
   decoder,
+  fileBindingsSchema,
   IndexerError,
   identitySchema,
   identityStateSchema,
   infoSchema,
+  manifestRequestSchema,
+  manifestResultSchema,
   optionsSchema,
   planSchema,
   profileSchema,
+  scopedCommitSchema,
+  scopedCoverageRequestSchema,
+  scopedCoverageSchema,
+  scopedManifestRequestSchema,
+  scopedManifestResultSchema,
+  scopedPlanSchema,
+  scopedPrepareSchema,
+  scopedRemoveSchema,
+  scopedSearchResultSchema,
+  scopedSearchSchema,
+  scopedTextCommitSchema,
   searchResultSchema,
   searchSchema,
   snapshotSchema,
   textCommitSchema,
 } from './contracts.js';
-import type { IndexerPort } from './index.js';
+import type { IndexerPort, ScopedIndexerPort } from './index.js';
 import { RpcClient } from './rpc-client.js';
 
 const duration = Schema.Finite.check(Schema.isGreaterThan(0));
@@ -64,7 +78,7 @@ export interface IndexerConnection {
   close(): Promise<void>;
   destroy(): Promise<void>;
   readonly exited: boolean;
-  readonly ready: Promise<IndexerPort>;
+  readonly ready: Promise<IndexerPort & ScopedIndexerPort>;
 }
 export function createIndexerConnection(
   input: unknown,
@@ -222,10 +236,18 @@ export function createIndexerConnection(
     });
     return closeAttempt;
   };
-  const port: IndexerPort = {
+  const port: IndexerPort & ScopedIndexerPort = {
     close,
     commitFile: async (commit) =>
       call('commit-file', decoder(commitSchema)(commit), decoder(commitResultSchema)),
+    commitScopedFile: async (request) =>
+      call('commit-scoped-file', decoder(scopedCommitSchema)(request), decoder(commitResultSchema)),
+    commitScopedTextFile: async (request) =>
+      call(
+        'commit-scoped-text-file',
+        decoder(scopedTextCommitSchema)(request),
+        decoder(commitResultSchema)
+      ),
     commitTextFile: async (commit) =>
       call('commit-text-file', decoder(textCommitSchema)(commit), decoder(commitResultSchema)),
     configureVectorProfile: async (profile) =>
@@ -236,6 +258,12 @@ export function createIndexerConnection(
       ),
     coverage: async (request) =>
       call('coverage', decoder(coverageRequestSchema)(request), decoder(coverageSchema)),
+    coverageScope: async (request) =>
+      call(
+        'coverage-scope',
+        decoder(scopedCoverageRequestSchema)(request),
+        decoder(scopedCoverageSchema)
+      ),
     destroy: async () => {
       await close();
       for (const file of [options.dbPath, `${options.dbPath}-wal`, `${options.dbPath}-shm`]) {
@@ -245,10 +273,39 @@ export function createIndexerConnection(
     info: () => call('info', null, decoder(infoSchema)),
     prepareFile: async (snapshot) =>
       call('prepare-file', decoder(snapshotSchema)(snapshot), decoder(planSchema)),
+    prepareScopedFile: async (request) =>
+      call('prepare-scoped-file', decoder(scopedPrepareSchema)(request), decoder(scopedPlanSchema)),
     removeFile: async (identity) =>
       call('remove-file', decoder(identitySchema)(identity), decoder(Schema.Boolean)),
+    removeScopedFile: async (request) =>
+      call('remove-scoped-file', decoder(scopedRemoveSchema)(request), decoder(Schema.Boolean)),
+    replaceFileBindings: async (bindings) => {
+      await call(
+        'replace-file-bindings',
+        decoder(fileBindingsSchema)(bindings),
+        decoder(Schema.Boolean)
+      );
+    },
     search: async (request) =>
       call('search', decoder(searchSchema)(request), decoder(searchResultSchema)),
+    searchScopes: async (request) =>
+      call(
+        'search-scopes',
+        decoder(scopedSearchSchema)(request),
+        decoder(scopedSearchResultSchema)
+      ),
+    verifyManifest: async (request) =>
+      call(
+        'verify-manifest',
+        decoder(manifestRequestSchema)(request),
+        decoder(manifestResultSchema)
+      ),
+    verifyScopedManifest: async (request) =>
+      call(
+        'verify-scoped-manifest',
+        decoder(scopedManifestRequestSchema)(request),
+        decoder(scopedManifestResultSchema)
+      ),
   };
   const ready = (async () => {
     try {

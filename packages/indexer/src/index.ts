@@ -5,6 +5,11 @@ import type {
   IndexerCoverage,
   IndexerIdentity,
   IndexerInfo,
+  IndexerManifestResult,
+  ScopedCoverage,
+  ScopedFilePlan,
+  ScopedManifestResult,
+  ScopedSearchResult,
   SearchResult,
 } from './contracts.js';
 import {
@@ -26,14 +31,29 @@ export type {
   IndexerCoverage,
   IndexerIdentity,
   IndexerInfo,
+  IndexerManifestRequest,
+  IndexerManifestResult,
   IndexerOptions,
+  IndexFileBinding,
+  IndexScope,
   ProvidedChunk,
   ProvidedFileSnapshot,
+  ScopedCoverage,
+  ScopedCoverageRequest,
+  ScopedFilePlan,
+  ScopedFileSnapshot,
+  ScopedManifestChunk,
+  ScopedManifestFile,
+  ScopedManifestRequest,
+  ScopedManifestResult,
+  ScopedSearchResult,
   SearchRequest,
   SearchResult,
   TextFileCommit,
+  VectorProfile,
 } from './contracts.js';
 export { IndexerError } from './contracts.js';
+export { vectorProfileHash } from './scope-authority.js';
 export type { IndexerDeadlines } from './transport.js';
 export { IndexerLifecycleError } from './transport.js';
 export interface IndexerPort {
@@ -47,8 +67,23 @@ export interface IndexerPort {
   prepareFile(snapshot: unknown): Promise<FilePlan>;
   removeFile(identity: unknown): Promise<boolean>;
   search(request: unknown): Promise<SearchResult>;
+  verifyManifest(request: unknown): Promise<IndexerManifestResult>;
 }
-export async function openIndexer(input: unknown, deadlineInput: unknown): Promise<IndexerPort> {
+/** Trusted main/catalog owner port. Never forward renderer-supplied binding inventories. */
+export interface ScopedIndexerPort {
+  commitScopedFile(commit: unknown): Promise<CommitResult>;
+  commitScopedTextFile(commit: unknown): Promise<CommitResult>;
+  coverageScope(request: unknown): Promise<ScopedCoverage>;
+  prepareScopedFile(request: unknown): Promise<ScopedFilePlan>;
+  removeScopedFile(identity: unknown): Promise<boolean>;
+  replaceFileBindings(bindings: unknown): Promise<void>;
+  searchScopes(request: unknown): Promise<ScopedSearchResult>;
+  verifyScopedManifest(request: unknown): Promise<ScopedManifestResult>;
+}
+export async function openIndexer(
+  input: unknown,
+  deadlineInput: unknown
+): Promise<IndexerPort & ScopedIndexerPort> {
   if (process.versions['electron']) {
     throw new Error('Standalone indexer requires Node; use the explicit Electron utility adapter.');
   }

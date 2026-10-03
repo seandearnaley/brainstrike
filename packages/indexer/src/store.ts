@@ -21,6 +21,7 @@ import {
   IndexerError,
   type IndexerIdentity,
   type IndexerInfo,
+  type IndexerManifestResult,
   type IndexerOptions,
   identitySchema,
   optionsSchema,
@@ -30,7 +31,7 @@ import {
   snapshotSchema,
   textCommitSchema,
 } from './contracts.js';
-
+import { verifyIndexManifest } from './index-manifest.js';
 import {
   configuredEmbedding,
   freshIdentity,
@@ -39,6 +40,8 @@ import {
   validateAcquisition,
   validateChunkEmbeddingState,
 } from './index-metadata.js';
+import { ScopeAuthority } from './scope-authority.js';
+import { ScopedIndex } from './scoped-store.js';
 
 type PreparedCommit = Pick<FileCommit, 'plan' | 'syntax' | 'embeddings'>;
 const numberId = Schema.Int.check(
@@ -131,9 +134,11 @@ export class IndexWriter {
   readonly options: IndexerOptions;
   readonly allowed: ReadonlySet<string>;
   readonly info: IndexerInfo;
+  readonly scoped: ScopedIndex;
   constructor(input: unknown) {
     this.options = decoder(optionsSchema)(input);
     this.allowed = new Set(this.options.rootIds);
+    new ScopeAuthority(this.options);
     const fresh = !existsSync(this.options.dbPath);
     if (fresh && this.options.embedding.indexMode === 'open-existing') {
       throw new IndexerError(
@@ -205,6 +210,12 @@ export class IndexWriter {
         throw new IndexerError('rebuild-required', 'Derived chunk/vector counts disagree.');
       }
       validateChunkEmbeddingState(this.db, this.identity);
+      this.scoped = new ScopedIndex(this.db, this.options, {
+        replace: (syntax, fileId, changed) => this.replaceSyntax(syntax, fileId, changed),
+        validate: (syntax, fileId) => this.validateSyntax(syntax, fileId),
+      });
+      this.scoped.validateStorage();
+      this.scoped.beginOwnerEpoch();
       this.info = {
         dbPath: this.options.dbPath,
         journalMode: decoder(Schema.String)(this.db.pragma('journal_mode', { simple: true })),
@@ -226,8 +237,8 @@ export class IndexWriter {
     this.db.transaction(() => {
       this.db.exec(`
         CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY CHECK(singleton=1),schema_version INTEGER NOT NULL,store_id TEXT NOT NULL,index_mode TEXT NOT NULL CHECK(index_mode IN ('text-only','vector-configured')),profile_json TEXT,profile_hash TEXT,CHECK((index_mode='text-only' AND profile_json IS NULL AND profile_hash IS NULL) OR (index_mode='vector-configured' AND profile_json IS NOT NULL AND profile_hash IS NOT NULL)));
-        CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT NOT NULL,name TEXT NOT NULL,path TEXT NOT NULL,content_hash TEXT NOT NULL,snapshot_hash TEXT NOT NULL,UNIQUE(root_id,id));
-        CREATE TABLE file_chunks(pk INTEGER PRIMARY KEY,id TEXT UNIQUE NOT NULL,root_id TEXT NOT NULL,file_record_id TEXT NOT NULL,start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,content TEXT NOT NULL,content_hash TEXT NOT NULL,embedding_hash TEXT,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER,has_vector INTEGER NOT NULL CHECK(has_vector IN (0,1)),CHECK(has_vector=0 OR embedding_hash IS NOT NULL),CHECK((chunk_index IS NULL AND chunk_size IS NULL AND chunk_type IS NULL AND start_offset IS NULL AND end_offset IS NULL AND token_count IS NULL) OR (chunk_index IS NOT NULL AND chunk_size IS NOT NULL AND chunk_type IS NOT NULL AND start_offset IS NOT NULL AND end_offset IS NOT NULL AND token_count IS NOT NULL AND chunk_index>=0 AND chunk_size>0 AND chunk_type IN ('text','sentence','recursive') AND start_offset>=0 AND end_offset>start_offset AND token_count>0)),FOREIGN KEY(root_id,file_record_id) REFERENCES file_records(root_id,id) ON DELETE CASCADE);
+        CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,name TEXT NOT NULL,path TEXT,embedding_set_id TEXT,source_path TEXT,scoped INTEGER NOT NULL DEFAULT 0 CHECK(scoped IN (0,1)),content_hash TEXT NOT NULL,snapshot_hash TEXT NOT NULL,UNIQUE(root_id,id),CHECK((root_id IS NULL AND path IS NULL AND embedding_set_id IS NOT NULL AND scoped=1) OR (root_id IS NOT NULL AND path IS NOT NULL)));
+        CREATE TABLE file_chunks(pk INTEGER PRIMARY KEY,id TEXT UNIQUE NOT NULL,root_id TEXT,file_record_id TEXT NOT NULL,start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,content TEXT NOT NULL,content_hash TEXT NOT NULL,embedding_hash TEXT,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER,has_vector INTEGER NOT NULL CHECK(has_vector IN (0,1)),CHECK(has_vector=0 OR embedding_hash IS NOT NULL),CHECK((chunk_index IS NULL AND chunk_size IS NULL AND chunk_type IS NULL AND start_offset IS NULL AND end_offset IS NULL AND token_count IS NULL) OR (chunk_index IS NOT NULL AND chunk_size IS NOT NULL AND chunk_type IS NOT NULL AND start_offset IS NOT NULL AND end_offset IS NOT NULL AND token_count IS NOT NULL AND chunk_index>=0 AND chunk_size>0 AND chunk_type IN ('text','sentence','recursive') AND start_offset>=0 AND end_offset>start_offset AND token_count>0)),FOREIGN KEY(file_record_id) REFERENCES file_records(id) ON DELETE CASCADE);
         CREATE INDEX chunks_file ON file_chunks(root_id,file_record_id);
         CREATE TABLE file_symbols(file_record_id TEXT NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,seq INTEGER NOT NULL,name TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('function','class','method','variable','interface','type','enum')),exported INTEGER NOT NULL CHECK(exported IN (0,1)),start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,start_offset INTEGER NOT NULL,end_offset INTEGER NOT NULL,PRIMARY KEY(file_record_id,seq)) WITHOUT ROWID;
         CREATE INDEX idx_file_symbols_name ON file_symbols(name);
@@ -251,6 +262,7 @@ export class IndexWriter {
           INSERT INTO file_chunks_trigram(rowid,content) VALUES(new.pk,new.content);
         END;
       `);
+      ScopedIndex.initialize(this.db);
       const identity = freshIdentity(this.options);
       const embedding = identity.embedding;
       this.db
@@ -286,7 +298,13 @@ export class IndexWriter {
       }
       const chunks = decoder(
         Schema.Array(Schema.Struct({ contentHash: Schema.String, id: Schema.String }))
-      )(this.db.prepare('SELECT id,content_hash AS contentHash FROM file_chunks').all());
+      )(
+        this.db
+          .prepare(
+            'SELECT c.id,c.content_hash AS contentHash FROM file_chunks c JOIN file_records f ON f.id=c.file_record_id WHERE f.scoped=0'
+          )
+          .all()
+      );
       this.db
         .prepare(
           'UPDATE index_metadata SET index_mode=?,profile_json=?,profile_hash=? WHERE singleton=1'
@@ -321,6 +339,7 @@ export class IndexWriter {
   }
   private commitValidated(request: PreparedCommit, vectorsRequired: boolean): CommitResult {
     authorize(this.allowed, [request.plan.snapshot.rootId]);
+    this.assertLegacyFile(request.plan.snapshot.fileId);
     const identity = this.identity;
     if (
       request.plan.storeId !== identity.storeId ||
@@ -619,9 +638,15 @@ export class IndexWriter {
       writtenSymbols: syntax.symbols.length,
     };
   }
+  private assertLegacyFile(fileId: string): void {
+    if (this.db.prepare('SELECT 1 FROM file_records WHERE id=? AND scoped=1').get(fileId)) {
+      throw new IndexerError('scoped-file-required', 'Use the scoped API for this canonical file.');
+    }
+  }
   remove(input: unknown): boolean {
     const identity = decoder(identitySchema)(input);
     authorize(this.allowed, [identity.rootId]);
+    this.assertLegacyFile(identity.fileId);
     return this.db.transaction(() => {
       const chunks = decoder(Schema.Array(Schema.Struct({ id: numberId })))(
         this.db
@@ -641,6 +666,7 @@ export class IndexWriter {
 }
 
 export class IndexReader {
+  readonly scoped: ScopedIndex;
   readonly db: Database.Database;
   readonly options: IndexerOptions;
   readonly allowed: ReadonlySet<string>;
@@ -651,6 +677,7 @@ export class IndexReader {
     try {
       validateAcquisition(this.db, this.options);
       this.db.pragma('query_only = ON');
+      this.scoped = new ScopedIndex(this.db, this.options);
     } catch (error) {
       this.db.close();
       throw error;
@@ -690,6 +717,9 @@ export class IndexReader {
         unchanged: existing?.snapshotHash === snapshotHash(snapshot),
       });
     })();
+  }
+  verifyManifest(input: unknown): IndexerManifestResult {
+    return verifyIndexManifest(this.db, this.allowed, input);
   }
   coverage(input: unknown): IndexerCoverage {
     const request = decoder(coverageRequestSchema)(input);

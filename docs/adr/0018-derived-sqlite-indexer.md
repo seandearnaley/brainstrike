@@ -36,12 +36,28 @@ Canonical producers submit root-relative file snapshots with unchanged provided
 chunks from the existing parser/chunker. The foundation also accepts an explicit
 line policy as a separate input shape. Validate provided SHA hashes and exact or
 canonically normalized source spans without a parse pass or re-splitting.
-Persist original indices/offsets/token/type/size metadata and explicit vector presence in schema4; opening an
+Persist original indices/offsets/token/type/size metadata in schema5; opening an
 older schema requires explicit rebuild and preserves its files. Stable position identities and content/profile hashes let unchanged
 chunks retain their embeddings. Preparation captures the previous snapshot hash;
 a writer transaction rejects stale preparation and atomically changes chunks,
 FTS rows, vectors and optional canonical parser symbols/references. The host
 forwards the parser output it already produced; the indexer does not parse again.
+
+## M2 collection/profile extension
+
+Retain canonical PG file and collection identities in the same derived file/chunk/graph
+relations, with nullable workspace metadata and actual scalar embedding-set membership.
+Main supplies trusted exact file/profile bindings through the additive scoped owner port;
+owner binding replacement/removal and writer restart invalidate prepared work. Keep the
+legacy workspace APIs during consumer transition.
+
+A complete profile hash includes provider, model, dimensions, distance and the local
+revision/dtype/token-cap where defined. Store Float32 vectors by chunk/profile, retaining
+other profiles across selection changes. Dimension-specific vec0 binary tables partition
+by full profile hash; an authorized integer vector-ID predicate applies before top100,
+followed by exact cosine rerank. Unsupported metrics/dimensions reject explicitly. This
+storage extension qualifies no new model inference or retrieval-quality policy. Prior
+derived schemas require explicit rebuilding; opening preserves their files and PG data.
 
 ## Consequences
 
