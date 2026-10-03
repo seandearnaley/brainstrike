@@ -60,15 +60,15 @@
       "icon": "build/icons",
       "extraResources": [
         {
-          "from": "resources/python-runtime",
+          "from": "resources/python-runtime/linux/${arch}",
           "to": "python-runtime",
           "filter": [
             "manifest.json",
-            "*-x86_64-unknown-linux-gnu-brainstrike-no-dbm-v1.tar.gz"
+            "*-unknown-linux-gnu-brainstrike-no-dbm-v1.tar.gz"
           ]
         },
         {
-          "from": "licenses/python-linux-x64",
+          "from": "licenses/python-linux-${arch}",
           "to": "python-runtime/licenses",
           "filter": [
             "**/*"
@@ -227,8 +227,8 @@
     "start": "node scripts/fetch-python-runtime.mjs --platform=host && pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "start:dev": "pnpm dev:main && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "test": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --exclude \"**/*.integration.test.*\"",
-    "test:packaged-python-layout": "node ../../scripts/run-env.mjs ELECTRON_RUN_AS_NODE=1 -- ./release/linux-unpacked/brainstrike-desktop src/__tests__/fixtures/packaged-python-fence-probe.cjs --layout-only",
-    "test:packaged-python": "node ../../scripts/run-env.mjs ELECTRON_RUN_AS_NODE=1 -- ./release/linux-unpacked/brainstrike-desktop src/__tests__/fixtures/packaged-python-fence-probe.cjs",
+    "test:packaged-python-layout": "node scripts/packaged-python-smoke.mjs --layout-only",
+    "test:packaged-python": "node scripts/packaged-python-smoke.mjs",
     "test:integration": "vitest run --config vitest.integration.config.mts --pool=forks --maxWorkers=1 --no-file-parallelism",
     "test:coverage": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:e2e": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --workers=1 --retries=0",

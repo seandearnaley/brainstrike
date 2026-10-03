@@ -12,12 +12,8 @@ name: Native Package Matrix
 # itself on the PRs that touch its paths, and failures on the nightly run go to
 # Linear (rule 7).
 #
-# The matrix has no linux/arm64 leg ON PURPOSE. The desktop app cannot package
-# for linux/arm64 today: apps/desktop/scripts/prepare-python-runtime-before-pack.mjs
-# rejects it because no linux/arm64 bundled Python runtime exists. A leg that
-# skips the pack would be silent degradation and one that always fails is an
-# alert nobody can act on. Add `ubuntu-24.04-arm` (platform linux, arch arm64)
-# when that script supports it.
+# Linux arm64 uses the same checksum-pinned Python derivation and packaging
+# path as x64; no packaging step or addon smoke is skipped for that target.
 
 on:
   workflow_dispatch:
@@ -43,7 +39,7 @@ permissions:
   contents: read
 
 # No TURBO_TOKEN/TURBO_TEAM: the remote cache is arch- and OS-blind, and this
-# workflow builds on four OS/arch pairs. A restored entry from another runner is
+# workflow builds on five OS/arch pairs. A restored entry from another runner is
 # exactly the cross-platform poisoning the native packages' uncached tasks avoid.
 env:
   ONNXRUNTIME_NODE_INSTALL_CUDA: skip
@@ -62,6 +58,7 @@ jobs:
           - { os: macos-15, platform: darwin, arch: arm64 }
           - { os: macos-15-intel, platform: darwin, arch: x64 }
           - { os: ubuntu-24.04, platform: linux, arch: x64 }
+          - { os: ubuntu-24.04-arm, platform: linux, arch: arm64 }
           - { os: windows-2025, platform: win32, arch: x64 }
     defaults:
       run:

@@ -127,16 +127,52 @@ describe('bundled Linux x64 Python', () => {
     expect(options.fetch).not.toHaveBeenCalled();
   });
 
-  it.each(['arm64', 'ia32', 'riscv64'])(
-    'rejects unsupported Linux %s before manifest I/O',
-    async (arch) => {
-      const options = await fixture();
-      await fsPromises.rm(path.join(options.resourcesDir, 'manifest.json'));
-      await expect(resolvePythonBinary({ ...options, arch })).rejects.toMatchObject({
-        code: 'python_unsupported_platform',
-        message: expect.stringContaining(`linux/${arch}`),
-      });
-      expect(options.fetch).not.toHaveBeenCalled();
-    }
-  );
+  it('resolves the arm64 derived runtime and refuses an upstream-only resource', async () => {
+    const options = await fixture();
+    const target = 'aarch64-unknown-linux-gnu';
+    const derivedName = `cpython-3.13.14+20260728-${target}-brainstrike-no-dbm-v1.tar.gz`;
+    writeManifest(options.resourcesDir, {
+      supportedTargets: [target],
+      targets: {
+        [target]: {
+          bytes: PAYLOAD.length,
+          derived: {
+            archiveFileName: derivedName,
+            bytes: PAYLOAD.length,
+            sha256: SHA256,
+            variant: 'no-dbm-v1',
+          },
+          sha256: 'f'.repeat(64),
+        },
+      },
+    });
+    const installDir = path.join(
+      options.userDataDir,
+      'python-runtime',
+      `cpython-3.13.14+20260728-${target}`
+    );
+    const binary = plantUnpackedRuntime(installDir);
+    writeFileSync(path.join(installDir, '.brainstrike-python-runtime-ok'), SHA256);
+    await expect(resolvePythonBinary({ ...options, arch: 'arm64' })).resolves.toBe(binary);
+    await fsPromises.rm(installDir, { recursive: true });
+    writeFileSync(
+      path.join(options.resourcesDir, `cpython-3.13.14+20260728-${target}-install_only.tar.gz`),
+      PAYLOAD
+    );
+    await expect(resolvePythonBinary({ ...options, arch: 'arm64' })).rejects.toMatchObject({
+      code: 'python_archive_missing',
+      message: expect.stringContaining(derivedName),
+    });
+    expect(options.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(['ia32', 'riscv64'])('rejects unsupported Linux %s before manifest I/O', async (arch) => {
+    const options = await fixture();
+    await fsPromises.rm(path.join(options.resourcesDir, 'manifest.json'));
+    await expect(resolvePythonBinary({ ...options, arch })).rejects.toMatchObject({
+      code: 'python_unsupported_platform',
+      message: expect.stringContaining(`linux/${arch}`),
+    });
+    expect(options.fetch).not.toHaveBeenCalled();
+  });
 });

@@ -4,6 +4,20 @@
 > authorization. Rules here are true now; the record behind each is in
 > `platform-contracts/<topic>.md`.
 
+### Desktop native packaging
+
+- Keep `npmRebuild: false`: `better-sqlite3` and `sqlite-vec` use the exact catalog
+  prebuilds and are never compiled. Deny better-sqlite3 builds in `allowBuilds`;
+  unpack its `.node` and the platform vec0 library. The SQLite extension path
+  maps `app.asar` to `app.asar.unpacked` and throws when that file is absent.
+- Other shipped addons must load under the packaged Electron executable without
+  a rebuild. `node-pty` 1.1 uses N-API, including its Linux install-time build;
+  secure-fs-native uses N-API and Parcel ships platform prebuilds. Prove the real
+  terminal and filesystem operations alongside the isolated SQLite provenance.
+
+Evidence: `platform-contracts/native-packaging.md`.
+Guard: `packages/sqlite-native/test/packaged-smoke.cjs`.
+
 ## LOGGING (PINO V10)
 
 - Initialize with `initializeLogging` from `@brainstrike/logging`, naming the

@@ -131,7 +131,7 @@ export type PythonRuntimeManifest = typeof manifestSchema.Type;
 /**
  * Absolute on purpose: this binary unpacks interpreter code that later runs
  * inside the fence, so it must not be resolvable via a caller-controlled PATH.
- * Used on macOS and Linux glibc x64; a missing OS tar is a typed unpack
+ * Used on macOS and Linux glibc arm64/x64; a missing OS tar is a typed unpack
  * failure, never a PATH-based fallback.
  */
 const TAR_BINARY = '/usr/bin/tar';
@@ -145,6 +145,9 @@ function resolveTargetTriple(platform: string, arch: string): string | undefined
   }
   if (platform === 'linux' && arch === 'x64') {
     return 'x86_64-unknown-linux-gnu';
+  }
+  if (platform === 'linux' && arch === 'arm64') {
+    return 'aarch64-unknown-linux-gnu';
   }
   return;
 }
@@ -472,13 +475,16 @@ async function resolvePythonBinaryUncached(options: ResolvePythonBinaryOptions):
     throw new PythonUnsupportedPlatformError(
       `The bundled Python runtime does not support ${platform}/${arch}` +
         `${triple ? ` (target "${triple}" is not in the manifest)` : ''}. ` +
-        'Bundled targets are macOS arm64/x64 and Linux glibc x64; there is no fallback to a PATH python.'
+        'Bundled targets are macOS arm64/x64 and Linux glibc arm64/x64; there is no fallback to a PATH python.'
     );
   }
 
-  if (targetEntry.derived && triple !== 'x86_64-unknown-linux-gnu') {
+  if (
+    targetEntry.derived &&
+    !['x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu'].includes(triple)
+  ) {
     throw new PythonManifestInvalidError(
-      'The no-dbm-v1 derived runtime is supported for Linux x64 only.'
+      'The no-dbm-v1 derived runtime is supported for Linux arm64/x64 only.'
     );
   }
   const runtimeEntry = targetEntry.derived ?? targetEntry;

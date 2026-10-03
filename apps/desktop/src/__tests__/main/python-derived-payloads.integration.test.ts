@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { list } from 'tar';
 import { describe, expect, it } from 'vitest';
-import { LINUX_DBM_MODULE_PATH } from '../../../scripts/derive-python-runtime.mjs';
+import { linuxDbmModulePath } from '../../../scripts/derive-python-runtime.mjs';
 import {
   type PythonRuntimeManifest,
   renderPythonRuntimeAssetFileName,
@@ -13,14 +13,6 @@ const resourcesDir = path.resolve(import.meta.dirname, '../../../resources/pytho
 const manifest = JSON.parse(
   readFileSync(path.join(resourcesDir, 'manifest.json'), 'utf8')
 ) as PythonRuntimeManifest;
-const target = 'x86_64-unknown-linux-gnu';
-const source = path.join(resourcesDir, renderPythonRuntimeAssetFileName(manifest, target));
-const derivedName = manifest.targets[target]?.derived?.archiveFileName;
-const derived = derivedName ? path.join(resourcesDir, derivedName) : undefined;
-const skipReason =
-  existsSync(source) && derived && existsSync(derived)
-    ? undefined
-    : 'pinned upstream and derived Linux archives required; run fetch:python-runtime first';
 
 interface Payload {
   bytes: number;
@@ -67,7 +59,19 @@ async function archivePayloads(file: string): Promise<Map<string, Payload>> {
   return payloads;
 }
 
-describe('derived Linux Python payload audit', () => {
+describe.each([
+  { pycTimestamp: 1_784_818_192, target: 'x86_64-unknown-linux-gnu' },
+  { pycTimestamp: 1_784_817_836, target: 'aarch64-unknown-linux-gnu' },
+])('derived Linux Python payload audit $target', ({ target, pycTimestamp }) => {
+  const LINUX_DBM_MODULE_PATH = linuxDbmModulePath(target);
+  const source = path.join(resourcesDir, renderPythonRuntimeAssetFileName(manifest, target));
+  const derivedName = manifest.targets[target]?.derived?.archiveFileName;
+  const derived = derivedName ? path.join(resourcesDir, derivedName) : undefined;
+  const skipReason =
+    existsSync(source) && derived && existsSync(derived)
+      ? undefined
+      : 'pinned upstream and derived Linux archives required; run fetch:python-runtime first';
+
   it.skipIf(skipReason !== undefined)(
     `removes exactly the Berkeley DB-linked module and preserves every other payload${skipReason ? ` [SKIPPED: ${skipReason}]` : ''}`,
     async () => {
@@ -103,7 +107,7 @@ describe('derived Linux Python payload audit', () => {
         expect(originalSource, sourceName).toBeDefined();
         expect(derivedSource, sourceName).toBeDefined();
         expect(header.readUInt32LE(12), name).toBe(originalSource?.bytes);
-        expect(header.readUInt32LE(8), name).toBe(1_784_818_192);
+        expect(header.readUInt32LE(8), name).toBe(pycTimestamp);
         // These three caches are already stale in the pinned upstream. Preserve
         // that evidence: restoring its mtimes would not avoid recompilation.
         expect(header.readUInt32LE(8), name).not.toBe(originalSource?.mtime);
