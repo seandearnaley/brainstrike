@@ -1,0 +1,20 @@
+{
+  "extends": [
+    "//"
+  ],
+  "tasks": {
+    "test": {
+      "dependsOn": [
+        "topo",
+        "build"
+      ]
+    },
+    "test:integration": {
+      "dependsOn": [
+        "topo",
+        "build"
+      ],
+      "cache": false
+    }
+  }
+}

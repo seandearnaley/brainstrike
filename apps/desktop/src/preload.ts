@@ -21,6 +21,7 @@ import {
 import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-system.contract';
 import { forgeContract } from './ipc-domains/forge.contract';
 import { gitContract } from './ipc-domains/git.contract';
+import { indexSearchContract } from './ipc-domains/index-search.contract';
 import {
   mcpAppsContract,
   mcpContentContract,
@@ -455,6 +456,9 @@ contextBridge.exposeInMainWorld('providerAuth', {
 
 // Settings Store API (factory reset support)
 exposeBridge('settings', settingsContract);
+if (shouldExposeBridge('indexSearch')) {
+  exposeBridge('indexSearch', indexSearchContract);
+}
 
 contextBridge.exposeInMainWorld('desktopLifecycle', {
   isTestMode: DESKTOP_TEST_MODE,

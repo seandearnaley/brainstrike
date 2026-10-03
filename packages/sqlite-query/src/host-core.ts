@@ -19,6 +19,9 @@ export function createQueryHost(
       if (!sandbox) {
         throw new Error('SQLite query process has not been initialized.');
       }
+      if (request.kind === 'grep') {
+        return { id: request.id, kind: 'grepRows', result: sandbox.grep(request) };
+      }
       let result: SqliteRows;
       switch (request.kind) {
         case 'query':

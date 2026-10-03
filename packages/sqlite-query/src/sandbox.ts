@@ -1,8 +1,9 @@
 import { constants, DatabaseSync } from 'node:sqlite';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { sqliteVecExtensionPath } from '@brainstrike/sqlite-native';
+import { createGrepLineMatcher } from '@brainstrike/utils/grep-line-matcher';
 import { Schema } from 'effect';
-import type { SqliteRows, SqliteValue } from './protocol.js';
+import type { SqliteGrepOptions, SqliteGrepRows, SqliteRows, SqliteValue } from './protocol.js';
 import { REVIEWED_FUNCTIONS } from './reviewed-functions.js';
 
 const HEAP_LIMIT = 512 * 1024 * 1024;
@@ -136,6 +137,51 @@ export class SqliteSandbox {
     return { columns, rows, truncated };
   }
 
+  /** Exhaustive authorized-scope scan in this killable reader, never the writer. */
+  grep(options: SqliteGrepOptions): SqliteGrepRows {
+    validateGrepOptions(options);
+    const matcher = createGrepLineMatcher(options.pattern, options.isRegex, options.caseSensitive);
+    const placeholders = options.rootIds.map(() => '?').join(',');
+    const statement = this.#database.prepare(
+      `SELECT ch.id,ch.root_id,ch.file_record_id,fr.path,ch.content,ch.content_hash,ch.start_line,ch.end_line,ch.chunk_index,ch.chunk_size,ch.chunk_type,ch.start_offset,ch.end_offset,ch.token_count FROM file_chunks ch JOIN file_records fr ON fr.id=ch.file_record_id AND fr.root_id=ch.root_id WHERE ch.root_id IN (${placeholders}) ORDER BY fr.path,ch.id`
+    );
+    statement.setReturnArrays(true);
+    const columns = statement.columns().map((column) => column.name);
+    const rows: (readonly SqliteValue[])[] = [];
+    let matchedChunks = 0;
+    let resultBytes = columns.reduce((total, column) => total + Buffer.byteLength(column) + 16, 0);
+    for (const output of statement.iterate(...options.rootIds)) {
+      const row = decodeRow(output);
+      const content = row[4];
+      if (typeof content !== 'string') {
+        throw new TypeError('Native grep chunk content must be text.');
+      }
+      if (!content.split('\n').some((line) => matcher.matches(line))) {
+        continue;
+      }
+      matchedChunks += 1;
+      if (rows.length === options.maxRows) {
+        continue;
+      }
+      for (const cell of row) {
+        resultBytes +=
+          16 +
+          (typeof cell === 'string'
+            ? Buffer.byteLength(cell)
+            : cell instanceof Uint8Array
+              ? cell.byteLength
+              : 32);
+      }
+      if (resultBytes > RESULT_LIMIT) {
+        throw new RangeError(
+          'Grep result exceeds the 1 MiB process-message budget. Reduce the result limit or refine the pattern.'
+        );
+      }
+      rows.push(row);
+    }
+    return { columns, matchedChunks, rows, truncated: matchedChunks > rows.length };
+  }
+
   listTables(): SqliteRows {
     return this.query(
       "SELECT name,type FROM sqlite_schema WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name",
@@ -154,6 +200,20 @@ export class SqliteSandbox {
 
   close(): void {
     this.#database.close();
+  }
+}
+
+function validateGrepOptions(options: SqliteGrepOptions): void {
+  if (
+    options.rootIds.length === 0 ||
+    options.rootIds.length > 100 ||
+    options.rootIds.some((root) => !root.trim()) ||
+    new Set(options.rootIds).size !== options.rootIds.length
+  ) {
+    throw new TypeError('Grep requires between 1 and 100 distinct nonempty root IDs.');
+  }
+  if (options.pattern.length < 2 || options.pattern.length > LENGTH_LIMIT) {
+    throw new TypeError('Grep pattern must have at least two characters and fit the value limit.');
   }
 }
 

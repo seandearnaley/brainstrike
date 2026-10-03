@@ -522,6 +522,9 @@ importers:
       '@brainstrike/host-lease':
         specifier: workspace:*
         version: link:../../packages/host-lease
+      '@brainstrike/indexer':
+        specifier: workspace:*
+        version: link:../../packages/indexer
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../../packages/indexing-contract
@@ -2737,6 +2740,42 @@ importers:
         specifier: 'catalog:'
         version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@8.3.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))
 
+  packages/indexer:
+    dependencies:
+      '@brainstrike/chunking-worker':
+        specifier: workspace:*
+        version: link:../chunking-worker
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../effect-kit
+      '@brainstrike/sqlite-native':
+        specifier: workspace:*
+        version: link:../sqlite-native
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.118
+    devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.45.0
+      '@types/better-sqlite3':
+        specifier: 'catalog:'
+        version: 9.6.0
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.13.3
+      typescript:
+        specifier: 'catalog:'
+        version: '@typescript/typescript6@6.0.2'
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@8.3.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))
+
+
+
   packages/indexing-contract:
     dependencies:
       '@brainstrike/logging':
@@ -3226,6 +3265,9 @@ importers:
       '@brainstrike/sqlite-native':
         specifier: workspace:*
         version: link:../sqlite-native
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.118

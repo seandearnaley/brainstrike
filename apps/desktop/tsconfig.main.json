@@ -151,7 +151,9 @@
     "src/setup-security.ts",
     "src/agent-client-loader.ts",
     "src/provider-api-key.ts",
-    "src/types/**/*.d.ts"
+    "src/types/**/*.d.ts",
+    "src/indexer-host-entry.ts",
+    "src/indexer-host-manager.ts"
   ],
   "exclude": [
     "node_modules",
