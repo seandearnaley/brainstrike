@@ -1,5 +1,5 @@
 -- description: Hybrid retrieval over a symbol's caller graph — traverse transitive callers, then rank the reachable files' chunks with the BM25 and vector arms, RRF-fused (BST-935 canonical statement)
--- target: index
+-- target: app
 -- param: symbol text  Seed symbol name, e.g. startEmbeddingWorker (exact match against file_symbols.name)
 -- param: terms text   BM25 search terms as prose words (english config does not split camelCase identifiers)
 WITH RECURSIVE callers(file_record_id, seq, name, depth) AS (

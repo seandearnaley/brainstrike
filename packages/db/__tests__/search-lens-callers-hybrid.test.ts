@@ -13,21 +13,20 @@ import {
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 /**
- * PGlite caller golden retained for hosted web until M6 (BST-1924). The
- * canonical index lens can move to SQLite while this checked-in PGlite SQL
- * fixture runs through the REAL pipeline:
+ * Golden for the currently shipped PGlite caller lens (BST-1924). Read the
+ * actual artifact and verify its declared target before the REAL pipeline:
  * contract parser → declared-type coercion → sandbox execution with true
- * bind parameters. This fixture retains the proven web hybrid
+ * bind parameters. The artifact retains the proven web hybrid
  * statement; if someone edits it into an unparseable or unadmittable shape,
  * this fails, not a live model run.
  */
 
 const LENS_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  './fixtures/callers-hybrid-pglite.sql'
+  '../../../.brainstrike/lenses/callers-hybrid.sql'
 );
 
-describe('PGlite caller lens (web golden until M6)', () => {
+describe('shipped PGlite caller lens routing and execution', () => {
   let db: PGlite;
   let service: AgentSqlService;
 
@@ -61,6 +60,7 @@ describe('PGlite caller lens (web golden until M6)', () => {
     if (!parsed.ok) {
       throw new Error(parsed.error);
     }
+    expect(parsed.lens.target).toBe('app');
     const coerced = coerceLensValues(parsed.lens.params, [
       HYBRID_FIXTURE_SYMBOL,
       HYBRID_FIXTURE_TERMS,
@@ -86,6 +86,7 @@ describe('PGlite caller lens (web golden until M6)', () => {
     if (!parsed.ok) {
       throw new Error(parsed.error);
     }
+    expect(parsed.lens.target).toBe('app');
     const hostile = `x'; DROP TABLE file_symbols; --`;
     const result = await service.query(parsed.lens.sql, {
       params: [hostile, HYBRID_FIXTURE_TERMS],
