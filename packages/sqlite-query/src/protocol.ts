@@ -36,10 +36,17 @@ const GrepFields = {
 const GrepRequestSchema = Schema.Struct({ id: Id, kind: Schema.Literal('grep'), ...GrepFields });
 export type SqliteGrepOptions = Omit<typeof GrepRequestSchema.Type, 'id' | 'kind'>;
 
+const RequirementSchema = Schema.Struct({
+  kind: Schema.Literal('caller-vectors'),
+  symbol: Schema.String.check(Schema.isPattern(/\S/u)),
+});
+export type SqliteQueryRequirement = typeof RequirementSchema.Type;
+
 const QueryFields = {
   bindings: Schema.optional(Schema.Record(Schema.String, Value)),
   id: Id,
   maxRows: Schema.Int.check(Schema.isBetween({ maximum: 200, minimum: 1 })),
+  requirement: Schema.optional(RequirementSchema),
   sql: Schema.String,
   values: Schema.Array(Value),
 };

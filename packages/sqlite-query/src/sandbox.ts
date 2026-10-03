@@ -4,7 +4,14 @@ import { decodeIndexIdentityRow, type IndexerIdentity } from '@brainstrike/index
 import { sqliteVecExtensionPath } from '@brainstrike/sqlite-native';
 import { createGrepLineMatcher } from '@brainstrike/utils/grep-line-matcher';
 import { Schema } from 'effect';
-import type { SqliteGrepOptions, SqliteGrepRows, SqliteRows, SqliteValue } from './protocol.js';
+import { requireCallerVectors } from './caller-vectors.js';
+import type {
+  SqliteGrepOptions,
+  SqliteGrepRows,
+  SqliteQueryRequirement,
+  SqliteRows,
+  SqliteValue,
+} from './protocol.js';
 import { REVIEWED_FUNCTIONS } from './reviewed-functions.js';
 
 const HEAP_LIMIT = 512 * 1024 * 1024;
@@ -26,6 +33,7 @@ const decodeHeap = makeThrowingDecoder(Schema.Struct({ ['hard_heap_limit']: Sche
 
 export class SqliteSandbox {
   readonly #database: DatabaseSync;
+  #ownedTransaction: 'BEGIN' | 'ROLLBACK' | undefined;
 
   constructor(databasePath: string) {
     // The pinned Node 24 type definitions predate the runtime's limits backport.
@@ -64,6 +72,10 @@ export class SqliteSandbox {
       }
       database.setAuthorizer((action, argument, functionName) => {
         switch (action) {
+          case constants.SQLITE_TRANSACTION:
+            return this.#ownedTransaction !== undefined && argument === this.#ownedTransaction
+              ? constants.SQLITE_OK
+              : constants.SQLITE_DENY;
           case constants.SQLITE_SELECT:
           case constants.SQLITE_READ:
           case constants.SQLITE_RECURSIVE:
@@ -90,6 +102,46 @@ export class SqliteSandbox {
     sql: string,
     values: readonly SqliteValue[] = [],
     maxRows = 50,
+    bindings?: Readonly<Record<string, SqliteValue>>,
+    requirement?: SqliteQueryRequirement
+  ): SqliteRows {
+    if (requirement === undefined) {
+      return this.#queryStatement(sql, values, maxRows, bindings);
+    }
+    this.#transaction('BEGIN');
+    let result: SqliteRows;
+    try {
+      requireCallerVectors(this.#database, requirement.symbol);
+      result = this.#queryStatement(sql, values, maxRows, bindings);
+    } catch (operation) {
+      try {
+        this.#transaction('ROLLBACK');
+      } catch (cleanup) {
+        throw new AggregateError(
+          [operation, cleanup],
+          'Caller lens and read-snapshot cleanup failed.',
+          { cause: operation }
+        );
+      }
+      throw operation;
+    }
+    this.#transaction('ROLLBACK');
+    return result;
+  }
+
+  #transaction(command: 'BEGIN' | 'ROLLBACK'): void {
+    this.#ownedTransaction = command;
+    try {
+      this.#database.exec(command);
+    } finally {
+      this.#ownedTransaction = undefined;
+    }
+  }
+
+  #queryStatement(
+    sql: string,
+    values: readonly SqliteValue[],
+    maxRows: number,
     bindings?: Readonly<Record<string, SqliteValue>>
   ): SqliteRows {
     if (!(Number.isInteger(maxRows) && maxRows >= 1 && maxRows <= 200)) {

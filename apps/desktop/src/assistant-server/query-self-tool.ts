@@ -21,6 +21,7 @@ import { fitItemsToCharBudget, type QuerySelfInput, type RuntimeData } from '@br
 import {
   coerceLensValues,
   type LensParamSpec,
+  type LensRequirement,
   NATIVE_TOOL_ID,
   type QuerySelfTarget,
   ToolInputError,
@@ -104,6 +105,7 @@ export interface QuerySelfLensesResult {
     description: string;
     id: string;
     target: QuerySelfTarget;
+    requirement?: LensRequirement;
     params: { description: string; name: string; type: string }[];
     /** Owning root id, or 'global' for `~/.brainstrike` — "which file is
      * this" is the load-bearing fact for a reviewable artifact. */
@@ -242,6 +244,7 @@ function toLensListing(scan: UserLensScanResult, target: QuerySelfTarget): Query
     kind: 'lenses',
     lenses: okEntries.map((entry) => ({
       description: entry.lens.description,
+      ...(entry.lens.requirement ? { requirement: entry.lens.requirement } : {}),
       id: entry.lens.id,
       params: entry.lens.params.map((param: LensParamSpec) => ({
         description: param.description,
@@ -272,7 +275,12 @@ function toLensListing(scan: UserLensScanResult, target: QuerySelfTarget): Query
 function resolveLensInvocation(
   input: QuerySelfInput,
   scan: UserLensScanResult
-): { params: readonly unknown[]; sql: string } {
+): {
+  params: readonly unknown[];
+  sql: string;
+  requirement?: LensRequirement;
+  paramSpecs: readonly LensParamSpec[];
+} {
   const id = input.lens?.trim();
   if (!id) {
     throw new AgentSqlInputError(QUERY_SELF_ERROR_MESSAGES.missingLens);
@@ -302,7 +310,12 @@ function resolveLensInvocation(
   if (!coerced.ok) {
     throw new AgentSqlInputError(coerced.error);
   }
-  return { params: coerced.values, sql: lens.sql };
+  return {
+    paramSpecs: lens.params,
+    params: coerced.values,
+    sql: lens.sql,
+    ...(lens.requirement ? { requirement: lens.requirement } : {}),
+  };
 }
 
 /** Test seam: inject the lens scan; production scans the request's roots. */

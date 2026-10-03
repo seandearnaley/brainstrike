@@ -1,7 +1,8 @@
 -- description: Hybrid retrieval over a symbol's caller graph — traverse transitive callers, then rank the reachable files' chunks with the BM25 and vector arms, RRF-fused (BST-935 canonical statement)
--- target: app
+-- target: index
+-- requires: caller-vectors symbol
 -- param: symbol text  Seed symbol name, e.g. startEmbeddingWorker (exact match against file_symbols.name)
--- param: terms text   BM25 search terms as prose words (english config does not split camelCase identifiers)
+-- param: terms text   FTS5 MATCH expression (porter unicode61 tokenizer; identifiers are not camelCase-split)
 WITH RECURSIVE callers(file_record_id, seq, name, depth) AS (
   SELECT s.file_record_id, s.seq, s.name, 0
   FROM file_symbols s WHERE s.name = $1
@@ -14,46 +15,52 @@ WITH RECURSIVE callers(file_record_id, seq, name, depth) AS (
   WHERE c.depth < 10
 ),
 reachable AS (SELECT DISTINCT file_record_id FROM callers),
-seed_embedding AS (
-  SELECT ch.embedding, ch.embedding_set_id
+seed_embedding AS MATERIALIZED (
+  SELECT v.emb
   FROM file_chunks ch
   JOIN file_symbols s ON s.file_record_id = ch.file_record_id
+  JOIN vec_chunks v ON v.id = ch.pk AND v.root_id = ch.root_id
   WHERE s.name = $1
     AND ch.start_line <= s.start_line AND ch.end_line >= s.start_line
-    AND ch.embedding IS NOT NULL
+    AND ch.has_vector = 1
   ORDER BY ch.id LIMIT 1
 ),
+-- Materialize FTS auxiliary scores before window evaluation.
+bm25_scores AS MATERIALIZED (
+  SELECT ch.id, bm25(file_chunks_fts) AS score
+  FROM file_chunks_fts
+  JOIN file_chunks ch ON ch.pk = file_chunks_fts.rowid
+  JOIN reachable rf ON rf.file_record_id = ch.file_record_id
+  WHERE file_chunks_fts MATCH $2
+  ORDER BY score, ch.id
+  LIMIT 50
+),
 bm25_arm AS (
-  SELECT ch.id, ROW_NUMBER() OVER (
-    ORDER BY (-(ch.content <@> to_bm25query($2, 'idx_file_chunks_content_bm25')))::float8
-             DESC NULLS LAST, ch.id
-  ) AS position
+  SELECT id, ROW_NUMBER() OVER (ORDER BY score, id) AS position
+  FROM bm25_scores
+),
+vector_scores AS MATERIALIZED (
+  SELECT ch.id, vec_distance_cosine(vec_f32(v.emb), vec_f32(seed.emb)) AS distance
   FROM file_chunks ch
   JOIN reachable rf ON rf.file_record_id = ch.file_record_id
-  WHERE ch.content_tsvector IS NOT NULL
-    AND ch.content_tsvector @@ websearch_to_tsquery('english', $2)
-  ORDER BY 2
+  JOIN vec_chunks v ON v.id = ch.pk AND v.root_id = ch.root_id
+  CROSS JOIN seed_embedding seed
+  WHERE ch.has_vector = 1
+  ORDER BY distance, ch.id
   LIMIT 50
 ),
 vector_arm AS (
-  SELECT ch.id, ROW_NUMBER() OVER (
-    ORDER BY ch.embedding <=> (SELECT embedding FROM seed_embedding), ch.id
-  ) AS position
-  FROM file_chunks ch
-  JOIN reachable rf ON rf.file_record_id = ch.file_record_id
-  WHERE ch.embedding IS NOT NULL
-    AND ch.embedding_set_id IS NOT DISTINCT FROM (SELECT embedding_set_id FROM seed_embedding)
-  ORDER BY 2
-  LIMIT 50
+  SELECT id, ROW_NUMBER() OVER (ORDER BY distance, id) AS position
+  FROM vector_scores
 )
 SELECT fr.path, ch.id AS chunk_id, ch.start_line, ch.end_line,
-       sum(1.0 / (60 + arm.position))::float8 AS rrf_score
+       sum(1.0 / (60 + arm.position)) AS rrf_score
 FROM (
   SELECT id, position FROM bm25_arm
   UNION ALL
   SELECT id, position FROM vector_arm
 ) arm
 JOIN file_chunks ch ON ch.id = arm.id
-JOIN file_records fr ON fr.id = ch.file_record_id
+JOIN file_records fr ON fr.id = ch.file_record_id AND fr.root_id = ch.root_id
 GROUP BY fr.path, ch.id, ch.start_line, ch.end_line
-ORDER BY rrf_score DESC, fr.path
+ORDER BY rrf_score DESC, fr.path, ch.id

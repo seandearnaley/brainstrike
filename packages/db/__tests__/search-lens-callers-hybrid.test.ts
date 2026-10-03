@@ -13,20 +13,20 @@ import {
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 /**
- * Golden for the currently shipped PGlite caller lens (BST-1924). Read the
- * actual artifact and verify its declared target before the REAL pipeline:
+ * PGlite caller golden retained for hosted web until M6 (BST-1924). Read the
+ * checked-in app fixture and verify its declared target before the REAL pipeline:
  * contract parser → declared-type coercion → sandbox execution with true
- * bind parameters. The artifact retains the proven web hybrid
+ * bind parameters. The fixture retains the proven web hybrid
  * statement; if someone edits it into an unparseable or unadmittable shape,
  * this fails, not a live model run.
  */
 
 const LENS_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../.brainstrike/lenses/callers-hybrid.sql'
+  './fixtures/callers-hybrid-pglite.sql'
 );
 
-describe('shipped PGlite caller lens routing and execution', () => {
+describe('PGlite caller lens (web golden until M6)', () => {
   let db: PGlite;
   let service: AgentSqlService;
 

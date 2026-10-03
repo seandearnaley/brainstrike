@@ -12,12 +12,14 @@ if (typeof executable !== 'string') {
 const nodeEnvironment = { ...process.env };
 nodeEnvironment.ELECTRON_RUN_AS_NODE = '1';
 nodeEnvironment.SQLITE_QUERY_TEST_EXEC_PATH = executable;
+nodeEnvironment.INDEXER_TEST_EXEC_PATH = process.execPath;
 const child = spawn(
   executable,
   [
     fileURLToPath(new URL('../../../node_modules/vitest/vitest.mjs', import.meta.url)),
     'run',
     'src/__tests__/sandbox.integration.test.ts',
+    'src/__tests__/callers-lens.integration.test.ts',
   ],
   {
     cwd: fileURLToPath(new URL('..', import.meta.url)),

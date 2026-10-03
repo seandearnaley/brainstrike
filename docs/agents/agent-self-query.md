@@ -60,6 +60,16 @@ Tests: `apps/desktop/src/__tests__/assistant-server/query-self-index-target.test
 `packages/sqlite-query/src/__tests__/protocol.test.ts`,
 `packages/sqlite-query/src/__tests__/sandbox.integration.test.ts`.
 
+### Native caller-vector lenses
+
+- Declare index caller-vector requirements explicitly as `-- requires: caller-vectors <text seed param>`; parse malformed, duplicate, app-target or undeclared/non-text requirements visibly. Retain and list the typed requirement, resolve the seed by declared parameter name, and keep its value bound.
+- Check the configured schema4 identity, existing seed and containing vector, and complete finite/nonzero 384-dimensional vectors with matching stored profile/hash for all depth10 name-resolved graph chunks in the same owned read snapshot as lens execution. Reject missing prerequisites visibly; never return a lexical-only caller result.
+- Keep trusted synchronous BEGIN/ROLLBACK ownership private to that snapshot. User transaction SQL, writes, attachments, extension loading, limits and deadlines retain their existing refusals.
+- Run canonical index `callers-hybrid` with materialized FTS5 BM25 scores before window ranking, actual vec row IDs joined to chunk primary keys, exact graph-scoped cosine, top50 per arm, and RRF60. Preserve chunk IDs/line spans, cycle/depth10 caller-name semantics, and the separate PGlite fixture for hosted web.
+
+Evidence: `agent-self-query/sqlite-caller-lens.md`.
+Guard: `packages/sqlite-query/src/__tests__/callers-lens.integration.test.ts`, `packages/assistant-contract/src/__tests__/lenses.test.ts`, `apps/desktop/src/__tests__/assistant-server/query-self-index-target.test.ts`.
+
 ## The sandbox: four independent, engine-enforced layers
 
 Read-only transaction, non-superuser role `brainstrike_agent_readonly`, extended
@@ -197,9 +207,9 @@ Guard: `apps/desktop/src/__tests__/assistant-server/query-self-tool.test.ts`.
 - Require exactly one `-- target: app` or `-- target: index` in a lens header.
   Retain it in `LensDefinition`; missing, invalid and duplicate declarations are
   visible parse errors. Never infer a target from SQL or a lens filename.
-- Declare telemetry/history lenses as `app`. Keep `callers-hybrid` declared `app`
-  while it ships PGlite SQL, then land its native body and `index` target together.
-  Preserve the PGlite caller SQL and its behavioral golden for hosted web until M6.
+- Declare telemetry/history lenses as `app` and the native `callers-hybrid` as
+  `index`. Keep each target aligned with its shipped SQL dialect in the same change.
+  Preserve the app-target PGlite caller fixture and its behavioral golden for hosted web until M6.
 
 Evidence: `agent-self-query/target-routing.md`.
 Guard: `packages/assistant-contract/src/__tests__/query-self-target.test.ts`,
@@ -264,7 +274,7 @@ Guard: `packages/db/__tests__/search-hybrid-symbol-retrieval.test.ts`, `packages
 
 ### The PGlite hybrid one-statement golden — PROVEN admitted
 
-- Retain the app-target traversal/BM25/vector statement in `packages/db/__tests__/fixtures/callers-hybrid-pglite.sql` for hosted web until M6. Keep the shipped PGlite caller artifact declared `app` until its native SQL port lands; change its target and body together.
+- Retain the app-target traversal/BM25/vector statement in `packages/db/__tests__/fixtures/callers-hybrid-pglite.sql` for hosted web until M6. The canonical index-target artifact uses the native caller-vector contract above.
 - Its top level drains (`GROUP BY … ORDER BY`), so the row cap plays NO part: admission
   rests on the recursion-bound heuristic plus the cost gate. Do not cite the row cap.
 - Scope the vector arm to the seed's `embedding_set_id` (`IS NOT DISTINCT FROM`):
