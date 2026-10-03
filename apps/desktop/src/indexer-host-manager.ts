@@ -1,4 +1,4 @@
-import type { EmbeddingProfile, IndexerOptions, IndexerPort } from '@brainstrike/indexer';
+import type { IndexerOptions, IndexerPort } from '@brainstrike/indexer';
 import type { IndexerConnection, IndexerDeadlines } from '@brainstrike/indexer/transport';
 import { app, utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
@@ -6,7 +6,7 @@ import { resolveBundledSiblingPath } from './bundled-sibling-path';
 /** Main owns lifecycle only. SQLite and its writer worker belong to the utility process. */
 export class IndexerHostManager {
   readonly databasePath: string;
-  readonly profile: Readonly<EmbeddingProfile>;
+  readonly acquisitionEmbedding: IndexerOptions['embedding'];
   readonly rootIds: readonly string[];
   readonly #options: IndexerOptions;
   readonly #deadlines: IndexerDeadlines;
@@ -16,12 +16,19 @@ export class IndexerHostManager {
   #closed = false;
 
   private constructor(options: IndexerOptions, deadlines: IndexerDeadlines, entryPath: string) {
-    this.#options = options;
+    const embedding =
+      options.embedding.indexMode === 'vector-configured'
+        ? Object.freeze({
+            ...options.embedding,
+            profile: Object.freeze({ ...options.embedding.profile }),
+          })
+        : Object.freeze({ ...options.embedding });
+    this.#options = { ...options, embedding, rootIds: Object.freeze([...options.rootIds]) };
     this.#deadlines = deadlines;
     this.#entryPath = entryPath;
     this.databasePath = options.dbPath;
-    this.profile = Object.freeze({ ...options.profile });
-    this.rootIds = Object.freeze([...options.rootIds]);
+    this.acquisitionEmbedding = embedding;
+    this.rootIds = this.#options.rootIds;
   }
 
   static async create(

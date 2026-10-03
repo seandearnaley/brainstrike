@@ -17,6 +17,10 @@
     "./host": {
       "types": "./dist/process-core.d.ts",
       "default": "./dist/process-core.js"
+    },
+    "./metadata": {
+      "types": "./dist/metadata-reader.d.ts",
+      "default": "./dist/metadata-reader.js"
     }
   },
   "files": [

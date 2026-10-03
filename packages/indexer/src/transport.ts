@@ -5,12 +5,16 @@ import { Schema } from 'effect';
 import {
   commitResultSchema,
   commitSchema,
+  coverageRequestSchema,
+  coverageSchema,
   decoder,
   IndexerError,
   identitySchema,
+  identityStateSchema,
   infoSchema,
   optionsSchema,
   planSchema,
+  profileSchema,
   searchResultSchema,
   searchSchema,
   snapshotSchema,
@@ -224,6 +228,14 @@ export function createIndexerConnection(
       call('commit-file', decoder(commitSchema)(commit), decoder(commitResultSchema)),
     commitTextFile: async (commit) =>
       call('commit-text-file', decoder(textCommitSchema)(commit), decoder(commitResultSchema)),
+    configureVectorProfile: async (profile) =>
+      call(
+        'configure-vector-profile',
+        decoder(profileSchema)(profile),
+        decoder(identityStateSchema)
+      ),
+    coverage: async (request) =>
+      call('coverage', decoder(coverageRequestSchema)(request), decoder(coverageSchema)),
     destroy: async () => {
       await close();
       for (const file of [options.dbPath, `${options.dbPath}-wal`, `${options.dbPath}-shm`]) {

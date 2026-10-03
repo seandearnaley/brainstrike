@@ -51,4 +51,16 @@ describe('file chunk and embedding identity', () => {
     expect(() => embeddingProfileHash({ ...profile, extra: 'unreviewed' })).toThrow();
     expect(() => fileChunks({ ...snapshot, relativePath: '../escape.ts' }, profile)).toThrow();
   });
+  it('keeps text identity explicit and refuses fabricated configured profile hashes', () => {
+    expect(fileChunks(snapshot, { indexMode: 'text-only' })[0]?.embeddingHash).toBeNull();
+    const configured = {
+      indexMode: 'vector-configured',
+      profile,
+      profileHash: embeddingProfileHash(profile),
+    } as const;
+    expect(fileChunks(snapshot, configured)).toEqual(fileChunks(snapshot, profile));
+    expect(() => fileChunks(snapshot, { ...configured, profileHash: 'f'.repeat(64) })).toThrow(
+      'disagrees'
+    );
+  });
 });

@@ -29,7 +29,14 @@ async function fixture() {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-indexer-'));
   cleanup.push(() => rm(directory, { force: true, recursive: true }));
   const dbPath = path.join(directory, 'index.sqlite');
-  const port = await openIndexer({ dbPath, profile, rootIds: ['root-a', 'root-b'] }, deadlines);
+  const port = await openIndexer(
+    {
+      dbPath,
+      embedding: { indexMode: 'vector-configured', profile },
+      rootIds: ['root-a', 'root-b'],
+    },
+    deadlines
+  );
   cleanup.push(() => port.close());
   return { dbPath, port };
 }
@@ -74,7 +81,10 @@ describe('isolated SQLite indexer', () => {
       rootId: 'root-a',
     });
     await port.close();
-    const reopened = await openIndexer({ dbPath, profile, rootIds: ['root-a'] }, deadlines);
+    const reopened = await openIndexer(
+      { dbPath, embedding: { indexMode: 'vector-configured', profile }, rootIds: ['root-a'] },
+      deadlines
+    );
     cleanup.push(() => reopened.close());
     expect(
       (await reopened.search({ limit: 10, mode: 'trigram', rootIds: ['root-a'], text: 'ite ind' }))
@@ -210,9 +220,19 @@ describe('isolated SQLite indexer', () => {
     await add(port, 'retained index data');
     await port.close();
     await expect(
-      openIndexer({ dbPath, profile: replacement, rootIds: ['root-a'] }, deadlines)
+      openIndexer(
+        {
+          dbPath,
+          embedding: { indexMode: 'vector-configured', profile: replacement },
+          rootIds: ['root-a'],
+        },
+        deadlines
+      )
     ).rejects.toMatchObject({ code: 'rebuild-required' });
-    const reopened = await openIndexer({ dbPath, profile, rootIds: ['root-a'] }, deadlines);
+    const reopened = await openIndexer(
+      { dbPath, embedding: { indexMode: 'vector-configured', profile }, rootIds: ['root-a'] },
+      deadlines
+    );
     cleanup.push(() => reopened.close());
     expect(
       (await reopened.search({ limit: 10, mode: 'bm25', rootIds: ['root-a'], text: 'retained' }))
@@ -237,7 +257,10 @@ describe('isolated SQLite indexer', () => {
     foreign.exec("CREATE TABLE precious(content TEXT); INSERT INTO precious VALUES('never wipe')");
     foreign.close();
     await expect(
-      openIndexer({ dbPath, profile, rootIds: ['root-a'] }, deadlines)
+      openIndexer(
+        { dbPath, embedding: { indexMode: 'vector-configured', profile }, rootIds: ['root-a'] },
+        deadlines
+      )
     ).rejects.toMatchObject({
       code: 'rebuild-required',
     });
@@ -266,7 +289,10 @@ describe('isolated SQLite indexer', () => {
     process.kill((await port.info()).pid, 'SIGKILL');
     await failure;
     await port.close();
-    const reopened = await openIndexer({ dbPath, profile, rootIds: ['root-a'] }, deadlines);
+    const reopened = await openIndexer(
+      { dbPath, embedding: { indexMode: 'vector-configured', profile }, rootIds: ['root-a'] },
+      deadlines
+    );
     cleanup.push(() => reopened.close());
     expect(
       (await reopened.search({ limit: 10, mode: 'bm25', rootIds: ['root-a'], text: 'committed' }))
@@ -378,7 +404,14 @@ describe('isolated SQLite indexer', () => {
     });
     const { port: initial, dbPath } = await fixture();
     await initial.destroy();
-    const port = await openIndexer({ dbPath, profile: producer, rootIds: ['root-a'] }, deadlines);
+    const port = await openIndexer(
+      {
+        dbPath,
+        embedding: { indexMode: 'vector-configured', profile: producer },
+        rootIds: ['root-a'],
+      },
+      deadlines
+    );
     cleanup.push(() => port.close());
     const plan = await port.prepareFile({ ...file(recorded.source.text), chunkLines: 100 });
     expect(plan.chunks).toHaveLength(1);

@@ -19,9 +19,27 @@ export const profileSchema = Schema.Struct({
   tokenCap: positive,
 });
 export type EmbeddingProfile = typeof profileSchema.Type;
+export const embeddingStateSchema = Schema.Union([
+  Schema.Struct({ indexMode: Schema.Literal('text-only') }),
+  Schema.Struct({
+    indexMode: Schema.Literal('vector-configured'),
+    profile: profileSchema,
+    profileHash: hash,
+  }),
+]);
+export type EmbeddingState = typeof embeddingStateSchema.Type;
+export const identityStateSchema = Schema.Struct({
+  embedding: embeddingStateSchema,
+  storeId: hash,
+});
+export type IndexerIdentity = typeof identityStateSchema.Type;
 export const optionsSchema = Schema.Struct({
   dbPath: nonblank,
-  profile: profileSchema,
+  embedding: Schema.Union([
+    Schema.Struct({ indexMode: Schema.Literal('text-only') }),
+    Schema.Struct({ indexMode: Schema.Literal('open-existing') }),
+    Schema.Struct({ indexMode: Schema.Literal('vector-configured'), profile: profileSchema }),
+  ]),
   rootIds: Schema.Array(nonblank),
 });
 export type IndexerOptions = typeof optionsSchema.Type;
@@ -70,7 +88,7 @@ export const chunkSchema = Schema.Struct({
   chunkId: hash,
   content: Schema.String,
   contentHash: hash,
-  embeddingHash: hash,
+  embeddingHash: Schema.NullOr(hash),
   endLine: positive,
   startLine: positive,
 });
@@ -78,10 +96,11 @@ export type FileChunk = typeof chunkSchema.Type;
 export const planSchema = Schema.Struct({
   chunks: Schema.Array(chunkSchema),
   contentHash: hash,
+  embedding: embeddingStateSchema,
   embeddingChunkIds: Schema.Array(hash),
   previousSnapshotHash: Schema.NullOr(hash),
-  profileHash: hash,
   snapshot: snapshotSchema,
+  storeId: hash,
   unchanged: Schema.Boolean,
 });
 export type FilePlan = typeof planSchema.Type;
@@ -147,10 +166,29 @@ export const hitSchema = Schema.Struct({
 });
 export const searchResultSchema = Schema.Struct({
   candidateCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  candidatesTruncated: Schema.Boolean,
+  embedding: embeddingStateSchema,
   hits: Schema.Array(hitSchema),
-  profileHash: hash,
+  scanLimited: Schema.Boolean,
+  storeId: hash,
+  truncated: Schema.Boolean,
 });
 export type SearchResult = typeof searchResultSchema.Type;
+const coverageCounts = {
+  chunks: nonnegative,
+  indexedFiles: nonnegative,
+  missingVectors: nonnegative,
+  vectors: nonnegative,
+};
+export const coverageRequestSchema = Schema.Struct({ rootIds: Schema.Array(nonblank) });
+export const coverageSchema = Schema.Struct({
+  embedding: embeddingStateSchema,
+  roots: Schema.Array(Schema.Struct({ rootId: nonblank, ...coverageCounts })),
+  storeId: hash,
+  totals: Schema.Struct(coverageCounts),
+  vectorCoverageComplete: Schema.Boolean,
+});
+export type IndexerCoverage = typeof coverageSchema.Type;
 export const commitResultSchema = Schema.Struct({
   reusedEmbeddings: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   syntaxStatus: Schema.Literals(['replaced', 'retained', 'not-provided']),
@@ -162,10 +200,11 @@ export const commitResultSchema = Schema.Struct({
 export type CommitResult = typeof commitResultSchema.Type;
 export const infoSchema = Schema.Struct({
   dbPath: nonblank,
+  embedding: embeddingStateSchema,
   journalMode: Schema.String,
   pid: positive,
-  profileHash: hash,
   readerQueryOnly: Schema.Int,
+  storeId: hash,
   vecVersion: Schema.String,
   writerThreadId: positive,
 });
