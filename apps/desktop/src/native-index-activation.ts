@@ -35,6 +35,12 @@ import {
   NativeCanonicalProfileResolver,
 } from './native-canonical-profile';
 import { createNativeCanonicalPublication } from './native-canonical-publication';
+import {
+  catalogFingerprint,
+  isSupersededCatalogScan,
+  observeNativeIndexCatalog,
+  triggerCatalogWorkspaces,
+} from './native-index-catalog-observation';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
 import {
   NATIVE_INDEX_SETTINGS_KEY,
@@ -63,11 +69,6 @@ const decodeSelectedCollections = makeThrowingDecoder(
   Schema.Array(Schema.Struct({ id: Schema.NonEmptyString }))
 );
 const catalogBatchSize = 250;
-function catalogFingerprint(records: readonly NativeCanonicalCatalogRecord[]): string {
-  return JSON.stringify(
-    records.map(({ chunksProcessed: _processed, content: _content, ...record }) => record)
-  );
-}
 
 type WithoutSource<T> = T extends unknown ? Omit<T, 'source'> : never;
 interface Dependencies {
@@ -78,11 +79,11 @@ interface Dependencies {
   readonly storage: Pick<ElectronStorageAdapter, 'getItem'>;
 }
 interface Graph {
-  catalogFingerprint?: string;
-  catalogRecords?: readonly NativeCanonicalCatalogRecord[];
   readonly controller: AbortController;
   readonly generation: number;
   readonly leases: Map<string, CanonicalWorkspaceLease>;
+  observedCatalogFingerprint?: string;
+  observedCatalogRecords?: readonly NativeCanonicalCatalogRecord[];
   publication?: ReturnType<typeof createNativeCanonicalPublication>;
   settings: NativeIndexSettings;
   sources?: NativeIndexSources | undefined;
@@ -345,8 +346,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     const authorized = await authority();
     const publication = createNativeCanonicalPublication(port, authorized.scopes);
     current.publication = publication;
-    current.catalogRecords = await loadRecords(current);
-    current.catalogFingerprint = catalogFingerprint(current.catalogRecords);
+    current.observedCatalogRecords = await loadRecords(current);
+    current.observedCatalogFingerprint = catalogFingerprint(current.observedCatalogRecords);
     assertCurrent(current);
     ready.resolve(port);
     if (!settings.paused) {
@@ -587,6 +588,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       }
     };
     let collectionScan: Promise<void> | undefined;
+    sources.waitForCollection = () => collectionScan ?? Promise.resolve();
     let requested = false;
     sources.scanCollection = (): Promise<void> => {
       assertSource();
@@ -599,18 +601,27 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
             await runtime.acquire();
             assertSource();
             sources.collectionInventory = await loadRecords(current);
+            await refreshCatalog(current, false, sources.collectionInventory);
             const receipt = await collection.scan(randomUUID());
             dependencies.onReceipt?.(receipt);
             assertSource();
             if (!receipt.scanComplete) {
+              if (
+                isSupersededCatalogScan(
+                  receipt,
+                  current.observedCatalogFingerprint,
+                  sources.collectionInventory
+                )
+              ) {
+                requested = true;
+                continue;
+              }
               throw new Error(`Native collection scan was ${receipt.reason}.`);
             }
-            current.catalogRecords = sources.collectionInventory;
-            current.catalogFingerprint = catalogFingerprint(current.catalogRecords);
             await reverifyWorkspaces();
             const latest = await loadRecords(current);
-            if (catalogFingerprint(latest) !== current.catalogFingerprint) {
-              publication.invalidateScope(scope);
+            if (catalogFingerprint(latest) !== catalogFingerprint(sources.collectionInventory)) {
+              await refreshCatalog(current, false, latest);
               requested = true;
             }
           }
@@ -659,38 +670,27 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     });
     startup.catch(() => undefined);
   };
-  const refreshCatalog = async (current: Graph, join: boolean): Promise<void> => {
-    const records = await loadRecords(current);
-    if (current.catalogFingerprint === catalogFingerprint(records)) {
+  const refreshCatalog = async (
+    current: Graph,
+    join: boolean,
+    inventory?: readonly NativeCanonicalCatalogRecord[]
+  ): Promise<void> => {
+    const records = inventory ?? (await loadRecords(current));
+    const changedRoots = observeNativeIndexCatalog(current, records);
+    if (!changedRoots) {
+      if (join) {
+        await current.sources?.waitForCollection?.();
+      }
       return;
     }
-    current.publication?.invalidateScope({
-      embeddingSetId: current.settings.managedCollectionId,
-      kind: 'collection',
-    });
-    for (const rootId of current.leases.keys()) {
-      const before = current.catalogRecords?.filter((record) => record.rootId === rootId) ?? [];
-      const after = records.filter((record) => record.rootId === rootId);
-      if (catalogFingerprint(before) === catalogFingerprint(after)) {
-        continue;
-      }
-      current.publication?.invalidateScope({ kind: 'workspace', rootId });
-      if (current.settings.paused) {
-        continue;
-      }
-      const trigger = current.sources?.workspaceTriggers.get(rootId);
-      if (!trigger) {
-        continue;
-      }
-      const work = trigger();
-      work.catch((error: unknown) =>
-        dependencies.onError('catalog workspace reconciliation', error)
-      );
-    }
-    if (current.settings.paused || !current.sources?.scanCollection) {
+    if (current.settings.paused) {
       // Reconcile authority only; never start a parser, watcher or inference while paused.
-      current.catalogRecords = records;
-      current.catalogFingerprint = catalogFingerprint(records);
+      return;
+    }
+    triggerCatalogWorkspaces(changedRoots, current.sources?.workspaceTriggers, (error) =>
+      dependencies.onError('catalog workspace reconciliation', error)
+    );
+    if (inventory || !current.sources?.scanCollection) {
       return;
     }
     const scan = current.sources.scanCollection();

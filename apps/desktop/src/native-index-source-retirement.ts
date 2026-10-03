@@ -11,6 +11,7 @@ export interface NativeIndexSources {
   retirement?: Promise<void> | undefined;
   scanCollection?: () => Promise<void>;
   startup?: Promise<void>;
+  waitForCollection?: () => Promise<void>;
   readonly workspaceTriggers: Map<string, () => Promise<void>>;
 }
 
