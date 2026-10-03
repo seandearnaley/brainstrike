@@ -64,6 +64,15 @@ Guard: `packages/indexer/__tests__/indexer.integration.test.ts`.
 Evidence: `indexer/2026-10-03-publication-contract-prerequisite.md`.
 Guard: `packages/file-import/src/__tests__/canonical-index-publication.test.ts`, `packages/file-import/src/__tests__/canonical-public-node-entry.integration.test.ts`.
 
+### Retained canonical ingestion
+
+- Execute bounded registered-source TEXT scans through `CanonicalIngestionHost` and its explicit catalog/source/publication ports. Retain original source/hash/stat in the catalog before canonical publication; stamp completion only after joined publication, and remove native data before catalog invalidation.
+- Hold scan admission until physical reads, parsing, publication, manifest completion and discovery retirement settle. Drain yielding iterator cleanup to terminal completion, discard cleanup yields, preserve primary and cleanup errors, and retain failed cleanup for explicit retry.
+- Keep workspace/collection scope and actual canonical IDs explicit, with nullable root/path metadata for rootless collections. Keep operation signals local; TEXT must not resolve or invoke inference. Full readiness still requires the writer's complete canonical manifest receipt.
+
+Evidence: `indexer/2026-10-03-retained-coordinator-delivery.md`.
+Guard: `packages/canonical-ingestion/__tests__/host.test.ts`, `packages/canonical-ingestion/__tests__/public-node-entry.integration.test.ts`.
+
 ### Persistence and qualification
 
 - Treat the database as derived state. Product cutover must register its owned path and call `destroy()` during factory reset before deleting roots; package `destroy()` joins pending writes and removes only its database/WAL/shared-memory files.
