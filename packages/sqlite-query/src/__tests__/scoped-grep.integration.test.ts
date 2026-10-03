@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -67,4 +67,70 @@ it('keeps an empty authorized collection empty and never broadens to all files',
   });
   expect(result.rows).toEqual([]);
   expect(result.matchedChunks).toBe(0);
+});
+
+it('reads the full authorized inventory beyond the SQLite variable limit', async () => {
+  const largePath = join(directory, 'large-scope.sqlite');
+  copyFileSync(databasePath, largePath);
+  const fileIds = Array.from({ length: 32_767 }, (_, index) => `authorized-${index}`);
+  const writer = new DatabaseSync(largePath);
+  try {
+    writer.exec('BEGIN');
+    const insert = writer.prepare('INSERT INTO file_records VALUES(?,NULL,NULL,?,NULL)');
+    for (const fileId of fileIds) {
+      insert.run(fileId, 'selected');
+    }
+    writer.exec(`INSERT INTO file_records VALUES('workspace','root-a','root.ts','selected',NULL);
+      INSERT INTO file_chunks VALUES('${'f'.repeat(64)}','root-a','workspace','workspace marker','${'1'.repeat(64)}',1,1,0,384,'text',0,16,2);`);
+    writer.exec('COMMIT');
+  } finally {
+    writer.close();
+  }
+  // Put the real retained binding last so truncating the inventory loses its match.
+  fileIds.push('retained');
+  const options = {
+    caseSensitive: true,
+    fileIds,
+    isRegex: false,
+    maxRows: 100,
+    pattern: 'marker',
+    rootIds: [],
+  };
+  const executable = process.env['SQLITE_QUERY_TEST_EXEC_PATH'];
+  if (!executable) {
+    throw new Error('A qualified reader executable is required.');
+  }
+  const largeClient = await SqliteQueryClient.open({
+    databasePath: largePath,
+    deadlineMs: 1000,
+    spawn: () => spawnQueryProcess({ environment: { ELECTRON_RUN_AS_NODE: '1' }, executable }),
+    startupDeadlineMs: 5000,
+  });
+  try {
+    const result = await largeClient.grep(options);
+    expect(result.rows.map((row) => row[2])).toEqual(['retained']);
+    expect(result.rows[0]?.[1]).toBeNull();
+    expect(result.rows[0]?.[3]).toBeNull();
+    expect(result.rows[0]?.[14]).toBe('selected');
+    expect(result.matchedChunks).toBe(1);
+    expect(result.truncated).toBe(false);
+    const nonmatching = await largeClient.grep({ ...options, pattern: 'not in either chunk' });
+    expect(nonmatching.rows).toEqual([]);
+    expect(nonmatching.matchedChunks).toBe(0);
+    const empty = await largeClient.grep({ ...options, fileIds: [] });
+    expect(empty.rows).toEqual([]);
+    expect(empty.matchedChunks).toBe(0);
+    const legacy = await largeClient.grep({
+      caseSensitive: true,
+      isRegex: false,
+      maxRows: 100,
+      pattern: 'marker',
+      rootIds: ['root-a'],
+    });
+    expect(legacy.rows.map((row) => row[2])).toEqual(['workspace']);
+    expect(legacy.rows[0]?.[1]).toBe('root-a');
+    expect(legacy.rows[0]?.[3]).toBe('root.ts');
+  } finally {
+    await largeClient.close();
+  }
 });

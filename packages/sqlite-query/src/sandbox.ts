@@ -195,11 +195,10 @@ export class SqliteSandbox {
     validateGrepOptions(options);
     const matcher = createGrepLineMatcher(options.pattern, options.isRegex, options.caseSensitive);
     const selectedIds = options.fileIds ?? options.rootIds;
-    const placeholders = selectedIds.map(() => '?').join(',');
     const scopePredicate =
       options.fileIds === undefined
-        ? `ch.root_id IN (${placeholders})`
-        : `fr.id IN (${placeholders || 'NULL'})`;
+        ? 'ch.root_id IN (SELECT value FROM json_each(?))'
+        : 'fr.id IN (SELECT value FROM json_each(?))';
     const collectionProjection =
       options.fileIds === undefined ? '' : ',fr.embedding_set_id,fr.source_path';
     const statement = this.#database.prepare(
@@ -214,7 +213,7 @@ export class SqliteSandbox {
     let matchedChunks = 0;
     let identity: IndexerIdentity | undefined;
     let resultBytes = columns.reduce((total, column) => total + Buffer.byteLength(column) + 16, 0);
-    for (const output of statement.iterate(...selectedIds)) {
+    for (const output of statement.iterate(JSON.stringify(selectedIds))) {
       const snapshotRow = decodeRow(output);
       identity ??= decodeIndexIdentityRow({
         indexMode: snapshotRow[2],
