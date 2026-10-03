@@ -11,6 +11,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
+import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import { createLogger } from '@brainstrike/logging';
 import type {
   FileSystemChange,
@@ -33,11 +34,16 @@ export interface FileSystemWatchEventPayload {
   watchId: string;
 }
 
+export interface FileSystemWatchSubscription {
+  close(): Promise<void>;
+  retry(): Promise<void>;
+}
+
 export type StartFileSystemWatch = (
   directoryPath: string,
   onChanges: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
   onHealth: (transition: WatcherHealthTransition) => void
-) => () => void;
+) => Promise<FileSystemWatchSubscription>;
 
 /**
  * Retry throttling (BST-568 slice 3, settled ruling): retry is MANUAL-ONLY —
@@ -58,9 +64,8 @@ export type FileSystemWatchRetryResult =
 
 export interface RegisterFileSystemWatchIpcHandlersOptions {
   /**
-   * Start a recursive watcher for a validated directory path; returns a
-   * disposer. Production wiring passes the parcel-backed
-   * `ElectronFileSystemAdapter.watchDirectory`; tests inject a fake.
+   * Borrow the application's mounted-root watcher. Close retires this
+   * subscription; manual retry joins and replaces the shared native producer.
    */
   readonly startWatch: StartFileSystemWatch;
 }
@@ -78,6 +83,7 @@ export const MAX_FS_WATCHERS_PER_OWNER = 32;
 export const MAX_FS_WATCH_REGISTRATIONS_PER_OWNER = MAX_FS_WATCHERS_PER_OWNER * 2;
 
 interface LiveFileSystemWatcher {
+  acquisition: Promise<void>;
   /** Consecutive failed transitions since the last healthy one. */
   consecutiveFailures: number;
   /**
@@ -94,10 +100,14 @@ interface LiveFileSystemWatcher {
   readonly ownerId: number;
   /** The resolved directory path — retained for manual retry only. */
   readonly resolvedPath: string;
+  retired: boolean;
+  retirement: Promise<void> | undefined;
+  retiring: boolean;
+  retry: () => Promise<void>;
   retryInFlight: boolean;
   /** Timestamp for the current native setup-latency sample. */
   setupStartedAt: number | undefined;
-  stop: () => void;
+  stop: () => Promise<void>;
   /** Stable owner/path identity for the single native subscription. */
   readonly subscriptionKey: string;
   /** Logical renderer registrations sharing this native subscription. */
@@ -106,6 +116,7 @@ interface LiveFileSystemWatcher {
 
 const liveWatchersBySubscription = new Map<string, LiveFileSystemWatcher>();
 const liveWatchersById = new Map<string, LiveFileSystemWatcher>();
+const retiringWatchers = new Set<LiveFileSystemWatcher>();
 
 /** In-memory telemetry counters (deliberately non-persistent, BST-568). */
 const telemetry = {
@@ -142,29 +153,34 @@ function ownerLifecycleGeneration(owner: WebContents): number {
   return ownerLifecycleGenerations.get(owner) ?? 0;
 }
 
-function stopWatcher(entry: LiveFileSystemWatcher): void {
-  telemetry.cleanups += 1;
-  try {
-    entry.stop();
-  } catch (error) {
-    logger.warn('Failed to stop file system watcher', {
-      error,
-      path: entry.resolvedPath,
-    });
+function stopWatcher(entry: LiveFileSystemWatcher): Promise<void> {
+  if (entry.retired) {
+    return Promise.resolve();
   }
+  entry.retiring = true;
+  retiringWatchers.add(entry);
+  entry.retirement ??= (async (): Promise<void> => {
+    telemetry.cleanups += 1;
+    await entry.stop();
+    entry.retired = true;
+    retiringWatchers.delete(entry);
+  })().finally(() => {
+    entry.retirement = undefined;
+  });
+  return entry.retirement;
 }
 
 function subscriptionKey(ownerId: number, resolvedPath: string): string {
   return `${ownerId}\0${resolvedPath}`;
 }
 
-function forgetWatcher(entry: LiveFileSystemWatcher): void {
+function forgetWatcher(entry: LiveFileSystemWatcher): Promise<void> {
   liveWatchersBySubscription.delete(entry.subscriptionKey);
   for (const watchId of entry.watchIds) {
     liveWatchersById.delete(watchId);
   }
   entry.watchIds.clear();
-  stopWatcher(entry);
+  return stopWatcher(entry);
 }
 
 /**
@@ -203,7 +219,7 @@ function makeHealthSink(
       entry.nextRetryAllowedAt = 0;
       entry.retryInFlight = false;
     }
-    if (owner.isDestroyed()) {
+    if (owner.isDestroyed() || entry.retiring) {
       return;
     }
     for (const watchId of entry.watchIds) {
@@ -220,7 +236,7 @@ function makeChangeSink(
   entry: LiveFileSystemWatcher
 ): (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void {
   return (changes, metadata) => {
-    if (owner.isDestroyed()) {
+    if (owner.isDestroyed() || entry.retiring) {
       return;
     }
     telemetry.batches += 1;
@@ -243,12 +259,14 @@ function makeChangeSink(
   };
 }
 
-function disposeFileSystemWatchersForWebContents(ownerId: number): void {
+async function disposeFileSystemWatchersForWebContents(ownerId: number): Promise<void> {
+  const retiring: Promise<void>[] = [];
   for (const entry of liveWatchersBySubscription.values()) {
     if (entry.ownerId === ownerId) {
-      forgetWatcher(entry);
+      retiring.push(forgetWatcher(entry));
     }
   }
+  await joinWatcherRetirement(retiring);
 }
 
 function registerSharedWatchId(entry: LiveFileSystemWatcher, watchId: string): void {
@@ -263,9 +281,22 @@ function registerSharedWatchId(entry: LiveFileSystemWatcher, watchId: string): v
 }
 
 /** Stop and forget every live watcher (registrar disposer + tests). */
-export function disposeAllFileSystemWatchers(): void {
+export async function disposeAllFileSystemWatchers(): Promise<void> {
+  const retiring: Promise<void>[] = [];
   for (const entry of liveWatchersBySubscription.values()) {
-    forgetWatcher(entry);
+    retiring.push(forgetWatcher(entry));
+  }
+  for (const entry of retiringWatchers) {
+    retiring.push(stopWatcher(entry));
+  }
+  await joinWatcherRetirement(retiring);
+}
+
+async function joinWatcherRetirement(retiring: readonly Promise<void>[]): Promise<void> {
+  const results = await Promise.allSettled(retiring);
+  const errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []));
+  if (errors.length > 0) {
+    throw new AggregateError(errors, 'File system watch retirement failed.');
   }
 }
 
@@ -324,7 +355,12 @@ function attachOwnerReaper(owner: WebContents): void {
     owner.removeListener('destroyed', reap);
     owner.removeListener('render-process-gone', reap);
     owner.removeListener('did-navigate', reap);
-    disposeFileSystemWatchersForWebContents(owner.id);
+    disposeFileSystemWatchersForWebContents(owner.id).catch((error: unknown) => {
+      logger.error('Renderer watch retirement failed; native owner remains retained.', {
+        error,
+        ownerId: owner.id,
+      });
+    });
   };
   owner.on('destroyed', reap);
   owner.on('render-process-gone', reap);
@@ -362,14 +398,21 @@ function registerMockFileSystemWatcher(
     throw new Error(`fs:watch: per-renderer watcher limit reached (${MAX_FS_WATCHERS_PER_OWNER}).`);
   }
   const entry: LiveFileSystemWatcher = {
+    acquisition: Promise.resolve(),
     consecutiveFailures: 0,
     lastHealthTransition: null,
     nextRetryAllowedAt: 0,
     ownerId: owner.id,
     resolvedPath: requestedPath,
+    retired: false,
+    retirement: undefined,
+    retiring: false,
+    retry: async () => {
+      throw new Error('Synthetic root watch has no native producer to retry.');
+    },
     retryInFlight: false,
     setupStartedAt: undefined,
-    stop: () => {},
+    stop: async () => undefined,
     subscriptionKey: key,
     watchIds: new Set([watchId]),
   };
@@ -378,46 +421,80 @@ function registerMockFileSystemWatcher(
   return { watchId };
 }
 
-function startNewFileSystemWatcher(
+async function startNewFileSystemWatcher(
   owner: WebContents,
   resolvedPath: string,
   watchId: string,
   startWatch: StartFileSystemWatch
-): FileSystemWatchRegistration {
+): Promise<FileSystemWatchRegistration> {
   // Register BEFORE starting the engine. Engines can emit health synchronously
   // during setup, and retry bookkeeping must observe those transitions.
   const key = subscriptionKey(owner.id, resolvedPath);
   const entry: LiveFileSystemWatcher = {
+    acquisition: Promise.resolve(),
     consecutiveFailures: 0,
     lastHealthTransition: null,
     nextRetryAllowedAt: 0,
     ownerId: owner.id,
     resolvedPath,
+    retired: false,
+    retirement: undefined,
+    retiring: false,
+    retry: async () => {
+      throw new Error('Root watch acquisition has not completed.');
+    },
     retryInFlight: false,
     setupStartedAt: undefined,
-    stop: () => {},
+    stop: async () => undefined,
     subscriptionKey: key,
     watchIds: new Set([watchId]),
   };
   liveWatchersBySubscription.set(key, entry);
   liveWatchersById.set(watchId, entry);
 
+  let acquired = false;
+  const starting = Promise.resolve().then(() =>
+    startWatch(resolvedPath, makeChangeSink(owner, entry), makeHealthSink(owner, entry))
+  );
+  entry.acquisition = starting.then(() => {
+    acquired = true;
+  });
+  // Duplicate registrations await this same promise; the primary setup path reports its error.
+  entry.acquisition.catch(() => undefined);
+  entry.stop = async (): Promise<void> => {
+    let subscription: FileSystemWatchSubscription;
+    try {
+      subscription = await starting;
+    } catch (error) {
+      if (error instanceof ParcelWatchRetirementError) {
+        await error.retire();
+      }
+      // Unowned startup errors are reported by the primary setup awaiter.
+      return;
+    }
+    await subscription.close();
+  };
   try {
-    entry.stop = startWatch(
-      resolvedPath,
-      makeChangeSink(owner, entry),
-      makeHealthSink(owner, entry)
-    );
+    const subscription = await starting;
+    entry.stop = () => subscription.close();
+    entry.retry = () => subscription.retry();
   } catch (error) {
     liveWatchersBySubscription.delete(key);
     liveWatchersById.delete(watchId);
+    if (acquired || entry.retiring || error instanceof ParcelWatchRetirementError) {
+      try {
+        await stopWatcher(entry);
+      } catch (retirementError) {
+        throw new ParcelWatchRetirementError([error, retirementError], () => stopWatcher(entry));
+      }
+    }
     throw error;
   }
 
   // Path resolution raced renderer teardown: its reaper already ran, so stop
   // this just-created watcher immediately instead of leaking it.
-  if (owner.isDestroyed()) {
-    forgetWatcher(entry);
+  if (owner.isDestroyed() || entry.retiring || !liveWatchersById.has(watchId)) {
+    await forgetWatcher(entry);
     throw new Error('fs:watch: the requesting renderer was destroyed during setup.');
   }
   logger.debug('Started file system watcher', { path: resolvedPath, watchId });
@@ -426,7 +503,7 @@ function startNewFileSystemWatcher(
 
 export function registerFileSystemWatchIpcHandlers({
   startWatch,
-}: RegisterFileSystemWatchIpcHandlersOptions): () => void {
+}: RegisterFileSystemWatchIpcHandlersOptions): () => Promise<void> {
   const registry = createDesktopIpcRegistry({ ipcMain });
   // Telemetry counters are scoped to one registration (production registers
   // exactly once per app lifetime; tests re-register per case).
@@ -484,9 +561,16 @@ export function registerFileSystemWatchIpcHandlers({
       // existing native subscription when the native cap is full.
       assertWatchRegistrationCapacity(owner.id);
       const key = subscriptionKey(owner.id, resolvedPath);
+      if ([...retiringWatchers].some((entry) => entry.subscriptionKey === key)) {
+        throw new Error('fs:watch: previous native watch retirement has not completed.');
+      }
       const existing = liveWatchersBySubscription.get(key);
       if (existing) {
         registerSharedWatchId(existing, watchId);
+        await existing.acquisition;
+        if (ownerLifecycleGeneration(owner) !== lifecycleGeneration) {
+          throw new Error('fs:watch: renderer context changed during setup.');
+        }
         return watchRegistration(watchId, existing);
       }
       if (liveWatcherCountForOwner(owner.id) >= MAX_FS_WATCHERS_PER_OWNER) {
@@ -502,7 +586,7 @@ export function registerFileSystemWatchIpcHandlers({
     'files',
     fileSystemWatchContract.retryWatch.channel,
     { roles: fileSystemWatchContract.retryWatch.roles },
-    (event, ...raw): FileSystemWatchRetryResult => {
+    async (event, ...raw): Promise<FileSystemWatchRetryResult> => {
       const [watchId] = fileSystemWatchContract.retryWatch.parseArgs(raw);
       const entry = liveWatchersById.get(watchId);
       // Unknown and non-owner produce IDENTICAL results — no ownership oracle.
@@ -514,6 +598,9 @@ export function registerFileSystemWatchIpcHandlers({
             watchId,
           });
         }
+        return { reason: 'unknown', retried: false };
+      }
+      if (entry.retiring) {
         return { reason: 'unknown', retried: false };
       }
       if (entry.lastHealthTransition?.state !== 'failed') {
@@ -537,15 +624,12 @@ export function registerFileSystemWatchIpcHandlers({
 
       entry.retryInFlight = true;
       telemetry.retries += 1;
-      const owner = event.sender;
-      // Release whatever the failed engine still holds before re-subscribing —
-      // at most one active subscription-or-retry per root.
-      stopWatcher(entry);
-      entry.stop = startWatch(
-        entry.resolvedPath,
-        makeChangeSink(owner, entry),
-        makeHealthSink(owner, entry)
-      );
+      // Main joins/replaces the shared producer without releasing utility borrowers.
+      try {
+        await entry.retry();
+      } finally {
+        entry.retryInFlight = false;
+      }
       logger.info('Retrying file system watcher after deliberate request', {
         consecutiveFailures: entry.consecutiveFailures,
         watchId,
@@ -571,7 +655,7 @@ export function registerFileSystemWatchIpcHandlers({
     'files',
     fileSystemWatchContract.unwatchDirectory.channel,
     { roles: fileSystemWatchContract.unwatchDirectory.roles },
-    (event, ...raw): void => {
+    async (event, ...raw): Promise<void> => {
       const [watchId] = fileSystemWatchContract.unwatchDirectory.parseArgs(raw);
       const entry = liveWatchersById.get(watchId);
       if (!entry) {
@@ -588,17 +672,27 @@ export function registerFileSystemWatchIpcHandlers({
         });
         return;
       }
+      if (entry.watchIds.size === 1) {
+        // Retain the final logical handle until native retirement succeeds.
+        // A failed explicit unwatch must remain retryable, never acknowledge
+        // success through the unknown-id path while its producer is still owned.
+        await stopWatcher(entry);
+        liveWatchersBySubscription.delete(entry.subscriptionKey);
+      }
       liveWatchersById.delete(watchId);
       entry.watchIds.delete(watchId);
-      if (entry.watchIds.size === 0) {
-        liveWatchersBySubscription.delete(entry.subscriptionKey);
-        stopWatcher(entry);
-      }
     }
   );
 
-  return () => {
-    disposeAllFileSystemWatchers();
-    registry.unregisterAll();
+  return async () => {
+    const results = await Promise.allSettled(
+      [() => registry.unregisterAll(), disposeAllFileSystemWatchers].map(async (retire) => retire())
+    );
+    const errors = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    if (errors.length > 0) {
+      throw new AggregateError(errors, 'Filesystem watch IPC owners did not retire.');
+    }
   };
 }

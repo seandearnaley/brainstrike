@@ -117,6 +117,7 @@ describe('desktop graceful shutdown', () => {
       'renderers',
       'assistant-server',
       'mcp-runtime',
+      'file-system',
       'chunking-host',
       'parser-host',
       'embedding-host',
@@ -125,6 +126,35 @@ describe('desktop graceful shutdown', () => {
       'forge',
       'database-drain',
     ]);
+  });
+
+  it('joins filesystem retirement before stopping inference hosts or closing the database', async () => {
+    const retirement = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    const { events, options } = createHarness({
+      'file-system': async () => {
+        entered.resolve();
+        await retirement.promise;
+      },
+    });
+
+    const shutdown = createDesktopGracefulShutdown(options).run('before-quit', 'before-quit');
+    // If the filesystem step is absent, the run completes and the assertions
+    // still report the skipped ownership boundary instead of hanging this test.
+    await Promise.race([entered.promise, shutdown]);
+
+    expect(events).toContain('step:file-system');
+    expect(events).not.toContain('step:chunking-host');
+    expect(events).not.toContain('step:embedding-host');
+    expect(events).not.toContain('close:database');
+
+    retirement.resolve();
+    await shutdown;
+
+    expect(events.indexOf('step:chunking-host')).toBeGreaterThan(
+      events.indexOf('step:file-system')
+    );
+    expect(events).toContain('close:database');
   });
 
   it('isolates a failing step and logs every failure once, after the database close and before the sink closes', async () => {

@@ -1,4 +1,8 @@
 import path from 'node:path';
+import type {
+  CanonicalSourceSubscription,
+  CanonicalWorkspaceLease,
+} from '@brainstrike/canonical-ingestion';
 import {
   AccessError,
   type DirectoryHandle,
@@ -43,6 +47,7 @@ import {
   resolveCanonicalRootPath,
   resolveValidatedReadPath,
 } from './workspace-root-seams';
+import { createWorkspaceRootSourceLease } from './workspace-root-source-lease';
 import {
   clearLastFolderIfMatches,
   readLastFolder,
@@ -59,6 +64,11 @@ import type {
 } from './workspace-root-types';
 
 export type { SecureWorkspaceRoot, StoredWorkspaceRoot } from './workspace-root-types';
+
+export type SubscribeMountedWorkspaceRoot = (
+  mounted: MountedWorkspaceRoot,
+  ...args: Parameters<CanonicalWorkspaceLease['subscribe']>
+) => Promise<CanonicalSourceSubscription>;
 
 const logger = createLogger('WorkspaceRootRegistry');
 
@@ -90,12 +100,17 @@ interface AddRootOptions {
 export class WorkspaceRootRegistry {
   private readonly createSecureRoot: (rootPath: string) => Promise<SecureWorkspaceRoot>;
   private disposed = false;
+  private disposal: Promise<void> | undefined;
   private readonly disposeCommandSessionsForRoot: (rootId: string) => Promise<number>;
   private readonly evictLspServersForRoot: (rootId: string) => Promise<void>;
   private readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
   private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
   private readonly mounts = new WorkspaceRootMountTable();
   private mutationTail: Promise<void> = Promise.resolve();
+  private readonly sourceLeases = new Set<{
+    readonly lease: CanonicalWorkspaceLease;
+    readonly mounted: MountedWorkspaceRoot;
+  }>();
   private readonly onRootGranted: ((grantedPath: string) => void) | undefined;
   private readonly pathExists: (rootPath: string) => Promise<boolean>;
   private readonly resolveCanonicalRoot: (rootPath: string) => Promise<string>;
@@ -250,14 +265,120 @@ export class WorkspaceRootRegistry {
     return descriptor;
   }
 
-  dispose(): void {
-    if (this.disposed) {
-      return;
-    }
+  dispose(): Promise<void> {
     this.disposed = true;
-    void this.mutationTail.finally(() => {
-      this.mounts.closeAll();
+    this.disposal ??= Promise.all([this.mutationTail, this.retireSourceLeases()])
+      .then(() => {
+        this.mounts.closeAll();
+      })
+      .finally(() => {
+        this.disposal = undefined;
+      });
+    return this.disposal;
+  }
+
+  async borrowSourceRoot(
+    rootId: string,
+    subscribe: SubscribeMountedWorkspaceRoot
+  ): Promise<CanonicalWorkspaceLease> {
+    if (!isDurableRootId(rootId)) {
+      throw new Error('A mounted source borrow requires a durable rootId.');
+    }
+    await this.mutationTail;
+    this.assertActive();
+    const mounted = this.mounts.get(rootId);
+    if (!mounted) {
+      throw new Error('Canonical source rootId is not mounted.');
+    }
+    return this.borrowMountedSourceRoot(mounted, subscribe);
+  }
+
+  async borrowSourceRootForPath(
+    requestedPath: string,
+    subscribe: SubscribeMountedWorkspaceRoot
+  ): Promise<CanonicalWorkspaceLease> {
+    assertNativeAbsoluteReadPath(requestedPath, 'Watched root path');
+    await this.mutationTail;
+    this.assertActive();
+    const mounted = this.mounts.findByEitherPath(requestedPath);
+    if (!mounted) {
+      throw new Error('A root watch requires an exact mounted root.');
+    }
+    const resolved = await resolveReadAgainstMountedRoot(
+      requestedPath,
+      mounted,
+      this.resolveReadPath
+    );
+    if (resolved.relativePath !== '.' || resolved.traversedSymlink) {
+      throw new Error('A root watch requires the same canonical mounted root.');
+    }
+    return this.borrowMountedSourceRoot(mounted, subscribe);
+  }
+
+  private borrowMountedSourceRoot(
+    mounted: MountedWorkspaceRoot,
+    subscribe: SubscribeMountedWorkspaceRoot
+  ): CanonicalWorkspaceLease {
+    const rootId = mounted.rootId;
+    this.assertActive();
+    if (this.mounts.get(rootId) !== mounted) {
+      throw new Error('Mounted source root changed during acquisition.');
+    }
+    const lease = createWorkspaceRootSourceLease({
+      assertCurrent: () => {
+        this.assertActive();
+        if (this.mounts.get(rootId) !== mounted) {
+          throw new Error('Mounted source lease was revoked or replaced.');
+        }
+      },
+      mounted,
+      resolveReadPath: this.resolveReadPath,
+      subscribe: (...args) => subscribe(mounted, ...args),
     });
+    const entry = { lease, mounted };
+    const owned: CanonicalWorkspaceLease = {
+      canonicalPath: lease.canonicalPath,
+      generation: lease.generation,
+      listDir: (relativePath, maxEntries, context) =>
+        lease.listDir(relativePath, maxEntries, context),
+      readFile: (relativePath, maxBytes, context) =>
+        lease.readFile(relativePath, maxBytes, context),
+      retire: async () => {
+        await lease.retire();
+        this.sourceLeases.delete(entry);
+      },
+      rootId: lease.rootId,
+      signal: lease.signal,
+      subscribe: (...args) => lease.subscribe(...args),
+    };
+    this.sourceLeases.add(entry);
+    return owned;
+  }
+
+  private async retireSourceLeases(mounted?: MountedWorkspaceRoot): Promise<void> {
+    const entries = [...this.sourceLeases].filter(
+      (entry) => mounted === undefined || entry.mounted === mounted
+    );
+    const results = await Promise.allSettled(
+      entries.map(async (entry) => {
+        await entry.lease.retire();
+        this.sourceLeases.delete(entry);
+      })
+    );
+    const errors = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    if (errors.length > 0) {
+      throw new AggregateError(errors, 'Mounted source lease retirement failed.');
+    }
+  }
+
+  private async unmountSourceRoot(rootId: string): Promise<void> {
+    const mounted = this.mounts.get(rootId);
+    if (mounted) {
+      await this.retireSourceLeases(mounted);
+    }
+    this.mounts.unmount(rootId);
   }
 
   /** Newest-first ledger of previously granted folders. */
@@ -363,6 +484,10 @@ export class WorkspaceRootRegistry {
     return this.serializeMutation(async () => {
       const entries = await readStoredRootsOrQuarantine(this.storage);
       const removed = entries.find((entry) => entry.rootId === rootId);
+      const mounted = this.mounts.get(rootId);
+      if (mounted) {
+        await this.retireSourceLeases(mounted);
+      }
       if (!removed) {
         // Unconditional, not session-gated: a quarantined read returns an
         // empty entries list even for a persisted (non-session) root, so
@@ -397,7 +522,7 @@ export class WorkspaceRootRegistry {
         throw error;
       }
 
-      this.mounts.unmount(rootId);
+      await this.unmountSourceRoot(rootId);
       await this.cleanupRootResources(disconnected.map((row) => row.id));
       await clearLastFolderIfMatches(this.storage, removed.path);
     });
@@ -446,7 +571,7 @@ export class WorkspaceRootRegistry {
           logger.warn('Discarding a duplicate persisted alias for the same workspace root', {
             rootId: entry.rootId,
           });
-          this.mounts.unmount(entry.rootId);
+          await this.unmountSourceRoot(entry.rootId);
           continue;
         }
         // A session mint of the same canonical path is superseded by the
@@ -461,7 +586,7 @@ export class WorkspaceRootRegistry {
 
       for (const mountedRootId of this.mounts.ids()) {
         if (!retainedRootIds.has(mountedRootId)) {
-          this.mounts.unmount(mountedRootId);
+          await this.unmountSourceRoot(mountedRootId);
         }
       }
       if (storedSurvivors.length !== entries.length) {
@@ -590,7 +715,7 @@ export class WorkspaceRootRegistry {
    */
   private async retireMount(rootId: string): Promise<void> {
     this.mounts.clearSessionMount(rootId);
-    this.mounts.unmount(rootId);
+    await this.unmountSourceRoot(rootId);
     await this.cleanupRootResources([rootId]);
   }
 
@@ -613,7 +738,25 @@ export class WorkspaceRootRegistry {
       // retirement path performs.
       await this.retireMount(mountedMatch.rootId);
     }
-    this.mounts.install(entry, probe);
+    await this.installSourceRoot(entry, probe);
+  }
+
+  private async installSourceRoot(
+    entry: StoredWorkspaceRoot,
+    root: SecureWorkspaceRoot
+  ): Promise<string> {
+    const current = this.mounts.get(entry.rootId);
+    if (
+      current &&
+      !(
+        pathsEqual(current.canonicalPath, root.canonicalPath) &&
+        pathsEqual(current.presentationPath, entry.path)
+      )
+    ) {
+      await this.retireSourceLeases(current);
+    }
+    this.assertActive();
+    return this.mounts.install(entry, root);
   }
 
   private async persistAddedRoot(
@@ -658,7 +801,12 @@ export class WorkspaceRootRegistry {
       }
       this.assertActive();
     }
-    return this.mounts.install(entry, secureRoot);
+    try {
+      return await this.installSourceRoot(entry, secureRoot);
+    } catch (error) {
+      secureRoot.close();
+      throw error;
+    }
   }
 
   private async tryMountStoredEntry(

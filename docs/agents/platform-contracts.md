@@ -403,6 +403,10 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   `BrowserWindow.close()` while their IPC dependencies still exist; hidden hosts
   stay alive for their owning stop commands, and already-admitted database work
   drains through the scheduler before database closure.
+- Await the application's filesystem domain in the `file-system` step, after
+  assistant/MCP retirement and before inference hosts and database drain. Its
+  mounted-source borrows and native watches remain owned until physical cleanup
+  settles; the synchronous late IPC ledger cannot establish that join.
 - `EmbeddingHostManager.dispose()` refuses new starts BEFORE its cooperative stop
   awaits the renderer, and `RendererHostLifecycle.ensureStarted()` lets a
   `stopping` host settle instead of replacing its window. Shutdown disposal waits
@@ -556,9 +560,10 @@ on this local latency path; assistant tools consume indexed state only.
   still reports `healthy`. Discriminate it with
   `@brainstrike/file-system/testing/watcher-liveness`: if the raw binding
   delivered nothing, no code above it can be blamed.
-- **Lifecycle**: one native subscription per owning renderer and resolved root;
-  10s subscribe timeout with late-resolution unsubscribe; idempotent disposers
-  safe at any time. Duplicate same-owner/root registrations get distinct logical
+- **Lifecycle**: one main-owned native subscription per exact mounted root,
+  shared by visible and borrowed-source subscriptions; join native acquisition
+  and retirement before reporting completion. A failed final unwatch retains its
+  logical handle for explicit cleanup retry. Duplicate same-owner/root registrations get distinct logical
   watchIds sharing one native subscription, and unwatch removes only its own,
   stopping the native watcher after the last leaves. The per-owner cap counts
   native subscriptions while a separate registration cap bounds retained
@@ -616,7 +621,10 @@ There is one engine with no fallback, and the ignore override stays out of the
 IPC domain. Evidence: `platform-contracts/file-watcher-lifecycle.md`,
 `docs/agents/research/bst-568-parcel-watcher-spike.md`.
 Guard: `packages/file-system/src/__tests__/parcel-binding.integration.test.ts`,
-`apps/desktop/src/__tests__/ipc-domains/file-system-watch-ipc.test.ts`.
+`apps/desktop/src/__tests__/ipc-domains/file-system-watch-ipc.test.ts`,
+`apps/desktop/src/__tests__/ipc-domains/workspace-root-watch-owner.test.ts`,
+`apps/desktop/src/__tests__/main/ipc-handlers-watch-options.test.ts`.
+Evidence: `platform-contracts/2026-10-03-mounted-source-retirement.md`.
 
 ---
 
