@@ -110,3 +110,21 @@ early and fails closed before userData purge. Full main/query/indexer startup,
 complete application reset/reload acceptance, actual Windows execution, original
 M0 inventory parity and power-loss acceptance remain outside this focused proof.
 No hosted CI, M3 loop/protocol, or chat/state-store cutover was introduced.
+
+## Integration ancestry refresh
+
+Source commit `c798bd1b74bec1baa4ee7c4fe75ddb05b335512f` was normally merged
+with integration `35d202c173c6f8685768ade87acb4aa73983dcd1`. The reset source
+remained unchanged. At the refreshed head, frozen install passed, the actual
+desktop dependency closure passed 53/53 build tasks, the unchanged Mac focused
+suite passed 113/113 and actual Electron passed 3/3. The complete desktop type
+command selected 641 test files and strict Effect checked 647 files with zero
+diagnostics. The final Linux focused bundle also passed 113/113, in addition to
+its 3/3 actual Electron cases. Linux proves this unchanged reset surface using
+its isolated source and reused dependency graph, not fresh platform packaging.
+
+The source commit's normal hooks passed 54/54 tasks (50 cached), secret scan,
+format and commit message. The ancestry merge's normal commit-message hook
+passed; its automatic installer emitted the existing nonfatal lefthook-install
+warnings and rebuilt secure-fs-native successfully. No hook was skipped; the
+explicit frozen/build/type checks above qualified the refreshed graph.
