@@ -238,6 +238,8 @@ Guard: `packages/chunking-worker/src/__tests__/source-range-validation.test.ts`,
   directory reads before the public walk settles. Preserve path/handle identity,
   entry policy, sorting, snapshots and explicit truncation behavior.
 - Share scan/path/removal/content policy through `@brainstrike/file-system/workspace-scan*` and `workspace-source-content`; browser wrappers reuse these implementations. Utility source orchestration borrows the same pinned main mount, never reopens it from projected paths; explicit read caps reach the native bounded read.
+- Load root and nested ignore files through the scan's authorized file capability before entry admission, using the canonical ignore matcher and the static exclusion floor. Keep rules scan-local, promote ignore-file changes to full-root reconciliation, and carry that effective scope to removal consumers. A truncated directory has unknown rules: retain its notice and cached rows, but admit no source beneath it; present unreadable rules reject the scan.
+- Preserve explicit source read intent when an ignore edit promotes a watcher batch to full reconciliation. A later same-batch file recreation under unknown truncated rules retires its earlier removal without admitting the source; explicit final removals and complete excluded replacements remain authoritative.
 - Keep unresolved workspace discovery separate from registered PG file identity.
   Secure original-source read/hash precedes bounded main preparation using the
   existing identity/mutation policy. Await real PG source commit and full trusted
@@ -290,12 +292,14 @@ Node projection extraction evidence:
 Discovery preparation evidence:
 `explorer-search-tapestry/2026-10-03-discovered-source-preparation.md`.
 Borrowed source evidence: `indexer/2026-10-03-borrowed-workspace-source.md`.
+Ignore discovery evidence: `explorer-search-tapestry/workspace-index-ignore-discovery.md`.
 Guard: `workspace-root-registry{,.integration}.test.ts`,
 `packages/secure-fs-native/test/secure-root.test.cjs`,
 `parallel-directory-walker.test.ts`, `workspace-collection-sync-service.test.ts`,
 `workspace-collection-sync-scan.test.ts`,
 `workspace-collection-sync-provider.test.tsx`, `file-node-handles.test.ts`.
 Guard: `workspace-root-read-bound.test.ts`, `packages/canonical-ingestion/__tests__/workspace-source.test.ts`, `packages/canonical-ingestion/__tests__/workspace-source-child.integration.test.ts`.
+Guard: `packages/file-system/src/__tests__/workspace-scan-ignore.test.ts`.
 
 ### Token indexing has TWO trigger sources
 

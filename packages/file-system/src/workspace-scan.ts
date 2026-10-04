@@ -4,12 +4,20 @@ import {
   createBackgroundIndexingEntryPolicy,
 } from '@brainstrike/utils/background-indexing-policy';
 import { readFullTreeWithOptions } from './directory-tree.js';
+import { createWorkspaceScanIgnorePolicy, isWorkspaceIgnoreFile } from './workspace-scan-ignore.js';
 import {
   collectScopedChange,
   type ScopedChangeAccumulator,
   type ScopedPendingRemoval,
   type WorkspaceDiscoveryDeps,
 } from './workspace-scan-nodes.js';
+import {
+  getPathName,
+  isRootSelfPath,
+  isUnderTruncatedDirectory,
+  normalizeScopedChangePath,
+  toTruncatedRelativePrefixes,
+} from './workspace-scan-paths.js';
 import { flattenFileNodes } from './workspace-source-content.js';
 
 export type WorkspaceScanScope =
@@ -21,6 +29,7 @@ export interface WorkspaceScanDiscovery {
   readonly fileNodes: readonly IFileNode[];
   readonly forceReadRelativePaths: ReadonlySet<string>;
   readonly pendingRemovals: readonly ScopedPendingRemoval[];
+  readonly scope: WorkspaceScanScope;
   readonly truncatedDirectoryPaths: ReadonlySet<string>;
 }
 
@@ -34,7 +43,22 @@ export async function discoverWorkspaceFiles(args: {
   readonly rootPath: string;
   readonly scope: WorkspaceScanScope;
 }): Promise<WorkspaceScanDiscovery> {
-  const entryPolicy = createBackgroundIndexingEntryPolicy({ preset: args.indexingPolicyPreset });
+  const scope =
+    args.scope.mode === 'paths' &&
+    args.scope.changes.some(
+      (change) =>
+        change.kind === 'file' &&
+        !isRootSelfPath(change.path, args.rootPath) &&
+        isWorkspaceIgnoreFile(getPathName(normalizeScopedChangePath(change, args.rootPath)))
+    )
+      ? { mode: 'full' as const }
+      : args.scope;
+  const { deps, entryPolicy } = createWorkspaceScanIgnorePolicy({
+    deps: args.deps,
+    entryPolicy: createBackgroundIndexingEntryPolicy({ preset: args.indexingPolicyPreset }),
+    rootPath: args.rootPath,
+    signal: args.abortSignal,
+  });
   let excludedEntries = 0;
   const truncatedDirectoryPaths = new Set<string>();
   const fileHandleResolutionFailurePaths = new Set<string>();
@@ -43,8 +67,25 @@ export async function discoverWorkspaceFiles(args: {
     forceReadRelativePaths: new Set(),
     pendingRemovals: [],
   };
-  if (args.scope.mode === 'full') {
-    const tree = await readFullTreeWithOptions(args.deps.fileSystemAdapter, args.rootHandle, {
+  const latestFileChanges = new Map<string, FileSystemChange['type']>();
+  if (args.scope.mode === 'paths') {
+    for (const change of args.scope.changes) {
+      if (change.kind === 'file' && !isRootSelfPath(change.path, args.rootPath)) {
+        const relativePath = normalizeScopedChangePath(change, args.rootPath);
+        if (relativePath !== '') {
+          latestFileChanges.set(relativePath, change.type);
+        }
+      }
+    }
+    // Full reconciliation and explicit changed-file reads are independent facts.
+    for (const [relativePath, type] of latestFileChanges) {
+      if (type !== 'removed') {
+        accumulator.forceReadRelativePaths.add(relativePath);
+      }
+    }
+  }
+  if (scope.mode === 'full') {
+    const tree = await readFullTreeWithOptions(deps.fileSystemAdapter, args.rootHandle, {
       abortSignal: args.abortSignal,
       entryPolicy,
       onDirectoryTruncated: ({ path }) => truncatedDirectoryPaths.add(path),
@@ -63,16 +104,17 @@ export async function discoverWorkspaceFiles(args: {
       fileNodes: flattenFileNodes(tree),
       forceReadRelativePaths: accumulator.forceReadRelativePaths,
       pendingRemovals: [],
+      scope,
       truncatedDirectoryPaths,
     };
   }
-  for (const change of args.scope.changes) {
+  for (const change of scope.changes) {
     await collectScopedChange({
       abortSignal: args.abortSignal,
       accumulator,
       change,
       context: { rootPath: args.rootPath },
-      deps: args.deps,
+      deps,
       entryPolicy,
       onDirectoryTruncated: (path) => truncatedDirectoryPaths.add(path),
       onExcludedEntry: () => {
@@ -84,12 +126,22 @@ export async function discoverWorkspaceFiles(args: {
     });
   }
   args.abortSignal.throwIfAborted();
+  const truncatedPrefixes = toTruncatedRelativePrefixes(truncatedDirectoryPaths, args.rootPath);
+  const pendingRemovals = accumulator.pendingRemovals.filter(
+    (removal) =>
+      removal.change.kind !== 'file' ||
+      latestFileChanges.get(removal.relativePath) === 'removed' ||
+      !isUnderTruncatedDirectory(removal.relativePath, truncatedPrefixes)
+  );
   return {
     excludedEntries,
     fileHandleResolutionFailurePaths,
     fileNodes: [...accumulator.changedFileNodesByPath.values()],
     forceReadRelativePaths: accumulator.forceReadRelativePaths,
-    pendingRemovals: accumulator.pendingRemovals,
+    // A later file recreation remains live evidence even when unknown rules
+    // withhold source admission. A complete excluded replacement still removes.
+    pendingRemovals,
+    scope,
     truncatedDirectoryPaths,
   };
 }

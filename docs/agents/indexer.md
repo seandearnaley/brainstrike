@@ -131,6 +131,7 @@ Guard: `packages/canonical-ingestion/__tests__/vector-host.test.ts`, `packages/c
 ### Borrowed workspace source ingestion
 
 - Run workspace discovery, bounded secure reads and the existing `WorkspaceIndexingCoordinator` in `CanonicalWorkspaceIngestionRuntime`; borrow narrow operations from the same main-owned pinned mount. Paths, root IDs and projections never acquire a new native root.
+- Read discovered ignore files through that same lease under the scan byte bound, and reconcile newly ignored canonical files through the existing native-before-catalog removal path. Ignore scopes stop at the authorized mounted root; discovery never acquires parent-directory or global-config authority.
 - Forward batches and health from the existing main Parcel producer. Promote native watch work to full affected-root metadata reconciliation, force changed file reads, and preserve unchanged native-covered stat skips; readiness still uses the complete writer manifest predicate.
 - Join admitted listing/read/iterator/subscription work before releasing a borrow. Preserve failed unsubscribe ownership for explicit retry, including `ParcelWatchRetirementError.retire()` when late timed-out acquisition succeeds but cleanup fails. Rejected acquisition joins event work and reports startup errors without an unsubscribe retry owner. Borrow retirement never closes the shared mount.
 - Borrow from the application's actual mounted-root registry with exact durable ID,

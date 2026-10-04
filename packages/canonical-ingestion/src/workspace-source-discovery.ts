@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { AccessError } from '@brainstrike/file-system';
+import { readResolvedWorkspaceFile } from '@brainstrike/file-system/secure-file-read';
 import {
   buildDirectoryListing,
   MAX_DIRECTORY_ENTRIES,
@@ -67,6 +68,27 @@ export async function discoverCanonicalWorkspace(
           }
           return buildDirectoryListing(lease, handle.path, listing);
         },
+        readFile: async (handle) => {
+          if (handle.rootId !== lease.rootId) {
+            throw new Error('Ignore file projection belongs to another mounted root.');
+          }
+          const content = await readResolvedWorkspaceFile(
+            handle.path,
+            {
+              mounted: {
+                root: {
+                  readFile: (relativePath, maxBytes) =>
+                    lease.readFile(relativePath, maxBytes, context),
+                },
+              },
+              relativePath: toRootRelativePath(lease.canonicalPath, handle.path),
+              traversedSymlink: false,
+            },
+            request.maxFileBytes
+          );
+          context.signal.throwIfAborted();
+          return content;
+        },
       },
     },
     indexingPolicyPreset: dependencies.indexingPolicyPreset,
@@ -75,6 +97,7 @@ export async function discoverCanonicalWorkspace(
     rootPath: lease.canonicalPath,
     scope,
   });
+  const effectiveScope = discovery.scope;
   const inventory = await dependencies.inventory.loadFiles(request.scope, context);
   context.signal.throwIfAborted();
   const byPath = new Map<string, CanonicalSourceFile>();
@@ -124,7 +147,7 @@ export async function discoverCanonicalWorkspace(
     lease.canonicalPath
   );
   const targets =
-    scope.mode === 'full'
+    effectiveScope.mode === 'full'
       ? collectFullScanMissingFileInvalidations({
           existingEntries: entries,
           fileNodes: discovery.fileNodes,
@@ -157,7 +180,7 @@ export async function discoverCanonicalWorkspace(
   return {
     completion: {
       errors: [...discovery.fileHandleResolutionFailurePaths],
-      full: scope.mode === 'full',
+      full: effectiveScope.mode === 'full',
       truncatedDirectories: [...discovery.truncatedDirectoryPaths],
     },
     discovered,

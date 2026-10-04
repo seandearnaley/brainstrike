@@ -14,7 +14,10 @@ import {
 } from './workspace-scan-paths.js';
 
 export interface WorkspaceDiscoveryDeps {
-  fileSystemAdapter: Pick<FileSystemAdapter, 'readDirectory' | 'resolveFileHandleByPath'>;
+  fileSystemAdapter: Pick<
+    FileSystemAdapter,
+    'readDirectory' | 'readFile' | 'resolveFileHandleByPath'
+  >;
 }
 export interface ScopedPendingRemoval {
   change: FileSystemChange;
