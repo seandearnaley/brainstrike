@@ -41,6 +41,12 @@ export interface CanonicalCollectionAttachment {
   close(): Promise<void>;
   scan(requestId: string): Promise<typeof receiptSchema.Type>;
 }
+export interface CanonicalCollectionScan {
+  join(): Promise<typeof receiptSchema.Type>;
+}
+export interface CanonicalCollectionOwner extends CanonicalCollectionAttachment {
+  startScan(requestId: string): Promise<CanonicalCollectionScan>;
+}
 /** Main retains actual capability objects. A child owner token selects only this captured closure. */
 export class CanonicalUtilityParent {
   private readonly sessions = new Map<string, Session>();
@@ -98,7 +104,7 @@ export class CanonicalUtilityParent {
 
   async attachCollection(
     dependencies: CanonicalCollectionDependencies
-  ): Promise<CanonicalCollectionAttachment> {
+  ): Promise<CanonicalCollectionOwner> {
     assertMode(dependencies);
     const config = decode(configSchema)({
       indexingPolicyPreset: dependencies.source.indexingPolicyPreset,
@@ -110,10 +116,25 @@ export class CanonicalUtilityParent {
       scope: dependencies.scope,
     });
     const owner = await this.attach(config, dependencies);
+    const startScan = async (requestId: string): Promise<CanonicalCollectionScan> => {
+      const session = this.sessions.get(owner);
+      if (this.closed || this.retiringAttachments || !session || session.stopping) {
+        throw new Error('Canonical utility scan admission is closed.');
+      }
+      await this.channel.call(owner, 'start-scan', { requestId }, Schema.Null);
+      let terminal: Promise<typeof receiptSchema.Type> | undefined;
+      return {
+        join: () => {
+          terminal ??= this.channel.call(owner, 'join-scan', { requestId }, receiptSchema);
+          return terminal;
+        },
+      };
+    };
     return {
       cancel: () => this.control(owner, 'cancel'),
       close: () => this.closeOwner(owner),
-      scan: (requestId) => this.channel.call(owner, 'scan', { requestId }, receiptSchema),
+      scan: async (requestId) => (await startScan(requestId)).join(),
+      startScan,
     };
   }
 

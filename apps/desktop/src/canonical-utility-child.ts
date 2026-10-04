@@ -36,8 +36,9 @@ interface Session {
   acquisition?: Promise<null>;
   readonly config: CanonicalUtilityConfig;
   readonly leaseController: AbortController;
+  retired?: boolean;
   runtime?: Runtime;
-  scanId?: string | undefined;
+  scan?: { requestId: string; work: Promise<unknown>; joining: boolean } | undefined;
   stopping: boolean;
   watch?: Parameters<CanonicalWorkspaceLease['subscribe']> | undefined;
 }
@@ -131,7 +132,7 @@ export class CanonicalUtilityChild {
     if (!session?.runtime) {
       throw new Error('Canonical control has no acquired runtime.');
     }
-    if (frame.op !== 'close' && (session.stopping || this.closed)) {
+    if (frame.op !== 'join-scan' && (session.stopping || this.closed)) {
       throw new Error('Canonical utility admission is closed.');
     }
     switch (frame.op) {
@@ -144,29 +145,51 @@ export class CanonicalUtilityChild {
         return null;
       case 'cancel':
         decode(Schema.Null)(frame.payload);
-        if (session.config.scope.kind === 'collection' && !session.scanId) {
+        if (session.config.scope.kind === 'collection' && !session.scan) {
           return null;
         }
-        await session.runtime.cancel(session.scanId);
+        await session.runtime.cancel(session.scan?.requestId);
         return null;
-      case 'scan': {
-        const input = decode(Schema.Struct({ requestId: identifier }))(frame.payload);
-        if (session.config.scope.kind !== 'collection' || !session.runtime.scan || session.scanId) {
-          throw new Error('Canonical rootless scan is unavailable or already owned.');
-        }
-        session.scanId = input.requestId;
-        try {
-          return await session.runtime.scan({
-            ...session.config.request,
-            requestId: input.requestId,
-            scope: session.config.scope,
-          });
-        } finally {
-          session.scanId = undefined;
-        }
-      }
+      case 'start-scan':
+        return this.startScan(session, frame.payload);
+      case 'join-scan':
+        return this.joinScan(frame.owner, session, frame.payload);
       default:
         throw new Error(`Unknown canonical utility control ${frame.op}.`);
+    }
+  }
+  private startScan(session: Session, payload: unknown): null {
+    const input = decode(Schema.Struct({ requestId: identifier }))(payload);
+    const scan = session.runtime?.scan?.bind(session.runtime);
+    if (session.config.scope.kind !== 'collection' || !scan || session.scan) {
+      throw new Error('Canonical rootless scan is unavailable or already owned.');
+    }
+    const work = Promise.resolve().then(() =>
+      scan({
+        ...session.config.request,
+        requestId: input.requestId,
+        scope: session.config.scope,
+      })
+    );
+    session.scan = { joining: false, requestId: input.requestId, work };
+    // Retain the original terminal, including a failure that precedes join admission.
+    void work.catch(() => {});
+    return null;
+  }
+  private async joinScan(owner: string, session: Session, payload: unknown): Promise<unknown> {
+    const input = decode(Schema.Struct({ requestId: identifier }))(payload);
+    const scan = session.scan;
+    if (!scan || scan.requestId !== input.requestId || scan.joining) {
+      throw new Error('Canonical scan join has no matching retained owner.');
+    }
+    scan.joining = true;
+    try {
+      return await scan.work;
+    } finally {
+      session.scan = undefined;
+      if (session.retired) {
+        this.sessions.delete(owner);
+      }
     }
   }
   private async attach(frame: Extract<CanonicalFrame, { kind: 'call' }>): Promise<null> {
@@ -260,7 +283,13 @@ export class CanonicalUtilityChild {
     // still joins it and retains any actually acquired runtime for cleanup retry.
     await session.acquisition?.catch(() => {});
     await session.runtime?.close();
-    this.sessions.delete(owner);
+    // Close also owns a scan whose admission ACK has not reached main yet.
+    // The initiating join remains responsible for reporting its independent failure.
+    await session.scan?.work.catch(() => {});
+    session.retired = true;
+    if (!session.scan) {
+      this.sessions.delete(owner);
+    }
   }
   private async call<K extends CanonicalOperation>(
     owner: string,

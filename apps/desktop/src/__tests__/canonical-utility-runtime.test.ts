@@ -104,6 +104,56 @@ describe('actual utility canonical runtime attachment', () => {
     await parent.close();
   });
 
+  it.each(['complete', 'failure', 'closed'] as const)(
+    'retains a fast %s scan terminal until its matching join',
+    async (scenario) => {
+      const { parent } = connected();
+      const dependencies = collection([]);
+      let finished!: () => void;
+      const terminal = new Promise<void>((resolve) => {
+        finished = resolve;
+      });
+      const original = dependencies.publication.finishScan;
+      const failure = new Error('independent publication failure');
+      dependencies.publication.finishScan = async (input) => {
+        finished();
+        if (scenario === 'failure') {
+          throw failure;
+        }
+        return original(input);
+      };
+      const attachment = await parent.attachCollection(dependencies);
+      try {
+        const admitted = await attachment.startScan('fast');
+        await terminal;
+        // Reservation remains live even when the runtime settles before its caller joins.
+        await expect(attachment.startScan('overlap')).rejects.toThrow(/already owned/);
+        if (scenario === 'closed') {
+          await attachment.close();
+        }
+        const joined = admitted.join();
+        expect(admitted.join()).toBe(joined);
+        if (scenario === 'failure') {
+          await expect(joined).rejects.toThrow('independent publication failure');
+        } else {
+          await expect(joined).resolves.toMatchObject({
+            scanComplete: true,
+            ticket: { requestId: 'fast' },
+          });
+          if (scenario === 'closed') {
+            await expect(attachment.scan('next')).rejects.toThrow(/admission is closed/);
+          } else {
+            await expect(attachment.scan('next')).resolves.toMatchObject({
+              ticket: { requestId: 'next' },
+            });
+          }
+        }
+      } finally {
+        await parent.close();
+      }
+    }
+  );
+
   it.each(['unchanged', 'replaced', 'revoked', 'held-retirement', 'failed-retirement'] as const)(
     'constructs the public workspace coordinator and joins original %s lease/watch ownership through the real child',
     async (scenario) => {
