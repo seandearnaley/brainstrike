@@ -81,6 +81,7 @@ export async function purgeWhileStreaming(mb: number): Promise<Record<string, un
 
     // ---- stream, purge mid-stream, keep streaming ----------------------------------------------------------------
     const expected = new Map(before);
+    const expectedOther = new Map<number, string>();
     const lat: Array<{ t: number; ms: number }> = [];
     const lat2: Array<{ t: number; ms: number }> = [];
     let streaming = true;
@@ -88,7 +89,9 @@ export async function purgeWhileStreaming(mb: number): Promise<Record<string, un
       const r3 = rng(77);
       while (streaming) {
         const t0 = performance.now();
-        await appendInputs(store, 't2', [{ content: prose(r3, 200), type: 'text' }]);
+        const content = prose(r3, 200);
+        const [s] = await appendInputs(store, 't2', [{ content, type: 'text' }]);
+        expectedOther.set(s as number, sha256Hex(withSeq(s as number, textBody(content))));
         lat2.push({ ms: performance.now() - t0, t: t0 });
         await sleep(1);
       }
@@ -154,6 +157,17 @@ export async function purgeWhileStreaming(mb: number): Promise<Record<string, un
       []
     );
     res['events'] = { k, seeded, streamed: tail - seeded, tail };
+
+    const afterOther = await store.read('t2');
+    expect(expectedOther.size).toBeGreaterThan(0);
+    expect(expectedOther.size).toBe(lat2.length);
+    expect(afterOther.map((e) => e.seq)).toEqual(
+      Array.from({ length: expectedOther.size }, (_, i) => i + 1)
+    );
+    expect(
+      afterOther.filter((e) => expectedOther.get(e.seq) !== sha256Hex(e.raw)).map((e) => e.seq)
+    ).toEqual([]);
+    res['otherThreadEvents'] = afterOther.length;
 
     // ---- the blob is gone and the GC says so; nothing anywhere under the root --------------------------------------
     expect(existsSync(join(root, 'blobs', kBlob))).toBe(false);
