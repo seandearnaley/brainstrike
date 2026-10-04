@@ -179,8 +179,8 @@ it('composes production tools with the scoped SQLite writer and real separate qu
             profile,
             queryPlan,
             readiness: [
-              { scanComplete: true, scope: collection },
-              { scanComplete: true, scope: workspace },
+              { generation: 1, mutationRevision: 0, scanComplete: true, scope: collection },
+              { generation: 1, mutationRevision: 0, scanComplete: true, scope: workspace },
             ],
             rootIds: ['root'],
           }),

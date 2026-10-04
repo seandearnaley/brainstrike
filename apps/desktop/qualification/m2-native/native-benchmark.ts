@@ -1,6 +1,7 @@
 import type {
   IndexerCoverage,
   IndexerEmbeddingProfile,
+  IndexerEmbeddingState,
   IndexerStatus,
 } from '../../../../packages/indexing-contract/src/indexer-client';
 import { summarize } from '../../e2e/utils/foreground-latency-probes.ts';
@@ -14,6 +15,7 @@ export const MATCHED_CORPUS = {
 } as const;
 
 export interface NativeBenchmarkScope {
+  readonly collectionId?: string;
   readonly files: number;
   readonly mode: 'text' | 'vector';
   readonly profile?: IndexerEmbeddingProfile;
@@ -21,11 +23,81 @@ export interface NativeBenchmarkScope {
   readonly storeId: string;
 }
 
-/** A completion receipt is authoritative; counters alone never end a timed build. */
+function coverageMatchesMode(
+  embedding: IndexerEmbeddingState,
+  coverage: IndexerCoverage,
+  scope: NativeBenchmarkScope
+): boolean {
+  if (scope.mode === 'text') {
+    return (
+      embedding.indexMode === 'text-only' &&
+      coverage.embedding.indexMode === 'text-only' &&
+      coverage.totals.vectors === 0
+    );
+  }
+  if (!scope.profile) {
+    throw new Error('Vector benchmark requires an explicit immutable profile.');
+  }
+  if (
+    embedding.indexMode !== 'vector-configured' ||
+    coverage.embedding.indexMode !== 'vector-configured'
+  ) {
+    return false;
+  }
+  const fields = ['modelId', 'revision', 'dtype', 'dimensions', 'tokenCap'] as const;
+  if (
+    !fields.every(
+      (field) =>
+        embedding.indexMode === 'vector-configured' &&
+        coverage.embedding.indexMode === 'vector-configured' &&
+        embedding.profile[field] === scope.profile?.[field] &&
+        coverage.embedding.profile[field] === scope.profile?.[field]
+    )
+  ) {
+    return false;
+  }
+  return (
+    coverage.embedding.profileHash === embedding.profileHash &&
+    coverage.vectorCoverageComplete &&
+    coverage.totals.missingVectors === 0 &&
+    coverage.totals.vectors === coverage.totals.chunks
+  );
+}
+
+function collectionBuildComplete(
+  status: Extract<IndexerStatus, { readonly kind: 'ready' }>,
+  coverage: IndexerCoverage | null,
+  scope: NativeBenchmarkScope
+): boolean {
+  if (
+    !(scope.collectionId?.trim() && coverage) ||
+    status.authorizedCollectionIds?.length !== 1 ||
+    status.authorizedCollectionIds[0] !== scope.collectionId ||
+    status.collectionReadiness?.length !== 1 ||
+    status.collectionReadiness[0]?.embeddingSetId !== scope.collectionId ||
+    !status.collectionReadiness[0].scanComplete ||
+    coverage.storeId !== scope.storeId ||
+    coverage.roots.length !== 0 ||
+    coverage.collections?.length !== 1 ||
+    coverage.collections[0]?.embeddingSetId !== scope.collectionId ||
+    coverage.totals.indexedFiles !== scope.files ||
+    coverage.totals.chunks <= 0
+  ) {
+    return false;
+  }
+  const counters = ['indexedFiles', 'chunks', 'vectors', 'missingVectors'] as const;
+  return (
+    counters.every((field) => coverage.collections?.[0]?.[field] === coverage.totals[field]) &&
+    coverageMatchesMode(status.embedding, coverage, scope)
+  );
+}
+
+/** Caller supplies status and both coverage results from one fenced coverageBatch observation. */
 export function nativeBuildComplete(
   status: IndexerStatus,
   coverage: IndexerCoverage | null,
-  scope: NativeBenchmarkScope
+  scope: NativeBenchmarkScope,
+  collectionCoverage: IndexerCoverage | null = null
 ): boolean {
   if (
     status.kind !== 'ready' ||
@@ -45,41 +117,10 @@ export function nativeBuildComplete(
     return false;
   }
   const counters = ['indexedFiles', 'chunks', 'vectors', 'missingVectors'] as const;
-  if (!counters.every((field) => coverage.roots[0]?.[field] === coverage.totals[field])) {
-    return false;
-  }
-  if (scope.mode === 'text') {
-    return (
-      status.embedding.indexMode === 'text-only' &&
-      coverage.embedding.indexMode === 'text-only' &&
-      coverage.totals.vectors === 0
-    );
-  }
-  if (!scope.profile) {
-    throw new Error('Vector benchmark requires an explicit immutable profile.');
-  }
-  if (
-    status.embedding.indexMode !== 'vector-configured' ||
-    coverage.embedding.indexMode !== 'vector-configured'
-  ) {
-    return false;
-  }
-  const fields = ['modelId', 'revision', 'dtype', 'dimensions', 'tokenCap'] as const;
-  if (
-    !fields.every(
-      (field) =>
-        status.embedding.indexMode === 'vector-configured' &&
-        coverage.embedding.indexMode === 'vector-configured' &&
-        status.embedding.profile[field] === scope.profile?.[field] &&
-        coverage.embedding.profile[field] === scope.profile?.[field]
-    )
-  ) {
-    return false;
-  }
   return (
-    coverage.vectorCoverageComplete &&
-    coverage.totals.missingVectors === 0 &&
-    coverage.totals.vectors === coverage.totals.chunks
+    counters.every((field) => coverage.roots[0]?.[field] === coverage.totals[field]) &&
+    coverageMatchesMode(status.embedding, coverage, scope) &&
+    (scope.collectionId === undefined || collectionBuildComplete(status, collectionCoverage, scope))
   );
 }
 

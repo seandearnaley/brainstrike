@@ -1,0 +1,13 @@
+# Coverage batches and canonical observation fencing
+
+Rule: validate each distinct complete profile freshly inside one owned SQLite read snapshot, count scopes independently, and return canonical readiness from the same fenced main observation.
+
+The ordinary 5,000-file diagnostic showed a foreground latency regression. Source inspection found two sequential progress coverage calls over the same selected profile; each performed the complete integrity pass. This change removes that duplicate work within a single read transaction. It does not establish a latency or throughput improvement; ordinary native measurements remain required.
+
+`ScopedIndex.coverageBatch` owns a synchronous SQLite read transaction. Its first identity read pins the WAL snapshot, and its local set records only profiles successfully validated during that transaction. Every selected binding and every scope count is checked independently. Singleton coverage delegates to that path. The stored-vector validator remains unchanged, including byte, profile, coarse and ownership checks. SQLite documents read snapshot isolation at https://www.sqlite.org/isolation.html.
+
+The desktop capability retains the existing admitted-read lifetime. It captures and rechecks store, saved profile, roots, bindings, collection, main generation and canonical readiness around the native batch. Canonical readiness retains the publisher's existing per-scope scan generation and mutation revision, preventing an invalidate-and-rescan cycle from returning to an indistinguishable boolean. The browser-safe batch DTO carries coverage in request order and the associated canonical status; the benchmark's preliminary status is used only to select requests.
+
+CC's frozen readiness-predicate patch (SHA256 f5c0182ae305d48a5c9bc18901d5bb4bd50070533a29840e3de5dcafd0645532, base b8323d3d5132dfdddd73e0b2a07afc0ed11b014f) is composed here. Both workspace and collection readiness/counters must satisfy the existing captured scope. Corpus, model, throughput numerator, 500 ms observation delay and acceptance gates are unchanged.
+
+Pure guards exercise fresh validation, within-snapshot deduplication, distinct profiles, corruption after success, pending-read invalidations and the stale-status completion control. The prepared native WAL test commits corrupt bytes through a second connection after the read snapshot begins: the current batch must remain coherent and the next must reject corruption. Native/build/install execution is deferred until the coordinator releases the shared workload slot. CI is disabled due to cost; validation must run locally.

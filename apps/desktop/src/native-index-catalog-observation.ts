@@ -1,5 +1,6 @@
 import type { CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
 import type { NativeCanonicalCatalogRecord } from './native-canonical-catalog';
+import type { NativeScopeReadiness } from './native-canonical-publication';
 
 export function catalogFingerprint(records: readonly NativeCanonicalCatalogRecord[]): string {
   return JSON.stringify(
@@ -23,10 +24,7 @@ interface CatalogObservation {
   observedCatalogRecords?: readonly NativeCanonicalCatalogRecord[];
   readonly publication?: {
     invalidateScope(scope: CanonicalSourceScope): void;
-    getReadiness(): readonly {
-      readonly scope: CanonicalSourceScope;
-      readonly scanComplete: boolean;
-    }[];
+    getReadiness(): readonly NativeScopeReadiness[];
   };
   queuedCatalogRecords?: readonly NativeCanonicalCatalogRecord[] | undefined;
   readonly settings: { readonly managedCollectionId: string };
@@ -49,10 +47,7 @@ export function deferNativeIndexCatalog(
   return scan;
 }
 
-export function catalogReadiness(current: CatalogObservation): readonly {
-  readonly scope: CanonicalSourceScope;
-  readonly scanComplete: boolean;
-}[] {
+export function catalogReadiness(current: CatalogObservation): readonly NativeScopeReadiness[] {
   const queued = current.queuedCatalogRecords;
   const observed = current.observedCatalogRecords ?? [];
   return (current.publication?.getReadiness() ?? []).map((readiness) => {

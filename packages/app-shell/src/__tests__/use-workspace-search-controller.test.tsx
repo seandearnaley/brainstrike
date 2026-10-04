@@ -506,6 +506,9 @@ describe('useWorkspaceSearchController', () => {
     };
     const capability = {
       coverage: vi.fn<IndexSearchCapability['coverage']>(),
+      coverageBatch: vi.fn(async () => {
+        throw new Error('Unexpected coverage batch');
+      }),
       grep: vi.fn<IndexSearchCapability['grep']>(async () => response),
       rebuild: vi.fn(async () => {}),
       search: vi.fn<IndexSearchCapability['search']>(async () => response),
@@ -567,6 +570,7 @@ describe('useWorkspaceSearchController', () => {
     let resolveRead: (result: typeof response) => void = () => {};
     const capability = {
       coverage: vi.fn<IndexSearchCapability['coverage']>(),
+      coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(),
       grep: vi.fn<IndexSearchCapability['grep']>(async () => response),
       rebuild: vi.fn(async () => {}),
       search: vi.fn<IndexSearchCapability['search']>(
@@ -644,6 +648,7 @@ describe('useWorkspaceSearchController', () => {
           totals: counts,
           vectorCoverageComplete: true,
         })),
+        coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(),
         grep: vi.fn(),
         rebuild: vi.fn(async () => {}),
         search: vi.fn(),

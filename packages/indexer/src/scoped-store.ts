@@ -27,7 +27,7 @@ import {
 } from './contracts.js';
 import { readIndexIdentity, readScopeEpoch } from './index-metadata.js';
 import { ScopeAuthority, supportedVectorProfile, vectorProfileHash } from './scope-authority.js';
-import { scopeCoverage, verifyScopedManifest } from './scoped-proofs.js';
+import { scopeCoverage, scopeCoverageBatch, verifyScopedManifest } from './scoped-proofs.js';
 import { validateScopedStorage, vectorTable } from './scoped-vector-validation.js';
 
 const integer = Schema.Int.check(
@@ -612,6 +612,9 @@ export class ScopedIndex {
   }
   coverage(input: unknown): ScopedCoverage {
     return scopeCoverage(this.db, this.authority, input);
+  }
+  coverageBatch(input: unknown): readonly ScopedCoverage[] {
+    return scopeCoverageBatch(this.db, this.authority, input);
   }
   verifyManifest(input: unknown): ScopedManifestResult {
     return verifyScopedManifest(this.db, this.authority, input);

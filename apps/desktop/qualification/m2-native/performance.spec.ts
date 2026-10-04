@@ -308,6 +308,9 @@ test('native full-pipeline historical throughput and calibrated foreground laten
         : await readNativeSnapshot(context);
     const choices = await readSavedChoices(context);
     expect(choices.paused).toBe(true);
+    if (!choices.managedCollectionId.trim()) {
+      throw new Error('Full-pipeline benchmark requires its explicit managed collection.');
+    }
     if (before.status.kind !== 'ready') {
       throw new Error('Native index is unavailable before Resume.');
     }
@@ -320,14 +323,15 @@ test('native full-pipeline historical throughput and calibrated foreground laten
       }
       profile = before.status.embedding.profile;
     }
-    const scope: NativeBenchmarkScope = {
+    const scope: NativeBenchmarkScope & { readonly collectionId: string } = {
+      collectionId: choices.managedCollectionId,
       files,
       mode,
       rootId: ROOT_ID,
       storeId: before.status.storeId,
       ...(profile ? { profile } : {}),
     };
-    if (before.coverage?.totals.chunks) {
+    if (before.coverage?.totals.chunks || before.collectionCoverage?.totals.chunks) {
       throw new Error('Cold benchmark profile already contains indexed chunks.');
     }
     await seedRunningChatRun(context);
@@ -381,10 +385,10 @@ test('native full-pipeline historical throughput and calibrated foreground laten
         if (mode === 'text') {
           assertTextInferenceInactive(final);
         }
-        if (nativeBuildComplete(final.status, final.coverage, scope)) {
+        if (nativeBuildComplete(final.status, final.coverage, scope, final.collectionCoverage)) {
           break;
         }
-        const counts = JSON.stringify(final.coverage?.totals);
+        const counts = JSON.stringify([final.coverage?.totals, final.collectionCoverage?.totals]);
         if (counts !== previousCounts) {
           previousCounts = counts;
           lastProgressAt = performance.now();
@@ -428,7 +432,7 @@ test('native full-pipeline historical throughput and calibrated foreground laten
       before,
       calibration,
       completion:
-        'observed canonical scan receipt and full native coverage; includes up to 500ms observation delay',
+        'observed current workspace and collection canonical readiness with full native coverage; includes up to 500ms observation delay',
       corpus,
       elapsedMs,
       final,

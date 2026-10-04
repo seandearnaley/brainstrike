@@ -42,22 +42,52 @@ export async function readNativeSnapshot(context: ElectronAppContext): Promise<N
     if (!(api.indexSearch && api.embeddingHost)) {
       throw new Error('Native index and embedding status capabilities are required.');
     }
-    const status = await api.indexSearch.status();
-    return {
-      collectionCoverage:
-        status.kind === 'ready' && status.authorizedCollectionIds?.length === 1
-          ? await api.indexSearch.coverage({
-              collectionId: status.authorizedCollectionIds[0],
-              rootIds: [],
-            })
-          : null,
-      coverage:
-        status.kind === 'ready' && status.authorizedRootIds.length > 0
-          ? await api.indexSearch.coverage({ rootIds: status.authorizedRootIds })
-          : null,
-      inference: await api.embeddingHost.getStatus(),
-      status,
+    const indexSearch = api.indexSearch;
+    const requestsFor = (
+      initialStatus: Extract<NativeSnapshot['status'], { kind: 'ready' }>
+    ): Parameters<IndexSearchCapability['coverageBatch']>[0] => {
+      const requests: Parameters<IndexSearchCapability['coverageBatch']>[0][number][] = [];
+      if (initialStatus.authorizedCollectionIds?.length === 1) {
+        const collectionId = initialStatus.authorizedCollectionIds[0];
+        if (!collectionId) {
+          throw new Error('Canonical collection identity is missing.');
+        }
+        requests.push({ collectionId, rootIds: [] });
+      }
+      if (initialStatus.authorizedRootIds.length > 0) {
+        requests.push({ rootIds: initialStatus.authorizedRootIds });
+      }
+      return requests;
     };
+    const readCoverage = async (
+      initialStatus: Extract<NativeSnapshot['status'], { kind: 'ready' }>
+    ): Promise<Pick<NativeSnapshot, 'status' | 'coverage' | 'collectionCoverage'>> => {
+      const requests = requestsFor(initialStatus);
+      if (requests.length === 0) {
+        return { collectionCoverage: null, coverage: null, status: initialStatus };
+      }
+      const batch = await indexSearch.coverageBatch(requests);
+      let collectionCoverage: NativeSnapshot['collectionCoverage'] = null;
+      let coverage: NativeSnapshot['coverage'] = null;
+      for (const [index, request] of requests.entries()) {
+        const result = batch.coverage[index];
+        if (!result) {
+          throw new Error('Canonical coverage batch is incomplete.');
+        }
+        if (request.collectionId === undefined) {
+          coverage = result;
+        } else {
+          collectionCoverage = result;
+        }
+      }
+      return { collectionCoverage, coverage, status: batch.status };
+    };
+    const status = await indexSearch.status();
+    const observation =
+      status.kind === 'ready'
+        ? await readCoverage(status)
+        : { collectionCoverage: null, coverage: null, status };
+    return { ...observation, inference: await api.embeddingHost.getStatus() };
   });
 }
 

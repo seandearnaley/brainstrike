@@ -61,6 +61,7 @@ function writer(): IndexerPort & ScopedIndexerPort {
     commitTextFile: unused,
     configureVectorProfile: unused,
     coverage: unused,
+    coverageBatch: unused,
     coverageScope: unused,
     destroy: unused,
     info: async () => ({
@@ -208,6 +209,8 @@ it('boots cold paused status, coverage and grep with actual authority and no can
       vectorCoverageComplete: false,
     })),
   };
+  native.coverageBatch = async (input) =>
+    Promise.all((input as readonly unknown[]).map((request) => native.coverageScope(request)));
   mocks.readyPort.mockReturnValue(native);
   const { activation, storage, transport, onReceipt } = fixture();
   await savePause(storage, true);
@@ -293,10 +296,12 @@ it('retains a completed native reader and original cleanup authority through pau
   await activation.reconfigure();
   expect(mocks.manager.attachCanonicalCollection).toHaveBeenCalledTimes(2);
   expect(mocks.acquire).toHaveBeenCalledOnce();
-  expect((await activation.getSearchAuthority()).readiness).toContainEqual({
-    scanComplete: true,
-    scope,
-  });
+  expect((await activation.getSearchAuthority()).readiness).toContainEqual(
+    expect.objectContaining({
+      scanComplete: true,
+      scope,
+    })
+  );
   await activation.close();
 });
 
@@ -324,10 +329,12 @@ it('joins an admitted physical scan before pause acknowledges and retains the re
   await pausing;
   expect(await starting).toBeInstanceOf(Error);
   expect(await activation.acquireRead()).toBe(native);
-  expect((await activation.getSearchAuthority()).readiness).toContainEqual({
-    scanComplete: false,
-    scope,
-  });
+  expect((await activation.getSearchAuthority()).readiness).toContainEqual(
+    expect.objectContaining({
+      scanComplete: false,
+      scope,
+    })
+  );
   await activation.close();
 });
 
@@ -345,10 +352,12 @@ it('invalidates changed catalog proof and replaces trusted bindings while paused
   await activation.reconfigure();
   records = catalogRows(1);
   await activation.acquireRead();
-  expect((await activation.getSearchAuthority()).readiness).toContainEqual({
-    scanComplete: false,
-    scope,
-  });
+  expect((await activation.getSearchAuthority()).readiness).toContainEqual(
+    expect.objectContaining({
+      scanComplete: false,
+      scope,
+    })
+  );
   expect(replaceFileBindings).toHaveBeenLastCalledWith([
     expect.objectContaining({ fileId: 'retained-0' }),
   ]);
@@ -440,7 +449,7 @@ it('opens cold paused VECTOR authority with the exact saved query plan and zero 
       },
       modelKey: `transformers::${profile.modelId}`,
     },
-    readiness: [{ scanComplete: false, scope }],
+    readiness: [expect.objectContaining({ scanComplete: false, scope })],
   });
   expect(mocks.manager.attachCanonicalCollection).not.toHaveBeenCalled();
   expect(transport.documentEmbeddings).not.toHaveBeenCalled();
@@ -491,7 +500,7 @@ it('joins actual document adapter cancellation before Pause acknowledges and kee
   await activation.acquire();
   expect(await activation.getSearchAuthority()).toMatchObject({
     profile,
-    readiness: [{ scanComplete: false, scope }],
+    readiness: [expect.objectContaining({ scanComplete: false, scope })],
   });
   expect(mocks.acquire).toHaveBeenCalledOnce();
   await activation.close();

@@ -213,3 +213,44 @@ it('keeps fresh counts and fail-closed scope, profile and coarse-storage validat
     expect.objectContaining({ code: 'rebuild-required' })
   );
 });
+
+it('keeps both coverage scopes in one WAL snapshot and invalidates the next batch after an external corrupt commit', async () => {
+  const { reader, writer } = await fixture();
+  const original = reader.db.prepare.bind(reader.db);
+  let committed = false;
+  const corrupt = Buffer.alloc(profile.dimensions * 4);
+  corrupt.writeFloatLE(Number.NaN, 0);
+  const prepare = vi.spyOn(reader.db, 'prepare').mockImplementation((sql) => {
+    if (!committed && sql.startsWith('SELECT dimensions,emb FROM scoped_vectors')) {
+      expect(reader.db.inTransaction).toBe(true);
+      writer.db.prepare('UPDATE scoped_vectors SET emb=?').run(corrupt);
+      committed = true;
+    }
+    return original(sql);
+  });
+  try {
+    const batch = reader.scoped.coverageBatch([
+      { profile, scope: workspace },
+      { profile, scope: collection },
+    ]);
+    expect(reader.db.inTransaction).toBe(false);
+    expect(committed).toBe(true);
+    expect(batch.map((result) => result.counts.chunks)).toEqual([2, 3]);
+    expect(batch[0]!.vectorCoverageComplete).toBe(true);
+    expect(batch[1]!.vectorCoverageComplete).toBe(true);
+    expect(
+      prepare.mock.calls.filter(([sql]) =>
+        sql.startsWith('SELECT dimensions,emb FROM scoped_vectors')
+      )
+    ).toHaveLength(1);
+  } finally {
+    prepare.mockRestore();
+  }
+  expect(() =>
+    reader.scoped.coverageBatch([
+      { profile, scope: workspace },
+      { profile, scope: collection },
+    ])
+  ).toThrow('finite');
+  expect(reader.db.inTransaction).toBe(false);
+});

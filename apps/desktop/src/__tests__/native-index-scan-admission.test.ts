@@ -41,6 +41,7 @@ function fixture() {
   const writer = {
     commitScopedFile: vi.fn(),
     commitScopedTextFile: vi.fn(),
+    coverageBatch: vi.fn(),
     coverageScope: vi.fn(),
     info: vi.fn(async () => ({
       dbPath: '/owned/index.sqlite',

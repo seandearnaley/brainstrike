@@ -383,6 +383,9 @@ export const scopedCoverageRequestSchema = Schema.Struct({
   scope: scopeSchema,
 });
 export type ScopedCoverageRequest = typeof scopedCoverageRequestSchema.Type;
+export const scopedCoverageBatchRequestSchema = Schema.Array(scopedCoverageRequestSchema).check(
+  Schema.isMinLength(1)
+);
 export const scopedCoverageSchema = Schema.Struct({
   ...scopedProofIdentitySchema.fields,
   counts: Schema.Struct(coverageCounts),

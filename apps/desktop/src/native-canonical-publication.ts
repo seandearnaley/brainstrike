@@ -83,6 +83,13 @@ function manifest(plan: ScopedFilePlan): ScopedManifestFile {
   };
 }
 
+export interface NativeScopeReadiness {
+  readonly generation: number;
+  readonly mutationRevision: number;
+  readonly scanComplete: boolean;
+  readonly scope: CanonicalSourceScope;
+}
+
 /** The existing scan-ticket predicate, scoped to canonical PG IDs and the sole native writer. */
 export function createNativeCanonicalPublication(
   writer: PublicationWriter,
@@ -91,10 +98,7 @@ export function createNativeCanonicalPublication(
   invalidateFile(file: Pick<CanonicalFileIdentity, 'fileId' | 'rootId' | 'embeddingSetId'>): void;
   invalidateScope(scope: CanonicalSourceScope): void;
   reverifyScope(scope: CanonicalSourceScope, profile: VectorProfile | null): Promise<boolean>;
-  getReadiness(): readonly {
-    readonly scope: CanonicalSourceScope;
-    readonly scanComplete: boolean;
-  }[];
+  getReadiness(): readonly NativeScopeReadiness[];
 } {
   const states = new Map<string, ScanState>();
   const ownedScopes = scopes.map((scope) => ({ ...scope }));
@@ -310,7 +314,15 @@ export function createNativeCanonicalPublication(
       return finish;
     },
     getReadiness: () =>
-      ownedScopes.map((scope) => ({ scanComplete: stateFor(scope).scanComplete, scope })),
+      ownedScopes.map((scope) => {
+        const state = stateFor(scope);
+        return {
+          generation: state.generation,
+          mutationRevision: state.mutationRevision,
+          scanComplete: state.scanComplete,
+          scope,
+        };
+      }),
     invalidateFile: (file) => {
       const acknowledgedPlan = published.delete(file.fileId);
       for (const scope of ownedScopes) {

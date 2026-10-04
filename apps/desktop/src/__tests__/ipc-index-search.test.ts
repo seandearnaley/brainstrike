@@ -34,6 +34,9 @@ function capability(): IndexSearchCapability {
     coverage: vi.fn(async () => {
       throw new Error('Coverage failure');
     }),
+    coverageBatch: vi.fn(async () => {
+      throw new Error('Unexpected coverage batch');
+    }),
     grep: vi.fn(async () => {
       throw new Error('Grep failure');
     }),
@@ -111,4 +114,25 @@ it('preserves explicit grep options and refuses incomplete or mixed vector profi
       { limit: 10, mode: 'bm25', rootIds: ['r'], text: 'x', vector: [] },
     ])
   ).toThrow();
+});
+
+it('parses every batch selector and preserves visible-ui authority and failure propagation', async () => {
+  const cap = capability();
+  dispose.push(registerIndexSearchIpcHandlers(cap));
+  const requests = [{ collectionId: 'collection', rootIds: [] }, { rootIds: ['root'] }];
+  expect(indexSearchContract.coverageBatch.parseArgs([requests])).toEqual([requests]);
+  expect(() => indexSearchContract.coverageBatch.parseArgs([[]])).toThrow('requires');
+  expect(() =>
+    indexSearchContract.coverageBatch.parseArgs([[{ rootIds: ['root', 'root'] }]])
+  ).toThrow('unique');
+  expect(() =>
+    indexSearchContract.coverageBatch.parseArgs([[{ profile: {}, rootIds: ['root'] }]])
+  ).toThrow();
+  await expect(
+    handler('coverageBatch')(createTrustedInvokeEvent('embedding-host'), requests)
+  ).rejects.toThrow();
+  expect(cap.coverageBatch).not.toHaveBeenCalled();
+  const result = await handler('coverageBatch')(createTrustedInvokeEvent(), requests);
+  expect(result).toMatchObject({ ok: false });
+  expect(cap.coverageBatch).toHaveBeenCalledExactlyOnceWith(requests);
 });

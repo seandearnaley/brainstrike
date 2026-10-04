@@ -26,6 +26,100 @@ const coverage = {
   vectorCoverageComplete: true,
 };
 const scope = { files: 1000, mode: 'vector', profile, rootId: 'root', storeId: 'store' };
+const pairScope = { ...scope, collectionId: 'collection' };
+const pairStatus = {
+  ...status,
+  authorizedCollectionIds: ['collection'],
+  collectionReadiness: [{ embeddingSetId: 'collection', scanComplete: true }],
+};
+const collectionCoverage = {
+  ...coverage,
+  collections: [{ embeddingSetId: 'collection', ...counts }],
+  roots: [],
+};
+
+test('workspace completion and full collection counters cannot finish an unsettled collection', () => {
+  assert.equal(
+    nativeBuildComplete(
+      {
+        ...pairStatus,
+        collectionReadiness: [{ embeddingSetId: 'collection', scanComplete: false }],
+      },
+      coverage,
+      pairScope,
+      collectionCoverage
+    ),
+    false
+  );
+});
+
+test('both settled scopes must match the captured store, collection, profile and full coverage', () => {
+  assert.equal(nativeBuildComplete(pairStatus, coverage, pairScope, collectionCoverage), true);
+  const invalid = [
+    [pairStatus, null],
+    [{ ...pairStatus, collectionReadiness: [] }, collectionCoverage],
+    [{ ...pairStatus, authorizedCollectionIds: ['replacement'] }, collectionCoverage],
+    [
+      {
+        ...pairStatus,
+        collectionReadiness: [{ embeddingSetId: 'replacement', scanComplete: true }],
+      },
+      collectionCoverage,
+    ],
+    [pairStatus, { ...collectionCoverage, storeId: 'retired-store' }],
+    [
+      pairStatus,
+      { ...collectionCoverage, collections: [{ embeddingSetId: 'replacement', ...counts }] },
+    ],
+    [
+      pairStatus,
+      {
+        ...collectionCoverage,
+        embedding: { ...embedding, profile: { ...profile, revision: 'main' } },
+      },
+    ],
+    [
+      pairStatus,
+      { ...collectionCoverage, embedding: { ...embedding, profileHash: 'retired-profile' } },
+    ],
+    [pairStatus, { ...collectionCoverage, totals: { ...counts, indexedFiles: 999 } }],
+    [
+      pairStatus,
+      {
+        ...collectionCoverage,
+        collections: [{ embeddingSetId: 'collection', ...counts, vectors: 0 }],
+      },
+    ],
+    [pairStatus, { ...collectionCoverage, vectorCoverageComplete: false }],
+  ];
+  for (const [currentStatus, currentCoverage] of invalid) {
+    assert.equal(nativeBuildComplete(currentStatus, coverage, pairScope, currentCoverage), false);
+  }
+});
+
+test('the fully settled TEXT pair uses both current receipts without claiming vector work', () => {
+  const textEmbedding = { indexMode: 'text-only' };
+  const textCounts = { ...counts, missingVectors: counts.chunks, vectors: 0 };
+  const textStatus = { ...pairStatus, embedding: textEmbedding };
+  const textCoverage = {
+    ...coverage,
+    embedding: textEmbedding,
+    roots: [{ rootId: 'root', ...textCounts }],
+    totals: textCounts,
+    vectorCoverageComplete: false,
+  };
+  const textCollection = {
+    ...collectionCoverage,
+    collections: [{ embeddingSetId: 'collection', ...textCounts }],
+    embedding: textEmbedding,
+    totals: textCounts,
+    vectorCoverageComplete: false,
+  };
+  assert.equal(
+    nativeBuildComplete(textStatus, textCoverage, { ...pairScope, mode: 'text' }, textCollection),
+    true
+  );
+});
 
 test('native completion rejects complete counters without canonical scan or current identity', () => {
   assert.equal(nativeBuildComplete(status, coverage, scope), true);

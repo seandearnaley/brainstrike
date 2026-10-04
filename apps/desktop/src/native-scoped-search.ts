@@ -10,12 +10,15 @@ import {
 } from '@brainstrike/indexer';
 import type {
   IndexerCoverage,
+  IndexerCoverageBatch,
+  IndexerCoverageRequest,
   IndexerEmbeddingState,
   IndexerSearchHit,
   IndexerStatus,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteQueryClient } from '@brainstrike/sqlite-query';
+import type { NativeScopeReadiness } from './native-canonical-publication';
 import { grepSnapshot } from './native-index-search';
 
 export interface NativeSearchAuthority {
@@ -24,7 +27,7 @@ export interface NativeSearchAuthority {
   readonly generation: number;
   readonly profile: VectorProfile | null;
   readonly queryPlan: Extract<IndexerStatus, { kind: 'ready' }>['queryPlan'];
-  readonly readiness: readonly { readonly scope: IndexScope; readonly scanComplete: boolean }[];
+  readonly readiness: readonly NativeScopeReadiness[];
   readonly rootIds: readonly string[];
 }
 export interface NativeScopedRead {
@@ -51,7 +54,7 @@ function embeddingState(profile: VectorProfile | null): IndexerEmbeddingState {
     profileHash: embeddingProfileHash(projection),
   };
 }
-function fingerprint(authority: NativeSearchAuthority): string {
+function fingerprint(authority: NativeSearchAuthority, includeReadiness: boolean): string {
   return JSON.stringify([
     authority.generation,
     authority.collectionId,
@@ -59,6 +62,7 @@ function fingerprint(authority: NativeSearchAuthority): string {
     authority.bindings,
     authority.profile,
     authority.queryPlan,
+    ...(includeReadiness ? [authority.readiness] : []),
   ]);
 }
 function requestedScopes(
@@ -126,6 +130,38 @@ function assertCoverage(
     throw new Error('Native scope coverage returned a different store or profile.');
   }
 }
+function assertCoverageBatch(
+  coverage: readonly ScopedCoverage[],
+  scopes: readonly IndexScope[],
+  storeId: string,
+  profile: VectorProfile | null
+): void {
+  const first = coverage[0];
+  if (!first || coverage.length !== scopes.length) {
+    throw new Error('Native coverage batch returned a different scope inventory.');
+  }
+  for (const [index, result] of coverage.entries()) {
+    assertCoverage(result, storeId, profile);
+    const scope = scopes[index];
+    if (
+      !scope ||
+      result.scope.kind !== scope.kind ||
+      (result.scope.kind === 'workspace' && scope.kind === 'workspace'
+        ? result.scope.rootId !== scope.rootId
+        : result.scope.kind === 'collection' &&
+          scope.kind === 'collection' &&
+          result.scope.embeddingSetId !== scope.embeddingSetId)
+    ) {
+      throw new Error('Native coverage batch returned a different scope.');
+    }
+    if (
+      result.authorityEpoch !== first.authorityEpoch ||
+      result.authorityRevision !== first.authorityRevision
+    ) {
+      throw new Error('Native scope authority changed during coverage.');
+    }
+  }
+}
 function projectCoverage(
   coverage: readonly ScopedCoverage[],
   storeId: string,
@@ -152,20 +188,54 @@ function projectCoverage(
     vectorCoverageComplete: coverage.every((result) => result.vectorCoverageComplete),
   };
 }
+function projectStatus(
+  authority: NativeSearchAuthority,
+  storeId: string,
+  embedding: IndexerEmbeddingState
+): Extract<IndexerStatus, { kind: 'ready' }> {
+  return {
+    authorizedCollectionIds: [authority.collectionId],
+    authorizedRootIds: authority.rootIds,
+    collectionReadiness: [
+      {
+        embeddingSetId: authority.collectionId,
+        scanComplete: authority.readiness.some(
+          (receipt) =>
+            receipt.scope.kind === 'collection' &&
+            receipt.scope.embeddingSetId === authority.collectionId &&
+            receipt.scanComplete
+        ),
+      },
+    ],
+    embedding,
+    kind: 'ready',
+    rootReadiness: authority.rootIds.map((rootId) => ({
+      rootId,
+      scanComplete: authority.readiness.some(
+        (receipt) =>
+          receipt.scope.kind === 'workspace' &&
+          receipt.scope.rootId === rootId &&
+          receipt.scanComplete
+      ),
+    })),
+    storeId,
+    ...(authority.queryPlan === undefined ? {} : { queryPlan: authority.queryPlan }),
+  };
+}
 /** Project the current scoped writer and its exact saved profile into the visible read capability. */
 export function createNativeScopedSearchCapability(
   dependencies: Dependencies
 ): IndexSearchCapability {
-  const capture = async (read: NativeScopedRead) => {
+  const capture = async (read: NativeScopedRead, includeReadiness = false) => {
     const port = read.port;
     const authority = await read.getAuthority();
     const info = await port.info();
-    const key = fingerprint(authority);
+    const key = fingerprint(authority, includeReadiness);
     return {
       assertCurrent: async (): Promise<void> => {
         const currentInfo = await port.info();
         if (
-          key !== fingerprint(await read.getAuthority()) ||
+          key !== fingerprint(await read.getAuthority(), includeReadiness) ||
           currentInfo.storeId !== info.storeId
         ) {
           throw new Error('Native source or saved profile changed during search.');
@@ -177,32 +247,47 @@ export function createNativeScopedSearchCapability(
       storeId: info.storeId,
     };
   };
+  const coverageBatch = (
+    requests: readonly IndexerCoverageRequest[]
+  ): Promise<IndexerCoverageBatch> =>
+    dependencies.withRead(async (read) => {
+      if (requests.length === 0) {
+        throw new TypeError('Native coverage batch requires at least one request.');
+      }
+      const snapshot = await capture(read, true);
+      const groups = requests.map((request) => requestedScopes(snapshot.authority, request));
+      const scopes = groups.flat();
+      const coverage = await snapshot.port.coverageBatch(
+        scopes.map((scope) => ({
+          scope,
+          ...(snapshot.authority.profile === null ? {} : { profile: snapshot.authority.profile }),
+        }))
+      );
+      assertCoverageBatch(coverage, scopes, snapshot.storeId, snapshot.authority.profile);
+      await snapshot.assertCurrent();
+      let offset = 0;
+      return {
+        coverage: groups.map((group) => {
+          const result = projectCoverage(
+            coverage.slice(offset, offset + group.length),
+            snapshot.storeId,
+            snapshot.embedding
+          );
+          offset += group.length;
+          return result;
+        }),
+        status: projectStatus(snapshot.authority, snapshot.storeId, snapshot.embedding),
+      };
+    });
   return {
-    coverage: (request): Promise<IndexerCoverage> =>
-      dependencies.withRead(async (read) => {
-        const snapshot = await capture(read);
-        const scopes = requestedScopes(snapshot.authority, request);
-        const coverage: ScopedCoverage[] = [];
-        for (const scope of scopes) {
-          const result = await snapshot.port.coverageScope({
-            scope,
-            ...(snapshot.authority.profile === null ? {} : { profile: snapshot.authority.profile }),
-          });
-          assertCoverage(result, snapshot.storeId, snapshot.authority.profile);
-          coverage.push(result);
-        }
-        if (
-          coverage.some(
-            (result) =>
-              result.authorityEpoch !== coverage[0]?.authorityEpoch ||
-              result.authorityRevision !== coverage[0]?.authorityRevision
-          )
-        ) {
-          throw new Error('Native scope authority changed during coverage.');
-        }
-        await snapshot.assertCurrent();
-        return projectCoverage(coverage, snapshot.storeId, snapshot.embedding);
-      }),
+    coverage: async (request): Promise<IndexerCoverage> => {
+      const [result] = (await coverageBatch([request])).coverage;
+      if (!result) {
+        throw new Error('Native singleton coverage returned no result.');
+      }
+      return result;
+    },
+    coverageBatch,
     grep: (request) =>
       dependencies.withRead(async (read) => {
         const snapshot = await capture(read);
@@ -290,36 +375,7 @@ export function createNativeScopedSearchCapability(
         return await dependencies.withRead(async (read) => {
           const snapshot = await capture(read);
           await snapshot.assertCurrent();
-          return {
-            authorizedCollectionIds: [snapshot.authority.collectionId],
-            authorizedRootIds: snapshot.authority.rootIds,
-            collectionReadiness: [
-              {
-                embeddingSetId: snapshot.authority.collectionId,
-                scanComplete: snapshot.authority.readiness.some(
-                  (receipt) =>
-                    receipt.scope.kind === 'collection' &&
-                    receipt.scope.embeddingSetId === snapshot.authority.collectionId &&
-                    receipt.scanComplete
-                ),
-              },
-            ],
-            embedding: snapshot.embedding,
-            kind: 'ready',
-            rootReadiness: snapshot.authority.rootIds.map((rootId) => ({
-              rootId,
-              scanComplete: snapshot.authority.readiness.some(
-                (receipt) =>
-                  receipt.scope.kind === 'workspace' &&
-                  receipt.scope.rootId === rootId &&
-                  receipt.scanComplete
-              ),
-            })),
-            storeId: snapshot.storeId,
-            ...(snapshot.authority.queryPlan === undefined
-              ? {}
-              : { queryPlan: snapshot.authority.queryPlan }),
-          };
+          return projectStatus(snapshot.authority, snapshot.storeId, snapshot.embedding);
         });
       } catch (error) {
         return {

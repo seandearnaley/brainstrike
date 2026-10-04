@@ -122,6 +122,7 @@ describe('agent-stream-init runtime composition and memory', () => {
     const { buildDesktopAssistantTools } = await import('../../assistant-server/assistant-tools');
     const nativeIndexSearch = {
       coverage: vi.fn(),
+      coverageBatch: vi.fn(),
       grep: vi.fn(),
       rebuild: vi.fn(),
       search: vi.fn(),
