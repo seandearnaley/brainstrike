@@ -1,0 +1,11 @@
+# Scoped read lifetime
+
+Runtime read ownership spans capture, the native operation, strict final validation and physical grep disposal. Ordinary binding replacement and authority-changing removals fence later readers and join earlier reads; genuine live authority replacement still refuses the result.
+
+The preserved product `9104b156` / qualifier `73ba70b1` actual app run failed its first readiness coverage call with `Native source or saved profile changed during search`. No successful readiness snapshot preceded the failure. Complete source receipts arrived afterward. The raw call did not record which fingerprint operand changed.
+
+A controlled reproduction uses the actual native writer, actual canonical host and schema-checked private channel. Hold initial attachment and coverage, then add one PG record. Generation, root IDs, collection, full profile, query plan and actual store remain fixed; only binding inventory advances. The parent rejects the read; unchanged inventory succeeds. This establishes a sufficient causal path, not the unlogged operand in the app run. The production progress provider requests coverage while source receipts are incomplete, matching the contract's valid pending read path.
+
+The runtime admits reads after source-owned reconciliation and retains its actual binding ACK through the entire read. Acquisition and removal intents capture predecessor promises before publication to avoid self-waiting cycles. Publication/catalog removals share that owner; absent/outgoing retirement stays inside the runtime's existing operation. Terminal source retirement fences and joins reads before captured-port root deletion. Pause retains its read owner. Query cleanup failure preserves admission failure and the original physical query registry until explicit retirement.
+
+Guards: `apps/desktop/src/__tests__/native-index-catalog-refresh.integration.test.ts`, `native-index-runtime.test.ts`, `native-index-activation.test.ts`, and `native-scoped-search.test.ts`. Native coverage controls cover binding-only progress, unchanged inventory and genuine settings replacement; unit controls cover error/cancellation, simultaneous intent ordering, query cleanup retention, physical grep disposal and full identity replacement. These fixtures do not qualify the complete desktop application sequence.

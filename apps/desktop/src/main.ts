@@ -994,10 +994,9 @@ const nativeRootDataDeletion = createNativeRootDataDeletion({
   stopSources: () => nativeIndexActivation.stopSources(),
 });
 const nativeIndexSearch = createNativeScopedSearchCapability({
-  acquireIndexer: () => nativeIndexActivation.acquireRead(),
-  getAuthority: () => nativeIndexActivation.getSearchAuthority(),
   openQuery: openIndexQuery,
   rebuild: () => nativeRootDataDeletion.transition(() => nativeIndexActivation.rebuild()),
+  withRead: nativeIndexActivation.withRead,
 });
 ipcDisposers.add('index-search', registerIndexSearchIpcHandlers(nativeIndexSearch));
 ipcDisposers.add('main', () => {

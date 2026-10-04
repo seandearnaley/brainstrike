@@ -42,9 +42,15 @@ export interface NativeIndexRuntime {
   captureAcknowledgedAuthority(): CapturedNativeIndexAuthority;
   closeIndex(): Promise<void>;
   destroyIndex(): Promise<void>;
+  mutateAuthority<T>(expected: NativePort, work: () => Promise<T>): Promise<T>;
   resume(): Promise<void>;
   retireProfile(): Promise<void>;
+  retireReads(): Promise<void>;
   retireWorkspaceCollectionFiles(embeddingSetId: string): Promise<void>;
+  withRead<T>(
+    acquireRead: () => Promise<NativePort>,
+    work: (captured: CapturedNativeIndexAuthority) => Promise<T>
+  ): Promise<T>;
 }
 
 function retainAuthority(authority: NativeIndexAuthority): NativeIndexAuthority {
@@ -131,6 +137,9 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
   let bindings = '';
   let port: NativePort | undefined;
   let acquisition: Promise<NativePort> | undefined;
+  let authorityMutation: Promise<unknown> | undefined;
+  const reads = new Set<Promise<void>>();
+  let readsClosed = false;
   let acknowledgedAuthority: NativeIndexAuthority | undefined;
   let acknowledgedPort: NativePort | undefined;
   let bindingRemovalPending = false;
@@ -186,7 +195,11 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       await assertAuthorityCurrent();
     }
   };
-  const acquire = async (): Promise<NativePort> => {
+  const joinReads = async (): Promise<void> => {
+    await Promise.all([...reads]);
+  };
+  const acquire = async (priorMutation: Promise<unknown> | undefined): Promise<NativePort> => {
+    await priorMutation;
     await acquireProfile();
     const requested = retainAuthority(await dependencies.getAuthority());
     const requestedScopes = scopeIdentity(requested);
@@ -215,6 +228,7 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       return port;
     }
     // Retire query snapshots before changing either membership or immutable scopes.
+    await joinReads();
     await dependencies.closeQueries();
     if (closed) {
       throw new Error('Native index admission closed during reader retirement.');
@@ -263,6 +277,8 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
   const settleWorkspaceRetirement = (): Promise<void> => {
     workspaceRetirement ??= (async () => {
       await acquisition?.catch(() => undefined);
+      await authorityMutation?.catch(() => undefined);
+      await joinReads();
       if (!outgoingFiles) {
         if (!(acknowledgedPort && acknowledgedAuthority)) {
           if (indexOwner) {
@@ -303,11 +319,13 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       );
     }
     closed = true;
+    readsClosed = true;
     outgoingCollectionId = embeddingSetId;
     return settleWorkspaceRetirement();
   };
   const closeIndex = (destroy = false): Promise<void> => {
     closed = true;
+    readsClosed = true;
     const kind = destroy ? 'destroy' : 'close';
     if (closing && closingKind !== kind) {
       return Promise.reject(
@@ -318,6 +336,8 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     // Keep failed cleanup retryable and keep its owner until it actually exits.
     closing ??= (async () => {
       await acquisition?.catch(() => undefined);
+      await authorityMutation?.catch(() => undefined);
+      await joinReads();
       if (outgoingCollectionId !== undefined) {
         await settleWorkspaceRetirement();
       }
@@ -340,46 +360,81 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       outgoingCollectionId = undefined;
       outgoingPort = undefined;
       outgoingFiles = undefined;
+      authorityMutation = undefined;
     })().finally(() => {
       closing = undefined;
       closingKind = undefined;
     });
     return closing;
   };
+  const acquireCurrent = (): Promise<NativePort> => {
+    if (closed) {
+      return Promise.reject(new Error('Native index admission is closed.'));
+    }
+    acquisition ??= acquire(authorityMutation).finally(() => {
+      acquisition = undefined;
+    });
+    return acquisition;
+  };
+  const captureAcknowledgedAuthority = (): CapturedNativeIndexAuthority => {
+    const owner = indexOwner;
+    const capturedPort = acknowledgedPort;
+    if (!(owner && capturedPort && acknowledgedAuthority)) {
+      throw new Error('Native writer has no acknowledged ownership to capture.');
+    }
+    return {
+      port: capturedPort,
+      readAuthority: () => {
+        if (indexOwner !== owner || acknowledgedPort !== capturedPort || !acknowledgedAuthority) {
+          throw new Error('Captured native writer authority has been retired or replaced.');
+        }
+        return retainAuthority(acknowledgedAuthority);
+      },
+    };
+  };
   return {
-    acquire: (): Promise<NativePort> => {
+    acquire: acquireCurrent,
+    acquireProfile,
+    captureAcknowledgedAuthority,
+    closeIndex: () => closeIndex(),
+    destroyIndex: () => closeIndex(true),
+    mutateAuthority: <T>(expected: NativePort, work: () => Promise<T>): Promise<T> => {
       if (closed) {
         return Promise.reject(new Error('Native index admission is closed.'));
       }
-      acquisition ??= acquire().finally(() => {
-        acquisition = undefined;
-      });
-      return acquisition;
-    },
-    acquireProfile,
-    captureAcknowledgedAuthority: () => {
-      const owner = indexOwner;
-      const capturedPort = acknowledgedPort;
-      if (!(owner && capturedPort && acknowledgedAuthority)) {
-        throw new Error('Native writer has no acknowledged ownership to capture.');
-      }
-      return {
-        port: capturedPort,
-        readAuthority: () => {
-          if (indexOwner !== owner || acknowledgedPort !== capturedPort || !acknowledgedAuthority) {
-            throw new Error('Captured native writer authority has been retired or replaced.');
+      // Capture predecessors before publishing this intent; never wait on later acquisitions.
+      const priorAcquisition = acquisition;
+      const priorMutation = authorityMutation;
+      const operation = (async () => {
+        await priorAcquisition;
+        await priorMutation;
+        await joinReads();
+        if (closed || port !== expected) {
+          throw new Error('Native mutation writer was retired or replaced.');
+        }
+        await dependencies.closeQueries();
+        if (closed || port !== expected) {
+          throw new Error('Native mutation writer was retired or replaced.');
+        }
+        return work();
+      })();
+      authorityMutation = operation;
+      operation.then(
+        () => {
+          if (authorityMutation === operation) {
+            authorityMutation = undefined;
           }
-          return retainAuthority(acknowledgedAuthority);
         },
-      };
+        () => undefined
+      );
+      return operation;
     },
-    closeIndex: () => closeIndex(),
-    destroyIndex: () => closeIndex(true),
     resume: async (): Promise<void> => {
       if (indexOwner || profileOwner || closing || acquisition) {
         throw new Error('Previous native ownership must retire before reset resumes.');
       }
       closed = false;
+      readsClosed = false;
       await acquireProfile();
     },
     retireProfile: async (): Promise<void> => {
@@ -389,6 +444,48 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       profileOwner = undefined;
       profileAcquisition = undefined;
     },
+    retireReads: async (): Promise<void> => {
+      readsClosed = true;
+      await joinReads();
+    },
     retireWorkspaceCollectionFiles,
+    withRead: async <T>(
+      acquireRead: () => Promise<NativePort>,
+      work: (captured: CapturedNativeIndexAuthority) => Promise<T>
+    ): Promise<T> => {
+      while (true) {
+        if (closed || readsClosed) {
+          throw new Error('Native read admission is closed.');
+        }
+        const acquired = await acquireRead();
+        await authorityMutation;
+        if (acquisition || authorityMutation) {
+          continue;
+        }
+        if (closed || readsClosed) {
+          throw new Error('Native read admission is closed.');
+        }
+        const captured = captureAcknowledgedAuthority();
+        if (captured.port !== acquired) {
+          throw new Error('Native read acquired a retired or foreign writer.');
+        }
+        const settled = Promise.withResolvers<void>();
+        reads.add(settled.promise);
+        try {
+          return await work({
+            port: captured.port,
+            readAuthority: () => {
+              if (closed || readsClosed) {
+                throw new Error('Native read admission is closed.');
+              }
+              return captured.readAuthority();
+            },
+          });
+        } finally {
+          reads.delete(settled.promise);
+          settled.resolve();
+        }
+      }
+    },
   };
 }

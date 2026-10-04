@@ -24,6 +24,7 @@ import type { CanonicalCollectionDependencies } from '../canonical-utility-paren
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
+import { createNativeScopedSearchCapability } from '../native-scoped-search';
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
@@ -809,4 +810,82 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
   expect(native.verifyScopedManifest).toHaveBeenCalledTimes(3);
   expect(native.coverageScope).toHaveBeenCalledTimes(1);
   await activation.close();
+});
+
+it('joins physical grep disposal before retiring read authority during a genuine settings replacement', async () => {
+  const f = fixture();
+  const settings = {
+    state: {
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'selected',
+      nativeIndexMode: 'TEXT',
+      nativeLocalSelection: null,
+      paused: true,
+      worktreeRootIndexingOptInById: {},
+    },
+  };
+  f.storage.getItem.mockImplementation(async () => JSON.stringify(settings));
+  const disposing = Promise.withResolvers<void>();
+  const disposed = Promise.withResolvers<void>();
+  const close = vi.fn(async () => {
+    disposing.resolve();
+    await disposed.promise;
+  });
+  const capability = createNativeScopedSearchCapability({
+    openQuery: async () => ({
+      close,
+      grep: async () => ({
+        columns: [
+          'id',
+          'root_id',
+          'file_record_id',
+          'path',
+          'content',
+          'content_hash',
+          'start_line',
+          'end_line',
+          'chunk_index',
+          'chunk_size',
+          'chunk_type',
+          'start_offset',
+          'end_offset',
+          'token_count',
+          'embedding_set_id',
+          'source_path',
+        ],
+        identity: { embedding: { indexMode: 'text-only' as const }, storeId },
+        matchedChunks: 0,
+        rows: [],
+        truncated: false,
+      }),
+    }),
+    rebuild: f.activation.rebuild,
+    withRead: f.activation.withRead,
+  });
+  const pending = capability
+    .grep({
+      caseSensitive: false,
+      collectionId: 'selected',
+      isRegex: false,
+      limit: 10,
+      pattern: 'marker',
+      rootIds: [],
+    })
+    .catch((error: unknown) => error);
+  await disposing.promise;
+  settings.state.enabled = false;
+  const replacing = f.activation.reconfigure().catch((error: unknown) => error);
+  await vi.waitFor(() =>
+    expect(() => f.activation.captureAcknowledgedAuthority()).toThrow(
+      'Native source authority changed'
+    )
+  );
+  expect(mocks.close).not.toHaveBeenCalled();
+  disposed.resolve();
+  expect(await pending).toBeInstanceOf(Error);
+  expect(await replacing).toEqual(new Error('Native indexing is disabled in saved settings.'));
+  expect(close).toHaveBeenCalledOnce();
+  expect(mocks.close).toHaveBeenCalledOnce();
+  await f.activation.close();
 });

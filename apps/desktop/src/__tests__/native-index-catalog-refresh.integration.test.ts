@@ -23,7 +23,10 @@ import {
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
-import { createNativeScopedSearchCapability } from '../native-scoped-search';
+import {
+  createNativeScopedSearchCapability,
+  type NativeSearchAuthority,
+} from '../native-scoped-search';
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
@@ -83,6 +86,11 @@ async function fixture(withWorkspace = false) {
     },
     { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
   );
+  const attachmentEntered = Promise.withResolvers<void>();
+  const attachmentGate = Promise.withResolvers<void>();
+  const coverageEntered = Promise.withResolvers<void>();
+  const coverageGate = Promise.withResolvers<void>();
+  const authorities: NativeSearchAuthority[] = [];
   const entered = Promise.withResolvers<void>();
   const gate = Promise.withResolvers<void>();
   const nextEntered = Promise.withResolvers<void>();
@@ -104,9 +112,12 @@ async function fixture(withWorkspace = false) {
   const receipts: CanonicalScanReceipt[] = [];
   const activeScans = new Set<Promise<CanonicalScanReceipt>>();
   const state = {
+    enabled: true,
     files: records(0),
     hold: false,
+    holdAttachment: false,
     holdBatch: false,
+    holdCoverage: false,
     holdInventoryAfterReads: -1,
     holdNext: false,
     holdWorkspace: false,
@@ -119,6 +130,15 @@ async function fixture(withWorkspace = false) {
   };
   const writer = {
     ...native,
+    coverageScope: async (request: unknown) => {
+      const result = await native.coverageScope(request);
+      if (state.holdCoverage) {
+        state.holdCoverage = false;
+        coverageEntered.resolve();
+        await coverageGate.promise;
+      }
+      return result;
+    },
     replaceFileBindings: async (files: readonly IndexFileBinding[]) => {
       bindings.push(files.map((file) => file.fileId));
       await native.replaceFileBindings(files);
@@ -273,6 +293,10 @@ async function fixture(withWorkspace = false) {
       if (dependencies.mode !== 'TEXT') {
         throw new Error('Catalog refresh fixture requires explicit TEXT admission.');
       }
+      if (state.holdAttachment) {
+        attachmentEntered.resolve();
+        await attachmentGate.promise;
+      }
       if (state.populateOnAttachment) {
         state.files = records(1);
       }
@@ -334,7 +358,7 @@ async function fixture(withWorkspace = false) {
       getItem: async () =>
         JSON.stringify({
           state: {
-            enabled: true,
+            enabled: state.enabled,
             indexingPolicyPreset: 'balanced',
             managedCollectionId: scope.embeddingSetId,
             nativeIndexMode: 'TEXT',
@@ -347,18 +371,32 @@ async function fixture(withWorkspace = false) {
   });
   return {
     activation,
+    attachmentEntered,
+    attachmentGate,
+    authorities,
     batchEntered,
     batchGate,
     bindings,
     capability: createNativeScopedSearchCapability({
-      acquireIndexer: activation.acquireRead,
-      getAuthority: activation.getSearchAuthority,
       openQuery: async () => {
         throw new Error('Unexpected SQLite query opening.');
       },
       rebuild: activation.rebuild,
+      withRead: (work) =>
+        activation.withRead((read) =>
+          work({
+            ...read,
+            getAuthority: async () => {
+              const result = await read.getAuthority();
+              authorities.push(structuredClone(result));
+              return result;
+            },
+          })
+        ),
     }),
     close: async () => {
+      attachmentGate.resolve();
+      coverageGate.resolve();
       inventoryGate.resolve();
       workspaceGate.resolve();
       batchGate.resolve();
@@ -379,6 +417,8 @@ async function fixture(withWorkspace = false) {
         await rm(directory, { force: true, recursive: true });
       }
     },
+    coverageEntered,
+    coverageGate,
     entered,
     finished,
     gate,
@@ -780,6 +820,96 @@ it('admits a later real workspace pass only after the owned collection host/chan
     expect(test.workspaceBegins).toHaveLength(count + 1);
     expect(test.receipts.every((receipt) => receipt.scanComplete)).toBe(true);
     expect(test.onError).not.toHaveBeenCalled();
+  } finally {
+    await test.close();
+  }
+});
+
+it.each([false, true])(
+  'owns pending startup coverage across binding admission (progress=%s)',
+  async (progress) => {
+    const test = await fixture();
+    test.state.holdAttachment = true;
+    test.state.holdCoverage = true;
+    test.state.populateOnAttachment = progress;
+    test.state.hold = progress;
+    try {
+      expect(await test.capability.status()).toMatchObject({
+        collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
+        kind: 'ready',
+      });
+      await test.attachmentEntered.promise;
+      const pending = test.capability
+        .coverage({ collectionId: 'selected', rootIds: [] })
+        .catch((error: unknown) => error);
+      await test.coverageEntered.promise;
+      const before = test.authorities.at(-1);
+      const beforeStore = (await test.native.info()).storeId;
+      test.attachmentGate.resolve();
+      if (progress) {
+        await test.sawSingleInventory.promise;
+      } else {
+        await test.activation.acquire();
+      }
+      const after = await test.activation.getSearchAuthority();
+      const fields = [
+        'generation',
+        'collectionId',
+        'rootIds',
+        'bindings',
+        'profile',
+        'queryPlan',
+      ] as const;
+      expect(
+        fields.filter((field) => JSON.stringify(before?.[field]) !== JSON.stringify(after[field]))
+      ).toEqual(progress ? ['bindings'] : []);
+      expect((await test.native.info()).storeId).toBe(beforeStore);
+      expect(test.bindings.flat()).not.toContain('retained-0');
+      expect(test.receipts).toHaveLength(progress ? 0 : 1);
+      test.coverageGate.resolve();
+      expect(await pending).toMatchObject({
+        storeId: beforeStore,
+        totals: { chunks: 0, indexedFiles: 0 },
+      });
+      expect(test.authorities.at(-1)?.bindings).toEqual(before?.bindings);
+      if (progress) {
+        await test.entered.promise;
+        expect(test.bindings.flat()).toContain('retained-0');
+        expect(test.receipts).toHaveLength(0);
+      }
+      test.gate.resolve();
+      await test.activation.acquire();
+      expect(test.onError).not.toHaveBeenCalled();
+      expect(test.activation.getReadiness()).toEqual([{ scanComplete: true, scope }]);
+    } finally {
+      await test.close();
+    }
+  }
+);
+
+it('rejects held native coverage when genuine saved authority replacement retires its owner', async () => {
+  const test = await fixture();
+  try {
+    await test.activation.acquire();
+    test.state.holdCoverage = true;
+    const pending = test.capability
+      .coverage({ collectionId: 'selected', rootIds: [] })
+      .catch((error: unknown) => error);
+    await test.coverageEntered.promise;
+    const originalStore = (await test.native.info()).storeId;
+    test.state.enabled = false;
+    const replacing = test.activation.reconfigure().catch((error: unknown) => error);
+    await vi.waitFor(() =>
+      expect(() => test.activation.captureAcknowledgedAuthority()).toThrow(
+        'Native source authority changed'
+      )
+    );
+    expect(mocks.close).not.toHaveBeenCalled();
+    expect((await test.native.info()).storeId).toBe(originalStore);
+    test.coverageGate.resolve();
+    expect(await pending).toBeInstanceOf(Error);
+    expect(await replacing).toEqual(new Error('Native indexing is disabled in saved settings.'));
+    expect(mocks.close).toHaveBeenCalledOnce();
   } finally {
     await test.close();
   }

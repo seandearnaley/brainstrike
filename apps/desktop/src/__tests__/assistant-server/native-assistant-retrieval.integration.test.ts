@@ -159,19 +159,6 @@ it('composes production tools with the scoped SQLite writer and real separate qu
       });
     }
     const capability = createNativeScopedSearchCapability({
-      acquireIndexer: async () => port,
-      getAuthority: async () => ({
-        bindings: [rootless, rooted],
-        collectionId: 'selected',
-        generation: 1,
-        profile,
-        queryPlan,
-        readiness: [
-          { scanComplete: true, scope: collection },
-          { scanComplete: true, scope: workspace },
-        ],
-        rootIds: ['root'],
-      }),
       openQuery: () =>
         SqliteQueryClient.open({
           databasePath: dbPath,
@@ -183,6 +170,22 @@ it('composes production tools with the scoped SQLite writer and real separate qu
       rebuild: async () => {
         throw new Error('Unexpected rebuild');
       },
+      withRead: (work) =>
+        work({
+          getAuthority: async () => ({
+            bindings: [rootless, rooted],
+            collectionId: 'selected',
+            generation: 1,
+            profile,
+            queryPlan,
+            readiness: [
+              { scanComplete: true, scope: collection },
+              { scanComplete: true, scope: workspace },
+            ],
+            rootIds: ['root'],
+          }),
+          port,
+        }),
     });
     pg.query.mockImplementation(async (sql: string) => ({
       rows: sql.includes('embedding_sets')

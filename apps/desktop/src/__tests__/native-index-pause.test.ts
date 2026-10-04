@@ -236,10 +236,9 @@ it('boots cold paused status, coverage and grep with actual authority and no can
     truncated: false,
   }));
   const search = createNativeScopedSearchCapability({
-    acquireIndexer: activation.acquireRead,
-    getAuthority: activation.getSearchAuthority,
     openQuery: async () => ({ close: async () => {}, grep }),
     rebuild: activation.rebuild,
+    withRead: activation.withRead,
   });
   expect(await search.status()).toMatchObject({
     collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],

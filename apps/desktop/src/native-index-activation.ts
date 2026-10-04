@@ -41,6 +41,7 @@ import {
   observeNativeIndexCatalog,
   triggerCatalogWorkspaces,
 } from './native-index-catalog-observation';
+import { createNativeIndexReadAuthority } from './native-index-read-authority';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
 import { createNativeScanAdmission } from './native-index-scan-admission';
 import {
@@ -55,7 +56,6 @@ import {
   type NativeIndexSources,
   retireNativeIndexSources,
 } from './native-index-source-retirement';
-import type { NativeSearchAuthority } from './native-scoped-search';
 import { closeAllIndexQueries, installIndexQueryTarget } from './sqlite-query-host-manager';
 
 const decodeRoots = makeThrowingDecoder(
@@ -276,6 +276,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   const retireSources = async (): Promise<void> => {
     closed = true;
     graph?.controller.abort(new Error('Native indexing admission closed.'));
+    await runtime.retireReads();
     const current = graph;
     if (current) {
       await suspendSources(current);
@@ -338,7 +339,14 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     const port = await runtime.acquire();
     assertCurrent(current);
     const authorized = await authority();
-    const publication = createNativeCanonicalPublication(port, authorized.scopes);
+    const publication = createNativeCanonicalPublication(
+      {
+        ...port,
+        removeScopedFile: (request) =>
+          runtime.mutateAuthority(port, () => port.removeScopedFile(request)),
+      },
+      authorized.scopes
+    );
     current.publication = publication;
     current.observedCatalogRecords = await loadRecords(current);
     current.observedCatalogFingerprint = catalogFingerprint(current.observedCatalogRecords);
@@ -390,7 +398,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       database,
       joinNativeRemoval: async (files, scope) => {
         for (const file of files) {
-          await port.removeScopedFile({ fileId: file.fileId, scope });
+          await runtime.mutateAuthority(port, () =>
+            port.removeScopedFile({ fileId: file.fileId, scope })
+          );
         }
         assertSource();
       },
@@ -934,6 +944,22 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       });
     return reconfiguration;
   };
+  const readAuthority = createNativeIndexReadAuthority({
+    acquireRead,
+    assertCurrent,
+    authority,
+    getGraph: () => graph,
+    readiness: catalogReadiness,
+    resolveProfile: (current) =>
+      current.settings.mode === 'VECTOR'
+        ? resolver(current).resolve(
+            { embeddingSetId: current.settings.managedCollectionId, kind: 'collection' },
+            contextFor(current)
+          )
+        : Promise.resolve(null),
+    runtime,
+    settingsReads,
+  });
   return {
     acquire,
     acquireRead,
@@ -958,45 +984,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     close,
     destroyAndRetireProfile,
     getReadiness: () => (graph ? catalogReadiness(graph) : []),
-    getSearchAuthority: async (): Promise<NativeSearchAuthority> => {
-      if (settingsReads.size > 0) {
-        throw new Error('Native saved configuration is being revalidated.');
-      }
-      const current = graph;
-      if (!current) {
-        throw new Error('Native indexing has no current source authority.');
-      }
-      assertCurrent(current);
-      if (current.watchFailures.size > 0) {
-        throw new Error([...current.watchFailures.values()].join(' '));
-      }
-      for (const lease of current.leases.values()) {
-        lease.signal.throwIfAborted();
-      }
-      const authorized = await authority();
-      const resolved =
-        current.settings.mode === 'VECTOR'
-          ? await resolver(current).resolve(
-              { embeddingSetId: current.settings.managedCollectionId, kind: 'collection' },
-              contextFor(current)
-            )
-          : null;
-      assertCurrent(current);
-      return {
-        bindings: authorized.fileBindings,
-        collectionId: current.settings.managedCollectionId,
-        generation: current.generation,
-        profile: resolved?.profile ?? null,
-        queryPlan: resolved?.workerPlan
-          ? { inferencePlan: resolved.workerPlan, modelKey: resolved.modelKey }
-          : undefined,
-        readiness: catalogReadiness(current),
-        rootIds: authorized.rootIds,
-      };
-    },
+    getSearchAuthority: readAuthority.getSearchAuthority,
     rebuild: () => transition(true),
     reconfigure,
     resume,
     stopSources,
+    withRead: readAuthority.withRead,
   };
 }

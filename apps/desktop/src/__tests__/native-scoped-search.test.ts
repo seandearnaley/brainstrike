@@ -50,6 +50,7 @@ const unused = async (): Promise<never> => {
   throw new Error('Unexpected legacy index API.');
 };
 function fixture(selectedProfile: VectorProfile | null = null) {
+  let currentStoreId = storeId;
   let authority: NativeSearchAuthority = {
     bindings: [{ ...binding, profile: selectedProfile }],
     collectionId: 'selected',
@@ -99,7 +100,7 @@ function fixture(selectedProfile: VectorProfile | null = null) {
       journalMode: 'wal',
       pid: 1,
       readerQueryOnly: 1,
-      storeId,
+      storeId: currentStoreId,
       vecVersion: '0.1.9',
       writerThreadId: 1,
     }),
@@ -160,10 +161,9 @@ function fixture(selectedProfile: VectorProfile | null = null) {
   );
   const close = vi.fn(async () => {});
   const capability = createNativeScopedSearchCapability({
-    acquireIndexer: async () => port,
-    getAuthority: async () => authority,
     openQuery: async () => ({ close, grep }),
     rebuild: async () => {},
+    withRead: (work) => work({ getAuthority: async () => authority, port }),
   });
   return {
     capability,
@@ -172,6 +172,9 @@ function fixture(selectedProfile: VectorProfile | null = null) {
     grep,
     replaceAuthority: (next: NativeSearchAuthority) => {
       authority = next;
+    },
+    replaceStore: () => {
+      currentStoreId = 'e'.repeat(64);
     },
     searchScopes,
   };
@@ -313,3 +316,47 @@ it('joins the grep reader but refuses its result after canonical collection auth
   await expect(outcome).rejects.toThrow('changed during search');
   expect(f.close).toHaveBeenCalledOnce();
 });
+
+it.each(['generation', 'root', 'collection', 'profile', 'store'] as const)(
+  'refuses a held scoped search after genuine %s replacement',
+  async (changed) => {
+    const f = fixture(profile);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const original = await f.searchScopes({
+      limit: 10,
+      mode: 'bm25',
+      scopes: [scope],
+      text: 'marker',
+    });
+    f.searchScopes.mockImplementationOnce(async () => {
+      entered.resolve();
+      await release.promise;
+      return original;
+    });
+    const outcome = f.capability
+      .search({ collectionId: 'selected', limit: 10, mode: 'bm25', rootIds: [], text: 'marker' })
+      .catch((error: unknown) => error);
+    await entered.promise;
+    const authority = f.getAuthority();
+    if (changed === 'generation') {
+      f.replaceAuthority({ ...authority, generation: 2 });
+    }
+    if (changed === 'root') {
+      f.replaceAuthority({ ...authority, rootIds: ['foreign'] });
+    }
+    if (changed === 'collection') {
+      f.replaceAuthority({ ...authority, collectionId: 'replacement' });
+    }
+    if (changed === 'profile') {
+      f.replaceAuthority({ ...authority, profile: { ...profile, tokenCap: 128 } });
+    }
+    if (changed === 'store') {
+      f.replaceStore();
+    }
+    release.resolve();
+    expect(await outcome).toEqual(
+      new Error('Native source or saved profile changed during search.')
+    );
+  }
+);
