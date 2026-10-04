@@ -47,6 +47,14 @@ interface ActiveScan {
   readonly requestId: string;
   readonly settled: Promise<void>;
 }
+interface VectorFileInput {
+  readonly file: CanonicalFileIdentity;
+  readonly payload: CanonicalIndexPayload;
+}
+interface PreparedVectorFile extends VectorFileInput {
+  readonly embeddings: { chunkId: string; vector: readonly number[] }[];
+  readonly plan: ScopedFilePlan;
+}
 interface DiscoveryOutcome {
   readonly completion: CanonicalDiscoveryCompletion;
   readonly failure: unknown;
@@ -477,6 +485,7 @@ export class CanonicalIngestionHost {
     reads.push(...prepared);
     manifest.push(...prepared.map((read) => ({ ...read.file, contentHash: read.contentHash })));
     const completed: { fileId: string; contentHash: string; chunkCount: number }[] = [];
+    const vectorInputs: VectorFileInput[] = [];
     for (const read of reads) {
       const original = {
         content: read.content,
@@ -504,7 +513,7 @@ export class CanonicalIngestionHost {
       context.signal.throwIfAborted();
       const payload = canonicalIndexPayload(event);
       if (profile) {
-        vectorFiles.push(await this.publishVector(read.file, payload, profile, context, ticket));
+        vectorInputs.push({ file: read.file, payload });
       } else {
         await publication.commitTextFile({ file: read.file, payload, ticket });
       }
@@ -514,6 +523,9 @@ export class CanonicalIngestionHost {
         contentHash: read.contentHash,
         fileId: read.file.fileId,
       });
+    }
+    if (profile) {
+      vectorFiles.push(...(await this.publishVectors(vectorInputs, profile, context, ticket)));
     }
     if (completed.length > 0) {
       await catalog.completeFiles({ files: completed, scope: request.scope }, context);
@@ -528,9 +540,83 @@ export class CanonicalIngestionHost {
     }
     return manifest;
   }
-  private async publishVector(
-    file: CanonicalFileIdentity,
-    payload: CanonicalIndexPayload,
+  private async publishVectors(
+    inputs: readonly VectorFileInput[],
+    profile: VectorProfile,
+    context: CanonicalOperationContext,
+    ticket: CanonicalScanTicket
+  ): Promise<ScopedManifestFile[]> {
+    const dependencies = this.dependencies;
+    if (dependencies.mode !== 'VECTOR') {
+      throw new Error('VECTOR publication is not admitted.');
+    }
+    const files: PreparedVectorFile[] = [];
+    for (const input of inputs) {
+      await this.assertCurrentProfile(profile, context, ticket.scope);
+      const plan = await dependencies.publication.prepareVectorFile({ ...input, profile, ticket });
+      context.signal.throwIfAborted();
+      validateVectorPlan(plan, input.file, input.payload, profile, ticket);
+      files.push({ ...input, embeddings: [], plan });
+    }
+    const manifest: ScopedManifestFile[] = [];
+    let nextCommit = 0;
+    const commitReadyFiles = async (): Promise<void> => {
+      while (nextCommit < files.length) {
+        const file = files[nextCommit];
+        if (!file) {
+          throw new Error('Canonical prepared vector file is missing.');
+        }
+        if (file.embeddings.length !== file.plan.embeddingChunkIds.length) {
+          return;
+        }
+        manifest.push(await this.commitVector(file, profile, context, ticket));
+        nextCommit += 1;
+      }
+    };
+    const batch: { file: PreparedVectorFile; chunk: { chunkId: string; content: string } }[] = [];
+    const flush = async (): Promise<void> => {
+      if (batch.length === 0) {
+        return;
+      }
+      const vectors = await this.infer(
+        batch.map((entry) => entry.chunk),
+        profile,
+        context
+      );
+      for (const [index, entry] of batch.entries()) {
+        const vector = vectors[index];
+        if (!vector) {
+          throw new Error('Canonical inference omitted an ordered vector.');
+        }
+        entry.file.embeddings.push(vector);
+      }
+      batch.length = 0;
+      await commitReadyFiles();
+    };
+    await commitReadyFiles();
+    for (const file of files) {
+      const missing = new Set(file.plan.embeddingChunkIds);
+      for (const chunk of file.plan.chunks) {
+        if (!missing.has(chunk.chunkId)) {
+          continue;
+        }
+        context.signal.throwIfAborted();
+        batch.push({ chunk: { chunkId: chunk.chunkId, content: chunk.content }, file });
+        if (batch.length === 64) {
+          await flush();
+        }
+      }
+    }
+    await flush();
+    await commitReadyFiles();
+    if (nextCommit !== files.length) {
+      throw new Error('Canonical vector batch omitted complete file publication.');
+    }
+    return manifest;
+  }
+
+  private async commitVector(
+    { file, payload, plan, embeddings }: PreparedVectorFile,
     profile: VectorProfile,
     context: CanonicalOperationContext,
     ticket: CanonicalScanTicket
@@ -538,25 +624,6 @@ export class CanonicalIngestionHost {
     const dependencies = this.dependencies;
     if (dependencies.mode !== 'VECTOR') {
       throw new Error('VECTOR publication is not admitted.');
-    }
-    await this.assertCurrentProfile(profile, context, ticket.scope);
-    const plan = await dependencies.publication.prepareVectorFile({
-      file,
-      payload,
-      profile,
-      ticket,
-    });
-    context.signal.throwIfAborted();
-    validateVectorPlan(plan, file, payload, profile, ticket);
-    const missing = new Set(plan.embeddingChunkIds);
-    const chunks = plan.chunks.filter((chunk) => missing.has(chunk.chunkId));
-    const embeddings: { chunkId: string; vector: readonly number[] }[] = [];
-    for (let offset = 0; offset < chunks.length; offset += 64) {
-      context.signal.throwIfAborted();
-      const batch = chunks
-        .slice(offset, offset + 64)
-        .map(({ chunkId, content }) => ({ chunkId, content }));
-      embeddings.push(...(await this.infer(batch, profile, context)));
     }
     context.signal.throwIfAborted();
     await this.assertCurrentProfile(profile, context, ticket.scope);
