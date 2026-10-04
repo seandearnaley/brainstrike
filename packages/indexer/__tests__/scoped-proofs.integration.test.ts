@@ -116,6 +116,28 @@ it('verifies complete rootless manifests with exact file/chunk identities throug
       counts: { chunks: 1, indexedFiles: 1, missingVectors: 1, vectors: 0 },
       vectorCoverageComplete: false,
     });
+    const batch = await port.coverageBatch([
+      { profile, scope: workspace },
+      { profile, scope },
+    ]);
+    expect(batch.map((result) => result.scope)).toEqual([workspace, scope]);
+    expect(batch.map((result) => result.counts)).toEqual([
+      { chunks: 1, indexedFiles: 1, missingVectors: 1, vectors: 0 },
+      { chunks: 2, indexedFiles: 3, missingVectors: 2, vectors: 0 },
+    ]);
+    expect(batch[0]).toMatchObject({ storeId: verified.storeId });
+    expect(batch[1]).toMatchObject({
+      authorityEpoch: batch[0]!.authorityEpoch,
+      authorityRevision: batch[0]!.authorityRevision,
+      storeId: batch[0]!.storeId,
+    });
+    await expect(
+      port.coverageBatch([
+        { profile, scope: workspace },
+        { profile, scope: { embeddingSetId: 'foreign', kind: 'collection' } },
+      ])
+    ).rejects.toMatchObject({ code: 'scope-not-authorized' });
+    await expect(port.coverageBatch([{ profile, scope, unknown: true }])).rejects.toThrow();
     const wrongChunk = {
       ...files[0]!,
       chunks: [{ ...files[0]!.chunks[0]!, chunkId: '0'.repeat(64) }],

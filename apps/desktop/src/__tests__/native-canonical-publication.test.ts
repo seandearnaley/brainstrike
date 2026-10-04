@@ -41,6 +41,7 @@ function fixture() {
   const port = {
     commitScopedFile: vi.fn(),
     commitScopedTextFile: vi.fn(),
+    coverageBatch: vi.fn(),
     coverageScope: vi.fn(),
     info: vi.fn(async () => ({
       dbPath: '/owned/index.sqlite',
@@ -277,9 +278,11 @@ it('reverifies full workspace manifest and selected-profile coverage after zero-
   const f = overlappingFixture();
   await f.scan(f.workspace);
   await f.scan(f.scope);
-  expect(f.publication.getReadiness()).toContainEqual({ scanComplete: false, scope: f.workspace });
+  expect(f.publication.getReadiness()).toContainEqual(
+    expect.objectContaining({ scanComplete: false, scope: f.workspace })
+  );
   expect(await f.publication.reverifyScope(f.workspace, localProfile)).toBe(true);
-  expect(f.publication.getReadiness()).toEqual([
+  expect(f.publication.getReadiness()).toMatchObject([
     { scanComplete: true, scope: f.workspace },
     { scanComplete: true, scope: f.scope },
   ]);
@@ -298,7 +301,9 @@ it('cannot reuse a complete source proof after explicit source invalidation', as
   f.publication.invalidateScope(f.workspace);
   expect(await f.publication.reverifyScope(f.workspace, localProfile)).toBe(false);
   expect(f.port.verifyScopedManifest).toHaveBeenCalledTimes(1);
-  expect(f.publication.getReadiness()).toContainEqual({ scanComplete: false, scope: f.workspace });
+  expect(f.publication.getReadiness()).toContainEqual(
+    expect.objectContaining({ scanComplete: false, scope: f.workspace })
+  );
 });
 
 it('refuses stale full-scope revalidation when a later mutation races its held native proof', async () => {
@@ -321,7 +326,9 @@ it('refuses stale full-scope revalidation when a later mutation races its held n
     unexpected: [],
   });
   expect(await rechecking).toBe(false);
-  expect(f.publication.getReadiness()).toContainEqual({ scanComplete: false, scope: f.workspace });
+  expect(f.publication.getReadiness()).toContainEqual(
+    expect.objectContaining({ scanComplete: false, scope: f.workspace })
+  );
 });
 
 describe('main canonical publication ownership', () => {
@@ -401,7 +408,7 @@ describe('main canonical publication ownership', () => {
     });
     expect(await finish).toMatchObject({ reason: 'aborted', scanComplete: false });
     await abort;
-    expect(publication.getReadiness()).toEqual([{ scanComplete: false, scope }]);
+    expect(publication.getReadiness()).toMatchObject([{ scanComplete: false, scope }]);
   });
 });
 
@@ -424,4 +431,19 @@ it('invalidates an overlapping collection receipt when a workspace mutation is a
   await removing;
   await publication.abortScan(ticket);
   await publication.finishScan({ ...completion, ticket });
+});
+
+it('retains monotonic scan and mutation stamps when readiness returns to the same complete value', async () => {
+  const f = overlappingFixture();
+  await f.scan(f.workspace);
+  const before = f.publication.getReadiness().find((entry) => entry.scope.kind === 'workspace')!;
+  await f.scan(f.workspace);
+  const after = f.publication.getReadiness().find((entry) => entry.scope.kind === 'workspace')!;
+  expect(before.scanComplete).toBe(true);
+  expect(after.scanComplete).toBe(true);
+  expect(after.generation).toBeGreaterThan(before.generation);
+  f.publication.invalidateScope(f.workspace);
+  const invalid = f.publication.getReadiness().find((entry) => entry.scope.kind === 'workspace')!;
+  expect(invalid.mutationRevision).toBeGreaterThan(after.mutationRevision);
+  expect(invalid.scanComplete).toBe(false);
 });

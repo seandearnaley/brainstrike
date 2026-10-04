@@ -20,6 +20,7 @@ import {
   planSchema,
   profileSchema,
   scopedCommitSchema,
+  scopedCoverageBatchRequestSchema,
   scopedCoverageRequestSchema,
   scopedCoverageSchema,
   scopedManifestRequestSchema,
@@ -289,6 +290,12 @@ export function createIndexerConnection(
       ),
     coverage: async (request) =>
       call('coverage', decoder(coverageRequestSchema)(request), decoder(coverageSchema)),
+    coverageBatch: async (requests) =>
+      call(
+        'coverage-batch',
+        decoder(scopedCoverageBatchRequestSchema)(requests),
+        decoder(Schema.Array(scopedCoverageSchema))
+      ),
     coverageScope: async (request) =>
       call(
         'coverage-scope',

@@ -2,12 +2,14 @@
 import {
   embeddingProfileHash,
   type IndexerPort,
+  type ScopedCoverageRequest,
   type ScopedIndexerPort,
   type VectorProfile,
   vectorProfileHash,
 } from '@brainstrike/indexer';
 import type { SqliteGrepRows } from '@brainstrike/sqlite-query';
 import { expect, it, vi } from 'vitest';
+import { nativeBuildComplete } from '../../qualification/m2-native/native-benchmark';
 import {
   createNativeScopedSearchCapability,
   type NativeSearchAuthority,
@@ -57,7 +59,7 @@ function fixture(selectedProfile: VectorProfile | null = null) {
     generation: 1,
     profile: selectedProfile,
     queryPlan: undefined,
-    readiness: [{ scanComplete: true, scope }],
+    readiness: [{ generation: 1, mutationRevision: 0, scanComplete: true, scope }],
     rootIds: [],
   };
   const searchScopes = vi.fn<ScopedIndexerPort['searchScopes']>(async () => ({
@@ -70,6 +72,37 @@ function fixture(selectedProfile: VectorProfile | null = null) {
     storeId,
     truncated: false,
   }));
+  const coverageBatch = vi.fn<ScopedIndexerPort['coverageBatch']>(async (input) =>
+    (input as readonly ScopedCoverageRequest[]).map(({ scope: requestedScope }) => ({
+      authorityEpoch: 'd'.repeat(64),
+      authorityRevision: 1,
+      counts: {
+        chunks: authority.rootIds.length === 0 ? 1 : requestedScope.kind === 'workspace' ? 2 : 3,
+        indexedFiles: 1,
+        missingVectors:
+          selectedProfile === null
+            ? authority.rootIds.length === 0
+              ? 1
+              : requestedScope.kind === 'workspace'
+                ? 2
+                : 3
+            : 0,
+        vectors:
+          selectedProfile === null
+            ? 0
+            : authority.rootIds.length === 0
+              ? 1
+              : requestedScope.kind === 'workspace'
+                ? 2
+                : 3,
+      },
+      profile: selectedProfile,
+      profileHash: selectedProfile === null ? null : vectorProfileHash(selectedProfile),
+      scope: requestedScope,
+      storeId,
+      vectorCoverageComplete: selectedProfile !== null,
+    }))
+  );
   const port: IndexerPort & ScopedIndexerPort = {
     close: unused,
     commitFile: unused,
@@ -78,6 +111,7 @@ function fixture(selectedProfile: VectorProfile | null = null) {
     commitTextFile: unused,
     configureVectorProfile: unused,
     coverage: unused,
+    coverageBatch,
     coverageScope: async () => ({
       authorityEpoch: 'd'.repeat(64),
       authorityRevision: 1,
@@ -168,6 +202,7 @@ function fixture(selectedProfile: VectorProfile | null = null) {
   return {
     capability,
     close,
+    coverageBatch,
     getAuthority: () => authority,
     grep,
     replaceAuthority: (next: NativeSearchAuthority) => {
@@ -360,3 +395,123 @@ it.each(['generation', 'root', 'collection', 'profile', 'store'] as const)(
     );
   }
 );
+
+function pairedFixture() {
+  const f = fixture(profile);
+  f.replaceAuthority({
+    ...f.getAuthority(),
+    bindings: [{ ...binding, profile, relativePath: 'file.txt', rootId: 'root' }],
+    readiness: [
+      { generation: 1, mutationRevision: 0, scanComplete: true, scope },
+      {
+        generation: 1,
+        mutationRevision: 0,
+        scanComplete: true,
+        scope: { kind: 'workspace', rootId: 'root' },
+      },
+    ],
+    rootIds: ['root'],
+  });
+  return f;
+}
+const pairedRequests = [{ collectionId: 'selected', rootIds: [] }, { rootIds: ['root'] }];
+it('returns both independent coverage results and readiness from the same fenced observation', async () => {
+  const f = pairedFixture();
+  const result = await f.capability.coverageBatch(pairedRequests);
+  expect(result.coverage.map((entry) => entry.totals.chunks)).toEqual([3, 2]);
+  expect(result.status).toMatchObject({
+    collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: true }],
+    kind: 'ready',
+    rootReadiness: [{ rootId: 'root', scanComplete: true }],
+  });
+  expect(f.coverageBatch).toHaveBeenCalledExactlyOnceWith([
+    { profile, scope },
+    { profile, scope: { kind: 'workspace', rootId: 'root' } },
+  ]);
+});
+it.each([
+  'roots',
+  'bindings',
+  'profile',
+  'collection',
+  'generation',
+  'readiness',
+  'owner',
+] as const)('rejects a %s invalidation during the admitted batch', async (change) => {
+  const f = pairedFixture();
+  const original = f.coverageBatch.getMockImplementation()!;
+  f.coverageBatch.mockImplementationOnce(async (requests) => {
+    const result = await original(requests);
+    const authority = f.getAuthority();
+    if (change === 'owner') {
+      f.replaceStore();
+    } else {
+      f.replaceAuthority({
+        ...authority,
+        ...(change === 'roots' ? { rootIds: [] } : {}),
+        ...(change === 'bindings' ? { bindings: [] } : {}),
+        ...(change === 'profile' ? { profile: null } : {}),
+        ...(change === 'collection' ? { collectionId: 'replacement' } : {}),
+        ...(change === 'generation' ? { generation: authority.generation + 1 } : {}),
+        ...(change === 'readiness' ? { readiness: [] } : {}),
+      });
+    }
+    return result;
+  });
+  await expect(f.capability.coverageBatch(pairedRequests)).rejects.toThrow('changed');
+});
+it('does not pair an earlier successful status with full counters after readiness invalidation', async () => {
+  const f = pairedFixture();
+  const staleStatus = await f.capability.status();
+  expect(staleStatus).toMatchObject({ collectionReadiness: [{ scanComplete: true }] });
+  f.replaceAuthority({
+    ...f.getAuthority(),
+    generation: 2,
+    readiness: [
+      { generation: 2, mutationRevision: 1, scanComplete: false, scope },
+      {
+        generation: 1,
+        mutationRevision: 0,
+        scanComplete: true,
+        scope: { kind: 'workspace', rootId: 'root' },
+      },
+    ],
+  });
+  const result = await f.capability.coverageBatch(pairedRequests);
+  expect(result.coverage.every((entry) => entry.vectorCoverageComplete)).toBe(true);
+  expect(result.status).toMatchObject({ collectionReadiness: [{ scanComplete: false }] });
+  const { provider: _provider, distance: _distance, ...queryProfile } = profile;
+  const completionScope = {
+    collectionId: 'selected',
+    files: 1,
+    mode: 'vector' as const,
+    profile: queryProfile,
+    rootId: 'root',
+    storeId,
+  };
+  expect(
+    nativeBuildComplete(staleStatus, result.coverage[1]!, completionScope, result.coverage[0]!)
+  ).toBe(true);
+  expect(
+    nativeBuildComplete(result.status, result.coverage[1]!, completionScope, result.coverage[0]!)
+  ).toBe(false);
+});
+
+it('rejects an invalidate-and-rescan cycle even when the readiness boolean returns to true', async () => {
+  const f = pairedFixture();
+  const original = f.coverageBatch.getMockImplementation()!;
+  f.coverageBatch.mockImplementationOnce(async (requests) => {
+    const result = await original(requests);
+    const authority = f.getAuthority();
+    f.replaceAuthority({
+      ...authority,
+      readiness: authority.readiness.map((entry) => ({
+        ...entry,
+        generation: entry.generation + 1,
+        mutationRevision: entry.mutationRevision + 1,
+      })),
+    });
+    return result;
+  });
+  await expect(f.capability.coverageBatch(pairedRequests)).rejects.toThrow('changed');
+});

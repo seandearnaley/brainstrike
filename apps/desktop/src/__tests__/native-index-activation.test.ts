@@ -98,6 +98,7 @@ function writer(): IndexerPort & ScopedIndexerPort {
     commitTextFile: unused,
     configureVectorProfile: unused,
     coverage: unused,
+    coverageBatch: unused,
     coverageScope: unused,
     destroy: unused,
     info: async () => ({
@@ -364,7 +365,7 @@ it('exposes actual native progress while the initial owned collection scan is st
   expect((await activation.acquireRead()).info).toBeTypeOf('function');
   expect(await activation.getSearchAuthority()).toMatchObject({
     collectionId: 'selected',
-    readiness: [{ scanComplete: false, scope }],
+    readiness: [expect.objectContaining({ scanComplete: false, scope })],
     rootIds: [],
   });
   await activation.close();
@@ -512,18 +513,22 @@ it('invalidates actual read-path readiness and starts canonical refresh without 
   await activation.acquire();
   records = catalogRows(1);
   await activation.acquireRead();
-  expect((await activation.getSearchAuthority()).readiness).toContainEqual({
-    scanComplete: false,
-    scope,
-  });
+  expect((await activation.getSearchAuthority()).readiness).toContainEqual(
+    expect.objectContaining({
+      scanComplete: false,
+      scope,
+    })
+  );
   await vi.waitFor(() => expect(scans).toBe(2));
   refresh.resolve();
   await activation.acquire();
   expect(mocks.readyPort().verifyScopedManifest).toBeTypeOf('function');
-  expect((await activation.getSearchAuthority()).readiness).toContainEqual({
-    scanComplete: true,
-    scope,
-  });
+  expect((await activation.getSearchAuthority()).readiness).toContainEqual(
+    expect.objectContaining({
+      scanComplete: true,
+      scope,
+    })
+  );
   await activation.close();
 });
 
@@ -847,7 +852,7 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
     },
   });
   await activation.acquire();
-  expect(activation.getReadiness()).toEqual([
+  expect(activation.getReadiness()).toMatchObject([
     { scanComplete: true, scope: { kind: 'workspace', rootId: 'root' } },
     { scanComplete: true, scope },
   ]);

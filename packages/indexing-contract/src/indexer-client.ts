@@ -114,8 +114,15 @@ export interface IndexerGrepResult extends IndexerSearchResult {
   readonly scanLimited: boolean;
   readonly truncated: boolean;
 }
+export interface IndexerCoverageBatch {
+  /** Results preserve request order and independent scope counters. */
+  readonly coverage: readonly IndexerCoverage[];
+  /** Canonical readiness from the same before/after fenced observation as coverage. */
+  readonly status: Extract<IndexerStatus, { kind: 'ready' }>;
+}
 export interface IndexSearchCapability {
   coverage(request: IndexerCoverageRequest): Promise<IndexerCoverage>;
+  coverageBatch(requests: readonly IndexerCoverageRequest[]): Promise<IndexerCoverageBatch>;
   /** Separate killable read-only host; never runs regex in the writer owner. */
   grep(request: IndexerGrepRequest): Promise<IndexerGrepResult>;
   /** Retires and rebuilds only the derived SQLite index; preserves application data and saved choices. */

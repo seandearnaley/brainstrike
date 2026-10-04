@@ -201,6 +201,9 @@ describe('actual native search to query IPC physical owner', () => {
         totals: counts,
         vectorCoverageComplete: true,
       })),
+      coverageBatch: vi.fn(async () => {
+        throw new Error('Unexpected coverage batch');
+      }),
       grep: vi.fn(async () => pool),
       rebuild: vi.fn(async () => {}),
       search: vi.fn(async () => pool),

@@ -138,6 +138,9 @@ export async function runIndexerProcess(
           case 'coverage-scope':
             work = connection.scoped.coverage(request.payload);
             break;
+          case 'coverage-batch':
+            work = connection.scoped.coverageBatch(request.payload);
+            break;
           case 'verify-scoped-manifest':
             work = connection.scoped.verifyManifest(request.payload);
             break;

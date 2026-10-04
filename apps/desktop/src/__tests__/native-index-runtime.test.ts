@@ -21,6 +21,7 @@ function fixture() {
     commitTextFile: unused,
     configureVectorProfile: unused,
     coverage: unused,
+    coverageBatch: unused,
     coverageScope: unused,
     destroy: unused,
     info: unused,

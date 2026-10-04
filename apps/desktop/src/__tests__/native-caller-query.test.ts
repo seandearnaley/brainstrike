@@ -28,7 +28,12 @@ function fixture() {
     profile,
     queryPlan: undefined,
     readiness: [
-      { scanComplete: true, scope: { embeddingSetId: 'collection', kind: 'collection' } },
+      {
+        generation: 1,
+        mutationRevision: 0,
+        scanComplete: true,
+        scope: { embeddingSetId: 'collection', kind: 'collection' },
+      },
     ],
     rootIds: ['root'],
   };

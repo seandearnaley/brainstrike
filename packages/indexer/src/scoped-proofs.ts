@@ -9,6 +9,7 @@ import {
   type ScopedCoverage,
   type ScopedManifestFile,
   type ScopedManifestResult,
+  scopedCoverageBatchRequestSchema,
   scopedCoverageRequestSchema,
   scopedCoverageSchema,
   scopedManifestChunkSchema,
@@ -150,38 +151,57 @@ export function scopeCoverage(
   authority: ScopeAuthority,
   input: unknown
 ): ScopedCoverage {
-  const request = decoder(scopedCoverageRequestSchema)(input);
-  authority.authorize([request.scope]);
-  const selected = authority.selectedFiles([request.scope]);
-  const profile = request.profile ?? null;
-  const profileHash = profile ? vectorProfileHash(profile) : null;
-  if (
-    profileHash &&
-    selected.some((file) => !file.profile || vectorProfileHash(file.profile) !== profileHash)
-  ) {
-    throw new IndexerError(
-      'profile-not-authorized',
-      'Coverage profile differs from the current canonical selection.'
-    );
+  const [result] = scopeCoverageBatch(db, authority, [decoder(scopedCoverageRequestSchema)(input)]);
+  if (!result) {
+    throw new Error('Native singleton coverage returned no result.');
   }
-  return db.transaction(() => {
-    authority.validateStoredBindings(db, selected);
-    if (profileHash) {
-      validateScopedStorage(db, profileHash);
+  return result;
+}
+/** Validation sharing ends with this owned read transaction; never cache across observations. */
+export function scopeCoverageBatch(
+  db: Database.Database,
+  authority: ScopeAuthority,
+  input: unknown
+): readonly ScopedCoverage[] {
+  const requests = decoder(scopedCoverageBatchRequestSchema)(input).map((request) => {
+    authority.authorize([request.scope]);
+    const selected = authority.selectedFiles([request.scope]);
+    const profile = request.profile ?? null;
+    const profileHash = profile ? vectorProfileHash(profile) : null;
+    if (
+      profileHash &&
+      selected.some((file) => !file.profile || vectorProfileHash(file.profile) !== profileHash)
+    ) {
+      throw new IndexerError(
+        'profile-not-authorized',
+        'Coverage profile differs from the current canonical selection.'
+      );
     }
-    const counts = selectedCounts(db, request.scope, selected, profileHash);
-    return decoder(scopedCoverageSchema)({
-      ...readScopedIdentity(db, authority.revision),
-      counts,
-      profile,
-      profileHash,
-      scope: request.scope,
-      vectorCoverageComplete:
-        profile !== null &&
-        counts.indexedFiles === selected.length &&
-        counts.chunks > 0 &&
-        counts.vectors === counts.chunks &&
-        counts.missingVectors === 0,
+    return { profile, profileHash, request, selected };
+  });
+  return db.transaction(() => {
+    const identity = readScopedIdentity(db, authority.revision);
+    const validatedProfiles = new Set<string>();
+    return requests.map(({ request, selected, profile, profileHash }) => {
+      authority.validateStoredBindings(db, selected);
+      if (profileHash && !validatedProfiles.has(profileHash)) {
+        validateScopedStorage(db, profileHash);
+        validatedProfiles.add(profileHash);
+      }
+      const counts = selectedCounts(db, request.scope, selected, profileHash);
+      return decoder(scopedCoverageSchema)({
+        ...identity,
+        counts,
+        profile,
+        profileHash,
+        scope: request.scope,
+        vectorCoverageComplete:
+          profile !== null &&
+          counts.indexedFiles === selected.length &&
+          counts.chunks > 0 &&
+          counts.vectors === counts.chunks &&
+          counts.missingVectors === 0,
+      });
     });
   })();
 }

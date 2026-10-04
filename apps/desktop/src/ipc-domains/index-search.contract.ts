@@ -58,6 +58,13 @@ function parseCoverage(raw: readonly unknown[]): [IndexerCoverageRequest] {
   assertSupportedKeys(record, ['rootIds', 'collectionId'], 'native index coverage');
   return [{ ...collectionScope(record), rootIds: roots(record) }];
 }
+function parseCoverageBatch(raw: readonly unknown[]): [readonly IndexerCoverageRequest[]] {
+  assertArgCount(raw, 1, 'native index coverage batch');
+  if (!Array.isArray(raw[0]) || raw[0].length === 0) {
+    throw new TypeError('Native coverage batch requires requests.');
+  }
+  return [raw[0].map((request: unknown) => parseCoverage([request])[0])];
+}
 function parseSearch(raw: readonly unknown[]): [IndexerSearchRequest] {
   const record = one(raw);
   const rootIds = roots(record);
@@ -151,6 +158,11 @@ export const indexSearchContract = {
   coverage: channel<[IndexerCoverageRequest], Result<'coverage'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.coverage,
     parseArgs: parseCoverage,
+    roles: ['visible-ui'],
+  }),
+  coverageBatch: channel<[readonly IndexerCoverageRequest[]], Result<'coverageBatch'>>({
+    channel: DESKTOP_IPC_CHANNELS.indexSearch.coverageBatch,
+    parseArgs: parseCoverageBatch,
     roles: ['visible-ui'],
   }),
   grep: channel<[IndexerGrepRequest], Result<'grep'>>({

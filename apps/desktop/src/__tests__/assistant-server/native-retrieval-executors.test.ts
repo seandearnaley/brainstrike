@@ -19,6 +19,9 @@ vi.mock('../../assistant-server/hybrid-search-tool', async (original) => ({
 }));
 const capability: IndexSearchCapability = {
   coverage: vi.fn(),
+  coverageBatch: vi.fn(async () => {
+    throw new Error('Unexpected coverage batch');
+  }),
   grep: vi.fn(),
   rebuild: vi.fn(),
   search: vi.fn(),

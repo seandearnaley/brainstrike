@@ -151,7 +151,7 @@ export async function grepSnapshot(
 /** Root authority is reloaded on every request; no PGlite search or writer-regex fallback. */
 export function createNativeIndexSearchCapability(
   dependencies: Dependencies
-): IndexSearchCapability {
+): Omit<IndexSearchCapability, 'coverageBatch'> {
   const authorize = async (rootIds: readonly string[]): Promise<void> => {
     const live = new Set(await dependencies.getAuthorizedRootIds());
     if (

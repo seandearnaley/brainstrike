@@ -77,6 +77,7 @@ export interface IndexerPort {
 export interface ScopedIndexerPort {
   commitScopedFile(commit: unknown): Promise<CommitResult>;
   commitScopedTextFile(commit: unknown): Promise<CommitResult>;
+  coverageBatch(requests: unknown): Promise<readonly ScopedCoverage[]>;
   coverageScope(request: unknown): Promise<ScopedCoverage>;
   prepareScopedFile(request: unknown): Promise<ScopedFilePlan>;
   removeScopedFile(identity: unknown): Promise<boolean>;

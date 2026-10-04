@@ -13,6 +13,7 @@ export function registerIndexSearchIpcHandlers(capability: IndexSearchCapability
   const failure = { category: 'native-index', code: 'native-index-failed' };
   registerDomain(registry, 'workspace', indexSearchContract, {
     coverage: (request) => settleIpcResult(failure, () => capability.coverage(request)),
+    coverageBatch: (requests) => settleIpcResult(failure, () => capability.coverageBatch(requests)),
     grep: (request) => settleIpcResult(failure, () => capability.grep(request)),
     rebuild: () => settleIpcResult(failure, () => capability.rebuild()),
     search: (request) => settleIpcResult(failure, () => capability.search(request)),

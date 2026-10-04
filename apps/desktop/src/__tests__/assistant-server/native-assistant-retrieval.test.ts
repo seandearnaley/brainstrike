@@ -116,6 +116,9 @@ function fixture() {
       totals: counts,
       vectorCoverageComplete: true,
     })),
+    coverageBatch: vi.fn(async () => {
+      throw new Error('Unexpected coverage batch');
+    }),
     grep: vi.fn(async () => result),
     rebuild: vi.fn(),
     search: vi.fn(async () => result),
