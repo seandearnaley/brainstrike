@@ -87,6 +87,7 @@ function writer(): IndexerPort & ScopedIndexerPort {
     commitTextFile: unused,
     configureVectorProfile: unused,
     coverage: unused,
+    coverageBatch: unused,
     coverageScope: unused,
     destroy: unused,
     info: async () => ({
