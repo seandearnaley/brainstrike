@@ -65,6 +65,52 @@ function lease(overrides: Partial<CanonicalWorkspaceLease> = {}): CanonicalWorks
 }
 
 describe('canonical workspace source', () => {
+  it('reads mounted ignore rules within the scan byte bound and removes newly ignored catalog files', async () => {
+    const borrowed = lease();
+    const originalList = borrowed.listDir;
+    borrowed.listDir = async (...args) => {
+      const listing = await originalList(...args);
+      return {
+        entries: [
+          ...(listing?.entries ?? []),
+          { isDirectory: false, isFile: true, isSymbolicLink: false, name: '.gitignore', size: 5 },
+        ],
+        inspected: 3,
+        truncated: false,
+      };
+    };
+    borrowed.readFile = vi.fn(async () => ({
+      content: Buffer.from('a.ts\n'),
+      status: 'ok' as const,
+    }));
+    const source = new CanonicalWorkspaceSource({
+      indexingPolicyPreset: 'balanced',
+      inventory: {
+        loadFiles: async () => [file('a.ts', 'actual-a')],
+        readRetained: vi.fn(),
+      },
+      lease: borrowed,
+    });
+    const removed: string[] = [];
+    const discovered: string[] = [];
+    try {
+      for await (const batch of source.discover(request, context)) {
+        removed.push(...batch.removed.map((entry) => entry.fileId));
+        discovered.push(...(batch.discovered ?? []).map((entry) => entry.relativePath!));
+        expect(batch.files).toEqual([]);
+      }
+      expect(discovered.sort()).toEqual(['.gitignore', 'b.ts']);
+      expect(removed).toEqual(['actual-a']);
+      expect(borrowed.readFile).toHaveBeenCalledWith(
+        '.gitignore',
+        request.maxFileBytes,
+        expect.objectContaining({ requestId: request.requestId, signal: expect.any(AbortSignal) })
+      );
+    } finally {
+      await source.close();
+    }
+  });
+
   it('reuses registered PG identities, discovers unresolved paths and bounds every batch', async () => {
     const borrowed = lease();
     const source = new CanonicalWorkspaceSource({
@@ -106,25 +152,38 @@ describe('canonical workspace source', () => {
     expect(borrowed.retire).toHaveBeenCalledOnce();
   });
 
-  it('retains absent PG rows beneath truncated listings', async () => {
-    const borrowed = lease({
-      listDir: vi.fn(async () => ({ entries: [], inspected: 10_000, truncated: true })),
-    });
-    const source = new CanonicalWorkspaceSource({
-      indexingPolicyPreset: 'balanced',
-      inventory: {
-        loadFiles: vi.fn(async () => [file('unseen.ts', 'retained')]),
-        readRetained: vi.fn(),
-      },
-      lease: borrowed,
-    });
-    const result = await source.discover(request, context).next();
-    expect(result).toEqual({
-      done: true,
-      value: { errors: [], full: true, truncatedDirectories: ['/workspace'] },
-    });
-    await source.close();
-  });
+  it.each([false, true])(
+    'retains absent PG rows beneath truncated listings (same-batch recreation: %s)',
+    async (recreated) => {
+      const borrowed = lease({
+        listDir: vi.fn(async () => ({ entries: [], inspected: 10_000, truncated: true })),
+      });
+      const source = new CanonicalWorkspaceSource({
+        indexingPolicyPreset: 'balanced',
+        inventory: {
+          loadFiles: vi.fn(async () => [file('unseen.ts', 'retained')]),
+          readRetained: vi.fn(),
+        },
+        lease: borrowed,
+        resolveScanScope: () =>
+          recreated
+            ? {
+                changes: [
+                  { kind: 'file', path: '/workspace/unseen.ts', type: 'removed' },
+                  { kind: 'file', path: '/workspace/unseen.ts', type: 'added' },
+                ],
+                mode: 'paths',
+              }
+            : { mode: 'full' },
+      });
+      const result = await source.discover(request, context).next();
+      expect(result).toEqual({
+        done: true,
+        value: { errors: [], full: !recreated, truncatedDirectories: ['/workspace'] },
+      });
+      await source.close();
+    }
+  );
 
   it('close fences admission and physically joins a held mounted read before retiring its borrow', async () => {
     let release: ((value: { content: Buffer; status: 'ok' }) => void) | undefined;

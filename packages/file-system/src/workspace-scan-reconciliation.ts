@@ -100,9 +100,9 @@ export function collectScopedRemovalInvalidations<Entry extends ScanEntry>(args:
   const targets: ScanInvalidation[] = [];
   for (const removal of args.pendingRemovals) {
     if (removal.change.kind === 'file') {
-      // Watcher-authoritative exact removal: recreation in the same batch is
-      // re-resolved with a synthetic-node fallback, so truncation cannot hide
-      // a live recreated file from this branch.
+      // The scan retires earlier removals when later recreation is withheld
+      // under unknown truncated rules. Remaining exact removals stay authoritative;
+      // admitted replacements also keep their existing live-file protection.
       if (args.liveFilePaths.has(removal.relativePath)) {
         continue;
       }

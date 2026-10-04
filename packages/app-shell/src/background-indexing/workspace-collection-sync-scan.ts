@@ -137,6 +137,7 @@ export async function collectPreparedWorkspaceSyncChanges(args: {
       rootPath: args.context.rootPath,
       scope,
     });
+    const effectiveScope = discovery.scope;
     throwIfAborted(args.abortSignal);
     warnOnTruncatedDirectories(discovery.truncatedDirectoryPaths);
     warnOnFileHandleResolutionFailures(discovery.fileHandleResolutionFailurePaths);
@@ -152,9 +153,8 @@ export async function collectPreparedWorkspaceSyncChanges(args: {
       existingEntries,
       fileNodes: discovery.fileNodes,
       fileSystemAdapter: args.deps.fileSystemAdapter,
-      ...(scope.mode === 'paths'
-        ? { forceReadRelativePaths: discovery.forceReadRelativePaths }
-        : { pruneMissingRedispatchEntries: true }),
+      forceReadRelativePaths: discovery.forceReadRelativePaths,
+      ...(effectiveScope.mode === 'full' ? { pruneMissingRedispatchEntries: true } : {}),
       onCurrentFile: statusReporter.report,
       qosPolicy: args.qosPolicy,
       rootId,
@@ -166,10 +166,10 @@ export async function collectPreparedWorkspaceSyncChanges(args: {
     statusReporter.flush(null);
     const truncatedDirectoryPrefixes = toTruncatedRelativePrefixes(
       discovery.truncatedDirectoryPaths,
-      scope.mode === 'full' ? args.context.activeRootPath : args.context.rootPath
+      effectiveScope.mode === 'full' ? args.context.activeRootPath : args.context.rootPath
     );
     const invalidationTargets =
-      scope.mode === 'full'
+      effectiveScope.mode === 'full'
         ? collectFullScanMissingFileInvalidations({
             existingEntries,
             fileNodes: discovery.fileNodes,

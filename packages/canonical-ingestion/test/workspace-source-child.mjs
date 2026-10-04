@@ -20,6 +20,17 @@ const recorded = JSON.parse(
 );
 const hash = (content) => createHash('sha256').update(content, 'utf8').digest('hex');
 
+async function collectDiscovery(iterator) {
+  const batches = [];
+  while (true) {
+    const next = await iterator.next();
+    if (next.done) {
+      return { batches, completion: next.value };
+    }
+    batches.push(next.value);
+  }
+}
+
 function mailbox(emitter) {
   const queued = [];
   const waiting = new Set();
@@ -220,6 +231,20 @@ async function runParent() {
     await symlink(path.join(directory, 'survivor.ts'), path.join(directory, 'linked.ts'));
     await writeFile(path.join(directory, 'nul.ts'), 'x\u0000y');
     assert.deepEqual(await command('gates'), { binaryRefused: true, symlinkRefused: true });
+    await writeFile(path.join(directory, '.gitignore'), 'generated/\nnested/*.ts\n');
+    await mkdir(path.join(directory, 'generated'));
+    await writeFile(path.join(directory, 'generated', 'copy.ts'), 'export const copy = 1;');
+    await mkdir(path.join(directory, 'nested'));
+    await writeFile(path.join(directory, 'nested', '.gitignore'), '!keep.ts\n');
+    await writeFile(path.join(directory, 'nested', 'drop.ts'), 'export const drop = 1;');
+    await writeFile(path.join(directory, 'nested', 'keep.ts'), 'export const keep = 1;');
+    const ignore = await command('ignore');
+    assert.equal(ignore.paths.includes('generated/copy.ts'), false);
+    assert.equal(ignore.paths.includes('nested/drop.ts'), false);
+    assert.equal(ignore.paths.includes('nested/keep.ts'), true);
+    assert.equal(listings.includes('generated'), false);
+    assert.ok(reads.get('.gitignore') > 0);
+    assert.ok(reads.get('nested/.gitignore') > 0);
     truncate = true;
     assert.deepEqual(await command('truncated'), {
       absentRowsRetained: true,
@@ -240,7 +265,9 @@ async function runParent() {
         heldReadJoined: true,
         ignorePrunedBeforeListing: true,
         nativeTruncation: true,
+        nestedIgnoreNegation: true,
         pinnedRootSurvivedBorrow: true,
+        rootIgnorePrunedBeforeListing: true,
         symlinkAndBinaryRefused: true,
         unchangedSurvivorNotRead: true,
         watchJoined: true,
@@ -494,20 +521,18 @@ async function runChild() {
         });
         try {
           const iterator = source.discover(request, context);
-          const batches = [];
-          let completion;
           if (message.action === 'gates') {
             return await proveGates(source, iterator);
           }
-          assert.equal(message.action, 'truncated');
-          while (true) {
-            const next = await iterator.next();
-            if (next.done) {
-              completion = next.value;
-              break;
-            }
-            batches.push(next.value);
+          const { batches, completion } = await collectDiscovery(iterator);
+          if (message.action === 'ignore') {
+            return {
+              paths: batches
+                .flatMap((batch) => [...batch.files, ...batch.discovered])
+                .map((file) => file.relativePath),
+            };
           }
+          assert.equal(message.action, 'truncated');
           assert.ok(completion.truncatedDirectories.length > 0);
           assert.equal(batches.flatMap((batch) => batch.removed).length, 0);
           return { absentRowsRetained: true, nativeTruncation: true };
