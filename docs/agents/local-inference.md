@@ -259,6 +259,17 @@ Evidence: `local-inference/embedding-queue-load-verification.md`.
 
 Evidence: `local-inference/foreground-query-coordination.md`, `local-inference/query-listener-readiness.md`, `local-inference/foreground-query-lifecycle-ownership.md`; guards: `embedding-host-foreground-ownership.test.tsx`, `embedding-host-physical-stop-ownership.test.tsx`, `embedding-host-reinitialization-readiness.test.tsx`.
 
+### Embedding queue task yielding
+
+- After a nonempty claimed batch settles, yield an abortable zero-delay task
+  turn before claiming again. Do not add fixed inter-batch pacing; foreground
+  admission remains owned by the claim permit, and idle/failure backoff remains separate.
+- Stop cancels the pending yield and joins the worker before service disposal;
+  completion settlement retains its admission ownership until it finishes.
+
+Evidence: `local-inference/embedding-queue-task-yielding.md`.
+Guard: `packages/embeddings/src/__tests__/embedding-worker-pacing.test.ts`.
+
 ### Workspace indexing QoS ownership
 
 - `@brainstrike/indexing-contract/workspace-indexing-qos` is the canonical,

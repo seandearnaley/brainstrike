@@ -121,7 +121,6 @@ it('settles each committed completion before a later statement fails and retries
     claimBatchSize: 260,
     concurrency: 1,
     db: tracked,
-    interBatchDelayMs: 1,
     leaseMs: 60_000,
     log: (event, meta) => {
       if (
