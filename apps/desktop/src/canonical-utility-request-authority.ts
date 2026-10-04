@@ -1,4 +1,3 @@
-import { Schema } from 'effect';
 import {
   assertRelative,
   capturedAuthority,
@@ -15,7 +14,7 @@ export function assertCanonicalRequest(session: Session, frame: Request): void {
     throw new Error('Unknown canonical utility operation.');
   }
   const operation = canonicalOperations[frame.op as keyof typeof canonicalOperations];
-  Schema.decodeUnknownSync(operation.input)(frame.payload);
+  decode(operation.input)(frame.payload);
   recheckCallbackAuthority(session, frame);
   assertLeaseRequest(session, frame);
   assertCatalogRequest(session, frame);

@@ -144,6 +144,7 @@ describe('captured canonical utility capabilities', () => {
   it.each([
     ['load-files', { kind: 'workspace', rootId: 'foreign' }],
     ['load-files', {}],
+    ['begin-scan', { requestId: 'x', scope, unexpected: true }],
     ['unknown-operation', null],
     ['read-file', { maxBytes: 1, relativePath: '../outside' }],
     ['read-file', { maxBytes: 1025, relativePath: 'file' }],
@@ -160,6 +161,21 @@ describe('captured canonical utility capabilities', () => {
     });
     expect(response).toMatchObject({ ok: false });
     expect(response).not.toHaveProperty('cancelled');
+    await close;
+  });
+
+  it('marks a valid stopped-owner begin-scan as cancellation without invoking publication', async () => {
+    const dependencies = fixture();
+    const beginScan = vi.spyOn(dependencies.publication, 'beginScan');
+    const { parent, owner, frames } = await attached(dependencies);
+    const close = parent.close();
+    call(parent, owner, 200, 'begin-scan', { requestId: 'x', scope });
+    const response = frames.find((input) => {
+      const frame = decodeCanonicalFrame(input);
+      return frame.kind === 'result' && frame.id === 200;
+    });
+    expect(response).toMatchObject({ cancelled: true, ok: false });
+    expect(beginScan).not.toHaveBeenCalled();
     await close;
   });
 
