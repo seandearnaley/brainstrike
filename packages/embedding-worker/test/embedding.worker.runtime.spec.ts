@@ -1030,7 +1030,11 @@ describe('embedding worker runtime', () => {
       type: 'embed' as const,
     };
 
-    await expect(runEmbedding(request)).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(runEmbedding(request)).rejects.toMatchObject({
+      code: 'EMBED_WORKER_REQUEST_CANCELED',
+      name: 'AbortError',
+      requestId: request.id,
+    });
     await expect(runEmbedding(request)).resolves.toMatchObject({
       id: 'reused-request-id',
       type: 'result',

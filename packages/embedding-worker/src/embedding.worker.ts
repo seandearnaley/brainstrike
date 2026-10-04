@@ -2,6 +2,7 @@
 
 import {
   assertEmbedWorkerRequestControl,
+  createEmbedWorkerRequestCancellationError,
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
   EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
@@ -168,9 +169,7 @@ function throwIfWorkerpoolRequestCanceled(id: string): void {
   if (!canceledWorkerpoolRequestIds.delete(id)) {
     return;
   }
-  const error = new Error('Embedding task was aborted.');
-  error.name = 'AbortError';
-  throw error;
+  throw createEmbedWorkerRequestCancellationError(id);
 }
 
 function isAbortError(error: unknown): error is Error {
