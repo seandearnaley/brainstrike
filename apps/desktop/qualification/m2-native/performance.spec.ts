@@ -27,7 +27,17 @@ import {
   type NativeBenchmarkScope,
   nativeBuildComplete,
 } from './native-benchmark';
-import { assertActualVectorWorker, configureVectorProfile } from './vector-profile';
+import {
+  configureNativeChoices,
+  ensureCatalogCollection,
+  readSavedChoices,
+} from './native-settings';
+import type { PublicBridges } from './public-bridges';
+import {
+  assertActualVectorWorker,
+  configureVectorProfile,
+  selectedVectorProfile,
+} from './vector-profile';
 
 const ROOT_ID = 'foreground-latency-benchmark-root';
 const NEVER_INDEXED_PATH = 'packages/foreground-latency-probe/never-indexed.ts';
@@ -193,14 +203,18 @@ async function phase(
   return samples;
 }
 
-async function seedPaused(context: ElectronAppContext, rootPath: string): Promise<void> {
+async function seedPaused(
+  context: ElectronAppContext,
+  rootPath: string,
+  modelId: string
+): Promise<void> {
+  const collectionId = await ensureCatalogCollection(context, modelId);
   await context.window.evaluate(
-    async ({ rootPath: root, rootId, runId }) => {
+    async ({ collectionId, rootPath: root, rootId }) => {
       const api = (
         window as typeof window & {
           electronAPI: {
             storage: { setItem(key: string, value: string): Promise<void> };
-            db: { query(sql: string, params?: readonly unknown[]): Promise<unknown> };
           };
         }
       ).electronAPI;
@@ -215,8 +229,10 @@ async function seedPaused(context: ElectronAppContext, rootPath: string): Promis
           state: {
             enabled: true,
             indexingPolicyPreset: 'full-root',
-            managedCollectionId: null,
+            managedCollectionId: collectionId,
             mode: 'root-folder-cache',
+            nativeIndexMode: 'TEXT',
+            nativeLocalSelection: null,
             paused: true,
             worktreeRootIndexingByAdapterRootId: {},
             worktreeRootIndexingOptInById: {},
@@ -224,25 +240,39 @@ async function seedPaused(context: ElectronAppContext, rootPath: string): Promis
           version: 5,
         })
       );
-      await api.db.query(
-        "INSERT INTO brainstrike_threads (id,resource_id,title,metadata,created_at,updated_at) VALUES ($1,$2,$3,'{}'::jsonb,now(),now())",
-        [
-          'foreground-latency-benchmark-thread',
-          'brainstrike:workspace',
-          'Foreground latency benchmark',
-        ]
-      );
-      await api.db.query(
-        "INSERT INTO brainstrike_assistant_runs (id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at) VALUES ($1,$2,$3,'openrouter','benchmark/model','hosted','running',now(),now(),now())",
-        [runId, 'brainstrike:workspace', 'foreground-latency-benchmark-thread']
-      );
     },
-    { rootId: ROOT_ID, rootPath, runId: RUN_ID }
+    { collectionId, rootId: ROOT_ID, rootPath }
   );
   await context.window.reload();
   await expect(context.window.getByTestId('indexing-status-trigger')).toContainText('Paused', {
     timeout: 60_000,
   });
+}
+
+async function seedRunningChatRun(context: ElectronAppContext): Promise<void> {
+  const run = await context.window.evaluate(async (runId) => {
+    const query = (window as unknown as PublicBridges).electronAPI?.db.query;
+    if (!query) {
+      throw new Error('Canonical chat database bridge is unavailable.');
+    }
+    await query(
+      `INSERT INTO mastra_threads (id,"resourceId",title,metadata,"createdAt","updatedAt") VALUES ($1,$2,$3,'{}'::jsonb,now(),now())`,
+      [
+        'foreground-latency-benchmark-thread',
+        'brainstrike:workspace',
+        'Foreground latency benchmark',
+      ]
+    );
+    await query(
+      "INSERT INTO brainstrike_assistant_thread_runs (id,resource_id,thread_id,provider,model,runtime_kind,status,started_at,created_at,updated_at) VALUES ($1,$2,$3,'openrouter','benchmark/model','hosted','running',now(),now(),now())",
+      [runId, 'brainstrike:workspace', 'foreground-latency-benchmark-thread']
+    );
+    return await query<{ status: string }>(
+      'SELECT status FROM brainstrike_assistant_thread_runs WHERE id=$1',
+      [runId]
+    );
+  }, RUN_ID);
+  expect(run.rows).toEqual([{ status: 'running' }]);
 }
 
 test('native full-pipeline historical throughput and calibrated foreground latency', async () => {
@@ -265,11 +295,19 @@ test('native full-pipeline historical throughput and calibrated foreground laten
   await session.record('corpus', { corpus, loadAverage: os.loadavg() });
   try {
     const context = await session.launch({ ['BRAINSTRIKE_E2E_REAL_ROOT_PATH']: corpus.rootPath });
-    await seedPaused(context, corpus.rootPath);
+    const modelId = mode === 'vector' ? selectedVectorProfile().modelId : 'Xenova/all-MiniLM-L6-v2';
+    await seedPaused(context, corpus.rootPath, modelId);
     const win = await context.app.browserWindow(context.window);
     await win.evaluate((window) => window.showInactive());
+    if (mode === 'text') {
+      await configureNativeChoices(context, { mode: 'TEXT', modelId, paused: true });
+    }
     const before =
-      mode === 'vector' ? await configureVectorProfile(context) : await readNativeSnapshot(context);
+      mode === 'vector'
+        ? await configureVectorProfile(context, { paused: true })
+        : await readNativeSnapshot(context);
+    const choices = await readSavedChoices(context);
+    expect(choices.paused).toBe(true);
     if (before.status.kind !== 'ready') {
       throw new Error('Native index is unavailable before Resume.');
     }
@@ -292,6 +330,8 @@ test('native full-pipeline historical throughput and calibrated foreground laten
     if (before.coverage?.totals.chunks) {
       throw new Error('Cold benchmark profile already contains indexed chunks.');
     }
+    await seedRunningChatRun(context);
+    await session.record('cold-paused-input', { choices, snapshot: before });
     await installRendererFrameProbe(context.window);
     const calibration = await calibrateRendererFrameProbe(context.window, 120);
     let sequence = 0;

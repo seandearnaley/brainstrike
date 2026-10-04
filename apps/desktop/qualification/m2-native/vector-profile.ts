@@ -50,7 +50,10 @@ export function selectedVectorProfile(): (typeof VECTOR_PROFILES)[keyof typeof V
   return VECTOR_PROFILES[key as keyof typeof VECTOR_PROFILES];
 }
 
-export async function configureVectorProfile(context: ElectronAppContext): Promise<NativeSnapshot> {
+export async function configureVectorProfile(
+  context: ElectronAppContext,
+  options: { readonly paused: boolean } = { paused: false }
+): Promise<NativeSnapshot> {
   const selected = selectedVectorProfile();
   const { label: _label, device, ...profile } = selected;
   const planLabel =
@@ -58,6 +61,7 @@ export async function configureVectorProfile(context: ElectronAppContext): Promi
   await configureNativeChoices(context, {
     mode: 'VECTOR',
     modelId: selected.modelId,
+    paused: options.paused,
     planLabel,
     selection: {
       device,
