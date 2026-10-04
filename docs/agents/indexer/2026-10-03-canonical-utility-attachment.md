@@ -126,3 +126,42 @@ The accepted shared VECTOR runtime currently rereads/parses eligible source on
 covered rescans, because its public source inventory does not expose skipped
 chunk identities. Native missing-chunk plans avoid repeated inference. This is
 an explicit performance limitation, not a qualification result.
+
+### Collection admission and full-scan lifetime correction
+
+The original VECTOR1000 assembled benchmark produced a complete workspace
+receipt, then hit the collection's five-second control deadline while the real
+scan was still running. The utility subsequently wrote every scoped vector, but
+no complete collection receipt reached public readiness; stored counts could
+not certify completion. The evidence is retained under
+`brainstrike-desktop-acceptance/m2-performance-setup-fixed-vector-1000-20261004T024901Z-96d1afc0`.
+
+The desktop-private control now separates `start-scan` admission from
+`join-scan` terminal delivery. The child reserves the exact request and original
+runtime promise before ACK, retaining even a fast failure until join. The
+manager bounds the ACK using the unchanged request budget and tracks the public
+scan through its terminal without a corpus-duration deadline. Close and source
+retirement join admitted scan terminals before engine release; physical exit
+fences admission and joins retained main IO before rejecting remote work.
+Cancellation, close, exit and engine deadlines remain unchanged.
+
+Deterministic manager guards distinguish a withheld ACK from an admitted scan
+that outlives the request budget, early close ACK from physical terminal join,
+and exit from retained main IO cleanup. Actual connected child/runtime guards
+exercise fast receipt and independent failure retention through matching join.
+
+A subsequent exact-head review exposed a missing-ACK race: a fast independent
+publication failure could settle before main received admission, leaving the
+caller with only its deadline while child retirement assumed a join existed.
+The manager now retains an internal join chained from the original admission
+promise beyond that deadline. A late independent failure remains observable
+through explicit close before engine release; cleanup can then be retried.
+A real connected child/runtime guard withholds the ACK, settles an ordinary
+publication failure, expires the control budget (and optionally a first close budget), releases the
+ACK and requires a still-active explicit close to report the original failure while retaining the engine.
+
+The physical join never consumes retained late faults inside a work promise
+that may outlive a caller's close deadline. Attachment close, source retirement,
+manager close and destroy report/consume those faults synchronously after their
+bounded join succeeds. An expired retirement attempt leaves the fault available
+for the next explicit caller before engine release.

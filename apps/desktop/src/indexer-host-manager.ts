@@ -12,6 +12,12 @@ import {
 } from './canonical-utility-parent';
 import { assertCanonicalMessageBound, isCanonicalFrame } from './canonical-utility-protocol';
 
+interface OwnedCollectionScan {
+  fault?: { readonly error: unknown };
+  release(): void;
+  readonly work: Promise<unknown>;
+}
+
 /** Main owns lifecycle only. SQLite and its writer worker belong to the utility process. */
 export class IndexerHostManager {
   readonly databasePath: string;
@@ -27,6 +33,7 @@ export class IndexerHostManager {
   #exitCleanupFailed = false;
   #transportFailure: unknown;
   #closed = false;
+  readonly #scans = new Set<OwnedCollectionScan>();
   #sourceRetirement: Promise<void> | undefined;
   #sourceRetirementOwned = false;
 
@@ -86,6 +93,8 @@ export class IndexerHostManager {
         child.postMessage(message);
       },
       (error) => {
+        this.#closed = true;
+        this.#transportFailure = error;
         for (const notify of protocolErrors) {
           notify(error);
         }
@@ -96,8 +105,10 @@ export class IndexerHostManager {
       kill: () => child.kill(),
       onError: (listener) => {
         protocolErrors.add(listener);
-        const error = (type: string, location: string, report: string): void =>
+        const error = (type: string, location: string, report: string): void => {
+          this.#closed = true;
           listener(new Error(`Indexer utility process ${type} at ${location}: ${report}`));
+        };
         child.on('error', error);
         return () => {
           child.off('error', error);
@@ -106,6 +117,7 @@ export class IndexerHostManager {
       },
       onExit: (listener) => {
         const exit = (): void => {
+          this.#closed = true;
           this.#exitCleanup ??= canonical.exited(new Error('Indexer utility exited.'));
           void this.#exitCleanup.catch(() => {
             this.#exitCleanupFailed = true;
@@ -124,6 +136,7 @@ export class IndexerHostManager {
           try {
             canonical.receive(value);
           } catch (error) {
+            this.#closed = true;
             this.#transportFailure = error;
             for (const notify of protocolErrors) {
               notify(error);
@@ -174,10 +187,45 @@ export class IndexerHostManager {
       this.#canonical.attachCollection(dependencies),
       this.#deadlines.requestMs
     );
+    const scans = new Set<OwnedCollectionScan>();
     return {
       cancel: () => this.#bounded(attachment.cancel(), this.#deadlines.requestMs),
-      close: () => this.#bounded(attachment.close(), this.#deadlines.closeMs),
-      scan: (requestId) => this.#bounded(attachment.scan(requestId), this.#deadlines.requestMs),
+      close: async () => {
+        await this.#bounded(this.#joinScans(attachment.close(), scans), this.#deadlines.closeMs);
+        this.#reportScanFailures(scans);
+      },
+      scan: (requestId) => {
+        if (this.#closed || this.#sourceRetirementOwned) {
+          return Promise.reject(new Error('Indexer canonical scan admission is closed.'));
+        }
+        const admission = attachment.startScan(requestId);
+        // Preserve the original admission and terminal correlation even when
+        // the initiating caller's ACK deadline expires first.
+        const terminal = admission.then((admitted) => admitted.join());
+        let admissionExpired = false;
+        const scan = this.#bounded(admission, this.#deadlines.requestMs, () => {
+          admissionExpired = true;
+        }).then(() => terminal);
+        const owned: OwnedCollectionScan = {
+          release: () => {
+            this.#scans.delete(owned);
+            scans.delete(owned);
+          },
+          work: terminal,
+        };
+        this.#scans.add(owned);
+        scans.add(owned);
+        void terminal.then(owned.release, (error: unknown) => {
+          if (admissionExpired) {
+            // The caller only observed its deadline. Close must report this
+            // independent fault before engine release; retry can then join cleanup.
+            owned.fault = { error };
+            return;
+          }
+          owned.release();
+        });
+        return scan;
+      },
     };
   }
 
@@ -191,10 +239,12 @@ export class IndexerHostManager {
         if (!admitted) {
           await this.#canonical?.retireAttachments();
         }
+        await this.#joinScans(Promise.resolve());
       })(),
       this.#deadlines.closeMs
     )
       .then(() => {
+        this.#reportScanFailures();
         this.#sourceRetirementOwned = false;
       })
       .finally(() => {
@@ -203,9 +253,35 @@ export class IndexerHostManager {
     return this.#sourceRetirement;
   }
 
-  #bounded<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+  async #joinScans(retirement: Promise<void>, scans = this.#scans): Promise<void> {
+    // A close ACK does not release an already admitted terminal correlation.
+    await retirement;
+    const owned = [...scans];
+    await Promise.allSettled(owned.map((scan) => scan.work));
+  }
+
+  // Consume a fault only after the caller's bounded join succeeds. A timed-out
+  // join may settle later, but cannot report or discard a retained failure.
+  #reportScanFailures(scans = this.#scans): void {
+    const errors = [...scans].flatMap((scan) => {
+      if (!scan.fault) {
+        return [];
+      }
+      scan.release();
+      return [scan.fault.error];
+    });
+    if (errors.length > 0) {
+      throw new AggregateError(
+        errors,
+        'Canonical late-admission scan failed before engine retirement.'
+      );
+    }
+  }
+
+  #bounded<T>(work: Promise<T>, timeoutMs: number, onTimeout?: () => void): Promise<T> {
     return runWithTimeout(() => work, {
       onTimeout: () => {
+        onTimeout?.();
         this.#closed = true;
         // Stop admission synchronously. The parent retains unfinished/failed retirement for close().
         const retirement = this.#canonical?.close();
@@ -230,11 +306,16 @@ export class IndexerHostManager {
         await this.#exitCleanup;
         this.#exitCleanupFailed = false;
       }
-      await this.#exitCleanup;
+      await this.#joinScans(this.#exitCleanup ?? Promise.resolve());
+      this.#reportScanFailures();
       this.#reportTransportFailure();
       return;
     }
-    await this.#bounded(this.#canonical?.close() ?? Promise.resolve(), this.#deadlines.closeMs);
+    await this.#bounded(
+      this.#joinScans(this.#canonical?.close() ?? Promise.resolve()),
+      this.#deadlines.closeMs
+    );
+    this.#reportScanFailures();
     await this.#connection?.close();
     await this.#exitCleanup;
     this.#reportTransportFailure();
@@ -247,7 +328,11 @@ export class IndexerHostManager {
         'Indexer has not acquired a process; destroy requires its validated connection.'
       );
     }
-    await this.#bounded(this.#canonical?.close() ?? Promise.resolve(), this.#deadlines.closeMs);
+    await this.#bounded(
+      this.#joinScans(this.#canonical?.close() ?? Promise.resolve()),
+      this.#deadlines.closeMs
+    );
+    this.#reportScanFailures();
     await this.#connection.destroy();
     await this.#exitCleanup;
     this.#reportTransportFailure();
