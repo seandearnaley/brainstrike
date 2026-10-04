@@ -10,84 +10,88 @@ import {
   observeNativeSnapshot,
   readNativeSnapshot,
 } from './candidate';
+import { waitForCurrentObservation } from './coverage-observation';
 import { readSavedChoices } from './native-settings';
 import type { PublicBridges } from './public-bridges';
 import { assertActualVectorWorker } from './vector-profile';
 
+interface ScopeCounts {
+  readonly collection: number;
+  readonly mode: 'TEXT' | 'VECTOR';
+  readonly workspace: number;
+}
+
+function scopesComplete(snapshot: NativeSnapshot | null, counts: ScopeCounts): boolean {
+  if (snapshot?.status.kind !== 'ready' || !snapshot.collectionCoverage) {
+    return false;
+  }
+  const { status, coverage, collectionCoverage } = snapshot;
+  const collectionId = status.authorizedCollectionIds?.[0];
+  if (
+    !collectionId ||
+    status.authorizedCollectionIds?.length !== 1 ||
+    !status.collectionReadiness?.some(
+      (receipt) => receipt.embeddingSetId === collectionId && receipt.scanComplete
+    ) ||
+    status.rootReadiness.some((receipt) => !receipt.scanComplete) ||
+    collectionCoverage.storeId !== status.storeId ||
+    collectionCoverage.collections?.length !== 1 ||
+    collectionCoverage.collections[0]?.embeddingSetId !== collectionId ||
+    collectionCoverage.totals.indexedFiles !== counts.collection
+  ) {
+    return false;
+  }
+  const fields = ['chunks', 'indexedFiles', 'missingVectors', 'vectors'] as const;
+  if (
+    !fields.every(
+      (key) => collectionCoverage.collections?.[0]?.[key] === collectionCoverage.totals[key]
+    )
+  ) {
+    return false;
+  }
+  if (
+    counts.workspace > 0 &&
+    (!coverage ||
+      status.authorizedRootIds.length !== 1 ||
+      coverage.roots.length !== 1 ||
+      coverage.roots[0]?.rootId !== status.authorizedRootIds[0] ||
+      coverage.storeId !== status.storeId ||
+      coverage.totals.indexedFiles !== counts.workspace ||
+      !fields.every((key) => coverage.roots[0]?.[key] === coverage.totals[key]))
+  ) {
+    return false;
+  }
+  if (counts.workspace === 0 && status.authorizedRootIds.length !== 0) {
+    return false;
+  }
+  const scopes = [collectionCoverage, ...(coverage ? [coverage] : [])];
+  return scopes.every((scope) =>
+    counts.mode === 'TEXT'
+      ? scope.embedding.indexMode === 'text-only' && scope.totals.vectors === 0
+      : scope.embedding.indexMode === 'vector-configured' &&
+        scope.vectorCoverageComplete &&
+        scope.totals.chunks > 0 &&
+        scope.totals.missingVectors === 0 &&
+        scope.totals.vectors === scope.totals.chunks
+  );
+}
+
 export async function waitForScopes(
   context: ElectronAppContext,
-  counts: {
-    readonly collection: number;
-    readonly workspace: number;
-    readonly mode: 'TEXT' | 'VECTOR';
-  },
+  counts: ScopeCounts,
   options: { readonly requireVectorWorker: boolean } = { requireVectorWorker: true }
 ): Promise<NativeSnapshot> {
-  await expect
-    .poll(
-      async () => {
-        const snapshot = await observeNativeSnapshot(context);
-        if (snapshot?.status.kind !== 'ready' || !snapshot.collectionCoverage) {
-          return false;
-        }
-        const { status, coverage, collectionCoverage } = snapshot;
-        const collectionId = status.authorizedCollectionIds?.[0];
-        if (
-          !collectionId ||
-          status.authorizedCollectionIds?.length !== 1 ||
-          !status.collectionReadiness?.some(
-            (receipt) => receipt.embeddingSetId === collectionId && receipt.scanComplete
-          ) ||
-          status.rootReadiness.some((receipt) => !receipt.scanComplete) ||
-          collectionCoverage.storeId !== status.storeId ||
-          collectionCoverage.collections?.length !== 1 ||
-          collectionCoverage.collections[0]?.embeddingSetId !== collectionId ||
-          collectionCoverage.totals.indexedFiles !== counts.collection
-        ) {
-          return false;
-        }
-        const fields = ['chunks', 'indexedFiles', 'missingVectors', 'vectors'] as const;
-        if (
-          !fields.every(
-            (key) => collectionCoverage.collections?.[0]?.[key] === collectionCoverage.totals[key]
-          )
-        ) {
-          return false;
-        }
-        if (
-          counts.workspace > 0 &&
-          (!coverage ||
-            status.authorizedRootIds.length !== 1 ||
-            coverage.roots.length !== 1 ||
-            coverage.roots[0]?.rootId !== status.authorizedRootIds[0] ||
-            coverage.storeId !== status.storeId ||
-            coverage.totals.indexedFiles !== counts.workspace ||
-            !fields.every((key) => coverage.roots[0]?.[key] === coverage.totals[key]))
-        ) {
-          return false;
-        }
-        if (counts.workspace === 0 && status.authorizedRootIds.length !== 0) {
-          return false;
-        }
-        const scopes = [collectionCoverage, ...(coverage ? [coverage] : [])];
-        return scopes.every((scope) =>
-          counts.mode === 'TEXT'
-            ? scope.embedding.indexMode === 'text-only' && scope.totals.vectors === 0
-            : scope.embedding.indexMode === 'vector-configured' &&
-              scope.vectorCoverageComplete &&
-              scope.totals.chunks > 0 &&
-              scope.totals.missingVectors === 0 &&
-              scope.totals.vectors === scope.totals.chunks
-        );
-      },
-      {
-        message:
-          'Actual current scoped complete receipts and canonical row/vector counts must agree',
-        timeout: counts.mode === 'VECTOR' ? 480_000 : 90_000,
-      }
-    )
-    .toBe(true);
-  const snapshot = await readNativeSnapshot(context);
+  const snapshot = await waitForCurrentObservation(
+    () => observeNativeSnapshot(context),
+    (read) =>
+      expect
+        .poll(async () => scopesComplete(await read(), counts), {
+          message:
+            'Actual current scoped complete receipts and canonical row/vector counts must agree',
+          timeout: counts.mode === 'VECTOR' ? 480_000 : 90_000,
+        })
+        .toBe(true)
+  );
   if (counts.mode === 'TEXT') {
     assertTextInferenceInactive(snapshot);
   } else if (options.requireVectorWorker) {

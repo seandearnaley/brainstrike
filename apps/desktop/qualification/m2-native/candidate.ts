@@ -8,7 +8,11 @@ import type { IndexSearchCapability } from '../../../../packages/indexing-contra
 import type { ElectronAppContext } from '../../e2e/utils/electron-helpers.mts';
 import type { EmbeddingHostStatus } from '../../src/embedding-host-shared';
 import { NativeCoverageObservationInvalidatedError } from '../../src/native-coverage-observation-invalidated';
-import { type CoverageObservation, observeCoverage } from './coverage-observation';
+import {
+  type CoverageObservation,
+  observeCoverage,
+  waitForCurrentObservation,
+} from './coverage-observation';
 import { nativeBuildComplete } from './native-benchmark';
 
 export interface NativeSnapshot {
@@ -150,28 +154,31 @@ export async function waitForTextIndex(
   context: ElectronAppContext,
   files: number
 ): Promise<NativeSnapshot> {
-  await expect
-    .poll(
-      async () => {
-        const value = await observeNativeSnapshot(context);
-        if (value?.status.kind !== 'ready') {
-          return false;
-        }
-        const rootId = value.status.authorizedRootIds[0];
-        if (!rootId) {
-          return false;
-        }
-        return nativeBuildComplete(value.status, value.coverage, {
-          files,
-          mode: 'text',
-          rootId,
-          storeId: value.status.storeId,
-        });
-      },
-      { message: 'Canonical complete-scan receipt and native rows must agree', timeout: 90_000 }
-    )
-    .toBe(true);
-  const snapshot = await readNativeSnapshot(context);
+  const snapshot = await waitForCurrentObservation(
+    () => observeNativeSnapshot(context),
+    (read) =>
+      expect
+        .poll(
+          async () => {
+            const value = await read();
+            if (value?.status.kind !== 'ready') {
+              return false;
+            }
+            const rootId = value.status.authorizedRootIds[0];
+            if (!rootId) {
+              return false;
+            }
+            return nativeBuildComplete(value.status, value.coverage, {
+              files,
+              mode: 'text',
+              rootId,
+              storeId: value.status.storeId,
+            });
+          },
+          { message: 'Canonical complete-scan receipt and native rows must agree', timeout: 90_000 }
+        )
+        .toBe(true)
+  );
   expect(snapshot.status.kind).toBe('ready');
   if (snapshot.status.kind !== 'ready' || !snapshot.coverage) {
     throw new Error('Ready scope vanished.');
