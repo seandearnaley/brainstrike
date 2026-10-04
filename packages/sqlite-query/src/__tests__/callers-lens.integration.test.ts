@@ -197,8 +197,8 @@ describe('canonical SQLite caller lens over recorded renderer/parser payloads', 
     ).toHaveLength(8);
   });
 
-  it.each(['many', 'depth'])(
-    'preserves the actual engine %s control for arm caps or recursion depth',
+  it.each(['many', 'depth', 'rootless'])(
+    'preserves the actual engine %s caller control',
     async (mode) => {
       const dbPath = resolve(directory, `${mode}.sqlite`);
       const writer = process.env['INDEXER_TEST_EXEC_PATH'];
@@ -235,6 +235,29 @@ describe('canonical SQLite caller lens over recorded renderer/parser payloads', 
           } as const,
         };
         const result = await owned.query(sql, options);
+        if (mode === 'rootless') {
+          // Real canonical collection publication: no synthetic workspace root/path.
+          const source = await owned.query(
+            "SELECT id,start_line,end_line,root_id FROM file_chunks WHERE file_record_id<>'bait'",
+            { maxRows: 100 }
+          );
+          expect(source.rows).toHaveLength(8);
+          expect(source.rows.every((row) => row[3] === null)).toBe(true);
+          expect(result.rows).toHaveLength(8);
+          expect(result.rows.every((row) => row[0] === null)).toBe(true);
+          expect(new Set(result.rows.map((row) => row[1]))).toEqual(
+            new Set(decodeFixture(JSON.parse(seeded.stdout)).expectedVectorIds)
+          );
+          for (const row of result.rows) {
+            expect(source.rows.map((stored) => stored.slice(0, 3))).toContainEqual(row.slice(1, 4));
+            expect(row[4]).toBeGreaterThan(0);
+          }
+          const membership = await owned.query(
+            "SELECT count(*) FROM file_records WHERE root_id IS NULL AND path IS NULL AND scoped=1 AND embedding_set_id='recorded-collection' AND source_path IS NOT NULL"
+          );
+          expect(membership.rows).toEqual([[options.requirement.context.fileIds.length]]);
+          return;
+        }
         if (mode === 'depth') {
           expect(result.rows).toHaveLength(33);
           expect(new Set(result.rows.map((row) => row[0]))).toEqual(

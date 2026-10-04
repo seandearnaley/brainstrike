@@ -67,6 +67,6 @@ FROM (
   SELECT id, position FROM vector_arm
 ) arm
 JOIN file_chunks ch ON ch.id = arm.id
-JOIN file_records fr ON fr.id = ch.file_record_id AND fr.root_id = ch.root_id
+JOIN file_records fr ON fr.id = ch.file_record_id
 GROUP BY fr.path, ch.id, ch.start_line, ch.end_line
 ORDER BY rrf_score DESC, fr.path, ch.id

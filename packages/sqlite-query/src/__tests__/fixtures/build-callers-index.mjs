@@ -25,13 +25,20 @@ const fileBindings = [
   ...binding,
   embeddingSetId: collectionId,
   profile,
-  rootId: 'recorded-root',
-  sourcePath: null,
+  relativePath: mode === 'rootless' ? null : binding.relativePath,
+  rootId: mode === 'rootless' ? null : 'recorded-root',
+  sourcePath: mode === 'rootless' ? `/imports/${binding.relativePath}` : null,
 }));
 function prepare(request) {
   return port.prepareScopedFile({
     profile,
-    snapshot: { ...request, embeddingSetId: collectionId, sourcePath: null },
+    snapshot: {
+      ...request,
+      embeddingSetId: collectionId,
+      relativePath: mode === 'rootless' ? null : request.relativePath,
+      rootId: mode === 'rootless' ? null : request.rootId,
+      sourcePath: mode === 'rootless' ? `/imports/${request.relativePath}` : null,
+    },
   });
 }
 const port = await openIndexer(
@@ -39,9 +46,9 @@ const port = await openIndexer(
     dbPath: process.argv[2],
     embedding: { indexMode: 'text-only' },
     fileBindings,
-    rootIds: ['recorded-root'],
+    rootIds: mode === 'rootless' ? [] : ['recorded-root'],
     scopes: [
-      { kind: 'workspace', rootId: 'recorded-root' },
+      ...(mode === 'rootless' ? [] : [{ kind: 'workspace', rootId: 'recorded-root' }]),
       { embeddingSetId: collectionId, kind: 'collection' },
     ],
   },

@@ -33,3 +33,18 @@ pnpm --filter @brainstrike/desktop exec vitest run --pool=forks --maxWorkers=1 -
 pnpm --filter @brainstrike/sqlite-query exec vitest run --exclude '**/*.integration.test.ts'
 pnpm turbo run type-check --filter=@brainstrike/desktop --filter=@brainstrike/sqlite-query --output-logs=errors-only
 ```
+
+Review correction for rootless callers: the final result join additionally required `fr.root_id = ch.root_id`, which filters valid null-root collection chunks after their ranks are assigned. Canonical file-ID identity is sufficient: `file_records.id` is the primary key, `file_chunks.file_record_id` references it, scoped publication refuses ownership changes, and native storage validation checks nullable roots with `IS NOT`. The scoped retrieval implementation already joins by file ID. The follow-up removes only that redundant equality.
+
+The real `rootless` fixture mode publishes the recorded seed and caller graph through the same public scoped writer under explicit collection/profile authority, with null root IDs and relative paths and retained import source paths. Its paired integration control requires all eight exact ranked chunk IDs and source spans with null result paths. Causal RED restored only the lens from `1f4288ccd0417c3b9dc06a9bbe347bfb9ab26b33`: the native source query proves eight null-root chunks, while the caller result has zero rows. Restoring the file-ID join yields all eight exact chunks with null paths and positive RRF scores. The full caller integration file passes all eight cases, retaining mounted callers, wrong-profile/missing-vector refusals and top50/depth10 controls. The same qualified Electron/Node writer environment above was used.
+
+Rootless validation commands from `packages/sqlite-query`:
+
+```sh
+# RED with only the lens restored from 1f4288c:
+"$SQLITE_QUERY_TEST_EXEC_PATH" ../../node_modules/vitest/vitest.mjs run --pool=forks --maxWorkers=1 --no-file-parallelism src/__tests__/callers-lens.integration.test.ts -t rootless
+# GREEN after restoring the file-ID join:
+"$SQLITE_QUERY_TEST_EXEC_PATH" ../../node_modules/vitest/vitest.mjs run --pool=forks --maxWorkers=1 --no-file-parallelism src/__tests__/callers-lens.integration.test.ts
+# At the root:
+pnpm turbo run type-check --filter=@brainstrike/sqlite-query --output-logs=errors-only
+```
