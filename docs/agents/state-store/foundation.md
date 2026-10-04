@@ -126,3 +126,15 @@ the final simultaneous Mac/Linux run, the macOS 100 MB sample recorded a
 45.8 ms maximum event-loop delay during purge. The Linux purge sample recorded
 336.0 ms maximum append and 51.7 ms event-loop delay. Preserve these tails when
 evaluating later application integration; package success does not erase them.
+
+## 2026-10-04 recovered A1 timing qualification
+
+Recovered A1 driver captures and the complete inherited `s-dur` host closure
+enabled a reviewed port onto the actual production StateStore and Coalescer.
+The single macOS qualification at integration `b8323d3` passed the original
+display criterion and the explicitly approved three-process S contention
+criterion. Captured bytes, exact identities, failure-as-data controls, raw
+receipt locations and unported limits are recorded in
+`m0-a1-qualification-2026-10-04.md`. This supersedes the earlier missing-source
+limit for those A1 latency/contention measurements; it does not recover J,
+repeat kernel tracing or complete A2 purge qualification.
