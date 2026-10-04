@@ -2,6 +2,7 @@ import type { IndexSearchCapability } from '@brainstrike/indexing-contract/index
 import { afterEach, expect, it, vi } from 'vitest';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
+import { NativeCoverageObservationInvalidatedError } from '../native-coverage-observation-invalidated';
 import { createIpcBridge } from '../platform/ipc-bridge';
 import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
 
@@ -50,6 +51,38 @@ function capability(): IndexSearchCapability {
     })),
   };
 }
+it('preserves invalid observations as data while unrelated failures keep the canonical error envelope', async () => {
+  const cap = capability();
+  const invalidation = new NativeCoverageObservationInvalidatedError();
+  vi.mocked(cap.coverageBatch).mockResolvedValueOnce({
+    code: invalidation.code,
+    kind: 'invalidated',
+  });
+  dispose.push(registerIndexSearchIpcHandlers(cap));
+  const bridge = createIpcBridge(
+    {
+      invoke: (channel, ...args) => {
+        const entry = ipc.handle.mock.calls.find(([name]) => name === channel);
+        if (!entry) {
+          throw new Error('Unknown channel');
+        }
+        return Promise.resolve(entry[1](createTrustedInvokeEvent(), ...args));
+      },
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    },
+    indexSearchContract
+  );
+  await expect(bridge.coverageBatch([{ rootIds: ['root'] }])).resolves.toEqual({
+    code: 'native-coverage-observation-invalidated',
+    kind: 'invalidated',
+  });
+  vi.mocked(cap.coverageBatch).mockRejectedValueOnce(new Error(invalidation.message));
+  await expect(bridge.coverageBatch([{ rootIds: ['root'] }])).rejects.toMatchObject({
+    category: 'native-index',
+    code: 'native-index-failed',
+  });
+});
 it('uses the visible-ui authorized manifest and canonical preload result/error unwrap', async () => {
   const cap = capability();
   dispose.push(registerIndexSearchIpcHandlers(cap));

@@ -23,6 +23,7 @@ import { type ArtifactFlow, createArtifactFlow } from './artifact-flow';
 import {
   type CandidateSession,
   createCandidateSession,
+  observeNativeSnapshot,
   readNativeSnapshot,
   waitForTextIndex,
 } from './candidate';
@@ -144,8 +145,10 @@ async function runTools(
       await expect
         .poll(
           async () => {
-            const snapshot = await readNativeSnapshot(context);
-            return nativeBuildComplete(snapshot.status, snapshot.coverage, scope);
+            const snapshot = await observeNativeSnapshot(context);
+            return (
+              snapshot !== null && nativeBuildComplete(snapshot.status, snapshot.coverage, scope)
+            );
           },
           { timeout: 480_000 }
         )

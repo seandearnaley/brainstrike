@@ -3,7 +3,12 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { HomePage } from '../../e2e/page-objects/home-page';
 import { SettingsPage } from '../../e2e/page-objects/settings-page';
-import { createCandidateSession, readNativeSnapshot, waitForTextIndex } from './candidate';
+import {
+  createCandidateSession,
+  observeNativeSnapshot,
+  readNativeSnapshot,
+  waitForTextIndex,
+} from './candidate';
 import { resetFromUi } from './factory-reset-confirmation';
 import { nativeBuildComplete } from './native-benchmark';
 import { configureNativeText } from './native-settings';
@@ -40,8 +45,10 @@ test('explicit native vector publication, semantic query and separate Factory Re
     await expect
       .poll(
         async () => {
-          const snapshot = await readNativeSnapshot(context);
-          return nativeBuildComplete(snapshot.status, snapshot.coverage, scope);
+          const snapshot = await observeNativeSnapshot(context);
+          return (
+            snapshot !== null && nativeBuildComplete(snapshot.status, snapshot.coverage, scope)
+          );
         },
         {
           message: 'Actual document inference must complete native vector coverage',

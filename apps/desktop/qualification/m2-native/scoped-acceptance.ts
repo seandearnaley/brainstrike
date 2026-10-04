@@ -4,7 +4,12 @@ import path from 'node:path';
 import { expect } from '@playwright/test';
 import type { IndexSearchCapability } from '../../../../packages/indexing-contract/src/indexer-client';
 import type { ElectronAppContext } from '../../e2e/utils/electron-helpers.mts';
-import { assertTextInferenceInactive, type NativeSnapshot, readNativeSnapshot } from './candidate';
+import {
+  assertTextInferenceInactive,
+  type NativeSnapshot,
+  observeNativeSnapshot,
+  readNativeSnapshot,
+} from './candidate';
 import { readSavedChoices } from './native-settings';
 import type { PublicBridges } from './public-bridges';
 import { assertActualVectorWorker } from './vector-profile';
@@ -21,8 +26,8 @@ export async function waitForScopes(
   await expect
     .poll(
       async () => {
-        const snapshot = await readNativeSnapshot(context);
-        if (snapshot.status.kind !== 'ready' || !snapshot.collectionCoverage) {
+        const snapshot = await observeNativeSnapshot(context);
+        if (snapshot?.status.kind !== 'ready' || !snapshot.collectionCoverage) {
           return false;
         }
         const { status, coverage, collectionCoverage } = snapshot;

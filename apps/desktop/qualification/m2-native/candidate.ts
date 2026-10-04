@@ -7,6 +7,8 @@ import { expect } from '@playwright/test';
 import type { IndexSearchCapability } from '../../../../packages/indexing-contract/src/indexer-client';
 import type { ElectronAppContext } from '../../e2e/utils/electron-helpers.mts';
 import type { EmbeddingHostStatus } from '../../src/embedding-host-shared';
+import { NativeCoverageObservationInvalidatedError } from '../../src/native-coverage-observation-invalidated';
+import { type CoverageObservation, observeCoverage } from './coverage-observation';
 import { nativeBuildComplete } from './native-benchmark';
 
 export interface NativeSnapshot {
@@ -14,6 +16,23 @@ export interface NativeSnapshot {
   readonly coverage: Awaited<ReturnType<IndexSearchCapability['coverage']>> | null;
   readonly inference: EmbeddingHostStatus;
   readonly status: Awaited<ReturnType<IndexSearchCapability['status']>>;
+}
+
+const observationRecorders = new WeakMap<
+  ElectronAppContext,
+  (phase: string, value: unknown) => Promise<void>
+>();
+
+/** Only an explicitly rejected coverage observation can keep a bounded qualification wait pending. */
+export async function observeNativeSnapshot(
+  context: ElectronAppContext
+): Promise<NativeSnapshot | null> {
+  const record = observationRecorders.get(context);
+  if (!record) {
+    throw new Error('Coverage observation requires its owning candidate evidence recorder.');
+  }
+  const observation = await observeCoverage(() => readNativeObservation(context), record);
+  return observation.kind === 'current' ? observation.value : null;
 }
 
 export function observeInferenceStatus(): void {
@@ -33,7 +52,9 @@ export function observeInferenceStatus(): void {
   void target.embeddingHost.getStatus().then((status) => statuses.push(status));
 }
 
-export async function readNativeSnapshot(context: ElectronAppContext): Promise<NativeSnapshot> {
+export async function readNativeObservation(
+  context: ElectronAppContext
+): Promise<CoverageObservation<NativeSnapshot>> {
   return await context.window.evaluate(async () => {
     const api = window as typeof window & {
       indexSearch?: IndexSearchCapability;
@@ -61,12 +82,20 @@ export async function readNativeSnapshot(context: ElectronAppContext): Promise<N
     };
     const readCoverage = async (
       initialStatus: Extract<NativeSnapshot['status'], { kind: 'ready' }>
-    ): Promise<Pick<NativeSnapshot, 'status' | 'coverage' | 'collectionCoverage'>> => {
+    ): Promise<
+      CoverageObservation<Pick<NativeSnapshot, 'status' | 'coverage' | 'collectionCoverage'>>
+    > => {
       const requests = requestsFor(initialStatus);
       if (requests.length === 0) {
-        return { collectionCoverage: null, coverage: null, status: initialStatus };
+        return {
+          kind: 'current',
+          value: { collectionCoverage: null, coverage: null, status: initialStatus },
+        };
       }
       const batch = await indexSearch.coverageBatch(requests);
+      if (batch.kind === 'invalidated') {
+        return batch;
+      }
       let collectionCoverage: NativeSnapshot['collectionCoverage'] = null;
       let coverage: NativeSnapshot['coverage'] = null;
       for (const [index, request] of requests.entries()) {
@@ -80,15 +109,29 @@ export async function readNativeSnapshot(context: ElectronAppContext): Promise<N
           collectionCoverage = result;
         }
       }
-      return { collectionCoverage, coverage, status: batch.status };
+      return { kind: 'current', value: { collectionCoverage, coverage, status: batch.status } };
     };
     const status = await indexSearch.status();
     const observation =
       status.kind === 'ready'
         ? await readCoverage(status)
-        : { collectionCoverage: null, coverage: null, status };
-    return { ...observation, inference: await api.embeddingHost.getStatus() };
+        : { kind: 'current' as const, value: { collectionCoverage: null, coverage: null, status } };
+    if (observation.kind === 'invalidated') {
+      return observation;
+    }
+    return {
+      kind: 'current' as const,
+      value: { ...observation.value, inference: await api.embeddingHost.getStatus() },
+    };
   });
+}
+
+export async function readNativeSnapshot(context: ElectronAppContext): Promise<NativeSnapshot> {
+  const observation = await readNativeObservation(context);
+  if (observation.kind === 'invalidated') {
+    throw new NativeCoverageObservationInvalidatedError();
+  }
+  return observation.value;
 }
 
 export function assertTextInferenceInactive(snapshot: NativeSnapshot): void {
@@ -110,8 +153,8 @@ export async function waitForTextIndex(
   await expect
     .poll(
       async () => {
-        const value = await readNativeSnapshot(context);
-        if (value.status.kind !== 'ready') {
+        const value = await observeNativeSnapshot(context);
+        if (value?.status.kind !== 'ready') {
           return false;
         }
         const rootId = value.status.authorizedRootIds[0];
@@ -246,6 +289,7 @@ export async function createCandidateSession(
         )
         .toEqual([]);
       await record('owned-processes-joined', { pids: metrics.map((metric) => metric.pid) });
+      observationRecorders.delete(current);
       context = undefined;
     },
     launch: async (env = {}) => {
@@ -258,6 +302,7 @@ export async function createCandidateSession(
         launchMode: 'built',
         userDataDir,
       });
+      observationRecorders.set(context, record);
       launches += 1;
       await context.window.addInitScript(observeInferenceStatus);
       await context.window.evaluate(observeInferenceStatus);

@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 import type { ElectronAppContext } from '../../e2e/utils/electron-helpers.mts';
-import { type NativeSnapshot, readNativeSnapshot } from './candidate';
+import { type NativeSnapshot, observeNativeSnapshot, readNativeSnapshot } from './candidate';
 import { configureNativeChoices } from './native-settings';
 
 export const VECTOR_PROFILES = {
@@ -72,7 +72,7 @@ export async function configureVectorProfile(
     },
   });
   await expect
-    .poll(async () => (await readNativeSnapshot(context)).status)
+    .poll(async () => (await observeNativeSnapshot(context))?.status)
     .toMatchObject({
       embedding: { indexMode: 'vector-configured', profile },
       kind: 'ready',
