@@ -321,6 +321,12 @@ spawning. Never replace this with a reconstructed absolute path or a shell
 command/heredoc. It is execute-risk and approval-gated; use native workspace
 tools for project mutation.
     
+### Retrieval evaluation
+
+Before editing repository quality fixtures or comparison adapters, read
+`docs/agents/retrieval-quality.md`. Freeze source-reviewed judgments before
+retrieval and keep the actual corpus/profile and source streams explicit.
+
 ### Retrieval / hybrid-search tools (implemented in desktop, schemas here)
 
 This package owns the retrieval-family **contract surface** — the zod input
