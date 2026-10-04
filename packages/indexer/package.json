@@ -21,6 +21,10 @@
     "./metadata": {
       "types": "./dist/metadata-reader.d.ts",
       "default": "./dist/metadata-reader.js"
+    },
+    "./coverage-reader": {
+      "types": "./dist/coverage-reader.d.ts",
+      "default": "./dist/coverage-reader.js"
     }
   },
   "files": [

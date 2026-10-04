@@ -5,6 +5,7 @@ import type {
   CanonicalWorkspaceRuntimeDependencies,
 } from '@brainstrike/canonical-ingestion';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
+import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
@@ -45,6 +46,14 @@ vi.mock('../indexer-runtime', () => ({
 vi.mock('../sqlite-query-host-manager', () => ({
   closeAllIndexQueries: mocks.closeReaders,
   installIndexQueryTarget: vi.fn(),
+  openIndexCoverage: async () => {
+    const port: ScopedIndexerPort = mocks.readyPort();
+    return {
+      close: async () => undefined,
+      nativeCoverage: async (requests: readonly unknown[]) =>
+        Promise.all(requests.map((request) => port.coverageScope(request))),
+    };
+  },
 }));
 
 const storeId = 'a'.repeat(64);
@@ -52,7 +61,7 @@ const scope = { embeddingSetId: 'selected', kind: 'collection' } as const;
 const unused = async (): Promise<never> => {
   throw new Error('Unexpected legacy or inference operation.');
 };
-function writer(): IndexerPort & ScopedIndexerPort {
+function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
   return {
     close: unused,
     commitFile: unused,
@@ -61,6 +70,15 @@ function writer(): IndexerPort & ScopedIndexerPort {
     commitTextFile: unused,
     configureVectorProfile: unused,
     coverage: unused,
+    coverageAuthority: async () => ({
+      authorityEpoch: 'b'.repeat(64),
+      authorityRevision: 1,
+      dbPath: '/owned/profile/index.sqlite',
+      fileBindings: [],
+      rootIds: [],
+      scopes: [scope],
+      storeId,
+    }),
     coverageBatch: unused,
     coverageScope: unused,
     destroy: unused,

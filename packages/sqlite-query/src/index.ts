@@ -1,4 +1,5 @@
 export {
+  type OpenNativeCoverageOptions,
   type OpenSqliteQueryOptions,
   type QueryOptions,
   SqliteQueryCancelledError,

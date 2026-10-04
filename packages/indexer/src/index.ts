@@ -14,6 +14,7 @@ import type {
   SearchResult,
   StateProjectionStats,
 } from './contracts.js';
+import type { CoverageAuthorityPort } from './coverage-authority.js';
 import {
   createIndexerConnection,
   validateIndexerDeadlines,
@@ -131,7 +132,9 @@ export function createStateStoreIndexer(
 export async function openIndexer(
   input: unknown,
   deadlineInput: unknown
-): Promise<IndexerPort & PurgeIndexerPort & ScopedIndexerPort & StateIndexerPort> {
+): Promise<
+  IndexerPort & PurgeIndexerPort & ScopedIndexerPort & StateIndexerPort & CoverageAuthorityPort
+> {
   if (process.versions['electron']) {
     throw new Error('Standalone indexer requires Node; use the explicit Electron utility adapter.');
   }

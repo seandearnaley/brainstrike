@@ -34,6 +34,7 @@ import {
   NativeCanonicalProfileResolver,
 } from './native-canonical-profile';
 import { createNativeCanonicalPublication } from './native-canonical-publication';
+import { isolateNativeCoverage } from './native-coverage-reader';
 import {
   catalogFingerprint,
   catalogReadiness,
@@ -56,7 +57,11 @@ import {
   type NativeIndexSources,
   retireNativeIndexSources,
 } from './native-index-source-retirement';
-import { closeAllIndexQueries, installIndexQueryTarget } from './sqlite-query-host-manager';
+import {
+  closeAllIndexQueries,
+  installIndexQueryTarget,
+  openIndexCoverage,
+} from './sqlite-query-host-manager';
 
 const decodeRoots = makeThrowingDecoder(
   Schema.Array(
@@ -245,7 +250,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         destroy: () => destroyIndexerRuntime(closeAllIndexQueries),
         start: async (): Promise<IndexerPort & ScopedIndexerPort> => {
           await creation;
-          return getReadyScopedIndexerPort();
+          return isolateNativeCoverage(getReadyScopedIndexerPort(), openIndexCoverage);
         },
       };
     },

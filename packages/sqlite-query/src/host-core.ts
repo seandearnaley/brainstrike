@@ -1,5 +1,16 @@
 import { serialize } from 'node:v8';
-import { decodeRequest, type QueryResponse, type SqliteRows } from './protocol.js';
+import {
+  assertCoverageAuthorityBound,
+  type CoverageAuthority,
+  fault,
+  readNativeCoverage,
+} from '@brainstrike/indexer/coverage-reader';
+import {
+  decodeRequest,
+  type QueryRequest,
+  type QueryResponse,
+  type SqliteRows,
+} from './protocol.js';
 import { SqliteSandbox } from './sandbox.js';
 
 function boundedResponse(response: QueryResponse): QueryResponse {
@@ -16,43 +27,78 @@ export function createQueryHost(
   send: (response: QueryResponse) => void
 ): (message: unknown) => void {
   let sandbox: SqliteSandbox | undefined;
+  let coverageAuthority: CoverageAuthority | undefined;
 
+  function dispatchCoverage(
+    request: Extract<QueryRequest, { kind: 'open-native-coverage' | 'native-coverage' }>
+  ): QueryResponse {
+    if (request.kind === 'open-native-coverage') {
+      assertCoverageAuthorityBound(request);
+      if (sandbox || coverageAuthority) {
+        throw new Error('SQLite query process is already initialized.');
+      }
+      coverageAuthority = request.authority;
+      return { id: request.id, kind: 'ready' };
+    }
+    if (request.kind === 'native-coverage') {
+      if (!coverageAuthority) {
+        throw new Error('Native coverage requires its trusted coverage-only owner.');
+      }
+      return boundedResponse({
+        id: request.id,
+        kind: 'nativeCoverage',
+        result: readNativeCoverage(coverageAuthority, request.requests),
+      });
+    }
+    throw new Error('Unsupported native coverage operation.');
+  }
+  function dispatchSql(
+    request: Exclude<QueryRequest, { kind: 'open-native-coverage' | 'native-coverage' }>
+  ): QueryResponse {
+    if (request.kind === 'open') {
+      if (sandbox || coverageAuthority) {
+        throw new Error('SQLite query process is already initialized.');
+      }
+      sandbox = new SqliteSandbox(request.databasePath);
+      return { id: request.id, kind: 'ready' };
+    }
+    if (!sandbox) {
+      throw new Error('SQLite query process has not been initialized.');
+    }
+    if (request.kind === 'grep') {
+      return boundedResponse({ id: request.id, kind: 'grepRows', result: sandbox.grep(request) });
+    }
+    let result: SqliteRows;
+    switch (request.kind) {
+      case 'query':
+        result = sandbox.query(
+          request.sql,
+          request.values,
+          request.maxRows,
+          request.bindings,
+          request.requirement
+        );
+        break;
+      case 'describeTable':
+        result = sandbox.describeTable(request.table);
+        break;
+      case 'listTables':
+        result = sandbox.listTables();
+        break;
+    }
+    return boundedResponse({ id: request.id, kind: 'rows', result });
+  }
   function dispatch(message: unknown): QueryResponse {
     const request = decodeRequest(message);
     try {
-      if (request.kind === 'open') {
-        if (sandbox) {
-          throw new Error('SQLite query process is already initialized.');
-        }
-        sandbox = new SqliteSandbox(request.databasePath);
-        return { id: request.id, kind: 'ready' };
+      if (request.kind === 'open-native-coverage' || request.kind === 'native-coverage') {
+        return dispatchCoverage(request);
       }
-      if (!sandbox) {
-        throw new Error('SQLite query process has not been initialized.');
-      }
-      if (request.kind === 'grep') {
-        return boundedResponse({ id: request.id, kind: 'grepRows', result: sandbox.grep(request) });
-      }
-      let result: SqliteRows;
-      switch (request.kind) {
-        case 'query':
-          result = sandbox.query(
-            request.sql,
-            request.values,
-            request.maxRows,
-            request.bindings,
-            request.requirement
-          );
-          break;
-        case 'describeTable':
-          result = sandbox.describeTable(request.table);
-          break;
-        case 'listTables':
-          result = sandbox.listTables();
-          break;
-      }
-      return boundedResponse({ id: request.id, kind: 'rows', result });
+      return dispatchSql(request);
     } catch (error) {
+      if (request.kind === 'native-coverage' || request.kind === 'open-native-coverage') {
+        return { error: fault(error), id: request.id, kind: 'nativeCoverageError' };
+      }
       return {
         id: request.id,
         kind: 'error',

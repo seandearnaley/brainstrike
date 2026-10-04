@@ -14,6 +14,43 @@ vi.mock('../sandbox.js', () => ({
 }));
 
 describe('complete process response budget', () => {
+  it('refuses native coverage in a generic SQL owner', () => {
+    const responses: QueryResponse[] = [];
+    const receive = createQueryHost((response) => responses.push(response));
+    receive({ databasePath: 'owned.sqlite', id: 1, kind: 'open' });
+    receive({
+      id: 2,
+      kind: 'native-coverage',
+      requests: [{ scope: { kind: 'workspace', rootId: 'root' } }],
+    });
+    expect(responses.at(-1)).toMatchObject({
+      error: { message: expect.stringContaining('coverage-only owner') },
+      kind: 'nativeCoverageError',
+    });
+  });
+  it('refuses generic SQL in a trusted coverage owner', () => {
+    const responses: QueryResponse[] = [];
+    const receive = createQueryHost((response) => responses.push(response));
+    receive({
+      authority: {
+        authorityEpoch: 'b'.repeat(64),
+        authorityRevision: 7,
+        dbPath: '/owned.sqlite',
+        fileBindings: [],
+        rootIds: [],
+        scopes: [],
+        storeId: 'a'.repeat(64),
+      },
+      id: 1,
+      kind: 'open-native-coverage',
+    });
+    receive({ id: 2, kind: 'query', maxRows: 1, sql: 'SELECT 1', values: [] });
+    expect(responses.at(-1)).toMatchObject({
+      kind: 'error',
+      message: 'SQLite query process has not been initialized.',
+    });
+    expect(queryMock).not.toHaveBeenCalled();
+  });
   it('refuses a response whose envelope exceeds the budget and retains query admission', () => {
     const responses: QueryResponse[] = [];
     const receive = createQueryHost((response) => responses.push(response));

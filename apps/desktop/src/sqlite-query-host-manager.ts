@@ -1,4 +1,5 @@
 import { ToolInputError } from '@brainstrike/assistant-contract';
+import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
 import {
   SqliteQueryClient,
   SqliteQueryStartupCleanupError,
@@ -7,6 +8,7 @@ import {
 import { app, utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import type { IndexCallerRead } from './native-caller-query';
+import type { NativeCoverageReader } from './native-coverage-reader';
 
 interface IndexQueryTarget {
   readonly databasePath: string;
@@ -87,6 +89,54 @@ export async function openIndexQuery(
       );
     },
   });
+  return ownIndexReader(acquisition, registered);
+}
+
+/** Main-only coverage owner; generic SQL keeps its original sandbox and deadline. */
+export async function openIndexCoverage(
+  authority: CoverageAuthority,
+  signal?: AbortSignal
+): Promise<NativeCoverageReader> {
+  signal?.throwIfAborted();
+  const registered = target;
+  if (!registered) {
+    throw new Error('Native coverage query target is unavailable.');
+  }
+  const index = registered.acquire();
+  if (index.databasePath !== authority.dbPath) {
+    throw new Error('Native coverage requested a different database owner.');
+  }
+  if (!app.isReady()) {
+    throw new Error('Native coverage utility requires Electron app readiness.');
+  }
+  const acquisition = SqliteQueryClient.openNativeCoverage({
+    authority,
+    deadlineMs: 5000,
+    signal,
+    spawn: () => {
+      if (target !== registered || registered.acquire() !== index) {
+        throw new Error('Native coverage owner changed before acquisition.');
+      }
+      return spawnUtilityQueryProcess(
+        (entryPath) =>
+          utilityProcess.fork(entryPath, [], { serviceName: 'brainstrike-index-coverage' }),
+        resolveBundledSiblingPath('SQLite index coverage', 'sqlite-query-host-entry.js')
+      );
+    },
+    startupDeadlineMs: registered.deadlines.startupDeadlineMs,
+  });
+  return ownIndexReader(acquisition, registered);
+}
+
+async function ownIndexReader(
+  acquisition: Promise<SqliteQueryClient>,
+  registered: NonNullable<typeof target>
+): Promise<
+  Pick<
+    SqliteQueryClient,
+    'query' | 'grep' | 'listTables' | 'describeTable' | 'nativeCoverage' | 'close'
+  >
+> {
   acquisitions.add(acquisition);
   try {
     const client = await acquisition;
@@ -104,6 +154,7 @@ export async function openIndexQuery(
       describeTable: client.describeTable.bind(client),
       grep: client.grep.bind(client),
       listTables: client.listTables.bind(client),
+      nativeCoverage: client.nativeCoverage.bind(client),
       query: client.query.bind(client),
     };
   } catch (error) {

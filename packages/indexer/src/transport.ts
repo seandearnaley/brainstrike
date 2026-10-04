@@ -43,6 +43,7 @@ import {
   stateThreadsSchema,
   textCommitSchema,
 } from './contracts.js';
+import { type CoverageAuthorityPort, coverageAuthoritySchema } from './coverage-authority.js';
 import type {
   IndexerPort,
   PurgeIndexerPort,
@@ -112,7 +113,9 @@ export interface IndexerConnection {
   close(): Promise<void>;
   destroy(): Promise<void>;
   readonly exited: boolean;
-  readonly ready: Promise<IndexerPort & PurgeIndexerPort & ScopedIndexerPort & StateIndexerPort>;
+  readonly ready: Promise<
+    IndexerPort & PurgeIndexerPort & ScopedIndexerPort & StateIndexerPort & CoverageAuthorityPort
+  >;
 }
 export function createIndexerConnection(
   input: unknown,
@@ -270,7 +273,11 @@ export function createIndexerConnection(
     });
     return closeAttempt;
   };
-  const port: IndexerPort & PurgeIndexerPort & ScopedIndexerPort & StateIndexerPort = {
+  const port: IndexerPort &
+    PurgeIndexerPort &
+    ScopedIndexerPort &
+    StateIndexerPort &
+    CoverageAuthorityPort = {
     catchUpState: async (threads) => {
       await call('state-catch-up', decoder(stateThreadsSchema)(threads), decoder(Schema.Boolean));
     },
@@ -295,6 +302,7 @@ export function createIndexerConnection(
       ),
     coverage: async (request) =>
       call('coverage', decoder(coverageRequestSchema)(request), decoder(coverageSchema)),
+    coverageAuthority: () => call('coverage-authority', null, decoder(coverageAuthoritySchema)),
     coverageBatch: async (requests) =>
       call(
         'coverage-batch',
