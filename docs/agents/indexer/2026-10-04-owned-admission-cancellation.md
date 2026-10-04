@@ -1,0 +1,11 @@
+# Owned admission cancellation
+
+A validated correlated request rejected by its captured stopping owner carries the existing explicit cancellation marker. The channel maps it to the local abort reason only when that exact operation is already aborted. Independent failures retain their original disposition.
+
+The single profiled VECTOR1000 diagnostic on private head6d3f658 reached complete native coverage but shutdown reported `Canonical attachment retirement remains owned`, containing `Canonical source admission is closed`. Source retirement failed before native close, so its active reader/writer CPU capture was never flushed. Physical process exit did not establish successful graceful cleanup.
+
+The parent stopping guard rejected late source requests without the existing cancellation marker. A connected actual parent/child test now holds a source request and its cancellation notice, closes actual admission and aborts the original child scan, then delivers the two correlated frames in call/notice order. Unmarked refusal fails retirement; marked refusal joins it. The actual production activation test composes that same child into its collection attachment and proves engine/profile close stays blocked until the original source retirement joins.
+
+Before marking, validate the existing operation DTO and captured callback authority without invoking the rejected operation. Foreign owners, malformed DTOs, foreign scopes and replaced capability objects remain errors. Already-admitted failures with the same admission error text, independent AbortError and permission faults remain retirement failures; explicit retry uses the retained original owner. Existing publication, transport, inference and late scan-fault guards remain unchanged.
+
+These tests qualify the cancellation/retirement seam locally, not desktop performance, Windows, Linux or CPU attribution. Keep the diagnostic private and treat any successful future capture as diagnostic evidence only.

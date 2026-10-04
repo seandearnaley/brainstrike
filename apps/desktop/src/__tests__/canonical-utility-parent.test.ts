@@ -141,6 +141,56 @@ function call(
 }
 
 describe('captured canonical utility capabilities', () => {
+  it.each([
+    ['load-files', { kind: 'workspace', rootId: 'foreign' }],
+    ['load-files', {}],
+    ['unknown-operation', null],
+  ])('does not mark an invalid stopped-owner request as cancellation: %s', async (op, payload) => {
+    const { parent, owner, frames } = await attached();
+    const close = parent.close();
+    call(parent, owner, 200, op, payload);
+    const response = frames.find((input) => {
+      const frame = decodeCanonicalFrame(input);
+      return frame.kind === 'result' && frame.id === 200;
+    });
+    expect(response).toMatchObject({ ok: false });
+    expect(response).not.toHaveProperty('cancelled');
+    await close;
+  });
+
+  it('rejects a foreign captured owner while stopping without a cancellation response', async () => {
+    const { parent, frames } = await attached();
+    const close = parent.close();
+    expect(() => call(parent, 'foreign-owner', 200, 'load-files', scope)).toThrow(
+      /unknown captured owner/
+    );
+    expect(
+      frames.some((input) => {
+        const frame = decodeCanonicalFrame(input);
+        return frame.kind === 'result' && frame.id === 200;
+      })
+    ).toBe(false);
+    await close;
+  });
+
+  it('preserves replaced captured capability errors while the actual owner is stopping', async () => {
+    const dependencies = fixture();
+    const { parent, owner, frames } = await attached(dependencies);
+    Object.assign(dependencies, { catalog: { ...dependencies.catalog } });
+    const close = parent.close();
+    call(parent, owner, 200, 'load-files', scope);
+    const response = frames.find((input) => {
+      const frame = decodeCanonicalFrame(input);
+      return frame.kind === 'result' && frame.id === 200;
+    });
+    expect(response).toMatchObject({
+      error: { message: expect.stringMatching(/captured owner/) },
+      ok: false,
+    });
+    expect(response).not.toHaveProperty('cancelled');
+    await close;
+  });
+
   it('rejects replacement of the actual lease object and retires its original captured borrow', async () => {
     const deps = fixture();
     const original = deps.source.lease;

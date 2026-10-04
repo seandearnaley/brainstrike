@@ -214,7 +214,7 @@ export class CanonicalUtilityParent {
     }
     session.lastRequestId = frame.id;
     if (session.stopping && !isOwnedCleanup(frame)) {
-      this.respond(frame, false, new Error('Canonical source admission is closed.'));
+      this.refuseStoppedRequest(session, frame);
       return;
     }
     const controller = new AbortController();
@@ -230,6 +230,23 @@ export class CanonicalUtilityParent {
     void pending.settled.catch(() => {});
   }
 
+  private refuseStoppedRequest(
+    session: Session,
+    frame: Extract<CanonicalFrame, { kind: 'call' }>
+  ): void {
+    try {
+      if (!Object.hasOwn(canonicalOperations, frame.op)) {
+        throw new Error('Unknown canonical utility operation.');
+      }
+      const operation = canonicalOperations[frame.op as keyof typeof canonicalOperations];
+      Schema.decodeUnknownSync(operation.input)(frame.payload);
+      recheckCallbackAuthority(session, frame);
+    } catch (error) {
+      this.respond(frame, false, error);
+      return;
+    }
+    this.respond(frame, false, new Error('Canonical source admission is closed.'), true);
+  }
   private respond(
     frame: Extract<CanonicalFrame, { kind: 'call' }>,
     ok: boolean,
