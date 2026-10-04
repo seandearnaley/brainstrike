@@ -9,3 +9,12 @@ The registry captures the actual mounted object synchronously and rejects late b
 The canonical root cascade lives beside existing managed-cache policy and reuses its cancellation helper. It locks exact ID/path identity, cancels only actual rooted chunk jobs, clears queued/running leases and records canceled lifetime metrics, then cascades the root and refreshes affected collection statistics atomically. Membership may be nullable; no collection or root identity is invented.
 
 Causal tests hold source retirement and native ACK ahead of real PGlite deletion, exercise source/native/writer cleanup failure, changed mounted/native owners, final late acknowledged bindings, explicit retry and failed reopening. An actual built native SQLite host and secure mounted temporary directories prove rooted removal plus preserved rootless/other-root/other-collection coverage after reopening. Real PGlite tests prove cross-membership job cancellation, unchanged unrelated leases and rollback of cancellation/cascade together on PG failure. These focused proofs do not qualify the full application or M3, and launch no GPU/model execution or hosted CI.
+
+
+## Shell provider ancestry correction
+
+The complete TEXT diagnostic at checkpoint `6b634590` passed initial readiness, mounted/rootless CRUD, closed-window publication, same-profile reopen and derived rebuild, then failed the real Disconnect plus delete step. The visible shared filesystem reported that root-data deletion was unavailable before invoking the present desktop bridge. All observed processes exited during normal cleanup.
+
+`AppLayout` mounted the single `FileSystemProvider` above `FileTreeWrapper`, while the latter supplied `RootDataDeletionProvider` below it. React ancestry made that callback unavailable to the owning filesystem instance; provider and consumer used the same context, and main/preload capability wiring was present. Move the existing DB/platform callback to `RootLayoutContent` and enclose `AppLayout`, preserving the one filesystem instance and existing deletion failure behavior.
+
+The composition regression retains actual `RootLayoutContent`, `AppLayout`, filesystem/store providers, instance hook and deletion context while mocking unrelated heavy chrome. On the parent, both cases reproduced the exact unavailable-capability error with zero supplied-callback invocations. Held deletion must complete before adapter disconnect; a rejected callback must keep the same root connected. Two descendants verify that both read the same shared instance.

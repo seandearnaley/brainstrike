@@ -181,6 +181,7 @@ Guard: `packages/indexer/__tests__/manifest.integration.test.ts`.
 - Fence and join pending reconfiguration before terminal retirement acknowledges. On managed-collection replacement, join removal of the outgoing collection's rooted native rows under the original acknowledged writer before replacement; preserve rootless and unrelated profile data, and retain failed removals for retry. Capture that actual writer before source retirement and read its final acknowledged binding authority after admitted work joins; refuse retired or replaced owners.
 - Expose derived-only rebuild through the visible-ui `index-search:rebuild` capability and Workspace Index settings. Destroy/recreate only the owned derived SQLite files after all source/read owners settle; preserve PG application data, collections, chats and saved choices. Factory/developer resets use the same retirement owner before their separately authorized PG deletion.
 
+- Mount the root-data deletion callback above the app's singleton `FileSystemProvider`; tree-local providers cannot supply an ancestor's captured removal callback. Preserve one shared filesystem instance and keep a failed deletion connected.
 - Route desktop whole-root data deletion through the visible main capability. Reserve the original mounted object synchronously, capture its acknowledged native owner before stopping sources, then read the final ACK inventory after source/read/inference joins. Remove only its actual rooted bindings under the original workspace scope and join native cleanup before the canonical PG cascade; refuse foreign/replaced owners and retain failures for same-owner retry. Web retains its existing PG deletion path.
 
 Evidence: `indexer/2026-10-03-production-activation.md`.
@@ -199,4 +200,5 @@ Guard: `apps/desktop/src/__tests__/native-canonical-publication.test.ts`, `nativ
 Guard: `apps/desktop/src/__tests__/native-index-binding-deletion.integration.test.ts`, `native-index-runtime-scopes.test.ts`, `native-canonical-publication.test.ts`.
 Guard: `apps/desktop/src/__tests__/native-index-pause.test.ts`, `canonical-utility-parent.test.ts`, `canonical-utility-manager.test.ts`, `native-index-settings.test.ts`.
 Evidence: `indexer/2026-10-03-root-data-deletion.md`.
+Guard: `packages/app-shell/src/__tests__/root-layout-deletion-composition.test.tsx`.
 Guard: `apps/desktop/src/__tests__/native-root-data-deletion.test.ts`, `native-root-data-deletion.integration.test.ts`, `ipc-domains/workspace-root-data-deletion.test.ts`, `packages/db/__tests__/managed-root-data-deletion.integration.test.ts`, `packages/app-shell/src/__tests__/delete-root-data.test.ts`.
