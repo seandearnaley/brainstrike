@@ -48,3 +48,5 @@ Rootless validation commands from `packages/sqlite-query`:
 # At the root:
 pnpm turbo run type-check --filter=@brainstrike/sqlite-query --output-logs=errors-only
 ```
+
+Same-checkout composition with the state-event foundation preserves scoped caller authority and advances the shared metadata contract to schema 6. The caller fixture creates its store through the public indexer and inherits that version. The separate Electron utility fixture still declared schema 5: its real grep failed with explicit rebuild-required after composition. Updating only its valid metadata row to schema 6 retains the metadata and collection tests that reject prior schemas.
