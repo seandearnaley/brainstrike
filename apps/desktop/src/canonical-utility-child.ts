@@ -284,7 +284,7 @@ export class CanonicalUtilityChild {
     await session.acquisition?.catch(() => {});
     await session.runtime?.close();
     // Close also owns a scan whose admission ACK has not reached main yet.
-    // The initiating join remains responsible for reporting its independent failure.
+    // Main retains the original late-admission join to report independent failure.
     await session.scan?.work.catch(() => {});
     session.retired = true;
     if (!session.scan) {

@@ -149,3 +149,19 @@ Deterministic manager guards distinguish a withheld ACK from an admitted scan
 that outlives the request budget, early close ACK from physical terminal join,
 and exit from retained main IO cleanup. Actual connected child/runtime guards
 exercise fast receipt and independent failure retention through matching join.
+
+A subsequent exact-head review exposed a missing-ACK race: a fast independent
+publication failure could settle before main received admission, leaving the
+caller with only its deadline while child retirement assumed a join existed.
+The manager now retains an internal join chained from the original admission
+promise beyond that deadline. A late independent failure remains observable
+through explicit close before engine release; cleanup can then be retried.
+A real connected child/runtime guard withholds the ACK, settles an ordinary
+publication failure, expires the control budget (and optionally a first close budget), releases the
+ACK and requires a still-active explicit close to report the original failure while retaining the engine.
+
+The physical join never consumes retained late faults inside a work promise
+that may outlive a caller's close deadline. Attachment close, source retirement,
+manager close and destroy report/consume those faults synchronously after their
+bounded join succeeds. An expired retirement attempt leaves the fault available
+for the next explicit caller before engine release.

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { EventEmitter } from 'node:events';
 import { afterEach, expect, it, vi } from 'vitest';
+import { CanonicalUtilityChild } from '../canonical-utility-child';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import { CANONICAL_CHANNEL, decodeCanonicalFrame } from '../canonical-utility-protocol';
 import { IndexerHostManager } from '../indexer-host-manager';
@@ -269,6 +270,12 @@ function releaseScan(): void {
   release?.();
 }
 
+function releaseStart(): void {
+  const release = heldStart;
+  heldStart = undefined;
+  release?.();
+}
+
 it('bounds missing child admission acknowledgement and fences subsequent work', async () => {
   vi.useFakeTimers();
   const fixture = heldCollection(true);
@@ -283,11 +290,99 @@ it('bounds missing child admission acknowledgement and fences subsequent work', 
   await expect(manager.start()).rejects.toThrow(/closed/);
   await expect(attachment.scan('late')).rejects.toThrow(/closed|admission/);
   expect(fixture.calls).not.toContain('join-scan');
-  heldStart?.();
+  releaseStart();
   await flush();
   releaseScan();
   await manager.close();
 });
+
+it.each([false, true])(
+  'reports a retained real child failure after an expired admission ACK before releasing the engine (close deadline expires: %s)',
+  async (expireClose) => {
+    vi.useFakeTimers();
+    let startId: number | undefined;
+    let finished!: () => void;
+    const terminal = new Promise<void>((resolve) => {
+      finished = resolve;
+    });
+    const runtime = new CanonicalUtilityChild((input) => {
+      const frame = decodeCanonicalFrame(input);
+      const deliver = (): void => {
+        child.emit('message', frame);
+      };
+      if (frame.kind === 'result' && frame.id === startId) {
+        heldStart = deliver;
+      } else {
+        queueMicrotask(deliver);
+      }
+    });
+    child = Object.assign(new EventEmitter(), {
+      kill: () => true,
+      postMessage: (input: unknown): void => {
+        const frame = decodeCanonicalFrame(input);
+        if (frame.kind === 'call' && frame.op === 'start-scan') {
+          startId = frame.id;
+        }
+        queueMicrotask(() => runtime.receive(frame));
+      },
+    });
+    const manager = await IndexerHostManager.create(
+      {
+        dbPath: '/explicit/derived.sqlite',
+        embedding: { indexMode: 'text-only' },
+        fileBindings: [],
+        rootIds: [],
+        scopes: [scope],
+      },
+      { closeMs: 100, exitMs: 100, requestMs: 20, startupMs: 100 },
+      '/explicit/entry.js'
+    );
+    const source = dependencies(async () => {});
+    source.catalog.loadAuthorizedBatch = async ({ files }) =>
+      files.map(() => ({
+        ...file,
+        chunksProcessed: false,
+        contentHash: null,
+        stat: { mtimeMs: null, size: 0 },
+      }));
+    source.publication.finishScan = async () => {
+      finished();
+      throw new Error('independent fast publication failure');
+    };
+    const attachment = await manager.attachCanonicalCollection(source);
+    const result = attachment.scan('scan').catch((error: unknown) => error);
+    try {
+      await terminal;
+      await flush();
+      expect(heldStart).toBeDefined();
+      await vi.advanceTimersByTimeAsync(21);
+      await expect(result).resolves.toMatchObject({
+        message: expect.stringMatching(/owner remains retained/),
+      });
+      await expect(attachment.scan('late')).rejects.toThrow(/admission is closed/);
+      if (expireClose) {
+        const close = manager.close().catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(101);
+        await expect(close).resolves.toMatchObject({
+          message: expect.stringMatching(/owner remains retained/),
+        });
+        expect(engine.close).not.toHaveBeenCalled();
+      }
+      releaseStart();
+      await flush();
+      await expect(manager.close()).rejects.toMatchObject({
+        errors: [expect.objectContaining({ message: 'independent fast publication failure' })],
+      });
+      expect(engine.close).not.toHaveBeenCalled();
+    } finally {
+      releaseStart();
+      await flush();
+      await manager.close();
+      await runtime.close();
+    }
+    expect(engine.close).toHaveBeenCalledOnce();
+  }
+);
 
 it('owns an admitted full scan beyond the control budget until the exact receipt arrives', async () => {
   vi.useFakeTimers();

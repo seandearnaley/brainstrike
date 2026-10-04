@@ -12,6 +12,12 @@ import {
 } from './canonical-utility-parent';
 import { assertCanonicalMessageBound, isCanonicalFrame } from './canonical-utility-protocol';
 
+interface OwnedCollectionScan {
+  fault?: { readonly error: unknown };
+  release(): void;
+  readonly work: Promise<unknown>;
+}
+
 /** Main owns lifecycle only. SQLite and its writer worker belong to the utility process. */
 export class IndexerHostManager {
   readonly databasePath: string;
@@ -27,7 +33,7 @@ export class IndexerHostManager {
   #exitCleanupFailed = false;
   #transportFailure: unknown;
   #closed = false;
-  readonly #scans = new Set<Promise<unknown>>();
+  readonly #scans = new Set<OwnedCollectionScan>();
   #sourceRetirement: Promise<void> | undefined;
   #sourceRetirementOwned = false;
 
@@ -181,29 +187,43 @@ export class IndexerHostManager {
       this.#canonical.attachCollection(dependencies),
       this.#deadlines.requestMs
     );
-    const scans = new Set<Promise<unknown>>();
+    const scans = new Set<OwnedCollectionScan>();
     return {
       cancel: () => this.#bounded(attachment.cancel(), this.#deadlines.requestMs),
-      close: () =>
-        this.#bounded(this.#joinScans(attachment.close(), scans), this.#deadlines.closeMs),
+      close: async () => {
+        await this.#bounded(this.#joinScans(attachment.close(), scans), this.#deadlines.closeMs);
+        this.#reportScanFailures(scans);
+      },
       scan: (requestId) => {
         if (this.#closed || this.#sourceRetirementOwned) {
           return Promise.reject(new Error('Indexer canonical scan admission is closed.'));
         }
-        const scan = (async () => {
-          const admitted = await this.#bounded(
-            attachment.startScan(requestId),
-            this.#deadlines.requestMs
-          );
-          return admitted.join();
-        })();
-        this.#scans.add(scan);
-        scans.add(scan);
-        const remove = (): void => {
-          this.#scans.delete(scan);
-          scans.delete(scan);
+        const admission = attachment.startScan(requestId);
+        // Preserve the original admission and terminal correlation even when
+        // the initiating caller's ACK deadline expires first.
+        const terminal = admission.then((admitted) => admitted.join());
+        let admissionExpired = false;
+        const scan = this.#bounded(admission, this.#deadlines.requestMs, () => {
+          admissionExpired = true;
+        }).then(() => terminal);
+        const owned: OwnedCollectionScan = {
+          release: () => {
+            this.#scans.delete(owned);
+            scans.delete(owned);
+          },
+          work: terminal,
         };
-        void scan.then(remove, remove);
+        this.#scans.add(owned);
+        scans.add(owned);
+        void terminal.then(owned.release, (error: unknown) => {
+          if (admissionExpired) {
+            // The caller only observed its deadline. Close must report this
+            // independent fault before engine release; retry can then join cleanup.
+            owned.fault = { error };
+            return;
+          }
+          owned.release();
+        });
         return scan;
       },
     };
@@ -224,6 +244,7 @@ export class IndexerHostManager {
       this.#deadlines.closeMs
     )
       .then(() => {
+        this.#reportScanFailures();
         this.#sourceRetirementOwned = false;
       })
       .finally(() => {
@@ -235,12 +256,32 @@ export class IndexerHostManager {
   async #joinScans(retirement: Promise<void>, scans = this.#scans): Promise<void> {
     // A close ACK does not release an already admitted terminal correlation.
     await retirement;
-    await Promise.allSettled([...scans]);
+    const owned = [...scans];
+    await Promise.allSettled(owned.map((scan) => scan.work));
   }
 
-  #bounded<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+  // Consume a fault only after the caller's bounded join succeeds. A timed-out
+  // join may settle later, but cannot report or discard a retained failure.
+  #reportScanFailures(scans = this.#scans): void {
+    const errors = [...scans].flatMap((scan) => {
+      if (!scan.fault) {
+        return [];
+      }
+      scan.release();
+      return [scan.fault.error];
+    });
+    if (errors.length > 0) {
+      throw new AggregateError(
+        errors,
+        'Canonical late-admission scan failed before engine retirement.'
+      );
+    }
+  }
+
+  #bounded<T>(work: Promise<T>, timeoutMs: number, onTimeout?: () => void): Promise<T> {
     return runWithTimeout(() => work, {
       onTimeout: () => {
+        onTimeout?.();
         this.#closed = true;
         // Stop admission synchronously. The parent retains unfinished/failed retirement for close().
         const retirement = this.#canonical?.close();
@@ -266,6 +307,7 @@ export class IndexerHostManager {
         this.#exitCleanupFailed = false;
       }
       await this.#joinScans(this.#exitCleanup ?? Promise.resolve());
+      this.#reportScanFailures();
       this.#reportTransportFailure();
       return;
     }
@@ -273,6 +315,7 @@ export class IndexerHostManager {
       this.#joinScans(this.#canonical?.close() ?? Promise.resolve()),
       this.#deadlines.closeMs
     );
+    this.#reportScanFailures();
     await this.#connection?.close();
     await this.#exitCleanup;
     this.#reportTransportFailure();
@@ -289,6 +332,7 @@ export class IndexerHostManager {
       this.#joinScans(this.#canonical?.close() ?? Promise.resolve()),
       this.#deadlines.closeMs
     );
+    this.#reportScanFailures();
     await this.#connection.destroy();
     await this.#exitCleanup;
     this.#reportTransportFailure();
