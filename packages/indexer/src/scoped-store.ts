@@ -17,6 +17,7 @@ import {
   type ScopedSearchResult,
   scopedCommitSchema,
   scopedHitSchema,
+  scopedManifestChunkSchema,
   scopedPlanSchema,
   scopedPrepareSchema,
   scopedRemoveSchema,
@@ -58,11 +59,16 @@ const columns =
   'c.id AS chunkId,c.content,c.content_hash AS contentHash,c.start_line AS startLine,c.end_line AS endLine,c.chunk_index AS chunkIndex,c.chunk_size AS chunkSize,c.chunk_type AS chunkType,c.start_offset AS startOffset,c.end_offset AS endOffset,c.token_count AS tokenCount,f.id AS fileId,f.root_id AS rootId,f.path AS relativePath,f.embedding_set_id AS embeddingSetId,f.source_path AS sourcePath';
 const snapshotHash = (snapshot: ScopedFileSnapshot): string => sha256(JSON.stringify(snapshot));
 type ScopedSearch = typeof scopedSearchSchema.Type;
-interface StoredChunk {
-  contentHash: string;
-  id: string;
-  pk: number;
-}
+const storedChunkSchema = Schema.Struct({
+  ...scopedManifestChunkSchema.fields,
+  content: Schema.String,
+  embeddingHash: Schema.NullOr(Schema.String),
+  fileId: Schema.String,
+  hasVector: Schema.Literals([0, 1]),
+  pk: integer,
+  rootId: Schema.NullOr(Schema.String),
+});
+type StoredChunk = typeof storedChunkSchema.Type;
 interface SyntaxWriter {
   replace(
     syntax: FileSyntax | undefined,
@@ -285,26 +291,26 @@ export class ScopedIndex {
     };
   }
   private clearOldChunks(plan: ScopedFilePlan): Map<string, StoredChunk> {
-    const old = decoder(
-      Schema.Array(Schema.Struct({ contentHash: Schema.String, id: Schema.String, pk: integer }))
-    )(
+    const old = decoder(Schema.Array(storedChunkSchema))(
       this.db
-        .prepare('SELECT pk,id,content_hash AS contentHash FROM file_chunks WHERE file_record_id=?')
+        .prepare(
+          'SELECT pk,id AS chunkId,root_id AS rootId,file_record_id AS fileId,start_line AS startLine,end_line AS endLine,content,content_hash AS contentHash,embedding_hash AS embeddingHash,has_vector AS hasVector,chunk_index AS chunkIndex,chunk_size AS chunkSize,chunk_type AS chunkType,start_offset AS startOffset,end_offset AS endOffset,token_count AS tokenCount FROM file_chunks WHERE file_record_id=?'
+        )
         .all(plan.snapshot.fileId)
     );
     const byId = new Map(plan.chunks.map((chunk) => [chunk.chunkId, chunk]));
     const keep = new Set(byId.keys());
     for (const chunk of old) {
-      const next = byId.get(chunk.id);
+      const next = byId.get(chunk.chunkId);
       if (!next || next.contentHash !== chunk.contentHash) {
         this.deleteVectors(chunk.pk);
       }
-      if (!keep.has(chunk.id)) {
+      if (!keep.has(chunk.chunkId)) {
         this.db.prepare('DELETE FROM vec_chunks WHERE id=?').run(BigInt(chunk.pk));
         this.db.prepare('DELETE FROM file_chunks WHERE pk=?').run(chunk.pk);
       }
     }
-    return new Map(old.map((chunk) => [chunk.id, chunk]));
+    return new Map(old.map((chunk) => [chunk.chunkId, chunk]));
   }
   private writeChunk(
     plan: ScopedFilePlan,
@@ -317,27 +323,51 @@ export class ScopedIndex {
     if (previous && legacy) {
       this.db.prepare('DELETE FROM vec_chunks WHERE id=?').run(BigInt(previous.pk));
     }
-    const pk = decoder(Schema.Struct({ pk: integer }))(
-      this.db
-        .prepare(
-          'INSERT INTO file_chunks(id,root_id,file_record_id,start_line,end_line,content,content_hash,embedding_hash,chunk_index,chunk_size,chunk_type,start_offset,end_offset,token_count,has_vector) VALUES(?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,0) ON CONFLICT(id) DO UPDATE SET start_line=excluded.start_line,end_line=excluded.end_line,content=excluded.content,content_hash=excluded.content_hash,embedding_hash=NULL,has_vector=0,chunk_index=excluded.chunk_index,chunk_size=excluded.chunk_size,chunk_type=excluded.chunk_type,start_offset=excluded.start_offset,end_offset=excluded.end_offset,token_count=excluded.token_count RETURNING pk'
-        )
-        .get(
-          chunk.chunkId,
-          snapshot.rootId,
-          snapshot.fileId,
-          chunk.startLine,
-          chunk.endLine,
-          chunk.content,
-          chunk.contentHash,
-          chunk.chunkIndex,
-          chunk.chunkSize,
-          chunk.chunkType,
-          chunk.startOffset,
-          chunk.endOffset,
-          chunk.tokenCount
-        )
-    ).pk;
+    const equal =
+      previous !== undefined &&
+      !legacy &&
+      previous.rootId === snapshot.rootId &&
+      previous.fileId === snapshot.fileId &&
+      previous.embeddingHash === null &&
+      previous.hasVector === 0 &&
+      (
+        [
+          'chunkId',
+          'content',
+          'contentHash',
+          'startLine',
+          'endLine',
+          'chunkIndex',
+          'chunkSize',
+          'chunkType',
+          'startOffset',
+          'endOffset',
+          'tokenCount',
+        ] as const
+      ).every((key) => previous[key] === chunk[key]);
+    const pk = equal
+      ? previous.pk
+      : decoder(Schema.Struct({ pk: integer }))(
+          this.db
+            .prepare(
+              'INSERT INTO file_chunks(id,root_id,file_record_id,start_line,end_line,content,content_hash,embedding_hash,chunk_index,chunk_size,chunk_type,start_offset,end_offset,token_count,has_vector) VALUES(?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,0) ON CONFLICT(id) DO UPDATE SET start_line=excluded.start_line,end_line=excluded.end_line,content=excluded.content,content_hash=excluded.content_hash,embedding_hash=NULL,has_vector=0,chunk_index=excluded.chunk_index,chunk_size=excluded.chunk_size,chunk_type=excluded.chunk_type,start_offset=excluded.start_offset,end_offset=excluded.end_offset,token_count=excluded.token_count RETURNING pk'
+            )
+            .get(
+              chunk.chunkId,
+              snapshot.rootId,
+              snapshot.fileId,
+              chunk.startLine,
+              chunk.endLine,
+              chunk.content,
+              chunk.contentHash,
+              chunk.chunkIndex,
+              chunk.chunkSize,
+              chunk.chunkType,
+              chunk.startOffset,
+              chunk.endOffset,
+              chunk.tokenCount
+            )
+        ).pk;
     const writtenChunks = !previous || previous.contentHash !== chunk.contentHash ? 1 : 0;
     let reusedEmbeddings = 0;
     if (plan.profile && plan.profileHash && emb) {
