@@ -580,6 +580,15 @@ Guard: `apps/desktop/src/__tests__/electron-process-exit-guard.test.ts`,
 Evidence: `ci-quality/e2e-module-format.md`.
 Guard: `scripts/__tests__/e2e-module-format-contract.test.mjs`.
 
+### Web import backfill backend
+
+- The import/backfill regression explicitly persists the supported WASM device
+  before app hydration and runs real inference. Keep complete embedding coverage
+  and same-document assertions; this CPU lane does not qualify WebGPU.
+
+Evidence: `ci-quality/web-import-backfill-backend.md`.
+Guard: `apps/web/e2e/database-import-backfill.test.ts`.
+
 ### E2E lane-coverage contract
 
 - Every Playwright test title in `apps/web` and `apps/desktop` is selected by a
