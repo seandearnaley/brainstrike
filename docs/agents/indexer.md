@@ -201,6 +201,7 @@ Guard: `packages/indexer/__tests__/manifest.integration.test.ts`.
 - Reserve collection admission before loading one complete inventory; reuse it for native bindings, source loading and every collection catalog ACK through physical scan and workspace reverify completion. Drain already-admitted workspace passes and binding ACKs first; fence later workspace publication/cache/removal before admission, and reject queued work on source retirement without releasing running or failed ownership early.
 - Keep fixed RRF60 fusion over bounded native arms (100 per arm, final10), exact canonical metadata and truncation notices. Require complete actual receipts and selected-profile coverage for semantic execution. Query inference uses the main-resolved exact saved plan through the existing hidden renderer; TEXT never invokes inference and native unavailability never routes to PG search.
 - Close admission synchronously, abort the owned graph, close admitted attachments before joining startup, then join late attachments, physical inference, borrowed roots and native readers before writer close/destroy/profile release. Retain independent cleanup failures and owners for explicit retry.
+- Fence the canonical parent's pending request controllers before aborting the shared source signal. A queued context-aware workspace inventory operation must return explicit owned cancellation and physically join collection/watch work before writer or profile retirement.
 - Fence and join pending reconfiguration before terminal retirement acknowledges. On managed-collection replacement, join removal of the outgoing collection's rooted native rows under the original acknowledged writer before replacement; preserve rootless and unrelated profile data, and retain failed removals for retry. Capture that actual writer before source retirement and read its final acknowledged binding authority after admitted work joins; refuse retired or replaced owners.
 - Expose derived-only rebuild through the visible-ui `index-search:rebuild` capability and Workspace Index settings. Destroy/recreate only the owned derived SQLite files after all source/read owners settle; preserve PG application data, collections, chats and saved choices. Factory/developer resets use the same retirement owner before their separately authorized PG deletion.
 
@@ -217,6 +218,8 @@ Evidence: `indexer/2026-10-03-native-delete-ack-order.md`.
 Evidence: `indexer/2026-10-03-native-catalog-observation.md`.
 Evidence: `indexer/2026-10-03-native-scan-binding-admission.md`.
 Evidence: `indexer/2026-10-03-scoped-read-lifetime.md`.
+Evidence: `indexer/2026-10-04-correlated-source-retirement.md`.
+Guard: `apps/desktop/src/__tests__/native-index-source-retirement.test.ts`.
 Guard: `apps/desktop/src/__tests__/native-index-scan-admission.test.ts`.
 Guard: `apps/desktop/src/__tests__/native-index-catalog-refresh.integration.test.ts`.
 Guard: `apps/desktop/src/__tests__/native-canonical-publication.test.ts`, `native-publication-delete-ack.integration.test.ts`.

@@ -23,8 +23,14 @@ export function retireNativeIndexSources(
   sources: NativeIndexSources,
   retireAttachments: () => Promise<void>
 ): Promise<void> {
-  sources.controller.abort(new Error('Native ingestion paused.'));
   sources.retirement ??= (async () => {
+    // Fence pending parent RPCs synchronously before broadcasting shared source cancellation.
+    // An async wrapper captures synchronous retirement faults without deferring admission closure.
+    const retireParent = async (): Promise<void> => {
+      await retireAttachments();
+    };
+    const parentRetirement = Promise.allSettled([retireParent()]);
+    sources.controller.abort(new Error('Native ingestion paused.'));
     const attempted = new Set<{ close(): Promise<void> }>();
     const failures: unknown[] = [];
     const collect = (results: readonly PromiseSettledResult<unknown>[]): void => {
@@ -70,8 +76,6 @@ export function retireNativeIndexSources(
       return Promise.allSettled(retirement);
     };
     const joined = retireCapabilities();
-    // The parent owns sessions even before acquisition returns a public attachment handle.
-    const parentRetirement = Promise.allSettled([Promise.resolve().then(retireAttachments)]);
     await closeAttached();
     await sources.startup?.catch(() => undefined);
     await closeAttached();
