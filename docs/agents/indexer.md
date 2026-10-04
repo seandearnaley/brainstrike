@@ -58,6 +58,7 @@ Guard: `packages/indexer/__tests__/coverage.integration.test.ts`.
 - Verify scoped source manifests against the full current trusted binding inventory and all native scope rows in one snapshot. Refuse partial declarations; compare exact file membership/source hashes and complete canonical chunk identities/hashes/metadata, including zero-chunk files and stale extra rows. Reuse the existing authority epoch/revision; main's full-scan receipt still owns readiness.
 - Report scoped coverage only for the explicit current full profile and actual authorized file/chunk/source/coarse rows. TEXT carries null profile and counts no cached other-profile vectors. Empty scopes and missing canonical files cannot claim vector completeness; coverage alone never proves source completeness.
 - Index chunk lookup by canonical file ID for both workspace and collection coverage. Recompute counts inside the existing read snapshot and retain all authority, binding, profile and storage-integrity checks on every call.
+- Scan stored little-endian Float32 values directly over each blob's actual byte span on every integrity read. Preserve dimension/length, finite and nonzero checks; do not copy/re-encode vectors or cache integrity across reads.
 - Production scoped snapshots carry canonical provided chunks. Explicit line-policy fixtures retain the existing foundation input; there is no production parser fallback. Scoped profile storage qualification does not qualify model inference or retrieval quality.
 
 Evidence: `indexer/2026-10-03-collection-profile-storage.md`.
@@ -65,6 +66,8 @@ Guard: `packages/indexer/__tests__/collection-scopes.integration.test.ts`, `pack
 Evidence: `indexer/2026-10-03-scoped-source-proofs.md`.
 Guard: `packages/indexer/__tests__/scoped-proofs.integration.test.ts`, `packages/indexer/__tests__/large-scopes.integration.test.ts`.
 Guard: `packages/indexer/__tests__/coverage-file-lookup.integration.test.ts`.
+Evidence: `indexer/2026-10-04-stored-vector-byte-validation.md`.
+Guard: `packages/indexer/__tests__/stored-vector-bytes.test.ts`, `packages/indexer/__tests__/scoped-proofs.integration.test.ts`.
 
 
 ### State projection and purge
