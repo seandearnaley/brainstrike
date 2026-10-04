@@ -4,7 +4,7 @@ import { decodeIndexIdentityRow, type IndexerIdentity } from '@brainstrike/index
 import { sqliteVecExtensionPath } from '@brainstrike/sqlite-native';
 import { createGrepLineMatcher } from '@brainstrike/utils/grep-line-matcher';
 import { Schema } from 'effect';
-import { requireCallerVectors } from './caller-vectors.js';
+import { CALLER_BINDING_NAMES, requireCallerVectors } from './caller-vectors.js';
 import type {
   SqliteGrepOptions,
   SqliteGrepRows,
@@ -111,8 +111,11 @@ export class SqliteSandbox {
     this.#transaction('BEGIN');
     let result: SqliteRows;
     try {
-      requireCallerVectors(this.#database, requirement.symbol);
-      result = this.#queryStatement(sql, values, maxRows, bindings);
+      if (CALLER_BINDING_NAMES.some((name) => bindings && name in bindings)) {
+        throw new TypeError('Caller context bindings are supplied only by the trusted reader.');
+      }
+      const callerBindings = requireCallerVectors(this.#database, requirement);
+      result = this.#queryStatement(sql, values, maxRows, { ...bindings, ...callerBindings });
     } catch (operation) {
       try {
         this.#transaction('ROLLBACK');

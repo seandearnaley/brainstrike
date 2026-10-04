@@ -75,12 +75,14 @@ Guard: `apps/desktop/src/__tests__/assistant-server/query-self-user-cancel.test.
 ### Native caller-vector lenses
 
 - Declare index caller-vector requirements explicitly as `-- requires: caller-vectors <text seed param>`; parse malformed, duplicate, app-target or undeclared/non-text requirements visibly. Retain and list the typed requirement, resolve the seed by declared parameter name, and keep its value bound.
-- Check the configured schema5 identity, existing seed and containing vector, and complete finite/nonzero 384-dimensional vectors with matching stored profile/hash for all depth10 name-resolved graph chunks in the same owned read snapshot as lens execution. Reject missing prerequisites visibly; never return a lexical-only caller result.
+- Main supplies the current authorized collection, full canonical vector profile, store identity and acknowledged file inventory through its existing native read lease, retained until the query process closes. Refuse incomplete collection scans, missing profile authority and changes before returning; public lens arguments stay symbol/terms.
+- Check schema5/store identity, exact authorized scoped membership, existing seed and containing vector, and complete finite/nonzero vectors at the selected cosine profile dimension for all depth10 name-resolved graph chunks in the same owned read snapshot as lens execution. `scoped_vectors` and `vector_profiles` are authoritative; global metadata remains TEXT. Reject wrong profiles or missing prerequisites visibly; never return a lexical-only caller result.
+- Reserve `$brainstrike_collection`, `$brainstrike_profile` and `$brainstrike_files` for trusted reader bindings; caller-vector SQL must reference all three. User bindings may not override them.
 - Keep trusted synchronous BEGIN/ROLLBACK ownership private to that snapshot. User transaction SQL, writes, attachments, extension loading, limits and deadlines retain their existing refusals.
-- Run canonical index `callers-hybrid` with materialized FTS5 BM25 scores before window ranking, actual vec row IDs joined to chunk primary keys, exact graph-scoped cosine, top50 per arm, and RRF60. Preserve chunk IDs/line spans, cycle/depth10 caller-name semantics, and the separate PGlite fixture for hosted web.
+- Run canonical index `callers-hybrid` with materialized FTS5 BM25 scores before window ranking, scoped vectors joined by chunk primary key and exact canonical profile hash, exact graph-scoped cosine, top50 per arm, and RRF60. Preserve chunk IDs/line spans, cycle/depth10 caller-name semantics, and the separate PGlite fixture for hosted web.
 
-Evidence: `agent-self-query/sqlite-caller-lens.md`.
-Guard: `packages/sqlite-query/src/__tests__/callers-lens.integration.test.ts`, `packages/assistant-contract/src/__tests__/lenses.test.ts`, `apps/desktop/src/__tests__/assistant-server/query-self-index-target.test.ts`.
+Evidence: `agent-self-query/sqlite-caller-lens.md`, `agent-self-query/scoped-caller-profile.md`.
+Guard: `packages/sqlite-query/src/__tests__/callers-lens.integration.test.ts`, `packages/assistant-contract/src/__tests__/lenses.test.ts`, `apps/desktop/src/__tests__/assistant-server/query-self-index-target.test.ts`, `apps/desktop/src/__tests__/assistant-server/query-self-scoped-callers.integration.test.ts`, `apps/desktop/src/__tests__/native-caller-query.test.ts`.
 
 ## The sandbox: four independent, engine-enforced layers
 

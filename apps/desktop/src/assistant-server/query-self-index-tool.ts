@@ -4,7 +4,13 @@ import {
   type LensRequirement,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
-import type { SqliteQueryClient, SqliteValue } from '@brainstrike/sqlite-query';
+import type {
+  SqliteCallerContext,
+  SqliteQueryClient,
+  SqliteQueryRequirement,
+  SqliteValue,
+} from '@brainstrike/sqlite-query';
+import type { IndexCallerRead } from '../native-caller-query';
 import { type QuerySelfResult, shapeQuerySelfRows } from './query-self-tool';
 
 interface IndexLensInvocation {
@@ -35,10 +41,10 @@ function lensBindings(values: readonly unknown[]): Readonly<Record<string, Sqlit
   );
 }
 
-function resolveRequirement(invocation: IndexLensInvocation): {
-  kind: 'caller-vectors';
-  symbol: string;
-} {
+function resolveRequirement(
+  invocation: IndexLensInvocation,
+  context: SqliteCallerContext | undefined
+): SqliteQueryRequirement {
   const index = invocation.paramSpecs?.findIndex(
     (param) => param.name === invocation.requirement?.seedParam
   );
@@ -46,14 +52,15 @@ function resolveRequirement(invocation: IndexLensInvocation): {
   if (typeof value !== 'string' || !value.trim()) {
     throw new ToolInputError('Caller-vector lens requires its declared nonempty text seed value.');
   }
-  return { kind: 'caller-vectors', symbol: value };
+  return { ...(context ? { context } : {}), kind: 'caller-vectors', symbol: value };
 }
 
 async function executeIndexQuery(
   input: QuerySelfInput,
   invocation: IndexLensInvocation | undefined,
   client: QuerySelfIndexClient,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  context?: SqliteCallerContext
 ): Promise<QuerySelfResult> {
   const cancellation = signal ? { signal } : {};
   const sql = invocation?.sql ?? input.sql?.trim();
@@ -108,7 +115,7 @@ async function executeIndexQuery(
     maxRows,
     ...cancellation,
     ...(invocation ? { bindings: lensBindings(invocation.params) } : {}),
-    ...(invocation?.requirement ? { requirement: resolveRequirement(invocation) } : {}),
+    ...(invocation?.requirement ? { requirement: resolveRequirement(invocation, context) } : {}),
   });
   return shapeQuerySelfRows(result, maxRows, 'index');
 }
@@ -141,7 +148,8 @@ export async function runIndexQuerySelf(
   input: QuerySelfInput,
   invocation: IndexLensInvocation | undefined,
   acquire?: (signal?: AbortSignal) => Promise<QuerySelfIndexClient>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  callerRead?: IndexCallerRead
 ): Promise<QuerySelfResult> {
   signal?.throwIfAborted();
   // Validate unsupported operations before acquiring a process.
@@ -167,9 +175,16 @@ export async function runIndexQuerySelf(
       const { openIndexQuery } = await import('../sqlite-query-host-manager');
       return openIndexQuery(signal);
     });
-  const client = await open(signal);
-  return withIndexQueryClient(client, () => {
-    signal?.throwIfAborted();
-    return executeIndexQuery(input, invocation, client, signal);
-  });
+  const execute = async (context?: SqliteCallerContext): Promise<QuerySelfResult> => {
+    const client = await open(signal);
+    return withIndexQueryClient(client, () => {
+      signal?.throwIfAborted();
+      return executeIndexQuery(input, invocation, client, signal, context);
+    });
+  };
+  if (!invocation?.requirement) {
+    return execute();
+  }
+  const read = callerRead ?? (await import('../sqlite-query-host-manager')).withIndexCallerRead;
+  return read(execute, signal);
 }

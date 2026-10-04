@@ -180,6 +180,7 @@ import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-shell-protocol';
 import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { purgeMcpOAuthRuntimeState } from './mcp/oauth-client-provider';
+import { createNativeCallerRead } from './native-caller-query';
 import { createNativeIndexActivation } from './native-index-activation';
 import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
 import { createNativeRootDataDeletion } from './native-root-data-deletion';
@@ -194,7 +195,7 @@ import {
 } from './provider-auth/provider-auth-runtime';
 import { getSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
-import { openIndexQuery } from './sqlite-query-host-manager';
+import { installIndexCallerRead, openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
@@ -975,6 +976,7 @@ const nativeIndexActivation = createNativeIndexActivation({
     logger.info('Canonical native scan settled', { receipt, settledAt: new Date().toISOString() }),
   storage,
 });
+installIndexCallerRead(createNativeCallerRead(nativeIndexActivation.withRead));
 const nativeRootDataDeletion = createNativeRootDataDeletion({
   acquire: () => nativeIndexActivation.acquire(),
   captureOwner: async () => {

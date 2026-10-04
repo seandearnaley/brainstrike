@@ -3,15 +3,21 @@
 -- requires: caller-vectors symbol
 -- param: symbol text  Seed symbol name, e.g. startEmbeddingWorker (exact match against file_symbols.name)
 -- param: terms text   FTS5 MATCH expression (porter unicode61 tokenizer; identifiers are not camelCase-split)
-WITH RECURSIVE callers(file_record_id, seq, name, depth) AS (
+-- Trusted reader bindings are internal; the public symbol/terms params remain unchanged.
+WITH RECURSIVE authorized_files AS (
+  SELECT id FROM file_records
+  WHERE scoped=1 AND embedding_set_id=$brainstrike_collection
+    AND id IN (SELECT value FROM json_each($brainstrike_files))
+), callers(file_record_id, seq, name, depth) AS (
   SELECT s.file_record_id, s.seq, s.name, 0
-  FROM file_symbols s WHERE s.name = $1
+  FROM file_symbols s JOIN authorized_files a ON a.id=s.file_record_id WHERE s.name = $1
   UNION
   SELECT encl.file_record_id, encl.seq, encl.name, c.depth + 1
   FROM callers c
   JOIN file_symbol_refs r ON r.name = c.name AND r.kind = 'call'
   JOIN file_symbols encl
     ON encl.file_record_id = r.file_record_id AND encl.seq = r.from_symbol_seq
+  JOIN authorized_files a ON a.id=encl.file_record_id
   WHERE c.depth < 10
 ),
 reachable AS (SELECT DISTINCT file_record_id FROM callers),
@@ -19,10 +25,10 @@ seed_embedding AS MATERIALIZED (
   SELECT v.emb
   FROM file_chunks ch
   JOIN file_symbols s ON s.file_record_id = ch.file_record_id
-  JOIN vec_chunks v ON v.id = ch.pk AND v.root_id = ch.root_id
+  JOIN scoped_vectors v ON v.chunk_pk = ch.pk AND v.profile_hash = $brainstrike_profile
   WHERE s.name = $1
     AND ch.start_line <= s.start_line AND ch.end_line >= s.start_line
-    AND ch.has_vector = 1
+    AND s.file_record_id IN (SELECT id FROM authorized_files)
   ORDER BY ch.id LIMIT 1
 ),
 -- Materialize FTS auxiliary scores before window evaluation.
@@ -43,9 +49,9 @@ vector_scores AS MATERIALIZED (
   SELECT ch.id, vec_distance_cosine(vec_f32(v.emb), vec_f32(seed.emb)) AS distance
   FROM file_chunks ch
   JOIN reachable rf ON rf.file_record_id = ch.file_record_id
-  JOIN vec_chunks v ON v.id = ch.pk AND v.root_id = ch.root_id
+  JOIN scoped_vectors v ON v.chunk_pk = ch.pk AND v.profile_hash = $brainstrike_profile
   CROSS JOIN seed_embedding seed
-  WHERE ch.has_vector = 1
+  WHERE v.content_hash = ch.content_hash
   ORDER BY distance, ch.id
   LIMIT 50
 ),

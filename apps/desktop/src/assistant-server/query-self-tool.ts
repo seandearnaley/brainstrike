@@ -342,6 +342,7 @@ export interface QuerySelfToolOptions {
   readonly openIndexQuery?: (signal?: AbortSignal) => Promise<QuerySelfIndexClient>;
   readonly scanLenses?: () => UserLensScanResult;
   readonly signal?: AbortSignal | undefined;
+  readonly withIndexCallerRead?: import('../native-caller-query').IndexCallerRead;
 }
 
 export async function runQuerySelf(
@@ -382,7 +383,13 @@ async function executeQuerySelf(
     const invocation =
       input.mode === 'lens' ? resolveLensInvocation(input, scanLenses()) : undefined;
     if (input.target === 'index') {
-      return await runIndexQuerySelf(input, invocation, options.openIndexQuery, options.signal);
+      return await runIndexQuerySelf(
+        input,
+        invocation,
+        options.openIndexQuery,
+        options.signal,
+        options.withIndexCallerRead
+      );
     }
     if (input.target !== 'app') {
       throw new AgentSqlInputError('querySelf requires target="app" or target="index".');

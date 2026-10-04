@@ -37,7 +37,16 @@ const GrepFields = {
 const GrepRequestSchema = Schema.Struct({ id: Id, kind: Schema.Literal('grep'), ...GrepFields });
 export type SqliteGrepOptions = Omit<typeof GrepRequestSchema.Type, 'id' | 'kind'>;
 
+export const CallerContextSchema = Schema.Struct({
+  collectionId: Schema.String.check(Schema.isPattern(/\S/u)),
+  fileIds: Schema.Array(Schema.String.check(Schema.isPattern(/\S/u))),
+  profile: Schema.Unknown,
+  storeId: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u)),
+});
+export type SqliteCallerContext = typeof CallerContextSchema.Type;
+
 const RequirementSchema = Schema.Struct({
+  context: Schema.optional(CallerContextSchema),
   kind: Schema.Literal('caller-vectors'),
   symbol: Schema.String.check(Schema.isPattern(/\S/u)),
 });
