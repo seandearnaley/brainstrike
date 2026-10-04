@@ -4,6 +4,7 @@ import { threadId } from 'node:worker_threads';
 import { openConnection } from '@brainstrike/sqlite-native';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
+import { checkedTruncateCheckpoint } from './checked-checkpoint.js';
 import { embeddingProfileHash, fileChunks, sha256, vectorBlob } from './chunks.js';
 import {
   authorize,
@@ -674,6 +675,12 @@ export class IndexWriter {
     if (this.db.prepare('SELECT 1 FROM file_records WHERE id=? AND scoped=1').get(fileId)) {
       throw new IndexerError('scoped-file-required', 'Use the scoped API for this canonical file.');
     }
+  }
+  purge(input: unknown): boolean {
+    const removed = this.remove(input);
+    // Retry must finish physical cleanup even after the earlier transaction deleted every row.
+    checkedTruncateCheckpoint(this.db);
+    return removed;
   }
   remove(input: unknown): boolean {
     const identity = decoder(identitySchema)(input);

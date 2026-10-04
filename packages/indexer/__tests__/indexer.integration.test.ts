@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { access, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,7 +7,7 @@ import { openIndexer } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { Schema } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { decoder, profileSchema, vectorSchema } from '../src/contracts.js';
+import { decoder, type EmbeddingProfile, profileSchema, vectorSchema } from '../src/contracts.js';
 
 const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
 const profile = {
@@ -57,6 +57,75 @@ async function add(
     profile,
   });
   return plan;
+}
+
+function recordedMiniLm(): {
+  producer: EmbeddingProfile;
+  recorded: { source: { sha256: string; text: string }; vector: readonly number[] };
+} {
+  const recorded = decoder(
+    Schema.Struct({
+      profile: Schema.Struct({
+        batchTokenBudget: Schema.Int,
+        device: Schema.String,
+        dimensions: Schema.Int,
+        dtype: Schema.String,
+        maxInputTokens: Schema.Int,
+        modelId: Schema.String,
+        normalization: Schema.String,
+        pooling: Schema.String,
+        revision: Schema.String,
+        specialTokensIncluded: Schema.Boolean,
+      }),
+      runtime: Schema.Unknown,
+      source: Schema.Struct({
+        endOffset: Schema.Int,
+        repositoryFile: Schema.String,
+        sha256: Schema.String,
+        startOffset: Schema.Int,
+        text: Schema.String,
+      }),
+      vector: vectorSchema,
+    })
+  )(JSON.parse(readFileSync(new URL('./fixtures/fused-minilm-384.json', import.meta.url), 'utf8')));
+  expect(createHash('sha256').update(recorded.source.text).digest('hex')).toBe(
+    recorded.source.sha256
+  );
+  const producer = decoder(profileSchema)({
+    dimensions: recorded.profile.dimensions,
+    dtype: recorded.profile.dtype,
+    modelId: recorded.profile.modelId,
+    revision: recorded.profile.revision,
+    tokenCap: recorded.profile.maxInputTokens,
+  });
+  return { producer, recorded };
+}
+
+function containingVectorBytes(dbPath: string, bytes: Buffer): string[] {
+  const directory = path.dirname(dbPath);
+  return readdirSync(directory, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.join(entry.parentPath, entry.name))
+    .filter((entry) => readFileSync(entry).includes(bytes));
+}
+
+function storedVector(dbPath: string, chunkId: string): { binary: Buffer; floats: Buffer } {
+  const db = openConnection(dbPath, { readonly: true });
+  try {
+    const row = decoder(Schema.Struct({ bin: Schema.Unknown, emb: Schema.Unknown }))(
+      db
+        .prepare(
+          'SELECT v.bin,v.emb FROM vec_chunks v JOIN file_chunks c ON c.pk=v.id WHERE c.id=?'
+        )
+        .get(chunkId)
+    );
+    if (!(Buffer.isBuffer(row.bin) && Buffer.isBuffer(row.emb))) {
+      throw new TypeError('Expected native binary and Float32 vector bytes');
+    }
+    return { binary: Buffer.from(row.bin), floats: Buffer.from(row.emb) };
+  } finally {
+    db.close();
+  }
 }
 
 describe('isolated SQLite indexer', () => {
@@ -365,43 +434,7 @@ describe('isolated SQLite indexer', () => {
     ).toHaveLength(1);
   });
   it('persists the actual hidden-renderer fused MiniLM vector with its complete producer identity', async () => {
-    const recorded = decoder(
-      Schema.Struct({
-        profile: Schema.Struct({
-          batchTokenBudget: Schema.Int,
-          device: Schema.String,
-          dimensions: Schema.Int,
-          dtype: Schema.String,
-          maxInputTokens: Schema.Int,
-          modelId: Schema.String,
-          normalization: Schema.String,
-          pooling: Schema.String,
-          revision: Schema.String,
-          specialTokensIncluded: Schema.Boolean,
-        }),
-        runtime: Schema.Unknown,
-        source: Schema.Struct({
-          endOffset: Schema.Int,
-          repositoryFile: Schema.String,
-          sha256: Schema.String,
-          startOffset: Schema.Int,
-          text: Schema.String,
-        }),
-        vector: vectorSchema,
-      })
-    )(
-      JSON.parse(readFileSync(new URL('./fixtures/fused-minilm-384.json', import.meta.url), 'utf8'))
-    );
-    expect(createHash('sha256').update(recorded.source.text).digest('hex')).toBe(
-      recorded.source.sha256
-    );
-    const producer = decoder(profileSchema)({
-      dimensions: recorded.profile.dimensions,
-      dtype: recorded.profile.dtype,
-      modelId: recorded.profile.modelId,
-      revision: recorded.profile.revision,
-      tokenCap: recorded.profile.maxInputTokens,
-    });
+    const { producer, recorded } = recordedMiniLm();
     const { port: initial, dbPath } = await fixture();
     await initial.destroy();
     const port = await openIndexer(
@@ -446,6 +479,108 @@ describe('isolated SQLite indexer', () => {
       db.close();
     }
   });
+
+  it.each(['direct', 'pinned-reader retry'] as const)(
+    'explicit canonical purge physically erases recorded native vector bytes and retains its neighbor: %s',
+    async (mode) => {
+      const { producer, recorded } = recordedMiniLm();
+      const { port: initial, dbPath } = await fixture();
+      await initial.destroy();
+      const port = await openIndexer(
+        {
+          dbPath,
+          embedding: { indexMode: 'vector-configured', profile: producer },
+          rootIds: ['root-a'],
+        },
+        deadlines
+      );
+      cleanup.push(() => port.close());
+      const removed = await port.prepareFile({ ...file(recorded.source.text), chunkLines: 100 });
+      const neighbor = await port.prepareFile(file('retained vector control', 'retained-file'));
+      expect(removed.chunks).toHaveLength(1);
+      expect(neighbor.chunks).toHaveLength(1);
+      const removedId = removed.chunks[0]?.chunkId;
+      const neighborId = neighbor.chunks[0]?.chunkId;
+      if (!(removedId && neighborId)) {
+        throw new Error('Expected one canonical chunk per file');
+      }
+      await port.commitFile({
+        embeddings: [{ chunkId: removedId, vector: recorded.vector }],
+        plan: removed,
+        profile: producer,
+      });
+      // The established synthetic query is only an unrelated storage-retention control.
+      // The deletion target and its complete producer identity come from the recorded runtime fixture.
+      await port.commitFile({
+        embeddings: [{ chunkId: neighborId, vector: query }],
+        plan: neighbor,
+        profile: producer,
+      });
+      const target = storedVector(dbPath, removedId);
+      const retained = storedVector(dbPath, neighborId);
+      expect(target.floats.byteLength).toBe(producer.dimensions * 4);
+      expect(target.binary.byteLength).toBe(producer.dimensions / 8);
+      expect(
+        Array.from({ length: producer.dimensions }, (_, index) =>
+          target.floats.readFloatLE(index * 4)
+        )
+      ).toEqual(recorded.vector);
+      expect(target.floats.equals(retained.floats)).toBe(false);
+      expect(target.binary.equals(retained.binary)).toBe(false);
+      for (const bytes of [target.floats, target.binary, retained.floats, retained.binary]) {
+        expect(containingVectorBytes(dbPath, bytes).length).toBeGreaterThan(0);
+      }
+      const identity = { fileId: 'canonical-file-1', rootId: 'root-a' };
+      let reader: ReturnType<typeof openConnection> | undefined;
+      try {
+        if (mode === 'pinned-reader retry') {
+          reader = openConnection(dbPath, { readonly: true });
+          reader.exec('BEGIN');
+          reader.prepare('SELECT count(*) FROM file_chunks').get();
+          await expect(port.purgeFile(identity)).rejects.toThrow(/checkpoint|pinned|busy/i);
+          expect(containingVectorBytes(dbPath, target.floats).length).toBeGreaterThan(0);
+          const current = openConnection(dbPath, { readonly: true });
+          try {
+            expect(
+              current
+                .prepare('SELECT count(*) FROM file_records WHERE id=?')
+                .pluck()
+                .get(identity.fileId)
+            ).toBe(0);
+          } finally {
+            current.close();
+          }
+          reader.exec('COMMIT');
+          reader.close();
+          reader = undefined;
+        }
+        expect(await port.purgeFile(identity)).toBe(mode === 'direct');
+      } finally {
+        reader?.close();
+      }
+      // Scan the entire owned DB/WAL/journal files, including freelist pages, at the public ACK.
+      // No extra write, checkpoint, close or reopen may hide retained bytes before this assertion.
+      expect(containingVectorBytes(dbPath, target.floats)).toEqual([]);
+      expect(containingVectorBytes(dbPath, target.binary)).toEqual([]);
+      expect(storedVector(dbPath, neighborId)).toEqual(retained);
+      for (const bytes of [retained.floats, retained.binary]) {
+        expect(containingVectorBytes(dbPath, bytes).length).toBeGreaterThan(0);
+      }
+      const hits = await port.search({
+        limit: 10,
+        mode: 'vector',
+        profile: producer,
+        rootIds: ['root-a'],
+        vector: query,
+      });
+      expect(hits.hits.map((hit) => hit.chunkId)).toEqual([neighborId]);
+      expect(hits.hits[0]?.score).toBeCloseTo(0, 6);
+      expect(await port.purgeFile(identity)).toBe(false);
+      expect(containingVectorBytes(dbPath, target.floats)).toEqual([]);
+      expect(containingVectorBytes(dbPath, target.binary)).toEqual([]);
+      expect(storedVector(dbPath, neighborId)).toEqual(retained);
+    }
+  );
 
   it('preserves historical callers by name and atomically replaces canonical symbol/reference batches', async () => {
     const corpus = decoder(

@@ -35,6 +35,15 @@ Evidence: `indexer/2026-10-03-explicit-text-commits.md`.
 Evidence: `indexer/2026-10-03-independent-text-identity.md`.
 Guard: `packages/indexer/__tests__/text-store.integration.test.ts`, `packages/indexer/__tests__/text-commit.integration.test.ts`, `apps/desktop/src/__tests__/fixtures/indexer-utility-proof.ts`.
 
+### Explicit vector payload purge
+
+- Keep ordinary `removeFile` and scoped publication removal logical. Expose physical erasure of canonical Float32 and native binary vector payloads through the separate `PurgeIndexerPort.purgeFile` capability on the same authorized writer and existing canonical identities, including their retained bytes in the owned WAL.
+- After the purge transaction, require a checked nonblocking TRUNCATE checkpoint before acknowledging. Report pinned-reader failure visibly and run the checkpoint again on idempotent retry even when rows are already gone. Preserve unrelated vectors; do not checkpoint ordinary publication or infer state-event vector linkage.
+- Delete canonical file rows and their BM25/trigram FTS entries transactionally. Those deletions are logical: historical FTS tokens may remain in shadow tables because canonical FTS5 secure-delete is not enabled. Their physical erasure is outside this vector-payload claim; `purgeFile` does not promise full workspace-text erasure.
+
+Evidence: `indexer/state-event-purge.md`.
+Guard: `packages/indexer/__tests__/checked-checkpoint.test.ts`, `packages/indexer/__tests__/indexer.integration.test.ts`.
+
 ### Retrieval and root authority
 
 - Pin the native boundary to sqlite-vec 0.1.9. Keep external-content FTS5 BM25 (`porter unicode61`) and trigram indexes synchronized transactionally with file chunks.

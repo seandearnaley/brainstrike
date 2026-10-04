@@ -73,6 +73,9 @@ try {
         case 'commit-text-file':
           value = writer.commitText(request.payload);
           break;
+        case 'purge-file':
+          value = writer.purge(request.payload);
+          break;
         case 'remove-file':
           value = writer.remove(request.payload);
           break;
