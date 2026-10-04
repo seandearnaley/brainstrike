@@ -191,7 +191,6 @@ describe('createEmbeddingWorkerConfig', () => {
     integrityWatcher.waitUntilBackgroundAdmitted.mockResolvedValue(undefined);
     import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '';
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '';
-    import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '';
     import.meta.env['VITE_EMBED_LEASE_MS'] = '';
     import.meta.env['VITE_EMBED_COMPLETION_OVERLAP_BATCHES'] = '';
     import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_BYTES'] = '';
@@ -210,7 +209,6 @@ describe('createEmbeddingWorkerConfig', () => {
       claimBatchSize: 16,
       concurrency: 1,
       db: scheduledDb,
-      interBatchDelayMs: 75,
       leaseMs: 60_000,
       log: expect.any(Function),
       maxPendingCompletionBatches: 2,
@@ -222,6 +220,7 @@ describe('createEmbeddingWorkerConfig', () => {
       streamBatchSize: 8,
       waitForBackgroundPermit: expect.any(Function),
     });
+    expect(config).not.toHaveProperty('interBatchDelayMs');
     expect(db.query).not.toHaveBeenCalled();
   });
 
@@ -874,7 +873,6 @@ describe('createEmbeddingWorkerConfig', () => {
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '3';
     import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '4';
     import.meta.env['VITE_EMBED_COMPLETION_OVERLAP_BATCHES'] = '3';
-    import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '75';
     import.meta.env['VITE_EMBED_LEASE_MS'] = '45000';
     import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_BYTES'] = '123456';
     import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS'] = '9';
@@ -888,7 +886,6 @@ describe('createEmbeddingWorkerConfig', () => {
       claimBatchSize: 4,
       concurrency: 3,
       db: scheduledDb,
-      interBatchDelayMs: 75,
       leaseMs: 45_000,
       maxPendingCompletionBatches: 3,
       maxPendingCompletionBytes: 123_456,
@@ -949,14 +946,6 @@ describe('createEmbeddingWorkerConfig', () => {
 
     expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
       'VITE_EMBED_CLAIM_BATCH_SIZE must be a positive integer, received "0".'
-    );
-  });
-
-  it('fails fast when embed inter-batch delay is not a positive integer', () => {
-    import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = 'abc';
-
-    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
-      'VITE_EMBED_INTER_BATCH_DELAY_MS must be a positive integer, received "abc".'
     );
   });
 

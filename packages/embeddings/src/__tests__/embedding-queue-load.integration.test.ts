@@ -442,7 +442,6 @@ async function runLoadScenario(params: {
       heartbeatIntervalMs: LOAD_TEST_HEARTBEAT_INTERVAL_MS,
       idlePollInitialMs: 5,
       idlePollMaxMs: 20,
-      interBatchDelayMs: 1,
       // This is 40x the slowest synthetic inference delay, allows four
       // heartbeat renewals per lease, and bounds the worker stop fallback to
       // one second per scenario on a contended host.

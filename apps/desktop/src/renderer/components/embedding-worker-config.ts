@@ -49,7 +49,6 @@ const HIGH_FREQUENCY_EMBEDDING_LOG_MESSAGES = new Set<string>([
 // under foreground pressure so browsing/searching remains foreground-first.
 const DESKTOP_IDLE_EMBED_CLAIM_BATCH_SIZE = 16;
 const DESKTOP_PRESSURED_EMBED_CLAIM_BATCH_SIZE = 1;
-const DESKTOP_EMBED_INTER_BATCH_DELAY_MS = 75;
 const DESKTOP_EMBED_MAX_PENDING_COMPLETION_BATCHES = 2;
 const DESKTOP_EMBED_MAX_PENDING_COMPLETION_BYTES = 786_432;
 const DESKTOP_EMBED_MAX_PENDING_COMPLETION_CHUNKS = 32;
@@ -81,7 +80,6 @@ type PositiveIntegerEmbeddingEnvKey =
   | 'VITE_EMBED_FOREGROUND_DB_PRESSURE_STARVATION_MS'
   | 'VITE_EMBED_COMPLETION_OVERLAP_BATCHES'
   | 'VITE_EMBED_CONCURRENCY'
-  | 'VITE_EMBED_INTER_BATCH_DELAY_MS'
   | 'VITE_EMBED_LEASE_MS'
   | 'VITE_EMBED_MAX_PENDING_COMPLETION_BYTES'
   | 'VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS'
@@ -657,10 +655,6 @@ export function createEmbeddingWorkerConfig(
     DESKTOP_IDLE_EMBED_CLAIM_BATCH_SIZE
   );
   const concurrency = parsePositiveIntegerEnv('VITE_EMBED_CONCURRENCY', 1);
-  const interBatchDelayMs = parsePositiveIntegerEnv(
-    'VITE_EMBED_INTER_BATCH_DELAY_MS',
-    DESKTOP_EMBED_INTER_BATCH_DELAY_MS
-  );
   const leaseMs = parsePositiveIntegerEnv('VITE_EMBED_LEASE_MS', 60_000);
   const maxPendingCompletionBatches = parsePositiveIntegerEnv(
     'VITE_EMBED_COMPLETION_OVERLAP_BATCHES',
@@ -685,7 +679,6 @@ export function createEmbeddingWorkerConfig(
     claimBatchSize,
     concurrency,
     db,
-    interBatchDelayMs,
     leaseMs,
     maxPendingCompletionBatches,
     maxPendingCompletionBytes,

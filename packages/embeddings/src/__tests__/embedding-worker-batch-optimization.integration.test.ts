@@ -404,7 +404,19 @@ describe('Embedding Worker Batch Optimization', () => {
     const fileId = 'file-pressure';
     const chunkId = 'chunk-pressure';
     const jobId = 'job-pressure';
-    const waitForBackgroundPermit = vi.fn(async () => undefined);
+    const firstPermit = Promise.withResolvers<void>();
+    const nextPermit = Promise.withResolvers<void>();
+    const nextClaimWaiting = Promise.withResolvers<void>();
+    let permitCalls = 0;
+    const waitForBackgroundPermit = vi.fn(async (): Promise<void> => {
+      permitCalls += 1;
+      if (permitCalls === 1) {
+        await firstPermit.promise;
+        return;
+      }
+      nextClaimWaiting.resolve();
+      await nextPermit.promise;
+    });
 
     await db.query(
       `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
@@ -451,16 +463,27 @@ describe('Embedding Worker Batch Optimization', () => {
       waitForBackgroundPermit,
     });
 
-    await waitFor(async () => {
-      const res = await db.query<{ count: number }>(
-        `SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`
+    try {
+      await waitFor(async () => waitForBackgroundPermit.mock.calls.length === 1, 10_000);
+      const beforePermit = await db.query<{ state: string }>(
+        'SELECT state FROM job_queue WHERE id = $1',
+        [jobId]
       );
-      return Number(res.rows[0]?.count) === 1;
-    }, 10_000);
+      expect(beforePermit.rows[0]?.state).toBe('queued');
+      firstPermit.resolve();
+      await nextClaimWaiting.promise;
+      const afterCompletion = await db.query<{ state: string }>(
+        'SELECT state FROM job_queue WHERE id = $1',
+        [jobId]
+      );
+      expect(afterCompletion.rows[0]?.state).toBe('succeeded');
+    } finally {
+      await controller.stop();
+      firstPermit.resolve();
+      nextPermit.resolve();
+    }
 
-    await controller.stop();
-
-    expect(waitForBackgroundPermit).toHaveBeenCalledTimes(1);
+    expect(waitForBackgroundPermit).toHaveBeenCalledTimes(2);
     expect(waitForBackgroundPermit).toHaveBeenCalledWith({ label: 'embedding claim' });
     expect(waitForBackgroundPermit).not.toHaveBeenCalledWith({ label: 'embedding completion' });
   });
@@ -493,7 +516,6 @@ describe('Embedding Worker Batch Optimization', () => {
       claimBatchSize: 1,
       concurrency: 1,
       db: wrappedDb,
-      interBatchDelayMs: 10,
       leaseMs: 2000,
       log: () => {},
       modelKey,
@@ -541,7 +563,6 @@ describe('Embedding Worker Batch Optimization', () => {
       claimBatchSize: 1,
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 10,
       leaseMs: 2000,
       log: () => {},
       modelKey,
@@ -689,7 +710,6 @@ describe('Embedding Worker Batch Optimization', () => {
       concurrency: 1,
       db: db as unknown as IDatabase,
       heartbeatIntervalMs: 10,
-      interBatchDelayMs: 10,
       leaseMs: 5000,
       log: () => {},
       modelKey,
@@ -738,7 +758,6 @@ describe('Embedding Worker Batch Optimization', () => {
       claimBatchSize: 2,
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
       modelKey,
@@ -810,7 +829,6 @@ describe('Embedding Worker Batch Optimization', () => {
       claimBatchSize: 1,
       concurrency: 2,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1,
       leaseMs: 5000,
       log: () => {},
       maxInFlightJobs: 1,
@@ -875,7 +893,6 @@ describe('Embedding Worker Batch Optimization', () => {
       claimBatchSize: 1,
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
       maxInFlightJobs: 1,
@@ -934,7 +951,6 @@ describe('Embedding Worker Batch Optimization', () => {
       claimBatchSize: 3,
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
       maxPendingCompletionBatches: 1,
@@ -983,7 +999,6 @@ describe('Embedding Worker Batch Optimization', () => {
       claimBatchSize: 2,
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
       maxPendingCompletionChunks: 1,
@@ -1039,7 +1054,6 @@ describe('Embedding Worker Batch Optimization', () => {
       concurrency: 1,
       db: db as unknown as IDatabase,
       embeddingCache,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
       maxPendingCompletionBytes: 4096,
@@ -1083,7 +1097,6 @@ describe('Embedding Worker Batch Optimization', () => {
       claimBatchSize: 1,
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
       maxPendingCompletionBytes: 1,
@@ -1136,7 +1149,6 @@ describe('Embedding Worker Batch Optimization', () => {
       claimBatchSize: 2,
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
       modelKey,
@@ -1184,7 +1196,6 @@ describe('Embedding Worker Batch Optimization', () => {
       claimBatchSize: 1,
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
       modelKey,
@@ -1221,7 +1232,6 @@ describe('Embedding Worker Batch Optimization', () => {
       claimBatchSize: 2,
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
       modelKey,
@@ -1314,7 +1324,6 @@ describe('Embedding Worker Batch Optimization', () => {
       claimBatchSize: jobCount,
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 10,
       leaseMs: 5000,
       log: () => {},
       modelKey,
@@ -1351,7 +1360,6 @@ describe('Embedding Worker Batch Optimization', () => {
     } = {
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 10,
       leaseMs: 5000,
       log: idleLog,
       modelKey,
@@ -1367,6 +1375,9 @@ describe('Embedding Worker Batch Optimization', () => {
 
     await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'stats-stop' });
     const stopLog = vi.fn<(message: string, meta?: unknown) => void>();
+    const nextClaimWaiting = Promise.withResolvers<void>();
+    const nextPermit = Promise.withResolvers<void>();
+    let permitCalls = 0;
     const stopWorkerOptions: Parameters<typeof startEmbeddingWorker>[0] & {
       now: () => number;
       statsRefreshCompletedChunkThreshold: number;
@@ -1374,7 +1385,6 @@ describe('Embedding Worker Batch Optimization', () => {
     } = {
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: stopLog,
       modelKey,
@@ -1382,17 +1392,28 @@ describe('Embedding Worker Batch Optimization', () => {
       service: new FakeEmbeddingService(),
       statsRefreshCompletedChunkThreshold: 512,
       statsRefreshMinIntervalMs: 60_000,
+      waitForBackgroundPermit: async (): Promise<void> => {
+        permitCalls += 1;
+        if (permitCalls === 1) {
+          return;
+        }
+        nextClaimWaiting.resolve();
+        await nextPermit.promise;
+      },
     };
 
     const stopController = await startEmbeddingWorker(stopWorkerOptions);
-    await waitFor(async () => {
+    try {
+      await nextClaimWaiting.promise;
       const res = await db.query<{ count: number }>(
         `SELECT count(*) as count FROM job_queue WHERE id = 'job-stats-stop' AND state = 'succeeded'`
       );
-      return Number(res.rows[0]?.count) === 1;
-    }, 10_000);
-
-    await stopController.stop();
+      expect(Number(res.rows[0]?.count)).toBe(1);
+      expect(hasStatsRefreshLog(stopLog, 'queue-idle')).toBe(false);
+    } finally {
+      await stopController.stop();
+      nextPermit.resolve();
+    }
 
     expect(hasStatsRefreshLog(stopLog, 'worker-stop')).toBe(true);
   });
@@ -1625,7 +1646,6 @@ describe('Embedding Worker Batch Optimization', () => {
       claimBatchSize: 1,
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
       modelKey,
@@ -1729,7 +1749,6 @@ describe('Embedding Worker Batch Optimization', () => {
     const controller = await startEmbeddingWorker({
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
       modelKey,
@@ -1822,7 +1841,6 @@ describe('Embedding Worker Batch Optimization', () => {
     const controller = await startEmbeddingWorker({
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
       modelKey,
@@ -1905,7 +1923,6 @@ describe('Embedding Worker Batch Optimization', () => {
     const controller = await startEmbeddingWorker({
       concurrency: 1,
       db: db as unknown as IDatabase,
-      interBatchDelayMs: 1000,
       leaseMs: 5000,
       log: () => {},
       modelKey,
