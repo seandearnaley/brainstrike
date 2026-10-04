@@ -7,7 +7,6 @@ import { Schema } from 'effect';
 import {
   assertDiscoveredSource,
   assertMode,
-  assertRelative,
   assertVectorManifestAuthority,
   type CanonicalCollectionDependencies,
   capturedAuthority,
@@ -29,6 +28,7 @@ import {
   faultSchema,
   receiptSchema,
 } from './canonical-utility-protocol';
+import { assertCanonicalRequest } from './canonical-utility-request-authority';
 
 export type { CanonicalCollectionDependencies } from './canonical-utility-authority';
 export interface CanonicalWorkspaceAttachment {
@@ -235,12 +235,7 @@ export class CanonicalUtilityParent {
     frame: Extract<CanonicalFrame, { kind: 'call' }>
   ): void {
     try {
-      if (!Object.hasOwn(canonicalOperations, frame.op)) {
-        throw new Error('Unknown canonical utility operation.');
-      }
-      const operation = canonicalOperations[frame.op as keyof typeof canonicalOperations];
-      Schema.decodeUnknownSync(operation.input)(frame.payload);
-      recheckCallbackAuthority(session, frame);
+      assertCanonicalRequest(session, frame);
     } catch (error) {
       this.respond(frame, false, error);
       return;
@@ -479,6 +474,7 @@ export class CanonicalUtilityParent {
       requestId: frame.requestId ?? `utility:${frame.id}`,
       signal: controller.signal,
     };
+    assertCanonicalRequest(session, frame);
     const authority = capturedAuthority(session, frame);
     const leaseOperations = ['list-dir', 'read-file', 'subscribe', 'unsubscribe', 'retire-lease'];
     const catalogOperations = [
@@ -520,25 +516,17 @@ export class CanonicalUtilityParent {
     context: CanonicalOperationContext,
     authority: ReturnType<typeof capturedAuthority>
   ): Promise<unknown> {
-    const { dependencies: deps, config } = session;
+    const { dependencies: deps } = session;
     const { ownedLease, lease } = authority;
     let value: unknown;
     switch (frame.op) {
       case 'list-dir': {
         const input = decode(canonicalOperations['list-dir'].input)(frame.payload);
-        assertRelative(input.relativePath, true);
-        if (input.maxEntries > 10_000) {
-          throw new Error('Canonical directory entry bound exceeded.');
-        }
         value = await ownedLease().listDir(input.relativePath, input.maxEntries, context);
         break;
       }
       case 'read-file': {
         const input = decode(canonicalOperations['read-file'].input)(frame.payload);
-        assertRelative(input.relativePath);
-        if (input.maxBytes > config.request.maxFileBytes) {
-          throw new Error('Canonical source read bound exceeded.');
-        }
         const read = await ownedLease().readFile(input.relativePath, input.maxBytes, context);
         if (read.status === 'ok' && read.content.byteLength > input.maxBytes) {
           throw new Error('Mounted read exceeded its captured byte bound.');
@@ -551,9 +539,6 @@ export class CanonicalUtilityParent {
       }
       case 'subscribe': {
         decode(Schema.Null)(frame.payload);
-        if (session.subscriptionAcquired) {
-          throw new Error('Canonical watcher already has an owner.');
-        }
         session.subscriptionAcquired = true;
         const event = (event: string, value: unknown): void => {
           if (!(session.stopping || context.signal.aborted)) {
@@ -619,12 +604,6 @@ export class CanonicalUtilityParent {
       case 'read-retained': {
         const input = decode(canonicalOperations['read-retained'].input)(frame.payload);
         files([input.file]);
-        if (
-          config.scope.kind !== 'collection' ||
-          input.maxFileBytes > config.request.maxFileBytes
-        ) {
-          throw new Error('Retained read exceeds collection authority or byte bound.');
-        }
         value = await session.inventory.readRetained(input.file, input.maxFileBytes, context);
         break;
       }
@@ -641,7 +620,7 @@ export class CanonicalUtilityParent {
       case 'prepare-sources': {
         const input = decode(canonicalOperations['prepare-sources'].input)(frame.payload);
         scope(input.scope);
-        if (input.scope.kind !== 'workspace' || input.files.length > config.request.batchSize) {
+        if (input.scope.kind !== 'workspace') {
           throw new Error('Discovered batch has no captured workspace authority.');
         }
         for (const file of input.files) {
@@ -659,11 +638,6 @@ export class CanonicalUtilityParent {
         const input = decode(canonicalOperations['apply-cache'].input)(frame.payload);
         scope(input.scope);
         files(input.files);
-        for (const file of input.files) {
-          if (Buffer.byteLength(file.content) > config.request.maxFileBytes) {
-            throw new Error('Canonical cache source exceeds bound.');
-          }
-        }
         await catalog.applyManagedCacheBatch(input, context);
         value = null;
         break;
@@ -671,12 +645,6 @@ export class CanonicalUtilityParent {
       case 'complete-files': {
         const input = decode(canonicalOperations['complete-files'].input)(frame.payload);
         scope(input.scope);
-        if (
-          input.files.length > config.request.batchSize ||
-          input.files.some((file) => !session.files.has(file.fileId))
-        ) {
-          throw new Error('Canonical completion has foreign or oversized file identities.');
-        }
         await catalog.completeFiles(input, context);
         value = null;
         break;
@@ -690,9 +658,6 @@ export class CanonicalUtilityParent {
         break;
       }
       case 'resolve-profile': {
-        if (config.mode !== 'VECTOR') {
-          throw new Error('TEXT cannot resolve inference profiles.');
-        }
         const input = decode(canonicalOperations['resolve-profile'].input)(frame.payload);
         scope(input.scope);
         value = await catalog.resolveProfile(input, context);
@@ -713,9 +678,6 @@ export class CanonicalUtilityParent {
     }
     if (frame.op === 'inference-generate') {
       const input = decode(canonicalOperations['inference-generate'].input)(frame.payload);
-      if (session.usedInferenceRequests.has(input.requestId)) {
-        throw new Error('Canonical inference operation already has an owner.');
-      }
       session.usedInferenceRequests.add(input.requestId);
       session.inferenceRequests.add(input.requestId);
       return await inference.generate(input);
@@ -755,24 +717,12 @@ export class CanonicalUtilityParent {
         const input = decode(canonicalOperations['prepare-vector'].input)(frame.payload);
         scope(input.ticket.scope);
         files([input.file]);
-        if (
-          input.file.fileId !== input.payload.fileId ||
-          Buffer.byteLength(input.payload.content) > session.config.request.maxFileBytes
-        ) {
-          throw new Error('Vector preparation differs from captured file or source bound.');
-        }
         return await publication.prepareVectorFile(input);
       }
       case 'commit-vector': {
         const input = decode(canonicalOperations['commit-vector'].input)(frame.payload);
         scope(input.ticket.scope);
         files([input.file]);
-        if (
-          input.file.fileId !== input.plan.snapshot.fileId ||
-          Buffer.byteLength(input.plan.snapshot.content) > session.config.request.maxFileBytes
-        ) {
-          throw new Error('Vector commit differs from captured file or source bound.');
-        }
         await publication.commitVectorFile(input);
         return null;
       }
@@ -797,7 +747,7 @@ export class CanonicalUtilityParent {
     frame: Extract<CanonicalFrame, { kind: 'call' }>,
     authority: ReturnType<typeof capturedAuthority>
   ): Promise<unknown> {
-    const { publication, config } = session;
+    const { publication } = session;
     const { scope, files } = authority;
     let value: unknown;
     switch (frame.op) {
@@ -818,12 +768,6 @@ export class CanonicalUtilityParent {
         const input = decode(canonicalOperations['commit-text'].input)(frame.payload);
         scope(input.ticket.scope);
         files([input.file]);
-        if (
-          input.file.fileId !== input.payload.fileId ||
-          Buffer.byteLength(input.payload.content) > config.request.maxFileBytes
-        ) {
-          throw new Error('Canonical publication differs from file identity or byte bound.');
-        }
         await publication.commitTextFile(input);
         value = null;
         break;

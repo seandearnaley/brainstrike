@@ -145,6 +145,11 @@ describe('captured canonical utility capabilities', () => {
     ['load-files', { kind: 'workspace', rootId: 'foreign' }],
     ['load-files', {}],
     ['unknown-operation', null],
+    ['read-file', { maxBytes: 1, relativePath: '../outside' }],
+    ['read-file', { maxBytes: 1025, relativePath: 'file' }],
+    ['list-dir', { maxEntries: 1, relativePath: '../outside' }],
+    ['list-dir', { maxEntries: 10_001, relativePath: '.' }],
+    ['resolve-profile', { scope }],
   ])('does not mark an invalid stopped-owner request as cancellation: %s', async (op, payload) => {
     const { parent, owner, frames } = await attached();
     const close = parent.close();
@@ -154,6 +159,26 @@ describe('captured canonical utility capabilities', () => {
       return frame.kind === 'result' && frame.id === 200;
     });
     expect(response).toMatchObject({ ok: false });
+    expect(response).not.toHaveProperty('cancelled');
+    await close;
+  });
+
+  it('preserves an independently revoked mounted lease while its owner is stopping', async () => {
+    const dependencies = fixture();
+    const revoked = new AbortController();
+    Object.assign(dependencies.source.lease, { signal: revoked.signal });
+    const { parent, owner, frames } = await attached(dependencies);
+    revoked.abort(new Error('independent permission revocation'));
+    const close = parent.close();
+    call(parent, owner, 200, 'read-file', { maxBytes: 1, relativePath: 'file' });
+    const response = frames.find((input) => {
+      const frame = decodeCanonicalFrame(input);
+      return frame.kind === 'result' && frame.id === 200;
+    });
+    expect(response).toMatchObject({
+      error: { message: 'Canonical request has no live mounted lease.' },
+      ok: false,
+    });
     expect(response).not.toHaveProperty('cancelled');
     await close;
   });
