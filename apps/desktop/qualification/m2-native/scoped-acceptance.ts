@@ -15,7 +15,8 @@ export async function waitForScopes(
     readonly collection: number;
     readonly workspace: number;
     readonly mode: 'TEXT' | 'VECTOR';
-  }
+  },
+  options: { readonly requireVectorWorker: boolean } = { requireVectorWorker: true }
 ): Promise<NativeSnapshot> {
   await expect
     .poll(
@@ -84,7 +85,7 @@ export async function waitForScopes(
   const snapshot = await readNativeSnapshot(context);
   if (counts.mode === 'TEXT') {
     assertTextInferenceInactive(snapshot);
-  } else {
+  } else if (options.requireVectorWorker) {
     assertActualVectorWorker(snapshot);
   }
   return snapshot;

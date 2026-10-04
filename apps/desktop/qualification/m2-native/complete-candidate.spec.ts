@@ -19,7 +19,7 @@ import {
   searchScope,
   waitForScopes,
 } from './scoped-acceptance';
-import { configureVectorProfile } from './vector-profile';
+import { assertActualVectorWorker, configureVectorProfile } from './vector-profile';
 
 async function catalogSnapshot(context: ElectronAppContext): Promise<unknown> {
   return await context.window.evaluate(async () => {
@@ -269,13 +269,23 @@ for (const mode of ['TEXT', 'VECTOR'] as const) {
       const choices = await readSavedChoices(context);
       await session.close();
       context = await session.launch({ ['BRAINSTRIKE_E2E_REAL_ROOT_PATH']: corpus });
-      const reopened = await waitForScopes(context, { collection: 4, mode, workspace: 3 });
+      // Complete persisted vectors need no document inference after a cold reopen.
+      // The public semantic query below must start and prove this process's worker.
+      const reopened = await waitForScopes(
+        context,
+        { collection: 4, mode, workspace: 3 },
+        { requireVectorWorker: false }
+      );
       expect(reopened.status.kind === 'ready' && reopened.status.storeId).toBe(initialStoreId);
       expect(await readSavedChoices(context)).toEqual(choices);
       await requireHit(context, 'M2RetainedAfter', retained, semantic);
+      const reopenedAfterQuery = await readNativeSnapshot(context);
+      if (semantic) {
+        assertActualVectorWorker(reopenedAfterQuery);
+      }
       await session.record('same-profile-reopen', {
         choices: await readSavedChoices(context),
-        snapshot: reopened,
+        snapshot: reopenedAfterQuery,
       });
 
       const sentinels = await seedDelegatedResetState(context.window);
