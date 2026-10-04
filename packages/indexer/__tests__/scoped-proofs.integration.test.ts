@@ -337,3 +337,59 @@ it('reports complete selected-profile vector coverage independently of full-sour
     await rm(directory, { force: true, recursive: true });
   }
 });
+
+it('rejects changed stored Float32 bytes on every public coverage read', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-scoped-vector-bytes-'));
+  const options = {
+    dbPath: path.join(directory, 'index.sqlite'),
+    embedding: { indexMode: 'text-only' },
+    fileBindings: [binding],
+    rootIds: [],
+    scopes: [scope],
+  };
+  const port = await openIndexer(options, deadlines);
+  try {
+    const { profile: _profile, ...file } = binding;
+    const plan = await port.prepareScopedFile({
+      profile,
+      snapshot: { ...file, chunkLines: 1, content: 'canonical\n' },
+    });
+    await port.commitScopedFile({
+      embeddings: plan.embeddingChunkIds.map((chunkId) => ({
+        chunkId,
+        vector: Array.from({ length: profile.dimensions }, (_, index) => (index === 0 ? 1 : 0)),
+      })),
+      plan,
+      profile,
+    });
+    expect((await port.coverageScope({ profile, scope })).vectorCoverageComplete).toBe(true);
+    const corrupt = openConnection(options.dbPath);
+    try {
+      const stored: unknown = corrupt.prepare('SELECT emb FROM scoped_vectors').pluck().get();
+      if (!(stored instanceof Uint8Array)) {
+        throw new TypeError('Expected the actual stored Float32 vector bytes.');
+      }
+      const valid = Buffer.from(stored);
+      const update = corrupt.prepare('UPDATE scoped_vectors SET emb=? WHERE profile_hash=?');
+      for (const bits of [
+        0x00_00_00_00, 0x80_00_00_00, 0x7f_c0_00_00, 0x7f_80_00_01, 0x7f_80_00_00, 0xff_80_00_00,
+      ]) {
+        const invalid = Buffer.alloc(valid.byteLength);
+        invalid.writeUInt32LE(bits, invalid.byteLength - 4);
+        expect(update.run(invalid, vectorProfileHash(profile)).changes).toBe(1);
+        await expect(port.coverageScope({ profile, scope })).rejects.toMatchObject({
+          code: 'rebuild-required',
+          message:
+            'Scoped profile/vector storage is invalid: Embedding must remain finite and nonzero as float32.',
+        });
+        expect(update.run(valid, vectorProfileHash(profile)).changes).toBe(1);
+        expect((await port.coverageScope({ profile, scope })).vectorCoverageComplete).toBe(true);
+      }
+    } finally {
+      corrupt.close();
+    }
+  } finally {
+    await port.close();
+    await rm(directory, { force: true, recursive: true });
+  }
+});

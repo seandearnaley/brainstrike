@@ -1,6 +1,5 @@
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { vectorBlob } from './chunks.js';
 import { decoder, IndexerError, vectorProfileSchema } from './contracts.js';
 import { supportedVectorProfile, vectorProfileHash } from './scope-authority.js';
 
@@ -73,12 +72,28 @@ function validateVectorBytes(db: Database.Database, profileHash?: string): void 
       `SELECT dimensions,emb FROM scoped_vectors${profileHash ? ' WHERE profile_hash=?' : ''}`
     )
     .iterate(...(profileHash ? [profileHash] : []))) {
-    const row = decoder(Schema.Struct({ dimensions: integer, emb: Schema.Uint8Array }))(input);
-    if (row.emb.byteLength !== row.dimensions * 4) {
-      throw new Error('Stored Float32 vector dimensions disagree.');
+    validateStoredVectorBytes(input);
+  }
+}
+
+export function validateStoredVectorBytes(input: unknown): void {
+  const row = decoder(Schema.Struct({ dimensions: integer, emb: Schema.Uint8Array }))(input);
+  if (row.emb.byteLength !== row.dimensions * 4) {
+    throw new Error('Stored Float32 vector dimensions disagree.');
+  }
+  const emb = new DataView(row.emb.buffer, row.emb.byteOffset, row.emb.byteLength);
+  let nonzero = false;
+  for (let offset = 0; offset < row.emb.byteLength; offset += 4) {
+    const value = emb.getFloat32(offset, true);
+    if (!Number.isFinite(value)) {
+      throw new TypeError('Embedding must remain finite and nonzero as float32.');
     }
-    const emb = Buffer.from(row.emb);
-    vectorBlob(Array.from({ length: row.dimensions }, (_, index) => emb.readFloatLE(index * 4)));
+    if (value !== 0) {
+      nonzero = true;
+    }
+  }
+  if (!nonzero) {
+    throw new TypeError('Embedding must remain finite and nonzero as float32.');
   }
 }
 
