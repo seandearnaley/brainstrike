@@ -20,6 +20,7 @@ import type {
 import type { SqliteQueryClient } from '@brainstrike/sqlite-query';
 import type { NativeScopeReadiness } from './native-canonical-publication';
 import { NativeCoverageObservationInvalidatedError } from './native-coverage-observation-invalidated';
+import { NativeReadAuthorityRetiredError } from './native-index-runtime';
 import { grepSnapshot } from './native-index-search';
 
 export interface NativeSearchAuthority {
@@ -39,6 +40,14 @@ interface Dependencies {
   openQuery(): Promise<Pick<SqliteQueryClient, 'grep' | 'close'>>;
   rebuild(): Promise<void>;
   withRead<T>(work: (read: NativeScopedRead) => Promise<T>): Promise<T>;
+}
+function coverageAuthorityInvalidation(
+  error: unknown
+): NativeCoverageObservationInvalidatedError | null {
+  if (error instanceof NativeReadAuthorityRetiredError) {
+    return new NativeCoverageObservationInvalidatedError();
+  }
+  return error instanceof NativeCoverageObservationInvalidatedError ? error : null;
 }
 function embeddingState(profile: VectorProfile | null): IndexerEmbeddingState {
   if (profile === null) {
@@ -279,8 +288,9 @@ export function createNativeScopedSearchCapability(
       try {
         await snapshot.assertCurrent();
       } catch (error) {
-        if (error instanceof NativeCoverageObservationInvalidatedError) {
-          return { code: error.code, kind: 'invalidated' };
+        const invalidation = coverageAuthorityInvalidation(error);
+        if (invalidation !== null) {
+          return { code: invalidation.code, kind: 'invalidated' };
         }
         throw error;
       }
