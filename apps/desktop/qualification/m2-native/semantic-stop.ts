@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import type { NativeLocalSelection } from '../../../../packages/indexing-contract/src/indexer-producer';
 import type { ElectronAppContext } from '../../e2e/utils/electron-helpers.mts';
 import type {
   EmbeddingHostQueryEmbeddingCancel,
@@ -24,18 +25,33 @@ interface MainObservation {
   readonly events: TerminalEvent[];
 }
 
+interface WorkerSubmission {
+  readonly at: number;
+  readonly message: unknown;
+  readonly releasedAt: number | null;
+}
+interface SubmissionBarrier {
+  readonly read: () => WorkerSubmission | null;
+  readonly release: () => void;
+  readonly restore: () => void;
+}
+
 export interface SemanticObservation {
   readonly close: () => Promise<void>;
   readonly diagnostics: () => Promise<
     Awaited<ReturnType<NonNullable<PublicBridges['desktopDiagnostics']>['getSnapshot']>>
   >;
   readonly events: () => Promise<readonly HiddenQueryEvent[]>;
+  readonly releaseSubmission: () => Promise<void>;
+  readonly restoreSubmission: () => Promise<void>;
+  readonly submission: () => Promise<WorkerSubmission | null>;
   readonly terminals: () => Promise<readonly TerminalEvent[]>;
 }
 
 /** Observe existing public request/cancel events and actual IPC terminal reports; never replace inference. */
 export async function observeSemanticQuery(
-  context: ElectronAppContext
+  context: ElectronAppContext,
+  match: { readonly query: string; readonly plan: NativeLocalSelection }
 ): Promise<SemanticObservation> {
   const hosts = context.app
     .windows()
@@ -45,6 +61,88 @@ export async function observeSemanticQuery(
   if (!host) {
     throw new Error('Actual hidden embedding renderer is unavailable.');
   }
+  // Hold one real workerpool RPC before submission, while the adapter owns its
+  // execution promise and signal. All other real Worker traffic stays unchanged.
+  await host.evaluate((match) => {
+    const ledger = window as typeof window & { __m2SubmissionBarrier?: SubmissionBarrier };
+    if (ledger.__m2SubmissionBarrier) {
+      throw new Error('Previous worker submission barrier remains owned.');
+    }
+    const original = Worker.prototype.postMessage;
+    let held: {
+      worker: Worker;
+      args: [unknown, (Transferable[] | StructuredSerializeOptions)?];
+    } | null = null;
+    let submission: WorkerSubmission | null = null;
+    Worker.prototype.postMessage = function (
+      this: Worker,
+      ...args: [unknown, (Transferable[] | StructuredSerializeOptions)?]
+    ): void {
+      const message = args[0];
+      const params =
+        message && typeof message === 'object' && 'params' in message ? message.params : null;
+      const request: unknown = Array.isArray(params) && params.length === 1 ? params[0] : null;
+      if (
+        !(
+          message &&
+          typeof message === 'object' &&
+          'method' in message &&
+          message.method === 'runEmbedding' &&
+          'id' in message &&
+          (typeof message.id === 'number' || typeof message.id === 'string') &&
+          request &&
+          typeof request === 'object' &&
+          'type' in request &&
+          request.type === 'embed' &&
+          'id' in request &&
+          typeof request.id === 'string' &&
+          'texts' in request &&
+          Array.isArray(request.texts) &&
+          request.texts.length === 1 &&
+          request.texts[0] === match.query &&
+          'model' in request &&
+          request.model === match.plan.modelId &&
+          'revision' in request &&
+          request.revision === match.plan.revision &&
+          'deviceHint' in request &&
+          request.deviceHint === match.plan.device &&
+          'dtype' in request &&
+          request.dtype === match.plan.dtype &&
+          'targetDimension' in request &&
+          request.targetDimension === match.plan.dimensions
+        )
+      ) {
+        Reflect.apply(original, this, args);
+        return;
+      }
+      if (submission) {
+        throw new Error('The one-shot semantic worker submission matched twice.');
+      }
+      held = { args, worker: this };
+      submission = { at: Date.now(), message, releasedAt: null };
+    };
+    const release = (): void => {
+      if (!(held && submission)) {
+        return;
+      }
+      const current = held;
+      held = null;
+      submission = { ...submission, releasedAt: Date.now() };
+      Reflect.apply(original, current.worker, current.args);
+    };
+    ledger.__m2SubmissionBarrier = {
+      read: () => submission,
+      release,
+      restore: () => {
+        try {
+          release();
+        } finally {
+          Worker.prototype.postMessage = original;
+          ledger.__m2SubmissionBarrier = undefined;
+        }
+      },
+    };
+  }, match);
   const hostWindow = await context.app.browserWindow(host);
   const senderId = await hostWindow.evaluate((window) => window.webContents.id);
   const hiddenEvents: HiddenQueryEvent[] = [];
@@ -122,14 +220,17 @@ export async function observeSemanticQuery(
   const events = async (): Promise<readonly HiddenQueryEvent[]> => [...hiddenEvents];
   return {
     close: async () => {
-      if (!host.isClosed()) {
-        await disposeHiddenObservation(host);
+      try {
+        if (!host.isClosed()) {
+          await disposeHiddenObservation(host);
+        }
+      } finally {
+        await context.app.evaluate(() =>
+          (
+            globalThis as typeof globalThis & { __m2SemanticObservation?: MainObservation }
+          ).__m2SemanticObservation?.dispose()
+        );
       }
-      await context.app.evaluate(() =>
-        (
-          globalThis as typeof globalThis & { __m2SemanticObservation?: MainObservation }
-        ).__m2SemanticObservation?.dispose()
-      );
     },
     diagnostics: async () =>
       await context.window.evaluate(async () => {
@@ -140,6 +241,35 @@ export async function observeSemanticQuery(
         return await diagnostics.getSnapshot();
       }),
     events,
+    releaseSubmission: async () => {
+      if (!host.isClosed()) {
+        await host.evaluate(() =>
+          (
+            window as typeof window & {
+              __m2SubmissionBarrier?: SubmissionBarrier;
+            }
+          ).__m2SubmissionBarrier?.release()
+        );
+      }
+    },
+    restoreSubmission: async () => {
+      if (!host.isClosed()) {
+        await host.evaluate(() =>
+          (
+            window as typeof window & {
+              __m2SubmissionBarrier?: SubmissionBarrier;
+            }
+          ).__m2SubmissionBarrier?.restore()
+        );
+      }
+    },
+    submission: async () =>
+      await host.evaluate(
+        () =>
+          (
+            window as typeof window & { __m2SubmissionBarrier?: SubmissionBarrier }
+          ).__m2SubmissionBarrier?.read() ?? null
+      ),
     terminals: async () =>
       await context.app.evaluate(
         () =>
@@ -154,7 +284,9 @@ async function disposeHiddenObservation(host: Page): Promise<void> {
     const ledger = window as typeof window & {
       __m2QueryUnsubscribe?: () => void;
       __m2QueryEvents?: HiddenQueryEvent[];
+      __m2SubmissionBarrier?: SubmissionBarrier;
     };
+    ledger.__m2SubmissionBarrier?.restore();
     ledger.__m2QueryUnsubscribe?.();
     ledger.__m2QueryUnsubscribe = undefined;
     ledger.__m2QueryEvents = undefined;

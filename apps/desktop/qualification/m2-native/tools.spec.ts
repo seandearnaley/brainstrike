@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, type Response, test } from '@playwright/test';
 import type { ProcessMetric } from 'electron';
 import { HomePage } from '../../e2e/page-objects/home-page';
 import { SettingsPage } from '../../e2e/page-objects/settings-page';
@@ -27,7 +27,7 @@ import {
   waitForTextIndex,
 } from './candidate';
 import { nativeBuildComplete } from './native-benchmark';
-import { configureNativeText, readSavedChoices } from './native-settings';
+import { configureNativeText, readSavedChoices, type SavedNativeChoices } from './native-settings';
 import { startCapturingProvider, toolMessages } from './provider-capture';
 import type { PublicBridges } from './public-bridges';
 import { readIndexQueryStopEvidence, requireIndexQueryStopEvidence } from './query-stop-evidence';
@@ -683,9 +683,10 @@ test('real stored tool output search finds a match beyond the first 8000 bytes',
 
 test('real semantic assistant Stop joins admitted hidden query and a fresh query recovers', async () => {
   test.setTimeout(600_000);
-  const term = 'M2 semantic physical stop DisposerStack';
+  const term = `M2 semantic physical stop DisposerStack ${randomUUID()}`;
   let collectionId: string | undefined;
   let observation: SemanticObservation | undefined;
+  let choices: SavedNativeChoices | undefined;
   await runTools(
     'semantic-query-stop',
     () => {
@@ -713,11 +714,15 @@ test('real semantic assistant Stop joins admitted hidden query and a fresh query
     undefined,
     true,
     async (context, session, provider) => {
-      if (!observation) {
+      if (!(observation && choices)) {
         throw new Error('Semantic physical observation is not armed.');
       }
       const observe = observation;
       const panel = context.window.getByTestId('chat-panel');
+      let stopResponse:
+        | Promise<{ response: Response; at: number } | { error: unknown }>
+        | undefined;
+      let stopClick: Promise<undefined | { error: unknown }> | undefined;
       try {
         let admitted: Awaited<ReturnType<typeof observe.events>>[number] | undefined;
         await expect
@@ -738,7 +743,9 @@ test('real semantic assistant Stop joins admitted hidden query and a fresh query
           throw new Error('No actual matching hidden request was admitted.');
         }
         const request = admitted.value;
-        const choices = await readSavedChoices(context);
+        await expect.poll(() => observe.submission(), { intervals: [10] }).not.toBeNull();
+        const submission = await observe.submission();
+        expect(submission?.releasedAt).toBeNull();
         // A legacy unpinned PG semantic caller cannot stand in for native saved-plan inference.
         expect(request.payload.inferencePlan).toEqual(choices.nativeLocalSelection);
         const before = await observe.diagnostics();
@@ -756,16 +763,30 @@ test('real semantic assistant Stop joins admitted hidden query and a fresh query
           .and(panel.locator('[title="brainstrike.queryEmbeddingSpace"][data-state="running"]'));
         await expect(running).toHaveCount(1);
         const stopStartedAt = Date.now();
-        const [response] = await Promise.all([
-          context.window.waitForResponse(
+        let releaseRequested = false;
+        stopResponse = context.window
+          .waitForResponse(
             (value) =>
               new URL(value.url()).pathname === '/assistant/cancel' &&
               value.request().method() === 'POST'
-          ),
-          panel.getByRole('button', { exact: true, name: 'Stop' }).click(),
-        ]);
-        const acknowledgedAt = Date.now();
-        const stopRequest: unknown = response.request().postDataJSON();
+          )
+          .then((response) => {
+            if (!releaseRequested) {
+              throw new Error('Stop acknowledged while the real worker submission was held.');
+            }
+            return { at: Date.now(), response };
+          })
+          .catch((error: unknown) => ({ error }));
+        const posted = context.window.waitForRequest(
+          (value) =>
+            new URL(value.url()).pathname === '/assistant/cancel' && value.method() === 'POST'
+        );
+        stopClick = panel
+          .getByRole('button', { exact: true, name: 'Stop' })
+          .click()
+          .then(() => undefined)
+          .catch((error: unknown) => ({ error }));
+        const stopRequest: unknown = (await posted).postDataJSON();
         if (
           !stopRequest ||
           typeof stopRequest !== 'object' ||
@@ -774,6 +795,50 @@ test('real semantic assistant Stop joins admitted hidden query and a fresh query
           throw new Error('Stop provided no actual run ID.');
         }
         const runId = Reflect.get(stopRequest, 'runId') as string;
+        await expect
+          .poll(
+            async () =>
+              (await observe.events()).some(
+                (event) =>
+                  event.kind === 'cancel' &&
+                  event.value.requestId === request.requestId &&
+                  event.value.runtimeId === request.runtimeId
+              ),
+            { intervals: [10] }
+          )
+          .toBe(true);
+        const held = await observe.submission();
+        const duringCancel = await observe.diagnostics();
+        const terminalWhileHeld = await observe.terminals();
+        await session.record('semantic-cancel-before-worker-release', {
+          admitted,
+          duringCancel,
+          held,
+          runId,
+          submission,
+          terminalWhileHeld,
+        });
+        expect(held?.releasedAt).toBeNull();
+        expect(duringCancel.embeddingHost.pendingRequestCount).toBe(1);
+        expect(
+          terminalWhileHeld.some(
+            (event) =>
+              event.value?.requestId === request.requestId &&
+              event.value.runtimeId === request.runtimeId
+          )
+        ).toBe(false);
+        releaseRequested = true;
+        await observe.releaseSubmission();
+        await session.record('semantic-worker-submission-released', await observe.submission());
+        const outcome = await stopResponse;
+        if ('error' in outcome) {
+          throw outcome.error;
+        }
+        const click = await stopClick;
+        if (click && 'error' in click) {
+          throw click.error;
+        }
+        const { response, at: acknowledgedAt } = outcome;
         expect(response.status()).toBe(200);
         expect(await response.json()).toEqual({ accepted: true, runId });
         const events = await observe.events();
@@ -833,12 +898,17 @@ test('real semantic assistant Stop joins admitted hidden query and a fresh query
           after,
           before,
           durable,
+          duringCancel,
           events,
+          held,
           runId,
           stopStartedAt,
+          submission,
           terminal,
           terminalBefore,
+          terminalWhileHeld,
         });
+        await observe.restoreSubmission();
         provider.setScript({
           finalText: 'M2 qualification tools completed',
           toolCallStages: [
@@ -879,6 +949,9 @@ test('real semantic assistant Stop joins admitted hidden query and a fresh query
           terminal: final,
         });
       } finally {
+        // Restore and release before joining Stop or sending any recovery query.
+        await observe.restoreSubmission();
+        await Promise.all([stopResponse, stopClick]);
         await session.record('semantic-observation-final', {
           events: await observe.events(),
           terminal: await observe.terminals(),
@@ -887,7 +960,8 @@ test('real semantic assistant Stop joins admitted hidden query and a fresh query
       }
     },
     async (context, session) => {
-      collectionId = (await readSavedChoices(context)).managedCollectionId;
+      choices = await readSavedChoices(context);
+      collectionId = choices.managedCollectionId;
       const pgChunks = await context.window.evaluate(async (id) => {
         const query = (window as unknown as PublicBridges).electronAPI?.db.query;
         if (!query) {
@@ -906,7 +980,13 @@ test('real semantic assistant Stop joins admitted hidden query and a fresh query
         pgChunks,
         snapshot: await readNativeSnapshot(context),
       });
-      observation = await observeSemanticQuery(context);
+      if (!choices.nativeLocalSelection) {
+        throw new Error('Saved pinned native inference plan is unavailable.');
+      }
+      observation = await observeSemanticQuery(context, {
+        plan: choices.nativeLocalSelection,
+        query: term,
+      });
       expect((await observation.diagnostics()).embeddingHost.pendingRequestCount).toBe(0);
     }
   );
