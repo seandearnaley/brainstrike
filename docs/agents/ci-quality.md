@@ -43,6 +43,17 @@ Evidence: `ci-quality/local-only-validation.md`, `ci-quality/ci-minute-audit.md`
 `ci-quality/vercel-parser-dependencies.md`, `ci-quality/build-tooling-dependencies.md`.
 Guard: `scripts/__tests__/check-ci-parity.test.mjs`.
 
+### Web Chromium provisioning
+
+- Web Chromium E2E uses the explicit provisioned CfT executable; a missing
+  `BRAINSTRIKE_WEB_CHROMIUM_DIR` fails configuration. Keep Playwright drivers
+  exact and matching the digest-pinned image base; retain its Firefox/WebKit.
+- Provision before testing, bake Linux downloads into the image, and record
+  actual launch versions. Qualify the native cold roundtrip before app retries.
+
+Evidence: `ci-quality/web-chromium-provisioning.md`.
+Guard: `scripts/verify-playwright-pin-sync.mjs`, `scripts/__tests__/web-chromium.test.mjs`.
+
 ### Browser failure traces
 
 - Browser-project traces are configured only through

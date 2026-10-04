@@ -46,7 +46,8 @@
   },
   "include": [
     "src",
-    "playwright.config.mts"
+    "playwright.config.mts",
+    "config/web-chromium.mjs"
   ],
   "exclude": [
     "node_modules",

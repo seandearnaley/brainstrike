@@ -38,10 +38,15 @@ type BrowserPGliteWorkerClient = PGliteWorker & PGliteRuntimeClient & PGliteLead
 
 const logger = createLogger('WasmLoader');
 
+export interface PGliteClientOptions {
+  readonly requireDurableWrites?: boolean;
+}
+
 interface PendingBrowserWorkerStartup {
   readonly closeResolved: (db: BrowserPGliteWorkerClient) => Promise<boolean>;
   readonly dispose: () => void;
   readonly promise: Promise<BrowserPGliteWorkerClient>;
+  readonly relaxedDurability: boolean;
 }
 
 let cachedVectorPromise: Promise<VectorExtension> | null = null;
@@ -124,6 +129,7 @@ class WasmLoader {
   private wasmLoadPromise: Promise<void> | null = null;
   private isLoaded = false;
   private readonly dbCache: Map<string, Promise<PGlite>> = new Map();
+  private readonly workerDurability = new WeakMap<BrowserPGliteWorkerClient, boolean>();
   private readonly workerCache: Map<string, BrowserPGliteWorkerClient> = new Map();
   private readonly workerClientStartups: Map<string, PendingBrowserWorkerStartup> = new Map();
 
@@ -215,7 +221,10 @@ class WasmLoader {
     }
   }
 
-  async createPGliteClient(dataDir?: string): Promise<PGliteRuntimeClient> {
+  async createPGliteClient(
+    dataDir?: string,
+    options: PGliteClientOptions = {}
+  ): Promise<PGliteRuntimeClient> {
     const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
     if (this.requiresBrowserWorkerHost(normalizedDataDir) && typeof Worker === 'undefined') {
       throw new Error('Browser IndexedDB PGlite requires Worker support');
@@ -227,23 +236,35 @@ class WasmLoader {
     const cacheKey = normalizedDataDir || 'default';
     const cached = this.workerCache.get(cacheKey);
     if (cached) {
+      if (options.requireDurableWrites && this.workerDurability.get(cached)) {
+        throw new Error('PGlite worker durability cannot change while the store is open');
+      }
       logger.info('Reusing cached PGlite worker client', { cacheKey });
       return cached;
     }
 
     const pending = this.workerClientStartups.get(cacheKey);
     if (pending) {
+      if (options.requireDurableWrites && pending.relaxedDurability) {
+        throw new Error('PGlite worker durability cannot change while the store is open');
+      }
       logger.info('Reusing pending PGlite worker client', { cacheKey });
       return await this.awaitActiveWorkerClient(cacheKey, pending);
     }
 
-    const workerClientStartup = this.createBrowserWorkerStartup(normalizedDataDir);
+    const relaxedDurability =
+      isEphemeralWebE2eDataDir(normalizedDataDir) && options.requireDurableWrites !== true;
+    const workerClientStartup = this.createBrowserWorkerStartup(
+      normalizedDataDir,
+      relaxedDurability
+    );
     this.workerClientStartups.set(cacheKey, workerClientStartup);
 
     try {
       const db = await this.awaitActiveWorkerClient(cacheKey, workerClientStartup);
       if (this.workerClientStartups.get(cacheKey) === workerClientStartup) {
         this.workerClientStartups.delete(cacheKey);
+        this.workerDurability.set(db, relaxedDurability);
         this.workerCache.set(cacheKey, db);
         // Best-effort reclamation of the pre-engine-version legacy storage
         // (e.g. idb://app) now that the versioned DB (idb://app-pg18) has opened,
@@ -279,7 +300,10 @@ class WasmLoader {
     throw new Error(WORKER_STARTUP_DISPOSED_MESSAGE);
   }
 
-  private createBrowserWorkerStartup(dataDir: string): PendingBrowserWorkerStartup {
+  private createBrowserWorkerStartup(
+    dataDir: string,
+    relaxedDurability: boolean
+  ): PendingBrowserWorkerStartup {
     let disposed = false;
     let resolvedClientClosed = false;
     let worker: Worker | null = null;
@@ -311,9 +335,9 @@ class WasmLoader {
           // confirmed local write can still be lost on immediate reload or close.
           // The ONE exception: per-session throwaway web E2E stores
           // (idb://web-e2e-<uuid>) are discarded with the Playwright context, so
-          // strict durability buys nothing there and turns fresh-DB bootstrap
-          // into a ~50s stall that times out the E2E readiness budget.
-          relaxedDurability: isEphemeralWebE2eDataDir(dataDir),
+          // ordinary ephemeral tests retain their cheaper writes. Reload fixtures
+          // explicitly require strict durability instead.
+          relaxedDurability,
         };
         const workerClientPromise = PGliteWorker.create(worker, options);
         void workerClientPromise
@@ -348,6 +372,7 @@ class WasmLoader {
         rejectDisposed(new Error(WORKER_STARTUP_DISPOSED_MESSAGE));
       },
       promise,
+      relaxedDurability,
     };
 
     async function closeResolved(db: BrowserPGliteWorkerClient): Promise<boolean> {

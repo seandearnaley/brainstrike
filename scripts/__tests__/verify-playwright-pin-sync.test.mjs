@@ -4,7 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { checkPlaywrightPinSync, PINNED_WORKFLOWS } from '../verify-playwright-pin-sync.mjs';
+import {
+  checkPlaywrightPinSync,
+  checkWebChromiumProvisioning,
+  PINNED_WORKFLOWS,
+} from '../verify-playwright-pin-sync.mjs';
 
 // Guard: the Playwright container image tag hard-coded in
 // .github/workflows/{test.yml,web-e2e.yml,performance.yml} must match
@@ -204,4 +208,41 @@ test('tolerates multiple identical pins in one file but flags disagreeing duplic
 
   const { mismatches } = checkPlaywrightPinSync({ repoRoot });
   assert.deepEqual(mismatches, []);
+});
+
+async function writeProvisioningFixture(
+  spec = '1.63.0',
+  imageVersion = '1.63.0',
+  digest = 'a'.repeat(64),
+  driverSpec = spec
+) {
+  const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'web-chromium-pin-'));
+  await writeFile(
+    path.join(repoRoot, 'package.json'),
+    JSON.stringify({ devDependencies: { '@playwright/test': spec, playwright: driverSpec } })
+  );
+  await mkdir(path.join(repoRoot, 'tools/web-chromium'), { recursive: true });
+  await writeFile(
+    path.join(repoRoot, 'tools/web-chromium/Dockerfile'),
+    `FROM mcr.microsoft.com/playwright:v${imageVersion}-noble${digest ? `@sha256:${digest}` : ''}\n`
+  );
+  return repoRoot;
+}
+
+test('fixed Chromium recipe retains the exact Playwright driver and immutable base', async () => {
+  checkWebChromiumProvisioning();
+  checkWebChromiumProvisioning({ repoRoot: await writeProvisioningFixture() });
+});
+
+test('fixed Chromium recipe rejects mutable images and driver/base drift', async () => {
+  for (const [spec, imageVersion, digest, driverSpec, message] of [
+    ['^1.63.0', '1.63.0', 'a'.repeat(64), '1.63.0', /exact/],
+    ['1.63.0', '1.63.0', 'a'.repeat(64), '1.62.0', /driver/],
+    ['1.63.0', '1.62.0', 'a'.repeat(64), '1.63.0', /base/],
+    ['1.63.0', '1.63.0', '', '1.63.0', /immutable/],
+    ['1.63.0', '1.63.0', 'short', '1.63.0', /immutable/],
+  ]) {
+    const repoRoot = await writeProvisioningFixture(spec, imageVersion, digest, driverSpec);
+    assert.throws(() => checkWebChromiumProvisioning({ repoRoot }), message);
+  }
 });

@@ -103,12 +103,46 @@ export function checkPlaywrightPinSync(options = {}) {
   return { expectedVersion, mismatches };
 }
 
+/** Verify the custom CfT image retains the installed Playwright engine fleet.
+ * @param {{ repoRoot?: string }} options
+ */
+export function checkWebChromiumProvisioning(options = {}) {
+  const repoRoot = options.repoRoot ?? resolve(HERE, '..');
+  const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+  const versions = ['@playwright/test', 'playwright'].map((name) => {
+    const spec = pkg.devDependencies?.[name] ?? pkg.dependencies?.[name];
+    if (typeof spec !== 'string') {
+      throw new Error(`Missing Playwright driver dependency: ${name}`);
+    }
+    const version = resolveCatalogReference(name, spec, { repoRoot });
+    if (!/^\d+\.\d+\.\d+$/.test(version)) {
+      throw new Error(`Playwright driver ${name} must use an exact pin: ${version}`);
+    }
+    return version;
+  });
+  if (versions[0] !== versions[1]) {
+    throw new Error('Playwright driver pins disagree');
+  }
+  const recipe = readFileSync(join(repoRoot, 'tools/web-chromium/Dockerfile'), 'utf8');
+  const base =
+    /^FROM mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-noble@sha256:[a-f0-9]{64}\s*$/m.exec(
+      recipe
+    );
+  if (!base) {
+    throw new Error('Web Chromium recipe requires an immutable Playwright base image');
+  }
+  if (base[1] !== versions[0]) {
+    throw new Error(`Web Chromium base ${base[1]} disagrees with Playwright driver ${versions[0]}`);
+  }
+}
+
 /**
  * @param {{ repoRoot?: string }} options — threaded so the BST-836 entrypoint
  *   contract test can drive this guard against a tree where it must not pass.
  */
 export function main(options = {}) {
   const { expectedVersion, mismatches } = checkPlaywrightPinSync(options);
+  checkWebChromiumProvisioning(options);
 
   if (mismatches.length > 0) {
     const detail = mismatches

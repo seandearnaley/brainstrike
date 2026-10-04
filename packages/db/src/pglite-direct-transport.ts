@@ -309,6 +309,7 @@ export interface PgliteDirectTransportOptions {
    * a different database under live repositories.
    */
   readonly getDataDir: () => string;
+  readonly requireDurableWrites?: boolean;
 }
 
 interface DirectConnection {
@@ -346,7 +347,9 @@ export function createPgliteDirectTransport(
       logger.info('First-run PGlite bootstrap check', { ...bootstrapResult, resolvedPath });
     }
 
-    const db = await wasmLoader.createPGliteClient(resolvedPath);
+    const db = await wasmLoader.createPGliteClient(resolvedPath, {
+      requireDurableWrites: options.requireDurableWrites === true,
+    });
     if (context.isDisposed()) {
       // BST-1329: the runtime was disposed while this client was being built,
       // so the teardown saw no connection at all and closed

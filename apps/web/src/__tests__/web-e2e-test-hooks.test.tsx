@@ -1,3 +1,9 @@
+import {
+  EMPTY_WORKSPACE_SNAPSHOT,
+  resolveAssistantMemoryResourceId,
+  useAssistantThreadStore,
+} from '@brainstrike/assistant-data';
+import { useTabManagerStore } from '@brainstrike/file-explorer-ui/tab-manager-store';
 import { render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebE2ETestHooks } from '../web-e2e-test-hooks';
@@ -36,6 +42,8 @@ describe('WebE2ETestHooks', () => {
     Reflect.deleteProperty(window, '__brainstrikeWebE2ETestHooks__');
     window.__brainstrikeEnableEmbeddingModelSwitchMemoryProbe__ = true;
     usePGliteDatabaseMock.mockReset();
+    useAssistantThreadStore.setState({ activeThreadIdByResourceId: {} });
+    useTabManagerStore.getState().clearTabs();
     runEmbeddingModelSwitchMemoryProbeMock.mockReset();
     runEmbeddingModelSwitchMemoryProbeMock.mockResolvedValue({
       afterTeardown: { estimatedGpuBytes: 0, estimatedHeapBytes: 0, residentCount: 0 },
@@ -60,6 +68,62 @@ describe('WebE2ETestHooks', () => {
     vi.restoreAllMocks();
   });
 
+  it('reads the active thread workspace through the canonical repository with its live file identity', async () => {
+    setWebDriver(true);
+    const resourceId = resolveAssistantMemoryResourceId();
+    const compositeKey = 'recorded-root|@|persistent-root/alpha.ts';
+    const fileTab = { compositeKey, path: 'persistent-root/alpha.ts' };
+    const snapshot = {
+      ...EMPTY_WORKSPACE_SNAPSHOT,
+      fileTabs: { activeTabId: compositeKey, tabs: [fileTab] },
+    };
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [resourceId]: 'thread-open-file' },
+    });
+    useTabManagerStore.setState({
+      activeTabId: compositeKey,
+      tabs: [{ ...fileTab, content: null, id: compositeKey, isLoading: false }],
+    });
+    const query = vi
+      .fn()
+      .mockResolvedValue({ rows: [{ payload: snapshot, threadId: 'thread-open-file' }] });
+    usePGliteDatabaseMock.mockReturnValue({ query });
+    render(<WebE2ETestHooks dbPath="idb://web-e2e-test" />);
+    await expect(
+      window.__brainstrikeWebE2ETestHooks__?.readActiveThreadWorkspace()
+    ).resolves.toEqual({
+      activeFileTab: fileTab,
+      snapshot,
+      threadId: 'thread-open-file',
+    });
+    expect(query.mock.calls[0]?.[1]).toEqual(['thread-open-file']);
+  });
+
+  it('refuses a workspace read whose active thread changed before the record arrived', async () => {
+    setWebDriver(true);
+    const resourceId = resolveAssistantMemoryResourceId();
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [resourceId]: 'thread-before' },
+    });
+    let finishRead: ((result: { rows: unknown[] }) => void) | undefined;
+    const query = vi.fn(
+      () =>
+        new Promise<{ rows: unknown[] }>((resolve) => {
+          finishRead = resolve;
+        })
+    );
+    usePGliteDatabaseMock.mockReturnValue({ query });
+    render(<WebE2ETestHooks dbPath="idb://web-e2e-test" />);
+    const read = window.__brainstrikeWebE2ETestHooks__?.readActiveThreadWorkspace();
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [resourceId]: 'thread-after' },
+    });
+    finishRead?.({ rows: [] });
+    await expect(read).rejects.toThrow(
+      'Active thread changed during the workspace persistence read'
+    );
+  });
+
   it('does not expose hooks outside webdriver automation', async () => {
     setWebDriver(false);
     window.__brainstrikeWebE2ETestHooks__ = {
@@ -69,6 +133,7 @@ describe('WebE2ETestHooks', () => {
       linkResetProbeRowsToCollection: vi.fn(),
       qualifyDatabaseExtensions: vi.fn(),
       qualifyLocalEmbedding: vi.fn(),
+      readActiveThreadWorkspace: vi.fn(),
       readAssistantThreadRunStatuses: vi.fn(),
       readAssistantThreads: vi.fn(),
       readFileRowCounts: vi.fn(),
@@ -100,6 +165,7 @@ describe('WebE2ETestHooks', () => {
       linkResetProbeRowsToCollection: vi.fn(),
       qualifyDatabaseExtensions: vi.fn(),
       qualifyLocalEmbedding: vi.fn(),
+      readActiveThreadWorkspace: vi.fn(),
       readAssistantThreadRunStatuses: vi.fn(),
       readAssistantThreads: vi.fn(),
       readFileRowCounts: vi.fn(),

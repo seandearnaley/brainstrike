@@ -94,6 +94,25 @@ describe('DbProvider default dbPath', () => {
     );
   });
 
+  it('passes a reload fixture durable-write requirement through to its worker', async () => {
+    await act(async () => {
+      renderHook(() => useFileRecordRepository(), {
+        wrapper: ({ children }: { children: React.ReactNode }) => (
+          <DbProvider dbPath="idb://web-e2e-provider-reload" requireDurableWrites>
+            {children}
+          </DbProvider>
+        ),
+      });
+    });
+    expect(pgliteWorkerCreate).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        dataDir: 'idb://web-e2e-provider-reload',
+        relaxedDurability: false,
+      })
+    );
+  });
+
   it('getDefaultDbPath respects runtime', () => {
     const originalWindow = globalThis.window;
     expect(getDefaultDbPath()).toBe('idb://app-pg18');

@@ -701,6 +701,13 @@ Invariants:
   fallback.
 - Multi-tab runs serialize on the `brainstrike-pglite-first-run:<dataDir>` Web Lock; the
   loser re-probes inside the lock and skips (`existing-store`).
+- Reload/persistence web E2E fixtures explicitly request `requireDurableWrites` at
+  provider construction; their worker uses PGlite's `relaxedDurability: false`.
+  Other ephemeral E2E stores retain their existing relaxed setting. A strict
+  request cannot reuse an already relaxed worker. Before reload, file-tab
+  fixtures read the active thread's canonical workspace record and verify the
+  expected file identity: visible content alone acknowledges neither the async
+  save nor a durable flush.
 - Scope is browser `idb://` only, including per-session `idb://web-e2e-*` Playwright
   stores. `opfs-ahp://` and desktop keep their existing paths.
 
