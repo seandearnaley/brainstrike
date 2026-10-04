@@ -2,7 +2,12 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { IndexFileBinding, ScopedFilePlan, ScopedManifestFile } from '@brainstrike/indexer';
+import type {
+  IndexFileBinding,
+  ScopedFilePlan,
+  ScopedIndexerPort,
+  ScopedManifestFile,
+} from '@brainstrike/indexer';
 import { expect, it } from 'vitest';
 // The native process entry needs the built public artifact, independent of source test aliases.
 import { openIndexer } from '../../../../packages/indexer/dist/index.js';
@@ -64,7 +69,7 @@ function manifestFile(plan: ScopedFilePlan): ScopedManifestFile {
   };
 }
 async function publish(
-  port: Awaited<ReturnType<typeof openIndexer>>,
+  port: Pick<ScopedIndexerPort, 'prepareScopedFile' | 'commitScopedFile' | 'commitScopedTextFile'>,
   binding: IndexFileBinding,
   content: string
 ): Promise<ScopedFilePlan> {
