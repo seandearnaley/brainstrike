@@ -20,7 +20,12 @@ import {
   vectorProfileHash,
 } from '@brainstrike/indexer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
+import { CanonicalUtilityChild } from '../canonical-utility-child';
+import {
+  type CanonicalCollectionDependencies,
+  CanonicalUtilityParent,
+} from '../canonical-utility-parent';
+import { decodeCanonicalFrame } from '../canonical-utility-protocol';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
@@ -207,6 +212,47 @@ it.each([DEFAULT_MAX_FILE_SIZE, 4096])(
     }
   }
 );
+
+it('joins real late source cancellation before closing the native engine and profile owner', async () => {
+  const request = Promise.withResolvers<object>();
+  const cancelled = Promise.withResolvers<object>();
+  const parent = new CanonicalUtilityParent(
+    (frame) => queueMicrotask(() => child.receive(structuredClone(frame))),
+    vi.fn()
+  );
+  const child = new CanonicalUtilityChild((input) => {
+    const frame = decodeCanonicalFrame(input);
+    if (frame.kind === 'call' && frame.op === 'load-files') {
+      request.resolve(structuredClone(input));
+      return;
+    }
+    if (frame.kind === 'cancel') {
+      cancelled.resolve(structuredClone(input));
+      return;
+    }
+    queueMicrotask(() => parent.receive(structuredClone(input)));
+  });
+  mocks.manager.attachCanonicalCollection.mockImplementation(
+    (dependencies: CanonicalCollectionDependencies) => parent.attachCollection(dependencies)
+  );
+  mocks.manager.retireCanonicalSources.mockImplementation(() => parent.retireAttachments());
+  const { activation } = fixture();
+  const initial = activation.acquire().catch((error: unknown) => error);
+  const held = await request.promise;
+  const retirement = activation.close();
+  const notice = await cancelled.promise;
+  expect(mocks.close).not.toHaveBeenCalled();
+  expect(mocks.closeProfile).not.toHaveBeenCalled();
+  parent.receive(held);
+  parent.receive(notice);
+  await retirement;
+  await initial;
+  expect(child.channel.pendingCount).toBe(0);
+  expect(parent.channel.pendingCount).toBe(0);
+  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.closeProfile).toHaveBeenCalledOnce();
+  await parent.close();
+});
 
 it('closes an admitted initial collection scan before joining startup, and joins physical retirement', async () => {
   const scan = Promise.withResolvers<CanonicalScanReceipt>();

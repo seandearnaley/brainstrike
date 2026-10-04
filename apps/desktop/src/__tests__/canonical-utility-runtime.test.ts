@@ -12,15 +12,22 @@ import {
   type CanonicalCollectionDependencies,
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
+import { decodeCanonicalFrame } from '../canonical-utility-protocol';
 
-function connected(): { parent: CanonicalUtilityParent; child: CanonicalUtilityChild } {
+function connected(hold?: (frame: object) => boolean): {
+  parent: CanonicalUtilityParent;
+  child: CanonicalUtilityChild;
+} {
   const parent = new CanonicalUtilityParent(
     (frame) => queueMicrotask(() => child.receive(structuredClone(frame))),
     vi.fn()
   );
-  const child = new CanonicalUtilityChild((frame) =>
-    queueMicrotask(() => parent.receive(structuredClone(frame)))
-  );
+  const child = new CanonicalUtilityChild((frame) => {
+    if (hold?.(frame)) {
+      return;
+    }
+    queueMicrotask(() => parent.receive(structuredClone(frame)));
+  });
   return { child, parent };
 }
 const source = 'export const canonical = "actual utility parser";\n';
@@ -63,7 +70,10 @@ function collection(published: CanonicalIndexPayload[]): CanonicalCollectionDepe
       commitTextFile: async ({ payload }) => {
         published.push(payload);
       },
-      finishScan: async ({ files, ticket }) => {
+      finishScan: async ({ aborted, files, ticket }) => {
+        if (aborted) {
+          return { reason: 'aborted', scanComplete: false, ticket };
+        }
         expect(files).toHaveLength(1);
         expect(files[0]?.contentHash).toBe(sourceHash);
         return { reason: 'complete', scanComplete: true, ticket };
@@ -90,6 +100,70 @@ function collection(published: CanonicalIndexPayload[]): CanonicalCollectionDepe
 }
 
 describe('actual utility canonical runtime attachment', () => {
+  it('joins a stopped owner whose correlated source request arrives after admission closes', async () => {
+    const request = Promise.withResolvers<object>();
+    const cancelled = Promise.withResolvers<object>();
+    const { parent, child } = connected((input) => {
+      const frame = decodeCanonicalFrame(input);
+      if (frame.kind === 'cancel') {
+        cancelled.resolve(structuredClone(input));
+        return true;
+      }
+      if (frame.kind !== 'call' || frame.op !== 'load-files') {
+        return false;
+      }
+      request.resolve(structuredClone(input));
+      return true;
+    });
+    const dependencies = collection([]);
+    const load = vi.spyOn(dependencies.source.inventory, 'loadFiles');
+    const finish = vi.spyOn(dependencies.publication, 'finishScan');
+    const attachment = await parent.attachCollection(dependencies);
+    const scan = await attachment.startScan('late-owned-source');
+    const held = await request.promise;
+    const retirement = parent.retireAttachments();
+    const notice = await cancelled.promise;
+    // Deliver correlated frames in original call/notice order after the actual child abort.
+    parent.receive(held);
+    parent.receive(notice);
+    await retirement;
+    await expect(scan.join()).rejects.toThrow(/cancelled/);
+    expect(load).not.toHaveBeenCalled();
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({ aborted: true, full: false }));
+    expect(child.channel.pendingCount).toBe(0);
+    expect(parent.channel.pendingCount).toBe(0);
+    await parent.close();
+  });
+
+  it.each([
+    new Error('Canonical source admission is closed.'),
+    new DOMException('independent source failure', 'AbortError'),
+    new Error('independent permission failure'),
+  ])(
+    'preserves an already-admitted independent source failure through retirement: %s',
+    async (failure) => {
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const { parent } = connected();
+      const dependencies = collection([]);
+      dependencies.source.inventory.loadFiles = async () => {
+        entered.resolve();
+        await release.promise;
+        throw failure;
+      };
+      const attachment = await parent.attachCollection(dependencies);
+      const scan = await attachment.startScan('independent-source');
+      await entered.promise;
+      const retirement = parent.retireAttachments();
+      const rejected = expect(retirement).rejects.toThrow(/remain owned/);
+      release.resolve();
+      await rejected;
+      await expect(scan.join()).rejects.toThrow(failure.message);
+      await parent.retireAttachments();
+      await parent.close();
+    }
+  );
+
   it('runs the public rootless host with the actual OXC chunker and no mount', async () => {
     const published: CanonicalIndexPayload[] = [];
     const { parent } = connected();
