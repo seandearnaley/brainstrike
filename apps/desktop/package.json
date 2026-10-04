@@ -217,7 +217,7 @@
     "build:renderer": "vite build && node ../../scripts/verify-no-cross-chunk-cycles.mjs dist/renderer/assets",
     "clean:db": "node ../../scripts/clean-desktop-indexeddb.mjs",
     "fetch:python-runtime": "node scripts/fetch-python-runtime.mjs --all",
-    "prebuild": "node ../../scripts/run-turbo-command.mjs --skip-under-turbo -- run build --filter=@brainstrike/assistant-service --filter=@brainstrike/assistant-ui --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/mcp-app-host-ui --filter=@brainstrike/ui --filter=@brainstrike/platform-utils",
+    "prebuild": "node ../../scripts/run-turbo-command.mjs --skip-under-turbo -- run desktop-dev-dependencies --filter=@brainstrike/desktop",
     "predev": "node ../../scripts/ensure-desktop-dev-deps.mjs",
     "agent-debug:mcp-config": "node scripts/start-agent-devtools-session.mjs --print-config",
     "dev": "pnpm run dev:runtime",
