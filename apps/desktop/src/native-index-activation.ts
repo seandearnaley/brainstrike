@@ -24,6 +24,7 @@ import {
   getReadyScopedIndexerPort,
 } from './indexer-runtime';
 import type { ApplicationIpcDomain } from './ipc-handlers';
+import { NativeAuthorityTransitionError as TransitionError } from './native-authority-transition';
 import {
   createNativeCanonicalCatalog,
   decodeNativeCanonicalCatalogRecords,
@@ -114,7 +115,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   const assertCurrent = (current: Graph): void => {
     current.controller.signal.throwIfAborted();
     if (closed || graph !== current || current.generation !== generation) {
-      throw new Error('Native catalog authority changed during its operation.');
+      throw new TransitionError('Native catalog authority changed during its operation.');
     }
   };
   const contextFor = (current: Graph): CanonicalOperationContext => ({
@@ -195,7 +196,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   const authority = async (): Promise<NativeIndexAuthority> => {
     const current = graph;
     if (!current) {
-      throw new Error('Native indexing has no current saved authority.');
+      throw new TransitionError('Native indexing has no current saved authority.');
     }
     assertCurrent(current);
     const database = await getDatabase();
@@ -280,7 +281,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   };
   const retireSources = async (): Promise<void> => {
     closed = true;
-    graph?.controller.abort(new Error('Native indexing admission closed.'));
+    graph?.controller.abort(new TransitionError('Native indexing admission closed.'));
     await runtime.retireReads();
     const current = graph;
     if (current) {
@@ -373,7 +374,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         lease.signal.throwIfAborted();
       }
       if (current.sources !== sources || current.settings.paused) {
-        throw new Error('Native ingestion admission changed.');
+        throw new TransitionError('Native ingestion admission changed.');
       }
     };
     assertSource();
@@ -714,20 +715,23 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       await scan;
     }
   };
-  const acquireRead = async (): Promise<IndexerPort & ScopedIndexerPort> => {
+  const assertAdmission = (): void => {
     if (closed || terminalRequested) {
-      throw new Error('Native index activation is closed.', { cause: lastError });
+      throw TransitionError.closedAdmission('Native index activation is closed.', lastError);
     }
     if (settingsReads.size > 0) {
-      throw new Error('Native saved configuration is being revalidated.');
+      throw new TransitionError('Native saved configuration is being revalidated.');
     }
+  };
+  const acquireRead = async (): Promise<IndexerPort & ScopedIndexerPort> => {
+    assertAdmission();
     if (graph && [...graph.leases.values()].some((lease) => lease.signal.aborted)) {
       await transition(false);
     }
     ensureStartup();
     await readerReady;
     if (graph?.sources?.controller.signal.aborted) {
-      throw new Error('Native ingestion retirement remains owned.', { cause: lastError });
+      throw lastError ?? graph.sources.controller.signal.reason;
     }
     if (startupFailed) {
       throw new Error('Canonical native scan failed.', { cause: lastError });
@@ -741,12 +745,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       : runtime.acquire();
   };
   const acquire = async (): Promise<IndexerPort & ScopedIndexerPort> => {
-    if (closed || terminalRequested) {
-      throw new Error('Native index activation is closed.', { cause: lastError });
-    }
-    if (settingsReads.size > 0) {
-      throw new Error('Native saved configuration is being revalidated.');
-    }
+    assertAdmission();
     if (graph && [...graph.leases.values()].some((lease) => lease.signal.aborted)) {
       await transition(false);
     }
@@ -756,7 +755,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       throw new Error('Canonical native scan failed.', { cause: lastError });
     }
     if (graph?.sources?.controller.signal.aborted) {
-      throw new Error('Native ingestion retirement remains owned.', { cause: lastError });
+      throw lastError ?? graph.sources.controller.signal.reason;
     }
     const current = graph;
     if (current) {
@@ -782,7 +781,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   const resumeOwned = async (): Promise<void> => {
     await runtime.resume();
     if (terminalRequested) {
-      throw new Error('Native resume was superseded by terminal retirement.');
+      throw new TransitionError('Native resume was superseded by terminal retirement.');
     }
     closed = false;
     lastError = undefined;
@@ -813,7 +812,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     terminalEpoch += 1;
     closed = true;
     generation += 1;
-    graph?.controller.abort(new Error('Native owner terminal retirement requested.'));
+    graph?.controller.abort(new TransitionError('Native owner terminal retirement requested.'));
     return Promise.allSettled([...settingsReads, reconfiguration]).then(() => undefined);
   };
   const stopSources = async (): Promise<void> => {
@@ -840,7 +839,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       await reconfiguration.catch(() => undefined);
     }
     if (terminalEpoch !== epoch) {
-      throw new Error('Native resume was superseded by terminal retirement.');
+      throw new TransitionError('Native resume was superseded by terminal retirement.');
     }
     terminalRequested = false;
     await resumeOwned();
@@ -848,18 +847,20 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   const transition = (destroy: boolean): Promise<void> => {
     if (terminalRequested) {
       return Promise.reject(
-        new Error('Native owner terminal retirement has closed transition admission.')
+        new TransitionError('Native owner terminal retirement has closed transition admission.')
       );
     }
     const epoch = terminalEpoch;
     closed = true;
     generation += 1;
     graph?.controller.abort(
-      new Error(destroy ? 'Derived index rebuild requested.' : 'Native source authority changed.')
+      new TransitionError(
+        destroy ? 'Derived index rebuild requested.' : 'Native source authority changed.'
+      )
     );
     const assertTransition = (): void => {
       if (terminalRequested || terminalEpoch !== epoch) {
-        throw new Error('Native transition was superseded by terminal retirement.');
+        throw new TransitionError('Native transition was superseded by terminal retirement.');
       }
     };
     reconfiguration = (reconfiguration?.catch(() => undefined) ?? Promise.resolve()).then(
@@ -876,7 +877,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   };
   const reconfigure = async (): Promise<void> => {
     if (terminalRequested) {
-      throw new Error('Native owner terminal retirement has closed transition admission.');
+      throw new TransitionError(
+        'Native owner terminal retirement has closed transition admission.'
+      );
     }
     const epoch = terminalEpoch;
     const reading = dependencies.storage
@@ -888,7 +891,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       settings = await reading;
     } catch (error) {
       if (terminalRequested || terminalEpoch !== epoch) {
-        throw new Error('Native configuration was superseded by terminal retirement.');
+        throw new TransitionError('Native configuration was superseded by terminal retirement.');
       }
       closed = true;
       generation += 1;
@@ -911,7 +914,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       settingsReads.delete(reading);
     }
     if (terminalRequested || terminalEpoch !== epoch) {
-      throw new Error('Native configuration was superseded by terminal retirement.');
+      throw new TransitionError('Native configuration was superseded by terminal retirement.');
     }
     const current = graph;
     if (
@@ -924,7 +927,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     }
     current.settings = settings;
     if (settings.paused) {
-      current.sources?.controller.abort(new Error('Native ingestion paused.'));
+      current.sources?.controller.abort(new TransitionError('Native ingestion paused.'));
     }
     reconfiguration = (reconfiguration?.catch(() => undefined) ?? Promise.resolve())
       .then(async () => {
@@ -980,7 +983,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         port: captured.port,
         readAuthority: () => {
           if (graph !== current) {
-            throw new Error('Captured native source generation has been replaced.');
+            throw new TransitionError('Captured native source generation has been replaced.');
           }
           return captured.readAuthority();
         },

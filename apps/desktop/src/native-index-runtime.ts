@@ -4,6 +4,7 @@ import type {
   IndexScope,
   ScopedIndexerPort,
 } from '@brainstrike/indexer';
+import { NativeAuthorityTransitionError } from './native-authority-transition';
 
 type NativePort = IndexerPort & ScopedIndexerPort;
 
@@ -163,13 +164,13 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
 
   const acquireProfile = async (): Promise<void> => {
     if (closed) {
-      throw new Error('Native index admission is closed.');
+      throw new NativeAuthorityTransitionError('Native index admission is closed.');
     }
     profileOwner ??= dependencies.createProfileOwner();
     profileAcquisition ??= profileOwner.acquire();
     await profileAcquisition;
     if (closed) {
-      throw new Error('Native profile ownership closed during startup.');
+      throw new NativeAuthorityTransitionError('Native profile ownership closed during startup.');
     }
   };
   const retireAbsentBindings = async (
@@ -217,17 +218,23 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     const assertAuthorityCurrent = async (): Promise<void> => {
       const current = retainAuthority(await dependencies.getAuthority());
       if (closed) {
-        throw new Error('Native index admission closed during authority validation.');
+        throw new NativeAuthorityTransitionError(
+          'Native index admission closed during authority validation.'
+        );
       }
       if (
         scopeIdentity(current) !== requestedScopes ||
         bindingIdentity(current) !== requestedBindings
       ) {
-        throw new Error('Native index authority changed during acquisition.');
+        throw new NativeAuthorityTransitionError(
+          'Native index authority changed during acquisition.'
+        );
       }
     };
     if (closed) {
-      throw new Error('Native index admission closed during root authorization.');
+      throw new NativeAuthorityTransitionError(
+        'Native index admission closed during root authorization.'
+      );
     }
     if (
       port &&
@@ -241,7 +248,9 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     await joinReads();
     await dependencies.closeQueries();
     if (closed) {
-      throw new Error('Native index admission closed during reader retirement.');
+      throw new NativeAuthorityTransitionError(
+        'Native index admission closed during reader retirement.'
+      );
     }
     await assertAuthorityCurrent();
     if (port && indexOwner && requestedScopes === scopes) {
@@ -252,7 +261,9 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       bindings = requestedBindings;
       bindingRemovalPending = false;
       if (closed) {
-        throw new Error('Native index admission closed during binding replacement.');
+        throw new NativeAuthorityTransitionError(
+          'Native index admission closed during binding replacement.'
+        );
       }
       await assertAuthorityCurrent();
       dependencies.installQueryTarget(indexOwner);
@@ -262,20 +273,26 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     indexOwner = undefined;
     port = undefined;
     if (closed) {
-      throw new Error('Native index admission closed before writer acquisition.');
+      throw new NativeAuthorityTransitionError(
+        'Native index admission closed before writer acquisition.'
+      );
     }
     await assertAuthorityCurrent();
     const owner = await dependencies.createIndexOwner(requested);
     indexOwner = owner;
     if (closed) {
-      throw new Error('Native index admission closed during writer acquisition.');
+      throw new NativeAuthorityTransitionError(
+        'Native index admission closed during writer acquisition.'
+      );
     }
     await assertAuthorityCurrent();
     const ready = await owner.start();
     acknowledgedAuthority = requested;
     acknowledgedPort = ready;
     if (closed) {
-      throw new Error('Native index admission closed during writer startup.');
+      throw new NativeAuthorityTransitionError(
+        'Native index admission closed during writer startup.'
+      );
     }
     await assertAuthorityCurrent();
     dependencies.installQueryTarget(owner);
@@ -379,7 +396,9 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
   };
   const acquireCurrent = (): Promise<NativePort> => {
     if (closed) {
-      return Promise.reject(new Error('Native index admission is closed.'));
+      return Promise.reject(
+        new NativeAuthorityTransitionError('Native index admission is closed.')
+      );
     }
     acquisition ??= acquire(authorityMutation).finally(() => {
       acquisition = undefined;
@@ -396,7 +415,9 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       port: capturedPort,
       readAuthority: () => {
         if (indexOwner !== owner || acknowledgedPort !== capturedPort || !acknowledgedAuthority) {
-          throw new Error('Captured native writer authority has been retired or replaced.');
+          throw new NativeAuthorityTransitionError(
+            'Captured native writer authority has been retired or replaced.'
+          );
         }
         return retainAuthority(acknowledgedAuthority);
       },
@@ -410,7 +431,9 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     destroyIndex: () => closeIndex(true),
     mutateAuthority: <T>(expected: NativePort, work: () => Promise<T>): Promise<T> => {
       if (closed) {
-        return Promise.reject(new Error('Native index admission is closed.'));
+        return Promise.reject(
+          new NativeAuthorityTransitionError('Native index admission is closed.')
+        );
       }
       // Capture predecessors before publishing this intent; never wait on later acquisitions.
       const priorAcquisition = acquisition;
@@ -465,7 +488,7 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     ): Promise<T> => {
       while (true) {
         if (closed || readsClosed) {
-          throw new Error('Native read admission is closed.');
+          throw new NativeAuthorityTransitionError('Native read admission is closed.');
         }
         const acquired = await acquireRead();
         await authorityMutation;
@@ -473,7 +496,7 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
           continue;
         }
         if (closed || readsClosed) {
-          throw new Error('Native read admission is closed.');
+          throw new NativeAuthorityTransitionError('Native read admission is closed.');
         }
         const captured = captureAcknowledgedAuthority();
         if (captured.port !== acquired) {

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
+import { IndexerError, type IndexerPort, type ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
 import { expect, it, vi } from 'vitest';
 import { isolateNativeCoverage } from '../native-coverage-reader';
@@ -387,9 +387,15 @@ it.each(['invalidated', 'native-error', 'cleanup-error'] as const)(
       await entered.promise;
       retiring = f.runtime.retireReads();
       closing = f.runtime.retireProfile();
-      await expect(capability.coverageBatch([{ rootIds: ['root'] }])).rejects.toThrow(
+      await expect(capability.coverageBatch([{ rootIds: ['root'] }])).resolves.toEqual({
+        code: 'native-coverage-observation-invalidated',
+        kind: 'invalidated',
+      });
+      await expect(f.runtime.withRead(f.runtime.acquire, async () => undefined)).rejects.toThrow(
         'Native read admission is closed.'
       );
+      await expect(capability.coverage({ rootIds: ['root'] })).rejects.toThrow();
+      await expect(capability.status()).resolves.toMatchObject({ kind: 'unavailable' });
       expect(opened).toBe(1);
       expect(f.closeWriter).not.toHaveBeenCalled();
       expect(f.closeProfile).not.toHaveBeenCalled();
@@ -433,6 +439,180 @@ it.each(['invalidated', 'native-error', 'cleanup-error'] as const)(
       release.resolve();
       exitedReader.resolve();
       await Promise.allSettled([pending, retiring, closing]);
+      await f.runtime.retireProfile();
+    }
+  }
+);
+
+it('keeps foreign native coverage store evidence fatal after physical reader disposal', async () => {
+  const f = fixture();
+  let calls = 0;
+  const authority: CoverageAuthority = {
+    authorityEpoch: 'b'.repeat(64),
+    authorityRevision: 1,
+    dbPath: '/owned/index.sqlite',
+    fileBindings: [],
+    rootIds: ['root'],
+    scopes: [{ kind: 'workspace', rootId: 'root' }],
+    storeId: 'a'.repeat(64),
+  };
+  const failure = new IndexerError('coverage-authority-changed', 'Different native store.');
+  const close = vi.fn(async () => {});
+  const isolated = isolateNativeCoverage(
+    {
+      ...f.port,
+      coverageAuthority: async () => ({
+        ...authority,
+        storeId: ++calls === 1 ? authority.storeId : 'c'.repeat(64),
+      }),
+    },
+    async () => ({
+      close,
+      nativeCoverage: async () => {
+        throw failure;
+      },
+    })
+  );
+  await expect(
+    isolated.coverageBatch([{ scope: { kind: 'workspace', rootId: 'root' } }])
+  ).rejects.toBe(failure);
+  expect(close).toHaveBeenCalledOnce();
+});
+
+it.each([
+  { cleanupFails: false, mismatch: 'foreign-store' },
+  { cleanupFails: false, mismatch: 'epoch' },
+  { cleanupFails: false, mismatch: 'revision' },
+  { cleanupFails: true, mismatch: 'foreign-store' },
+  { cleanupFails: true, mismatch: 'revision' },
+] as const)(
+  'preserves failed reader $mismatch identity despite writer drift after exit, cleanup failure $cleanupFails',
+  async ({ mismatch, cleanupFails }) => {
+    const f = fixture();
+    const closing = Promise.withResolvers<void>();
+    const exited = Promise.withResolvers<void>();
+    const authority: CoverageAuthority = {
+      authorityEpoch: 'b'.repeat(64),
+      authorityRevision: 1,
+      dbPath: '/owned/index.sqlite',
+      fileBindings: [],
+      rootIds: ['root'],
+      scopes: [{ kind: 'workspace', rootId: 'root' }],
+      storeId: 'a'.repeat(64),
+    };
+    let writerRevision = 1;
+    f.port.info = async () => ({
+      dbPath: authority.dbPath,
+      embedding: { indexMode: 'text-only' },
+      journalMode: 'wal',
+      pid: 1,
+      readerQueryOnly: 1,
+      storeId: authority.storeId,
+      vecVersion: '0.1.9',
+      writerThreadId: 1,
+    });
+    const cleanupFailure = new Error('Independent coverage reader close failure.');
+    const close = vi.fn(async () => {
+      closing.resolve();
+      await exited.promise;
+      if (cleanupFails) {
+        throw cleanupFailure;
+      }
+    });
+    const isolated = isolateNativeCoverage(
+      {
+        ...f.port,
+        coverageAuthority: async () => ({ ...authority, authorityRevision: writerRevision }),
+      },
+      async () => ({
+        close,
+        nativeCoverage: async () => {
+          writerRevision = 2;
+          return [
+            {
+              authorityEpoch: mismatch === 'epoch' ? 'd'.repeat(64) : authority.authorityEpoch,
+              authorityRevision: mismatch === 'revision' ? 2 : 1,
+              counts: { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 },
+              profile: null,
+              profileHash: null,
+              scope: authority.scopes[0]!,
+              storeId: mismatch === 'foreign-store' ? 'c'.repeat(64) : authority.storeId,
+              vectorCoverageComplete: false,
+            },
+          ];
+        },
+      })
+    );
+    f.port.coverageBatch = isolated.coverageBatch;
+    const capability = createNativeScopedSearchCapability({
+      openQuery: async () => {
+        throw new Error('Unexpected query.');
+      },
+      rebuild: async () => {},
+      withRead: (work) =>
+        f.runtime.withRead(f.runtime.acquire, (captured) =>
+          work({
+            getAuthority: async () => {
+              captured.readAuthority();
+              return {
+                bindings: [],
+                collectionId: 'selected',
+                generation: 1,
+                profile: null,
+                queryPlan: undefined,
+                readiness: [],
+                rootIds: ['root'],
+              };
+            },
+            port: captured.port,
+          })
+        ),
+    });
+    let settled = false;
+    const result = capability.coverageBatch([{ rootIds: ['root'] }]).then(
+      (value) => {
+        settled = true;
+        return { value };
+      },
+      (error: unknown) => {
+        settled = true;
+        return { error };
+      }
+    );
+    try {
+      await closing.promise;
+      expect(settled).toBe(false);
+      expect(f.closeWriter).not.toHaveBeenCalled();
+      exited.resolve();
+      if (cleanupFails) {
+        const outcome = await result;
+        expect(outcome).toMatchObject({
+          error: {
+            errors: [
+              expect.objectContaining({
+                code:
+                  mismatch === 'foreign-store'
+                    ? 'coverage-store-mismatch'
+                    : 'coverage-authority-changed',
+              }),
+              cleanupFailure,
+            ],
+            name: 'AggregateError',
+          },
+        });
+      } else if (mismatch === 'foreign-store') {
+        expect(await result).toMatchObject({
+          error: { code: 'coverage-store-mismatch', name: 'IndexerError' },
+        });
+      } else {
+        expect(await result).toEqual({
+          value: { code: 'native-coverage-observation-invalidated', kind: 'invalidated' },
+        });
+      }
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      exited.resolve();
+      await result;
       await f.runtime.retireProfile();
     }
   }

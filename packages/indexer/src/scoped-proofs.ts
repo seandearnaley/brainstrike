@@ -17,6 +17,7 @@ import {
   scopedManifestRequestSchema,
   scopedManifestResultSchema,
 } from './contracts.js';
+import { assertCoverageAuthority } from './coverage-authority.js';
 import { compareManifest } from './index-manifest.js';
 import { readScopedIdentity } from './index-metadata.js';
 import { type ScopeAuthority, vectorProfileHash } from './scope-authority.js';
@@ -186,16 +187,8 @@ export function scopeCoverageBatch(
   });
   return db.transaction(() => {
     const identity = readScopedIdentity(db, authority.revision);
-    if (
-      expected &&
-      (identity.storeId !== expected.storeId ||
-        identity.authorityEpoch !== expected.authorityEpoch ||
-        identity.authorityRevision !== expected.authorityRevision)
-    ) {
-      throw new IndexerError(
-        'coverage-authority-changed',
-        'Native coverage authority changed during its owned observation.'
-      );
+    if (expected) {
+      assertCoverageAuthority(identity, expected);
     }
     const validatedProfiles = new Set<string>();
     return requests.map(({ request, selected, profile, profileHash }) => {

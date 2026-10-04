@@ -1,4 +1,5 @@
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
+import { NativeAuthorityTransitionError } from './native-authority-transition';
 import type { NativeCanonicalProfileResolver } from './native-canonical-profile';
 import type {
   CapturedNativeIndexAuthority,
@@ -34,11 +35,11 @@ export function createNativeIndexReadAuthority(dependencies: Dependencies) {
     acknowledged?: NativeIndexAuthority
   ): Promise<NativeSearchAuthority> => {
     if (dependencies.settingsReads.size > 0) {
-      throw new Error('Native saved configuration is being revalidated.');
+      throw new NativeAuthorityTransitionError('Native saved configuration is being revalidated.');
     }
     const current = dependencies.getGraph();
     if (!current) {
-      throw new Error('Native indexing has no current source authority.');
+      throw new NativeAuthorityTransitionError('Native indexing has no current source authority.');
     }
     dependencies.assertCurrent(current);
     if (current.watchFailures.size > 0) {
@@ -54,7 +55,7 @@ export function createNativeIndexReadAuthority(dependencies: Dependencies) {
       lease.signal.throwIfAborted();
     }
     if (dependencies.settingsReads.size > 0) {
-      throw new Error('Native saved configuration is being revalidated.');
+      throw new NativeAuthorityTransitionError('Native saved configuration is being revalidated.');
     }
     return {
       bindings: acknowledged?.fileBindings ?? authorized.fileBindings,
