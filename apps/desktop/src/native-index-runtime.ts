@@ -7,6 +7,16 @@ import type {
 
 type NativePort = IndexerPort & ScopedIndexerPort;
 
+/** Only an already-admitted borrow can prove that its own runtime retired its authority. */
+export class NativeReadAuthorityRetiredError extends Error {
+  readonly code = 'native-read-authority-retired';
+
+  constructor() {
+    super('Native read admission is closed.');
+    this.name = 'NativeReadAuthorityRetiredError';
+  }
+}
+
 export interface NativeIndexAuthority {
   readonly fileBindings: readonly IndexFileBinding[];
   readonly rootIds: readonly string[];
@@ -476,7 +486,7 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
             port: captured.port,
             readAuthority: () => {
               if (closed || readsClosed) {
-                throw new Error('Native read admission is closed.');
+                throw new NativeReadAuthorityRetiredError();
               }
               return captured.readAuthority();
             },

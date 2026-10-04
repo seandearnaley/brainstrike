@@ -37,6 +37,7 @@ import {
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
   close: vi.fn(),
+  coverageClosed: vi.fn(),
   database: { query: vi.fn(), transaction: vi.fn() },
   holdCoverage: vi.fn(),
   manager: {
@@ -70,7 +71,10 @@ vi.mock('../sqlite-query-host-manager', () => ({
       startupDeadlineMs: 5000,
     });
     return {
-      close: () => reader.close(),
+      close: async () => {
+        await reader.close();
+        mocks.coverageClosed();
+      },
       nativeCoverage: async (requests: Parameters<SqliteQueryClient['nativeCoverage']>[0]) => {
         const result = await reader.nativeCoverage(requests);
         await mocks.holdCoverage();
@@ -956,10 +960,11 @@ it('rejects held native coverage when genuine saved authority replacement retire
     await test.activation.acquire();
     test.state.holdCoverage = true;
     const pending = test.capability
-      .coverage({ collectionId: 'selected', rootIds: [] })
+      .coverageBatch([{ collectionId: 'selected', rootIds: [] }])
       .catch((error: unknown) => error);
     await test.coverageEntered.promise;
     const originalStore = (await test.native.info()).storeId;
+    const closedBefore = mocks.coverageClosed.mock.calls.length;
     test.state.enabled = false;
     const replacing = test.activation.reconfigure().catch((error: unknown) => error);
     await vi.waitFor(() =>
@@ -969,8 +974,16 @@ it('rejects held native coverage when genuine saved authority replacement retire
     );
     expect(mocks.close).not.toHaveBeenCalled();
     expect((await test.native.info()).storeId).toBe(originalStore);
+    await expect(test.activation.withRead(async () => {})).rejects.toThrow(
+      'Native read admission is closed.'
+    );
+    expect(mocks.coverageClosed).toHaveBeenCalledTimes(closedBefore);
     test.coverageGate.resolve();
-    expect(await pending).toBeInstanceOf(Error);
+    expect(await pending).toEqual({
+      code: 'native-coverage-observation-invalidated',
+      kind: 'invalidated',
+    });
+    expect(mocks.coverageClosed).toHaveBeenCalledTimes(closedBefore + 1);
     expect(await replacing).toEqual(new Error('Native indexing is disabled in saved settings.'));
     expect(mocks.close).toHaveBeenCalledOnce();
   } finally {
