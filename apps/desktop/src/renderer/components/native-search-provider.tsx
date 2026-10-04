@@ -17,7 +17,7 @@ import { generateDesktopQueryEmbedding } from '../query-embeddings';
 
 type ReadyStatus = Extract<IndexerStatus, { kind: 'ready' }>;
 type ExecutionStatus =
-  | Omit<ReadyStatus, 'collectionReadiness' | 'rootReadiness'>
+  | Omit<ReadyStatus, 'collectionReadiness' | 'rootReadiness' | 'publicationProgress'>
   | Extract<IndexerStatus, { kind: 'unavailable' }>;
 interface NativeSearchStatus {
   readonly execution: ExecutionStatus;
@@ -64,7 +64,12 @@ function executionStatus(status: IndexerStatus): ExecutionStatus {
   if (status.kind === 'unavailable') {
     return status;
   }
-  const { collectionReadiness: _collections, rootReadiness: _roots, ...execution } = status;
+  const {
+    collectionReadiness: _collections,
+    rootReadiness: _roots,
+    publicationProgress: _progress,
+    ...execution
+  } = status;
   return execution;
 }
 function nextSearchStatus(prior: NativeSearchStatus, status: IndexerStatus): NativeSearchStatus {

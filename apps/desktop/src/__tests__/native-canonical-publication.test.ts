@@ -178,8 +178,202 @@ function overlappingFixture() {
       })
     ).toMatchObject({ scanComplete: true });
   };
-  return { contentHash: plan.contentHash, file: rooted, port, publication, scan, scope, workspace };
+  return {
+    contentHash: plan.contentHash,
+    file: rooted,
+    plan,
+    port,
+    publication,
+    scan,
+    scope,
+    workspace,
+  };
 }
+
+it('projects distinct matching native plans only after commit acknowledgement', async () => {
+  const f = overlappingFixture();
+  const ticket = await f.publication.beginScan({ requestId: 'ack-progress', scope: f.workspace });
+  let acknowledge = (): void => {
+    throw new Error('Commit was not admitted');
+  };
+  f.port.commitScopedFile.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        acknowledge = resolve;
+      })
+  );
+  const commit = () =>
+    f.publication.commitVectorFile({
+      embeddings: [],
+      file: f.file,
+      plan: f.plan,
+      profile: localProfile,
+      ticket,
+    });
+  const pending = commit();
+  await vi.waitFor(() => expect(f.port.commitScopedFile).toHaveBeenCalledOnce());
+  expect(f.publication.getReadiness()[0]?.publication).toBeUndefined();
+  acknowledge();
+  await pending;
+  expect(f.publication.getReadiness()[0]).toMatchObject({
+    publication: {
+      acknowledgedFiles: 1,
+      authorityEpoch: 'epoch',
+      authorityRevision: 1,
+      generation: ticket.generation,
+      mutationRevision: 1,
+      profileHash: vectorProfileHash(localProfile),
+      requestId: ticket.requestId,
+      storeId,
+    },
+    scanComplete: false,
+  });
+  expect(f.publication.getReadiness()[1]?.publication).toBeUndefined();
+  await commit();
+  expect(f.publication.getReadiness()[0]?.publication?.acknowledgedFiles).toBe(1);
+  await f.publication.finishScan({
+    ...completion,
+    files: [{ ...f.file, contentHash: f.plan.contentHash }],
+    ticket,
+  });
+  expect(f.publication.getReadiness()[0]?.publication?.acknowledgedFiles).toBe(1);
+  const replacement = await f.publication.beginScan({
+    requestId: 'replacement',
+    scope: f.workspace,
+  });
+  expect(replacement.generation).toBe(ticket.generation + 1);
+  expect(f.publication.getReadiness()[0]?.publication).toBeUndefined();
+  await expect(commit()).rejects.toThrow(/stale/);
+});
+
+it.each(['aborted', 'failed', 'invalidated'] as const)(
+  'does not project %s native commit work as publication progress',
+  async (mode) => {
+    const f = overlappingFixture();
+    const ticket = await f.publication.beginScan({ requestId: mode, scope: f.workspace });
+    let settle = (): void => {
+      throw new Error('Commit was not admitted');
+    };
+    f.port.commitScopedFile.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          settle = () =>
+            mode === 'failed' ? reject(new Error('native commit failed')) : resolve();
+        })
+    );
+    const pending = f.publication.commitVectorFile({
+      embeddings: [],
+      file: f.file,
+      plan: f.plan,
+      profile: localProfile,
+      ticket,
+    });
+    const outcome = pending.catch((error: unknown) => error);
+    await vi.waitFor(() => expect(f.port.commitScopedFile).toHaveBeenCalledOnce());
+    const abort = mode === 'aborted' ? f.publication.abortScan(ticket) : undefined;
+    if (mode === 'invalidated') {
+      f.publication.invalidateFile(f.file);
+    }
+    settle();
+    await outcome;
+    await abort;
+    expect(f.publication.getReadiness()[0]?.publication).toBeUndefined();
+  }
+);
+
+it('keeps ticket identity while acknowledged authority advances from workspace to collection publication', async () => {
+  const f = overlappingFixture();
+  const workspaceTicket = await f.publication.beginScan({
+    requestId: 'workspace',
+    scope: f.workspace,
+  });
+  await f.publication.commitVectorFile({
+    embeddings: [],
+    file: f.file,
+    plan: f.plan,
+    profile: localProfile,
+    ticket: workspaceTicket,
+  });
+  const second = { ...f.file, fileId: 'second' };
+  const secondPlan = {
+    ...f.plan,
+    authorityEpoch: 'later-authority',
+    authorityRevision: 9,
+    chunks: f.plan.chunks.map((chunk) => ({ ...chunk, chunkId: '2'.repeat(64) })),
+    snapshot: { ...f.plan.snapshot, fileId: second.fileId },
+  };
+  await f.publication.commitVectorFile({
+    embeddings: [],
+    file: second,
+    plan: secondPlan,
+    profile: localProfile,
+    ticket: workspaceTicket,
+  });
+  const acknowledged = f.publication.getReadiness()[0]?.publication;
+  expect(acknowledged).toMatchObject({
+    acknowledgedFiles: 2,
+    authorityEpoch: 'later-authority',
+    authorityRevision: 9,
+    generation: workspaceTicket.generation,
+    requestId: workspaceTicket.requestId,
+  });
+  await f.publication.finishScan({
+    ...completion,
+    files: [
+      { ...f.file, contentHash: f.plan.contentHash },
+      { ...second, contentHash: secondPlan.contentHash },
+    ],
+    ticket: workspaceTicket,
+  });
+  const collectionTicket = await f.publication.beginScan({
+    requestId: 'collection',
+    scope: f.scope,
+  });
+  await f.publication.commitVectorFile({
+    embeddings: [],
+    file: f.file,
+    plan: { ...f.plan, authorityEpoch: 'collection-authority', authorityRevision: 10 },
+    profile: localProfile,
+    ticket: collectionTicket,
+  });
+  expect(f.publication.getReadiness()[0]?.publication).toEqual(acknowledged);
+  expect(f.publication.getReadiness()[0]?.mutationRevision).toBeGreaterThan(
+    acknowledged!.mutationRevision
+  );
+  expect(f.publication.getReadiness()[1]?.publication).toMatchObject({
+    acknowledgedFiles: 1,
+    authorityEpoch: 'collection-authority',
+    authorityRevision: 10,
+    generation: collectionTicket.generation,
+    requestId: collectionTicket.requestId,
+  });
+  expect(f.publication.getReadiness().every((entry) => !entry.scanComplete)).toBe(true);
+});
+
+it.each(['store', 'profile', 'scope'] as const)(
+  'refuses a mismatched %s plan before it can earn progress',
+  async (mode) => {
+    const f = overlappingFixture();
+    const ticket = await f.publication.beginScan({ requestId: mode, scope: f.workspace });
+    const plan =
+      mode === 'store'
+        ? { ...f.plan, storeId: 'foreign' }
+        : mode === 'profile'
+          ? { ...f.plan, profileHash: 'foreign' }
+          : { ...f.plan, snapshot: { ...f.plan.snapshot, rootId: 'foreign' } };
+    await expect(
+      f.publication.commitVectorFile({
+        embeddings: [],
+        file: f.file,
+        plan,
+        profile: localProfile,
+        ticket,
+      })
+    ).rejects.toThrow(/plan|identity|scope/);
+    expect(f.port.commitScopedFile).not.toHaveBeenCalled();
+    expect(f.publication.getReadiness()[0]?.publication).toBeUndefined();
+  }
+);
 
 it('discards the removed file plan and overlapping proofs so a returned identity cannot reuse a stat skip', async () => {
   const f = overlappingFixture();
@@ -212,6 +406,9 @@ it.each(['TEXT', 'VECTOR'] as const)(
     const f = overlappingFixture();
     const ticket = await f.publication.beginScan({ requestId: 'before-delete', scope: f.scope });
     const plan = await f.port.prepareScopedFile({});
+    if (mode === 'TEXT') {
+      f.port.prepareScopedFile.mockResolvedValue({ ...plan, profile: null, profileHash: null });
+    }
     const held = Promise.withResolvers<void>();
     const entered = Promise.withResolvers<void>();
     const commit = async (): Promise<void> => {

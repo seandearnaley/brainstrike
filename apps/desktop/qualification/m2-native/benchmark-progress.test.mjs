@@ -19,6 +19,7 @@ const baseline = {
     profileHash: 'profile-hash',
   },
   kind: 'ready',
+  publicationProgress: [],
   queryPlan: {
     inferencePlan: {
       device: 'webgpu',
@@ -78,7 +79,129 @@ function complete(status = baseline) {
   };
 }
 
-test('historical publication credits each scope once while rejected coverage remains null', async () => {
+function acknowledged(scope, count, changes = {}) {
+  return {
+    acknowledgedFiles: count,
+    authorityEpoch: 'epoch',
+    authorityRevision: count,
+    mutationRevision: count * 2,
+    ownerGeneration: 2,
+    profileHash: baseline.embedding.profileHash,
+    requestId: JSON.stringify(scope),
+    scanGeneration: 1,
+    scope,
+    storeId: baseline.storeId,
+    ...changes,
+  };
+}
+
+test('acknowledged plans sustain liveness through invalidated coverage and workspace to collection authority changes', async () => {
+  const f = fixture();
+  const workspace = { kind: 'workspace', rootId: 'root' };
+  const collection = { embeddingSetId: 'collection', kind: 'collection' };
+  f.time(199_000);
+  f.setStatus({ ...baseline, publicationProgress: [acknowledged(workspace, 1)] });
+  assert.equal(await f.progress.observe(), null);
+  assert.equal(f.records.length, 1);
+  f.time(398_000);
+  f.setStatus({
+    ...baseline,
+    publicationProgress: [
+      acknowledged(workspace, 2, {
+        authorityEpoch: 'later-native-epoch',
+        authorityRevision: 1,
+        mutationRevision: 8,
+      }),
+    ],
+  });
+  await f.progress.observe();
+  f.time(597_000);
+  f.setStatus({
+    ...baseline,
+    publicationProgress: [
+      acknowledged(workspace, 2, {
+        authorityEpoch: 'later-native-epoch',
+        authorityRevision: 1,
+        mutationRevision: 8,
+      }),
+      acknowledged(collection, 1, { authorityEpoch: 'collection-epoch', authorityRevision: 9 }),
+    ],
+  });
+  await f.progress.observe();
+  assert.equal(f.records.length, 3);
+  assert.ok(f.records.every((entry) => entry.value.source === 'acknowledged-publication'));
+  f.time(797_000);
+  f.progress.assertLive();
+  f.time(797_001);
+  assert.throws(f.progress.assertLive, /200-second stall window/);
+});
+
+test('repeated acknowledgement and changing admission revisions cannot refresh liveness', async () => {
+  const f = fixture();
+  const workspace = { kind: 'workspace', rootId: 'root' };
+  f.setStatus({ ...baseline, publicationProgress: [acknowledged(workspace, 1)] });
+  await f.progress.observe();
+  f.time(200_000);
+  f.setStatus({
+    ...baseline,
+    publicationProgress: [
+      acknowledged(workspace, 1, {
+        authorityEpoch: 'later',
+        authorityRevision: 99,
+        mutationRevision: 999,
+      }),
+    ],
+  });
+  await f.progress.observe();
+  assert.equal(f.records.length, 1);
+  f.time(200_001);
+  assert.throws(f.progress.assertLive, /200-second stall window/);
+});
+
+test('baseline ACKs, rewinds and absent failed or aborted progress give no new credit', async () => {
+  const workspace = { kind: 'workspace', rootId: 'root' };
+  const f = fixture({ ...baseline, publicationProgress: [acknowledged(workspace, 2)] });
+  for (const publications of [
+    [acknowledged(workspace, 2)],
+    [acknowledged(workspace, 1)],
+    [],
+    [acknowledged(workspace, 2)],
+  ]) {
+    f.time(200_000);
+    f.setStatus({ ...baseline, publicationProgress: publications });
+    await f.progress.observe();
+  }
+  assert.equal(f.records.length, 0);
+  f.time(200_001);
+  assert.throws(f.progress.assertLive, /200-second stall window/);
+});
+
+test('new scans, owner restarts and mismatched publication identity cannot buy another stall window', async () => {
+  const workspace = { kind: 'workspace', rootId: 'root' };
+  for (const changes of [
+    { scanGeneration: 2 },
+    { ownerGeneration: 3 },
+    { requestId: 'replacement' },
+    { storeId: 'foreign' },
+    { profileHash: 'foreign' },
+    { scope: { kind: 'workspace', rootId: 'foreign' } },
+    { acknowledgedFiles: Number.NaN },
+    { authorityEpoch: '' },
+    { mutationRevision: -1 },
+  ]) {
+    const f = fixture();
+    f.setStatus({ ...baseline, publicationProgress: [acknowledged(workspace, 1)] });
+    await f.progress.observe();
+    f.time(200_000);
+    f.setStatus({ ...baseline, publicationProgress: [acknowledged(workspace, 2, changes)] });
+    await assert.rejects(f.progress.observe, /generation|identity|inventory/);
+    assert.equal(f.records.length, 1);
+    f.time(200_001);
+    assert.throws(f.progress.assertLive, /200-second stall window/);
+  }
+});
+
+test('scope completion alone gives no incremental committed progress credit', async () => {
   const f = fixture();
   f.time(100_000);
   f.setStatus({
@@ -89,16 +212,16 @@ test('historical publication credits each scope once while rejected coverage rem
   f.time(200_000);
   f.setStatus(complete());
   assert.equal(await f.progress.observe(), null);
-  assert.equal(f.records.length, 2);
+  assert.equal(f.records.length, 0);
   assert.equal(f.baselines.length, 1);
   assert.equal(f.baselines[0].value.atMs, 0);
   assert.deepEqual(
     f.records.map((record) => record.value.elapsedMs),
-    [100_000, 200_000]
+    []
   );
-  f.time(400_000);
+  f.time(200_000);
   f.progress.assertLive();
-  f.time(400_001);
+  f.time(200_001);
   assert.throws(f.progress.assertLive, /200-second stall window/);
 });
 
@@ -115,7 +238,7 @@ test('repeats, rewinds and baseline-true receipts cannot refresh the guard', asy
       await f.progress.observe();
     }
     assert.equal(f.records.length, credits);
-    assert.equal(credits, initial === baseline ? 2 : 0);
+    assert.equal(credits, 0);
     f.time(200_001);
     assert.throws(f.progress.assertLive, /200-second stall window/);
   }
