@@ -43,7 +43,12 @@ import {
   stateThreadsSchema,
   textCommitSchema,
 } from './contracts.js';
-import type { IndexerPort, ScopedIndexerPort, StateIndexerPort } from './index.js';
+import type {
+  IndexerPort,
+  PurgeIndexerPort,
+  ScopedIndexerPort,
+  StateIndexerPort,
+} from './index.js';
 import { RpcClient } from './rpc-client.js';
 import { validateStateModule } from './state-projection.js';
 
@@ -107,7 +112,7 @@ export interface IndexerConnection {
   close(): Promise<void>;
   destroy(): Promise<void>;
   readonly exited: boolean;
-  readonly ready: Promise<IndexerPort & ScopedIndexerPort & StateIndexerPort>;
+  readonly ready: Promise<IndexerPort & PurgeIndexerPort & ScopedIndexerPort & StateIndexerPort>;
 }
 export function createIndexerConnection(
   input: unknown,
@@ -265,7 +270,7 @@ export function createIndexerConnection(
     });
     return closeAttempt;
   };
-  const port: IndexerPort & ScopedIndexerPort & StateIndexerPort = {
+  const port: IndexerPort & PurgeIndexerPort & ScopedIndexerPort & StateIndexerPort = {
     catchUpState: async (threads) => {
       await call('state-catch-up', decoder(stateThreadsSchema)(threads), decoder(Schema.Boolean));
     },
@@ -325,6 +330,8 @@ export function createIndexerConnection(
       call('prepare-file', decoder(snapshotSchema)(snapshot), decoder(planSchema)),
     prepareScopedFile: async (request) =>
       call('prepare-scoped-file', decoder(scopedPrepareSchema)(request), decoder(scopedPlanSchema)),
+    purgeFile: async (identity) =>
+      call('purge-file', decoder(identitySchema)(identity), decoder(Schema.Boolean)),
     rebuildState: async (threadId) => {
       await call(
         'state-rebuild',

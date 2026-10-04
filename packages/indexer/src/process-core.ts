@@ -177,6 +177,7 @@ export async function runIndexerProcess(
           case 'commit-text-file':
             work = client.call(request.op, request.payload, decoder(commitResultSchema));
             break;
+          case 'purge-file':
           case 'remove-file':
             work = client.call(request.op, request.payload, decoder(Schema.Boolean));
             break;

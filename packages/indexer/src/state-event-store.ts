@@ -1,8 +1,9 @@
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
-import { blobsOf, CheckpointBlockedError, SqliteReader } from '@brainstrike/state-store';
+import { blobsOf, SqliteReader } from '@brainstrike/state-store';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
+import { checkedTruncateCheckpoint } from './checked-checkpoint.js';
 import {
   decoder,
   IndexerError,
@@ -179,7 +180,7 @@ export class StateEventStore {
       throw new Error('State reindex requires the exact verified committed truth event');
     }
     this.db.transaction(() => this.replace(threadId, seq, row.raw))();
-    this.checkpoint();
+    checkedTruncateCheckpoint(this.db);
     return true;
   }
 
@@ -190,7 +191,7 @@ export class StateEventStore {
       this.db.prepare('DELETE FROM state_thread_cursors WHERE thread_id=?').run(threadId);
       this.catchUp([threadId]);
     })();
-    this.checkpoint();
+    checkedTruncateCheckpoint(this.db);
     return true;
   }
 
@@ -262,34 +263,12 @@ export class StateEventStore {
       this.db.prepare('DELETE FROM state_event_rows WHERE thread_id=?').run(threadId);
       this.db.prepare('DELETE FROM state_thread_cursors WHERE thread_id=?').run(threadId);
     })();
-    this.checkpoint();
+    checkedTruncateCheckpoint(this.db);
     return decoder(Schema.Array(Schema.String))(
       this.db
         .prepare('SELECT hash FROM state_dropped_blob_refs WHERE thread_id=? ORDER BY hash')
         .pluck()
         .all(threadId)
     );
-  }
-
-  private checkpoint(): void {
-    const busyTimeout = decodeCount(this.db.pragma('busy_timeout', { simple: true }));
-    this.db.pragma('busy_timeout=0');
-    try {
-      const rows = decoder(
-        Schema.Array(Schema.Struct({ busy: count, checkpointed: Schema.Int, log: Schema.Int }))
-      )(this.db.pragma('wal_checkpoint(TRUNCATE)'));
-      if (
-        rows.length !== 1 ||
-        rows[0]?.busy !== 0 ||
-        rows[0].log !== 0 ||
-        rows[0].checkpointed !== 0
-      ) {
-        throw new CheckpointBlockedError(
-          'Derived state purge checkpoint is blocked by a pinned reader'
-        );
-      }
-    } finally {
-      this.db.pragma(`busy_timeout=${busyTimeout}`);
-    }
   }
 }

@@ -73,6 +73,15 @@ export interface IndexerPort {
   search(request: unknown): Promise<SearchResult>;
   verifyManifest(request: unknown): Promise<IndexerManifestResult>;
 }
+/** Physical canonical vector-payload erasure; ordinary logical removal keeps its existing cost. */
+export interface PurgeIndexerPort {
+  /**
+   * Returns whether rows were removed. Every success completes the checked vector-payload/WAL
+   * checkpoint. File rows and FTS entries are deleted logically; historical FTS token erasure
+   * is outside this capability's physical-erasure promise.
+   */
+  purgeFile(identity: unknown): Promise<boolean>;
+}
 /** Trusted main/catalog owner port. Never forward renderer-supplied binding inventories. */
 export interface ScopedIndexerPort {
   commitScopedFile(commit: unknown): Promise<CommitResult>;
@@ -122,7 +131,7 @@ export function createStateStoreIndexer(
 export async function openIndexer(
   input: unknown,
   deadlineInput: unknown
-): Promise<IndexerPort & ScopedIndexerPort & StateIndexerPort> {
+): Promise<IndexerPort & PurgeIndexerPort & ScopedIndexerPort & StateIndexerPort> {
   if (process.versions['electron']) {
     throw new Error('Standalone indexer requires Node; use the explicit Electron utility adapter.');
   }
