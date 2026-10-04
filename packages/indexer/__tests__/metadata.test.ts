@@ -13,7 +13,7 @@ const row = {
   indexMode: 'text-only',
   profileHash: null,
   profileJson: null,
-  schemaVersion: 6,
+  schemaVersion: 7,
   storeId: 'a'.repeat(64),
 };
 it('decodes raw text and complete configured identity without a SQLite driver', () => {
@@ -36,6 +36,7 @@ it('decodes raw text and complete configured identity without a SQLite driver', 
     { ...row, storeId: 'invalid' },
     { ...row, schemaVersion: 3 },
     { ...row, schemaVersion: 5 },
+    { ...row, schemaVersion: 6 },
     { ...row, profileJson: '{}' },
     { ...configured, profileHash: 'b'.repeat(64) },
     { ...configured, profileJson: '{}' },
