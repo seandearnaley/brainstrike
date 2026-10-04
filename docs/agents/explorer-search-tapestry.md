@@ -21,6 +21,12 @@
 - Increment the store's monotonic `generation` on `beginSearch`, on every
   mode/collection/toggle change, and on `clearResults`; `resolveResults` and
   `failSearch` no-op unless it still matches.
+- Keep native execution identity stable across readiness-only observations.
+  Desktop status refreshes still update semantic availability, but only a change
+  to the capability, root binding, store, authorized roots/collections, full
+  embedding configuration, or full query plan replaces the executor and cancels
+  an active query. Compare the complete status projection with only root and
+  collection readiness removed; never retain stale readiness to stabilize it.
 - Keep the chunk the single visible selection unit: the chunk row carries the
   only child checkbox, match rows are navigation-only leaves, and every row
   reserves the expand-toggle column so checkboxes align per level.
@@ -41,9 +47,12 @@
 
 Ranges are output-only, so merging is safe and the subtraction-bleed
 defect cannot return; the mode never auto-reverts. Evidence:
-`explorer-search-tapestry/workspace-search-panel.md`.
+`explorer-search-tapestry/workspace-search-panel.md`,
+`explorer-search-tapestry/2026-10-04-native-search-execution-identity.md`.
 Guard: `search-mode-gating.test.tsx`, `workspace-search-panel.test.tsx`,
-`search-results-tree.test.tsx`, `use-search-selection-bridge.test.tsx`.
+`search-results-tree.test.tsx`, `use-search-selection-bridge.test.tsx`,
+`apps/desktop/src/__tests__/renderer/components/native-search-provider.test.tsx`,
+`packages/app-shell/src/__tests__/use-workspace-search-controller.test.tsx`.
 
 ---
 

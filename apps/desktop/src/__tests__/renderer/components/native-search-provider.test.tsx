@@ -1,8 +1,17 @@
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
-import { useNativeWorkspaceSearchDependencies } from '@brainstrike/workspace-search/core';
-import { renderHook, waitFor } from '@testing-library/react';
+import type {
+  IndexerStatus,
+  IndexSearchCapability,
+} from '@brainstrike/indexing-contract/indexer-client';
+import {
+  useNativeWorkspaceSearchDependencies,
+  useWorkspaceSearchStore,
+} from '@brainstrike/workspace-search/core';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RootIdentityProvider } from '../../../../../../packages/app-shell/src/roots/root-identity-context';
+import { useWorkspaceSearchController } from '../../../../../../packages/app-shell/src/use-workspace-search-controller';
+import { SearchEmbedderProvider } from '../../../../../../packages/vector-management/src/search-embedder/search-embedder-provider';
 
 const preferences = vi.hoisted(() => ({
   managedCollectionId: 'collection-a',
@@ -20,6 +29,10 @@ vi.mock('@brainstrike/app-state/stores/background-indexing-preferences-store', (
     (selector: (state: typeof preferences) => unknown) => selector(preferences),
     { getState: () => preferences }
   ),
+}));
+vi.mock('@brainstrike/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/ui')>()),
+  useIdeFileEditor: () => ({ openFileInTab: vi.fn(), registerOpenFileInTab: vi.fn() }),
 }));
 
 import { NativeSearchProvider } from '../../../renderer/components/native-search-provider';
@@ -58,6 +71,10 @@ beforeEach(() => {
     configurable: true,
     value: { cancelQueryEmbedding, queryEmbedding },
   });
+});
+afterEach(() => {
+  vi.useRealTimers();
+  useWorkspaceSearchStore.getState().reset();
 });
 describe('native query provider cancellation wiring', () => {
   function mount() {
@@ -117,4 +134,291 @@ describe('native query provider cancellation wiring', () => {
     await rejected;
     expect(queryEmbedding).not.toHaveBeenCalled();
   });
+});
+
+describe('native provider and search controller observation refresh', () => {
+  function mountController(cloneObservations = true) {
+    let observation: IndexerStatus = ready;
+    const counts = { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 };
+    const response = {
+      candidateCount: 0,
+      candidatesTruncated: false,
+      embedding: ready.embedding,
+      hits: [],
+      scanLimited: false,
+      storeId: ready.storeId,
+      truncated: false,
+    };
+    let capability: IndexSearchCapability = {
+      coverage: vi.fn(async () => ({
+        embedding: ready.embedding,
+        roots: [{ rootId: 'root-a', ...counts }],
+        storeId: ready.storeId,
+        totals: counts,
+        vectorCoverageComplete: true,
+      })),
+      coverageBatch: vi.fn(),
+      grep: vi.fn(async () => response),
+      rebuild: vi.fn(),
+      search: vi.fn(async () => response),
+      status: vi.fn(async () => (cloneObservations ? structuredClone(observation) : observation)),
+    };
+    let identities = new Map([['adapter-a', 'root-a']]);
+    function Wrapper({ children }: { children: ReactNode }) {
+      return (
+        <SearchEmbedderProvider>
+          <NativeSearchProvider capability={capability}>
+            <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+              {children}
+            </RootIdentityProvider>
+          </NativeSearchProvider>
+        </SearchEmbedderProvider>
+      );
+    }
+    const mounted = renderHook(
+      () => ({
+        controller: useWorkspaceSearchController(),
+        dependencies: useNativeWorkspaceSearchDependencies(),
+      }),
+      { wrapper: Wrapper }
+    );
+    return {
+      ...mounted,
+      capability,
+      refresh: (next: IndexerStatus) => {
+        observation = next;
+      },
+      replaceCapability: () => {
+        capability = { ...capability };
+      },
+      replaceRootBinding: () => {
+        identities = new Map([['adapter-b', 'root-a']]);
+      },
+    };
+  }
+
+  it('keeps held semantic inference alive across a readiness-only observation refresh', async () => {
+    vi.useFakeTimers();
+    const physical = Promise.withResolvers<number[]>();
+    queryEmbedding.mockReturnValue(physical.promise);
+    cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
+    const mounted = mountController();
+    try {
+      await vi.waitFor(() =>
+        expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
+      );
+      act(() => {
+        useWorkspaceSearchStore.getState().setQuery('needle');
+        useWorkspaceSearchStore.getState().setMode('semantic');
+        mounted.result.current.controller.runSemanticSearch();
+      });
+      await vi.waitFor(() => expect(queryEmbedding).toHaveBeenCalledOnce());
+      const generation = useWorkspaceSearchStore.getState().generation;
+      const prior = mounted.result.current.dependencies;
+      mounted.refresh({
+        ...ready,
+        collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: true }],
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      await vi.waitFor(() => expect(mounted.result.current.dependencies).not.toBe(prior));
+      expect(cancelQueryEmbedding).not.toHaveBeenCalled();
+      expect(useWorkspaceSearchStore.getState().status).toBe('searching');
+      expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
+      await act(async () => {
+        physical.resolve(Array.from({ length: 384 }, () => 1));
+      });
+      await vi.waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+      expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
+      expect(useWorkspaceSearchStore.getState().results?.mode).toBe('semantic');
+      expect(mounted.capability.search).toHaveBeenCalledTimes(2);
+    } finally {
+      physical.resolve(Array.from({ length: 384 }, () => 1));
+      mounted.unmount();
+    }
+  });
+
+  it('publishes readiness availability changes without cancelling the held execution', async () => {
+    vi.useFakeTimers();
+    const physical = Promise.withResolvers<number[]>();
+    queryEmbedding.mockReturnValue(physical.promise);
+    cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
+    const mounted = mountController();
+    try {
+      await vi.waitFor(() =>
+        expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
+      );
+      act(() => {
+        useWorkspaceSearchStore.getState().setQuery('needle');
+        useWorkspaceSearchStore.getState().setMode('semantic');
+        mounted.result.current.controller.runSemanticSearch();
+      });
+      await vi.waitFor(() => expect(queryEmbedding).toHaveBeenCalledOnce());
+      const generation = useWorkspaceSearchStore.getState().generation;
+      mounted.refresh({ ...ready, rootReadiness: [{ rootId: 'root-a', scanComplete: false }] });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      await vi.waitFor(() =>
+        expect(mounted.result.current.controller.semanticAvailability?.available).toBe(false)
+      );
+      expect(cancelQueryEmbedding).not.toHaveBeenCalled();
+      expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
+      mounted.refresh(structuredClone(ready));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      await vi.waitFor(() =>
+        expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
+      );
+      await act(async () => {
+        physical.resolve(Array.from({ length: 384 }, () => 1));
+      });
+      await vi.waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+      expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
+      expect(cancelQueryEmbedding).not.toHaveBeenCalled();
+    } finally {
+      physical.resolve(Array.from({ length: 384 }, () => 1));
+      mounted.unmount();
+    }
+  });
+
+  const identityChanges: readonly { readonly name: string; readonly next: IndexerStatus }[] = [
+    {
+      name: 'store with the same profile and plan references',
+      next: { ...ready, storeId: 'store-b' },
+    },
+    {
+      name: 'root authority with the same profile and plan references',
+      next: { ...ready, authorizedRootIds: ['root-b'] },
+    },
+    {
+      name: 'collection authority with the same profile and plan references',
+      next: { ...ready, authorizedCollectionIds: ['collection-a', 'collection-b'] },
+    },
+    {
+      name: 'profile hash',
+      next: { ...ready, embedding: { ...ready.embedding, profileHash: 'b'.repeat(64) } },
+    },
+    ...[
+      { change: { dimensions: 768 }, name: 'profile dimensions' },
+      { change: { dtype: 'q8' as const }, name: 'profile dtype' },
+      { change: { modelId: 'different-model' }, name: 'profile model' },
+      { change: { revision: 'b'.repeat(40) }, name: 'profile revision' },
+      { change: { tokenCap: 512 }, name: 'profile token cap' },
+    ].map(({ name, change }) => ({
+      name,
+      next: { ...ready, embedding: { ...ready.embedding, profile: { ...profile, ...change } } },
+    })),
+    {
+      name: 'query model key',
+      next: { ...ready, queryPlan: { ...queryPlan, modelKey: 'different-key' } },
+    },
+    ...[
+      { change: { device: 'wasm' as const }, name: 'query device' },
+      { change: { dtype: 'q8' as const }, name: 'query dtype' },
+      { change: { modelId: 'different-query-model' }, name: 'query model' },
+      { change: { revision: 'b'.repeat(40) }, name: 'query revision' },
+    ].map(({ name, change }) => ({
+      name,
+      next: {
+        ...ready,
+        queryPlan: { ...queryPlan, inferencePlan: { ...queryPlan.inferencePlan, ...change } },
+      },
+    })),
+    { name: 'query plan removal', next: { ...ready, queryPlan: undefined } },
+    { name: 'embedding mode', next: { ...ready, embedding: { indexMode: 'text-only' } } },
+    {
+      name: 'unavailable authority',
+      next: { kind: 'unavailable', reason: 'Native owner retired.' },
+    },
+  ];
+
+  it.each(identityChanges)(
+    'cancels held inference on $name and drops its late result',
+    async ({ next }) => {
+      vi.useFakeTimers();
+      const physical = Promise.withResolvers<number[]>();
+      queryEmbedding.mockReturnValue(physical.promise);
+      cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
+      // Deliberately reuse nested references: object churn must not be the authority guard.
+      const mounted = mountController(false);
+      try {
+        await vi.waitFor(() =>
+          expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
+        );
+        act(() => {
+          useWorkspaceSearchStore.getState().setQuery('needle');
+          useWorkspaceSearchStore.getState().setMode('semantic');
+          mounted.result.current.controller.runSemanticSearch();
+        });
+        await vi.waitFor(() => expect(queryEmbedding).toHaveBeenCalledOnce());
+        const generation = useWorkspaceSearchStore.getState().generation;
+        const token = queryEmbedding.mock.calls[0]?.[1] as { requestId: string };
+        mounted.refresh(next);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2000);
+        });
+        await vi.waitFor(() =>
+          expect(cancelQueryEmbedding).toHaveBeenCalledExactlyOnceWith(token.requestId)
+        );
+        expect(useWorkspaceSearchStore.getState().generation).toBeGreaterThan(generation);
+        expect(useWorkspaceSearchStore.getState().status).toBe('error');
+        await act(async () => {
+          physical.resolve(Array.from({ length: 384 }, () => 1));
+        });
+        expect(mounted.capability.search).not.toHaveBeenCalled();
+        expect(useWorkspaceSearchStore.getState().results).toBeNull();
+        expect(useWorkspaceSearchStore.getState().error).toBe(
+          'Native workspace search scope or capability changed.'
+        );
+      } finally {
+        physical.resolve(Array.from({ length: 384 }, () => 1));
+        mounted.unmount();
+      }
+    }
+  );
+
+  it.each(['capability', 'root binding'] as const)(
+    'cancels held inference on an actual %s replacement',
+    async (change) => {
+      vi.useFakeTimers();
+      const physical = Promise.withResolvers<number[]>();
+      queryEmbedding.mockReturnValue(physical.promise);
+      cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
+      const mounted = mountController(false);
+      try {
+        await vi.waitFor(() =>
+          expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
+        );
+        act(() => {
+          useWorkspaceSearchStore.getState().setQuery('needle');
+          useWorkspaceSearchStore.getState().setMode('semantic');
+          mounted.result.current.controller.runSemanticSearch();
+        });
+        await vi.waitFor(() => expect(queryEmbedding).toHaveBeenCalledOnce());
+        const generation = useWorkspaceSearchStore.getState().generation;
+        if (change === 'capability') {
+          mounted.replaceCapability();
+        } else {
+          mounted.replaceRootBinding();
+        }
+        mounted.rerender();
+        await vi.waitFor(() => expect(cancelQueryEmbedding).toHaveBeenCalledOnce());
+        expect(useWorkspaceSearchStore.getState().generation).toBeGreaterThan(generation);
+        await act(async () => {
+          physical.resolve(Array.from({ length: 384 }, () => 1));
+        });
+        expect(mounted.capability.search).not.toHaveBeenCalled();
+        expect(useWorkspaceSearchStore.getState().results).toBeNull();
+        expect(useWorkspaceSearchStore.getState().error).toBe(
+          'Native workspace search scope or capability changed.'
+        );
+      } finally {
+        physical.resolve(Array.from({ length: 384 }, () => 1));
+        mounted.unmount();
+      }
+    }
+  );
 });
