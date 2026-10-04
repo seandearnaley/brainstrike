@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { runWithTimeout } from '@brainstrike/effect-kit';
@@ -32,9 +33,13 @@ import {
   searchResultSchema,
   searchSchema,
   snapshotSchema,
+  stateCountsSchema,
+  stateEventIdentitySchema,
+  stateGcSchema,
+  stateThreadsSchema,
   textCommitSchema,
 } from './contracts.js';
-import type { IndexerPort, ScopedIndexerPort } from './index.js';
+import type { IndexerPort, ScopedIndexerPort, StateIndexerPort } from './index.js';
 import { RpcClient } from './rpc-client.js';
 
 const duration = Schema.Finite.check(Schema.isGreaterThan(0));
@@ -69,6 +74,19 @@ export function validateIndexerOptions(input: unknown): typeof optionsSchema.Typ
   if (!path.isAbsolute(options.dbPath) || options.dbPath === ':memory:') {
     throw new TypeError('Indexer requires an absolute persistent database file path.');
   }
+  if (options.stateRoot !== undefined) {
+    if (
+      !path.isAbsolute(options.stateRoot) ||
+      realpathSync(options.stateRoot) !== options.stateRoot
+    ) {
+      throw new TypeError(
+        'State index acquisition requires its trusted canonical absolute truth root.'
+      );
+    }
+    if (path.resolve(options.dbPath) === path.join(options.stateRoot, 'state.db')) {
+      throw new TypeError('Derived index cannot use the authoritative state database path.');
+    }
+  }
   return options;
 }
 export function validateIndexerDeadlines(input: unknown): IndexerDeadlines {
@@ -78,7 +96,7 @@ export interface IndexerConnection {
   close(): Promise<void>;
   destroy(): Promise<void>;
   readonly exited: boolean;
-  readonly ready: Promise<IndexerPort & ScopedIndexerPort>;
+  readonly ready: Promise<IndexerPort & ScopedIndexerPort & StateIndexerPort>;
 }
 export function createIndexerConnection(
   input: unknown,
@@ -236,7 +254,10 @@ export function createIndexerConnection(
     });
     return closeAttempt;
   };
-  const port: IndexerPort & ScopedIndexerPort = {
+  const port: IndexerPort & ScopedIndexerPort & StateIndexerPort = {
+    catchUpState: async (threads) => {
+      await call('state-catch-up', decoder(stateThreadsSchema)(threads), decoder(Schema.Boolean));
+    },
     close,
     commitFile: async (commit) =>
       call('commit-file', decoder(commitSchema)(commit), decoder(commitResultSchema)),
@@ -270,11 +291,24 @@ export function createIndexerConnection(
         await rm(file, { force: true });
       }
     },
+    dropStateThread: (threadId) =>
+      call(
+        'state-drop-thread',
+        decoder(Schema.NonEmptyString)(threadId),
+        decoder(Schema.Array(Schema.String))
+      ),
     info: () => call('info', null, decoder(infoSchema)),
     prepareFile: async (snapshot) =>
       call('prepare-file', decoder(snapshotSchema)(snapshot), decoder(planSchema)),
     prepareScopedFile: async (request) =>
       call('prepare-scoped-file', decoder(scopedPrepareSchema)(request), decoder(scopedPlanSchema)),
+    reindexState: async (threadId, seq) => {
+      await call(
+        'state-reindex',
+        decoder(stateEventIdentitySchema)({ seq, threadId }),
+        decoder(Schema.Boolean)
+      );
+    },
     removeFile: async (identity) =>
       call('remove-file', decoder(identitySchema)(identity), decoder(Schema.Boolean)),
     removeScopedFile: async (request) =>
@@ -293,6 +327,12 @@ export function createIndexerConnection(
         'search-scopes',
         decoder(scopedSearchSchema)(request),
         decoder(scopedSearchResultSchema)
+      ),
+    stateBlobCounts: (threads, hashes) =>
+      call(
+        'state-gc-check',
+        decoder(stateGcSchema)({ hashes, threads }),
+        decoder(stateCountsSchema)
       ),
     verifyManifest: async (request) =>
       call(

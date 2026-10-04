@@ -1,4 +1,5 @@
 import { fork } from 'node:child_process';
+import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import type {
   CommitResult,
   FilePlan,
@@ -80,10 +81,30 @@ export interface ScopedIndexerPort {
   searchScopes(request: unknown): Promise<ScopedSearchResult>;
   verifyScopedManifest(request: unknown): Promise<ScopedManifestResult>;
 }
+export interface StateIndexerPort {
+  catchUpState(threads: readonly string[]): Promise<void>;
+  dropStateThread(threadId: string): Promise<readonly string[]>;
+  reindexState(threadId: string, seq: number): Promise<void>;
+  stateBlobCounts(
+    threads: readonly string[],
+    hashes: readonly string[]
+  ): Promise<Readonly<Record<string, number>>>;
+}
+export function createStateStoreIndexer(
+  port: StateIndexerPort & Pick<IndexerPort, 'destroy'>
+): StateStoreIndexerPort {
+  return {
+    catchUp: (threads) => port.catchUpState(threads),
+    dropThread: (threadId) => port.dropStateThread(threadId),
+    gcCheck: (threads, hashes) => port.stateBlobCounts(threads, hashes),
+    reindex: (threadId, seq) => port.reindexState(threadId, seq),
+    reset: () => port.destroy(),
+  };
+}
 export async function openIndexer(
   input: unknown,
   deadlineInput: unknown
-): Promise<IndexerPort & ScopedIndexerPort> {
+): Promise<IndexerPort & ScopedIndexerPort & StateIndexerPort> {
   if (process.versions['electron']) {
     throw new Error('Standalone indexer requires Node; use the explicit Electron utility adapter.');
   }

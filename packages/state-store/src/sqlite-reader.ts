@@ -52,7 +52,22 @@ export class SqliteReader {
     ).map((r) => r.t);
   }
 
-  *read(id: string, fromSeq: number): Generator<ReadItem> {
+  watermark(id: string): number {
+    const db = this.conn();
+    if (!db) {
+      throw new Error('State truth database does not exist');
+    }
+    const seq: unknown = db
+      .prepare('SELECT COALESCE(MAX(seq),0) FROM run_events WHERE thread_id=?')
+      .pluck()
+      .get(id);
+    if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0) {
+      throw new Error('State truth has an invalid sequence watermark');
+    }
+    return seq;
+  }
+
+  *read(id: string, fromSeq: number, toSeq = Number.MAX_SAFE_INTEGER): Generator<ReadItem> {
     const db = this.conn();
     if (!db) {
       return;
@@ -65,9 +80,9 @@ export class SqliteReader {
     try {
       const it = db
         .prepare(
-          'SELECT seq, payload, crc FROM run_events WHERE thread_id = ? AND seq >= ? ORDER BY seq LIMIT ?'
+          'SELECT seq, payload, crc FROM run_events WHERE thread_id = ? AND seq >= ? AND seq <= ? ORDER BY seq LIMIT ?'
         )
-        .iterate(id, expected, READ_LIMIT) as IterableIterator<Row>;
+        .iterate(id, expected, toSeq, READ_LIMIT) as IterableIterator<Row>;
       for (const r of it) {
         rows.push(r);
       }

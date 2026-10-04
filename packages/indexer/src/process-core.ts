@@ -11,6 +11,7 @@ import {
   optionsSchema,
   requestSchema,
   scopedRemoveSchema,
+  stateCountsSchema,
 } from './contracts.js';
 import { RpcClient } from './rpc-client.js';
 import { IndexReader } from './store.js';
@@ -98,6 +99,16 @@ export async function runIndexerProcess(
         }
         let work: unknown | Promise<unknown>;
         switch (request.op) {
+          case 'state-catch-up':
+          case 'state-reindex':
+            work = client.call(request.op, request.payload, decoder(Schema.Boolean));
+            break;
+          case 'state-gc-check':
+            work = client.call(request.op, request.payload, decoder(stateCountsSchema));
+            break;
+          case 'state-drop-thread':
+            work = client.call(request.op, request.payload, decoder(Schema.Array(Schema.String)));
+            break;
           case 'replace-file-bindings':
             connection.scoped.replaceBindings(request.payload);
             work = client.call(request.op, request.payload, decoder(Schema.Boolean));

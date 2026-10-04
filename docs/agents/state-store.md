@@ -51,6 +51,7 @@ Evidence: `state-store/foundation.md`.
 - Purge requires the indexer port. Persist and replay the purge intent, reindex
   the tombstone, require explicit nonnegative reference counts and truncate WAL
   before claiming deletion. A pinned reader rejects purge; retry completes it.
+- Use the production indexer's state adapter for physical FTS/reference-count qualification. Keep its truth reader on the existing indexer writer worker; do not model state events as canonical files or wire application chat in this foundation.
 - Export complete state through a consistent VACUUM INTO snapshot. Defer blob GC
   while exports reference older snapshots; import verifies every manifest hash.
 - JSONL interchange contains run rows and referenced blob bytes, with a version
