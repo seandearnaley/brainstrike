@@ -58,15 +58,21 @@ Guard: `packages/sqlite-query/src/__tests__/host-core.test.ts`, `apps/desktop/sr
   the requested scope before reporting the actual matched-chunk count; cap
   output visibly and fail the operation on deadline instead of returning partial
   success.
+- Prefilter case-sensitive literals in SQLite only when their UTF-8 representation
+  is lossless for matching and fits the configured engine byte limit; retain the
+  canonical line matcher and all selected-row
+  conversion errors. Preserve metadata on empty results and never cap candidates.
 
 Evidence: `agent-self-query/sqlite-index-foundation.md`,
-`agent-self-query/index-consumer.md`.
+`agent-self-query/index-consumer.md`,
+`agent-self-query/2026-10-04-literal-grep-prefilter.md`.
 Tests: `apps/desktop/src/__tests__/assistant-server/query-self-index-target.test.ts`,
 `apps/desktop/src/__tests__/sqlite-query-index.integration.test.ts`,
 `packages/sqlite-query/src/__tests__/client-ownership.test.ts`,
 `packages/sqlite-query/src/__tests__/protocol.test.ts`,
 `packages/sqlite-query/src/__tests__/sandbox.integration.test.ts`,
-`packages/sqlite-query/src/__tests__/scoped-grep.integration.test.ts`.
+`packages/sqlite-query/src/__tests__/scoped-grep.integration.test.ts`,
+`packages/sqlite-query/src/__tests__/literal-grep-prefilter.integration.test.ts`.
 
 ### User Stop and owned readers
 

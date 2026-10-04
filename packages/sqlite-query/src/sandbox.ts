@@ -202,10 +202,43 @@ export class SqliteSandbox {
       options.fileIds === undefined
         ? 'ch.root_id IN (SELECT value FROM json_each(?))'
         : 'fr.id IN (SELECT value FROM json_each(?))';
-    const collectionProjection =
-      options.fileIds === undefined ? '' : ',fr.embedding_set_id,fr.source_path';
+    const projection = [
+      'ch.id',
+      'ch.root_id',
+      'ch.file_record_id',
+      'fr.path',
+      'ch.content',
+      'ch.content_hash',
+      'ch.start_line',
+      'ch.end_line',
+      'ch.chunk_index',
+      'ch.chunk_size',
+      'ch.chunk_type',
+      'ch.start_offset',
+      'ch.end_offset',
+      'ch.token_count',
+      ...(options.fileIds === undefined ? [] : ['fr.embedding_set_id', 'fr.source_path']),
+    ];
+    // A lone surrogate can match half a JS code point; SQLite cannot bind it losslessly.
+    // Node also replaces invalid stored UTF-8 with U+FFFD, unlike SQLite instr.
+    // Public validation counts UTF-16 units; a bound literal must fit the engine's byte limit.
+    const filterLiteral =
+      !options.isRegex &&
+      options.caseSensitive &&
+      Buffer.byteLength(options.pattern) <= LENGTH_LIMIT &&
+      !/[\uD800-\uDFFF\uFFFD]/u.test(options.pattern);
+    // Keep every row that the existing decoder would reject, including nonmatching rows.
+    const invalidValue = projection
+      .map(
+        (column) =>
+          `((typeof(${column})='real' AND (${column}>1.7976931348623157e308 OR ${column}<-1.7976931348623157e308)) OR (typeof(${column})='integer' AND (${column}>9007199254740991 OR ${column}<-9007199254740991)))`
+      )
+      .join(' OR ');
+    const contentPredicate = filterLiteral
+      ? ` AND (typeof(ch.content)<>'text' OR ${invalidValue} OR instr(ch.content,?)>0)`
+      : '';
     const statement = this.#database.prepare(
-      `SELECT md.schema_version,md.store_id,md.index_mode,md.profile_json,md.profile_hash,native_chunks.* FROM index_metadata md LEFT JOIN (SELECT ch.id,ch.root_id,ch.file_record_id,fr.path,ch.content,ch.content_hash,ch.start_line,ch.end_line,ch.chunk_index,ch.chunk_size,ch.chunk_type,ch.start_offset,ch.end_offset,ch.token_count${collectionProjection} FROM file_chunks ch JOIN file_records fr ON fr.id=ch.file_record_id AND fr.root_id IS ch.root_id WHERE ${scopePredicate}) native_chunks ON 1=1 WHERE md.singleton=1 ORDER BY native_chunks.path,native_chunks.id`
+      `SELECT md.schema_version,md.store_id,md.index_mode,md.profile_json,md.profile_hash,native_chunks.* FROM index_metadata md LEFT JOIN (SELECT ${projection.join(',')} FROM file_chunks ch JOIN file_records fr ON fr.id=ch.file_record_id AND fr.root_id IS ch.root_id WHERE ${scopePredicate}${contentPredicate}) native_chunks ON 1=1 WHERE md.singleton=1 ORDER BY native_chunks.path,native_chunks.id`
     );
     statement.setReturnArrays(true);
     const columns = statement
@@ -216,7 +249,10 @@ export class SqliteSandbox {
     let matchedChunks = 0;
     let identity: IndexerIdentity | undefined;
     let resultBytes = columns.reduce((total, column) => total + Buffer.byteLength(column) + 16, 0);
-    for (const output of statement.iterate(JSON.stringify(selectedIds))) {
+    const parameters = filterLiteral
+      ? [JSON.stringify(selectedIds), options.pattern]
+      : [JSON.stringify(selectedIds)];
+    for (const output of statement.iterate(...parameters)) {
       const snapshotRow = decodeRow(output);
       identity ??= decodeIndexIdentityRow({
         indexMode: snapshotRow[2],
