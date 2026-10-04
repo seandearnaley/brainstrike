@@ -39,7 +39,7 @@ it.each([
   { kind: 'workspace', rootId: 'root' },
   { embeddingSetId: 'retained', kind: 'collection' },
 ] as const)(
-  'publishes explicit VECTOR through public native scoped writer for %s with controlled inference',
+  'publishes bounded cross-file VECTOR through public native scoped writer for %s with controlled inference',
   async (scope: CanonicalSourceScope) => {
     const captured = JSON.parse(
       await readFile(
@@ -66,13 +66,46 @@ it.each([
       sourcePath: '/retained/original.ts',
       stat: { mtimeMs: 123, size: Buffer.byteLength(content) },
     };
+    const entries = [
+      { content, contentHash, file },
+      ...[1, 2].map((index) => ({
+        content: captured.content,
+        contentHash: createHash('sha256').update(captured.content).digest('hex'),
+        file: {
+          ...file,
+          fileId: `${file.fileId}-${index}`,
+          relativePath: file.relativePath ? `small-${index}.ts` : null,
+          sourcePath: `/retained/small-${index}.ts`,
+          stat: { mtimeMs: 123, size: Buffer.byteLength(captured.content) },
+        },
+      })),
+    ];
+    const bindings = entries.map(({ file: current }) => {
+      const { fileName: _name, stat: _stat, ...identity } = current;
+      return { ...identity, profile };
+    });
+    const entryFor = (fileId: string) => {
+      const entry = entries.find((item) => item.file.fileId === fileId);
+      if (!entry) {
+        throw new Error('Unexpected canonical native file.');
+      }
+      return entry;
+    };
+    const bindingFor = (fileId: string) => {
+      const binding = bindings.find((item) => item.fileId === fileId);
+      if (!binding) {
+        throw new Error('Unexpected canonical native binding.');
+      }
+      const { profile: _profile, ...identity } = binding;
+      return identity;
+    };
     const { fileName: _name, stat: _stat, ...binding } = file;
     const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-canonical-vector-'));
     let port: IndexerPort & ScopedIndexerPort = await openIndexer(
       {
         dbPath: path.join(directory, 'index.sqlite'),
         embedding: { indexMode: 'text-only' },
-        fileBindings: [{ ...binding, profile }],
+        fileBindings: bindings,
         rootIds: file.rootId ? [file.rootId] : [],
         scopes: [{ embeddingSetId: file.embeddingSetId!, kind: 'collection' }],
       },
@@ -84,10 +117,10 @@ it.each([
     const base: CanonicalPublicationPort = {
       abortScan: vi.fn(async () => {}),
       beginScan: async (request) => ({ ...request, generation: ++generation, storeId }),
-      commitTextFile: async ({ payload }) => {
+      commitTextFile: async ({ file: current, payload }) => {
         const plan = await port.prepareScopedFile({
           snapshot: {
-            ...binding,
+            ...bindingFor(current.fileId),
             content: payload.content,
             providedChunks: payload.providedChunks,
           },
@@ -118,16 +151,16 @@ it.each([
       commitVectorFile: async ({ plan, embeddings, profile: selected, syntax }) => {
         await port.commitScopedFile({ embeddings, plan, profile: selected, syntax });
         manifests.set(plan.snapshot.fileId, {
-          ...binding,
+          ...bindingFor(plan.snapshot.fileId),
           chunks: plan.chunks.map(({ content: _text, embeddingHash: _hash, ...chunk }) => chunk),
           contentHash: plan.contentHash,
         });
       },
-      prepareVectorFile: async ({ payload, profile: selected }) =>
+      prepareVectorFile: async ({ file: current, payload, profile: selected }) =>
         port.prepareScopedFile({
           profile: selected,
           snapshot: {
-            ...binding,
+            ...bindingFor(current.fileId),
             content: payload.content,
             providedChunks: payload.providedChunks,
           },
@@ -138,7 +171,11 @@ it.each([
     const catalog: CanonicalCatalogPort<VectorProfile> = {
       applyManagedCacheBatch: async () => {},
       completeFiles: vi.fn(async () => {}),
-      loadAuthorizedBatch: async () => [{ ...file, chunksProcessed: true, contentHash }],
+      loadAuthorizedBatch: async ({ files }) =>
+        files.map((current) => {
+          const entry = entryFor(current.fileId);
+          return { ...entry.file, chunksProcessed: true, contentHash: entry.contentHash };
+        }),
       prepareManagedSourcesBatch: async () => [],
       removeFiles: async () => {},
       resolveProfile: async () => profile,
@@ -146,10 +183,13 @@ it.each([
     const source: CanonicalSourcePort = {
       close: async () => {},
       async *discover() {
-        yield { files: [file], removed: [] };
+        yield { files: entries.map((entry) => entry.file), removed: [] };
         return { errors: [], full: true, truncatedDirectories: [] };
       },
-      read: vi.fn(async () => ({ content, stat: file.stat })),
+      read: vi.fn(async (current) => {
+        const entry = entryFor(current.fileId);
+        return { content: entry.content, stat: entry.file.stat };
+      }),
     };
     const inference: CanonicalInferencePort<VectorProfile> = {
       cancel: vi.fn(async () => {}),
@@ -201,6 +241,19 @@ it.each([
         batches.every((batch) => JSON.stringify(batch.profile) === JSON.stringify(profile))
       ).toBe(true);
       const manifest = [...manifests.values()];
+      expect(manifest.map((entry) => entry.fileId)).toEqual(
+        entries.map((entry) => entry.file.fileId)
+      );
+      const owners = new Map(
+        manifest.flatMap((entry) =>
+          entry.chunks.map((chunk) => [chunk.chunkId, entry.fileId] as const)
+        )
+      );
+      expect(
+        batches.some(
+          (batch) => new Set(batch.chunks.map((chunk) => owners.get(chunk.chunkId))).size > 1
+        )
+      ).toBe(true);
       expect(batches.flatMap((batch) => batch.chunks.map((chunk) => chunk.chunkId))).toEqual(
         manifest.flatMap((entry) => entry.chunks.map((chunk) => chunk.chunkId))
       );
@@ -219,7 +272,7 @@ it.each([
         {
           dbPath: path.join(directory, 'index.sqlite'),
           embedding: { indexMode: 'open-existing' },
-          fileBindings: [{ ...binding, profile }],
+          fileBindings: bindings,
           rootIds: file.rootId ? [file.rootId] : [],
           scopes: [{ embeddingSetId: file.embeddingSetId!, kind: 'collection' }],
         },
@@ -229,20 +282,22 @@ it.each([
       expect((await port.verifyScopedManifest({ files: manifest, scope })).complete).toBe(true);
       expect((await port.coverageScope({ profile, scope })).vectorCoverageComplete).toBe(true);
       await port.replaceFileBindings([
-        { ...binding, profile },
+        ...bindings,
         { ...binding, fileId: 'authorized-but-undiscovered', profile },
       ]);
       await expect(vectorHost.scan({ ...request, requestId: 'incomplete-scope' })).rejects.toThrow(
         'manifest'
       );
-      await port.replaceFileBindings([{ ...binding, profile }]);
-      await port.removeScopedFile({ fileId: file.fileId, scope });
+      await port.replaceFileBindings(bindings);
+      for (const entry of entries) {
+        await port.removeScopedFile({ fileId: entry.file.fileId, scope });
+      }
       const completed = vi.mocked(catalog.completeFiles).mock.calls.length;
       let changedAuthority = false;
       vi.mocked(inference.generate).mockImplementation(async (input) => {
         if (!changedAuthority) {
           changedAuthority = true;
-          await port.replaceFileBindings([{ ...binding, profile }]);
+          await port.replaceFileBindings(bindings);
         }
         return {
           ...input,

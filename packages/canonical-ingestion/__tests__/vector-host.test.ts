@@ -76,11 +76,14 @@ async function fixture(scope: CanonicalSourceScope = { kind: 'workspace', rootId
     removeFiles: vi.fn(async () => {}),
     resolveProfile: vi.fn(async () => profile),
   };
-  const makePlan = (payload: CanonicalIndexPayload): ScopedFilePlan => {
-    const { fileName: _name, stat: _stat, ...binding } = file;
+  const makePlan = (
+    payload: CanonicalIndexPayload,
+    currentFile: CanonicalSourceFile = file
+  ): ScopedFilePlan => {
+    const { fileName: _name, stat: _stat, ...binding } = currentFile;
     const chunks = payload.providedChunks.map((chunk) => ({
       ...chunk,
-      chunkId: hash(`${file.fileId}:${chunk.chunkIndex}`),
+      chunkId: hash(`${currentFile.fileId}:${chunk.chunkIndex}`),
       embeddingHash: hash(`${vectorProfileHash(profile)}:${chunk.contentHash}`),
     }));
     return {
@@ -572,4 +575,343 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
       await f.host.close();
     }
   );
+});
+
+async function batchFixture(
+  inputs: readonly {
+    readonly content?: string;
+    readonly copies?: number;
+    readonly reused?: boolean;
+  }[],
+  scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'root' },
+  split = inputs.length
+) {
+  const f = await fixture(scope);
+  const files = inputs.map((input, index) => {
+    const content =
+      input.content ??
+      Array.from({ length: input.copies ?? 1 }, (_, copy) =>
+        f.recorded.content
+          .replaceAll(
+            'createArtifactReaderModelProjection',
+            `createArtifactReaderModelProjection${copy}`
+          )
+          .replaceAll('projectArtifactReaderModelOutput', `projectArtifactReaderModelOutput${copy}`)
+      ).join('\n');
+    return {
+      content,
+      file: {
+        ...f.file,
+        fileId: `file-${index}`,
+        relativePath: scope.kind === 'workspace' ? `file-${index}.ts` : null,
+        stat: { mtimeMs: index + 1, size: Buffer.byteLength(content) },
+      },
+      reused: input.reused ?? false,
+    };
+  });
+  f.source.discover = async function* () {
+    for (let offset = 0; offset < files.length; offset += split) {
+      yield { files: files.slice(offset, offset + split).map((entry) => entry.file), removed: [] };
+    }
+    return { errors: [], full: true, truncatedDirectories: [] };
+  };
+  vi.mocked(f.source.read).mockImplementation(async (file) => {
+    if (!('fileId' in file)) {
+      throw new Error('Unexpected discovered source in registered fixture.');
+    }
+    const entry = files.find((item) => item.file.fileId === file.fileId);
+    if (!entry) {
+      throw new Error('Unexpected source file.');
+    }
+    return { content: entry.content, stat: entry.file.stat };
+  });
+  vi.mocked(f.catalog.loadAuthorizedBatch).mockImplementation(async ({ files: selected }) =>
+    selected.map((file) => {
+      const entry = files.find((item) => item.file.fileId === file.fileId);
+      if (!entry) {
+        throw new Error('Unexpected catalog file.');
+      }
+      return { ...entry.file, chunksProcessed: true, contentHash: hash(entry.content) };
+    })
+  );
+  vi.mocked(f.publication.prepareVectorFile).mockImplementation(async ({ file, payload }) => {
+    const entry = files.find((item) => item.file.fileId === file.fileId);
+    if (!entry) {
+      throw new Error('Unexpected publication file.');
+    }
+    const plan = f.makePlan(payload, entry.file);
+    return entry.reused ? { ...plan, embeddingChunkIds: [] } : plan;
+  });
+  vi.mocked(f.inference.generate).mockImplementation(async (input) => ({
+    ...input,
+    vectors: input.chunks.map((chunk) => ({
+      chunkId: chunk.chunkId,
+      vector: Array.from({ length: profile.dimensions }, (_, index) =>
+        index === 0 ? Number.parseInt(chunk.chunkId.slice(0, 6), 16) + 1 : 0
+      ),
+    })),
+  }));
+  return { ...f, files };
+}
+
+describe('bounded ordered cross-file vector inference', () => {
+  it.each([
+    { kind: 'workspace', rootId: 'root' },
+    { embeddingSetId: 'retained', kind: 'collection' },
+  ] as const)(
+    'groups small files within one %s discovery batch and routes complete vectors in order',
+    async (scope) => {
+      const f = await batchFixture([{}, {}], scope);
+      try {
+        const receipt = await f.host.scan(f.request);
+        expect(receipt.scanComplete).toBe(true);
+        const plans = vi.mocked(f.publication.prepareVectorFile).mock.results;
+        const prepared = await Promise.all(plans.map((result) => result.value));
+        expect(prepared.every((plan) => plan.embeddingChunkIds.length > 0)).toBe(true);
+        const expectedIds = prepared.flatMap((plan) => plan.embeddingChunkIds);
+        expect(expectedIds.length).toBeLessThanOrEqual(64);
+        expect(f.inference.generate).toHaveBeenCalledOnce();
+        expect(
+          vi.mocked(f.inference.generate).mock.calls[0]?.[0].chunks.map((chunk) => chunk.chunkId)
+        ).toEqual(expectedIds);
+        const commits = vi
+          .mocked(f.publication.commitVectorFile)
+          .mock.calls.map(([commit]) => commit);
+        expect(commits.map((commit) => commit.file.fileId)).toEqual(
+          f.files.map((entry) => entry.file.fileId)
+        );
+        for (const [index, commit] of commits.entries()) {
+          expect(commit.ticket).toEqual(f.ticket);
+          expect(commit.profile).toEqual(profile);
+          expect(commit.plan).toEqual(prepared[index]);
+          expect(commit.embeddings).toEqual(
+            commit.plan.embeddingChunkIds.map((chunkId) => ({
+              chunkId,
+              vector: Array.from({ length: 384 }, (_, position) =>
+                position === 0 ? Number.parseInt(chunkId.slice(0, 6), 16) + 1 : 0
+              ),
+            }))
+          );
+          expect(commit.syntax).toEqual(
+            vi.mocked(f.publication.prepareVectorFile).mock.calls[index]?.[0].payload.syntax
+          );
+        }
+        expect(f.inference.join).toHaveBeenCalledOnce();
+        expect(f.catalog.completeFiles).toHaveBeenCalledAfter(
+          vi.mocked(f.publication.commitVectorFile)
+        );
+        expect(f.publication.finishScan).toHaveBeenCalledAfter(vi.mocked(f.catalog.completeFiles));
+        expect(
+          vi
+            .mocked(f.publication.verifyVectorManifest)
+            .mock.calls[0]?.[0].files.map((file) => file.fileId)
+        ).toEqual(f.files.map((entry) => entry.file.fileId));
+      } finally {
+        await f.host.close();
+      }
+    }
+  );
+  it('keeps separate discovery batches separate even under the same scan owner', async () => {
+    const f = await batchFixture([{}, {}], undefined, 1);
+    try {
+      await f.host.scan(f.request);
+      expect(f.inference.generate).toHaveBeenCalledTimes(2);
+      const commits = vi
+        .mocked(f.publication.commitVectorFile)
+        .mock.calls.map(([commit]) => commit);
+      for (const [index, [input]] of vi.mocked(f.inference.generate).mock.calls.entries()) {
+        expect(input.chunks.map((chunk) => chunk.chunkId)).toEqual(
+          commits[index]?.plan.embeddingChunkIds
+        );
+      }
+      expect(f.catalog.completeFiles).toHaveBeenCalledTimes(2);
+    } finally {
+      await f.host.close();
+    }
+  });
+
+  it('bounds transport requests and preserves empty, reused and oversized file ordering', async () => {
+    const f = await batchFixture([
+      { content: '' },
+      { reused: true },
+      { copies: 40 },
+      {},
+      { content: '' },
+      {},
+    ]);
+    try {
+      expect((await f.host.scan({ ...f.request, maxFileBytes: 1_000_000 })).scanComplete).toBe(
+        true
+      );
+      const commits = vi
+        .mocked(f.publication.commitVectorFile)
+        .mock.calls.map(([commit]) => commit);
+      expect(commits.map((commit) => commit.file.fileId)).toEqual(
+        f.files.map((entry) => entry.file.fileId)
+      );
+      expect(commits[0]?.plan.chunks).toEqual([]);
+      expect(commits[1]?.plan.embeddingChunkIds).toEqual([]);
+      expect(commits[2]?.plan.embeddingChunkIds.length).toBeGreaterThan(64);
+      const calls = vi.mocked(f.inference.generate).mock.calls.map(([input]) => input);
+      expect(calls.length).toBeGreaterThan(1);
+      expect(calls.every((input) => input.chunks.length > 0 && input.chunks.length <= 64)).toBe(
+        true
+      );
+      expect(calls.flatMap((input) => input.chunks.map((chunk) => chunk.chunkId))).toEqual(
+        commits.flatMap((commit) => commit.plan.embeddingChunkIds)
+      );
+      for (const commit of commits) {
+        expect(commit.embeddings.map((embedding) => embedding.chunkId)).toEqual(
+          commit.plan.embeddingChunkIds
+        );
+      }
+      const noMissing = commits.filter((commit) => commit.plan.embeddingChunkIds.length === 0);
+      expect(noMissing).toHaveLength(3);
+      expect(noMissing.every((commit) => commit.embeddings.length === 0)).toBe(true);
+      expect(f.inference.join).toHaveBeenCalledTimes(calls.length);
+    } finally {
+      await f.host.close();
+    }
+  });
+
+  it('does not publish a partial oversized file when a later inference segment fails', async () => {
+    const f = await batchFixture([{ copies: 40 }, {}]);
+    const generate = vi.mocked(f.inference.generate).getMockImplementation();
+    if (!generate) {
+      throw new Error('Expected controlled inference.');
+    }
+    vi.mocked(f.inference.generate)
+      .mockImplementationOnce(generate)
+      .mockRejectedValue(new Error('second inference failed'));
+    try {
+      await expect(f.host.scan({ ...f.request, maxFileBytes: 1_000_000 })).rejects.toThrow(
+        'second inference failed'
+      );
+      expect(f.inference.generate).toHaveBeenCalledTimes(2);
+      expect(f.inference.cancel).toHaveBeenCalledOnce();
+      expect(f.inference.join).toHaveBeenCalledTimes(2);
+      expect(f.publication.commitVectorFile).not.toHaveBeenCalled();
+      expect(f.catalog.completeFiles).not.toHaveBeenCalled();
+      expect(vi.mocked(f.publication.finishScan).mock.calls.at(-1)?.[0].errors).not.toEqual([]);
+    } finally {
+      await f.host.close();
+    }
+  });
+
+  it('rechecks the saved profile after grouped inference before any file commit', async () => {
+    const f = await batchFixture([{}, {}]);
+    const generate = vi.mocked(f.inference.generate).getMockImplementation();
+    if (!generate) {
+      throw new Error('Expected controlled inference.');
+    }
+    vi.mocked(f.inference.generate).mockImplementation(async (input) => {
+      const result = await generate(input);
+      vi.mocked(f.catalog.resolveProfile).mockResolvedValue({
+        ...profile,
+        revision: 'b'.repeat(40),
+      });
+      return result;
+    });
+    try {
+      await expect(f.host.scan(f.request)).rejects.toThrow('saved vector profile changed');
+      expect(f.inference.generate).toHaveBeenCalledOnce();
+      expect(f.inference.join).toHaveBeenCalledOnce();
+      expect(f.publication.commitVectorFile).not.toHaveBeenCalled();
+      expect(f.catalog.completeFiles).not.toHaveBeenCalled();
+    } finally {
+      await f.host.close();
+    }
+  });
+
+  it('retains grouped inference ownership through cancellation and physical join without publication', async () => {
+    const f = await batchFixture([{}, {}]);
+    const physical = deferred();
+    const joined = deferred();
+    const generate = vi.mocked(f.inference.generate).getMockImplementation();
+    if (!generate) {
+      throw new Error('Expected controlled inference.');
+    }
+    vi.mocked(f.inference.generate).mockImplementation(async (input) => {
+      await physical.promise;
+      return generate(input);
+    });
+    vi.mocked(f.inference.join).mockImplementation(async () => {
+      await joined.promise;
+    });
+    const rejected = expect(f.host.scan(f.request)).rejects.toThrow('cancelled');
+    await vi.waitFor(() => expect(f.inference.generate).toHaveBeenCalledOnce());
+    const plans = await Promise.all(
+      vi.mocked(f.publication.prepareVectorFile).mock.results.map((result) => result.value)
+    );
+    expect(
+      vi.mocked(f.inference.generate).mock.calls[0]?.[0].chunks.map((chunk) => chunk.chunkId)
+    ).toEqual(plans.flatMap((plan) => plan.embeddingChunkIds));
+    let closed = false;
+    const closing = f.host.close().then(() => {
+      closed = true;
+    });
+    await vi.waitFor(() => expect(f.inference.cancel).toHaveBeenCalledOnce());
+    expect(closed).toBe(false);
+    physical.resolve();
+    await vi.waitFor(() => expect(f.inference.join).toHaveBeenCalledOnce());
+    expect(closed).toBe(false);
+    expect(f.publication.finishScan).not.toHaveBeenCalled();
+    joined.resolve();
+    await rejected;
+    await closing;
+    expect(f.publication.commitVectorFile).not.toHaveBeenCalled();
+    expect(f.catalog.completeFiles).not.toHaveBeenCalled();
+  });
+
+  it('keeps a completed prefix file intact while refusing a later partial file and PG completion', async () => {
+    const f = await batchFixture([{}, { copies: 40 }]);
+    const generate = vi.mocked(f.inference.generate).getMockImplementation();
+    if (!generate) {
+      throw new Error('Expected controlled inference.');
+    }
+    vi.mocked(f.inference.generate)
+      .mockImplementationOnce(generate)
+      .mockRejectedValue(new Error('later grouped inference failed'));
+    try {
+      await expect(f.host.scan({ ...f.request, maxFileBytes: 1_000_000 })).rejects.toThrow(
+        'later grouped inference failed'
+      );
+      expect(f.publication.commitVectorFile).toHaveBeenCalledOnce();
+      const commit = vi.mocked(f.publication.commitVectorFile).mock.calls[0]?.[0];
+      expect(commit?.file.fileId).toBe(f.files[0]?.file.fileId);
+      expect(commit?.embeddings.map((vector) => vector.chunkId)).toEqual(
+        commit?.plan.embeddingChunkIds
+      );
+      expect(f.catalog.completeFiles).not.toHaveBeenCalled();
+      expect(vi.mocked(f.publication.finishScan).mock.calls.at(-1)?.[0].errors).not.toEqual([]);
+    } finally {
+      await f.host.close();
+    }
+  });
+
+  it('refuses a wrong vector for a later file in a grouped response before publishing the earlier file', async () => {
+    const f = await batchFixture([{}, {}]);
+    const generate = vi.mocked(f.inference.generate).getMockImplementation();
+    if (!generate) {
+      throw new Error('Expected controlled inference.');
+    }
+    vi.mocked(f.inference.generate).mockImplementation(async (input) => {
+      const result = await generate(input);
+      return {
+        ...result,
+        vectors: result.vectors.map((vector, index) =>
+          index === result.vectors.length - 1 ? { ...vector, chunkId: hash('foreign') } : vector
+        ),
+      };
+    });
+    try {
+      await expect(f.host.scan(f.request)).rejects.toThrow('Canonical inference');
+      expect(f.inference.cancel).toHaveBeenCalledOnce();
+      expect(f.inference.join).toHaveBeenCalledOnce();
+      expect(f.publication.commitVectorFile).not.toHaveBeenCalled();
+      expect(f.catalog.completeFiles).not.toHaveBeenCalled();
+    } finally {
+      await f.host.close();
+    }
+  });
 });
