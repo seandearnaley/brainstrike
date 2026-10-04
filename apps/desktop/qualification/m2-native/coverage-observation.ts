@@ -18,3 +18,20 @@ export async function observeCoverage<T>(
   }
   return observation;
 }
+
+/** Return the last fresh observation only after the caller's existing poll predicate succeeds. */
+export async function waitForCurrentObservation<T>(
+  read: () => Promise<T | null>,
+  wait: (read: () => Promise<T | null>) => Promise<void>
+): Promise<T> {
+  let current: T | null = null;
+  await wait(async () => {
+    current = null;
+    current = await read();
+    return current;
+  });
+  if (current === null) {
+    throw new Error('Completed observation wait has no current observation.');
+  }
+  return current;
+}

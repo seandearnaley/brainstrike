@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { observeCoverage } from './coverage-observation.ts';
+import { observeCoverage, waitForCurrentObservation } from './coverage-observation.ts';
 
 const invalidated = () => ({
   code: 'native-coverage-observation-invalidated',
@@ -67,4 +67,65 @@ test('failure to preserve invalidation evidence terminates the observation', asy
     ),
     (error) => error === failure
   );
+});
+
+test('returns only the fresh observation from the successful poll attempt without rereading', async () => {
+  const accepted = { complete: true, counters: 3, receipt: 'accepted' };
+  const attempts = [{ complete: false, counters: 2 }, null, accepted];
+  let reads = 0;
+  const actual = await waitForCurrentObservation(
+    async () => {
+      assert.ok(reads < attempts.length, 'A redundant read would be invalidated');
+      return attempts[reads++];
+    },
+    async (read) => {
+      assert.equal((await read()).complete, false);
+      assert.equal(await read(), null);
+      assert.equal((await read()).complete, true);
+    }
+  );
+  assert.equal(actual, accepted);
+  assert.equal(reads, 3);
+});
+
+test('an invalidated final attempt cannot return a previous current observation', async () => {
+  let reads = 0;
+  await assert.rejects(
+    waitForCurrentObservation(
+      async () => (reads++ === 0 ? { counters: 2 } : null),
+      async (read) => {
+        await read();
+        await read();
+      }
+    ),
+    /no current observation/
+  );
+});
+
+test('unrelated read and wait failures stay fatal even after a current observation', async () => {
+  for (const failRead of [true, false]) {
+    const failure = new Error('Unrelated failure');
+    let reads = 0;
+    await assert.rejects(
+      waitForCurrentObservation(
+        async () => {
+          reads += 1;
+          if (failRead && reads === 2) {
+            throw failure;
+          }
+          return { counters: 2 };
+        },
+        async (read) => {
+          await read();
+          if (failRead) {
+            await read();
+          } else {
+            throw failure;
+          }
+        }
+      ),
+      (error) => error === failure
+    );
+    assert.equal(reads, failRead ? 2 : 1);
+  }
 });

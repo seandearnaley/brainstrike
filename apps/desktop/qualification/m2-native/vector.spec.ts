@@ -9,6 +9,7 @@ import {
   readNativeSnapshot,
   waitForTextIndex,
 } from './candidate';
+import { waitForCurrentObservation } from './coverage-observation';
 import { resetFromUi } from './factory-reset-confirmation';
 import { nativeBuildComplete } from './native-benchmark';
 import { configureNativeText } from './native-settings';
@@ -42,21 +43,24 @@ test('explicit native vector publication, semantic query and separate Factory Re
       rootId,
       storeId: configured.status.storeId,
     };
-    await expect
-      .poll(
-        async () => {
-          const snapshot = await observeNativeSnapshot(context);
-          return (
-            snapshot !== null && nativeBuildComplete(snapshot.status, snapshot.coverage, scope)
-          );
-        },
-        {
-          message: 'Actual document inference must complete native vector coverage',
-          timeout: 480_000,
-        }
-      )
-      .toBe(true);
-    const complete = await readNativeSnapshot(context);
+    const complete = await waitForCurrentObservation(
+      () => observeNativeSnapshot(context),
+      (read) =>
+        expect
+          .poll(
+            async () => {
+              const snapshot = await read();
+              return (
+                snapshot !== null && nativeBuildComplete(snapshot.status, snapshot.coverage, scope)
+              );
+            },
+            {
+              message: 'Actual document inference must complete native vector coverage',
+              timeout: 480_000,
+            }
+          )
+          .toBe(true)
+    );
     assertActualVectorWorker(complete);
     await session.record('complete-vector-publication', complete);
     await context.window.getByTestId('search-tab-trigger').click();

@@ -1,6 +1,7 @@
 import { expect } from '@playwright/test';
 import type { ElectronAppContext } from '../../e2e/utils/electron-helpers.mts';
-import { type NativeSnapshot, observeNativeSnapshot, readNativeSnapshot } from './candidate';
+import { type NativeSnapshot, observeNativeSnapshot } from './candidate';
+import { waitForCurrentObservation } from './coverage-observation';
 import { configureNativeChoices } from './native-settings';
 
 export const VECTOR_PROFILES = {
@@ -71,22 +72,25 @@ export async function configureVectorProfile(
       revision: selected.revision,
     },
   });
-  await expect
-    .poll(async () => (await observeNativeSnapshot(context))?.status)
-    .toMatchObject({
-      embedding: { indexMode: 'vector-configured', profile },
-      kind: 'ready',
-      queryPlan: {
-        inferencePlan: {
-          device,
-          dimensions: selected.dimensions,
-          dtype: selected.dtype,
-          modelId: selected.modelId,
-          revision: selected.revision,
-        },
-      },
-    });
-  const snapshot = await readNativeSnapshot(context);
+  const snapshot = await waitForCurrentObservation(
+    () => observeNativeSnapshot(context),
+    (read) =>
+      expect
+        .poll(async () => (await read())?.status)
+        .toMatchObject({
+          embedding: { indexMode: 'vector-configured', profile },
+          kind: 'ready',
+          queryPlan: {
+            inferencePlan: {
+              device,
+              dimensions: selected.dimensions,
+              dtype: selected.dtype,
+              modelId: selected.modelId,
+              revision: selected.revision,
+            },
+          },
+        })
+  );
   return snapshot;
 }
 

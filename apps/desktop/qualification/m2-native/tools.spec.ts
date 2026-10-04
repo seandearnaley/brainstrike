@@ -27,6 +27,7 @@ import {
   readNativeSnapshot,
   waitForTextIndex,
 } from './candidate';
+import { waitForCurrentObservation } from './coverage-observation';
 import { nativeBuildComplete } from './native-benchmark';
 import { configureNativeText, readSavedChoices, type SavedNativeChoices } from './native-settings';
 import { startCapturingProvider, toolMessages } from './provider-capture';
@@ -142,18 +143,19 @@ async function runTools(
         rootId,
         storeId: configured.status.storeId,
       };
-      await expect
-        .poll(
-          async () => {
-            const snapshot = await observeNativeSnapshot(context);
-            return (
-              snapshot !== null && nativeBuildComplete(snapshot.status, snapshot.coverage, scope)
-            );
-          },
-          { timeout: 480_000 }
-        )
-        .toBe(true);
-      const complete = await readNativeSnapshot(context);
+      const complete = await waitForCurrentObservation(
+        () => observeNativeSnapshot(context),
+        (read) =>
+          expect
+            .poll(
+              async () => {
+                const value = await read();
+                return value !== null && nativeBuildComplete(value.status, value.coverage, scope);
+              },
+              { timeout: 480_000 }
+            )
+            .toBe(true)
+      );
       assertActualVectorWorker(complete);
       await session.record('full-vector-coverage-before-tools', complete);
     }
