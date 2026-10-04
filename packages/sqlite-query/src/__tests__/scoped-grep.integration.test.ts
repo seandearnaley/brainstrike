@@ -11,7 +11,7 @@ let client: SqliteQueryClient;
 beforeAll(async () => {
   const writer = new DatabaseSync(databasePath);
   writer.exec(`CREATE TABLE index_metadata(singleton INTEGER, schema_version INTEGER,store_id TEXT,index_mode TEXT,profile_json TEXT,profile_hash TEXT);
-    INSERT INTO index_metadata VALUES(1,7,'${'a'.repeat(64)}','text-only',NULL,NULL);
+    INSERT INTO index_metadata VALUES(1,8,'${'a'.repeat(64)}','text-only',NULL,NULL);
     CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT,embedding_set_id TEXT,source_path TEXT);
     INSERT INTO file_records VALUES('retained',NULL,NULL,'selected',NULL),('other',NULL,NULL,'unauthorized',NULL);
     CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);

@@ -36,11 +36,15 @@ import {
   stateCountsSchema,
   stateEventIdentitySchema,
   stateGcSchema,
+  stateHealthSchema,
+  stateMatchSchema,
+  stateStatsSchema,
   stateThreadsSchema,
   textCommitSchema,
 } from './contracts.js';
 import type { IndexerPort, ScopedIndexerPort, StateIndexerPort } from './index.js';
 import { RpcClient } from './rpc-client.js';
+import { validateStateModule } from './state-projection.js';
 
 const duration = Schema.Finite.check(Schema.isGreaterThan(0));
 const deadlinesSchema = Schema.Struct({
@@ -73,6 +77,12 @@ export function validateIndexerOptions(input: unknown): typeof optionsSchema.Typ
   const options = decoder(optionsSchema)(input);
   if (!path.isAbsolute(options.dbPath) || options.dbPath === ':memory:') {
     throw new TypeError('Indexer requires an absolute persistent database file path.');
+  }
+  if ((options.stateRoot === undefined) !== (options.stateProjection === undefined)) {
+    throw new TypeError('State root and producer schema must be acquired together.');
+  }
+  if (options.stateProjection) {
+    validateStateModule(options.stateProjection.module);
   }
   if (options.stateRoot !== undefined) {
     if (
@@ -298,10 +308,23 @@ export function createIndexerConnection(
         decoder(Schema.Array(Schema.String))
       ),
     info: () => call('info', null, decoder(infoSchema)),
+    matchState: (threadId, query) =>
+      call(
+        'state-match',
+        decoder(stateMatchSchema)({ query, threadId }),
+        decoder(Schema.Array(Schema.Int.check(Schema.isGreaterThan(0))))
+      ),
     prepareFile: async (snapshot) =>
       call('prepare-file', decoder(snapshotSchema)(snapshot), decoder(planSchema)),
     prepareScopedFile: async (request) =>
       call('prepare-scoped-file', decoder(scopedPrepareSchema)(request), decoder(scopedPlanSchema)),
+    rebuildState: async (threadId) => {
+      await call(
+        'state-rebuild',
+        decoder(Schema.NonEmptyString)(threadId),
+        decoder(Schema.Boolean)
+      );
+    },
     reindexState: async (threadId, seq) => {
       await call(
         'state-reindex',
@@ -334,6 +357,9 @@ export function createIndexerConnection(
         decoder(stateGcSchema)({ hashes, threads }),
         decoder(stateCountsSchema)
       ),
+    stateHealth: () => call('state-health', null, decoder(stateHealthSchema)),
+    stateStats: (threadId) =>
+      call('state-stats', decoder(Schema.NonEmptyString)(threadId), decoder(stateStatsSchema)),
     verifyManifest: async (request) =>
       call(
         'verify-manifest',

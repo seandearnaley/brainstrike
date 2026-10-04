@@ -174,7 +174,7 @@ it('refuses schema6 unchanged and creates the lookup index only through explicit
   });
   try {
     expect(rebuilt.identity.storeId).not.toBe(storeId);
-    expect(rebuilt.db.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(7);
+    expect(rebuilt.db.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(8);
     expect(rebuilt.db.prepare("PRAGMA index_info('chunks_file_record')").all()).toMatchObject([
       { name: 'file_record_id' },
     ]);

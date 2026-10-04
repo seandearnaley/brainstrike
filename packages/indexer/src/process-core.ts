@@ -12,6 +12,8 @@ import {
   requestSchema,
   scopedRemoveSchema,
   stateCountsSchema,
+  stateHealthSchema,
+  stateStatsSchema,
 } from './contracts.js';
 import { RpcClient } from './rpc-client.js';
 import { IndexReader } from './store.js';
@@ -99,6 +101,20 @@ export async function runIndexerProcess(
         }
         let work: unknown | Promise<unknown>;
         switch (request.op) {
+          case 'state-health':
+            work = client.call(request.op, request.payload, decoder(stateHealthSchema));
+            break;
+          case 'state-stats':
+            work = client.call(request.op, request.payload, decoder(stateStatsSchema));
+            break;
+          case 'state-match':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(Schema.Array(Schema.Int.check(Schema.isGreaterThan(0))))
+            );
+            break;
+          case 'state-rebuild':
           case 'state-catch-up':
           case 'state-reindex':
             work = client.call(request.op, request.payload, decoder(Schema.Boolean));

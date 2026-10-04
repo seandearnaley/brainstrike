@@ -480,7 +480,7 @@ it('preserves captured canonical parser chunks and syntax for rootless files and
     expect(db.prepare('SELECT count(*) FROM file_chunks').pluck().get()).toBe(
       captured.result.chunks.length
     );
-    db.prepare('UPDATE index_metadata SET schema_version=7').run();
+    db.prepare('UPDATE index_metadata SET schema_version=8').run();
     const profileJson = db.prepare('SELECT profile_json FROM vector_profiles').pluck().get();
     db.prepare("UPDATE vector_profiles SET profile_json='{}'").run();
     await expect(

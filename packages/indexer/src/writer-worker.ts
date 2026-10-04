@@ -1,7 +1,9 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { Schema } from 'effect';
 import { decoder, fault, IndexerError, requestSchema } from './contracts.js';
+import { loadStateProjection } from './state-projection.js';
 import { IndexWriter } from './store.js';
+import { validateIndexerOptions } from './transport.js';
 
 const port = parentPort;
 if (!port) {
@@ -9,16 +11,35 @@ if (!port) {
 }
 let writer: IndexWriter;
 try {
-  writer = new IndexWriter(workerData);
+  const options = validateIndexerOptions(workerData);
+  const projection = options.stateProjection
+    ? await loadStateProjection(options.stateProjection)
+    : undefined;
+  writer = new IndexWriter(options, projection);
   port.postMessage({ kind: 'ready', value: writer.info });
   port.on('message', (input: unknown) => {
     let id: number | undefined;
     let closing = false;
+    let stateOperation = false;
     try {
       const request = decoder(requestSchema)(input);
       id = request.id;
+      stateOperation = request.op.startsWith('state-');
       let value: unknown;
       switch (request.op) {
+        case 'state-health':
+          decoder(Schema.Null)(request.payload);
+          value = writer.requireState().health();
+          break;
+        case 'state-stats':
+          value = writer.requireState().stats(request.payload);
+          break;
+        case 'state-match':
+          value = writer.requireState().match(request.payload);
+          break;
+        case 'state-rebuild':
+          value = writer.requireState().rebuild(request.payload);
+          break;
         case 'state-catch-up':
           value = writer.requireState().catchUp(request.payload);
           break;
@@ -66,6 +87,9 @@ try {
       }
       port.postMessage({ id, kind: 'response', ok: true, value });
     } catch (error) {
+      if (stateOperation) {
+        writer.recordStateFailure(error);
+      }
       if (id === undefined) {
         port.postMessage({ error: fault(error), kind: 'startup-error' });
       } else {

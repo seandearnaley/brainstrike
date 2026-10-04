@@ -68,6 +68,11 @@ export const fileBindingSchema = Schema.Struct({
 });
 export const fileBindingsSchema = Schema.Array(fileBindingSchema);
 export type IndexFileBinding = typeof fileBindingSchema.Type;
+export const stateProjectionOptionsSchema = Schema.Struct({
+  mode: Schema.Literals(['dev', 'prod']),
+  module: nonblank,
+});
+export type StateProjectionOptions = typeof stateProjectionOptionsSchema.Type;
 export const optionsSchema = Schema.Struct({
   dbPath: nonblank,
   embedding: Schema.Union([
@@ -78,6 +83,7 @@ export const optionsSchema = Schema.Struct({
   fileBindings: Schema.optional(fileBindingsSchema),
   rootIds: Schema.Array(nonblank),
   scopes: Schema.optional(Schema.Array(scopeSchema)),
+  stateProjection: Schema.optional(stateProjectionOptionsSchema),
   stateRoot: Schema.optional(nonblank),
 });
 export type IndexerOptions = typeof optionsSchema.Type;
@@ -87,7 +93,15 @@ export const stateGcSchema = Schema.Struct({
   hashes: Schema.Array(hash),
   threads: stateThreadsSchema,
 });
+export const stateMatchSchema = Schema.Struct({ query: nonblank, threadId: nonblank });
+export const stateHealthSchema = Schema.Struct({ indexerErrors: Schema.Array(Schema.String) });
 export const stateCountsSchema = Schema.Record(Schema.String, nonnegative);
+export const stateStatsSchema = Schema.Struct({
+  cursor: nonnegative,
+  docs: nonnegative,
+  gaps: Schema.Array(Schema.Struct({ from: positive, reason: Schema.String, to: positive })),
+});
+export type StateProjectionStats = typeof stateStatsSchema.Type;
 const snapshotFields = {
   content: Schema.String,
   fileId: nonblank,

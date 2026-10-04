@@ -18,7 +18,7 @@ Guard: `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/index
 - Validate the complete producer profile at commit and vector search: model ID, immutable revision, dtype, dimensions and token cap. Hash every field; the initial vector schema is 384 dimensions.
 - Refuse profile/schema mismatches with `rebuild-required` and preserve the existing file. Never erase databases during startup.
 - Canonical producers must prepare with explicit `providedChunks`, preserving the existing parser/chunker output and its source offsets, indices, token/type/size metadata. Validate hashes and source spans with the canonical matcher; reject invalid or mixed policy inputs without re-splitting, relocation or a second parse. Keep line-policy producer metadata explicitly null.
-- Persist all canonical source metadata; preserve vector bytes when only that metadata changes. Derived schema7 must refuse prior schema versions with rebuild-required, never silently migrate or wipe.
+- Persist all canonical source metadata; preserve vector bytes when only that metadata changes. Derived schema8 must refuse prior schema versions with rebuild-required, never silently migrate or wipe.
 - Prepare deterministic, byte-preserving line chunks from an authorized root-relative snapshot and explicit chunk-line policy. Reject stale snapshot plans; reuse a vector only when its stable chunk ID and content/profile hash agree.
 
 Evidence: `indexer/2026-10-02-independent-package.md`.
@@ -75,11 +75,15 @@ Guard: `packages/indexer/__tests__/stored-vector-bytes.test.ts`, `packages/index
 
 - Acquire an explicit canonical truth root, persist its identity, and refuse a different root on reopen. Keep state-event rows and blob references separate from canonical file identities in the same derived database and writer worker.
 - Read verified committed state events inside the serialized writer operation. Catch up to a captured watermark with a durable contiguous cursor; exact reindex rereads truth and never accepts caller-provided event bodies. Reject CRC/sequence gaps.
+- Acquire state truth together with an explicit producer module and dev/prod mode. Import the canonical local module only in the writer; use the shared event upgrader without rewriting authoritative bytes. Persist module/mode identity and refuse a different projection on reopen. Missing or invalid schemas fail closed, never index raw JSON as a substitute.
+- Project recognized text only. Preserve unknown prod events at their original sequence with explicit derived gap reasons; unknown dev events reject and remain observable through the foundation port's indexer health. Rebuild a state thread on the same serialized writer without deleting canonical file/profile data. Keep blob references based on verified truth, independent of text eligibility.
 - Keep event FTS and reference rows transactional. Enable core and FTS secure deletion; complete a checked TRUNCATE checkpoint before purge or thread-drop acknowledges. A pinned reader refuses immediately and leaves the state-store purge intent for retry.
 - Close the writer-owned truth reader on indexer shutdown. The state-store adapter resets through the same joined process destruction; do not add another derived database or chat writer.
 
 Evidence: `indexer/state-event-purge.md`.
 Guard: `packages/indexer/__tests__/state-purge.integration.test.ts`.
+Evidence: `indexer/state-schema-parity.md`.
+Guard: `packages/indexer/__tests__/state-projection.test.ts`, `state-schema.integration.test.ts`.
 
 ### Canonical syntax metadata
 
