@@ -765,36 +765,38 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       ? current.sources.scanAdmission.acquireRead(() => runtime.acquire())
       : runtime.acquire();
   };
+  const clearRetiredGraph = (): void => {
+    graph = undefined;
+    startup = undefined;
+    readerReady = undefined;
+    lastError = undefined;
+    startupFailed = false;
+  };
   const closeOwned = (): Promise<void> => {
     stopping ??= stopSourcesOwned()
       .then(() => runtime.retireProfile())
-      .then(() => {
-        graph = undefined;
-        startup = undefined;
-        readerReady = undefined;
-      })
+      .then(clearRetiredGraph)
       .finally(() => {
         stopping = undefined;
       });
     return stopping;
   };
   const resumeOwned = async (): Promise<void> => {
-    await runtime.resume();
+    await runtime.resume().catch((error: unknown) => {
+      lastError = error;
+      throw error;
+    });
     if (terminalRequested) {
       throw new TransitionError('Native resume was superseded by terminal retirement.');
     }
     closed = false;
-    lastError = undefined;
-    startupFailed = false;
     generation += 1;
   };
   const destroyOwned = async (): Promise<void> => {
     await stopSourcesOwned();
     await runtime.destroyIndex();
     await runtime.retireProfile();
-    graph = undefined;
-    startup = undefined;
-    readerReady = undefined;
+    clearRetiredGraph();
   };
   const closeForReconfiguration = async (): Promise<void> => {
     const original = graph;

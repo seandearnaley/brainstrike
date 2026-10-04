@@ -1,13 +1,25 @@
 // @vitest-environment node
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
+import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, expect, it, vi } from 'vitest';
+import { registerStoragePreferencesIpcHandlers } from '../ipc-domains/storage-preferences-ipc';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
+import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
 import { createNativeIndexActivation } from '../native-index-activation';
+import { NATIVE_INDEX_SETTINGS_KEY } from '../native-index-settings';
+import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
+import { assignWindowRole, clearWindowRoleByWebContentsId } from '../window-role';
+import { createAllowlistedSenderFrame } from './helpers/desktop-ipc-sender-frame-test-allowlist';
+import {
+  getRegisteredIpcMainHandler,
+  resetElectronMainTestHarness,
+} from './helpers/electron-main-test-harness';
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
+  acquireProfile: vi.fn(),
   close: vi.fn(),
   closeCoverage: vi.fn(),
   closeProfile: vi.fn(),
@@ -27,7 +39,7 @@ vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
 vi.mock('../host-lease-manager', () => ({
-  createDesktopHostLease: () => ({ acquire: async () => {}, close: mocks.closeProfile }),
+  createDesktopHostLease: () => ({ acquire: mocks.acquireProfile, close: mocks.closeProfile }),
 }));
 vi.mock('../indexer-runtime', () => ({
   acquireIndexerHost: mocks.acquire,
@@ -142,6 +154,7 @@ beforeEach(() => {
     rows: sql.includes('FROM embedding_sets') ? [{ id: 'selected' }] : [],
   }));
   mocks.acquire.mockResolvedValue(writer());
+  mocks.acquireProfile.mockResolvedValue(undefined);
   mocks.readyPort.mockReturnValue(writer());
   mocks.close.mockResolvedValue(undefined);
   mocks.destroy.mockResolvedValue(undefined);
@@ -150,6 +163,346 @@ beforeEach(() => {
   mocks.closeProfile.mockResolvedValue(undefined);
   mocks.manager.retireCanonicalSources.mockResolvedValue(undefined);
   mocks.manager.start.mockResolvedValue(writer());
+});
+
+it.each(['reconfigure', 'rebuild', 'resume'] as const)(
+  'recovers a failed missing-mode startup through %s without fatal status observations',
+  async (operation) => {
+    const f = fixture();
+    let saved = JSON.stringify({
+      state: {
+        enabled: true,
+        indexingPolicyPreset: 'full-root',
+        managedCollectionId: 'selected',
+        nativeIndexMode: null,
+        nativeLocalSelection: null,
+        paused: true,
+        worktreeRootIndexingOptInById: {},
+      },
+    });
+    f.storage.getItem.mockImplementation(async () => saved);
+    const capability = createNativeScopedSearchCapability({
+      openQuery: unused,
+      rebuild: f.activation.rebuild,
+      withRead: f.activation.withRead,
+    });
+    await expect(f.activation.acquire()).rejects.toThrow('Choose a native search mode');
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    saved = JSON.stringify({
+      state: {
+        enabled: true,
+        indexingPolicyPreset: 'full-root',
+        managedCollectionId: 'selected',
+        nativeIndexMode: 'TEXT',
+        nativeLocalSelection: null,
+        paused: true,
+        worktreeRootIndexingOptInById: {},
+      },
+    });
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    mocks.acquireProfile.mockImplementation(async () => {
+      entered.resolve();
+      await release.promise;
+    });
+    if (operation === 'resume') {
+      await f.activation.close();
+    }
+    const replacing =
+      operation === 'resume'
+        ? f.activation.resume().then(() => f.activation.acquire())
+        : f.activation[operation]();
+    try {
+      await entered.promise;
+      const observation = await capability.status().catch((error: unknown) => error);
+      await expect(f.activation.acquireRead()).rejects.toThrow('Native index activation is closed');
+      expect(mocks.acquire).not.toHaveBeenCalled();
+      release.resolve();
+      await replacing;
+      expect(await capability.status()).toMatchObject({
+        embedding: { indexMode: 'text-only' },
+        kind: 'ready',
+      });
+      expect(mocks.acquire).toHaveBeenCalledOnce();
+      expect(f.transport.documentEmbeddings).not.toHaveBeenCalled();
+      expect(observation).toMatchObject({ kind: 'unavailable' });
+    } finally {
+      release.resolve();
+      await replacing.catch(() => undefined);
+      await f.activation.close();
+    }
+  }
+);
+
+it('keeps the real persisted TEXT write and IPC status connected through serialized activation recovery', async () => {
+  resetElectronMainTestHarness();
+  const f = fixture();
+  let saved = JSON.stringify({
+    state: {
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      nativeIndexMode: null,
+      nativeLocalSelection: null,
+      paused: true,
+      worktreeRootIndexingOptInById: {},
+    },
+  });
+  f.storage.getItem.mockImplementation(async () => saved);
+  const storage = {
+    clear: unused,
+    clearExcept: unused,
+    getAllKeys: unused,
+    getItem: f.storage.getItem,
+    removeItem: unused,
+    setItem: async (_key: string, value: string): Promise<void> => {
+      saved = value;
+    },
+  } as unknown as ElectronStorageAdapter;
+  const transitions = createNativeRootDataDeletion({
+    acquire: f.activation.acquire,
+    captureOwner: unused,
+    closeOwner: f.activation.close,
+    deleteCanonicalRoot: unused,
+    reserveRoot: () => {
+      throw new Error('Root deletion is not part of settings recovery.');
+    },
+    resume: f.activation.resume,
+    stopSources: f.activation.stopSources,
+  });
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const events: string[] = [];
+  mocks.closeReaders.mockImplementation(async () => {
+    events.push('readers-joined');
+  });
+  mocks.acquireProfile.mockImplementation(async () => {
+    events.push('profile-acquire');
+    entered.resolve();
+    await release.promise;
+  });
+  const writes: Promise<void>[] = [];
+  const unregisterStorage = registerStoragePreferencesIpcHandlers({
+    getStore: () => null,
+    onStorageChanged: (key) => {
+      if (key !== NATIVE_INDEX_SETTINGS_KEY) {
+        return;
+      }
+      const changing = transitions.transition(f.activation.reconfigure);
+      changing.catch(() => undefined);
+      writes.push(changing);
+    },
+    storage,
+  });
+  const capability = createNativeScopedSearchCapability({
+    openQuery: unused,
+    rebuild: f.activation.rebuild,
+    withRead: f.activation.withRead,
+  });
+  const unregisterSearch = registerIndexSearchIpcHandlers(capability);
+  const senderId = 9498;
+  assignWindowRole(
+    { isDestroyed: () => false, once: vi.fn(), webContents: { id: senderId } } as never,
+    'visible-ui'
+  );
+  const event = { sender: { id: senderId }, senderFrame: createAllowlistedSenderFrame() };
+  try {
+    await expect(f.activation.acquire()).rejects.toThrow('Choose a native search mode');
+    const write = getRegisteredIpcMainHandler('storage:setItem');
+    for (const policy of ['balanced', 'full-root']) {
+      const incomplete = JSON.stringify({
+        state: {
+          enabled: true,
+          indexingPolicyPreset: policy,
+          managedCollectionId: 'selected',
+          nativeIndexMode: null,
+          nativeLocalSelection: null,
+          paused: true,
+          worktreeRootIndexingOptInById: {},
+        },
+      });
+      await write(event, NATIVE_INDEX_SETTINGS_KEY, incomplete);
+      await expect(writes.at(-1)).rejects.toThrow('Choose a native search mode');
+    }
+    const next = JSON.stringify({
+      state: {
+        enabled: true,
+        indexingPolicyPreset: 'full-root',
+        managedCollectionId: 'selected',
+        nativeIndexMode: 'TEXT',
+        nativeLocalSelection: null,
+        paused: true,
+        worktreeRootIndexingOptInById: {},
+      },
+    });
+    await write(event, NATIVE_INDEX_SETTINGS_KEY, next);
+    expect(saved).toBe(next);
+    expect(writes).toHaveLength(3);
+    await entered.promise;
+    expect(events.indexOf('readers-joined')).toBeLessThan(events.indexOf('profile-acquire'));
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    const status = getRegisteredIpcMainHandler('index-search:status');
+    const observation = await status(event);
+    release.resolve();
+    await writes.at(-1);
+    expect(await capability.status()).toMatchObject({
+      embedding: { indexMode: 'text-only' },
+      kind: 'ready',
+    });
+    expect(mocks.acquire).toHaveBeenCalledOnce();
+    expect(f.transport.documentEmbeddings).not.toHaveBeenCalled();
+    expect(observation).toMatchObject({ ok: true, value: { kind: 'unavailable' } });
+  } finally {
+    release.resolve();
+    await Promise.allSettled(writes);
+    await f.activation.close();
+    unregisterSearch();
+    unregisterStorage();
+    clearWindowRoleByWebContentsId(senderId);
+  }
+});
+
+it('joins the previous writer and profile before replacement and reports its held acquisition as unavailable after clean startup', async () => {
+  const f = fixture();
+  f.storage.getItem.mockResolvedValue(
+    JSON.stringify({
+      state: {
+        enabled: true,
+        indexingPolicyPreset: 'full-root',
+        managedCollectionId: 'selected',
+        nativeIndexMode: 'TEXT',
+        nativeLocalSelection: null,
+        paused: true,
+        worktreeRootIndexingOptInById: {},
+      },
+    })
+  );
+  const capability = createNativeScopedSearchCapability({
+    openQuery: unused,
+    rebuild: f.activation.rebuild,
+    withRead: f.activation.withRead,
+  });
+  await f.activation.acquire();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  mocks.acquireProfile.mockImplementation(async () => {
+    expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.closeProfile).toHaveBeenCalledOnce();
+    entered.resolve();
+    await release.promise;
+  });
+  const replacing = f.activation.reconfigure();
+  try {
+    await entered.promise;
+    await expect(capability.status()).resolves.toMatchObject({ kind: 'unavailable' });
+    await expect(f.activation.acquireRead()).rejects.toThrow('Native index activation is closed');
+    expect(mocks.acquire).toHaveBeenCalledOnce();
+    release.resolve();
+    await replacing;
+    expect(mocks.acquire).toHaveBeenCalledTimes(2);
+    expect(await capability.status()).toMatchObject({ kind: 'ready' });
+  } finally {
+    release.resolve();
+    await replacing.catch(() => undefined);
+    await f.activation.close();
+  }
+});
+
+it('retains an independent profile cleanup failure and admits no replacement until that original owner joins', async () => {
+  const f = fixture();
+  f.storage.getItem.mockResolvedValue(
+    JSON.stringify({
+      state: {
+        enabled: true,
+        indexingPolicyPreset: 'full-root',
+        managedCollectionId: 'selected',
+        nativeIndexMode: 'TEXT',
+        nativeLocalSelection: null,
+        paused: true,
+        worktreeRootIndexingOptInById: {},
+      },
+    })
+  );
+  await f.activation.acquire();
+  const cause = new Error('Original profile cleanup has not joined.');
+  mocks.closeProfile.mockRejectedValueOnce(cause).mockResolvedValue(undefined);
+  try {
+    await expect(f.activation.reconfigure()).rejects.toBe(cause);
+    expect(mocks.acquire).toHaveBeenCalledOnce();
+    expect(mocks.acquireProfile).toHaveBeenCalledOnce();
+    await f.activation.reconfigure();
+    expect(mocks.closeProfile).toHaveBeenCalledTimes(2);
+    expect(mocks.acquire).toHaveBeenCalledTimes(2);
+  } finally {
+    await f.activation.close();
+  }
+});
+
+it('preserves a new profile acquisition failure during missing-mode recovery without admitting a writer', async () => {
+  const f = fixture();
+  f.storage.getItem.mockResolvedValue(
+    JSON.stringify({
+      state: {
+        enabled: true,
+        indexingPolicyPreset: 'full-root',
+        managedCollectionId: 'selected',
+        nativeIndexMode: null,
+        nativeLocalSelection: null,
+        paused: true,
+        worktreeRootIndexingOptInById: {},
+      },
+    })
+  );
+  await expect(f.activation.acquire()).rejects.toThrow('Choose a native search mode');
+  f.storage.getItem.mockResolvedValue(
+    JSON.stringify({
+      state: {
+        enabled: true,
+        indexingPolicyPreset: 'full-root',
+        managedCollectionId: 'selected',
+        nativeIndexMode: 'TEXT',
+        nativeLocalSelection: null,
+        paused: true,
+        worktreeRootIndexingOptInById: {},
+      },
+    })
+  );
+  const cause = new Error('Replacement profile acquisition failed.');
+  mocks.acquireProfile.mockRejectedValue(cause);
+  const capability = createNativeScopedSearchCapability({
+    openQuery: unused,
+    rebuild: f.activation.rebuild,
+    withRead: f.activation.withRead,
+  });
+  try {
+    await expect(f.activation.reconfigure()).rejects.toBe(cause);
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
+    await expect(capability.status()).rejects.toMatchObject({ cause });
+  } finally {
+    await f.activation.close();
+  }
+  expect(mocks.closeProfile).toHaveBeenCalledOnce();
+});
+
+it.each([
+  { expected: SyntaxError, label: 'corrupt JSON', saved: '{' },
+  { expected: Error, label: 'invalid preference envelope', saved: '{}' },
+])('preserves $label as a fatal initial status failure', async ({ saved, expected }) => {
+  const f = fixture();
+  f.storage.getItem.mockResolvedValue(saved);
+  const capability = createNativeScopedSearchCapability({
+    openQuery: unused,
+    rebuild: f.activation.rebuild,
+    withRead: f.activation.withRead,
+  });
+  try {
+    await expect(capability.status()).rejects.toBeInstanceOf(expected);
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.acquireProfile).not.toHaveBeenCalled();
+  } finally {
+    await f.activation.close();
+  }
 });
 
 it.each([
