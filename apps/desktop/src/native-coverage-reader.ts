@@ -45,9 +45,9 @@ export function isolateNativeCoverage(
       if (work instanceof IndexerError && work.code === 'coverage-authority-changed') {
         const current = await port.coverageAuthority();
         if (
-          current.storeId !== authority.storeId ||
-          current.authorityEpoch !== authority.authorityEpoch ||
-          current.authorityRevision !== authority.authorityRevision
+          current.storeId === authority.storeId &&
+          (current.authorityEpoch !== authority.authorityEpoch ||
+            current.authorityRevision !== authority.authorityRevision)
         ) {
           throw new NativeCoverageObservationInvalidatedError();
         }

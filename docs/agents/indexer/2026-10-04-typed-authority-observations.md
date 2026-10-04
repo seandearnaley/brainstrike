@@ -1,0 +1,16 @@
+# Typed authority transition observations
+
+The application campaign on `98d80df` stopped at callers-hybrid before tool execution. Its composite request called status, conditional batch coverage and embedding-host status. The packet identifies an ordinary graph transition error created by reconfiguration, but does not identify which nested call rejected or what initiated the transition.
+
+The connected activation regression holds real PG authority acquisition, native info capture and completion, isolated coverage work and physical reader disposal across actual reconfiguration. Initial authority acquisition previously escaped batch observation with the graph abort reason. A separate same-message native info error was previously hidden by the blanket status catch.
+
+Routine main graph/controller, acknowledged-owner identity and closed/no-active admission producers now emit a main-only authority transition type. The observation catch wraps the complete runtime read, so it runs after physical coverage-reader disposal and read settlement. Native store changes and malformed historical publication identities remain fatal. The isolated coverage invalidation producer now requires the same store and changed native epoch/revision; a foreign-store native failure remains fatal after physical reader disposal, verified by its own RED control. Independent settings, source/watch, native transport and cleanup errors remain untyped; aggregate causes are never inspected or unwrapped for conversion. Raw admission and execution APIs continue to reject.
+
+Controls cover actual early and late reconfiguration, closed observation versus strict raw admission and singleton coverage, physical disposal before replacement, same-message unrelated failure, aggregate cleanup failure, and no scan-start liveness credit in the existing benchmark progress seam. DTO identities and renderer execution projection are unchanged.
+
+This is local causal evidence. It does not classify the unknown application nested call, qualify the application campaign or satisfy any performance gate. Hosted CI and reviews remain disabled.
+
+Guards: `apps/desktop/src/__tests__/native-authority-observation.test.ts`, `native-index-runtime.test.ts`, `native-scoped-search.test.ts` and existing source-retirement controls.
+
+
+Independent review found that later same-store writer drift could still mask a foreign-store reader result because both failed-observation identities shared one native error code. The connected RED holds physical reader disposal, returns store B from the reader while writer A advances revision, and reproduces invalidated public batch data. Canonical `assertCoverageAuthority` now rejects store mismatch first with `coverage-store-mismatch`; only same-store epoch/revision mismatch emits `coverage-authority-changed`. Native snapshot coverage reuses that validator, and the existing fault envelope/client preserves the discriminant without a protocol/schema change. The failed observation supplies the store proof; later writer drift cannot replace it. Same-store epoch/revision drift remains retryable, while independent cleanup still aggregates and rejects after physical exit. Native snapshot and process-envelope controls exercise the two distinct codes.

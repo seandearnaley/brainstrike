@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
 import type { IndexFileBinding, VectorProfile } from '../src/contracts.js';
 import { vectorProfileHash } from '../src/scope-authority.js';
+import { scopeCoverageBatch } from '../src/scoped-proofs.js';
 import { ScopedIndex } from '../src/scoped-store.js';
 
 const profile = {
@@ -150,6 +151,7 @@ function fixture(secondProfile: VectorProfile = profile) {
     corrupt: (kind: Exclude<typeof corruption, null> = 'bytes') => {
       corruption = kind;
     },
+    db,
     index,
     scans,
     transactions: () => transactions,
@@ -226,3 +228,33 @@ it('refuses unauthorized scope and profile requests before any snapshot work', (
   ).toThrow('profile differs');
   expect(f.transactions()).toBe(0);
 });
+
+it.each(['store', 'store-and-revision', 'epoch', 'revision'] as const)(
+  'distinguishes %s mismatch in the failed native snapshot before coverage validation',
+  (mismatch) => {
+    const f = fixture();
+    const [baseline] = f.index.coverageBatch([{ profile, scope: workspace }]);
+    if (!baseline) {
+      throw new Error('Expected baseline native coverage.');
+    }
+    const expected = {
+      authorityEpoch: mismatch === 'epoch' ? 'd'.repeat(64) : baseline.authorityEpoch,
+      authorityRevision:
+        mismatch === 'revision' || mismatch === 'store-and-revision'
+          ? baseline.authorityRevision + 1
+          : baseline.authorityRevision,
+      storeId: mismatch.startsWith('store') ? 'c'.repeat(64) : baseline.storeId,
+    };
+    expect(() =>
+      scopeCoverageBatch(f.db, f.index.authority, [{ profile, scope: workspace }], expected)
+    ).toThrowError(
+      expect.objectContaining({
+        code: mismatch.startsWith('store')
+          ? 'coverage-store-mismatch'
+          : 'coverage-authority-changed',
+      })
+    );
+    expect(f.transactions()).toBe(2);
+    expect(f.scans).toHaveLength(1);
+  }
+);

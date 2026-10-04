@@ -32,8 +32,13 @@ export function assertCoverageAuthority(
   current: Pick<CoverageAuthority, 'storeId' | 'authorityEpoch' | 'authorityRevision'>,
   expected: Pick<CoverageAuthority, 'storeId' | 'authorityEpoch' | 'authorityRevision'>
 ): void {
+  if (current.storeId !== expected.storeId) {
+    throw new IndexerError(
+      'coverage-store-mismatch',
+      'Native coverage returned a different store from its owned authority.'
+    );
+  }
   if (
-    current.storeId !== expected.storeId ||
     current.authorityEpoch !== expected.authorityEpoch ||
     current.authorityRevision !== expected.authorityRevision
   ) {

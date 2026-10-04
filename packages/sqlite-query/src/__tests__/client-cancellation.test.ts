@@ -1,3 +1,4 @@
+import { assertCoverageAuthority, fault } from '@brainstrike/indexer/coverage-reader';
 import { describe, expect, it, vi } from 'vitest';
 import { SqliteQueryCancelledError, SqliteQueryClient } from '../client.js';
 import type { QueryProcess } from '../process.js';
@@ -191,3 +192,50 @@ it('preserves cancellation classification when kill synchronously reports exit',
   expect(await outcome).toMatchObject({ name: 'SqliteQueryCancelledError', phase: 'query' });
   expect(owner.process.kill).toHaveBeenCalledOnce();
 });
+
+it.each(['store', 'revision'] as const)(
+  'preserves the canonical %s coverage discriminant through the process fault envelope',
+  async (mismatch) => {
+    const owner = reader();
+    const authority = {
+      authorityEpoch: 'b'.repeat(64),
+      authorityRevision: 1,
+      dbPath: '/recorded/index.sqlite',
+      fileBindings: [],
+      rootIds: [],
+      scopes: [],
+      storeId: 'a'.repeat(64),
+    };
+    const client = await SqliteQueryClient.openNativeCoverage({
+      authority,
+      deadlineMs: 1000,
+      spawn: () => owner.process,
+      startupDeadlineMs: 1000,
+    });
+    let failure: unknown;
+    try {
+      assertCoverageAuthority(
+        {
+          ...authority,
+          authorityRevision: 2,
+          storeId: mismatch === 'store' ? 'c'.repeat(64) : authority.storeId,
+        },
+        authority
+      );
+    } catch (error) {
+      failure = error;
+    }
+    const result = client.nativeCoverage([{ scope: { kind: 'workspace', rootId: 'root' } }]);
+    const response = result.catch((error: unknown) => error);
+    await posted(owner, 2);
+    owner.message({ error: fault(failure), id: 2, kind: 'nativeCoverageError' });
+    expect(await response).toMatchObject({
+      code: mismatch === 'store' ? 'coverage-store-mismatch' : 'coverage-authority-changed',
+      name: 'IndexerError',
+    });
+    const closing = client.close();
+    expect(owner.process.kill).toHaveBeenCalledOnce();
+    owner.exit();
+    await closing;
+  }
+);

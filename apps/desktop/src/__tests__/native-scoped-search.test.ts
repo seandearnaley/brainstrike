@@ -11,6 +11,7 @@ import type { SqliteGrepRows } from '@brainstrike/sqlite-query';
 import { expect, it, vi } from 'vitest';
 import { createBenchmarkProgress } from '../../qualification/m2-native/benchmark-progress';
 import { nativeBuildComplete } from '../../qualification/m2-native/native-benchmark';
+import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import {
   createNativeScopedSearchCapability,
   type NativeSearchAuthority,
@@ -52,6 +53,14 @@ const hit = {
 const unused = async (): Promise<never> => {
   throw new Error('Unexpected legacy index API.');
 };
+it('keeps an unrelated same-message status failure fatal', async () => {
+  const f = fixture();
+  const failure = new Error('Native source authority changed.');
+  f.port.info = async () => {
+    throw failure;
+  };
+  await expect(f.capability.status()).rejects.toBe(failure);
+});
 function fixture(selectedProfile: VectorProfile | null = null) {
   let currentStoreId = storeId;
   let authority: NativeSearchAuthority = {
@@ -441,7 +450,9 @@ it.each(['store', 'profile', 'generation', 'scope'] as const)(
         },
       ],
     });
-    expect(await f.capability.status()).toMatchObject({ kind: 'unavailable' });
+    await expect(f.capability.status()).rejects.toThrow(
+      'Native publication progress differs from the current store, profile, generation or scope.'
+    );
   }
 );
 
@@ -620,9 +631,14 @@ it.each(['generation', 'root', 'collection', 'profile', 'store'] as const)(
       f.replaceStore();
     }
     release.resolve();
-    expect(await outcome).toEqual(
-      new Error('Native source or saved profile changed during search.')
-    );
+    const failure = await outcome;
+    expect(failure).toBeInstanceOf(changed === 'store' ? Error : NativeAuthorityTransitionError);
+    expect(failure).toMatchObject({
+      message:
+        changed === 'store'
+          ? 'Native store changed during search.'
+          : 'Native source or saved profile changed during search.',
+    });
   }
 );
 
@@ -691,6 +707,12 @@ it.each([
     }
     return result;
   });
+  if (change === 'owner') {
+    await expect(f.capability.coverageBatch(pairedRequests)).rejects.toThrow(
+      'Native store changed during search.'
+    );
+    return;
+  }
   await expect(f.capability.coverageBatch(pairedRequests)).resolves.toEqual({
     code: 'native-coverage-observation-invalidated',
     kind: 'invalidated',
@@ -757,3 +779,63 @@ it('rejects an invalidate-and-rescan cycle even when the readiness boolean retur
     kind: 'invalidated',
   });
 });
+
+it.each(['status', 'coverageBatch'] as const)(
+  'keeps %s acquisition and cleanup failures fatal',
+  async (method) => {
+    const f = fixture();
+    for (const failure of [
+      new Error('Native read admission is closed.'),
+      new AggregateError(
+        [
+          new NativeAuthorityTransitionError('Native source authority changed.'),
+          new Error('Independent cleanup failed.'),
+        ],
+        'Read cleanup failed.'
+      ),
+    ]) {
+      const capability = createNativeScopedSearchCapability({
+        openQuery: unused,
+        rebuild: unused,
+        withRead: async () => {
+          throw failure;
+        },
+      });
+      await expect(
+        method === 'status'
+          ? capability.status()
+          : capability.coverageBatch([{ collectionId: 'selected', rootIds: [] }])
+      ).rejects.toBe(failure);
+    }
+    const entered = Promise.withResolvers<void>();
+    const exited = Promise.withResolvers<void>();
+    let settled = false;
+    const capability = createNativeScopedSearchCapability({
+      openQuery: unused,
+      rebuild: unused,
+      withRead: async () => {
+        try {
+          throw new NativeAuthorityTransitionError('Native source authority changed.');
+        } finally {
+          entered.resolve();
+          await exited.promise;
+        }
+      },
+    });
+    const result = (
+      method === 'status'
+        ? capability.status()
+        : capability.coverageBatch([{ collectionId: 'selected', rootIds: [] }])
+    ).then((value) => {
+      settled = true;
+      return value;
+    });
+    await entered.promise;
+    expect(settled).toBe(false);
+    exited.resolve();
+    expect(await result).toMatchObject({
+      kind: method === 'status' ? 'unavailable' : 'invalidated',
+    });
+    expect(f.coverageBatch).not.toHaveBeenCalled();
+  }
+);

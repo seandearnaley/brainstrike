@@ -18,6 +18,7 @@ import type {
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteQueryClient } from '@brainstrike/sqlite-query';
+import { NativeAuthorityTransitionError } from './native-authority-transition';
 import type { NativeScopeReadiness } from './native-canonical-publication';
 import { NativeCoverageObservationInvalidatedError } from './native-coverage-observation-invalidated';
 import { NativeReadAuthorityRetiredError } from './native-index-runtime';
@@ -44,7 +45,10 @@ interface Dependencies {
 function coverageAuthorityInvalidation(
   error: unknown
 ): NativeCoverageObservationInvalidatedError | null {
-  if (error instanceof NativeReadAuthorityRetiredError) {
+  if (
+    error instanceof NativeReadAuthorityRetiredError ||
+    error instanceof NativeAuthorityTransitionError
+  ) {
     return new NativeCoverageObservationInvalidatedError();
   }
   return error instanceof NativeCoverageObservationInvalidatedError ? error : null;
@@ -292,15 +296,16 @@ export function createNativeScopedSearchCapability(
     return {
       assertCurrent: async (): Promise<void> => {
         const currentInfo = await port.info();
+        if (currentInfo.storeId !== info.storeId) {
+          throw new Error('Native store changed during search.');
+        }
         if (
           key !==
-            fingerprint(await read.getAuthority(), includeReadiness, includePublicationIdentity) ||
-          currentInfo.storeId !== info.storeId
+          fingerprint(await read.getAuthority(), includeReadiness, includePublicationIdentity)
         ) {
-          if (includeReadiness) {
-            throw new NativeCoverageObservationInvalidatedError();
-          }
-          throw new Error('Native source or saved profile changed during search.');
+          throw new NativeAuthorityTransitionError(
+            'Native source or saved profile changed during search.'
+          );
         }
       },
       authority,
@@ -309,55 +314,48 @@ export function createNativeScopedSearchCapability(
       storeId: info.storeId,
     };
   };
-  const coverageBatch = (
+  const coverageBatch = async (
     requests: readonly IndexerCoverageRequest[]
-  ): Promise<IndexerCoverageBatch> =>
-    dependencies.withRead(async (read) => {
-      if (requests.length === 0) {
-        throw new TypeError('Native coverage batch requires at least one request.');
-      }
-      const snapshot = await capture(read, true);
-      const groups = requests.map((request) => requestedScopes(snapshot.authority, request));
-      const scopes = groups.flat();
-      let coverage: readonly ScopedCoverage[];
-      try {
-        coverage = await snapshot.port.coverageBatch(
+  ): Promise<IndexerCoverageBatch> => {
+    try {
+      return await dependencies.withRead(async (read) => {
+        if (requests.length === 0) {
+          throw new TypeError('Native coverage batch requires at least one request.');
+        }
+        const snapshot = await capture(read, true);
+        const groups = requests.map((request) => requestedScopes(snapshot.authority, request));
+        const scopes = groups.flat();
+        const coverage = await snapshot.port.coverageBatch(
           scopes.map((scope) => ({
             scope,
             ...(snapshot.authority.profile === null ? {} : { profile: snapshot.authority.profile }),
           }))
         );
-      } catch (error) {
-        if (error instanceof NativeCoverageObservationInvalidatedError) {
-          return { code: error.code, kind: 'invalidated' };
-        }
-        throw error;
-      }
-      assertCoverageBatch(coverage, scopes, snapshot.storeId, snapshot.authority.profile);
-      try {
+        assertCoverageBatch(coverage, scopes, snapshot.storeId, snapshot.authority.profile);
         await snapshot.assertCurrent();
-      } catch (error) {
-        const invalidation = coverageAuthorityInvalidation(error);
-        if (invalidation !== null) {
-          return { code: invalidation.code, kind: 'invalidated' };
-        }
+        let offset = 0;
+        return {
+          coverage: groups.map((group) => {
+            const result = projectCoverage(
+              coverage.slice(offset, offset + group.length),
+              snapshot.storeId,
+              snapshot.embedding
+            );
+            offset += group.length;
+            return result;
+          }),
+          kind: 'current',
+          status: projectStatus(snapshot.authority, snapshot.storeId, snapshot.embedding),
+        };
+      });
+    } catch (error) {
+      const invalidation = coverageAuthorityInvalidation(error);
+      if (invalidation === null) {
         throw error;
       }
-      let offset = 0;
-      return {
-        coverage: groups.map((group) => {
-          const result = projectCoverage(
-            coverage.slice(offset, offset + group.length),
-            snapshot.storeId,
-            snapshot.embedding
-          );
-          offset += group.length;
-          return result;
-        }),
-        kind: 'current',
-        status: projectStatus(snapshot.authority, snapshot.storeId, snapshot.embedding),
-      };
-    });
+      return { code: invalidation.code, kind: 'invalidated' };
+    }
+  };
   return {
     coverage: async (request): Promise<IndexerCoverage> => {
       const observation = await coverageBatch([request]);
@@ -461,6 +459,9 @@ export function createNativeScopedSearchCapability(
           return projectStatus(snapshot.authority, snapshot.storeId, snapshot.embedding);
         });
       } catch (error) {
+        if (coverageAuthorityInvalidation(error) === null) {
+          throw error;
+        }
         return {
           kind: 'unavailable',
           reason: error instanceof Error ? error.message : String(error),

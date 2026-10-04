@@ -1,4 +1,5 @@
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
+import { NativeAuthorityTransitionError } from './native-authority-transition';
 import type { NativeCanonicalCatalogRecord } from './native-canonical-catalog';
 import type { NativeCanonicalInference } from './native-canonical-profile';
 import type { createNativeScanAdmission } from './native-index-scan-admission';
@@ -30,7 +31,7 @@ export function retireNativeIndexSources(
       await retireAttachments();
     };
     const parentRetirement = Promise.allSettled([retireParent()]);
-    sources.controller.abort(new Error('Native ingestion paused.'));
+    sources.controller.abort(new NativeAuthorityTransitionError('Native ingestion paused.'));
     const attempted = new Set<{ close(): Promise<void> }>();
     const failures: unknown[] = [];
     const collect = (results: readonly PromiseSettledResult<unknown>[]): void => {
