@@ -1,4 +1,5 @@
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
+import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import { IndexerHostManager } from './indexer-host-manager';
 
 interface IndexerOwner {
@@ -6,7 +7,7 @@ interface IndexerOwner {
   readonly creation: Promise<IndexerHostManager>;
   readonly identity: string;
   manager?: IndexerHostManager;
-  port?: IndexerPort & ScopedIndexerPort;
+  port?: IndexerPort & ScopedIndexerPort & CoverageAuthorityPort;
   start?: Promise<IndexerHostManager>;
   startupFailure?: unknown;
   stop?: Promise<void> | undefined;
@@ -74,7 +75,9 @@ export function getReadyIndexerPort(): IndexerPort {
   return owner.port;
 }
 
-export function getReadyScopedIndexerPort(): IndexerPort & ScopedIndexerPort {
+export function getReadyScopedIndexerPort(): IndexerPort &
+  ScopedIndexerPort &
+  CoverageAuthorityPort {
   getReadyIndexerHost();
   if (!owner?.port) {
     throw new Error('Native scoped indexer port is unavailable.');

@@ -161,7 +161,12 @@ export function scopeCoverage(
 export function scopeCoverageBatch(
   db: Database.Database,
   authority: ScopeAuthority,
-  input: unknown
+  input: unknown,
+  expected?: {
+    readonly storeId: string;
+    readonly authorityEpoch: string;
+    readonly authorityRevision: number;
+  }
 ): readonly ScopedCoverage[] {
   const requests = decoder(scopedCoverageBatchRequestSchema)(input).map((request) => {
     authority.authorize([request.scope]);
@@ -181,6 +186,17 @@ export function scopeCoverageBatch(
   });
   return db.transaction(() => {
     const identity = readScopedIdentity(db, authority.revision);
+    if (
+      expected &&
+      (identity.storeId !== expected.storeId ||
+        identity.authorityEpoch !== expected.authorityEpoch ||
+        identity.authorityRevision !== expected.authorityRevision)
+    ) {
+      throw new IndexerError(
+        'coverage-authority-changed',
+        'Native coverage authority changed during its owned observation.'
+      );
+    }
     const validatedProfiles = new Set<string>();
     return requests.map(({ request, selected, profile, profileHash }) => {
       authority.validateStoredBindings(db, selected);

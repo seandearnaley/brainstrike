@@ -1,4 +1,13 @@
 import { runWithTimeout } from '@brainstrike/effect-kit';
+import {
+  IndexerError,
+  type ScopedCoverage,
+  type ScopedCoverageRequest,
+} from '@brainstrike/indexer';
+import {
+  assertCoverageAuthorityBound,
+  type CoverageAuthority,
+} from '@brainstrike/indexer/coverage-reader';
 import type { QueryProcess } from './process.js';
 import {
   decodeRequest,
@@ -26,6 +35,9 @@ export interface QueryOptions {
   readonly requirement?: SqliteQueryRequirement;
   readonly signal?: AbortSignal | undefined;
   readonly values?: readonly SqliteValue[];
+}
+export interface OpenNativeCoverageOptions extends Omit<OpenSqliteQueryOptions, 'databasePath'> {
+  readonly authority: CoverageAuthority;
 }
 
 export class SqliteQueryClient {
@@ -70,6 +82,13 @@ export class SqliteQueryClient {
             throw new TypeError('SQLite query process replied with an unknown request id.');
           }
           this.#pending.delete(response.id);
+          if (response.kind === 'nativeCoverageError') {
+            if (pending.kind !== 'native-coverage' && pending.kind !== 'open-native-coverage') {
+              throw new TypeError('Native coverage error replied to a generic query.');
+            }
+            pending.reject(new IndexerError(response.error.code, response.error.message));
+            return;
+          }
           if (response.kind === 'error') {
             const error =
               pending.kind === 'open'
@@ -92,6 +111,20 @@ export class SqliteQueryClient {
   }
 
   static async open(options: OpenSqliteQueryOptions): Promise<SqliteQueryClient> {
+    return SqliteQueryClient.#open(options, { databasePath: options.databasePath, kind: 'open' });
+  }
+
+  static async openNativeCoverage(options: OpenNativeCoverageOptions): Promise<SqliteQueryClient> {
+    return SqliteQueryClient.#open(options, {
+      authority: options.authority,
+      kind: 'open-native-coverage',
+    });
+  }
+
+  static async #open(
+    options: Omit<OpenSqliteQueryOptions, 'databasePath'>,
+    body: RequestBody
+  ): Promise<SqliteQueryClient> {
     for (const timeout of [options.deadlineMs, options.startupDeadlineMs]) {
       if (!(Number.isFinite(timeout) && timeout > 0)) {
         throw new RangeError('SQLite query deadlines must be positive finite milliseconds.');
@@ -100,11 +133,7 @@ export class SqliteQueryClient {
     options.signal?.throwIfAborted();
     const client = new SqliteQueryClient(options.spawn(), options.deadlineMs);
     try {
-      const response = await client.#call(
-        { databasePath: options.databasePath, kind: 'open' },
-        options.startupDeadlineMs,
-        options.signal
-      );
+      const response = await client.#call(body, options.startupDeadlineMs, options.signal);
       if (response.kind !== 'ready') {
         throw new TypeError('SQLite query startup returned an unexpected response.');
       }
@@ -117,6 +146,23 @@ export class SqliteQueryClient {
       }
       throw error;
     }
+  }
+
+  async nativeCoverage(
+    requests: readonly ScopedCoverageRequest[],
+    options: Pick<QueryOptions, 'signal'> = {}
+  ): Promise<readonly ScopedCoverage[]> {
+    const response = await this.#call(
+      { kind: 'native-coverage', requests },
+      this.#deadlineMs,
+      options.signal
+    );
+    if (response.kind !== 'nativeCoverage') {
+      const error = new TypeError('Native coverage returned an unexpected response.');
+      this.#stop(error);
+      throw error;
+    }
+    return response.result;
   }
 
   query(sql: string, options: QueryOptions = {}): Promise<SqliteRows> {
@@ -213,6 +259,9 @@ export class SqliteQueryClient {
     let request: QueryRequest;
     try {
       request = decodeRequest({ ...body, id });
+      if (request.kind === 'open-native-coverage') {
+        assertCoverageAuthorityBound(request);
+      }
     } catch (error) {
       return Promise.reject(error);
     }
@@ -319,7 +368,7 @@ export class SqliteQueryCancelledError extends Error {
     super('SQLite query cancelled; its owned process was stopped.', { cause: reason });
     this.name = 'SqliteQueryCancelledError';
     this.ownerPid = ownerPid;
-    this.phase = kind === 'open' ? 'startup' : 'query';
+    this.phase = kind === 'open' || kind === 'open-native-coverage' ? 'startup' : 'query';
     this.requestId = requestId;
     this.requestKind = kind;
   }

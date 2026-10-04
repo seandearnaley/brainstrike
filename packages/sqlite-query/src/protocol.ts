@@ -1,4 +1,10 @@
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
+import {
+  coverageAuthoritySchema,
+  faultSchema,
+  scopedCoverageBatchRequestSchema,
+  scopedCoverageSchema,
+} from '@brainstrike/indexer/coverage-reader';
 import { identityStateSchema } from '@brainstrike/indexer/metadata';
 import { Schema } from 'effect';
 
@@ -61,6 +67,16 @@ const QueryFields = {
   values: Schema.Array(Value),
 };
 const RequestSchema = Schema.Union([
+  Schema.Struct({
+    authority: coverageAuthoritySchema,
+    id: Id,
+    kind: Schema.Literal('open-native-coverage'),
+  }),
+  Schema.Struct({
+    id: Id,
+    kind: Schema.Literal('native-coverage'),
+    requests: scopedCoverageBatchRequestSchema,
+  }),
   GrepRequestSchema,
   Schema.Struct({ databasePath: Schema.String, id: Id, kind: Schema.Literal('open') }),
   Schema.Struct({ kind: Schema.Literal('query'), ...QueryFields }),
@@ -68,6 +84,12 @@ const RequestSchema = Schema.Union([
   Schema.Struct({ id: Id, kind: Schema.Literal('listTables') }),
 ]);
 const ResponseSchema = Schema.Union([
+  Schema.Struct({
+    id: Id,
+    kind: Schema.Literal('nativeCoverage'),
+    result: Schema.Array(scopedCoverageSchema),
+  }),
+  Schema.Struct({ error: faultSchema, id: Id, kind: Schema.Literal('nativeCoverageError') }),
   Schema.Struct({ id: Id, kind: Schema.Literal('grepRows'), result: GrepRowsSchema }),
   Schema.Struct({ id: Id, kind: Schema.Literal('ready') }),
   Schema.Struct({ id: Id, kind: Schema.Literal('rows'), result: RowsSchema }),

@@ -20,7 +20,7 @@ function reader(ready = true) {
     },
     postMessage: (request) => {
       requests.push(request);
-      if (request.kind === 'open' && ready) {
+      if ((request.kind === 'open' || request.kind === 'open-native-coverage') && ready) {
         queueMicrotask(() => message({ id: request.id, kind: 'ready' }));
       }
     },
@@ -82,18 +82,38 @@ describe('owned reader cancellation', () => {
     });
     expect(owner.process.kill).toHaveBeenCalledOnce();
   });
-  it.each(['query', 'listTables', 'describeTable'] as const)(
+  it.each(['query', 'listTables', 'describeTable', 'nativeCoverage'] as const)(
     'cancels %s and rejects late rows only after exit',
     async (kind) => {
       const owner = reader();
-      const client = await open(owner);
+      const client =
+        kind === 'nativeCoverage'
+          ? await SqliteQueryClient.openNativeCoverage({
+              authority: {
+                authorityEpoch: 'b'.repeat(64),
+                authorityRevision: 4,
+                dbPath: '/recorded/index.sqlite',
+                fileBindings: [],
+                rootIds: [],
+                scopes: [],
+                storeId: 'a'.repeat(64),
+              },
+              deadlineMs: 1000,
+              spawn: () => owner.process,
+              startupDeadlineMs: 1000,
+            })
+          : await open(owner);
       const controller = new AbortController();
       const call =
-        kind === 'query'
-          ? client.query('SELECT 1', { signal: controller.signal })
-          : kind === 'listTables'
-            ? client.listTables({ signal: controller.signal })
-            : client.describeTable('records', { signal: controller.signal });
+        kind === 'nativeCoverage'
+          ? client.nativeCoverage([{ scope: { kind: 'workspace', rootId: 'root' } }], {
+              signal: controller.signal,
+            })
+          : kind === 'query'
+            ? client.query('SELECT 1', { signal: controller.signal })
+            : kind === 'listTables'
+              ? client.listTables({ signal: controller.signal })
+              : client.describeTable('records', { signal: controller.signal });
       const outcome = call.catch((error: unknown) => error);
       await posted(owner, 2);
       controller.abort(new Error('Stop query'));
@@ -106,7 +126,7 @@ describe('owned reader cancellation', () => {
         cause: controller.signal.reason,
         phase: 'query',
         requestId: 2,
-        requestKind: kind,
+        requestKind: kind === 'nativeCoverage' ? 'native-coverage' : kind,
       });
       await expect(client.query('SELECT 2')).rejects.toBe(error);
       await client.close();

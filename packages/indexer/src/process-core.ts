@@ -15,6 +15,8 @@ import {
   stateHealthSchema,
   stateStatsSchema,
 } from './contracts.js';
+import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.js';
+import { readScopedIdentity } from './index-metadata.js';
 import { RpcClient } from './rpc-client.js';
 import { IndexReader } from './store.js';
 
@@ -101,6 +103,19 @@ export async function runIndexerProcess(
         }
         let work: unknown | Promise<unknown>;
         switch (request.op) {
+          case 'coverage-authority':
+            decoder(Schema.Null)(request.payload);
+            work = connection.db.transaction(() =>
+              decoder(coverageAuthoritySchema)({
+                ...readScopedIdentity(connection.db, connection.scoped.authority.revision),
+                dbPath: options.dbPath,
+                fileBindings: [...connection.scoped.authority.files.values()],
+                rootIds: options.rootIds,
+                scopes: options.scopes ?? [],
+              })
+            )();
+            assertCoverageAuthorityBound(work);
+            break;
           case 'state-health':
             work = client.call(request.op, request.payload, decoder(stateHealthSchema));
             break;

@@ -19,6 +19,11 @@ Guard: `packages/db/__tests__/agent-sql-service.test.ts`.
 
 ## M2 SQLite index sandbox foundation
 
+- Keep trusted native coverage in a separate coverage-only process mode. It uses the existing native validator and its own read-only better-sqlite3 connection, not the generic node:sqlite sandbox. Refuse SQL in coverage mode and coverage in SQL mode; never expose native authority through querySelf arguments. Share process ownership and exit joins without changing sandbox authorizer, limits, function inventory or SQL budgets.
+
+Evidence: `../indexer/2026-10-04-isolated-native-coverage.md`.
+Guard: `packages/sqlite-query/src/__tests__/host-core.test.ts`, `apps/desktop/src/__tests__/coverage-rpc-ordering.integration.test.ts`.
+
 - `@brainstrike/sqlite-query` owns a dedicated killable process, strict Effect
   message decoding, bounded startup and query deadlines, and exit-joined close.
   A killed client stays dead; recovery explicitly acquires a new client.

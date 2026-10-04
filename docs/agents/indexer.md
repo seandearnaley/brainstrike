@@ -10,6 +10,17 @@
 Evidence: `indexer/2026-10-02-independent-package.md`, `indexer/2026-10-02-electron-utility.md`.
 Guard: `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/indexer/__tests__/lifecycle.integration.test.ts`, `apps/desktop/src/__tests__/indexer-utility.integration.test.ts`.
 
+### Isolated native coverage
+
+- Desktop activation supplies the isolated coverage wrapper to public reads and canonical publication. Keep full-profile coverage off the canonical utility loop; standalone owner APIs retain their explicit existing behavior.
+- Capture acknowledged bindings/scopes and the utility's actual revision, persisted epoch and store in the cheap authority RPC. Bound trusted authority messages to 32 MiB; generic SQL budgets remain separate.
+- Use the existing killable query owner in coverage-only mode with a read-only/query-only native better-sqlite3 reader. Reuse full batch validation once per selected profile in one fresh owned transaction; retain stored membership, Float32, coarse and corruption checks. Never cache validation across reads or derive revision from a new authority object's default.
+- Close and physically join the read host before releasing the caller's read lease; reset and shutdown join the same registered acquisitions/owners and retain failed cleanup for retry. Preserve native five-second read semantics and generic SQL deadlines.
+- Translate authority drift to observation invalidation only after a current utility snapshot demonstrates the change. Preserve forged membership, corruption, schema, protocol and cleanup failures as fatal errors.
+
+Evidence: `indexer/2026-10-04-isolated-native-coverage.md`.
+Guard: `apps/desktop/src/__tests__/coverage-rpc-ordering.integration.test.ts`, `sqlite-query-host-manager.test.ts`, `packages/indexer/__tests__/coverage-file-lookup.integration.test.ts`, `packages/sqlite-query/src/__tests__/host-core.test.ts`, `client-cancellation.test.ts`.
+
 ### Profile and incremental identity
 
 - Reuse the canonical metadata raw-row decoder for other SQLite drivers, inside the caller's owned read snapshot; it validates schema/store/profile/hash without constructing an engine.

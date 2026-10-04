@@ -13,6 +13,10 @@
     "./utility-host": {
       "types": "./dist/utility-query-host.d.ts",
       "default": "./dist/utility-query-host.js"
+    },
+    "./host": {
+      "types": "./dist/host-core.d.ts",
+      "default": "./dist/host-core.js"
     }
   },
   "files": [

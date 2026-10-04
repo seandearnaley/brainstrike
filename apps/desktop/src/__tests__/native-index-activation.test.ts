@@ -19,6 +19,7 @@ import {
   type ScopedIndexerPort,
   vectorProfileHash,
 } from '@brainstrike/indexer';
+import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
@@ -63,6 +64,14 @@ vi.mock('../indexer-runtime', () => ({
 vi.mock('../sqlite-query-host-manager', () => ({
   closeAllIndexQueries: mocks.closeReaders,
   installIndexQueryTarget: vi.fn(),
+  openIndexCoverage: async () => {
+    const port: ScopedIndexerPort = mocks.readyPort();
+    return {
+      close: async () => undefined,
+      nativeCoverage: async (requests: readonly unknown[]) =>
+        Promise.all(requests.map((request) => port.coverageScope(request))),
+    };
+  },
 }));
 
 const storeId = 'a'.repeat(64);
@@ -89,7 +98,7 @@ function requestedScope(input: unknown): CanonicalSourceScope {
   }
   throw new Error('Expected an authorized native scope.');
 }
-function writer(): IndexerPort & ScopedIndexerPort {
+function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
   return {
     close: unused,
     commitFile: unused,
@@ -98,6 +107,15 @@ function writer(): IndexerPort & ScopedIndexerPort {
     commitTextFile: unused,
     configureVectorProfile: unused,
     coverage: unused,
+    coverageAuthority: async () => ({
+      authorityEpoch: 'b'.repeat(64),
+      authorityRevision: 1,
+      dbPath: '/owned/profile/index.sqlite',
+      fileBindings: [],
+      rootIds: [],
+      scopes: [scope],
+      storeId,
+    }),
     coverageBatch: unused,
     coverageScope: unused,
     destroy: unused,
@@ -542,7 +560,8 @@ it('keeps captured cleanup authority through expected source abort and refuses i
   const authority = captured.readAuthority();
   await activation.stopSources();
   expect(captured.readAuthority()).toEqual(authority);
-  expect(captured.port).toBe(mocks.readyPort());
+  expect(captured.port.info).toBe(mocks.readyPort().info);
+  expect(captured.port.coverageBatch).not.toBe(mocks.readyPort().coverageBatch);
   await activation.close();
   expect(() => captured.readAuthority()).toThrow();
 });

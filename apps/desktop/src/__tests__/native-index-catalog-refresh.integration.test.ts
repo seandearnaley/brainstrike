@@ -13,8 +13,13 @@ import type {
   ScopedManifestRequest,
   ScopedManifestResult,
 } from '@brainstrike/indexer';
+import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
 import { expect, it, vi } from 'vitest';
 import { openIndexer } from '../../../../packages/indexer/dist/index.js';
+import {
+  SqliteQueryClient,
+  spawnQueryProcess,
+} from '../../../../packages/sqlite-query/dist/index.js';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
   type CanonicalCollectionDependencies,
@@ -22,6 +27,7 @@ import {
 } from '../canonical-utility-parent';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
+import { NativeCoverageObservationInvalidatedError } from '../native-coverage-observation-invalidated';
 import { createNativeIndexActivation } from '../native-index-activation';
 import {
   createNativeScopedSearchCapability,
@@ -32,6 +38,7 @@ const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
   close: vi.fn(),
   database: { query: vi.fn(), transaction: vi.fn() },
+  holdCoverage: vi.fn(),
   manager: {
     attachCanonicalCollection: vi.fn(),
     attachCanonicalWorkspace: vi.fn(),
@@ -55,6 +62,22 @@ vi.mock('../indexer-runtime', () => ({
 vi.mock('../sqlite-query-host-manager', () => ({
   closeAllIndexQueries: async () => {},
   installIndexQueryTarget: () => {},
+  openIndexCoverage: async (authority: CoverageAuthority) => {
+    const reader = await SqliteQueryClient.openNativeCoverage({
+      authority,
+      deadlineMs: 5000,
+      spawn: () => spawnQueryProcess({ executable: process.execPath }),
+      startupDeadlineMs: 5000,
+    });
+    return {
+      close: () => reader.close(),
+      nativeCoverage: async (requests: Parameters<SqliteQueryClient['nativeCoverage']>[0]) => {
+        const result = await reader.nativeCoverage(requests);
+        await mocks.holdCoverage();
+        return result;
+      },
+    };
+  },
 }));
 
 const scope = { embeddingSetId: 'selected', kind: 'collection' } as const;
@@ -128,17 +151,16 @@ async function fixture(withWorkspace = false) {
     sourceFailure: undefined as Error | undefined,
     workspaceLoading: false,
   };
+  mocks.holdCoverage.mockImplementation(async () => {
+    if (!state.holdCoverage) {
+      return;
+    }
+    state.holdCoverage = false;
+    coverageEntered.resolve();
+    await coverageGate.promise;
+  });
   const writer = {
     ...native,
-    coverageScope: async (request: unknown) => {
-      const result = await native.coverageScope(request);
-      if (state.holdCoverage) {
-        state.holdCoverage = false;
-        coverageEntered.resolve();
-        await coverageGate.promise;
-      }
-      return result;
-    },
     replaceFileBindings: async (files: readonly IndexFileBinding[]) => {
       bindings.push(files.map((file) => file.fileId));
       await native.replaceFileBindings(files);
@@ -485,7 +507,7 @@ it.each([false, true])(
       await test.activation.acquire();
       expect(await joining).toBeUndefined();
       expect((await test.activation.getSearchAuthority()).readiness).toEqual([
-        { scanComplete: true, scope },
+        { generation: 2, mutationRevision: 2, scanComplete: true, scope },
       ]);
       expect(test.receipts).toHaveLength(2);
       expect(test.manifests).toEqual([[], ['retained-0']]);
@@ -539,7 +561,7 @@ it('queues a newer inventory until the actual host and private channel join the 
       })
       .catch((error: unknown) => error);
     expect((await test.activation.getSearchAuthority()).readiness).toEqual([
-      { scanComplete: false, scope },
+      { generation: 2, mutationRevision: 2, scanComplete: false, scope },
     ]);
     expect(test.bindings.at(-1)).toEqual(['retained-0']);
     expect(updated).toBe(false);
@@ -547,9 +569,11 @@ it('queues a newer inventory until the actual host and private channel join the 
     test.gate.resolve();
     expect(await test.finished.promise).toMatchObject({ reason: 'complete', scanComplete: true });
     await test.nextEntered.promise;
-    expect(test.activation.getReadiness()).toEqual([{ scanComplete: false, scope }]);
+    expect(test.activation.getReadiness()).toEqual([
+      { generation: 3, mutationRevision: 5, scanComplete: false, scope },
+    ]);
     expect((await test.activation.getSearchAuthority()).readiness).toEqual([
-      { scanComplete: false, scope },
+      { generation: 3, mutationRevision: 5, scanComplete: false, scope },
     ]);
     expect(test.bindings.at(-1)).toEqual(['retained-0', 'retained-1']);
     expect(updated).toBe(false);
@@ -570,9 +594,11 @@ it('queues a newer inventory until the actual host and private channel join the 
       missing: [],
       unexpected: [],
     });
-    expect(test.activation.getReadiness()).toEqual([{ scanComplete: true, scope }]);
+    expect(test.activation.getReadiness()).toEqual([
+      { generation: 3, mutationRevision: 5, scanComplete: true, scope },
+    ]);
     expect((await test.activation.getSearchAuthority()).readiness).toEqual([
-      { scanComplete: true, scope },
+      { generation: 3, mutationRevision: 5, scanComplete: true, scope },
     ]);
     expect(test.onError).not.toHaveBeenCalled();
   } finally {
@@ -642,7 +668,7 @@ it('observes catalog population before the initial collection scan so concurrent
     expect(test.manifests).toEqual([['retained-0']]);
     expect(test.onError).not.toHaveBeenCalled();
     expect((await test.activation.getSearchAuthority()).readiness).toEqual([
-      { scanComplete: true, scope },
+      { generation: 1, mutationRevision: 2, scanComplete: true, scope },
     ]);
   } finally {
     await test.close();
@@ -684,7 +710,9 @@ it.each([false, true])(
       });
       await expect(test.activation.acquireRead()).rejects.toThrow('Canonical native scan failed');
       expect(test.manifests).toEqual([[], ['retained-0']]);
-      expect(test.activation.getReadiness()).toEqual([{ scanComplete: false, scope }]);
+      expect(test.activation.getReadiness()).toEqual([
+        { generation: 2, mutationRevision: 2, scanComplete: false, scope },
+      ]);
     } finally {
       await test.close();
     }
@@ -705,14 +733,18 @@ it('joins a queued inventory that reverts before the old verified scan settles w
     await test.activation.getSearchAuthority();
     test.state.files = records(1);
     const reverted = test.activation.acquireRead().catch((error: unknown) => error);
-    expect(test.activation.getReadiness()).toEqual([{ scanComplete: false, scope }]);
+    expect(test.activation.getReadiness()).toEqual([
+      { generation: 2, mutationRevision: 2, scanComplete: false, scope },
+    ]);
     test.gate.resolve();
     expect(await test.finished.promise).toMatchObject({ reason: 'complete', scanComplete: true });
     expect(await updating).toHaveProperty('info');
     expect(await reverted).toHaveProperty('info');
     expect(test.manifests).toEqual([[], ['retained-0']]);
     expect(test.bindings.at(-1)).toEqual(['retained-0']);
-    expect(test.activation.getReadiness()).toEqual([{ scanComplete: true, scope }]);
+    expect(test.activation.getReadiness()).toEqual([
+      { generation: 2, mutationRevision: 2, scanComplete: true, scope },
+    ]);
     expect(test.onError).not.toHaveBeenCalled();
   } finally {
     await test.close();
@@ -735,7 +767,9 @@ it.each([false, true])(
       const joining = test.activation.acquire().catch((error: unknown) => error);
       if (newer) {
         await test.sawNewInventory.promise;
-        expect(test.activation.getReadiness()).toEqual([{ scanComplete: false, scope }]);
+        expect(test.activation.getReadiness()).toEqual([
+          { generation: 2, mutationRevision: 1, scanComplete: false, scope },
+        ]);
       }
       expect(test.bindings.at(-1)).toEqual(['retained-0']);
       test.batchGate.resolve();
@@ -746,7 +780,7 @@ it.each([false, true])(
       );
       expect(test.receipts.every((receipt) => receipt.scanComplete)).toBe(true);
       expect((await test.activation.getSearchAuthority()).readiness).toEqual([
-        { scanComplete: true, scope },
+        { generation: newer ? 3 : 2, mutationRevision: newer ? 5 : 2, scanComplete: true, scope },
       ]);
     } finally {
       await test.close();
@@ -845,6 +879,7 @@ it.each([false, true])(
       await test.coverageEntered.promise;
       const before = test.authorities.at(-1);
       const beforeStore = (await test.native.info()).storeId;
+      const beforeNative = await test.native.coverageAuthority();
       test.attachmentGate.resolve();
       if (progress) {
         await test.sawSingleInventory.promise;
@@ -867,10 +902,36 @@ it.each([false, true])(
       expect(test.bindings.flat()).not.toContain('retained-0');
       expect(test.receipts).toHaveLength(progress ? 0 : 1);
       test.coverageGate.resolve();
-      expect(await pending).toMatchObject({
-        storeId: beforeStore,
-        totals: { chunks: 0, indexedFiles: 0 },
-      });
+      const observation = await pending;
+      if (progress) {
+        expect(observation).toMatchObject({
+          storeId: beforeStore,
+          totals: { chunks: 0, indexedFiles: 0 },
+        });
+      } else {
+        expect(observation).toBeInstanceOf(NativeCoverageObservationInvalidatedError);
+        expect(observation).toHaveProperty('code', 'native-coverage-observation-invalidated');
+        const currentNative = await test.native.coverageAuthority();
+        expect(currentNative).toEqual(beforeNative);
+        expect(before?.readiness).toEqual([
+          { generation: 0, mutationRevision: 0, scanComplete: false, scope },
+        ]);
+        expect(after.readiness).toEqual([
+          { generation: 1, mutationRevision: 0, scanComplete: true, scope },
+        ]);
+        expect(currentNative.fileBindings).toEqual([]);
+        expect(
+          await test.capability.coverage({ collectionId: 'selected', rootIds: [] })
+        ).toMatchObject({
+          storeId: beforeStore,
+          totals: { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 },
+          vectorCoverageComplete: false,
+        });
+        expect(test.activation.getReadiness()).toEqual([
+          { generation: 1, mutationRevision: 0, scanComplete: true, scope },
+        ]);
+        expect(await test.native.coverageAuthority()).toEqual(currentNative);
+      }
       expect(test.authorities.at(-1)?.bindings).toEqual(before?.bindings);
       if (progress) {
         await test.entered.promise;
@@ -880,7 +941,9 @@ it.each([false, true])(
       test.gate.resolve();
       await test.activation.acquire();
       expect(test.onError).not.toHaveBeenCalled();
-      expect(test.activation.getReadiness()).toEqual([{ scanComplete: true, scope }]);
+      expect(test.activation.getReadiness()).toEqual([
+        { generation: 1, mutationRevision: progress ? 2 : 0, scanComplete: true, scope },
+      ]);
     } finally {
       await test.close();
     }

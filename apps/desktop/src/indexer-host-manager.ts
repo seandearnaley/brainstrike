@@ -1,6 +1,7 @@
 import type { CanonicalWorkspaceRuntimeDependencies } from '@brainstrike/canonical-ingestion';
 import { runWithTimeout } from '@brainstrike/effect-kit';
 import type { IndexerOptions, IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
+import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import type { IndexerConnection, IndexerDeadlines } from '@brainstrike/indexer/transport';
 import { app, utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
@@ -27,7 +28,7 @@ export class IndexerHostManager {
   readonly #deadlines: IndexerDeadlines;
   readonly #entryPath: string;
   #connection: IndexerConnection | undefined;
-  #start: Promise<IndexerPort & ScopedIndexerPort> | undefined;
+  #start: Promise<IndexerPort & ScopedIndexerPort & CoverageAuthorityPort> | undefined;
   #canonical: CanonicalUtilityParent | undefined;
   #exitCleanup: Promise<void> | undefined;
   #exitCleanupFailed = false;
@@ -68,7 +69,7 @@ export class IndexerHostManager {
     );
   }
 
-  start(): Promise<IndexerPort & ScopedIndexerPort> {
+  start(): Promise<IndexerPort & ScopedIndexerPort & CoverageAuthorityPort> {
     if (this.#closed) {
       return Promise.reject(new Error('Indexer host is closed; create a fresh owner to restart.'));
     }
@@ -79,7 +80,7 @@ export class IndexerHostManager {
     return this.#start;
   }
 
-  async #launch(): Promise<IndexerPort & ScopedIndexerPort> {
+  async #launch(): Promise<IndexerPort & ScopedIndexerPort & CoverageAuthorityPort> {
     const { createIndexerConnection } = await import('@brainstrike/indexer/transport');
     // close may race the dynamic import, before any process has been acquired.
     if (this.#closed) {

@@ -261,12 +261,20 @@ export function createNativeScopedSearchCapability(
       const snapshot = await capture(read, true);
       const groups = requests.map((request) => requestedScopes(snapshot.authority, request));
       const scopes = groups.flat();
-      const coverage = await snapshot.port.coverageBatch(
-        scopes.map((scope) => ({
-          scope,
-          ...(snapshot.authority.profile === null ? {} : { profile: snapshot.authority.profile }),
-        }))
-      );
+      let coverage: readonly ScopedCoverage[];
+      try {
+        coverage = await snapshot.port.coverageBatch(
+          scopes.map((scope) => ({
+            scope,
+            ...(snapshot.authority.profile === null ? {} : { profile: snapshot.authority.profile }),
+          }))
+        );
+      } catch (error) {
+        if (error instanceof NativeCoverageObservationInvalidatedError) {
+          return { code: error.code, kind: 'invalidated' };
+        }
+        throw error;
+      }
       assertCoverageBatch(coverage, scopes, snapshot.storeId, snapshot.authority.profile);
       try {
         await snapshot.assertCurrent();
