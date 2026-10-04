@@ -1,0 +1,30 @@
+// M0-A1 criterion 4 as a test (local macOS only: CI runners are CPU-bound and cannot judge contention, see the report).
+// Gate: M0_CONTEND_TEST=1 on darwin. 8 children at step boundaries while a tool reads 100 MB through fs.promises:
+// J-worker (writes + fsyncs on its writer worker) must keep the tool-read p95 within 2x of idle (median of 3 fresh
+// processes). Negative control in the same test: J (writes on the event loop) must exceed 2x, or the test cannot fail.
+import { execFileSync } from 'node:child_process';
+import { closeSync, existsSync, mkdirSync, openSync, statSync, writeSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { join } from 'node:path';
+import { describe, expect, test } from 'vitest';
+
+const TMP = process.env.SPIKE_TMP ?? join(process.cwd(), 'tmp');
+const ON = process.platform === 'darwin' && process.env.M0_CONTEND_TEST === '1';
+const ratio = (cand: string, big: string) => {
+  const out = execFileSync(process.execPath, ['--import', 'tsx', 'scripts/m0/contend.ts', cand, big], { encoding: 'utf8', env: { ...process.env, M0_TMP: TMP } });
+  return JSON.parse(out.split('\n').find((l) => l.startsWith('M0CONTEND '))!.slice(10)).ratioP95 as number;
+};
+const median = (a: number[]) => a.slice().sort((x, y) => x - y)[Math.floor(a.length / 2)]!;
+
+describe.skipIf(!ON)('M0-A1 contention (criterion 4, local macOS)', () => {
+  test('CT-J-worker: tool-read p95 <= 2x idle while 8 children sync (median of 3); J on the event loop is the failing control', () => {
+    mkdirSync(TMP, { recursive: true });
+    const big = join(TMP, 'm0-100MB.bin');
+    if (!existsSync(big) || statSync(big).size !== 100 * 1024 * 1024) { const fd = openSync(big, 'w'); const c = randomBytes(1 << 20); for (let i = 0; i < 100; i++) writeSync(fd, c); closeSync(fd); }
+    const rs: number[] = []; const js: number[] = [];
+    for (let i = 0; i < 3; i++) { rs.push(ratio('J-worker', big)); if (i === 0) js.push(ratio('J', big)); }
+    console.log('[CT]', JSON.stringify({ jWorker: rs, jLoopControl: js }));
+    expect(js[0]).toBeGreaterThan(2);
+    expect(median(rs)).toBeLessThanOrEqual(2);
+  }, 300_000);
+});
