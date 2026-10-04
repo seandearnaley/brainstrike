@@ -21,6 +21,16 @@ import {
   requireStringType,
 } from './contract-args';
 
+function collectionScope(record: ParamsRecord): { collectionId?: string } {
+  if (record['collectionId'] === undefined) {
+    return {};
+  }
+  const collectionId = requireStringType(record, 'collectionId', 'native index');
+  if (!collectionId.trim()) {
+    throw new TypeError('Native collection ID must be nonempty.');
+  }
+  return { collectionId };
+}
 function roots(record: ParamsRecord): readonly string[] {
   const value = record['rootIds'];
   if (
@@ -45,17 +55,22 @@ function one(raw: readonly unknown[]): ParamsRecord {
 }
 function parseCoverage(raw: readonly unknown[]): [IndexerCoverageRequest] {
   const record = one(raw);
-  assertSupportedKeys(record, ['rootIds'], 'native index coverage');
-  return [{ rootIds: roots(record) }];
+  assertSupportedKeys(record, ['rootIds', 'collectionId'], 'native index coverage');
+  return [{ ...collectionScope(record), rootIds: roots(record) }];
 }
 function parseSearch(raw: readonly unknown[]): [IndexerSearchRequest] {
   const record = one(raw);
   const rootIds = roots(record);
   const cap = limit(record);
   if (record['mode'] === 'bm25' || record['mode'] === 'trigram') {
-    assertSupportedKeys(record, ['rootIds', 'limit', 'mode', 'text'], 'native text search');
+    assertSupportedKeys(
+      record,
+      ['rootIds', 'collectionId', 'limit', 'mode', 'text'],
+      'native text search'
+    );
     return [
       {
+        ...collectionScope(record),
         limit: cap,
         mode: record['mode'],
         rootIds,
@@ -68,7 +83,7 @@ function parseSearch(raw: readonly unknown[]): [IndexerSearchRequest] {
   }
   assertSupportedKeys(
     record,
-    ['rootIds', 'limit', 'mode', 'profile', 'vector'],
+    ['rootIds', 'collectionId', 'limit', 'mode', 'profile', 'vector'],
     'native vector search'
   );
   const profile = parseRecord(record['profile'], 'native embedding profile');
@@ -101,6 +116,7 @@ function parseSearch(raw: readonly unknown[]): [IndexerSearchRequest] {
   }
   return [
     {
+      ...collectionScope(record),
       limit: cap,
       mode: 'vector',
       profile: { dimensions, dtype, modelId, revision, tokenCap },
@@ -113,7 +129,7 @@ function parseGrep(raw: readonly unknown[]): [IndexerGrepRequest] {
   const record = one(raw);
   assertSupportedKeys(
     record,
-    ['rootIds', 'pattern', 'isRegex', 'caseSensitive', 'limit'],
+    ['rootIds', 'collectionId', 'pattern', 'isRegex', 'caseSensitive', 'limit'],
     'native grep'
   );
   if (typeof record['isRegex'] !== 'boolean' || typeof record['caseSensitive'] !== 'boolean') {
@@ -121,6 +137,7 @@ function parseGrep(raw: readonly unknown[]): [IndexerGrepRequest] {
   }
   return [
     {
+      ...collectionScope(record),
       caseSensitive: record['caseSensitive'],
       isRegex: record['isRegex'],
       limit: limit(record),
@@ -139,6 +156,11 @@ export const indexSearchContract = {
   grep: channel<[IndexerGrepRequest], Result<'grep'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.grep,
     parseArgs: parseGrep,
+    roles: ['visible-ui'],
+  }),
+  rebuild: channel<[], Result<'rebuild'>>({
+    channel: DESKTOP_IPC_CHANNELS.indexSearch.rebuild,
+    parseArgs: parseNoArgs,
     roles: ['visible-ui'],
   }),
   search: channel<[IndexerSearchRequest], Result<'search'>>({

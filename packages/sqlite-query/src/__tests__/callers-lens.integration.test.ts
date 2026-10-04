@@ -8,7 +8,11 @@ import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { sqliteVecExtensionPath } from '@brainstrike/sqlite-native';
 import { Schema } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { SqliteQueryClient, spawnQueryProcess } from '../../dist/index.js';
+import {
+  type SqliteCallerContext,
+  SqliteQueryClient,
+  spawnQueryProcess,
+} from '../../dist/index.js';
 
 const directory = mkdtempSync(resolve(tmpdir(), 'brainstrike-callers-lens-'));
 const databasePath = resolve(directory, 'index.sqlite');
@@ -21,6 +25,18 @@ const lens = parsed.lens;
 const sql = lens.sql;
 let client: SqliteQueryClient;
 let expectedVectorIds: readonly string[];
+let context: SqliteCallerContext;
+const decodeFixture = makeThrowingDecoder(
+  Schema.Struct({
+    context: Schema.Struct({
+      collectionId: Schema.String,
+      fileIds: Schema.Array(Schema.String),
+      profile: Schema.Unknown,
+      storeId: Schema.String,
+    }),
+    expectedVectorIds: Schema.Array(Schema.String),
+  })
+);
 
 beforeAll(async () => {
   const writer = process.env['INDEXER_TEST_EXEC_PATH'];
@@ -41,9 +57,7 @@ beforeAll(async () => {
   if (seeded.status !== 0) {
     throw new Error(`Canonical IndexPort fixture failed: ${seeded.stderr}`);
   }
-  expectedVectorIds = makeThrowingDecoder(
-    Schema.Struct({ expectedVectorIds: Schema.Array(Schema.String) })
-  )(JSON.parse(seeded.stdout)).expectedVectorIds;
+  ({ expectedVectorIds, context } = decodeFixture(JSON.parse(seeded.stdout)));
   client = await SqliteQueryClient.open({
     databasePath,
     deadlineMs: 5000,
@@ -58,7 +72,9 @@ afterAll(async () => {
 });
 
 const bindings = { ['$1']: 'add', ['$2']: 'disposer bridge' };
-const requirement = { kind: 'caller-vectors', symbol: 'add' } as const;
+function requirement(symbol = 'add') {
+  return { context, kind: 'caller-vectors', symbol } as const;
+}
 
 describe('canonical SQLite caller lens over recorded renderer/parser payloads', () => {
   it('binds seed/terms and ranks only exact caller graph chunks with their source spans', async () => {
@@ -66,7 +82,7 @@ describe('canonical SQLite caller lens over recorded renderer/parser payloads', 
     expect(lens.requirement).toEqual({ kind: 'caller-vectors', seedParam: 'symbol' });
     const coerced = coerceLensValues(lens.params, ['add', 'disposer bridge']);
     expect(coerced).toEqual({ ok: true, values: ['add', 'disposer bridge'] });
-    const result = await client.query(sql, { bindings, maxRows: 100 });
+    const result = await client.query(sql, { bindings, maxRows: 100, requirement: requirement() });
     expect(result.columns).toEqual(['path', 'chunk_id', 'start_line', 'end_line', 'rrf_score']);
     expect(result.rows).toHaveLength(8);
     expect(new Set(result.rows.map((row) => row[0]))).toEqual(
@@ -91,44 +107,55 @@ describe('canonical SQLite caller lens over recorded renderer/parser payloads', 
         await client.query(`${prefix} SELECT id FROM vector_arm ORDER BY position`, {
           bindings,
           maxRows: 100,
-          requirement,
+          requirement: requirement(),
         })
       ).rows.map((row) => row[0])
     ).toEqual(expectedVectorIds);
-    expect((await client.query(sql, { bindings, maxRows: 100, requirement })).rows).toEqual(
-      result.rows
-    );
+    expect(
+      (await client.query(sql, { bindings, maxRows: 100, requirement: requirement() })).rows
+    ).toEqual(result.rows);
   });
   it('refuses the required caller vector arm when a graph chunk has no vector', async () => {
     const writer = new DatabaseSync(databasePath, { allowExtension: true });
     writer.loadExtension(sqliteVecExtensionPath());
     const saved = writer
       .prepare(
-        "SELECT v.* FROM vec_chunks v JOIN file_chunks ch ON ch.pk=v.id WHERE ch.file_record_id='recorded-file-1' ORDER BY ch.id LIMIT 1"
+        "SELECT v.* FROM scoped_vectors v JOIN file_chunks ch ON ch.pk=v.chunk_pk WHERE ch.file_record_id='recorded-file-1' ORDER BY ch.id LIMIT 1"
       )
       .get();
     if (
       !(
         saved &&
-        typeof saved['id'] === 'number' &&
-        typeof saved['root_id'] === 'string' &&
-        saved['bin'] instanceof Uint8Array &&
+        typeof saved['pk'] === 'number' &&
+        typeof saved['chunk_pk'] === 'number' &&
+        typeof saved['profile_hash'] === 'string' &&
+        typeof saved['content_hash'] === 'string' &&
+        typeof saved['dimensions'] === 'number' &&
         saved['emb'] instanceof Uint8Array
       )
     ) {
-      throw new Error('Recorded caller vector must exist.');
+      throw new Error('Recorded scoped vector must exist.');
     }
-    writer.prepare('DELETE FROM vec_chunks WHERE id=?').run(saved['id']);
-    writer.prepare('UPDATE file_chunks SET has_vector=0 WHERE pk=?').run(saved['id']);
+    writer
+      .prepare('DELETE FROM scoped_vectors WHERE chunk_pk=? AND profile_hash=?')
+      .run(saved['chunk_pk'], saved['profile_hash']);
     try {
-      await expect(client.query(sql, { bindings, requirement })).rejects.toThrow(
+      await expect(client.query(sql, { bindings, requirement: requirement() })).rejects.toThrow(
         'complete vectors'
       );
     } finally {
       writer
-        .prepare('INSERT INTO vec_chunks(id,root_id,bin,emb) VALUES(?,?,vec_bit(?),?)')
-        .run(BigInt(saved['id']), saved['root_id'], saved['bin'], saved['emb']);
-      writer.prepare('UPDATE file_chunks SET has_vector=1 WHERE pk=?').run(saved['id']);
+        .prepare(
+          'INSERT INTO scoped_vectors(pk,chunk_pk,profile_hash,content_hash,dimensions,emb) VALUES(?,?,?,?,?,?)'
+        )
+        .run(
+          saved['pk'],
+          saved['chunk_pk'],
+          saved['profile_hash'],
+          saved['content_hash'],
+          saved['dimensions'],
+          saved['emb']
+        );
       writer.close();
     }
   });
@@ -137,45 +164,41 @@ describe('canonical SQLite caller lens over recorded renderer/parser payloads', 
     await expect(
       client.query(sql, {
         bindings: { ...bindings, ['$1']: 'missingSeed' },
-        requirement: { kind: 'caller-vectors', symbol: 'missingSeed' },
+        requirement: requirement('missingSeed'),
       })
     ).rejects.toThrow('seed symbol');
   });
 
-  it('refuses an unconfigured vector profile and keeps user transaction control denied', async () => {
-    const writer = new DatabaseSync(databasePath);
-    const original = writer.prepare('SELECT profile_json,profile_hash FROM index_metadata').get();
-    if (
-      !(
-        original &&
-        typeof original['profile_json'] === 'string' &&
-        typeof original['profile_hash'] === 'string'
-      )
-    ) {
-      throw new Error('Recorded configured profile must exist.');
-    }
-    writer.exec(
-      "UPDATE index_metadata SET index_mode='text-only',profile_json=NULL,profile_hash=NULL"
+  it('requires current profile authority while keeping global metadata TEXT and transaction control denied', async () => {
+    expect(
+      (await client.query('SELECT index_mode,profile_json,profile_hash FROM index_metadata')).rows
+    ).toEqual([['text-only', null, null]]);
+    await expect(
+      client.query(sql, { bindings, requirement: { kind: 'caller-vectors', symbol: 'add' } })
+    ).rejects.toThrow('explicit current collection');
+    await expect(
+      client.query(sql, {
+        bindings,
+        requirement: {
+          ...requirement(),
+          context: {
+            ...context,
+            profile: { ...(context.profile as Record<string, unknown>), modelId: 'wrong-profile' },
+          },
+        },
+      })
+    ).rejects.toThrow('stored scoped profile');
+    await expect(client.query('BEGIN', { requirement: requirement() })).rejects.toThrow(
+      'not authorized'
     );
-    try {
-      await expect(client.query(sql, { bindings, requirement })).rejects.toThrow(
-        'configured complete vector profile'
-      );
-    } finally {
-      writer
-        .prepare(
-          "UPDATE index_metadata SET index_mode='vector-configured',profile_json=?,profile_hash=?"
-        )
-        .run(original['profile_json'], original['profile_hash']);
-      writer.close();
-    }
-    await expect(client.query('BEGIN', { requirement })).rejects.toThrow('not authorized');
     await expect(client.query('ROLLBACK')).rejects.toThrow('not authorized');
-    expect((await client.query(sql, { bindings, maxRows: 100, requirement })).rows).toHaveLength(8);
+    expect(
+      (await client.query(sql, { bindings, maxRows: 100, requirement: requirement() })).rows
+    ).toHaveLength(8);
   });
 
-  it.each(['many', 'depth'])(
-    'preserves the actual engine %s control for arm caps or recursion depth',
+  it.each(['many', 'depth', 'rootless'])(
+    'preserves the actual engine %s caller control',
     async (mode) => {
       const dbPath = resolve(directory, `${mode}.sqlite`);
       const writer = process.env['INDEXER_TEST_EXEC_PATH'];
@@ -205,9 +228,36 @@ describe('canonical SQLite caller lens over recorded renderer/parser payloads', 
         const options = {
           bindings: { ['$1']: symbol, ['$2']: 'add OR bridge OR disposer' },
           maxRows: 100,
-          requirement: { kind: 'caller-vectors', symbol } as const,
+          requirement: {
+            context: decodeFixture(JSON.parse(seeded.stdout)).context,
+            kind: 'caller-vectors',
+            symbol,
+          } as const,
         };
         const result = await owned.query(sql, options);
+        if (mode === 'rootless') {
+          // Real canonical collection publication: no synthetic workspace root/path.
+          const source = await owned.query(
+            "SELECT id,start_line,end_line,root_id FROM file_chunks WHERE file_record_id<>'bait'",
+            { maxRows: 100 }
+          );
+          expect(source.rows).toHaveLength(8);
+          expect(source.rows.every((row) => row[3] === null)).toBe(true);
+          expect(result.rows).toHaveLength(8);
+          expect(result.rows.every((row) => row[0] === null)).toBe(true);
+          expect(new Set(result.rows.map((row) => row[1]))).toEqual(
+            new Set(decodeFixture(JSON.parse(seeded.stdout)).expectedVectorIds)
+          );
+          for (const row of result.rows) {
+            expect(source.rows.map((stored) => stored.slice(0, 3))).toContainEqual(row.slice(1, 4));
+            expect(row[4]).toBeGreaterThan(0);
+          }
+          const membership = await owned.query(
+            "SELECT count(*) FROM file_records WHERE root_id IS NULL AND path IS NULL AND scoped=1 AND embedding_set_id='recorded-collection' AND source_path IS NOT NULL"
+          );
+          expect(membership.rows).toEqual([[options.requirement.context.fileIds.length]]);
+          return;
+        }
         if (mode === 'depth') {
           expect(result.rows).toHaveLength(33);
           expect(new Set(result.rows.map((row) => row[0]))).toEqual(
@@ -259,7 +309,7 @@ describe('canonical SQLite caller lens over recorded renderer/parser payloads', 
     await expect(
       client.query(sql, {
         bindings: { ...bindings, ['$1']: hostile },
-        requirement: { kind: 'caller-vectors', symbol: hostile },
+        requirement: requirement(hostile),
       })
     ).rejects.toThrow('seed symbol');
     expect((await client.query('SELECT count(*) FROM file_symbols')).rows[0]?.[0]).toBeGreaterThan(
@@ -269,12 +319,21 @@ describe('canonical SQLite caller lens over recorded renderer/parser payloads', 
     writer.loadExtension(sqliteVecExtensionPath());
     const saved = writer
       .prepare(
-        "SELECT v.id,v.emb FROM vec_chunks v JOIN file_chunks ch ON ch.pk=v.id WHERE ch.file_record_id='recorded-file-1' ORDER BY ch.id LIMIT 1"
+        "SELECT v.chunk_pk AS id,v.profile_hash,v.emb FROM scoped_vectors v JOIN file_chunks ch ON ch.pk=v.chunk_pk WHERE ch.file_record_id='recorded-file-1' ORDER BY ch.id LIMIT 1"
       )
       .get();
-    if (!(saved && typeof saved['id'] === 'number' && saved['emb'] instanceof Uint8Array)) {
+    if (
+      !(
+        saved &&
+        typeof saved['id'] === 'number' &&
+        typeof saved['profile_hash'] === 'string' &&
+        saved['emb'] instanceof Uint8Array
+      )
+    ) {
       throw new Error('Recorded caller vector must exist.');
     }
+    // Deliberate corrupt-storage controls must reach the reader guard, including invalid byte length.
+    writer.exec('PRAGMA ignore_check_constraints=ON');
     const nonfinite = Buffer.from(saved['emb']);
     nonfinite.writeFloatLE(Number.NaN, 0);
     try {
@@ -283,15 +342,21 @@ describe('canonical SQLite caller lens over recorded renderer/parser payloads', 
         [Buffer.alloc(384 * 4), 'nonzero vectors'],
         [Buffer.alloc(4), 'configured dimension'],
       ] as const) {
-        writer.prepare('UPDATE vec_chunks SET emb=? WHERE id=?').run(bytes, BigInt(saved['id']));
-        await expect(client.query(sql, { bindings, requirement })).rejects.toThrow(message);
+        writer
+          .prepare('UPDATE scoped_vectors SET emb=? WHERE chunk_pk=? AND profile_hash=?')
+          .run(bytes, saved['id'], saved['profile_hash']);
+        await expect(client.query(sql, { bindings, requirement: requirement() })).rejects.toThrow(
+          message
+        );
       }
     } finally {
       writer
-        .prepare('UPDATE vec_chunks SET emb=? WHERE id=?')
-        .run(saved['emb'], BigInt(saved['id']));
+        .prepare('UPDATE scoped_vectors SET emb=? WHERE chunk_pk=? AND profile_hash=?')
+        .run(saved['emb'], saved['id'], saved['profile_hash']);
       writer.close();
     }
-    expect((await client.query(sql, { bindings, maxRows: 100, requirement })).rows).toHaveLength(8);
+    expect(
+      (await client.query(sql, { bindings, maxRows: 100, requirement: requirement() })).rows
+    ).toHaveLength(8);
   });
 });

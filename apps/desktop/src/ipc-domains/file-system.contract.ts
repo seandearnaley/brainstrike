@@ -51,6 +51,17 @@ export const fileSystemContract = {
     parseArgs: (raw) => parseString(raw, 'file system addRootByPath'),
     roles: ['visible-ui'],
   }),
+  deleteRootData: rawChannel<InvokeArgs<'deleteRootData'>, InvokeResult<'deleteRootData'>>({
+    channel: DESKTOP_IPC_CHANNELS.files.deleteRootData,
+    parseArgs: (raw) => {
+      const [rootId] = parseString(raw, 'file system deleteRootData');
+      if (rootId.trim().length === 0 || rootId.length > 1024) {
+        throw new Error('Root data deletion requires a durable root ID.');
+      }
+      return [rootId];
+    },
+    roles: ['visible-ui'],
+  }),
   exists: rawChannel<InvokeArgs<'exists'>, InvokeResult<'exists'>>({
     channel: DESKTOP_IPC_CHANNELS.files.exists,
     parseArgs: (raw) => parseString(raw, 'file system exists'),

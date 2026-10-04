@@ -59,6 +59,48 @@ describe('SearchIndexingSettingsSection', () => {
     });
   });
 
+  it('keeps derived rebuild busy until main settles and preserves saved choices', async () => {
+    let finish: (() => void) | undefined;
+    const rebuild = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        })
+    );
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('set-1');
+    useBackgroundIndexingPreferencesStore.getState().setNativeIndexMode('TEXT');
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Rebuild search index' }));
+    const busy = await screen.findByRole('button', { name: 'Rebuilding search index…' });
+    expect(busy.hasAttribute('disabled')).toBe(true);
+    expect(rebuild).toHaveBeenCalledTimes(1);
+    expect(useBackgroundIndexingPreferencesStore.getState()).toMatchObject({
+      managedCollectionId: 'set-1',
+      nativeIndexMode: 'TEXT',
+    });
+    if (!finish) {
+      throw new Error('Rebuild was not admitted.');
+    }
+    finish();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Rebuild search index' }).hasAttribute('disabled')
+      ).toBe(false)
+    );
+  });
+
+  it('shows a failed native rebuild without reporting completion', async () => {
+    const rebuild = vi.fn(async () => {
+      throw new Error('Native retirement did not settle.');
+    });
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Rebuild search index' }));
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Native retirement did not settle.'
+    );
+    expect(rebuild).toHaveBeenCalledTimes(1);
+  });
+
   it('renders the balanced policy by default and allows switching presets', async () => {
     render(<SearchIndexingSettingsSection />);
 

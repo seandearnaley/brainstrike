@@ -65,6 +65,7 @@ const mockElectronAPI = {
       persisted: true,
       rootId: 'mock-root-id',
     }),
+    deleteRootData: vi.fn(),
     exists: vi.fn().mockResolvedValue(true),
     getWatcherTelemetry: vi.fn().mockResolvedValue({
       activeWatchers: 0,

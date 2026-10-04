@@ -141,7 +141,7 @@ describe('explicit index query target', () => {
         '-- requires: caller-vectors symbol',
         '-- param: terms text',
         '-- param: symbol text',
-        'SELECT $1,$2',
+        'SELECT $1,$2 WHERE $brainstrike_collection IS NOT NULL AND $brainstrike_profile IS NOT NULL AND $brainstrike_files IS NOT NULL',
       ].join('\n')
     );
     if (!parsed.ok) {
@@ -160,18 +160,31 @@ describe('explicit index query target', () => {
       incompleteDirs: [],
       lenses: [parsed.lens],
     };
+    const context = {
+      collectionId: 'collection',
+      fileIds: ['file'],
+      profile: { modelId: 'selected' },
+      storeId: 'a'.repeat(64),
+    };
     const client = createClient();
     const hostile = "add'; DELETE FROM file_chunks; --";
     await runQuerySelf(
       { lens: 'custom-seed-query', mode: 'lens', target: 'index', values: ['disposer', hostile] },
       undefined,
-      { openIndexQuery: async () => client, scanLenses: () => scan }
+      {
+        openIndexQuery: async () => client,
+        scanLenses: () => scan,
+        withIndexCallerRead: (work) => work(context),
+      }
     );
-    expect(client.query).toHaveBeenCalledWith('SELECT $1,$2', {
-      bindings: { ['$1']: 'disposer', ['$2']: hostile },
-      maxRows: 50,
-      requirement: { kind: 'caller-vectors', symbol: hostile },
-    });
+    expect(client.query).toHaveBeenCalledWith(
+      'SELECT $1,$2 WHERE $brainstrike_collection IS NOT NULL AND $brainstrike_profile IS NOT NULL AND $brainstrike_files IS NOT NULL',
+      {
+        bindings: { ['$1']: 'disposer', ['$2']: hostile },
+        maxRows: 50,
+        requirement: { context, kind: 'caller-vectors', symbol: hostile },
+      }
+    );
     expect(client.close).toHaveBeenCalledOnce();
     expect(getDatabaseMock).not.toHaveBeenCalled();
     const listing = await runQuerySelf({ mode: 'listLenses', target: 'index' }, undefined, {

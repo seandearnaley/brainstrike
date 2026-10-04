@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.e2e.json",
+  "compilerOptions": {
+    "paths": {}
+  },
+  "include": [
+    "*.ts",
+    "*.mts"
+  ],
+  "exclude": [
+    "corpus",
+    "results"
+  ]
+}

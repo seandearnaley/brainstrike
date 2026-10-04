@@ -88,6 +88,7 @@ import type {
   EmbeddingHostDocumentEmbeddingsPayload,
   EmbeddingHostDocumentEmbeddingsRequest,
   EmbeddingHostDocumentEmbeddingsResponseReport,
+  EmbeddingHostQueryCancellationResult,
   EmbeddingHostQueryEmbeddingCancel,
   EmbeddingHostQueryEmbeddingPayload,
   EmbeddingHostQueryEmbeddingRequest,
@@ -836,6 +837,8 @@ const embeddingHost = {
       DESKTOP_IPC_CHANNELS.embeddingHost.cancelDocumentEmbeddings,
       assertPreloadNonEmptyString(requestId, 'Document cancellation requestId must be non-empty.')
     ),
+  cancelQueryEmbedding: (requestId: string): Promise<EmbeddingHostQueryCancellationResult> =>
+    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.cancelQueryEmbedding, requestId),
   documentEmbeddings: (
     payload: EmbeddingHostDocumentEmbeddingsPayload,
     options: { requestId: string }
@@ -920,11 +923,14 @@ const embeddingHost = {
       ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.embeddingHost.status, listener);
     };
   },
-  queryEmbedding: (payload: EmbeddingHostQueryEmbeddingPayload): Promise<number[]> =>
-    ipcRenderer.invoke(
-      DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding,
-      assertEmbeddingHostQueryEmbeddingPayload(payload)
-    ),
+  queryEmbedding: (
+    payload: EmbeddingHostQueryEmbeddingPayload,
+    options?: { readonly requestId: string }
+  ): Promise<number[]> =>
+    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, {
+      payload: assertEmbeddingHostQueryEmbeddingPayload(payload),
+      requestId: options?.requestId ?? crypto.randomUUID(),
+    }),
   reportDocumentEmbeddingsResponse: (
     response: EmbeddingHostDocumentEmbeddingsResponseReport
   ): void => {

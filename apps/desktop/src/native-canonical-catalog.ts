@@ -35,7 +35,7 @@ const recordSchema = Schema.Struct({
   rootId: nullableText,
   stat: statSchema,
 });
-const decodeRecords = makeThrowingDecoder(Schema.Array(recordSchema));
+export const decodeNativeCanonicalCatalogRecords = makeThrowingDecoder(Schema.Array(recordSchema));
 const decodeStat = makeThrowingDecoder(statSchema);
 const decodeReturned = makeThrowingDecoder(Schema.Array(Schema.Struct({ fileId: Schema.String })));
 const decodeRoots = makeThrowingDecoder(Schema.Array(Schema.Struct({ id: Schema.String })));
@@ -193,7 +193,7 @@ async function loadRecords(
     `SELECT ${columns} FROM file_records WHERE id::text = ANY($1::text[])${locked ? ' FOR UPDATE' : ''}`,
     params
   );
-  const rows = decodeRecords(result.rows);
+  const rows = decodeNativeCanonicalCatalogRecords(result.rows);
   const byId = new Map(rows.map((row) => [row.fileId, row]));
   if (rows.length !== files.length || byId.size !== rows.length) {
     throw new Error('Canonical catalog has missing or duplicate identities.');

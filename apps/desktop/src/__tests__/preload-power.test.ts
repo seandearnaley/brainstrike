@@ -355,10 +355,13 @@ describe('preload power bridge', () => {
     expect(mockInvoke).toHaveBeenCalledWith(EMBEDDING_HOST_RESET_CHANNEL);
     expect(mockInvoke).toHaveBeenCalledWith(EMBEDDING_HOST_GET_STATUS_CHANNEL);
     expect(mockInvoke).toHaveBeenCalledWith(EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL, {
-      dimensions: 384,
-      modelId: 'embedding-model',
-      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-      query: 'workspace index benchmark',
+      payload: {
+        dimensions: 384,
+        modelId: 'embedding-model',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        query: 'workspace index benchmark',
+      },
+      requestId: expect.any(String),
     });
   });
 

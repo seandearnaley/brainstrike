@@ -1,0 +1,9 @@
+# Native search query cancellation
+
+Native semantic search owns a renderer-local signal until its hidden inference physically settles. Supersession, explicit cancellation and consumer teardown abort that exact query; independent errors remain visible.
+
+At checkpoint `4a7bd55606e90d22681789f091bba0f951e7489c`, `cancelPendingSearch()` only invalidated result generation. The actual executor called `embedQuery(profile, text)` without a signal, and the visible query invoke called the manager without options. The accepted manager settlement correction therefore could not receive a search cancellation.
+
+The executor now passes its owned signal through the provider without changing saved profile, query plan or source fences. The visible preload retains the existing vector promise and adds a plain request token and separate cancellation invoke. Main authorizes both visible-role/frame requests, correlates tokens by sender, rejects duplicate/replayed tokens and cancels only the matched manager request. Sender destruction aborts its request while retaining pending ownership through physical settlement. Cancellation acknowledgement is true only when that existing manager rejects with the exact owned reason; the renderer restores its local reason from that explicit outcome, never from an error name or message.
+
+Controls cover supersession, cancellation, mounted controller unmount/capability changes, sender destruction, foreign sender/frame/host isolation, replay, independent AbortError failures and failed cancellation delivery. The actual hidden runtime plus public SimpleEmbeddingService and held queue prove that the visible IPC promise and manager remain pending after queue abort, then release only after physical queue settlement. Existing query/document settlement controls protect the accepted manager algorithm, deadlines and sibling behavior. These local controls do not establish actual model/GPU reclamation or native platform acceptance.

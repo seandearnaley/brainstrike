@@ -47,6 +47,7 @@ import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
 import { ChangesPageContent } from './changes-page-content';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import GitPageContent from './git-page-content';
+import { NativeSearchProvider } from './native-search-provider';
 import SettingsPageContent from './settings/page-content';
 import TerminalPageContent from './terminal-page-content';
 import { WorktreeMapPageContent } from './worktree-map-page-content';
@@ -163,6 +164,14 @@ export default function RootLayoutContent() {
     canvasPanelContent: <CanvasPanel shellSrc="brainstrike-canvas://shell/" />,
     contextExplorerPageContent: <ContextExplorerPageContent />,
     databaseTabChunkingMode: 'host-proxy',
+    deleteRootData: (rootId) => {
+      const bridge = window.electronAPI;
+      if (!(bridge && 'fileSystem' in bridge)) {
+        throw new Error('Desktop root data deletion bridge is unavailable.');
+      }
+      return bridge.fileSystem.deleteRootData(rootId);
+    },
+    nativeIndexSearch: window.indexSearch ?? null,
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,
     ...(browserAvailable ? { browserPageContent: <BrowserPaneContent /> } : {}),
@@ -364,7 +373,7 @@ export default function RootLayoutContent() {
     };
   }, []);
 
-  return (
+  const content = (
     <TokenCacheWrapper>
       <McpTaskBridgeProvider bridge={mcpTaskBridge}>
         <McpAppsEnablementProvider isEnabled={mcpAppsEnabled}>
@@ -376,5 +385,10 @@ export default function RootLayoutContent() {
         </McpAppsEnablementProvider>
       </McpTaskBridgeProvider>
     </TokenCacheWrapper>
+  );
+  return window.indexSearch ? (
+    <NativeSearchProvider capability={window.indexSearch}>{content}</NativeSearchProvider>
+  ) : (
+    content
   );
 }

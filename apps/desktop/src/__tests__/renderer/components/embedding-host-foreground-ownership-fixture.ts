@@ -21,6 +21,7 @@ const {
   startEmbeddingWorkerMock,
   stopMock,
   storeState,
+  ipcHandlers,
 } = vi.hoisted(() => ({
   commandListenerRef: {
     current: null as null | ((command: unknown) => void),
@@ -49,6 +50,7 @@ const {
   })),
   getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),
   initializeWithModelMock: vi.fn(async () => {}),
+  ipcHandlers: new Map<string, (...args: unknown[]) => unknown>(),
   queryEmbeddingCancelListenerRef: { current: null as null | ((notice: unknown) => void) },
   queryEmbeddingListenerRef: {
     current: null as null | ((request: unknown) => void),
@@ -104,6 +106,14 @@ const createHostWindowMock = vi.hoisted(() =>
 vi.mock('electron', () => ({
   app: { getAppPath: () => '/test/app', isPackaged: false },
   BrowserWindow: createHostWindowMock,
+  ipcMain: {
+    handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) =>
+      ipcHandlers.set(channel, handler)
+    ),
+    on: vi.fn(),
+    removeHandler: vi.fn(),
+    removeListener: vi.fn(),
+  },
   powerSaveBlocker: { isStarted: vi.fn(), start: vi.fn(), stop: vi.fn() },
 }));
 
@@ -241,6 +251,7 @@ export {
   getEmbeddingQueueMock,
   hostWindow,
   initializeWithModelMock,
+  ipcHandlers,
   queryEmbeddingCancelListenerRef,
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,

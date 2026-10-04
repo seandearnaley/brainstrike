@@ -19,6 +19,18 @@ try {
       id = request.id;
       let value: unknown;
       switch (request.op) {
+        case 'state-catch-up':
+          value = writer.requireState().catchUp(request.payload);
+          break;
+        case 'state-reindex':
+          value = writer.requireState().reindex(request.payload);
+          break;
+        case 'state-gc-check':
+          value = writer.requireState().gcCheck(request.payload);
+          break;
+        case 'state-drop-thread':
+          value = writer.requireState().dropThread(request.payload);
+          break;
         case 'replace-file-bindings':
           value = writer.scoped.replaceBindings(request.payload);
           break;
@@ -46,7 +58,7 @@ try {
         case 'close':
           decoder(Schema.Null)(request.payload);
           closing = true;
-          writer.db.close();
+          writer.close();
           value = true;
           break;
         default:

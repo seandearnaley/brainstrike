@@ -8,6 +8,7 @@ import {
   type EmbedWorkerLifetimeError,
   type EmbedWorkerPipelineCacheDiagnostic,
   type EmbedWorkerRequestControl,
+  isEmbedWorkerRequestCancellation,
 } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { Pool, WorkerPoolOptions, Promise as WorkerPoolPromise } from 'workerpool';
@@ -222,12 +223,6 @@ function attachAbort(
   };
   signal.addEventListener('abort', abortListener, { once: true });
   return () => signal.removeEventListener('abort', abortListener);
-}
-
-function createAbortError(): Error {
-  const error = new Error('Embedding task was aborted.');
-  error.name = 'AbortError';
-  return error;
 }
 
 function now(): number {
@@ -527,9 +522,9 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     }
     const signal = (opts as QueueAddOptions | undefined)?.signal;
     if (signal?.aborted) {
-      const error = createAbortError();
-      onTaskError(task, now(), error);
-      throw error;
+      const reason: unknown = signal.reason;
+      onTaskError(task, now(), reason);
+      throw reason;
     }
     let abortRequested = false;
     const postRequestControl = (type: EmbedWorkerRequestControl['type']): void => {
@@ -555,9 +550,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     activeTasks += 1;
     try {
       const result = await promise;
-      if (abortRequested) {
-        throw createAbortError();
-      }
+      signal?.throwIfAborted();
       if (result.vectors.length > 0) {
         if (telemetrySource.current === null) {
           embeddingTelemetry.recordFailure(MISSING_PIPELINE_CACHE_DIAGNOSTIC_REASON);
@@ -579,6 +572,13 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       onTaskComplete(task, startedAt);
       return result;
     } catch (error) {
+      // Only the exact worker-owned cancellation restores the caller's reason,
+      // after real execution has settled. Independent failures stay unchanged.
+      if (signal?.aborted && isEmbedWorkerRequestCancellation(error, task.id)) {
+        const reason: unknown = signal.reason;
+        onTaskError(task, startedAt, reason);
+        throw reason;
+      }
       onTaskError(task, startedAt, error);
       throw error;
     } finally {

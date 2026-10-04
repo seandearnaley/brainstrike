@@ -64,7 +64,10 @@ export interface SemanticAvailability {
  * collection_indexing_stats row yet): that is "unknown", not a confirmed zero
  * — `Number(null)` would otherwise silently read as 0 and false-gate.
  */
-export function useSemanticAvailability(collectionId: string | null): SemanticAvailability {
+export function useSemanticAvailability(
+  collectionId: string | null,
+  nativeAvailability?: SemanticAvailability
+): SemanticAvailability {
   const { rows } = usePGliteLiveQuery<CollectionStatsRow>({
     cacheKey: makeLiveQueryKey('workspace-search-collection-stats'),
     key: 'id',
@@ -73,6 +76,9 @@ export function useSemanticAvailability(collectionId: string | null): SemanticAv
   });
 
   return useMemo<SemanticAvailability>(() => {
+    if (nativeAvailability) {
+      return nativeAvailability;
+    }
     const statsRow = resolveEffectiveStatsRow(rows, collectionId);
     if (!statsRow) {
       return { available: true, reason: null };
@@ -85,5 +91,5 @@ export function useSemanticAvailability(collectionId: string | null): SemanticAv
       return { available: false, reason: SEMANTIC_UNAVAILABLE_NO_CHUNKS };
     }
     return { available: true, reason: null };
-  }, [rows, collectionId]);
+  }, [rows, collectionId, nativeAvailability]);
 }

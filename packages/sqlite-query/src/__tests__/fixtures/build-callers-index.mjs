@@ -8,11 +8,49 @@ const fixture = JSON.parse(
 );
 const bytes = await readFile(new URL('./callers-runtime.f32', import.meta.url));
 assert.equal(createHash('sha256').update(bytes).digest('hex'), fixture.provenance.vectorsSha256);
+const profile = { ...fixture.profile, distance: 'cosine', provider: 'local' };
+const collectionId = 'recorded-collection';
+const mode = process.argv[3];
+const fileBindings = [
+  ...fixture.files.map((file, index) => ({
+    fileId: `recorded-file-${index}`,
+    relativePath: file.path,
+  })),
+  { fileId: 'bait', relativePath: 'control/unreachable.ts' },
+  ...Array.from({ length: mode === 'depth' ? 11 : mode === 'many' ? 55 : 0 }, (_, index) => ({
+    fileId: `controlled-${index + 1}`,
+    relativePath: `control/${mode}-${index + 1}.ts`,
+  })),
+].map((binding) => ({
+  ...binding,
+  embeddingSetId: collectionId,
+  profile,
+  relativePath: mode === 'rootless' ? null : binding.relativePath,
+  rootId: mode === 'rootless' ? null : 'recorded-root',
+  sourcePath: mode === 'rootless' ? `/imports/${binding.relativePath}` : null,
+}));
+function prepare(request) {
+  return port.prepareScopedFile({
+    profile,
+    snapshot: {
+      ...request,
+      embeddingSetId: collectionId,
+      relativePath: mode === 'rootless' ? null : request.relativePath,
+      rootId: mode === 'rootless' ? null : request.rootId,
+      sourcePath: mode === 'rootless' ? `/imports/${request.relativePath}` : null,
+    },
+  });
+}
 const port = await openIndexer(
   {
     dbPath: process.argv[2],
-    embedding: { indexMode: 'vector-configured', profile: fixture.profile },
-    rootIds: ['recorded-root'],
+    embedding: { indexMode: 'text-only' },
+    fileBindings,
+    rootIds: mode === 'rootless' ? [] : ['recorded-root'],
+    scopes: [
+      ...(mode === 'rootless' ? [] : [{ kind: 'workspace', rootId: 'recorded-root' }]),
+      { embeddingSetId: collectionId, kind: 'collection' },
+    ],
   },
   { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
 );
@@ -21,14 +59,14 @@ try {
   for (const [fileIndex, file] of fixture.files.entries()) {
     assert.equal(createHash('sha256').update(file.source).digest('hex'), file.sourceHash);
     const fileId = `recorded-file-${fileIndex}`;
-    const plan = await port.prepareFile({
+    const plan = await prepare({
       content: file.source,
       fileId,
       providedChunks: file.chunks.map((entry) => entry.chunk),
       relativePath: file.path,
       rootId: 'recorded-root',
     });
-    await port.commitFile({
+    await port.commitScopedFile({
       embeddings: plan.chunks.map((chunk) => {
         const entry = file.chunks.find((value) => value.chunk.chunkIndex === chunk.chunkIndex);
         assert.ok(entry);
@@ -40,7 +78,7 @@ try {
         };
       }),
       plan,
-      profile: fixture.profile,
+      profile,
       syntax: {
         refs: file.refs.map(({ enclosingSymbolIndex, ...ref }, seq) => ({
           ...ref,
@@ -55,14 +93,14 @@ try {
   }
   // Deliberate unreachable control: exact recorded seed bytes/vectors without graph rows.
   const seed = fixture.files[0];
-  const plan = await port.prepareFile({
+  const plan = await prepare({
     content: seed.source,
     fileId: 'bait',
     providedChunks: seed.chunks.map((entry) => entry.chunk),
     relativePath: 'control/unreachable.ts',
     rootId: 'recorded-root',
   });
-  await port.commitFile({
+  await port.commitScopedFile({
     embeddings: plan.chunks.map((chunk) => {
       const entry = seed.chunks.find((value) => value.chunk.chunkIndex === chunk.chunkIndex);
       assert.ok(entry);
@@ -74,7 +112,7 @@ try {
       };
     }),
     plan,
-    profile: fixture.profile,
+    profile,
   });
   if (process.argv[3] === 'many' || process.argv[3] === 'depth') {
     const file = fixture.files[1];
@@ -91,14 +129,14 @@ try {
     }
     for (let index = 1; index <= (depth ? 11 : 55); index += 1) {
       const fileId = `controlled-${index}`;
-      const extra = await port.prepareFile({
+      const extra = await prepare({
         content: file.source,
         fileId,
         providedChunks: file.chunks.map((entry) => entry.chunk),
         relativePath: `control/${depth ? 'depth' : 'many'}-${index}.ts`,
         rootId: 'recorded-root',
       });
-      await port.commitFile({
+      await port.commitScopedFile({
         embeddings: extra.chunks.map((chunk) => {
           const entry = file.chunks.find((value) => value.chunk.chunkIndex === chunk.chunkIndex);
           assert.ok(entry);
@@ -110,7 +148,7 @@ try {
           };
         }),
         plan: extra,
-        profile: fixture.profile,
+        profile,
         syntax: {
           refs: [
             {
@@ -177,8 +215,14 @@ try {
     .sort((a, b) => a.distance - b.distance || (a.id < b.id ? -1 : 1))
     .map((entry) => entry.id);
   const info = await port.info();
-  assert.equal(info.embedding.profileHash, fixture.provenance.profileHash);
-  console.log(JSON.stringify({ expectedVectorIds, identities, info }));
+  assert.equal(info.embedding.indexMode, 'text-only');
+  const context = {
+    collectionId,
+    fileIds: fileBindings.map((file) => file.fileId),
+    profile,
+    storeId: info.storeId,
+  };
+  console.log(JSON.stringify({ context, expectedVectorIds, identities, info }));
 } finally {
   await port.close();
 }

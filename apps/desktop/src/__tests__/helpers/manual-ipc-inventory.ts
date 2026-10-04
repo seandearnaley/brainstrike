@@ -54,6 +54,7 @@ export const MANUAL_PRODUCTION_REGISTRATIONS: readonly ManualIpcRegistration[] =
       [DESKTOP_IPC_CHANNELS.embeddingHost.reset, 'invoke'],
       [DESKTOP_IPC_CHANNELS.embeddingHost.stop, 'invoke'],
       [DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, 'invoke'],
+      [DESKTOP_IPC_CHANNELS.embeddingHost.cancelQueryEmbedding, 'invoke'],
       [DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddings, 'invoke'],
       [DESKTOP_IPC_CHANNELS.embeddingHost.cancelDocumentEmbeddings, 'invoke'],
       [DESKTOP_IPC_CHANNELS.embeddingHost.reportDocumentEmbeddingsResponse, 'event'],

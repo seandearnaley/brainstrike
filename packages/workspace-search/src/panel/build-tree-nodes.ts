@@ -124,11 +124,10 @@ export function buildSearchTreeNodes(args: {
   const rows: TreeNode<SearchNodeData>[] = [];
 
   for (const file of results.files) {
-    const adapterRootId = resolveAdapterRootId(file.dbRootId);
-    if (adapterRootId === null) {
+    const compositeKey = mountedFileKey(file, resolveAdapterRootId);
+    if (compositeKey === undefined) {
       continue;
     }
-    const compositeKey = encodeFileSelection(adapterRootId, file.path);
     const id = fileNodeId(file);
     const orderedChildren = groupFileChildren(file.children);
 
@@ -219,4 +218,15 @@ export function fileResultChunks(file: WorkspaceSearchFileResult): SelectedChunk
           startLine: entry.group.chunkStartLine,
         }
   );
+}
+
+function mountedFileKey(
+  file: WorkspaceSearchFileResult,
+  resolve: (dbRootId: string) => string | null
+): string | null | undefined {
+  if (file.dbRootId === null) {
+    return null;
+  }
+  const adapterRootId = resolve(file.dbRootId);
+  return adapterRootId === null ? undefined : encodeFileSelection(adapterRootId, file.path);
 }

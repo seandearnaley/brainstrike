@@ -867,6 +867,63 @@ export async function invalidateManagedCacheEntriesByIdentity(
   };
 }
 
+/** Whole-root cascade uses the same cancellation/lease/metrics policy as canonical invalidation. */
+export async function deleteManagedRootData(
+  db: IDatabase,
+  root: { readonly rootId: string; readonly paths: readonly string[] }
+): Promise<ManagedCacheInvalidationResult> {
+  if (
+    !isNonEmptyString(root.rootId) ||
+    root.paths.length === 0 ||
+    root.paths.some((value) => !isNonEmptyString(value))
+  ) {
+    throw new Error('Root data deletion requires its captured ID and actual mounted paths.');
+  }
+  if (!db.transaction) {
+    throw new Error('Root data deletion requires transactional database support.');
+  }
+  return db.transaction(async (tx) => {
+    const owned = await tx.query<{ id: string }>(
+      'SELECT id FROM roots WHERE id = $1 AND path = ANY($2::text[]) FOR UPDATE',
+      [root.rootId, [...root.paths]]
+    );
+    if (owned.rows.length !== 1) {
+      throw new Error('Root data deletion matched no captured root; refusing a silent success.');
+    }
+    const files = await tx.query<{ id: string; embedding_set_id: string | null }>(
+      'SELECT id, embedding_set_id FROM file_records WHERE root_id = $1 FOR UPDATE',
+      [root.rootId]
+    );
+    const chunks = await tx.query<{ id: string }>(
+      'SELECT fc.id FROM file_chunks fc JOIN file_records fr ON fr.id = fc.file_record_id WHERE fr.root_id = $1',
+      [root.rootId]
+    );
+    const chunkIds = chunks.rows.map((row) => row.id);
+    const canceledEmbeddingJobCount = await cancelQueuedOrRunningEmbeddingJobsForChunks(
+      tx,
+      chunkIds,
+      'invalidation'
+    );
+    const removed = await tx.query<{ id: string }>(
+      'DELETE FROM roots WHERE id = $1 AND path = ANY($2::text[]) RETURNING id',
+      [root.rootId, [...root.paths]]
+    );
+    if (removed.rows.length !== 1) {
+      throw new Error('The captured root changed during data deletion.');
+    }
+    const collectionIds = files.rows.flatMap((row) =>
+      row.embedding_set_id === null ? [] : [row.embedding_set_id]
+    );
+    await markCollectionIndexingStatsDirty(tx, collectionIds);
+    await refreshCollectionIndexingStats(tx, collectionIds);
+    return {
+      canceledEmbeddingJobCount,
+      deletedChunkIds: chunkIds.sort(),
+      deletedFileRecordIds: files.rows.map((row) => row.id).sort(),
+    };
+  });
+}
+
 export async function applyManagedCacheBatch(
   db: IDatabase,
   args: ApplyManagedCacheBatchArgs

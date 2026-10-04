@@ -12,7 +12,7 @@ import {
   scopedProofIdentitySchema,
 } from './contracts.js';
 
-export const INDEX_SCHEMA_VERSION = 5;
+export const INDEX_SCHEMA_VERSION = 6;
 const metadataSchema = Schema.Struct({
   indexMode: Schema.Literals(['text-only', 'vector-configured']),
   profileHash: Schema.NullOr(Schema.String),

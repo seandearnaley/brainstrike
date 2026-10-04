@@ -42,6 +42,8 @@ import {
 } from './index-metadata.js';
 import { ScopeAuthority } from './scope-authority.js';
 import { ScopedIndex } from './scoped-store.js';
+import { StateEventStore } from './state-event-store.js';
+import { validateIndexerOptions } from './transport.js';
 
 type PreparedCommit = Pick<FileCommit, 'plan' | 'syntax' | 'embeddings'>;
 const numberId = Schema.Int.check(
@@ -130,13 +132,14 @@ function resolveEmbedding(
 }
 
 export class IndexWriter {
+  private readonly state: StateEventStore | undefined;
   readonly db: Database.Database;
   readonly options: IndexerOptions;
   readonly allowed: ReadonlySet<string>;
   readonly info: IndexerInfo;
   readonly scoped: ScopedIndex;
   constructor(input: unknown) {
-    this.options = decoder(optionsSchema)(input);
+    this.options = validateIndexerOptions(input);
     this.allowed = new Set(this.options.rootIds);
     new ScopeAuthority(this.options);
     const fresh = !existsSync(this.options.dbPath);
@@ -180,6 +183,8 @@ export class IndexWriter {
       this.db.pragma('journal_mode = WAL');
       this.db.pragma('synchronous = NORMAL');
       this.db.pragma('foreign_keys = ON');
+      this.db.pragma('secure_delete = ON');
+      this.state = StateEventStore.acquire(this.db, this.options.stateRoot);
       for (const table of ['file_chunks_fts', 'file_chunks_trigram']) {
         this.db.exec(`INSERT INTO ${table}(${table},rank) VALUES('integrity-check',1)`);
       }
@@ -226,6 +231,7 @@ export class IndexWriter {
         writerThreadId: threadId,
       };
     } catch (error) {
+      this.state?.close();
       this.db.close();
       throw error;
     }
@@ -263,6 +269,7 @@ export class IndexWriter {
         END;
       `);
       ScopedIndex.initialize(this.db);
+      StateEventStore.initialize(this.db, this.options.stateRoot);
       const identity = freshIdentity(this.options);
       const embedding = identity.embedding;
       this.db
@@ -275,6 +282,22 @@ export class IndexWriter {
           embedding.indexMode === 'vector-configured' ? embedding.profileHash : null
         );
     })();
+  }
+  requireState(): StateEventStore {
+    if (!this.state) {
+      throw new IndexerError(
+        'state-root-required',
+        'State projection has no acquired authoritative truth root.'
+      );
+    }
+    return this.state;
+  }
+  close(): void {
+    try {
+      this.state?.close();
+    } finally {
+      this.db.close();
+    }
   }
   configureVectorProfile(input: unknown): IndexerIdentity {
     const embedding = configuredEmbedding(input);

@@ -1,16 +1,11 @@
 /**
  * Desktop wiring for the `brainstrike.hybridSearch` assistant tool.
  *
- * Runs semantic (vector) and exact-term (BM25 keyword) search in parallel and
- * fuses the rankings with reciprocal rank fusion by reusing the SAME
- * `HybridSearchService` that backs the Explorer search panel — no duplicated
- * fusion logic. Embedding-set resolution and query-embedding generation reuse
- * the retrieval tool's exported helpers, so hybrid search pins the exact same
- * embedding-set and root scoping `brainstrike.queryEmbeddingSpace` does.
- *
- * NO SILENT FALLBACKS: a failing keyword arm (e.g. `to_bm25query` erroring
- * because the BM25 index is absent) fails the whole call visibly — the tool
- * never quietly degrades to vector-only results.
+ * An injected native capability uses the existing main-owned scoped reader and
+ * workspace-search RRF60 fusion over BM25, grep and vector pools. Without that
+ * capability, the retained PG path uses HybridSearchService. Both paths keep
+ * explicit collection/root scope and fail the whole call when an arm fails.
+
  */
 
 import {
@@ -28,6 +23,10 @@ import {
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import { getDatabase } from '../db-main';
+import {
+  resolveNativeAssistantCollection,
+  searchNativeAssistantChunks,
+} from './native-assistant-retrieval';
 import {
   assertEmbeddingDimensions,
   buildFileRecordMap,
@@ -91,7 +90,7 @@ export interface HybridSearchToolResultItem {
   rootName?: string;
   /** Combined RRF score (higher = better). */
   rrfScore: number;
-  /** Number of arms (1 or 2) that found this chunk. */
+  /** Number of contributing arms (up to 3 for native retrieval) that found this chunk. */
   sourceCount: number;
   vectorSimilarity?: number;
 }
@@ -164,7 +163,13 @@ export async function runHybridSearch(
   if (!query) {
     throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.invalidQuery);
   }
-  const embeddingSetId = resolveHybridEmbeddingSetId(runtimeData, input.embeddingSetId);
+  const embeddingSetId = dependencies.nativeIndexSearch
+    ? await resolveNativeAssistantCollection(
+        dependencies.nativeIndexSearch,
+        input.embeddingSetId,
+        signal
+      )
+    : resolveHybridEmbeddingSetId(runtimeData, input.embeddingSetId);
   // Root resolution stays OUTSIDE the sanitizing catch: its errors are locally
   // constructed, user-actionable messages ("Open folders: ...") the model needs.
   const root = resolveOptionalWorkspaceRoot(runtimeData, input.root);
@@ -173,6 +178,73 @@ export async function runHybridSearch(
     const db = await getDatabase();
     signal?.throwIfAborted();
     const embeddingSet = await resolveEmbeddingSet(db, embeddingSetId);
+    if (dependencies.nativeIndexSearch) {
+      const started = performance.now();
+      const native = await searchNativeAssistantChunks({
+        ...input,
+        capability: dependencies.nativeIndexSearch,
+        embeddingHostManager: dependencies.embeddingHostManager,
+        embeddingSet,
+        embeddingSetId,
+        mode: 'hybrid',
+        query,
+        rootId: root?.rootId,
+        signal,
+        threshold: input.vectorThreshold ?? DEFAULT_VECTOR_THRESHOLD,
+      });
+      const fileMap = await buildFileRecordMap(
+        new FileRecordRepository(db),
+        db,
+        native.hits.map(({ hit }) => hit.fileId)
+      );
+      await native.assertCurrent();
+      const items: HybridSearchToolResultItem[] = native.hits.map((result, index) => {
+        const file = fileMap.get(result.hit.fileId);
+        if (result.hit.chunkIndex === null) {
+          throw new ToolInputError('Native source chunk metadata is unavailable.');
+        }
+        return {
+          chunkIndex: result.hit.chunkIndex,
+          content: result.hit.content.slice(0, MAX_CONTENT_CHARS_PER_RESULT),
+          id: result.hit.chunkId,
+          position: index + 1,
+          rrfScore: result.rrfScore,
+          sourceCount: result.sourceCount,
+          ...(file?.name === undefined ? {} : { fileName: file.name }),
+          ...(file?.path === undefined ? {} : { filePath: file.path }),
+          ...(file?.rootName ? { rootName: file.rootName } : {}),
+          ...(result.ftsRank === undefined ? {} : { ftsRank: result.ftsRank }),
+          ...(result.similarity === undefined ? {} : { vectorSimilarity: result.similarity }),
+        };
+      });
+      const buildResult = (kept: HybridSearchToolResultItem[]): HybridSearchToolResult => {
+        const truncated = native.truncated || kept.length < items.length;
+        return {
+          embeddingSetId,
+          ftsWeight: 1,
+          limit: native.limit,
+          metadata: {
+            ftsResultCount: native.ftsResultCount,
+            fusedResultCount: items.length,
+            totalMs: performance.now() - started,
+            vectorResultCount: native.vectorResultCount,
+          },
+          query,
+          results: kept,
+          truncated,
+          vectorWeight: 1,
+          ...(root ? { root: root.displayName } : {}),
+          ...(truncated
+            ? {
+                hint:
+                  native.hint ??
+                  'Native hybrid results exceed the output budget. Narrow the query or root scope.',
+              }
+            : {}),
+        };
+      };
+      return fitItemsToCharBudget(items, buildResult).result;
+    }
     const embedding = await generateQueryEmbeddingForSet(embeddingSet, query, dependencies, signal);
     signal?.throwIfAborted();
     assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
@@ -253,6 +325,9 @@ export async function runHybridSearch(
     };
     return fitItemsToCharBudget(items, buildResult).result;
   } catch (error) {
+    if (dependencies.nativeIndexSearch && signal?.aborted && error instanceof AggregateError) {
+      throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.searchFailed, { cause: error });
+    }
     signal?.throwIfAborted();
     handleHybridSearchError(error);
   }

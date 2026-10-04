@@ -43,14 +43,22 @@
     "test:integration": {
       // Native process-restart verifiers resolve public package exports outside
       // Vitest's source aliases. Build every runtime dependency those spawned
-      // processes load, retaining the inherited source hash cascade.
+      // processes load, retaining the inherited source hash cascade. The CJS
+      // retrieval probe loads real contract/DB artifacts under installed Electron.
       "dependsOn": [
         "$TURBO_EXTENDS$",
         "@brainstrike/agent#build",
+        "@brainstrike/assistant-contract#build",
         "@brainstrike/assistant-data#build",
-        "@brainstrike/assistant-service#build"
+        "@brainstrike/assistant-service#build",
+        "@brainstrike/db#build"
       ],
-      "env": ["$TURBO_EXTENDS$", "DESKTOP_TEST_SHARD", "DESKTOP_TEST_SHARD_REQUIRED"]
+      "env": [
+        "$TURBO_EXTENDS$",
+        "DESKTOP_TEST_SHARD",
+        "DESKTOP_TEST_SHARD_REQUIRED",
+        "NATIVE_RETRIEVAL_TEST_EXEC_PATH"
+      ]
     },
     "test:coverage": {
       // Coverage includes the same native process-restart integration test.

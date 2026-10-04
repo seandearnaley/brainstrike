@@ -26,6 +26,7 @@ import {
   useFileSystem,
 } from '@brainstrike/file-explorer-ui/shell';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import {
   assertValidWorkspaceIndexingPowerSnapshot,
   type WorkspaceIndexingPowerSnapshot,
@@ -64,6 +65,7 @@ import { getAssistantForegroundActivitySnapshot } from '../assistant-foreground-
 import { RootIdentityProvider } from '../roots/root-identity-context';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 import { boundBackgroundPermitWait } from './background-permit-wait';
+import { NativeWorkspaceIndexProvider } from './native-workspace-index-provider';
 import { useResyncOnReturnToVisibility } from './use-resync-on-return-to-visibility';
 import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
 import {
@@ -334,6 +336,7 @@ async function loadOrderedSyncTargets(args: {
 
 export interface WorkspaceCollectionSyncProviderProps {
   children: ReactNode;
+  readonly nativeIndexSearch?: IndexSearchCapability | null;
 }
 
 function isFileSystemChange(value: unknown): value is FileSystemChange {
@@ -804,7 +807,19 @@ function useRecentUserInputMsReader(): () => number | null {
 
 export function WorkspaceCollectionSyncProvider({
   children,
+  nativeIndexSearch,
 }: WorkspaceCollectionSyncProviderProps) {
+  if (nativeIndexSearch) {
+    return (
+      <NativeWorkspaceIndexProvider capability={nativeIndexSearch}>
+        {children}
+      </NativeWorkspaceIndexProvider>
+    );
+  }
+  return <LegacyWorkspaceCollectionSyncProvider>{children}</LegacyWorkspaceCollectionSyncProvider>;
+}
+
+function LegacyWorkspaceCollectionSyncProvider({ children }: { readonly children: ReactNode }) {
   const { fileSystemAdapter } = useAdapters();
   const { isAccessLoading, rootDirectoryHandle, rootDirectoryHandles, rootIdByPath } =
     useFileSystem();

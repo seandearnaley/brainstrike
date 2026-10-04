@@ -28,12 +28,14 @@ interface SemanticResult {
   chunks: SemanticChunk[];
   context: string;
   embeddingSetId: string;
+  hint?: string;
   limit: number;
   remainingTokens: number;
   skipped: number;
   skippedForMissingSourceRange: number;
   threshold: number;
   totalTokens: number;
+  truncated?: boolean;
 }
 
 interface UnavailableResult {
@@ -108,6 +110,13 @@ function isSemanticChunk(value: unknown, index: number): value is SemanticChunk 
   );
 }
 
+function hasSemanticNotices(value: Record<string, unknown>): boolean {
+  return (
+    (value['truncated'] === undefined || typeof value['truncated'] === 'boolean') &&
+    isOptionalString(value['hint'])
+  );
+}
+
 function parseSemanticResult(output: unknown): SemanticResult | UnavailableResult {
   if (
     isRecord(output) &&
@@ -139,6 +148,7 @@ function parseSemanticResult(output: unknown): SemanticResult | UnavailableResul
   if (
     !(
       isRecord(output) &&
+      hasSemanticNotices(output) &&
       isPositiveInteger(output['budget']) &&
       typeof output['chunkContentIncludedInContext'] === 'boolean' &&
       Array.isArray(output['chunks']) &&
@@ -159,6 +169,8 @@ function parseSemanticResult(output: unknown): SemanticResult | UnavailableResul
   }
   const result = output as unknown as SemanticResult;
   if (
+    (result.truncated === true && !result.hint?.trim()) ||
+    (result.truncated !== true && result.hint !== undefined) ||
     result.totalTokens + result.remainingTokens !== result.budget ||
     result.skippedForMissingSourceRange > result.skipped ||
     result.chunkContentIncludedInContext !== result.chunks.length > 0 ||
@@ -183,7 +195,7 @@ function isHybridItem(value: unknown): value is HybridItem {
     isPositiveInteger(value['position']) &&
     isOptionalString(value['rootName']) &&
     isFiniteNumber(value['rrfScore']) &&
-    (value['sourceCount'] === 1 || value['sourceCount'] === 2) &&
+    (value['sourceCount'] === 1 || value['sourceCount'] === 2 || value['sourceCount'] === 3) &&
     (value['vectorSimilarity'] === undefined || isFiniteNumber(value['vectorSimilarity']))
   );
 }
@@ -262,7 +274,7 @@ function fitSemanticContext(
   }
   const codePoints = Array.from(result.context);
   const refinement =
-    'refine: reuse brainstrike.queryEmbeddingSpace with a narrower query, root, filePaths, maxChunks, or tokenBudget';
+    'refine: reuse brainstrike.queryEmbeddingSpace with a narrower query, root, maxChunks, or tokenBudget';
   let low = 0;
   let high = codePoints.length;
   while (low < high) {
@@ -330,7 +342,11 @@ export function projectQueryEmbeddingSpaceModelOutput(
   return output(
     fitSemanticContext(
       result,
-      [semanticHeader(result), ...(scores ? [scores] : [])],
+      [
+        semanticHeader(result),
+        ...(scores ? [scores] : []),
+        ...(result.hint ? [`hint: ${clipEnd(result.hint, MAX_MESSAGE_CHARS, 'hint')}`] : []),
+      ],
       domainModelResultCharBudget
     )
   );

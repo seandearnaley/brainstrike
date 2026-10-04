@@ -1,10 +1,15 @@
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import type {
+  NativeWorkspaceSearchDependencies,
   SemanticSearchRequest,
   TextSearchRequest,
   WorkspaceSearchResults,
 } from '@brainstrike/workspace-search/core';
-import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/core';
+import {
+  NativeWorkspaceSearchProvider,
+  useWorkspaceSearchStore,
+} from '@brainstrike/workspace-search/core';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -435,4 +440,269 @@ describe('useWorkspaceSearchController', () => {
     });
     expect(useWorkspaceSearchStore.getState().error).toContain('database is not ready');
   });
+  it('keeps an installed but unavailable native provider visible instead of using legacy text search', async () => {
+    const embedQuery = vi.fn();
+    function Wrapper({ children }: { children: ReactNode }) {
+      return (
+        <SearchEmbedderProvider>
+          <NativeWorkspaceSearchProvider
+            dependencies={{ capability: null, embedQuery, profile: null }}
+          >
+            <RootIdentityProvider dbRootIdByAdapterRootId={new Map([['A1', 'D1']])}>
+              {children}
+            </RootIdentityProvider>
+          </NativeWorkspaceSearchProvider>
+        </SearchEmbedderProvider>
+      );
+    }
+    useWorkspaceSearchStore.getState().setQuery('needle');
+    const { result } = renderHook(() => useWorkspaceSearchController(), { wrapper: Wrapper });
+    expect(result.current.allowTextPaging).toBe(false);
+    act(() => result.current.runTextSearch());
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('error'));
+    expect(useWorkspaceSearchStore.getState().error).toBe(
+      'Native workspace search is unavailable.'
+    );
+    expect(embedQuery).not.toHaveBeenCalled();
+    expect(useWorkspaceSearchStore.getState().mode).toBe('text');
+  });
+
+  it('preserves explicit semantic mode and collection when native capability is lost', async () => {
+    useWorkspaceSearchStore.getState().setMode('semantic');
+    useWorkspaceSearchStore.getState().setCollectionId('explicit-collection');
+    function Wrapper({ children }: { children: ReactNode }) {
+      return (
+        <SearchEmbedderProvider>
+          <NativeWorkspaceSearchProvider
+            dependencies={{ capability: null, embedQuery: vi.fn(), profile: null }}
+          >
+            <RootIdentityProvider dbRootIdByAdapterRootId={new Map([['A1', 'D1']])}>
+              {children}
+            </RootIdentityProvider>
+          </NativeWorkspaceSearchProvider>
+        </SearchEmbedderProvider>
+      );
+    }
+    const { result } = renderHook(() => useWorkspaceSearchController(), { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.semanticAvailability?.available).toBe(false));
+    act(() => result.current.runSemanticSearch());
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('error'));
+    expect(useWorkspaceSearchStore.getState().error).toBe(
+      'Native workspace search is unavailable.'
+    );
+    expect(useWorkspaceSearchStore.getState().mode).toBe('semantic');
+    expect(useWorkspaceSearchStore.getState().collectionId).toBe('explicit-collection');
+  });
+  it('composes text-only native search over canonical roots without a PGlite handle or model', async () => {
+    const embedding = { indexMode: 'text-only' as const };
+    const response = {
+      candidateCount: 0,
+      candidatesTruncated: false,
+      embedding,
+      hits: [],
+      scanLimited: false,
+      storeId: 'store-a',
+      truncated: false,
+    };
+    const capability = {
+      coverage: vi.fn<IndexSearchCapability['coverage']>(),
+      grep: vi.fn<IndexSearchCapability['grep']>(async () => response),
+      rebuild: vi.fn(async () => {}),
+      search: vi.fn<IndexSearchCapability['search']>(async () => response),
+      status: vi.fn<IndexSearchCapability['status']>(async () => ({
+        authorizedRootIds: ['D1'],
+        embedding,
+        kind: 'ready',
+        rootReadiness: [{ rootId: 'D1', scanComplete: false }],
+        storeId: 'store-a',
+      })),
+    };
+    const embedQuery = vi.fn();
+    const dependencies = { capability, embedQuery, profile: null };
+    const identities = new Map([['A1', 'D1']]);
+    function Wrapper({ children }: { children: ReactNode }) {
+      return (
+        <SearchEmbedderProvider>
+          <NativeWorkspaceSearchProvider dependencies={dependencies}>
+            <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+              {children}
+            </RootIdentityProvider>
+          </NativeWorkspaceSearchProvider>
+        </SearchEmbedderProvider>
+      );
+    }
+    useWorkspaceSearchStore.getState().setQuery('needle');
+    const { result } = renderHook(() => useWorkspaceSearchController(), { wrapper: Wrapper });
+    act(() => result.current.runTextSearch());
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+    expect(capability.search).toHaveBeenCalledExactlyOnceWith({
+      limit: 100,
+      mode: 'bm25',
+      rootIds: ['D1'],
+      text: 'needle',
+    });
+    expect(capability.grep).toHaveBeenCalledExactlyOnceWith({
+      caseSensitive: false,
+      isRegex: false,
+      limit: 100,
+      pattern: 'needle',
+      rootIds: ['D1'],
+    });
+    expect(capability.coverage).not.toHaveBeenCalled();
+    expect(embedQuery).not.toHaveBeenCalled();
+    expect(result.current.allowTextPaging).toBe(false);
+    expect(result.current.semanticAvailability?.available).toBe(false);
+  });
+  it('invalidates an in-flight native read when its installed capability changes', async () => {
+    const embedding = { indexMode: 'text-only' as const };
+    const response = {
+      candidateCount: 0,
+      candidatesTruncated: false,
+      embedding,
+      hits: [],
+      scanLimited: false,
+      storeId: 'store-a',
+      truncated: false,
+    };
+    let resolveRead: (result: typeof response) => void = () => {};
+    const capability = {
+      coverage: vi.fn<IndexSearchCapability['coverage']>(),
+      grep: vi.fn<IndexSearchCapability['grep']>(async () => response),
+      rebuild: vi.fn(async () => {}),
+      search: vi.fn<IndexSearchCapability['search']>(
+        () =>
+          new Promise<typeof response>((resolve) => {
+            resolveRead = resolve;
+          })
+      ),
+      status: vi.fn<IndexSearchCapability['status']>(async () => ({
+        authorizedRootIds: ['D1'],
+        embedding,
+        kind: 'ready',
+        rootReadiness: [{ rootId: 'D1', scanComplete: false }],
+        storeId: 'store-a',
+      })),
+    };
+    let dependencies: NativeWorkspaceSearchDependencies = {
+      capability,
+      embedQuery: vi.fn(),
+      profile: null,
+    };
+    const identities = new Map([['A1', 'D1']]);
+    function Wrapper({ children }: { children: ReactNode }) {
+      return (
+        <SearchEmbedderProvider>
+          <NativeWorkspaceSearchProvider dependencies={dependencies}>
+            <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+              {children}
+            </RootIdentityProvider>
+          </NativeWorkspaceSearchProvider>
+        </SearchEmbedderProvider>
+      );
+    }
+    useWorkspaceSearchStore.getState().setQuery('needle');
+    const { result, rerender } = renderHook(() => useWorkspaceSearchController(), {
+      wrapper: Wrapper,
+    });
+    act(() => result.current.runTextSearch());
+    await waitFor(() => expect(capability.search).toHaveBeenCalledTimes(1));
+    dependencies = { ...dependencies, capability: null };
+    rerender();
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('error'));
+    expect(useWorkspaceSearchStore.getState().error).toBe(
+      'Native workspace search scope or capability changed.'
+    );
+    await act(async () => {
+      resolveRead(response);
+    });
+    expect(useWorkspaceSearchStore.getState().status).toBe('error');
+    expect(useWorkspaceSearchStore.getState().results).toBeNull();
+    expect(useWorkspaceSearchStore.getState().mode).toBe('text');
+  });
+
+  it.each(['unmount', 'capability change'] as const)(
+    'cancels owned native inference on %s and holds its promise until completion',
+    async (action) => {
+      const profile = {
+        dimensions: 384,
+        dtype: 'fp16' as const,
+        modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
+        revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
+        tokenCap: 256,
+      };
+      const embedding = {
+        indexMode: 'vector-configured' as const,
+        profile,
+        profileHash: '60a05b1084b11c2add2e01bb8112960f51e83e68c88ad4151b0dc54eb69e1914',
+      };
+      const counts = { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 };
+      const capability: IndexSearchCapability = {
+        coverage: vi.fn(async () => ({
+          embedding,
+          roots: [{ rootId: 'D1', ...counts }],
+          storeId: 'store-a',
+          totals: counts,
+          vectorCoverageComplete: true,
+        })),
+        grep: vi.fn(),
+        rebuild: vi.fn(async () => {}),
+        search: vi.fn(),
+        status: vi.fn(async () => ({
+          authorizedRootIds: ['D1'],
+          embedding,
+          kind: 'ready' as const,
+          rootReadiness: [{ rootId: 'D1', scanComplete: true }],
+          storeId: 'store-a',
+        })),
+      };
+      const physical = Promise.withResolvers<readonly number[]>();
+      const settled = vi.fn();
+      const embedQuery = vi.fn<NativeWorkspaceSearchDependencies['embedQuery']>(async () => {
+        try {
+          return await physical.promise;
+        } finally {
+          settled();
+        }
+      });
+      let dependencies: NativeWorkspaceSearchDependencies = { capability, embedQuery, profile };
+      const identities = new Map([['A1', 'D1']]);
+      function Wrapper({ children }: { children: ReactNode }) {
+        return (
+          <SearchEmbedderProvider>
+            <NativeWorkspaceSearchProvider dependencies={dependencies}>
+              <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+                {children}
+              </RootIdentityProvider>
+            </NativeWorkspaceSearchProvider>
+          </SearchEmbedderProvider>
+        );
+      }
+      useWorkspaceSearchStore.getState().setQuery('needle');
+      useWorkspaceSearchStore.getState().setMode('semantic');
+      const { result, unmount, rerender } = renderHook(() => useWorkspaceSearchController(), {
+        wrapper: Wrapper,
+      });
+      await waitFor(() => expect(result.current.semanticAvailability?.available).toBe(true));
+      act(() => result.current.runSemanticSearch());
+      await waitFor(() => expect(embedQuery).toHaveBeenCalledOnce());
+      const signal = embedQuery.mock.calls[0]?.[2].signal;
+      if (!signal) {
+        throw new Error('Native inference did not receive its owned signal');
+      }
+      if (action === 'unmount') {
+        unmount();
+      } else {
+        dependencies = { ...dependencies, capability: null };
+        rerender();
+      }
+      expect(signal.aborted).toBe(true);
+      expect(settled).not.toHaveBeenCalled();
+      await act(async () => {
+        physical.reject(signal.reason);
+      });
+      expect(settled).toHaveBeenCalledOnce();
+      expect(capability.search).not.toHaveBeenCalled();
+      expect(useWorkspaceSearchStore.getState().results).toBeNull();
+    }
+  );
 });

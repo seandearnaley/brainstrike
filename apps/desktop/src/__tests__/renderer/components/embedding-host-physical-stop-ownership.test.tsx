@@ -1,4 +1,5 @@
 import './embedding-host-foreground-ownership-fixture';
+import { EventEmitter } from 'node:events';
 import {
   registerEmbeddingQueueFactory,
   resetEmbeddingQueueFactory,
@@ -18,13 +19,19 @@ import {
   EMBEDDING_HOST_QUERY_EMBEDDING_CANCEL_EVENT,
   EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT,
 } from '../../../embedding-host-shared';
+import { registerEmbeddingHostIpcHandlers } from '../../../ipc-embedding-host';
+import { DESKTOP_IPC_CHANNELS } from '../../../platform/desktop-ipc-channels';
 import { getEmbeddingHostBridge } from '../../../renderer/components/embedding-host-bridge';
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';
+import { generateDesktopQueryEmbedding } from '../../../renderer/query-embeddings';
+import { assignWindowRole, clearWindowRoleByWebContentsId } from '../../../window-role';
+import { createAllowlistedSenderFrame } from '../../helpers/desktop-ipc-sender-frame-test-allowlist';
 import {
   commandListenerRef,
   dbHandle,
   hostWindow,
   installEmbeddingHostRuntimeFixture,
+  ipcHandlers,
   queryEmbeddingCancelListenerRef,
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
@@ -159,6 +166,66 @@ async function connectControlledQuery(options?: { cancellationCapability?: boole
 
 describe('committed readiness fix physical query ownership controls', () => {
   installEmbeddingHostRuntimeFixture();
+
+  it('joins the visible query IPC promise through the actual hidden service and held queue', async () => {
+    const run = await connectControlledQuery();
+    const requester = Object.assign(new EventEmitter(), { id: 901, send: vi.fn() });
+    assignWindowRole(
+      { isDestroyed: () => false, once: vi.fn(), webContents: requester } as never,
+      'visible-ui'
+    );
+    const unregister = registerEmbeddingHostIpcHandlers(run.manager);
+    onTestFinished(() => {
+      unregister();
+      clearWindowRoleByWebContentsId(requester.id);
+    });
+    const invoke = (channel: string, ...args: unknown[]): Promise<unknown> => {
+      const handler = ipcHandlers.get(channel);
+      if (!handler) {
+        throw new Error('Missing visible query IPC');
+      }
+      return Promise.resolve(
+        handler({ sender: requester, senderFrame: createAllowlistedSenderFrame() }, ...args)
+      );
+    };
+    const bridge = getEmbeddingHostBridge();
+    if (!bridge) {
+      throw new Error('Missing hidden host fixture bridge');
+    }
+    Object.assign(bridge, {
+      cancelQueryEmbedding: (requestId: string) =>
+        invoke(DESKTOP_IPC_CHANNELS.embeddingHost.cancelQueryEmbedding, requestId),
+      queryEmbedding: (payload: unknown, options: { requestId: string }) =>
+        invoke(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, { payload, ...options }),
+    });
+    const controller = new AbortController();
+    const reason = new Error('Visible search superseded');
+    const settled = vi.fn();
+    const result = generateDesktopQueryEmbedding(query, { signal: controller.signal }).then(
+      (value) => {
+        settled(value);
+        return value;
+      },
+      (error: unknown) => {
+        settled(error);
+        return error;
+      }
+    );
+    await act(async () => {});
+    expect(settled).not.toHaveBeenCalled();
+    await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
+    controller.abort(reason);
+    await act(async () => {});
+    expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(run.isPhysicallyActive()).toBe(true);
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
+    expect(settled).not.toHaveBeenCalled();
+    expect(run.cancel).not.toHaveBeenCalled();
+    run.finish();
+    await expect(result).resolves.toBe(reason);
+    expect(run.isPhysicallyActive()).toBe(false);
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
 
   it('joins actual query queue settlement before manual host Stop disposes its service', async () => {
     const run = await connectControlledQuery();

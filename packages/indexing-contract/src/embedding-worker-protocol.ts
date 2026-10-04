@@ -65,6 +65,31 @@ export const EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY =
 /** Suffix deriving the adapter-to-worker request-control channel from telemetry identity. */
 export const EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX = ':request-control';
 
+export const EMBED_WORKER_REQUEST_CANCELED_CODE = 'EMBED_WORKER_REQUEST_CANCELED';
+
+/** Own properties survive workerpool's Error serialization across the worker boundary. */
+export function createEmbedWorkerRequestCancellationError(requestId: string): Error & {
+  readonly code: typeof EMBED_WORKER_REQUEST_CANCELED_CODE;
+  readonly requestId: string;
+} {
+  return Object.assign(new Error('Embedding task was aborted.'), {
+    code: EMBED_WORKER_REQUEST_CANCELED_CODE,
+    name: 'AbortError',
+    requestId,
+  } as const);
+}
+
+export function isEmbedWorkerRequestCancellation(error: unknown, requestId: string): boolean {
+  return !!(
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    error.code === EMBED_WORKER_REQUEST_CANCELED_CODE &&
+    'requestId' in error &&
+    error.requestId === requestId
+  );
+}
+
 /** Pool-wide request control used to abort work without terminating a warmed worker. */
 export interface EmbedWorkerRequestControl {
   readonly id: string;

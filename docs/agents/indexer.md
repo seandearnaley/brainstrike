@@ -18,7 +18,7 @@ Guard: `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/index
 - Validate the complete producer profile at commit and vector search: model ID, immutable revision, dtype, dimensions and token cap. Hash every field; the initial vector schema is 384 dimensions.
 - Refuse profile/schema mismatches with `rebuild-required` and preserve the existing file. Never erase databases during startup.
 - Canonical producers must prepare with explicit `providedChunks`, preserving the existing parser/chunker output and its source offsets, indices, token/type/size metadata. Validate hashes and source spans with the canonical matcher; reject invalid or mixed policy inputs without re-splitting, relocation or a second parse. Keep line-policy producer metadata explicitly null.
-- Persist all canonical source metadata; preserve vector bytes when only that metadata changes. Derived schema5 must refuse prior schema versions with rebuild-required, never silently migrate or wipe.
+- Persist all canonical source metadata; preserve vector bytes when only that metadata changes. Derived schema6 must refuse prior schema versions with rebuild-required, never silently migrate or wipe.
 - Prepare deterministic, byte-preserving line chunks from an authorized root-relative snapshot and explicit chunk-line policy. Reject stale snapshot plans; reuse a vector only when its stable chunk ID and content/profile hash agree.
 
 Evidence: `indexer/2026-10-02-independent-package.md`.
@@ -64,6 +64,16 @@ Evidence: `indexer/2026-10-03-scoped-source-proofs.md`.
 Guard: `packages/indexer/__tests__/scoped-proofs.integration.test.ts`, `packages/indexer/__tests__/large-scopes.integration.test.ts`.
 
 
+### State projection and purge
+
+- Acquire an explicit canonical truth root, persist its identity, and refuse a different root on reopen. Keep state-event rows and blob references separate from canonical file identities in the same derived database and writer worker.
+- Read verified committed state events inside the serialized writer operation. Catch up to a captured watermark with a durable contiguous cursor; exact reindex rereads truth and never accepts caller-provided event bodies. Reject CRC/sequence gaps.
+- Keep event FTS and reference rows transactional. Enable core and FTS secure deletion; complete a checked TRUNCATE checkpoint before purge or thread-drop acknowledges. A pinned reader refuses immediately and leaves the state-store purge intent for retry.
+- Close the writer-owned truth reader on indexer shutdown. The state-store adapter resets through the same joined process destruction; do not add another derived database or chat writer.
+
+Evidence: `indexer/state-event-purge.md`.
+Guard: `packages/indexer/__tests__/state-purge.integration.test.ts`.
+
 ### Canonical syntax metadata
 
 - Accept the existing parser's typed symbols/references alongside a file commit; do not add a parse pass. Keep composite `(file_record_id, seq)` identities and name-based references, with same-file `from_symbol_seq` foreign keys.
@@ -108,8 +118,6 @@ Guard: `packages/canonical-ingestion/__tests__/host.test.ts`, `packages/canonica
 Evidence: `indexer/2026-10-03-authoritative-catalog-delivery.md`.
 Guard: `apps/desktop/src/__tests__/native-canonical-catalog.test.ts`,
 `apps/desktop/src/__tests__/native-canonical-catalog.integration.test.ts`.
-The adapter is a library seam; actual main/grant/profile/utility wiring and app
-qualification remain separate composition work.
 
 ### Explicit canonical vector ingestion
 
@@ -163,12 +171,44 @@ Guard: `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/index
 Evidence: `indexer/2026-10-03-canonical-manifest.md`.
 Guard: `packages/indexer/__tests__/manifest.integration.test.ts`.
 
-### Visible producer transport and scan ownership (composition pending)
+### Main-owned production activation
 
-- Expose writes only through the visible-ui authorized producer manifest and the canonical IPC result envelope. Main supplies mandatory live root/file binding and complete-profile authorization; renderer requests never choose database paths, process budgets or SQL. Keep the four search channels read-only and the hidden preload unchanged.
-- Forward canonical events through the browser-safe publication mapper into one provided-snapshot text commit. Keep vector preparation/commit separate and require a complete explicit profile plus the native returned plan. Do not manufacture plans or invoke inference to publish text.
-- Bind full-scan completion to the active store/root/scan/generation ticket. Require the exact ticket for every write/removal during that scan; refuse overlapping starts and late/missing tickets. Close write admission while finishing and join all owned publication/removal promises before verifying the native manifest.
-- Publish scan readiness only for an error-free, untruncated, unaborted full scan with matching native identities. Partial scans, failed writes and mismatched manifests explicitly remain incomplete. Consume completion tickets once; ordinary out-of-scan writes invalidate readiness. Restart requires a new full scan.
+- Compose canonical workspace and retained collection ingestion in the sole main-owned indexer utility. Read actual saved collection/mode/full local execution choices and PG records, borrow the application's existing mounted-root leases, and preserve canonical file IDs and nullable rootless metadata. Missing or unsupported choices refuse activation visibly.
+- Validate saved collection existence in PG for both modes. Load the complete retained inventory through the catalog's bounded batches, checking current authority and cancellation around each batch. Actual read acquisition reconciles changed PG inventory and invalidates affected receipts before returning native progress.
+- Retire the desktop visible scanner/queue producer when the native capability exists. The visible provider restores actual root identity and observes scoped receipts/coverage; closing the visible window does not own source, parser, inference or writer lifetime. Keep the hosted web producer unchanged.
+- Begin publication tickets before awaited native work. Any admitted write/removal invalidates all overlapping scope receipts; full completion joins admitted writes and verifies the full canonical manifest against the same unchanged authority/mutation revision. Watch degradation invalidates readiness and refuses reads until actual recovery reconciliation.
+- Revalidate overlapping completed workspace receipts against their retained complete source manifest after collection publication; VECTOR also requires actual full selected-profile coverage at the same authority revision. Source invalidation discards that proof; a later mutation prevents held verification from restoring readiness.
+- Allow scoped read ownership while initial ingestion is pending, but report incomplete source receipts explicitly. Capture and recheck the full store/profile/authority/binding identity around every scoped search, coverage and killable grep read; reject foreign/stale hits. Main alone supplies explicit canonical grep file IDs, including actual nullable-root collection records.
+- Own each scoped read through native result validation and physical grep disposal against the runtime's actual acknowledged binding inventory. Fence new reads before ordinary binding replacement or derived removal, drain admitted readers before mutating native authority, and retain failed cleanup admission until the original owner retires. Recheck live generation, grants, collection, full saved profile, query plan and store independently; pending PG discovery is the next native ACK.
+- Keep saved Pause separate from Enabled. Cold-paused activation opens the actual authorized store/reader with incomplete source receipts and admits no canonical source, parser, watcher or document inference. Pause fences and joins source attachments, including held/failed acquisition, before acknowledging; retain the original read-authority borrow, writer/profile and unchanged complete proofs. Failed cleanup retains admission ownership for explicit retry. Resume uses the same saved canonical pipeline; paused catalog changes invalidate affected proofs and reconcile bindings without scheduling ingestion.
+- Update the read-reuse binding identity at the successful native replacement ACK, before live-authority revalidation. If that revalidation rejects, retry must restore the exact requested inventory before reuse; failed replacement preserves the previous cache and cleanup ACK.
+- Before same-scope binding replacement, join removal of IDs absent from the complete new catalog inventory under their original acknowledged writer/scope; invalidate their canonical plans and overlapping source proofs. Preserve surviving IDs and scope-switch retention. Failed or authority-drifted removal retains the old ACK and prevents cache reuse until explicit reconciliation succeeds.
+- Fence invalidated file IDs for their current scan, including admitted TEXT/VECTOR commit acknowledgements and later writes. Clear that fence only when a new scan can begin after pending work joins; a returning ID must republish its actual native row.
+- Track observed catalog inventory separately from complete publication proofs. Coalesce identical reads; queue newer inventory while a scan owns completion, gate affected readiness, and join before replacing bindings or invalidating the next inventory. Verify the latest inventory through the strict public host; preserve every scan/transport failure.
+- Reserve collection admission before loading one complete inventory; reuse it for native bindings, source loading and every collection catalog ACK through physical scan and workspace reverify completion. Drain already-admitted workspace passes and binding ACKs first; fence later workspace publication/cache/removal before admission, and reject queued work on source retirement without releasing running or failed ownership early.
+- Keep fixed RRF60 fusion over bounded native arms (100 per arm, final10), exact canonical metadata and truncation notices. Require complete actual receipts and selected-profile coverage for semantic execution. Query inference uses the main-resolved exact saved plan through the existing hidden renderer; TEXT never invokes inference and native unavailability never routes to PG search.
+- Close admission synchronously, abort the owned graph, close admitted attachments before joining startup, then join late attachments, physical inference, borrowed roots and native readers before writer close/destroy/profile release. Retain independent cleanup failures and owners for explicit retry.
+- Fence and join pending reconfiguration before terminal retirement acknowledges. On managed-collection replacement, join removal of the outgoing collection's rooted native rows under the original acknowledged writer before replacement; preserve rootless and unrelated profile data, and retain failed removals for retry. Capture that actual writer before source retirement and read its final acknowledged binding authority after admitted work joins; refuse retired or replaced owners.
+- Expose derived-only rebuild through the visible-ui `index-search:rebuild` capability and Workspace Index settings. Destroy/recreate only the owned derived SQLite files after all source/read owners settle; preserve PG application data, collections, chats and saved choices. Factory/developer resets use the same retirement owner before their separately authorized PG deletion.
 
-These requirements remain pending product composition. The visible producer/receipt
-adapter and its dedicated evidence and guards have not landed in integration.
+- Mount the root-data deletion callback above the app's singleton `FileSystemProvider`; tree-local providers cannot supply an ancestor's captured removal callback. Preserve one shared filesystem instance and keep a failed deletion connected.
+- Route desktop whole-root data deletion through the visible main capability. Reserve the original mounted object synchronously, capture its acknowledged native owner before stopping sources, then read the final ACK inventory after source/read/inference joins. Remove only its actual rooted bindings under the original workspace scope and join native cleanup before the canonical PG cascade; refuse foreign/replaced owners and retain failures for same-owner retry. Web retains its existing PG deletion path.
+
+Evidence: `indexer/2026-10-03-production-activation.md`.
+Evidence: `indexer/2026-10-03-production-activation-corrections.md`.
+Guard: `apps/desktop/src/__tests__/native-index-activation.test.ts`, `native-index-runtime.test.ts`, `native-index-runtime-scopes.test.ts`, `native-canonical-publication.test.ts`, `native-scoped-search.test.ts`, `native-index-settings.test.ts`, `packages/workspace-search/src/core/__tests__/native-workspace-search.test.ts`, `packages/settings-ui/src/__tests__/search-indexing-settings-section.test.tsx`.
+Guard: `apps/desktop/src/__tests__/native-index-collection-switch.integration.test.ts`.
+Evidence: `indexer/2026-10-03-native-pause-read.md`.
+Evidence: `indexer/2026-10-03-native-binding-deletion.md`.
+Evidence: `indexer/2026-10-03-native-delete-ack-order.md`.
+Evidence: `indexer/2026-10-03-native-catalog-observation.md`.
+Evidence: `indexer/2026-10-03-native-scan-binding-admission.md`.
+Evidence: `indexer/2026-10-03-scoped-read-lifetime.md`.
+Guard: `apps/desktop/src/__tests__/native-index-scan-admission.test.ts`.
+Guard: `apps/desktop/src/__tests__/native-index-catalog-refresh.integration.test.ts`.
+Guard: `apps/desktop/src/__tests__/native-canonical-publication.test.ts`, `native-publication-delete-ack.integration.test.ts`.
+Guard: `apps/desktop/src/__tests__/native-index-binding-deletion.integration.test.ts`, `native-index-runtime-scopes.test.ts`, `native-canonical-publication.test.ts`.
+Guard: `apps/desktop/src/__tests__/native-index-pause.test.ts`, `canonical-utility-parent.test.ts`, `canonical-utility-manager.test.ts`, `native-index-settings.test.ts`.
+Evidence: `indexer/2026-10-03-root-data-deletion.md`.
+Guard: `packages/app-shell/src/__tests__/root-layout-deletion-composition.test.tsx`.
+Guard: `apps/desktop/src/__tests__/native-root-data-deletion.test.ts`, `native-root-data-deletion.integration.test.ts`, `ipc-domains/workspace-root-data-deletion.test.ts`, `packages/db/__tests__/managed-root-data-deletion.integration.test.ts`, `packages/app-shell/src/__tests__/delete-root-data.test.ts`.

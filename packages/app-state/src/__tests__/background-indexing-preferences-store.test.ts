@@ -132,7 +132,7 @@ describe('background-indexing-preferences-store', () => {
       throw new Error('persist options unavailable for background indexing preferences test');
     }
 
-    expect(options.version).toBe(5);
+    expect(options.version).toBe(6);
 
     const migrated = options.migrate(
       {
@@ -160,7 +160,7 @@ describe('background-indexing-preferences-store', () => {
       throw new Error('persist options unavailable for background indexing preferences test');
     }
 
-    expect(options.version).toBe(5);
+    expect(options.version).toBe(6);
 
     const migrated = options.migrate(
       {

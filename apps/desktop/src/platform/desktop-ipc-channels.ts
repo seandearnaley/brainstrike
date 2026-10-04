@@ -109,6 +109,7 @@ export const DESKTOP_IPC_CHANNELS = {
     cancelAllBackfills: 'embedding-host:cancel-all-backfills',
     cancelBackfill: 'embedding-host:cancel-backfill',
     cancelDocumentEmbeddings: 'embedding-host:cancel-document-embeddings',
+    cancelQueryEmbedding: 'embedding-host:cancel-query-embedding',
     command: 'embedding-host:command',
     documentEmbeddings: 'embedding-host:document-embeddings',
     documentEmbeddingsCancel: 'embedding-host:document-embeddings-cancel',
@@ -133,6 +134,7 @@ export const DESKTOP_IPC_CHANNELS = {
   files: {
     addRoot: 'fs:addRoot',
     addRootByPath: 'fs:addRootByPath',
+    deleteRootData: 'fs:deleteRootData',
     exists: 'fs:exists',
     listRecentRoots: 'fs:listRecentRoots',
     parserHostParse: 'parser-host:parse',
@@ -185,6 +187,7 @@ export const DESKTOP_IPC_CHANNELS = {
   indexSearch: {
     coverage: 'index-search:coverage',
     grep: 'index-search:grep',
+    rebuild: 'index-search:rebuild',
     search: 'index-search:search',
     status: 'index-search:status',
   },

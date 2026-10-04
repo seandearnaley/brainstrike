@@ -915,12 +915,12 @@ describe('createWorkerpoolAdapter', () => {
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
 
     const preAbortedController = new AbortController();
-    preAbortedController.abort();
+    const preAbortedReason = new Error('Owned pre-aborted task');
+    preAbortedController.abort(preAbortedReason);
     await expect(
       adapter.add(createTask('task-2'), { signal: preAbortedController.signal })
-    ).rejects.toThrow('Embedding task was aborted.');
+    ).rejects.toBe(preAbortedReason);
     expect(poolExecMock).not.toHaveBeenCalled();
-
     const runningController = new AbortController();
     const removeListener = vi.spyOn(runningController.signal, 'removeEventListener');
     const runningAdd = adapter.add(createTask('task-3'), { signal: runningController.signal });
@@ -929,7 +929,7 @@ describe('createWorkerpoolAdapter', () => {
     emitWorkerEvent?.({ id: 'task-3', phase: 'embedding', progress: 0.5, type: 'progress' });
     emitWorkerEvent?.({ id: 'task-3', phase: 'embedding', progress: 0.75, type: 'progress' });
     running.resolve(createResult('task-3'));
-    await expect(runningAdd).rejects.toThrow('Embedding task was aborted.');
+    await expect(runningAdd).rejects.toBe(runningController.signal.reason);
     const requestControlChannel = broadcastChannelInstances[1];
     expect(requestControlChannel?.postMessage).toHaveBeenCalledWith({
       id: 'task-3',
@@ -947,7 +947,7 @@ describe('createWorkerpoolAdapter', () => {
     expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
     expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        errorMessage: 'Embedding task was aborted.',
+        errorMessage: preAbortedReason.message,
         event: 'error',
         taskId: 'task-2',
       })

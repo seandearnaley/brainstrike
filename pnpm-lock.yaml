@@ -588,6 +588,9 @@ importers:
       '@brainstrike/worker-runtime':
         specifier: workspace:*
         version: link:../../packages/worker-runtime
+      '@brainstrike/workspace-search':
+        specifier: workspace:*
+        version: link:../../packages/workspace-search
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.8(patch_hash=07412deadecaa3a5f5ba73c838108f930cb9092762ffb0c8f8deb495ef138311)
@@ -2797,6 +2800,9 @@ importers:
       '@brainstrike/sqlite-native':
         specifier: workspace:*
         version: link:../sqlite-native
+      '@brainstrike/state-store':
+        specifier: workspace:*
+        version: link:../state-store
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.118
@@ -4008,6 +4014,9 @@ importers:
       '@brainstrike/file-explorer-ui':
         specifier: workspace:*
         version: link:../file-explorer-ui
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types

@@ -78,8 +78,16 @@ export const optionsSchema = Schema.Struct({
   fileBindings: Schema.optional(fileBindingsSchema),
   rootIds: Schema.Array(nonblank),
   scopes: Schema.optional(Schema.Array(scopeSchema)),
+  stateRoot: Schema.optional(nonblank),
 });
 export type IndexerOptions = typeof optionsSchema.Type;
+export const stateThreadsSchema = Schema.Array(nonblank);
+export const stateEventIdentitySchema = Schema.Struct({ seq: positive, threadId: nonblank });
+export const stateGcSchema = Schema.Struct({
+  hashes: Schema.Array(hash),
+  threads: stateThreadsSchema,
+});
+export const stateCountsSchema = Schema.Record(Schema.String, nonnegative);
 const snapshotFields = {
   content: Schema.String,
   fileId: nonblank,
