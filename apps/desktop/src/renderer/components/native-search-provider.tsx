@@ -16,6 +16,13 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react
 import { generateDesktopQueryEmbedding } from '../query-embeddings';
 
 type ReadyStatus = Extract<IndexerStatus, { kind: 'ready' }>;
+type ExecutionStatus =
+  | Omit<ReadyStatus, 'collectionReadiness' | 'rootReadiness'>
+  | Extract<IndexerStatus, { kind: 'unavailable' }>;
+interface NativeSearchStatus {
+  readonly execution: ExecutionStatus;
+  readonly status: IndexerStatus;
+}
 function matchesSelection(
   selection: NativeLocalSelection,
   plan: NonNullable<ReadyStatus['queryPlan']>['inferencePlan']
@@ -50,8 +57,21 @@ function matchesSavedChoices(
   );
 }
 
-function unchangedStatus(prior: IndexerStatus, next: IndexerStatus): IndexerStatus {
+function unchangedStatus<T>(prior: T, next: T): T {
   return JSON.stringify(prior) === JSON.stringify(next) ? prior : next;
+}
+function executionStatus(status: IndexerStatus): ExecutionStatus {
+  if (status.kind === 'unavailable') {
+    return status;
+  }
+  const { collectionReadiness: _collections, rootReadiness: _roots, ...execution } = status;
+  return execution;
+}
+function nextSearchStatus(prior: NativeSearchStatus, status: IndexerStatus): NativeSearchStatus {
+  return {
+    execution: unchangedStatus(prior.execution, executionStatus(status)),
+    status: unchangedStatus(prior.status, status),
+  };
 }
 async function readMatchingStatus(
   capability: IndexSearchCapability,
@@ -80,9 +100,9 @@ export function NativeSearchProvider({
   readonly capability: IndexSearchCapability;
   readonly children: ReactNode;
 }): ReactNode {
-  const [status, setStatus] = useState<IndexerStatus>({
-    kind: 'unavailable',
-    reason: 'Native search is initializing.',
+  const [{ execution, status }, setStatus] = useState<NativeSearchStatus>(() => {
+    const initial = { kind: 'unavailable' as const, reason: 'Native search is initializing.' };
+    return { execution: initial, status: initial };
   });
   const mode = useBackgroundIndexingPreferencesStore((state) => state.nativeIndexMode);
   const selection = useBackgroundIndexingPreferencesStore((state) => state.nativeLocalSelection);
@@ -94,14 +114,13 @@ export function NativeSearchProvider({
       try {
         const next = await readMatchingStatus(capability, mode, selection, collectionId);
         if (!disposed) {
-          setStatus((prior) => unchangedStatus(prior, next));
+          setStatus((prior) => nextSearchStatus(prior, next));
         }
       } catch (error) {
         if (!disposed) {
-          setStatus({
-            kind: 'unavailable',
-            reason: errorMessage(error),
-          });
+          setStatus((prior) =>
+            nextSearchStatus(prior, { kind: 'unavailable', reason: errorMessage(error) })
+          );
         }
       } finally {
         if (!disposed) {
@@ -121,18 +140,17 @@ export function NativeSearchProvider({
   }, [capability, collectionId, mode, selection]);
   const profile =
     mode === 'VECTOR' &&
-    status.kind === 'ready' &&
-    status.embedding.indexMode === 'vector-configured'
-      ? status.embedding.profile
+    execution.kind === 'ready' &&
+    execution.embedding.indexMode === 'vector-configured'
+      ? execution.embedding.profile
       : null;
-  const queryPlan: ReadyStatus['queryPlan'] =
-    status.kind === 'ready' ? status.queryPlan : undefined;
   const embedQuery = useCallback(
     async (
       requested: IndexerEmbeddingProfile,
       query: string,
       options: { readonly signal: AbortSignal }
     ): Promise<readonly number[]> => {
+      const queryPlan = execution.kind === 'ready' ? execution.queryPlan : undefined;
       options.signal.throwIfAborted();
       const current = await capability.status();
       options.signal.throwIfAborted();
@@ -143,6 +161,7 @@ export function NativeSearchProvider({
         !queryPlan ||
         !matchesSelection(saved.nativeLocalSelection, queryPlan.inferencePlan) ||
         current.kind !== 'ready' ||
+        JSON.stringify(executionStatus(current)) !== JSON.stringify(execution) ||
         current.embedding.indexMode !== 'vector-configured' ||
         !current.authorizedCollectionIds?.includes(saved.managedCollectionId ?? '') ||
         JSON.stringify(current.embedding.profile) !== JSON.stringify(requested) ||
@@ -163,7 +182,7 @@ export function NativeSearchProvider({
         options
       );
     },
-    [capability, queryPlan]
+    [capability, execution]
   );
   const dependencies = useMemo<NativeWorkspaceSearchDependencies>(
     () => ({
