@@ -124,7 +124,7 @@ async function waitForActiveCollectionId(page: Page, timeoutMs = 15_000): Promis
 }
 
 /**
- * The Settings-panel "Clear All Collections" button is gated on the ACTIVE
+ * The Settings-panel "Clear Database" button is gated on the ACTIVE
  * collection's live counts (`ACTIVE_COLLECTION_LIVE_COUNTS_QUERY` in
  * `packages/db-explorer/src/use-database-demo-data.ts`), not on global table
  * counts — with zero collections, `activeCollectionCounts` is always
@@ -159,24 +159,23 @@ async function createActiveCollection(page: Page, collectionName: string): Promi
   return await waitForActiveCollectionId(page);
 }
 
-async function clickClearAllCollections(page: Page): Promise<void> {
-  // "Clear All Collections" renders inside `SettingsPanel`, which only mounts
-  // once the "Import Settings" popover trigger (an exact accessible name, see
-  // `database-demo-panel.tsx`) is opened — `ensureDatabasePanelVisible` only
-  // gets as far as the Collections tabpanel, not into this popover. An exact
-  // match, unconditional click replaces the previous loose
-  // `/import settings|settings/i` regex behind a swallowed `.catch(() =>
-  // false)`, which risked matching the wrong "settings" control.
-  await page.getByRole('button', { name: 'Import Settings' }).click();
+async function clearDatabase(page: Page): Promise<void> {
+  // The trigger lives in the Collections panel's Import Settings popover.
+  await page
+    .getByTestId('database-demo-panel')
+    .getByRole('button', { exact: true, name: 'Import Settings' })
+    .click();
 
-  const clearButton = page.getByRole('button', { name: 'Clear All Collections' });
+  const clearButton = page.getByRole('button', { exact: true, name: 'Clear Database' });
   await expect(clearButton).toBeVisible({ timeout: 10_000 });
   await expect(clearButton).toBeEnabled({ timeout: 10_000 });
   await clearButton.click();
 
-  const confirmDialog = page.getByRole('dialog');
+  const confirmDialog = page.getByRole('dialog', { exact: true, name: 'Clear Database' });
   await expect(confirmDialog).toBeVisible({ timeout: 5000 });
-  await confirmDialog.getByRole('button', { name: /clear/i }).first().click();
+  const confirmButton = confirmDialog.getByRole('button', { exact: true, name: 'Clear Database' });
+  await expect(confirmButton).toBeEnabled({ timeout: 5000 });
+  await confirmButton.click();
   await expect(confirmDialog).not.toBeVisible({ timeout: 15_000 });
 }
 
@@ -210,9 +209,7 @@ test.describe('Clear Database clears rows (web) @destructive @web-clear-database
     await waitForAppLoad(page);
   });
 
-  test.fixme('clears file records, chunks, and workflow snapshots', {
-    annotation: { description: 'BST-1962', type: 'quarantine' },
-  }, async ({ page }) => {
+  test('clears file records, chunks, and workflow snapshots', async ({ page }) => {
     const home = new HomePage(page);
     await home.goto();
     await waitForAppLoad(page);
@@ -228,7 +225,7 @@ test.describe('Clear Database clears rows (web) @destructive @web-clear-database
     const collectionId = await createActiveCollection(page, `Clear DB Probe ${Date.now()}`);
     await linkResetProbeRowsToCollection(page, collectionId);
 
-    await clickClearAllCollections(page);
+    await clearDatabase(page);
 
     await expect
       .poll(() => readProbeCounts(page), {
@@ -238,9 +235,9 @@ test.describe('Clear Database clears rows (web) @destructive @web-clear-database
       .toEqual({ fileChunks: 0, fileRecords: 0, workflowSnapshots: 0 });
   });
 
-  test.fixme('clears file records and chunks when mastra_workflow_snapshot is absent', {
-    annotation: { description: 'BST-1962', type: 'quarantine' },
-  }, async ({ page }) => {
+  test('clears file records and chunks when mastra_workflow_snapshot is absent', async ({
+    page,
+  }) => {
     const home = new HomePage(page);
     await home.goto();
     await waitForAppLoad(page);
@@ -265,7 +262,7 @@ test.describe('Clear Database clears rows (web) @destructive @web-clear-database
     // of the present-relation test above.
     await assertWorkflowSnapshotRelationAbsent(page);
 
-    await clickClearAllCollections(page);
+    await clearDatabase(page);
 
     await expect
       .poll(() => readFileRowCounts(page), {
