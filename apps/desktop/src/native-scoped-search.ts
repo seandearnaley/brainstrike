@@ -64,7 +64,11 @@ function embeddingState(profile: VectorProfile | null): IndexerEmbeddingState {
     profileHash: embeddingProfileHash(projection),
   };
 }
-function fingerprint(authority: NativeSearchAuthority, includeReadiness: boolean): string {
+function fingerprint(
+  authority: NativeSearchAuthority,
+  includeReadiness: boolean,
+  includePublicationIdentity = false
+): string {
   return JSON.stringify([
     authority.generation,
     authority.collectionId,
@@ -73,6 +77,15 @@ function fingerprint(authority: NativeSearchAuthority, includeReadiness: boolean
     authority.profile,
     authority.queryPlan,
     ...(includeReadiness ? [authority.readiness] : []),
+    ...(includePublicationIdentity
+      ? [
+          authority.readiness.map(({ generation, scope, publication }) => [
+            scope,
+            generation,
+            publication?.requestId,
+          ]),
+        ]
+      : []),
   ]);
 }
 function requestedScopes(
@@ -219,6 +232,37 @@ function projectStatus(
     ],
     embedding,
     kind: 'ready',
+    publicationProgress: authority.readiness.flatMap(
+      ({ generation: scanGeneration, publication, scope }) => {
+        if (!publication) {
+          return [];
+        }
+        const selectedHash =
+          authority.profile === null ? null : vectorProfileHash(authority.profile);
+        if (
+          publication.storeId !== storeId ||
+          publication.profileHash !== selectedHash ||
+          publication.generation !== scanGeneration ||
+          (scope.kind === 'workspace'
+            ? !authority.rootIds.includes(scope.rootId)
+            : scope.embeddingSetId !== authority.collectionId)
+        ) {
+          throw new Error(
+            'Native publication progress differs from the current store, profile, generation or scope.'
+          );
+        }
+        const { generation, ...acknowledged } = publication;
+        return [
+          {
+            ...acknowledged,
+            ownerGeneration: authority.generation,
+            profileHash: embedding.indexMode === 'text-only' ? null : embedding.profileHash,
+            scanGeneration: generation,
+            scope,
+          },
+        ];
+      }
+    ),
     rootReadiness: authority.rootIds.map((rootId) => ({
       rootId,
       scanComplete: authority.readiness.some(
@@ -236,16 +280,21 @@ function projectStatus(
 export function createNativeScopedSearchCapability(
   dependencies: Dependencies
 ): IndexSearchCapability {
-  const capture = async (read: NativeScopedRead, includeReadiness = false) => {
+  const capture = async (
+    read: NativeScopedRead,
+    includeReadiness = false,
+    includePublicationIdentity = false
+  ) => {
     const port = read.port;
     const authority = await read.getAuthority();
     const info = await port.info();
-    const key = fingerprint(authority, includeReadiness);
+    const key = fingerprint(authority, includeReadiness, includePublicationIdentity);
     return {
       assertCurrent: async (): Promise<void> => {
         const currentInfo = await port.info();
         if (
-          key !== fingerprint(await read.getAuthority(), includeReadiness) ||
+          key !==
+            fingerprint(await read.getAuthority(), includeReadiness, includePublicationIdentity) ||
           currentInfo.storeId !== info.storeId
         ) {
           if (includeReadiness) {
@@ -407,7 +456,7 @@ export function createNativeScopedSearchCapability(
     status: async () => {
       try {
         return await dependencies.withRead(async (read) => {
-          const snapshot = await capture(read);
+          const snapshot = await capture(read, false, true);
           await snapshot.assertCurrent();
           return projectStatus(snapshot.authority, snapshot.storeId, snapshot.embedding);
         });

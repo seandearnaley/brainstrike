@@ -1,4 +1,7 @@
-import type { IndexerStatus } from '../../../../packages/indexing-contract/src/indexer-client';
+import type {
+  IndexerPublicationProgress,
+  IndexerStatus,
+} from '../../../../packages/indexing-contract/src/indexer-client';
 import type { NativeSnapshot } from './candidate';
 
 interface Dependencies {
@@ -11,6 +14,12 @@ interface Dependencies {
 }
 
 type ReadyStatus = Extract<IndexerStatus, { kind: 'ready' }>;
+function scopeKey(scope: IndexerPublicationProgress['scope']): string {
+  return JSON.stringify([
+    scope.kind,
+    scope.kind === 'workspace' ? scope.rootId : scope.embeddingSetId,
+  ]);
+}
 interface Receipt {
   readonly complete: boolean;
   readonly scope:
@@ -88,7 +97,7 @@ function queryIdentity(plan: ReadyStatus['queryPlan']): readonly unknown[] | nul
 
 function inspectStatus(status: ReadyStatus): {
   readonly identity: string;
-  readonly receipts: readonly Receipt[];
+  readonly publications: readonly IndexerPublicationProgress[];
 } {
   const receipts = [
     scopeReceipt('workspace', status.authorizedRootIds, status.rootReadiness),
@@ -96,6 +105,35 @@ function inspectStatus(status: ReadyStatus): {
   ];
   const embedding = embeddingIdentity(status.embedding);
   const queryPlan = queryIdentity(status.queryPlan);
+  const publications = status.publicationProgress;
+  const scopes = new Set(receipts.map(({ scope }) => scopeKey(scope)));
+  const seen = new Set<string>();
+  if (!Array.isArray(publications)) {
+    throw new Error('Benchmark native publication progress is missing.');
+  }
+  for (const publication of publications) {
+    const key = scopeKey(publication.scope);
+    if (
+      !scopes.has(key) ||
+      seen.has(key) ||
+      publication.storeId !== status.storeId ||
+      publication.profileHash !==
+        (status.embedding.indexMode === 'text-only' ? null : status.embedding.profileHash) ||
+      !publication.requestId?.trim() ||
+      !publication.authorityEpoch?.trim() ||
+      ![
+        publication.acknowledgedFiles,
+        publication.scanGeneration,
+        publication.authorityRevision,
+      ].every((value) => Number.isSafeInteger(value) && value > 0) ||
+      ![publication.ownerGeneration, publication.mutationRevision].every(
+        (value) => Number.isSafeInteger(value) && value >= 0
+      )
+    ) {
+      throw new Error('Benchmark native publication progress identity or inventory is invalid.');
+    }
+    seen.add(key);
+  }
   if (
     !status.storeId?.trim() ||
     [...embedding, ...(queryPlan === null ? [] : queryPlan)].some(
@@ -114,7 +152,7 @@ function inspectStatus(status: ReadyStatus): {
       rootReadinessIds: status.rootReadiness.map((receipt) => receipt.rootId),
       storeId: status.storeId,
     }),
-    receipts,
+    publications,
   };
 }
 
@@ -123,12 +161,24 @@ export function createBenchmarkProgress(dependencies: Dependencies): {
   observe(): Promise<NativeSnapshot | null>;
 } {
   const baseline = inspectStatus(dependencies.baseline);
-  // Historical scope milestones only: the public DTO does not expose scan generation/epoch.
-  const credited = new Set(
-    baseline.receipts
-      .filter((receipt) => receipt.complete)
-      .map((receipt) => JSON.stringify(receipt.scope))
-  );
+  const acknowledged = new Map<string, { readonly identity: string; count: number }>();
+  let ownerGeneration: number | undefined;
+  const publicationIdentity = (publication: IndexerPublicationProgress): string =>
+    JSON.stringify([
+      publication.ownerGeneration,
+      publication.scanGeneration,
+      publication.requestId,
+    ]);
+  for (const publication of baseline.publications) {
+    ownerGeneration ??= publication.ownerGeneration;
+    if (ownerGeneration !== publication.ownerGeneration) {
+      throw new Error('Benchmark publication owner changed.');
+    }
+    acknowledged.set(scopeKey(publication.scope), {
+      count: publication.acknowledgedFiles,
+      identity: publicationIdentity(publication),
+    });
+  }
   let lastProvedAt = dependencies.startedAt;
   let previousCounts = '';
   let baselineRecorded = false;
@@ -137,19 +187,28 @@ export function createBenchmarkProgress(dependencies: Dependencies): {
     if (current.identity !== baseline.identity) {
       throw new Error('Benchmark publication identity changed.');
     }
-    for (const receipt of current.receipts) {
-      const key = JSON.stringify(receipt.scope);
-      if (!receipt.complete || credited.has(key)) {
+    for (const publication of current.publications) {
+      ownerGeneration ??= publication.ownerGeneration;
+      const key = scopeKey(publication.scope);
+      const identity = publicationIdentity(publication);
+      const previous = acknowledged.get(key);
+      if (
+        ownerGeneration !== publication.ownerGeneration ||
+        (previous && previous.identity !== identity)
+      ) {
+        throw new Error('Benchmark publication owner or scan generation changed.');
+      }
+      if (publication.acknowledgedFiles <= (previous?.count ?? 0)) {
         continue;
       }
-      credited.add(key);
+      acknowledged.set(key, { count: publication.acknowledgedFiles, identity });
       lastProvedAt = dependencies.now();
       await dependencies.record('benchmark-proved-progress', {
         atMs: lastProvedAt,
         elapsedMs: lastProvedAt - dependencies.startedAt,
         identity: baseline.identity,
-        scope: receipt.scope,
-        source: 'historical-scope-publication',
+        publication,
+        source: 'acknowledged-publication',
       });
     }
   };
@@ -163,8 +222,8 @@ export function createBenchmarkProgress(dependencies: Dependencies): {
       if (!baselineRecorded) {
         baselineRecorded = true;
         await dependencies.record('benchmark-progress-baseline', {
+          acknowledgedScopes: baseline.publications,
           atMs: dependencies.startedAt,
-          creditedScopes: [...credited],
           identity: baseline.identity,
         });
       }

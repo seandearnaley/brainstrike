@@ -9,6 +9,7 @@ import {
 } from '@brainstrike/indexer';
 import type { SqliteGrepRows } from '@brainstrike/sqlite-query';
 import { expect, it, vi } from 'vitest';
+import { createBenchmarkProgress } from '../../qualification/m2-native/benchmark-progress';
 import { nativeBuildComplete } from '../../qualification/m2-native/native-benchmark';
 import {
   createNativeScopedSearchCapability,
@@ -205,6 +206,7 @@ function fixture(selectedProfile: VectorProfile | null = null) {
     coverageBatch,
     getAuthority: () => authority,
     grep,
+    port,
     replaceAuthority: (next: NativeSearchAuthority) => {
       authority = next;
     },
@@ -214,6 +216,234 @@ function fixture(selectedProfile: VectorProfile | null = null) {
     searchScopes,
   };
 }
+
+function progressAuthority(f: ReturnType<typeof fixture>): NativeSearchAuthority {
+  return {
+    ...f.getAuthority(),
+    readiness: [
+      {
+        generation: 1,
+        mutationRevision: 99,
+        publication: {
+          acknowledgedFiles: 1,
+          authorityEpoch: 'historical-epoch',
+          authorityRevision: 3,
+          generation: 1,
+          mutationRevision: 2,
+          profileHash: vectorProfileHash(profile),
+          requestId: 'scan',
+          storeId,
+        },
+        scanComplete: false,
+        scope,
+      },
+    ],
+  };
+}
+
+it('projects historical native ACK identity independently of newer admission revision', async () => {
+  const f = fixture(profile);
+  f.replaceAuthority(progressAuthority(f));
+  expect(await f.capability.status()).toMatchObject({
+    collectionReadiness: [{ scanComplete: false }],
+    publicationProgress: [
+      {
+        acknowledgedFiles: 1,
+        authorityEpoch: 'historical-epoch',
+        authorityRevision: 3,
+        mutationRevision: 2,
+        ownerGeneration: 1,
+        profileHash: embeddingProfileHash({
+          dimensions: profile.dimensions,
+          dtype: profile.dtype,
+          modelId: profile.modelId,
+          revision: profile.revision,
+          tokenCap: profile.tokenCap,
+        }),
+        requestId: 'scan',
+        scanGeneration: 1,
+        scope,
+        storeId,
+      },
+    ],
+  });
+});
+
+it('refuses a progress identity whose scan generation changes during status capture', async () => {
+  const f = fixture(profile);
+  f.replaceAuthority(progressAuthority(f));
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const info = f.port.info;
+  let calls = 0;
+  f.port.info = async () => {
+    if (++calls === 1) {
+      entered.resolve();
+      await release.promise;
+    }
+    return info();
+  };
+  const result = f.capability.status();
+  await entered.promise;
+  f.replaceAuthority({
+    ...f.getAuthority(),
+    readiness: [{ generation: 2, mutationRevision: 100, scanComplete: false, scope }],
+  });
+  release.resolve();
+  expect(await result).toMatchObject({
+    kind: 'unavailable',
+    reason: expect.stringContaining('changed'),
+  });
+});
+
+it('keeps scan-start status interleaving nonterminal in the actual benchmark progress seam without credit', async () => {
+  const f = fixture(profile);
+  const workspace = { kind: 'workspace', rootId: 'root' } as const;
+  f.replaceAuthority({
+    ...f.getAuthority(),
+    readiness: [scope, workspace].map((selected) => ({
+      generation: 0,
+      mutationRevision: 0,
+      scanComplete: false,
+      scope: selected,
+    })),
+    rootIds: ['root'],
+  });
+  const baseline = await f.capability.status();
+  if (baseline.kind !== 'ready') {
+    throw new Error('Expected the cold ready status');
+  }
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const info = f.port.info;
+  let calls = 0;
+  f.port.info = async () => {
+    if (++calls === 1) {
+      entered.resolve();
+      await release.promise;
+    }
+    return info();
+  };
+  const reading = f.capability.status();
+  await entered.promise;
+  f.replaceAuthority({
+    ...f.getAuthority(),
+    readiness: f
+      .getAuthority()
+      .readiness.map((receipt) => ({ ...receipt, generation: 1, mutationRevision: 1 })),
+  });
+  release.resolve();
+  const status = await reading;
+  expect(status.kind).toBe('unavailable');
+  let now = 0;
+  const record = vi.fn(async (_phase: string, _value: unknown) => {});
+  const snapshot = {
+    collectionCoverage: null,
+    coverage: null,
+    inference: {
+      active: false,
+      lastError: null,
+      runtimeId: 'stopped',
+      runtimeKind: 'embedding-host' as const,
+      state: 'stopped' as const,
+    },
+    status,
+  };
+  const progress = createBenchmarkProgress({
+    baseline,
+    now: () => now,
+    readCoverage: async () => snapshot,
+    readStatus: async () => status,
+    record,
+    startedAt: 0,
+  });
+  expect(await progress.observe()).toBe(snapshot);
+  expect(record).toHaveBeenCalledOnce();
+  expect(record.mock.calls[0]?.[0]).toBe('benchmark-progress-baseline');
+  expect(await f.capability.status()).toMatchObject({ kind: 'ready', publicationProgress: [] });
+  now = 200_001;
+  expect(progress.assertLive).toThrow(/200-second stall window/);
+});
+
+it('returns a same-owner historical ACK snapshot when later ACK authority advances during status capture', async () => {
+  const f = fixture(profile);
+  f.replaceAuthority(progressAuthority(f));
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const info = f.port.info;
+  let calls = 0;
+  f.port.info = async () => {
+    if (++calls === 1) {
+      entered.resolve();
+      await release.promise;
+    }
+    return info();
+  };
+  const reading = f.capability.status();
+  await entered.promise;
+  const receipt = f.getAuthority().readiness[0]!;
+  f.replaceAuthority({
+    ...f.getAuthority(),
+    readiness: [
+      {
+        ...receipt,
+        mutationRevision: 100,
+        publication: {
+          ...receipt.publication!,
+          acknowledgedFiles: 2,
+          authorityEpoch: 'advanced',
+          authorityRevision: 10,
+          mutationRevision: 100,
+        },
+      },
+    ],
+  });
+  release.resolve();
+  expect(await reading).toMatchObject({
+    kind: 'ready',
+    publicationProgress: [
+      { acknowledgedFiles: 1, authorityEpoch: 'historical-epoch', mutationRevision: 2 },
+    ],
+  });
+  expect(await f.capability.status()).toMatchObject({
+    kind: 'ready',
+    publicationProgress: [
+      { acknowledgedFiles: 2, authorityEpoch: 'advanced', mutationRevision: 100 },
+    ],
+  });
+});
+
+it.each(['store', 'profile', 'generation', 'scope'] as const)(
+  'refuses a mismatched historical publication %s',
+  async (field) => {
+    const f = fixture(profile);
+    const authority = progressAuthority(f);
+    const receipt = authority.readiness[0]!;
+    const publication = receipt.publication!;
+    f.replaceAuthority({
+      ...authority,
+      readiness: [
+        {
+          ...receipt,
+          ...(field === 'scope'
+            ? { scope: { embeddingSetId: 'foreign', kind: 'collection' } as const }
+            : {}),
+          publication: {
+            ...publication,
+            ...(field === 'store'
+              ? { storeId: 'foreign' }
+              : field === 'profile'
+                ? { profileHash: 'foreign' }
+                : field === 'generation'
+                  ? { generation: 99 }
+                  : {}),
+          },
+        },
+      ],
+    });
+    expect(await f.capability.status()).toMatchObject({ kind: 'unavailable' });
+  }
+);
 
 it('projects actual rootless collection scope through text, grep and coverage without legacy reads', async () => {
   const f = fixture();

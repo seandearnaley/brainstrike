@@ -197,7 +197,7 @@ describe('native provider and search controller observation refresh', () => {
     };
   }
 
-  it('keeps held semantic inference alive across a readiness-only observation refresh', async () => {
+  it('keeps held semantic inference alive across readiness and acknowledged-progress refreshes', async () => {
     vi.useFakeTimers();
     const physical = Promise.withResolvers<number[]>();
     queryEmbedding.mockReturnValue(physical.promise);
@@ -218,6 +218,20 @@ describe('native provider and search controller observation refresh', () => {
       mounted.refresh({
         ...ready,
         collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: true }],
+        publicationProgress: [
+          {
+            acknowledgedFiles: 10,
+            authorityEpoch: 'epoch',
+            authorityRevision: 20,
+            mutationRevision: 30,
+            ownerGeneration: 1,
+            profileHash: ready.embedding.profileHash,
+            requestId: 'scan',
+            scanGeneration: 1,
+            scope: { kind: 'workspace', rootId: 'root-a' },
+            storeId: ready.storeId,
+          },
+        ],
       });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2000);

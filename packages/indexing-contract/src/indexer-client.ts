@@ -18,12 +18,29 @@ export interface IndexerRootReadiness {
   /** Receipt from the canonical producer's complete scan, never inferred from row counts. */
   readonly scanComplete: boolean;
 }
+/** Historical native commit ACKs in one owned scan; never current coverage or completion. */
+export interface IndexerPublicationProgress {
+  readonly acknowledgedFiles: number;
+  readonly authorityEpoch: string;
+  readonly authorityRevision: number;
+  readonly mutationRevision: number;
+  readonly ownerGeneration: number;
+  /** Same complete local-profile hash as status.embedding, after native producer-profile validation. */
+  readonly profileHash: string | null;
+  readonly requestId: string;
+  readonly scanGeneration: number;
+  readonly scope:
+    | { readonly kind: 'workspace'; readonly rootId: string }
+    | { readonly kind: 'collection'; readonly embeddingSetId: string };
+  readonly storeId: string;
+}
 export type IndexerStatus =
   | { readonly kind: 'unavailable'; readonly reason: string }
   | {
       readonly kind: 'ready';
       readonly embedding: IndexerEmbeddingState;
       readonly storeId: string;
+      readonly publicationProgress?: readonly IndexerPublicationProgress[];
       readonly authorizedRootIds: readonly string[];
       readonly authorizedCollectionIds?: readonly string[];
       readonly collectionReadiness?: readonly {

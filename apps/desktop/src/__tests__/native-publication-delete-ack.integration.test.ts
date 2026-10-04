@@ -77,6 +77,8 @@ it('rejects a late commit ACK, then requires a returning canonical identity to r
       .commitTextFile({ file, payload, ticket })
       .catch((error: unknown) => error);
     await entered.promise;
+    // The transaction has committed, but the canonical owner has not received its ACK.
+    expect(publication.getReadiness()[0]?.publication).toBeUndefined();
     publication.invalidateFile(file);
     events.push('invalidated');
     const deleting = delivered.promise.then(async () => {
@@ -86,6 +88,7 @@ it('rejects a late commit ACK, then requires a returning canonical identity to r
     gate.resolve();
     const [commitError] = await Promise.all([committing, deleting]);
     expect(commitError).toMatchObject({ message: expect.stringContaining('invalidated') });
+    expect(publication.getReadiness()[0]?.publication).toBeUndefined();
     expect(events).toEqual(['invalidated', 'commit-ack', 'removal-ack']);
     await writer.replaceFileBindings([]);
     await publication.abortScan(ticket);
@@ -122,6 +125,19 @@ it('rejects a late commit ACK, then requires a returning canonical identity to r
     holding = false;
     const next = await publication.beginScan({ requestId: 'returned-generation', scope });
     await publication.commitTextFile({ file, payload, ticket: next });
+    expect(publication.getReadiness()[0]).toMatchObject({
+      publication: {
+        acknowledgedFiles: 1,
+        authorityEpoch: plan.authorityEpoch,
+        generation: next.generation,
+        profileHash: null,
+        requestId: next.requestId,
+        storeId,
+      },
+      scanComplete: false,
+    });
+    await publication.commitTextFile({ file, payload, ticket: next });
+    expect(publication.getReadiness()[0]?.publication?.acknowledgedFiles).toBe(1);
     expect(await publication.verifyManifest({ files: [declared], scope })).toMatchObject({
       complete: true,
     });

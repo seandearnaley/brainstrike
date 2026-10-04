@@ -27,11 +27,13 @@ type PublicationWriter = Pick<IndexerPort, 'info'> &
   >;
 interface ScanState {
   aborted: boolean;
+  readonly acknowledgedFiles: Set<string>;
   finishing: Promise<CanonicalScanReceipt> | undefined;
   generation: number;
   readonly invalidatedFiles: Set<string>;
   mutationRevision: number;
   readonly pending: Set<Promise<unknown>>;
+  publication: NativeAcknowledgedPublication | undefined;
   scanComplete: boolean;
   sourceProof:
     | { readonly files: readonly ScopedManifestFile[]; readonly storeId: string }
@@ -86,8 +88,20 @@ function manifest(plan: ScopedFilePlan): ScopedManifestFile {
 export interface NativeScopeReadiness {
   readonly generation: number;
   readonly mutationRevision: number;
+  readonly publication?: NativeAcknowledgedPublication;
   readonly scanComplete: boolean;
   readonly scope: CanonicalSourceScope;
+}
+
+export interface NativeAcknowledgedPublication {
+  readonly acknowledgedFiles: number;
+  readonly authorityEpoch: string;
+  readonly authorityRevision: number;
+  readonly generation: number;
+  readonly mutationRevision: number;
+  readonly profileHash: string | null;
+  readonly requestId: string;
+  readonly storeId: string;
 }
 
 /** The existing scan-ticket predicate, scoped to canonical PG IDs and the sole native writer. */
@@ -109,11 +123,13 @@ export function createNativeCanonicalPublication(
     }
     states.set(scopeKey(scope), {
       aborted: false,
+      acknowledgedFiles: new Set(),
       finishing: undefined,
       generation: 0,
       invalidatedFiles: new Set(),
       mutationRevision: 0,
       pending: new Set(),
+      publication: undefined,
       scanComplete: false,
       sourceProof: undefined,
       ticket: undefined,
@@ -146,6 +162,13 @@ export function createNativeCanonicalPublication(
     work: (assertFileCurrent: () => void) => Promise<T>
   ): Promise<T> => {
     const state = stateForTicket(ticket);
+    if (
+      ticket.scope.kind === 'workspace'
+        ? file.rootId !== ticket.scope.rootId
+        : file.embeddingSetId !== ticket.scope.embeddingSetId
+    ) {
+      throw new Error('Canonical publication file differs from its ticket scope.');
+    }
     if (state.aborted || state.finishing) {
       throw new Error('Canonical publication write admission is closed.');
     }
@@ -194,6 +217,41 @@ export function createNativeCanonicalPublication(
       sourcePath: file.sourcePath,
     };
   };
+  const assertPlan = (
+    ticket: CanonicalScanTicket,
+    file: CanonicalFileIdentity,
+    plan: ScopedFilePlan,
+    profileHash: string | null
+  ): void => {
+    const state = stateForTicket(ticket);
+    if (
+      plan.storeId !== ticket.storeId ||
+      plan.profileHash !== profileHash ||
+      !matches(file, manifest(plan)) ||
+      (state.publication && state.publication.profileHash !== profileHash)
+    ) {
+      throw new Error(
+        'Canonical publication plan differs from its store, profile or file identity.'
+      );
+    }
+  };
+  const acknowledgePlan = (ticket: CanonicalScanTicket, plan: ScopedFilePlan): void => {
+    const state = stateForTicket(ticket);
+    if (state.aborted || state.writeFailed || state.acknowledgedFiles.has(plan.snapshot.fileId)) {
+      return;
+    }
+    state.acknowledgedFiles.add(plan.snapshot.fileId);
+    state.publication = Object.freeze({
+      acknowledgedFiles: state.acknowledgedFiles.size,
+      authorityEpoch: plan.authorityEpoch,
+      authorityRevision: plan.authorityRevision,
+      generation: ticket.generation,
+      mutationRevision: state.mutationRevision,
+      profileHash: plan.profileHash,
+      requestId: ticket.requestId,
+      storeId: ticket.storeId,
+    });
+  };
   return {
     abortScan: async (ticket) => {
       const state = stateForTicket(ticket);
@@ -212,6 +270,8 @@ export function createNativeCanonicalPublication(
       }
       // Reserve admission before the asynchronous store lookup.
       state.generation += 1;
+      state.acknowledgedFiles.clear();
+      state.publication = undefined;
       state.invalidatedFiles.clear();
       state.aborted = false;
       state.writeFailed = false;
@@ -238,19 +298,19 @@ export function createNativeCanonicalPublication(
         assertFileCurrent();
         const plan = await writer.prepareScopedFile({ snapshot: snapshot(file, payload) });
         assertFileCurrent();
+        assertPlan(ticket, file, plan, null);
         await writer.commitScopedTextFile({
           plan,
           ...(payload.syntax === undefined ? {} : { syntax: payload.syntax }),
         });
         assertFileCurrent();
         published.set(file.fileId, manifest(plan));
+        acknowledgePlan(ticket, plan);
       }),
     commitVectorFile: ({ file, plan, profile, embeddings, syntax, ticket }) =>
       runWrite(ticket, file, async (assertFileCurrent) => {
         assertFileCurrent();
-        if (!matches(file, manifest(plan))) {
-          throw new Error('Canonical vector plan differs from its catalog binding.');
-        }
+        assertPlan(ticket, file, plan, vectorProfileHash(profile));
         await writer.commitScopedFile({
           embeddings,
           plan,
@@ -259,6 +319,7 @@ export function createNativeCanonicalPublication(
         });
         assertFileCurrent();
         published.set(file.fileId, manifest(plan));
+        acknowledgePlan(ticket, plan);
       }),
     finishScan: async (request) => {
       const state = stateForTicket(request.ticket);
@@ -321,6 +382,9 @@ export function createNativeCanonicalPublication(
           mutationRevision: state.mutationRevision,
           scanComplete: state.scanComplete,
           scope,
+          ...(!(state.aborted || state.writeFailed) && state.publication
+            ? { publication: state.publication }
+            : {}),
         };
       }),
     invalidateFile: (file) => {
