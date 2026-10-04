@@ -16,6 +16,7 @@ import {
   summarize,
 } from '../../e2e/utils/foreground-latency-probes';
 import { writeIndexBuildCorpus } from '../../e2e/utils/index-build-corpus';
+import { createBenchmarkProgress } from './benchmark-progress';
 import {
   assertTextInferenceInactive,
   createCandidateSession,
@@ -366,6 +367,22 @@ test('native full-pipeline historical throughput and calibrated foreground laten
     await markRendererPhase(context.window, 'loaded-start');
     await startMainLag(context);
     const startedAt = performance.now();
+    const progress = createBenchmarkProgress({
+      baseline: before.status,
+      now: () => performance.now(),
+      readCoverage: () => observeNativeSnapshot(context),
+      readStatus: () =>
+        context.window.evaluate(async () => {
+          const api = (window as typeof window & { indexSearch?: IndexSearchCapability })
+            .indexSearch;
+          if (!api) {
+            throw new Error('Native status capability is missing.');
+          }
+          return await api.status();
+        }),
+      record: session.record,
+      startedAt,
+    });
     const loadedPromise = phase(
       context,
       corpus.rootPath,
@@ -376,13 +393,11 @@ test('native full-pipeline historical throughput and calibrated foreground laten
     let final = before;
     let loadedMainLag: Awaited<ReturnType<typeof stopMainLag>> | undefined;
     let elapsedMs = 0;
-    let lastProgressAt = startedAt;
-    let previousCounts = '';
     try {
       await resume.click();
       await context.window.keyboard.press('Escape');
       while (true) {
-        const observation = await observeNativeSnapshot(context);
+        const observation = await progress.observe();
         if (observation !== null) {
           final = observation;
           if (mode === 'text') {
@@ -391,17 +406,8 @@ test('native full-pipeline historical throughput and calibrated foreground laten
           if (nativeBuildComplete(final.status, final.coverage, scope, final.collectionCoverage)) {
             break;
           }
-          const counts = JSON.stringify([final.coverage?.totals, final.collectionCoverage?.totals]);
-          if (counts !== previousCounts) {
-            previousCounts = counts;
-            lastProgressAt = performance.now();
-          }
         }
-        if (performance.now() - lastProgressAt > 200_000) {
-          throw new Error(
-            'Native build made no progress for the preserved 200-second stall window.'
-          );
-        }
+        progress.assertLive();
         await delay(500);
       }
     } finally {
