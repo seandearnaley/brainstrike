@@ -19,6 +19,7 @@ import type {
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteQueryClient } from '@brainstrike/sqlite-query';
 import type { NativeScopeReadiness } from './native-canonical-publication';
+import { NativeCoverageObservationInvalidatedError } from './native-coverage-observation-invalidated';
 import { grepSnapshot } from './native-index-search';
 
 export interface NativeSearchAuthority {
@@ -238,6 +239,9 @@ export function createNativeScopedSearchCapability(
           key !== fingerprint(await read.getAuthority(), includeReadiness) ||
           currentInfo.storeId !== info.storeId
         ) {
+          if (includeReadiness) {
+            throw new NativeCoverageObservationInvalidatedError();
+          }
           throw new Error('Native source or saved profile changed during search.');
         }
       },
@@ -264,7 +268,14 @@ export function createNativeScopedSearchCapability(
         }))
       );
       assertCoverageBatch(coverage, scopes, snapshot.storeId, snapshot.authority.profile);
-      await snapshot.assertCurrent();
+      try {
+        await snapshot.assertCurrent();
+      } catch (error) {
+        if (error instanceof NativeCoverageObservationInvalidatedError) {
+          return { code: error.code, kind: 'invalidated' };
+        }
+        throw error;
+      }
       let offset = 0;
       return {
         coverage: groups.map((group) => {
@@ -276,12 +287,17 @@ export function createNativeScopedSearchCapability(
           offset += group.length;
           return result;
         }),
+        kind: 'current',
         status: projectStatus(snapshot.authority, snapshot.storeId, snapshot.embedding),
       };
     });
   return {
     coverage: async (request): Promise<IndexerCoverage> => {
-      const [result] = (await coverageBatch([request])).coverage;
+      const observation = await coverageBatch([request]);
+      if (observation.kind === 'invalidated') {
+        throw new NativeCoverageObservationInvalidatedError();
+      }
+      const [result] = observation.coverage;
       if (!result) {
         throw new Error('Native singleton coverage returned no result.');
       }

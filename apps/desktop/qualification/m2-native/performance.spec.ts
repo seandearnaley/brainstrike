@@ -19,6 +19,7 @@ import { writeIndexBuildCorpus } from '../../e2e/utils/index-build-corpus';
 import {
   assertTextInferenceInactive,
   createCandidateSession,
+  observeNativeSnapshot,
   readNativeSnapshot,
 } from './candidate';
 import {
@@ -381,17 +382,20 @@ test('native full-pipeline historical throughput and calibrated foreground laten
       await resume.click();
       await context.window.keyboard.press('Escape');
       while (true) {
-        final = await readNativeSnapshot(context);
-        if (mode === 'text') {
-          assertTextInferenceInactive(final);
-        }
-        if (nativeBuildComplete(final.status, final.coverage, scope, final.collectionCoverage)) {
-          break;
-        }
-        const counts = JSON.stringify([final.coverage?.totals, final.collectionCoverage?.totals]);
-        if (counts !== previousCounts) {
-          previousCounts = counts;
-          lastProgressAt = performance.now();
+        const observation = await observeNativeSnapshot(context);
+        if (observation !== null) {
+          final = observation;
+          if (mode === 'text') {
+            assertTextInferenceInactive(final);
+          }
+          if (nativeBuildComplete(final.status, final.coverage, scope, final.collectionCoverage)) {
+            break;
+          }
+          const counts = JSON.stringify([final.coverage?.totals, final.collectionCoverage?.totals]);
+          if (counts !== previousCounts) {
+            previousCounts = counts;
+            lastProgressAt = performance.now();
+          }
         }
         if (performance.now() - lastProgressAt > 200_000) {
           throw new Error(

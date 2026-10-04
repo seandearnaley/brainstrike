@@ -418,6 +418,9 @@ const pairedRequests = [{ collectionId: 'selected', rootIds: [] }, { rootIds: ['
 it('returns both independent coverage results and readiness from the same fenced observation', async () => {
   const f = pairedFixture();
   const result = await f.capability.coverageBatch(pairedRequests);
+  if (result.kind !== 'current') {
+    throw new Error('Expected a current fenced batch.');
+  }
   expect(result.coverage.map((entry) => entry.totals.chunks)).toEqual([3, 2]);
   expect(result.status).toMatchObject({
     collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: true }],
@@ -458,7 +461,10 @@ it.each([
     }
     return result;
   });
-  await expect(f.capability.coverageBatch(pairedRequests)).rejects.toThrow('changed');
+  await expect(f.capability.coverageBatch(pairedRequests)).resolves.toEqual({
+    code: 'native-coverage-observation-invalidated',
+    kind: 'invalidated',
+  });
 });
 it('does not pair an earlier successful status with full counters after readiness invalidation', async () => {
   const f = pairedFixture();
@@ -478,6 +484,9 @@ it('does not pair an earlier successful status with full counters after readines
     ],
   });
   const result = await f.capability.coverageBatch(pairedRequests);
+  if (result.kind !== 'current') {
+    throw new Error('Expected a current fenced batch.');
+  }
   expect(result.coverage.every((entry) => entry.vectorCoverageComplete)).toBe(true);
   expect(result.status).toMatchObject({ collectionReadiness: [{ scanComplete: false }] });
   const { provider: _provider, distance: _distance, ...queryProfile } = profile;
@@ -513,5 +522,8 @@ it('rejects an invalidate-and-rescan cycle even when the readiness boolean retur
     });
     return result;
   });
-  await expect(f.capability.coverageBatch(pairedRequests)).rejects.toThrow('changed');
+  await expect(f.capability.coverageBatch(pairedRequests)).resolves.toEqual({
+    code: 'native-coverage-observation-invalidated',
+    kind: 'invalidated',
+  });
 });

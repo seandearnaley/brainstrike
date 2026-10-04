@@ -114,12 +114,21 @@ export interface IndexerGrepResult extends IndexerSearchResult {
   readonly scanLimited: boolean;
   readonly truncated: boolean;
 }
-export interface IndexerCoverageBatch {
+export interface IndexerCoverageCurrentObservation {
   /** Results preserve request order and independent scope counters. */
   readonly coverage: readonly IndexerCoverage[];
+  readonly kind: 'current';
   /** Canonical readiness from the same before/after fenced observation as coverage. */
   readonly status: Extract<IndexerStatus, { kind: 'ready' }>;
 }
+/** A rejected observation has no status or counters; callers must obtain a fresh batch. */
+export interface IndexerCoverageInvalidatedObservation {
+  readonly code: 'native-coverage-observation-invalidated';
+  readonly kind: 'invalidated';
+}
+export type IndexerCoverageBatch =
+  | IndexerCoverageCurrentObservation
+  | IndexerCoverageInvalidatedObservation;
 export interface IndexSearchCapability {
   coverage(request: IndexerCoverageRequest): Promise<IndexerCoverage>;
   coverageBatch(requests: readonly IndexerCoverageRequest[]): Promise<IndexerCoverageBatch>;
