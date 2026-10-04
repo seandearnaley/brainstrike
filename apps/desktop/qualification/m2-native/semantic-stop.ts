@@ -51,7 +51,7 @@ export interface SemanticObservation {
 /** Observe existing public request/cancel events and actual IPC terminal reports; never replace inference. */
 export async function observeSemanticQuery(
   context: ElectronAppContext,
-  match: { readonly query: string; readonly plan: NativeLocalSelection }
+  match: { readonly workerText: string; readonly plan: NativeLocalSelection }
 ): Promise<SemanticObservation> {
   const hosts = context.app
     .windows()
@@ -99,7 +99,7 @@ export async function observeSemanticQuery(
           'texts' in request &&
           Array.isArray(request.texts) &&
           request.texts.length === 1 &&
-          request.texts[0] === match.query &&
+          request.texts[0] === match.workerText &&
           'model' in request &&
           request.model === match.plan.modelId &&
           'revision' in request &&
