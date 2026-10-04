@@ -12,6 +12,7 @@ import type {
   ScopedManifestResult,
   ScopedSearchResult,
   SearchResult,
+  StateProjectionStats,
 } from './contracts.js';
 import {
   createIndexerConnection,
@@ -50,6 +51,8 @@ export type {
   ScopedSearchResult,
   SearchRequest,
   SearchResult,
+  StateProjectionOptions,
+  StateProjectionStats,
   TextFileCommit,
   VectorProfile,
 } from './contracts.js';
@@ -84,21 +87,35 @@ export interface ScopedIndexerPort {
 export interface StateIndexerPort {
   catchUpState(threads: readonly string[]): Promise<void>;
   dropStateThread(threadId: string): Promise<readonly string[]>;
+  matchState(threadId: string, query: string): Promise<readonly number[]>;
+  rebuildState(threadId: string): Promise<void>;
   reindexState(threadId: string, seq: number): Promise<void>;
   stateBlobCounts(
     threads: readonly string[],
     hashes: readonly string[]
   ): Promise<Readonly<Record<string, number>>>;
+  stateHealth(): Promise<{ readonly indexerErrors: readonly string[] }>;
+  stateStats(threadId: string): Promise<StateProjectionStats>;
+}
+export interface StateStoreProjectionPort extends StateStoreIndexerPort {
+  health(): Promise<{ readonly indexerErrors: readonly string[] }>;
+  match(threadId: string, query: string): Promise<readonly number[]>;
+  rebuild(threadId: string): Promise<void>;
+  stats(threadId: string): Promise<StateProjectionStats>;
 }
 export function createStateStoreIndexer(
   port: StateIndexerPort & Pick<IndexerPort, 'destroy'>
-): StateStoreIndexerPort {
+): StateStoreProjectionPort {
   return {
     catchUp: (threads) => port.catchUpState(threads),
     dropThread: (threadId) => port.dropStateThread(threadId),
     gcCheck: (threads, hashes) => port.stateBlobCounts(threads, hashes),
+    health: () => port.stateHealth(),
+    match: (threadId, query) => port.matchState(threadId, query),
+    rebuild: (threadId) => port.rebuildState(threadId),
     reindex: (threadId, seq) => port.reindexState(threadId, seq),
     reset: () => port.destroy(),
+    stats: (threadId) => port.stateStats(threadId),
   };
 }
 export async function openIndexer(

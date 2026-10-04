@@ -43,6 +43,7 @@ import {
 import { ScopeAuthority } from './scope-authority.js';
 import { ScopedIndex } from './scoped-store.js';
 import { StateEventStore } from './state-event-store.js';
+import type { StateProjection } from './state-projection.js';
 import { validateIndexerOptions } from './transport.js';
 
 type PreparedCommit = Pick<FileCommit, 'plan' | 'syntax' | 'embeddings'>;
@@ -138,8 +139,12 @@ export class IndexWriter {
   readonly allowed: ReadonlySet<string>;
   readonly info: IndexerInfo;
   readonly scoped: ScopedIndex;
-  constructor(input: unknown) {
+  constructor(
+    input: unknown,
+    private readonly projection?: StateProjection
+  ) {
     this.options = validateIndexerOptions(input);
+    StateEventStore.assertProjection(this.options.stateRoot, projection);
     this.allowed = new Set(this.options.rootIds);
     new ScopeAuthority(this.options);
     const fresh = !existsSync(this.options.dbPath);
@@ -184,7 +189,7 @@ export class IndexWriter {
       this.db.pragma('synchronous = NORMAL');
       this.db.pragma('foreign_keys = ON');
       this.db.pragma('secure_delete = ON');
-      this.state = StateEventStore.acquire(this.db, this.options.stateRoot);
+      this.state = StateEventStore.acquire(this.db, this.options.stateRoot, this.projection);
       for (const table of ['file_chunks_fts', 'file_chunks_trigram']) {
         this.db.exec(`INSERT INTO ${table}(${table},rank) VALUES('integrity-check',1)`);
       }
@@ -270,7 +275,7 @@ export class IndexWriter {
         END;
       `);
       ScopedIndex.initialize(this.db);
-      StateEventStore.initialize(this.db, this.options.stateRoot);
+      StateEventStore.initialize(this.db, this.options.stateRoot, this.projection);
       const identity = freshIdentity(this.options);
       const embedding = identity.embedding;
       this.db
@@ -283,6 +288,9 @@ export class IndexWriter {
           embedding.indexMode === 'vector-configured' ? embedding.profileHash : null
         );
     })();
+  }
+  recordStateFailure(error: unknown): void {
+    this.state?.recordFailure(error);
   }
   requireState(): StateEventStore {
     if (!this.state) {

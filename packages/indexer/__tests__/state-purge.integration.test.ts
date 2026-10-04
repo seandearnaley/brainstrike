@@ -21,6 +21,10 @@ async function fixture(hooks: StateStoreHooks = {}) {
     dbPath: path.join(root, 'index.sqlite'),
     embedding: { indexMode: 'text-only' },
     rootIds: [],
+    stateProjection: {
+      mode: 'dev',
+      module: new URL('./fixtures/state-schema.mjs', import.meta.url).href,
+    },
     stateRoot: root,
   } as const;
   const port = await openIndexer(options, deadlines);
@@ -79,8 +83,8 @@ async function seed(f: Awaited<ReturnType<typeof fixture>>): Promise<string> {
     throw new Error('Fixture must create a real content-addressed blob');
   }
   await f.store.append([
-    { event: { content: 'retained neighbor', type: 'text' }, threadId: 'one' },
-    { blobs: [text.blob], event: { type: 'tool-result', ...text.fields }, threadId: 'one' },
+    { event: { content: 'retained neighbor', type: 'text', v: 2 }, threadId: 'one' },
+    { blobs: [text.blob], event: { type: 'tool-result', v: 2, ...text.fields }, threadId: 'one' },
   ]);
   await f.indexer.catchUp(['one']);
   expect(indexed(f.root, secret)).toHaveLength(1);
@@ -138,8 +142,12 @@ it('purge without prior catch-up accounts for an earlier same-thread shared refe
       throw new Error('Fixture must create a blob');
     }
     await f.store.append([
-      { blobs: [output.blob], event: { type: 'tool-result', ...output.fields }, threadId: 'one' },
-      { event: { type: 'tool-result', ...output.fields }, threadId: 'one' },
+      {
+        blobs: [output.blob],
+        event: { type: 'tool-result', v: 2, ...output.fields },
+        threadId: 'one',
+      },
+      { event: { type: 'tool-result', v: 2, ...output.fields }, threadId: 'one' },
     ]);
     await f.store.purge('one', 2);
     expect(await f.indexer.gcCheck(['one'], [output.blob.hash])).toEqual({ [output.blob.hash]: 1 });
@@ -156,7 +164,9 @@ it('catch-up includes a newly committed second-thread reference before collectin
   try {
     const hash = await seed(f);
     const output = largeText(`${secret} ${'durable tool output '.repeat(900)}`);
-    await f.store.append([{ event: { type: 'tool-result', ...output.fields }, threadId: 'two' }]);
+    await f.store.append([
+      { event: { type: 'tool-result', v: 2, ...output.fields }, threadId: 'two' },
+    ]);
     await f.store.purge('one', 2);
     expect(existsSync(path.join(f.root, 'blobs', hash))).toBe(true);
     expect(await f.indexer.gcCheck(['one', 'two'], [hash])).toEqual({ [hash]: 1 });

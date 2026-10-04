@@ -107,7 +107,7 @@ function writer(
             indexMode: 'text-only',
             profileHash: null,
             profileJson: null,
-            schemaVersion: 7,
+            schemaVersion: 8,
             storeId: 'b'.repeat(64),
           };
         }
