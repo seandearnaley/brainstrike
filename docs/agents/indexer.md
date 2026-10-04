@@ -60,6 +60,7 @@ Guard: `packages/indexer/__tests__/coverage.integration.test.ts`.
 - Index chunk lookup by canonical file ID for both workspace and collection coverage. Recompute counts inside the existing read snapshot and retain all authority, binding, profile and storage-integrity checks on every call.
 - Scan stored little-endian Float32 values directly over each blob's actual byte span on every integrity read. Preserve dimension/length, finite and nonzero checks; do not copy/re-encode vectors or cache integrity across reads.
 - Production scoped snapshots carry canonical provided chunks. Explicit line-policy fixtures retain the existing foundation input; there is no production parser fallback. Scoped profile storage qualification does not qualify model inference or retrieval quality.
+- Skip a scoped chunk UPSERT only when its actual stored row exactly matches every canonical field and scoped flag in the current write transaction. Preserve legacy adoption, missing-profile vector insertion, authority fences and normal publication acknowledgements.
 
 Evidence: `indexer/2026-10-03-collection-profile-storage.md`.
 Guard: `packages/indexer/__tests__/collection-scopes.integration.test.ts`, `packages/indexer/__tests__/scoped-electron.integration.test.ts`, `packages/indexer/__tests__/large-scopes.integration.test.ts`.
