@@ -18,11 +18,12 @@ Guard: `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/index
 - Validate the complete producer profile at commit and vector search: model ID, immutable revision, dtype, dimensions and token cap. Hash every field; the initial vector schema is 384 dimensions.
 - Refuse profile/schema mismatches with `rebuild-required` and preserve the existing file. Never erase databases during startup.
 - Canonical producers must prepare with explicit `providedChunks`, preserving the existing parser/chunker output and its source offsets, indices, token/type/size metadata. Validate hashes and source spans with the canonical matcher; reject invalid or mixed policy inputs without re-splitting, relocation or a second parse. Keep line-policy producer metadata explicitly null.
-- Persist all canonical source metadata; preserve vector bytes when only that metadata changes. Derived schema6 must refuse prior schema versions with rebuild-required, never silently migrate or wipe.
+- Persist all canonical source metadata; preserve vector bytes when only that metadata changes. Derived schema7 must refuse prior schema versions with rebuild-required, never silently migrate or wipe.
 - Prepare deterministic, byte-preserving line chunks from an authorized root-relative snapshot and explicit chunk-line policy. Reject stale snapshot plans; reuse a vector only when its stable chunk ID and content/profile hash agree.
 
 Evidence: `indexer/2026-10-02-independent-package.md`.
 Evidence: `indexer/2026-10-03-canonical-provided-chunks.md`.
+Evidence: `indexer/2026-10-04-coverage-file-lookup.md`.
 Guard: `packages/indexer/__tests__/metadata.test.ts`, `packages/indexer/__tests__/chunks.test.ts`, `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/indexer/__tests__/provided-chunks.integration.test.ts`, `packages/chunking-worker/src/__tests__/source-range-validation.test.ts`.
 
 ### Explicit write policy
@@ -56,12 +57,14 @@ Guard: `packages/indexer/__tests__/coverage.integration.test.ts`.
 - Bind complete scope/authorization/file-filter lists through SQLite JSON tables with a fixed parameter count. Validate every selected binding and apply exact membership before lexical ranking or vector candidate selection; never truncate lists or combine independently ranked batches.
 - Verify scoped source manifests against the full current trusted binding inventory and all native scope rows in one snapshot. Refuse partial declarations; compare exact file membership/source hashes and complete canonical chunk identities/hashes/metadata, including zero-chunk files and stale extra rows. Reuse the existing authority epoch/revision; main's full-scan receipt still owns readiness.
 - Report scoped coverage only for the explicit current full profile and actual authorized file/chunk/source/coarse rows. TEXT carries null profile and counts no cached other-profile vectors. Empty scopes and missing canonical files cannot claim vector completeness; coverage alone never proves source completeness.
+- Index chunk lookup by canonical file ID for both workspace and collection coverage. Recompute counts inside the existing read snapshot and retain all authority, binding, profile and storage-integrity checks on every call.
 - Production scoped snapshots carry canonical provided chunks. Explicit line-policy fixtures retain the existing foundation input; there is no production parser fallback. Scoped profile storage qualification does not qualify model inference or retrieval quality.
 
 Evidence: `indexer/2026-10-03-collection-profile-storage.md`.
 Guard: `packages/indexer/__tests__/collection-scopes.integration.test.ts`, `packages/indexer/__tests__/scoped-electron.integration.test.ts`, `packages/indexer/__tests__/large-scopes.integration.test.ts`.
 Evidence: `indexer/2026-10-03-scoped-source-proofs.md`.
 Guard: `packages/indexer/__tests__/scoped-proofs.integration.test.ts`, `packages/indexer/__tests__/large-scopes.integration.test.ts`.
+Guard: `packages/indexer/__tests__/coverage-file-lookup.integration.test.ts`.
 
 
 ### State projection and purge

@@ -105,7 +105,7 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
     const grepPath = join(directory, 'grep.sqlite');
     const writer = new DatabaseSync(grepPath);
     writer.exec(`CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY,schema_version INTEGER,store_id TEXT,index_mode TEXT,profile_json TEXT,profile_hash TEXT);
-      INSERT INTO index_metadata VALUES(1,6,'${'a'.repeat(64)}','text-only',NULL,NULL);
+      INSERT INTO index_metadata VALUES(1,7,'${'a'.repeat(64)}','text-only',NULL,NULL);
       CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
       CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);
       INSERT INTO file_records VALUES('f-a','root-a','a.ts'),('f-b','root-b','b.ts');
@@ -189,7 +189,7 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
             rootIds: ['root-a'],
           })
         ).rejects.toThrow('Derived schema changed');
-        metadataWriter.exec('UPDATE index_metadata SET schema_version=6');
+        metadataWriter.exec('UPDATE index_metadata SET schema_version=7');
       } finally {
         metadataWriter.close();
       }
@@ -245,7 +245,7 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
         )
         .digest('hex');
       writer
-        .prepare("INSERT OR REPLACE INTO index_metadata VALUES(1,6,?,'vector-configured',?,?)")
+        .prepare("INSERT OR REPLACE INTO index_metadata VALUES(1,7,?,'vector-configured',?,?)")
         .run('b'.repeat(64), JSON.stringify(profile), profileHash);
     };
     setProfile('qualified-model');
