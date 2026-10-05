@@ -195,10 +195,11 @@ Guard: `apps/desktop/src/__tests__/canonical-utility-channel.test.ts`, `apps/des
 ### Persistence and qualification
 
 - Treat the database as derived state. Product cutover must register its owned path and call `destroy()` during factory reset before deleting roots; package `destroy()` joins pending writes and removes only its database/WAL/shared-memory files.
+- Qualification retains the selected renderer intervals, long-task timestamps, time origins and named phase windows without filtering outliers. Same-corpus paused idle chat is an explicitly identified current reference, never historical loaded evidence; preserve the accepted frame/long-task/chat gates.
 - Mark tests requiring actual native binaries/processes as `.integration.test.ts` and run them through the uncached integration task after building the public artifacts. Do not report these checks as full application or cross-platform acceptance.
 
-Evidence: `indexer/2026-10-02-independent-package.md`.
-Guard: `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/indexer/turbo.json`.
+Evidence: `indexer/2026-10-02-independent-package.md`, `indexer/2026-10-05-responsiveness-timeline.md`.
+Guard: `packages/indexer/__tests__/indexer.integration.test.ts`, `packages/indexer/turbo.json`, `apps/desktop/qualification/m2-native/renderer-timeline.test.mjs`, `apps/desktop/qualification/m2-native/native-benchmark.test.mjs`.
 
 ### Canonical scan manifests
 

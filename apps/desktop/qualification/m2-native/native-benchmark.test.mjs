@@ -213,3 +213,36 @@ test('responsiveness gates catch real frame, chat and native tool regressions', 
     throughput: false,
   });
 });
+
+test('missing or invalid controlled idle chat cannot qualify a loaded chat sample', () => {
+  const samples = {
+    completedChunks: 34_890,
+    elapsedMs: 260_000,
+    errors: [],
+    idleChat: new Array(150).fill(1.25),
+    idleFrames: [16.7],
+    idleTool: new Array(150).fill(150),
+    loadedChat: new Array(100).fill(41.43),
+    loadedFrames: [16.7],
+    loadedLongTasks: [],
+    loadedTool: new Array(100).fill(500),
+  };
+  assert.deepEqual(assessNativeBenchmark(samples).validityErrors, []);
+  assert.equal(assessNativeBenchmark(samples).gates.chat, true);
+  for (const idleChat of [
+    [],
+    new Array(99).fill(1),
+    [...samples.idleChat, Number.NaN],
+    [...samples.idleChat, -1],
+  ]) {
+    assert.match(
+      assessNativeBenchmark({ ...samples, idleChat }).validityErrors.join(';'),
+      /controlled idle chat/
+    );
+  }
+  assert.equal(
+    assessNativeBenchmark({ ...samples, loadedChat: new Array(100).fill(54.931) }).gates.chat,
+    false
+  );
+  assert.equal(assessNativeBenchmark({ ...samples, loadedFrames: [50] }).gates.frames, false);
+});

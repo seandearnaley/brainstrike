@@ -34,7 +34,16 @@ export interface MainPhaseSamples {
 
 export interface RendererWindowSamples {
   readonly frameGapsMs: readonly number[];
+  readonly frameIntervalsMs: ReadonlyArray<{ readonly startMs: number; readonly endMs: number }>;
   readonly longTaskDurationsMs: readonly number[];
+  readonly longTasks: ReadonlyArray<{ readonly startMs: number; readonly durationMs: number }>;
+  readonly timeOriginMs: number;
+  readonly windows: ReadonlyArray<{
+    readonly from: string;
+    readonly to: string;
+    readonly startMs: number;
+    readonly endMs: number;
+  }>;
 }
 
 export interface MainProbeConfig {
@@ -192,21 +201,31 @@ export async function readRendererWindows(
       if (start === undefined || end === undefined) {
         throw new Error(`Renderer phase marks ${fromMark}/${toMark} are missing.`);
       }
-      return { end, start };
+      return { end, from: fromMark, start, to: toMark };
     });
     const inside = (time: number): boolean =>
       ranges.some((range) => time >= range.start && time < range.end);
     const frameGapsMs: number[] = [];
+    const frameIntervalsMs: Array<{ startMs: number; endMs: number }> = [];
     for (let index = 0; index + 1 < state.frames.length; index += 1) {
       const frame = state.frames[index] as number;
       if (inside(frame)) {
-        frameGapsMs.push((state.frames[index + 1] as number) - frame);
+        const end = state.frames[index + 1] as number;
+        frameGapsMs.push(end - frame);
+        frameIntervalsMs.push({ endMs: end, startMs: frame });
       }
     }
-    const longTaskDurationsMs = state.longTasks
+    const longTasks = state.longTasks
       .filter((task) => inside(task.startTime))
-      .map((task) => task.duration);
-    return { frameGapsMs, longTaskDurationsMs };
+      .map((task) => ({ durationMs: task.duration, startMs: task.startTime }));
+    return {
+      frameGapsMs,
+      frameIntervalsMs,
+      longTaskDurationsMs: longTasks.map((task) => task.durationMs),
+      longTasks,
+      timeOriginMs: performance.timeOrigin,
+      windows: ranges.map(({ end, from, start, to }) => ({ endMs: end, from, startMs: start, to })),
+    };
   }, windows);
 }
 

@@ -154,6 +154,14 @@ export function assessNativeBenchmark(samples: NativeBenchmarkSamples): {
   if (samples.loadedChat.length < 100 || samples.loadedTool.length < 100) {
     validityErrors.push('Each loaded foreground probe requires at least 100 samples.');
   }
+  if (
+    samples.idleChat.length < 100 ||
+    samples.idleChat.some((duration) => !Number.isFinite(duration) || duration < 0)
+  ) {
+    validityErrors.push(
+      'The controlled idle chat baseline requires at least 100 finite nonnegative samples.'
+    );
+  }
   if (summarize(samples.idleFrames).p50 > 20 || samples.idleFrames.length === 0) {
     validityErrors.push('Visible renderer did not produce display-rate idle frames.');
   }
