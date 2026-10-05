@@ -195,10 +195,10 @@ export function createNativeWorkspaceSearchRunners(
 export function useWorkspaceSearchController(): WorkspaceSearchController {
   const nativeDependencies = useNativeWorkspaceSearchDependencies();
   const selectedCollectionId = useWorkspaceSearchStore((state) => state.collectionId);
-  const [semanticAvailability, setSemanticAvailability] = useState<NativeSemanticAvailability>({
-    available: false,
-    reason: 'Native vector search is unavailable.',
-  });
+  const [availabilityResult, setAvailabilityResult] = useState<{
+    readonly scope: Parameters<typeof getNativeSemanticAvailability>[0];
+    readonly value: NativeSemanticAvailability;
+  } | null>(null);
   const db = usePGliteDatabase();
   const chunkRepository = useFileChunkRepository();
   const rootIdentity = useOptionalRootIdentity();
@@ -308,35 +308,35 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
     },
     [nativeExecutor, workspaceDbRootIds]
   );
+  const availabilityScope = useMemo(
+    () =>
+      nativeDependencies === null
+        ? null
+        : {
+            ...nativeDependencies,
+            collectionId: selectedCollectionId,
+            rootIds: workspaceDbRootIds,
+          },
+    [nativeDependencies, selectedCollectionId, workspaceDbRootIds]
+  );
+  const semanticAvailability: NativeSemanticAvailability =
+    availabilityResult?.scope === availabilityScope
+      ? availabilityResult.value
+      : { available: false, reason: 'Native vector availability is being verified.' };
   useEffect(() => {
-    let current = true;
-    setSemanticAvailability({
-      available: false,
-      reason: 'Native vector availability is being verified.',
-    });
-    if (!nativeDependencies) {
-      setSemanticAvailability({
-        available: false,
-        reason:
-          selectedCollectionId === null
-            ? 'Native vector search is unavailable.'
-            : 'The native index cannot search this explicitly selected collection.',
-      });
+    if (availabilityScope === null) {
       return;
     }
-    void getNativeSemanticAvailability({
-      ...nativeDependencies,
-      collectionId: selectedCollectionId,
-      rootIds: workspaceDbRootIds,
-    }).then((availability) => {
+    let current = true;
+    void getNativeSemanticAvailability(availabilityScope).then((value) => {
       if (current) {
-        setSemanticAvailability(availability);
+        setAvailabilityResult({ scope: availabilityScope, value });
       }
     });
     return () => {
       current = false;
     };
-  }, [nativeDependencies, selectedCollectionId, workspaceDbRootIds]);
+  }, [availabilityScope]);
 
   const runners = useMemo(() => {
     if (nativeExecutor) {

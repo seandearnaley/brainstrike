@@ -684,9 +684,21 @@ describe('useWorkspaceSearchController', () => {
       }
       useWorkspaceSearchStore.getState().setQuery('needle');
       useWorkspaceSearchStore.getState().setMode('semantic');
-      const { result, unmount, rerender } = renderHook(() => useWorkspaceSearchController(), {
-        wrapper: Wrapper,
-      });
+      const availabilityRenders: {
+        capability: IndexSearchCapability | null;
+        available: boolean | undefined;
+      }[] = [];
+      const { result, unmount, rerender } = renderHook(
+        () => {
+          const controller = useWorkspaceSearchController();
+          availabilityRenders.push({
+            available: controller.semanticAvailability?.available,
+            capability: dependencies.capability,
+          });
+          return controller;
+        },
+        { wrapper: Wrapper }
+      );
       await waitFor(() => expect(result.current.semanticAvailability?.available).toBe(true));
       act(() => result.current.runSemanticSearch());
       await waitFor(() => expect(embedQuery).toHaveBeenCalledOnce());
@@ -699,6 +711,9 @@ describe('useWorkspaceSearchController', () => {
       } else {
         dependencies = { ...dependencies, capability: null };
         rerender();
+        const lostCapabilityRenders = availabilityRenders.filter((row) => row.capability === null);
+        expect(lostCapabilityRenders.length).toBeGreaterThan(0);
+        expect(lostCapabilityRenders.map((row) => row.available)).not.toContain(true);
       }
       expect(signal.aborted).toBe(true);
       expect(settled).not.toHaveBeenCalled();

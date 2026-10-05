@@ -15,9 +15,9 @@ export {
 } from './native-workspace-search';
 export {
   type NativeWorkspaceSearchDependencies,
-  NativeWorkspaceSearchProvider,
   useNativeWorkspaceSearchDependencies,
 } from './native-workspace-search-context';
+export { NativeWorkspaceSearchProvider } from './native-workspace-search-provider';
 export type {
   ResultProvenance,
   WorkspaceSearchChild,
