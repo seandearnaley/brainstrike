@@ -28,14 +28,19 @@ Guard: `packages/host-lease/__tests__/refusal.integration.test.ts` and
   record with mode 0600 on POSIX. Flush the directory after rename there.
 - On Windows, set and verify a protected DACL granting only the current owner
   full control. Reject ACL setup or verification failures; POSIX mode bits do
-  not establish Windows privacy. Flush the file before rename; Node cannot
+  not establish Windows privacy. Use Windows PowerShell's .NET Framework
+  `DirectoryInfo`/`FileInfo` access-control APIs, reading owner and DACL only,
+  so repeating privacy application needs no audit privilege or elevation.
+  Verify the same exact owner-only grant after every application; never fall
+  back to weaker ACLs. Flush the file before rename; Node cannot
   perform the POSIX directory flush on Windows.
 - Remove only a record whose token still matches the closing owner. Join all
   cleanup, including rollback after an error following publication.
 
 Evidence: `host-lease/foundation.md`.
 Guard: `runtime.integration.test.ts`, `record.test.ts` and
-`windows-acl.test.ts` in `packages/host-lease/__tests__/`.
+`windows-acl.test.ts` and `windows-acl.integration.test.ts` in
+`packages/host-lease/__tests__/`.
 
 ### Attachment and launch
 
