@@ -753,7 +753,7 @@ export class StateStore {
       const dst = join(targetRoot, rel);
       mkdirSync(join(dst, '..'), { recursive: true });
       copyFileSync(join(bundleDir, rel), dst);
-      const fd = openSync(dst, 'r');
+      const fd = openSync(dst, 'r+');
       try {
         fsyncSync(fd);
       } finally {

@@ -62,6 +62,8 @@ Evidence: `state-store/foundation.md`, `state-store/windows-release-2026-10-05.m
 - Use the production indexer's state adapter for physical FTS/reference-count qualification. Keep its truth reader on the existing indexer writer worker; do not model state events as canonical files or wire application chat in this foundation.
 - Export complete state through a consistent VACUUM INTO snapshot. Defer blob GC
   while exports reference older snapshots; import verifies every manifest hash.
+- Flush copied import files through non-truncating writable descriptors; close
+  each descriptor in finally and surface flush failures.
 - JSONL interchange contains run rows and referenced blob bytes, with a version
   header, CRCs and contiguous sequences. Import validates the complete file before
   inserting rows into an empty run log and preserves timestamps and raw counts.
@@ -74,4 +76,4 @@ Evidence: `state-store/foundation.md`, `state-store/windows-release-2026-10-05.m
 Guard: `packages/state-store/__tests__/blobs.test.ts`, `i1-purge.test.ts`,
 `i2-reset.test.ts`, `i5-export.test.ts`, `jsonl.test.ts`,
 `large-thread.integration.test.ts`, `i7-single-writer.test.ts`.
-Evidence: `state-store/foundation.md`.
+Evidence: `state-store/foundation.md`, `state-store/import-flush-windows-2026-10-05.md`.
