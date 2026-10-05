@@ -210,6 +210,18 @@ Evidence: `local-inference/sync-loop-coordinator.md`.
 
 Evidence: `local-inference/embedding-telemetry-diagnostics.md`.
 
+### Workspace component stage measurements
+
+- Mount the opt-in stage API outside the legacy/native ingestion choice. Read
+  readiness from each mode's transaction, managed-cache, or hidden-host capability;
+  never use the retired sync service as a readiness gate for component measurements.
+- Preserve the production stage runner, count/backend assertions and existing timeouts.
+  These measurements do not qualify native corpus ingestion or the throughput stretch.
+
+Evidence: `local-inference/workspace-component-stages.md`.
+Guard: `workspace-index-stage-harness.test.ts`, `workspace-index-stage-provider.test.tsx`,
+`apps/desktop/e2e/workspace-index-stage-benchmark.desktop.test.ts`.
+
 ### Embedding input hash relocation benchmark
 
 - `embedding-input-hash-benchmark.integration.test.ts` reports timings as diagnostics,

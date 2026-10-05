@@ -92,6 +92,7 @@ import {
   type WorkspaceIndexDebugSnapshot,
   type WorkspaceIndexDebugSummary,
 } from './workspace-index-debug-harness';
+import { WorkspaceIndexStageProvider } from './workspace-index-stage-provider';
 import {
   type WorkspaceIndexingTriggerOptions as TriggerSyncOptions,
   type WorkspaceIndexingTriggerScope as TriggerSyncScope,
@@ -812,11 +813,17 @@ export function WorkspaceCollectionSyncProvider({
   if (nativeIndexSearch) {
     return (
       <NativeWorkspaceIndexProvider capability={nativeIndexSearch}>
+        <WorkspaceIndexStageProvider />
         {children}
       </NativeWorkspaceIndexProvider>
     );
   }
-  return <LegacyWorkspaceCollectionSyncProvider>{children}</LegacyWorkspaceCollectionSyncProvider>;
+  return (
+    <LegacyWorkspaceCollectionSyncProvider>
+      <WorkspaceIndexStageProvider />
+      {children}
+    </LegacyWorkspaceCollectionSyncProvider>
+  );
 }
 
 function LegacyWorkspaceCollectionSyncProvider({ children }: { readonly children: ReactNode }) {
