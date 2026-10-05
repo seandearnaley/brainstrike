@@ -13,13 +13,10 @@ import type {
   ScopedManifestRequest,
   ScopedManifestResult,
 } from '@brainstrike/indexer';
+import { openIndexer } from '@brainstrike/indexer';
 import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
+import { SqliteQueryClient, spawnQueryProcess } from '@brainstrike/sqlite-query';
 import { expect, it, vi } from 'vitest';
-import { openIndexer } from '../../../../packages/indexer/dist/index.js';
-import {
-  SqliteQueryClient,
-  spawnQueryProcess,
-} from '../../../../packages/sqlite-query/dist/index.js';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
   type CanonicalCollectionDependencies,
@@ -33,6 +30,7 @@ import {
   createNativeScopedSearchCapability,
   type NativeSearchAuthority,
 } from '../native-scoped-search';
+import { createNativePublicationReceiptAssertions } from './native-publication-receipt-test-helpers';
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
@@ -163,8 +161,11 @@ async function fixture(withWorkspace = false) {
     coverageEntered.resolve();
     await coverageGate.promise;
   });
+  const receiptAssertions = createNativePublicationReceiptAssertions(native);
+  const expectReadiness = receiptAssertions.expectReadiness;
   const writer = {
     ...native,
+    prepareScopedFile: receiptAssertions.prepareScopedFile,
     replaceFileBindings: async (files: readonly IndexFileBinding[]) => {
       bindings.push(files.map((file) => file.fileId));
       await native.replaceFileBindings(files);
@@ -335,6 +336,7 @@ async function fixture(withWorkspace = false) {
         },
         publication: {
           ...dependencies.publication,
+          commitTextFile: receiptAssertions.commitTextFile(dependencies.publication),
           finishScan: async (request) => {
             const receipt = await dependencies.publication.finishScan(request);
             receipts.push(receipt);
@@ -446,6 +448,7 @@ async function fixture(withWorkspace = false) {
     coverageEntered,
     coverageGate,
     entered,
+    expectReadiness,
     finished,
     gate,
     inventoryEntered,
@@ -510,7 +513,7 @@ it.each([false, true])(
       expect(receipt).toMatchObject({ reason: 'complete', scanComplete: true });
       await test.activation.acquire();
       expect(await joining).toBeUndefined();
-      expect((await test.activation.getSearchAuthority()).readiness).toEqual([
+      test.expectReadiness((await test.activation.getSearchAuthority()).readiness, [
         { generation: 2, mutationRevision: 2, scanComplete: true, scope },
       ]);
       expect(test.receipts).toHaveLength(2);
@@ -564,7 +567,7 @@ it('queues a newer inventory until the actual host and private channel join the 
         return value;
       })
       .catch((error: unknown) => error);
-    expect((await test.activation.getSearchAuthority()).readiness).toEqual([
+    test.expectReadiness((await test.activation.getSearchAuthority()).readiness, [
       { generation: 2, mutationRevision: 2, scanComplete: false, scope },
     ]);
     expect(test.bindings.at(-1)).toEqual(['retained-0']);
@@ -573,10 +576,10 @@ it('queues a newer inventory until the actual host and private channel join the 
     test.gate.resolve();
     expect(await test.finished.promise).toMatchObject({ reason: 'complete', scanComplete: true });
     await test.nextEntered.promise;
-    expect(test.activation.getReadiness()).toEqual([
+    test.expectReadiness(test.activation.getReadiness(), [
       { generation: 3, mutationRevision: 5, scanComplete: false, scope },
     ]);
-    expect((await test.activation.getSearchAuthority()).readiness).toEqual([
+    test.expectReadiness((await test.activation.getSearchAuthority()).readiness, [
       { generation: 3, mutationRevision: 5, scanComplete: false, scope },
     ]);
     expect(test.bindings.at(-1)).toEqual(['retained-0', 'retained-1']);
@@ -598,10 +601,10 @@ it('queues a newer inventory until the actual host and private channel join the 
       missing: [],
       unexpected: [],
     });
-    expect(test.activation.getReadiness()).toEqual([
+    test.expectReadiness(test.activation.getReadiness(), [
       { generation: 3, mutationRevision: 5, scanComplete: true, scope },
     ]);
-    expect((await test.activation.getSearchAuthority()).readiness).toEqual([
+    test.expectReadiness((await test.activation.getSearchAuthority()).readiness, [
       { generation: 3, mutationRevision: 5, scanComplete: true, scope },
     ]);
     expect(test.onError).not.toHaveBeenCalled();
@@ -671,7 +674,7 @@ it('observes catalog population before the initial collection scan so concurrent
     expect(await starting).toHaveProperty('info');
     expect(test.manifests).toEqual([['retained-0']]);
     expect(test.onError).not.toHaveBeenCalled();
-    expect((await test.activation.getSearchAuthority()).readiness).toEqual([
+    test.expectReadiness((await test.activation.getSearchAuthority()).readiness, [
       { generation: 1, mutationRevision: 2, scanComplete: true, scope },
     ]);
   } finally {
@@ -714,7 +717,7 @@ it.each([false, true])(
       });
       await expect(test.activation.acquireRead()).rejects.toThrow('Canonical native scan failed');
       expect(test.manifests).toEqual([[], ['retained-0']]);
-      expect(test.activation.getReadiness()).toEqual([
+      test.expectReadiness(test.activation.getReadiness(), [
         { generation: 2, mutationRevision: 2, scanComplete: false, scope },
       ]);
     } finally {
@@ -737,7 +740,7 @@ it('joins a queued inventory that reverts before the old verified scan settles w
     await test.activation.getSearchAuthority();
     test.state.files = records(1);
     const reverted = test.activation.acquireRead().catch((error: unknown) => error);
-    expect(test.activation.getReadiness()).toEqual([
+    test.expectReadiness(test.activation.getReadiness(), [
       { generation: 2, mutationRevision: 2, scanComplete: false, scope },
     ]);
     test.gate.resolve();
@@ -746,7 +749,7 @@ it('joins a queued inventory that reverts before the old verified scan settles w
     expect(await reverted).toHaveProperty('info');
     expect(test.manifests).toEqual([[], ['retained-0']]);
     expect(test.bindings.at(-1)).toEqual(['retained-0']);
-    expect(test.activation.getReadiness()).toEqual([
+    test.expectReadiness(test.activation.getReadiness(), [
       { generation: 2, mutationRevision: 2, scanComplete: true, scope },
     ]);
     expect(test.onError).not.toHaveBeenCalled();
@@ -771,7 +774,7 @@ it.each([false, true])(
       const joining = test.activation.acquire().catch((error: unknown) => error);
       if (newer) {
         await test.sawNewInventory.promise;
-        expect(test.activation.getReadiness()).toEqual([
+        test.expectReadiness(test.activation.getReadiness(), [
           { generation: 2, mutationRevision: 1, scanComplete: false, scope },
         ]);
       }
@@ -783,7 +786,7 @@ it.each([false, true])(
         newer ? [[], ['retained-0'], ['retained-0', 'retained-1']] : [[], ['retained-0']]
       );
       expect(test.receipts.every((receipt) => receipt.scanComplete)).toBe(true);
-      expect((await test.activation.getSearchAuthority()).readiness).toEqual([
+      test.expectReadiness((await test.activation.getSearchAuthority()).readiness, [
         { generation: newer ? 3 : 2, mutationRevision: newer ? 5 : 2, scanComplete: true, scope },
       ]);
     } finally {
@@ -931,7 +934,7 @@ it.each([false, true])(
           totals: { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 },
           vectorCoverageComplete: false,
         });
-        expect(test.activation.getReadiness()).toEqual([
+        test.expectReadiness(test.activation.getReadiness(), [
           { generation: 1, mutationRevision: 0, scanComplete: true, scope },
         ]);
         expect(await test.native.coverageAuthority()).toEqual(currentNative);
@@ -945,7 +948,7 @@ it.each([false, true])(
       test.gate.resolve();
       await test.activation.acquire();
       expect(test.onError).not.toHaveBeenCalled();
-      expect(test.activation.getReadiness()).toEqual([
+      test.expectReadiness(test.activation.getReadiness(), [
         { generation: 1, mutationRevision: progress ? 2 : 0, scanComplete: true, scope },
       ]);
     } finally {

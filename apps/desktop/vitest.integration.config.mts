@@ -10,12 +10,14 @@
 // the root uncached `test:integration` task (turbo.jsonc, `cache: false`) so
 // these env-sensitive lanes are never replayed from cache.
 //
-// It reuses the base config verbatim and REPLACES only `test.include` with the
+// It keeps the base source aliases after the explicit native artifact entries
+// and REPLACES `test.include` with the
 // integration suffix glob. The pure `test` script runs the complementary set
 // (`vitest run --exclude "**/*.integration.test.*"`), so the two lanes
 // partition the base suite by construction — no file can be orphaned. Base
 // `test:coverage` keeps the base config's full include so coverage still
 // measures every file in one process.
+import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 import baseConfig from './vitest.config.mts';
 
@@ -23,6 +25,25 @@ const baseTest = baseConfig.test ?? {};
 
 export default defineConfig({
   ...baseConfig,
+  resolve: {
+    ...baseConfig.resolve,
+    // Native process proofs consume the built public entries, before source aliases.
+    alias: [
+      {
+        find: /^@brainstrike\/indexer$/,
+        replacement: path.resolve(import.meta.dirname, '../../packages/indexer/dist/index.js'),
+      },
+      {
+        find: /^@brainstrike\/indexer\/transport$/,
+        replacement: path.resolve(import.meta.dirname, '../../packages/indexer/dist/transport.js'),
+      },
+      {
+        find: /^@brainstrike\/sqlite-query$/,
+        replacement: path.resolve(import.meta.dirname, '../../packages/sqlite-query/dist/index.js'),
+      },
+      ...(Array.isArray(baseConfig.resolve?.alias) ? baseConfig.resolve.alias : []),
+    ],
+  },
   test: {
     ...baseTest,
     // Coverage stays OFF in this lane. The base config enables coverage when

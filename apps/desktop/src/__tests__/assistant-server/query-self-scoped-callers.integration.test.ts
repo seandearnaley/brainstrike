@@ -4,9 +4,12 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { parseLensFile } from '@brainstrike/assistant-contract';
-import { type SqliteCallerContext, SqliteQueryClient } from '@brainstrike/sqlite-query';
+import {
+  type SqliteCallerContext,
+  SqliteQueryClient,
+  spawnQueryProcess,
+} from '@brainstrike/sqlite-query';
 import { afterAll, expect, it, vi } from 'vitest';
-import { spawnQueryProcess } from '../../../../../packages/sqlite-query/dist/index.js';
 
 vi.mock('../../db-main', () => ({
   getDatabase: () => {

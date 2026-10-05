@@ -217,6 +217,18 @@
       ],
       "@desktop/*": [
         "./apps/desktop/src/*"
+      ],
+      "@brainstrike/canonical-ingestion": [
+        "./packages/canonical-ingestion/src/index.ts"
+      ],
+      "@brainstrike/host-lease": [
+        "./packages/host-lease/src/index.ts"
+      ],
+      "@brainstrike/indexer": [
+        "./packages/indexer/src/index.ts"
+      ],
+      "@brainstrike/sqlite-query": [
+        "./packages/sqlite-query/src/index.ts"
       ]
     },
     "types": [

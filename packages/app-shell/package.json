@@ -161,7 +161,15 @@
       "types": "./dist/use-document-title.d.ts",
       "import": "./dist/use-document-title.js"
     },
-    "./styles.css": "./styles.css"
+    "./styles.css": "./styles.css",
+    "./roots/root-identity-context": {
+      "types": "./dist/roots/root-identity-context.d.ts",
+      "import": "./dist/roots/root-identity-context.js"
+    },
+    "./use-workspace-search-controller": {
+      "types": "./dist/use-workspace-search-controller.d.ts",
+      "import": "./dist/use-workspace-search-controller.js"
+    }
   },
   "files": [
     "dist"

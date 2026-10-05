@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { CanonicalFileIdentity, CanonicalScanReceipt } from '@brainstrike/canonical-ingestion';
 import type { IndexFileBinding } from '@brainstrike/indexer';
+import { openIndexer } from '@brainstrike/indexer';
 import { expect, it } from 'vitest';
-import { openIndexer } from '../../../../packages/indexer/dist/index.js';
 import { createNativeCanonicalPublication } from '../native-canonical-publication';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from '../native-index-runtime';
 
@@ -89,10 +89,16 @@ it.each(['mounted-first', 'retained-first'] as const)(
     });
     try {
       const writer = await runtime.acquire();
+      const prepared: Awaited<ReturnType<typeof writer.prepareScopedFile>>[] = [];
       const proofs: Awaited<ReturnType<typeof writer.verifyScopedManifest>>[] = [];
       const ownedPublication = createNativeCanonicalPublication(
         {
           ...writer,
+          prepareScopedFile: async (request) => {
+            const plan = await writer.prepareScopedFile(request);
+            prepared.push(plan);
+            return plan;
+          },
           verifyScopedManifest: async (request) => {
             const result = await writer.verifyScopedManifest(request);
             proofs.push(result);
@@ -203,9 +209,33 @@ it.each(['mounted-first', 'retained-first'] as const)(
         scanComplete: true,
       });
       expect(await ownedPublication.reverifyScope(workspace, null)).toBe(true);
+      const plan = prepared.at(-1);
+      if (!plan) {
+        throw new Error('The actual writer produced no collection plan.');
+      }
       expect(ownedPublication.getReadiness()).toEqual([
-        { scanComplete: true, scope: workspace },
-        { scanComplete: true, scope: collection },
+        {
+          generation: removal.generation,
+          mutationRevision: 6,
+          scanComplete: true,
+          scope: workspace,
+        },
+        {
+          generation: receipt.ticket.generation,
+          mutationRevision: order === 'mounted-first' ? 11 : 10,
+          publication: {
+            acknowledgedFiles: 2,
+            authorityEpoch: plan.authorityEpoch,
+            authorityRevision: plan.authorityRevision,
+            generation: receipt.ticket.generation,
+            mutationRevision: order === 'mounted-first' ? 11 : 10,
+            profileHash: null,
+            requestId: receipt.ticket.requestId,
+            storeId: receipt.ticket.storeId,
+          },
+          scanComplete: true,
+          scope: collection,
+        },
       ]);
       expect(
         (

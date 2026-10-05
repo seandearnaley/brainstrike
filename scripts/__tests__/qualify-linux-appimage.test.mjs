@@ -608,7 +608,7 @@ test('long report paths use short socket paths backed by the same isolated disk 
         Buffer.byteLength(socketTemp) < 60,
         'Chromium singleton sockets need a short TMPDIR'
       );
-      assert.equal(await realpath(socketTemp), path.join(input.root, 'tmp'));
+      assert.equal(await realpath(socketTemp), await realpath(path.join(input.root, 'tmp')));
       await dependencies.qualifyLifecycle(input);
     },
   });

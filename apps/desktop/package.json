@@ -203,7 +203,8 @@
     "wait-on": "^9.1.0",
     "xvfb-maybe": "^0.2.1",
     "xxhash-wasm": "catalog:",
-    "zustand": "catalog:"
+    "zustand": "catalog:",
+    "@brainstrike/vector-management": "workspace:*"
   },
   "engines": {
     "node": ">=26.8.2 <27"

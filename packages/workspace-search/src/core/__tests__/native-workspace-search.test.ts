@@ -45,6 +45,9 @@ function covered() {
 function capability() {
   return {
     coverage: vi.fn<IndexSearchCapability['coverage']>(async () => covered()),
+    coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(async () => {
+      throw new Error('Unexpected batch coverage request in the native search fixture.');
+    }),
     grep: vi.fn<IndexSearchCapability['grep']>(async () => pool([])),
     rebuild: vi.fn<IndexSearchCapability['rebuild']>(async () => {}),
     search: vi.fn<IndexSearchCapability['search']>(async () => pool([])),

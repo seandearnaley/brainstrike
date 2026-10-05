@@ -682,6 +682,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../../packages/test-utils
+      '@brainstrike/vector-management':
+        specifier: workspace:*
+        version: link:../../packages/vector-management
       '@brainstrike/windows-job-native':
         specifier: workspace:*
         version: link:../../packages/windows-job-native
@@ -1777,6 +1780,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2166,6 +2172,9 @@ importers:
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2
+      playwright:
+        specifier: 'catalog:'
+        version: 1.63.0
       tsup:
         specifier: 'catalog:'
         version: 8.5.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.28)(supports-color@10.2.2)(tsx@4.23.12)(yaml@2.9.0)
@@ -2779,6 +2788,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
       tsx:
         specifier: ^4.23.12
         version: 4.23.12
@@ -2819,6 +2831,12 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+      electron:
+        specifier: 'catalog:'
+        version: 44.4.5(supports-color@10.2.2)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -3337,6 +3355,12 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
+      electron:
+        specifier: 'catalog:'
+        version: 44.4.5(supports-color@10.2.2)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -3354,7 +3378,7 @@ importers:
         specifier: workspace:*
         version: link:../test-utils
       '@types/better-sqlite3':
-        specifier: ^9.6.0
+        specifier: 'catalog:'
         version: 9.6.0
       '@types/node':
         specifier: 'catalog:'

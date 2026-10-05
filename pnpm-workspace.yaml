@@ -379,10 +379,6 @@ minimumReleaseAge: 1440
 # that was never configured, so nothing ever triggered the removal.
 minimumReleaseAgeExclude:
   - effect@4.0.0-rc.118
-  - app-builder-lib@26.17.0
-  - dmg-builder@26.17.0
-  - electron-builder@26.17.0
-  - electron-builder-squirrel-windows@26.17.0
 patchedDependencies:
   '@assistant-ui/core@0.3.17': patches/@assistant-ui__core@0.3.17.patch
   '@electric-sql/pglite@0.5.8': patches/@electric-sql__pglite@0.5.8.patch

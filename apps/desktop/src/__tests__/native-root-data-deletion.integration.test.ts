@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { deleteManagedRootData, migrate, wasmLoader } from '@brainstrike/db';
 import type { IndexFileBinding, IndexScope } from '@brainstrike/indexer';
-import { expect, it, vi } from 'vitest';
 // Exercise the actual built host entry rather than Vitest's source aliases.
-import { openIndexer } from '../../../../packages/indexer/dist/index.js';
+import { openIndexer } from '@brainstrike/indexer';
+import { expect, it, vi } from 'vitest';
 import { WorkspaceRootRegistry } from '../ipc-domains/workspace-root-registry';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from '../native-index-runtime';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';

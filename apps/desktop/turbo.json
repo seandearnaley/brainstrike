@@ -51,7 +51,9 @@
         "@brainstrike/assistant-contract#build",
         "@brainstrike/assistant-data#build",
         "@brainstrike/assistant-service#build",
-        "@brainstrike/db#build"
+        "@brainstrike/db#build",
+        "@brainstrike/indexer#build",
+        "@brainstrike/sqlite-query#build"
       ],
       "env": [
         "$TURBO_EXTENDS$",

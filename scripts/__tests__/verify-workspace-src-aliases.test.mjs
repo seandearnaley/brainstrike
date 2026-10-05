@@ -441,3 +441,30 @@ test('inline projects extending a config file use that files aliases instead of 
     '/external-source'
   );
 });
+
+test('a built-artifact allowance is limited to its exact config and specifier', async () => {
+  const packagesRoot = await writeFixture({
+    'alpha/src/index.ts':
+      "import { thing } from '@brainstrike/beta';\nimport { g } from '@brainstrike/gamma';\n",
+    'alpha/vitest.config.mjs': 'export default { test: {} };\n',
+    'alpha/vitest.integration.config.mjs': 'export default { test: {} };\n',
+  });
+  const violations = await findWorkspaceSrcAliasViolations({
+    allowlist: {
+      '@brainstrike/alpha': {
+        configs: ['vitest.integration.config.mjs'],
+        reason: 'integration launches the emitted beta worker',
+        specifiers: ['@brainstrike/beta'],
+      },
+    },
+    packagesRoot,
+  });
+  assert.deepEqual(
+    violations.map(({ config, specifier }) => [config, specifier]),
+    [
+      ['vitest.config.mjs', '@brainstrike/beta'],
+      ['vitest.config.mjs', '@brainstrike/gamma'],
+      ['vitest.integration.config.mjs', '@brainstrike/gamma'],
+    ]
+  );
+});

@@ -8,9 +8,9 @@ import type {
   ScopedIndexerPort,
   ScopedManifestFile,
 } from '@brainstrike/indexer';
-import { expect, it } from 'vitest';
 // The native process entry needs the built public artifact, independent of source test aliases.
-import { openIndexer } from '../../../../packages/indexer/dist/index.js';
+import { openIndexer } from '@brainstrike/indexer';
+import { expect, it } from 'vitest';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from '../native-index-runtime';
 
 const local = {

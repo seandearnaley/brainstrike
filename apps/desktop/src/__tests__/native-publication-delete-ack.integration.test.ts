@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { openIndexer } from '@brainstrike/indexer';
 import { expect, it } from 'vitest';
-import { openIndexer } from '../../../../packages/indexer/dist/index.js';
 import { createNativeCanonicalPublication } from '../native-canonical-publication';
 
 it('rejects a late commit ACK, then requires a returning canonical identity to republish its real native row', async () => {

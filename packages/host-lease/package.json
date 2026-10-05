@@ -19,7 +19,8 @@
     "@types/node": "catalog:",
     "tsx": "^4.23.12",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@vitest/coverage-v8": "catalog:"
   },
   "exports": {
     ".": {
@@ -34,6 +35,8 @@
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
+    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo"
   }
 }

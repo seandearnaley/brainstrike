@@ -1,7 +1,10 @@
+import { RootIdentityProvider } from '@brainstrike/app-shell/roots/root-identity-context';
+import { useWorkspaceSearchController } from '@brainstrike/app-shell/use-workspace-search-controller';
 import type {
   IndexerStatus,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
+import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import {
   useNativeWorkspaceSearchDependencies,
   useWorkspaceSearchStore,
@@ -9,9 +12,6 @@ import {
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RootIdentityProvider } from '../../../../../../packages/app-shell/src/roots/root-identity-context';
-import { useWorkspaceSearchController } from '../../../../../../packages/app-shell/src/use-workspace-search-controller';
-import { SearchEmbedderProvider } from '../../../../../../packages/vector-management/src/search-embedder/search-embedder-provider';
 
 const preferences = vi.hoisted(() => ({
   managedCollectionId: 'collection-a',

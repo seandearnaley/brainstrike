@@ -6,12 +6,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { createIndexerConnection } from '@brainstrike/indexer/transport';
+import { SqliteQueryClient, spawnQueryProcess } from '@brainstrike/sqlite-query';
 import { afterEach, expect, it, vi } from 'vitest';
-import { createIndexerConnection } from '../../../../../packages/indexer/dist/transport.js';
-import {
-  SqliteQueryClient,
-  spawnQueryProcess,
-} from '../../../../../packages/sqlite-query/dist/index.js';
 import { createNativeScopedSearchCapability } from '../../native-scoped-search';
 
 const pg = vi.hoisted(() => ({ files: vi.fn(), fts: vi.fn(), query: vi.fn(), vectors: vi.fn() }));

@@ -22,7 +22,7 @@ import type {
 } from '../src/ports.js';
 
 const { CanonicalIngestionHost } = await import('../dist/index.js');
-const { openIndexer } = await import('../../indexer/dist/index.js');
+const { openIndexer } = await import('@brainstrike/indexer');
 const profile: VectorProfile = {
   dimensions: 384,
   distance: 'cosine',
