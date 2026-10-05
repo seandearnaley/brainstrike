@@ -151,10 +151,12 @@ export interface TerminalExitEvent {
 
 /** A live pty plus the WebContents that owns it (where its events are pushed). */
 interface LiveTerminal {
+  readonly exited: Promise<void>;
   readonly ownerId: number;
   /** Cached pid (node-pty's `.pid` is stable post-spawn); used for tree-kill. */
   readonly pid: number;
   readonly process: IPty;
+  reap: Promise<void> | null;
   readonly webContents: WebContents;
 }
 
@@ -164,6 +166,9 @@ interface LiveTerminal {
  * {@link disposeAllTerminals} on shutdown / factory reset.
  */
 const liveTerminals = new Map<string, LiveTerminal>();
+// IPC admission ends before physical cleanup. Keep renderer/destroy reaps owned
+// until both the descendant walk and node-pty's native exit callback settle.
+const ownedTerminals = new Set<LiveTerminal>();
 
 /**
  * WebContents we have already attached a `'destroyed'` reaper to. Tracked so a
@@ -201,6 +206,25 @@ function clampDimension(value: number | undefined, fallback: number): number {
   return Math.min(Math.floor(value), MAX_DIMENSION);
 }
 
+function killTerminalProcessGroup(pid: number): Error | null {
+  if (process.platform === 'win32') {
+    return null;
+  }
+  try {
+    process.kill(-pid, 'SIGKILL');
+    return null;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    // ESRCH: gone; EPERM: a just-killed leader is a zombie. Preserve the
+    // existing POSIX backstop's expected post-tree-walk races.
+    if (code === 'ESRCH' || code === 'EPERM') {
+      return null;
+    }
+    logger.warn('Process-group kill failed for terminal', { code, pid });
+    return error instanceof Error ? error : new Error(String(error));
+  }
+}
+
 /**
  * Forcefully reap a pty's process tree, ORDER-CRITICAL to close the
  * disowned/nohup'd background-child gap.
@@ -225,48 +249,63 @@ function clampDimension(value: number | undefined, fallback: number): number {
  * deliberately daemonized child that calls `setsid` to start its OWN session
  * detaches from the shell's tree AND session and cannot be reaped by ancestry.
  *
- * `dispose` is fire-and-forget (the public callers stay synchronous); ordering
- * is preserved INSIDE the tree-kill callback. Failures are logged, never
- * swallowed (no-silent-fallbacks); an "already dead" race is expected and quiet.
+ * Renderer/destroy callers start cleanup synchronously. Application shutdown
+ * joins the retained reap, including node-pty's exit callback. An already-dead
+ * race is expected; other tree-walk failures remain visible to the drain.
  */
-function killTerminalTree(entry: LiveTerminal): void {
-  // 1) Descendant walk FIRST, while the leader is still alive, so a
-  //    separate-process-group background job is still a descendant by ppid.
-  treeKill(entry.pid, 'SIGKILL', (error) => {
-    if (error && !/no such process/i.test(error.message)) {
-      logger.warn('tree-kill failed for terminal', { error: error.message, pid: entry.pid });
-    }
-    // 2) POSIX process-group backstop for same-group children (covers anything
-    //    that DID stay in the shell's group). Windows has no process groups and
-    //    relies entirely on the tree-kill walk above.
-    if (process.platform !== 'win32') {
-      try {
-        process.kill(-entry.pid, 'SIGKILL');
-      } catch (groupError) {
-        const code = (groupError as NodeJS.ErrnoException).code;
-        // Both are EXPECTED here because the tree-kill walk above usually
-        // already reaped the group:
-        //  - ESRCH: the group is gone.
-        //  - EPERM: the leader is a just-SIGKILLed zombie, so the kernel rejects
-        //    a group signal through it. The leader is always our own child, so a
-        //    genuine permission failure is impossible — this is the post-reap
-        //    race, not a real denial. Any OTHER code is unexpected → warn (no
-        //    silent fallback).
-        if (code !== 'ESRCH' && code !== 'EPERM') {
-          logger.warn('Process-group kill failed for terminal', { code, pid: entry.pid });
-        }
+function killTerminalTree(entry: LiveTerminal): Promise<void> {
+  if (entry.reap) {
+    return entry.reap;
+  }
+  const treeReaped = new Promise<void>((resolve, reject) => {
+    const complete = (error?: Error): void => {
+      const failures: unknown[] = [];
+      if (error && !/no such process/i.test(error.message)) {
+        logger.warn('tree-kill failed for terminal', { error: error.message, pid: entry.pid });
+        failures.push(error);
       }
-    }
-    // 3) Finally the node-pty leader itself (SIGHUP). A throw here means the
-    //    shell already exited — expected, logged at debug only.
+      // Descendants first; retain the POSIX group backstop before the leader.
+      const groupFailure = killTerminalProcessGroup(entry.pid);
+      if (groupFailure) {
+        failures.push(groupFailure);
+      }
+      try {
+        entry.process.kill();
+      } catch (killError) {
+        logger.debug('pty.kill threw (process may already be gone)', {
+          error: killError instanceof Error ? killError.message : String(killError),
+        });
+      }
+      if (failures.length > 0) {
+        reject(new AggregateError(failures, 'Terminal tree cleanup failed'));
+        return;
+      }
+      resolve();
+    };
     try {
-      entry.process.kill();
-    } catch (killError) {
-      logger.debug('pty.kill threw (process may already be gone)', {
-        error: killError instanceof Error ? killError.message : String(killError),
-      });
+      treeKill(entry.pid, 'SIGKILL', complete);
+    } catch (error) {
+      complete(error instanceof Error ? error : new Error(String(error)));
     }
   });
+  entry.reap = Promise.allSettled([treeReaped, entry.exited]).then((results) => {
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'Terminal shutdown cleanup failed');
+    }
+    ownedTerminals.delete(entry);
+  });
+  // Synchronous IPC/renderer callers do not await; keep the original rejected
+  // promise owned for shutdown instead of letting it become unhandled.
+  void entry.reap.catch((error: unknown) => {
+    logger.warn('Terminal cleanup failed', {
+      error: error instanceof Error ? error.message : String(error),
+      pid: entry.pid,
+    });
+  });
+  return entry.reap;
 }
 
 /**
@@ -352,13 +391,20 @@ export function createTerminalIpcHandlers({
     }
 
     const terminalId = nextTerminalId();
+    let resolveExited: () => void = () => undefined;
+    const exited = new Promise<void>((resolve) => {
+      resolveExited = resolve;
+    });
     const entry: LiveTerminal = {
+      exited,
       ownerId: owner.id,
       pid: ptyProcess.pid,
       process: ptyProcess,
+      reap: null,
       webContents: owner,
     };
     liveTerminals.set(terminalId, entry);
+    ownedTerminals.add(entry);
 
     // If the owning renderer is destroyed (window closed / navigated away mid
     // root-switch), reap every pty it owns so no shell is orphaned. Attach the
@@ -390,12 +436,19 @@ export function createTerminalIpcHandlers({
       // Delete BEFORE emitting so a renderer that re-creates on exit cannot
       // collide with the dying entry.
       liveTerminals.delete(terminalId);
-      sendExit(entry, {
-        exitCode,
-        signal: typeof signal === 'number' ? signal : null,
-        terminalId,
-      });
-      logger.debug('pty exited', { exitCode, signal: signal ?? null, terminalId });
+      try {
+        sendExit(entry, {
+          exitCode,
+          signal: typeof signal === 'number' ? signal : null,
+          terminalId,
+        });
+        logger.debug('pty exited', { exitCode, signal: signal ?? null, terminalId });
+      } finally {
+        resolveExited();
+        if (!entry.reap) {
+          ownedTerminals.delete(entry);
+        }
+      }
     });
 
     logger.info('Spawned terminal', { cols, cwd: cwd.value, rows, shell, terminalId });
@@ -470,7 +523,7 @@ export function createTerminalIpcHandlers({
     // Remove from the registry FIRST so the onExit handler (which also deletes)
     // is a no-op and cannot double-fire teardown.
     liveTerminals.delete(params.terminalId);
-    killTerminalTree(entry);
+    void killTerminalTree(entry);
     logger.info('Destroyed terminal', { terminalId: params.terminalId });
     return { ok: true };
   }
@@ -483,16 +536,21 @@ export function createTerminalIpcHandlers({
  * no shell survives the app exit or a workspace wipe. Returns the count reaped
  * (for logging/observability). Mirrors `disposeLiveChildProcesses`.
  */
-export function disposeAllTerminals(): number {
-  const entries = Array.from(liveTerminals.entries());
-  for (const [, entry] of entries) {
-    killTerminalTree(entry);
-  }
+export async function disposeAllTerminals(): Promise<number> {
+  const count = liveTerminals.size;
+  const entries = Array.from(ownedTerminals);
   liveTerminals.clear();
+  const outcomes = await Promise.allSettled(entries.map(killTerminalTree));
+  const failures = outcomes.flatMap((outcome) =>
+    outcome.status === 'rejected' ? [outcome.reason] : []
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'Terminal shutdown cleanup failed');
+  }
   if (entries.length > 0) {
     logger.info('Reaped live terminals on dispose', { count: entries.length });
   }
-  return entries.length;
+  return count;
 }
 
 /** Kill + drop every terminal owned by a destroyed/navigated-away renderer. */
@@ -503,11 +561,11 @@ export function disposeTerminalsForWebContents(ownerId: number): number {
       continue;
     }
     liveTerminals.delete(terminalId);
-    killTerminalTree(entry);
+    void killTerminalTree(entry);
     reaped += 1;
   }
   if (reaped > 0) {
-    logger.info('Reaped terminals for destroyed renderer', { count: reaped, ownerId });
+    logger.info('Started terminal cleanup for destroyed renderer', { count: reaped, ownerId });
   }
   return reaped;
 }
@@ -558,6 +616,10 @@ export function registerTerminalIpcHandlers(handlers: TerminalIpcHandlers): () =
 
   return () => {
     registry.unregisterAll();
-    disposeAllTerminals();
+    // The earlier application shutdown/reset join owns completion. A late
+    // synchronous IPC unwind starts any remaining reap and reports failure.
+    void disposeAllTerminals().catch((error: unknown) => {
+      logger.error('Terminal IPC disposal failed', { error });
+    });
   };
 }

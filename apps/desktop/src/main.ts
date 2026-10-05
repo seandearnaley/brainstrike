@@ -816,9 +816,8 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     // no orphaned interactive shell surviving the wipe.
     {
       name: 'terminals',
-      stop: () => {
-        disposeAllTerminals();
-        return Promise.resolve();
+      stop: async () => {
+        await disposeAllTerminals();
       },
     },
     // Reap persistent assistant command sessions and clear retained output so

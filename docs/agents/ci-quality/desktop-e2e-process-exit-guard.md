@@ -61,3 +61,13 @@ not also hand out `closeElectronApp`. Specs that launch their own Electron app
 (`launchElectronDevAppInTest`) are unaffected — the harness never observes those
 processes. Paired test:
 `apps/desktop/src/__tests__/electron-harness-state-seeding.test.ts`.
+
+## Native abort during intentional close (2026-10-05)
+
+The terminal restart test passed its marker assertion at tree
+`c7621eb3397d87288bce100f15f8a015d3f71162`, but main subsequently exited with
+SIGABRT. The intentional-close flag discarded that exit and the close helper
+treated any exit event as completion. The flag identifies a requested shutdown;
+it cannot make a native abort healthy. Reject abnormal post-close exits while
+preserving the existing bounded SIGKILL teardown and code-zero controls.
+See `platform-contracts/terminal-shutdown-join.md` for retained incident evidence.

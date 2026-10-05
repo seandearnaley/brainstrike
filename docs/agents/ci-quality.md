@@ -558,6 +558,8 @@ Guard: `apps/desktop/e2e/assistant-panel.desktop.test.ts`.
 
 - Every `ElectronHarness` process is registered with `ElectronProcessExitGuard`;
   an exit before intentional close fails the owning test, passed body or not.
+  During intentional close, only code-zero exit or bounded SIGKILL teardown is
+  accepted; SIGABRT and other abnormal exits still fail the owning test.
 - Close a harness-owned app only through the harness; state-seeding tests call
   `closeForStateSeeding()`. `signal=SIGKILL` plus an `_object` `TypeError` on
   the next `restart()` means an out-of-band close, not a crash.
