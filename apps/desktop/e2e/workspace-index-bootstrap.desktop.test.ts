@@ -1,5 +1,9 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { Page } from 'playwright';
+import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 
@@ -95,6 +99,111 @@ async function createCatalogCollection(page: Page): Promise<string> {
 }
 
 test.describe('Workspace Index first run (desktop)', () => {
+  for (const setup of [
+    { execution: 'WebGPU · FP16', model: 'MiniLM — WebGPU or CPU' },
+    { execution: 'WASM · Q8', model: 'MiniLM — CPU' },
+  ]) {
+    test(`starts native semantic indexing using visible setup controls: ${setup.execution}`, async ({
+      electron,
+    }, testInfo) => {
+      // This case deliberately selects WebGPU through the UI; the generic CI harness disables it.
+      const previousAllowGpu = process.env['BRAINSTRIKE_E2E_ALLOW_GPU'];
+      process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] = '1';
+      const folder = await mkdtemp(join(tmpdir(), 'brainstrike-index-setup-'));
+      await writeFile(
+        join(folder, 'setup-proof.md'),
+        '# Workspace indexing setup\nThe smoke test creates this document through the filesystem and indexes it through the real desktop UI.\n'
+      );
+      try {
+        const { app, window } = await electron.ensureContext();
+        expect(await readCollectionRows(window)).toEqual([]);
+        await app.evaluate((_electron, path) => {
+          process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = path;
+        }, folder);
+        await ensureFileExplorerPanelVisible(window);
+        await window.getByTestId('select-root-button').click();
+        await expect(
+          window.getByRole('treegrid', { name: 'File tree' }).getByText('setup-proof.md')
+        ).toBeVisible({ timeout: 15_000 });
+        await window.getByTestId('indexing-status-trigger').click();
+        await window.getByRole('button', { name: 'Open indexing settings' }).click();
+        await expect(window.getByTestId('settings-category-search-indexing')).toBeVisible({
+          timeout: 15_000,
+        });
+        await window.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
+        await window.getByRole('option', { exact: true, name: setup.model }).click();
+        await window.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
+        await expect(window.getByRole('combobox', { name: 'Managed collection' })).toContainText(
+          'Workspace Index (MiniLM',
+          { timeout: 15_000 }
+        );
+        await window.getByRole('combobox', { name: 'Search mode' }).click();
+        await window.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
+        await window.getByRole('combobox', { name: 'Local model execution' }).click();
+        await window.getByRole('option', { exact: true, name: setup.execution }).click();
+        await expect
+          .poll(
+            async () =>
+              await window.evaluate(async () => {
+                const capability = (
+                  globalThis as typeof globalThis & {
+                    readonly indexSearch?: IndexSearchCapability;
+                  }
+                ).indexSearch;
+                if (!capability) {
+                  throw new Error('Native capability missing');
+                }
+                const status = await capability.status();
+                if (status.kind !== 'ready') {
+                  return false;
+                }
+                const observation = await capability.coverageBatch([
+                  { rootIds: status.authorizedRootIds },
+                ]);
+                if (observation.kind === 'invalidated') {
+                  return false;
+                }
+                const snapshot = observation.status;
+                const coverage = observation.coverage[0];
+                if (!coverage) {
+                  throw new Error('Native coverage batch omitted the requested scope');
+                }
+                return (
+                  snapshot.rootReadiness.length > 0 &&
+                  snapshot.rootReadiness.every((root) => root.scanComplete) &&
+                  coverage.totals.indexedFiles === 1 &&
+                  coverage.totals.chunks > 0 &&
+                  coverage.totals.vectors === coverage.totals.chunks &&
+                  coverage.totals.missingVectors === 0
+                );
+              }),
+            { timeout: 60_000 }
+          )
+          .toBe(true);
+        await testInfo.attach('ui-created-index', {
+          body: JSON.stringify(
+            {
+              choices: await readSavedPreferences(window),
+              collections: await readCollectionRows(window),
+              status: await readNativeStatus(window),
+            },
+            null,
+            2
+          ),
+          contentType: 'application/json',
+        });
+      } finally {
+        await electron.dispose();
+        await rm(folder, { force: true, recursive: true });
+        if (previousAllowGpu === undefined) {
+          delete process.env['BRAINSTRIKE_E2E_ALLOW_GPU'];
+        } else {
+          process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] = previousAllowGpu;
+        }
+      }
+    });
+  }
+
   test('does not invent a collection or native search mode for a fresh profile', async ({
     electron,
   }, testInfo) => {

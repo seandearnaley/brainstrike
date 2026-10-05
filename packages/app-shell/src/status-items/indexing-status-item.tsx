@@ -4,6 +4,7 @@ import type {
   IndexingManagedCollectionStatsState,
 } from '@brainstrike/app-state/stores/indexing-activity-store';
 import { useIndexingActivityStore } from '@brainstrike/app-state/stores/indexing-activity-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import {
   getWorkspaceCollectionSyncCurrentActivity,
   getWorkspaceCollectionSyncMetricRows,
@@ -24,7 +25,7 @@ import {
 } from '@brainstrike/ui';
 import { getBackgroundIndexingPolicyOption } from '@brainstrike/utils';
 import { CirclePause, Database, Loader2, TriangleAlert } from 'lucide-react';
-import { useId } from 'react';
+import { useId, useState } from 'react';
 
 const EMPTY_METRIC_VALUE = '—';
 
@@ -145,7 +146,11 @@ function getDisplayStatus(args: {
     return {
       busy: false,
       toneClassName: 'text-muted-foreground',
-      value: syncStatus.activeRootPath ? 'No collection selected' : 'No root selected',
+      value: syncStatus.lastError
+        ? 'Setup required'
+        : syncStatus.activeRootPath
+          ? 'No collection selected'
+          : 'No root selected',
     };
   }
   if (snapshot.status === 'unavailable') {
@@ -431,6 +436,8 @@ function IndexingActivityRegion({
 }
 
 export function IndexingStatusItem() {
+  const [open, setOpen] = useState(false);
+  const openSettings = usePanelLayoutStore((state) => state.openSettings);
   const popoverTitleId = useId();
   const snapshot = useIndexingActivityStore((state) => state.snapshot);
   const managedStats = useIndexingActivityStore((state) => state.managedCollectionStats);
@@ -462,7 +469,7 @@ export function IndexingStatusItem() {
     shouldShowWorkspaceCollectionSyncPauseControl(snapshot.background.state);
 
   return (
-    <Popover>
+    <Popover onOpenChange={setOpen} open={open}>
       <span
         aria-atomic="true"
         aria-live="polite"
@@ -608,7 +615,22 @@ export function IndexingStatusItem() {
             </AccordionItem>
           </Accordion>
 
-          <div className="flex h-11 justify-end border-t pt-3" data-testid="indexing-action-region">
+          <div
+            className="flex h-11 justify-end gap-2 border-t pt-3"
+            data-testid="indexing-action-region"
+          >
+            <Button
+              onClick={() => {
+                window.location.hash = 'settings/search-indexing';
+                openSettings();
+                setOpen(false);
+              }}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Open indexing settings
+            </Button>
             {showPauseControl ? (
               <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
                 {paused ? 'Resume workspace index' : 'Pause workspace index'}

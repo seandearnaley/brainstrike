@@ -30,9 +30,13 @@ import {
   type BackgroundIndexingPolicyPreset,
   getBackgroundIndexingPolicyOption,
 } from '@brainstrike/utils';
-import { onEmbeddingSetUpdated, onQueueDrained } from '@brainstrike/utils/browser-events';
+import {
+  dispatchEmbeddingSetUpdated,
+  onEmbeddingSetUpdated,
+  onQueueDrained,
+} from '@brainstrike/utils/browser-events';
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 interface CollectionOption {
   createdAt: string;
@@ -43,7 +47,27 @@ interface CollectionOption {
   name: string;
 }
 
-function compareCollectionsDesc(left: CollectionOption, right: CollectionOption): number {
+// These are the two pinned exports accepted by the native inference-plan resolver.
+// Choosing a model is explicit; it never rewrites an existing collection profile.
+const NATIVE_INDEX_MODELS = [
+  {
+    dimensions: 384,
+    modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
+    modelKey: 'local::onnx-community/all-MiniLM-L6-v2-ONNX',
+    name: 'MiniLM — WebGPU or CPU',
+  },
+  {
+    dimensions: 384,
+    modelId: 'Xenova/all-MiniLM-L6-v2',
+    modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+    name: 'MiniLM — CPU',
+  },
+] as const;
+
+function compareCollectionsDesc(
+  left: Pick<CollectionOption, 'createdAt' | 'id'>,
+  right: Pick<CollectionOption, 'createdAt' | 'id'>
+): number {
   if (right.createdAt > left.createdAt) {
     return 1;
   }
@@ -74,7 +98,7 @@ function toCollectionOption(collection: {
 function getStatusBadge(
   status: Pick<
     ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>,
-    'blockedReason' | 'state'
+    'blockedReason' | 'state' | 'lastError'
   >
 ) {
   switch (status.state) {
@@ -154,7 +178,7 @@ function getStatusBadge(
       return {
         icon: AlertTriangle,
         iconClassName: 'size-3.5',
-        label: 'No root selected',
+        label: status.lastError ? 'Setup required' : 'No root selected',
         variant: 'outline' as const,
       };
     default:
@@ -206,7 +230,7 @@ function NativeIndexControls({
       <div className="space-y-2">
         <Label htmlFor="native-index-mode">Search mode</Label>
         <Select
-          {...(nativeIndexMode === null ? {} : { value: nativeIndexMode })}
+          {...{ value: nativeIndexMode ?? '' }}
           onValueChange={(value) => {
             if (value === 'TEXT' || value === 'VECTOR') {
               setNativeIndexMode(value);
@@ -230,7 +254,7 @@ function NativeIndexControls({
         <div className="space-y-2">
           <Label htmlFor="native-inference-plan">Local model execution</Label>
           <Select
-            {...(nativeLocalSelection ? { value: JSON.stringify(nativeLocalSelection) } : {})}
+            {...{ value: nativeLocalSelection ? JSON.stringify(nativeLocalSelection) : '' }}
             onValueChange={(value) => {
               const selection = localPlans.find((plan) => JSON.stringify(plan.selection) === value);
               if (!selection) {
@@ -280,6 +304,126 @@ function NativeIndexControls({
         ) : null}
       </div>
     </>
+  );
+}
+
+async function findOrCreateNativeCollection(
+  repository: NonNullable<ReturnType<typeof useEmbeddingSetsRepository>>,
+  model: (typeof NATIVE_INDEX_MODELS)[number],
+  currentId: string | null
+) {
+  const matches = (await repository.findAll()).filter(
+    (collection) =>
+      collection.modelKey === model.modelKey &&
+      collection.modelId === model.modelId &&
+      collection.dimensions === model.dimensions &&
+      collection.distance === 'cosine'
+  );
+  const existing =
+    matches.find((collection) => collection.id === currentId) ??
+    matches.sort(compareCollectionsDesc)[0];
+  if (existing) {
+    return existing;
+  }
+  const created = await repository.getOrCreateSet(
+    model.modelKey,
+    model.modelId,
+    model.dimensions,
+    'cosine',
+    { name: `Workspace Index (${model.name})` }
+  );
+  dispatchEmbeddingSetUpdated({ id: created.id, reason: 'created' });
+  return created;
+}
+
+function NativeCollectionSetup({
+  repository,
+  onCreated,
+}: {
+  readonly repository: ReturnType<typeof useEmbeddingSetsRepository>;
+  readonly onCreated: (collection: CollectionOption) => void;
+}) {
+  const [setupModelKey, setSetupModelKey] = useState('');
+  const setupModel = NATIVE_INDEX_MODELS.find((model) => model.modelKey === setupModelKey);
+  const setupPending = useRef(false);
+  const [creatingCollection, setCreatingCollection] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const setupWorkspaceIndex = async (): Promise<void> => {
+    if (!(repository && setupModel) || setupPending.current) {
+      return;
+    }
+    const previousCollectionId =
+      useBackgroundIndexingPreferencesStore.getState().managedCollectionId;
+    let superseded = false;
+    const unsubscribe = useBackgroundIndexingPreferencesStore.subscribe((next, previous) => {
+      if (
+        next.managedCollectionId !== previous.managedCollectionId ||
+        next.nativeLocalSelection !== previous.nativeLocalSelection ||
+        next.nativeIndexMode !== previous.nativeIndexMode
+      ) {
+        superseded = true;
+      }
+    });
+    setupPending.current = true;
+    setCreatingCollection(true);
+    setSetupError(null);
+    try {
+      const collection = await findOrCreateNativeCollection(
+        repository,
+        setupModel,
+        previousCollectionId
+      );
+      onCreated(toCollectionOption(collection));
+      if (superseded) {
+        return;
+      }
+      unsubscribe();
+      if (collection.id !== previousCollectionId) {
+        useBackgroundIndexingPreferencesStore.getState().setNativeLocalSelection(null);
+        useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId(collection.id);
+      }
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : String(error));
+    } finally {
+      unsubscribe();
+      setupPending.current = false;
+      setCreatingCollection(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <p className="text-sm">
+        Choose an embedding model for your Workspace Index. Only models supported by desktop
+        indexing are listed. Selecting a different model creates or selects its own collection and
+        preserves your existing collection.
+      </p>
+      <Label htmlFor="workspace-index-model">Embedding model</Label>
+      <Select disabled={creatingCollection} onValueChange={setSetupModelKey} value={setupModelKey}>
+        <SelectTrigger aria-label="Embedding model" id="workspace-index-model">
+          <SelectValue placeholder="Choose an embedding model" />
+        </SelectTrigger>
+        <SelectContent>
+          {NATIVE_INDEX_MODELS.map((model) => (
+            <SelectItem key={model.modelKey} value={model.modelKey}>
+              {model.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        disabled={!(repository && setupModel) || creatingCollection}
+        onClick={() => void setupWorkspaceIndex()}
+        type="button"
+      >
+        {creatingCollection ? 'Setting up Workspace Index…' : 'Use embedding model'}
+      </Button>
+      {setupError ? (
+        <p className="text-destructive text-sm" role="alert">
+          {setupError}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -458,6 +602,17 @@ export function SearchIndexingSettingsSection({
       </CardHeader>
       <CardContent className="space-y-5">
         {nativeIndex ? (
+          <NativeCollectionSetup
+            onCreated={(collection) => {
+              setCollections((current) => [
+                collection,
+                ...current.filter((entry) => entry.id !== collection.id),
+              ]);
+            }}
+            repository={repository}
+          />
+        ) : null}
+        {nativeIndex ? (
           <NativeIndexControls nativeIndex={nativeIndex} selectedCollection={selectedCollection} />
         ) : null}
         <div className="flex items-center justify-between gap-4">
@@ -505,7 +660,13 @@ export function SearchIndexingSettingsSection({
             Managed collection
           </Label>
           <Select
-            onValueChange={(value) => setManagedCollectionId(value === '__none__' ? null : value)}
+            onValueChange={(value) => {
+              const nextId = value === '__none__' ? null : value;
+              if (nativeIndex && nextId !== managedCollectionId) {
+                useBackgroundIndexingPreferencesStore.getState().setNativeLocalSelection(null);
+              }
+              setManagedCollectionId(nextId);
+            }}
             value={managedCollectionId ?? '__none__'}
           >
             <SelectTrigger id="managed-cache-collection">

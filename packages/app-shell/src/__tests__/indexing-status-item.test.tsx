@@ -9,6 +9,7 @@ import {
   type IndexingManagedCollectionStatsState,
   useIndexingActivityStore,
 } from '@brainstrike/app-state/stores/indexing-activity-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
@@ -383,6 +384,22 @@ describe('IndexingStatusItem', () => {
     expect(within(activityRegion).getByText('OpenAI API key not configured.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Pause workspace index' })).not.toBeInTheDocument();
     expect(screen.getByTestId('indexing-action-region')).toHaveClass('h-11');
+  });
+
+  it('explains incomplete native setup and opens the matching settings category', async () => {
+    useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+      lastError: 'Choose an embedding model in Search & Indexing settings.',
+      state: 'unconfigured',
+    });
+    render(<IndexingStatusItem />);
+    expect(screen.getByTestId('indexing-status-value')).toHaveTextContent('Setup required');
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+    expect(
+      await screen.findByText('Choose an embedding model in Search & Indexing settings.')
+    ).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Open indexing settings' }));
+    expect(window.location.hash).toBe('#settings/search-indexing');
+    expect(usePanelLayoutStore.getState().activeTab).toBe('settings');
   });
 
   it.each([

@@ -211,6 +211,11 @@ Guard: `packages/indexer/__tests__/manifest.integration.test.ts`.
 
 ### Main-owned production activation
 
+- Native first-run settings expose supported embedding-model choice and explicit collection creation through the canonical repository. Never require a SQL-seeded collection, silently choose inference, mutate an existing collection's model, or reuse its execution plan after switching collections. Keep creation failures visible and preserve a newer user selection when creation settles late.
+- Report missing native mode, collection and local execution choices as actionable setup requirements, not a missing root or a generic closed-admission error. The indexing status panel opens the Search & Indexing category directly.
+
+Guard: `packages/settings-ui/src/__tests__/search-indexing-settings-section.test.tsx`, `packages/app-shell/src/background-indexing/__tests__/native-workspace-index-provider.test.tsx`, `packages/app-shell/src/__tests__/indexing-status-item.test.tsx`, `apps/desktop/e2e/workspace-index-bootstrap.desktop.test.ts`.
+
 - Compose canonical workspace and retained collection ingestion in the sole main-owned indexer utility. Read actual saved collection/mode/full local execution choices and PG records, borrow the application's existing mounted-root leases, and preserve canonical file IDs and nullable rootless metadata. Missing or unsupported choices refuse activation visibly.
 - Validate saved collection existence in PG for both modes. Load the complete retained inventory through the catalog's bounded batches, checking current authority and cancellation around each batch. Actual read acquisition reconciles changed PG inventory and invalidates affected receipts before returning native progress.
 - Retire the desktop visible scanner/queue producer when the native capability exists. The visible provider restores actual root identity and observes scoped receipts/coverage; closing the visible window does not own source, parser, inference or writer lifetime. Keep the hosted web producer unchanged.

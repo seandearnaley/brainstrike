@@ -10,11 +10,12 @@ import {
   EMBEDDING_SET_UPDATED_EVENT,
   QUEUE_DRAINED_EVENT,
 } from '@brainstrike/utils/browser-events';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SearchIndexingSettingsSection } from '../settings/system/search-indexing-settings-section';
 
-const { findAllMock, getByIdMock } = vi.hoisted(() => ({
+const { findAllMock, getByIdMock, createWorkspaceMock } = vi.hoisted(() => ({
+  createWorkspaceMock: vi.fn(),
   findAllMock: vi.fn(),
   getByIdMock: vi.fn(),
 }));
@@ -22,6 +23,7 @@ const { findAllMock, getByIdMock } = vi.hoisted(() => ({
 const mockRepository = {
   findAll: findAllMock,
   getById: getByIdMock,
+  getOrCreateSet: createWorkspaceMock,
 };
 
 vi.mock('@brainstrike/db', () => ({
@@ -29,6 +31,7 @@ vi.mock('@brainstrike/db', () => ({
 }));
 vi.mock('@brainstrike/db/react', () => ({
   useEmbeddingSetsRepository: () => mockRepository,
+  usePGliteDatabase: () => null,
 }));
 
 describe('SearchIndexingSettingsSection', () => {
@@ -57,6 +60,176 @@ describe('SearchIndexingSettingsSection', () => {
       modelKey: 'openai::text-embedding-3-small',
       name: 'Managed Cache',
     });
+  });
+
+  it('creates and selects the canonical collection from empty native settings without choosing inference', async () => {
+    findAllMock.mockResolvedValue([]);
+    getByIdMock.mockResolvedValue(null);
+    createWorkspaceMock.mockImplementation(async () => {
+      const created = {
+        createdAt: '2026-10-05T00:00:00Z',
+        dimensions: 384,
+        id: 'workspace-local',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        name: 'Workspace Index',
+      };
+      findAllMock.mockResolvedValue([created]);
+      getByIdMock.mockResolvedValue(created);
+      return created;
+    });
+    useBackgroundIndexingPreferencesStore.getState().setNativeIndexMode('VECTOR');
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+    expect(createWorkspaceMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'MiniLM — CPU' }));
+    const setup = await screen.findByRole('button', { name: 'Use embedding model' });
+    await waitFor(() => expect(setup.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(setup);
+    await waitFor(() =>
+      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe(
+        'workspace-local'
+      )
+    );
+    expect(createWorkspaceMock).toHaveBeenCalledTimes(1);
+    expect(useBackgroundIndexingPreferencesStore.getState().nativeLocalSelection).toBeNull();
+    fireEvent.click(screen.getByRole('combobox', { name: 'Local model execution' }));
+    expect(await screen.findByRole('option', { name: 'WASM · Q8' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('option', { name: 'WASM · Q8' }));
+    expect(useBackgroundIndexingPreferencesStore.getState().nativeLocalSelection).toMatchObject({
+      device: 'wasm',
+      dimensions: 384,
+      dtype: 'q8',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+    });
+  });
+
+  it('selects a different model into its own collection and clears the old execution choice', async () => {
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('set-1');
+    useBackgroundIndexingPreferencesStore.getState().setNativeLocalSelection({
+      device: 'wasm',
+      dimensions: 384,
+      dtype: 'q8',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+    });
+    createWorkspaceMock.mockImplementation(async () => {
+      const created = {
+        createdAt: '2026-10-05T00:00:00Z',
+        dimensions: 384,
+        id: 'fused-collection',
+        modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
+        modelKey: 'local::onnx-community/all-MiniLM-L6-v2-ONNX',
+        name: 'Fused collection',
+      };
+      findAllMock.mockResolvedValue([created]);
+      getByIdMock.mockResolvedValue(created);
+      return created;
+    });
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'MiniLM — WebGPU or CPU' }));
+    const setup = screen.getByRole('button', { name: 'Use embedding model' });
+    await waitFor(() => expect(setup.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(setup);
+    await waitFor(() =>
+      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe(
+        'fused-collection'
+      )
+    );
+    expect(createWorkspaceMock).toHaveBeenCalledWith(
+      'local::onnx-community/all-MiniLM-L6-v2-ONNX',
+      'onnx-community/all-MiniLM-L6-v2-ONNX',
+      384,
+      'cosine',
+      { name: 'Workspace Index (MiniLM — WebGPU or CPU)' }
+    );
+    expect(useBackgroundIndexingPreferencesStore.getState().nativeLocalSelection).toBeNull();
+  });
+
+  it('reuses the current matching model without duplicating the collection or clearing execution', async () => {
+    const collection = {
+      createdAt: '2026-10-05T00:00:00Z',
+      dimensions: 384,
+      distance: 'cosine',
+      id: 'current-local',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      name: 'My index',
+    };
+    findAllMock.mockResolvedValue([collection]);
+    getByIdMock.mockResolvedValue(collection);
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId(collection.id);
+    const selection = {
+      device: 'wasm',
+      dimensions: 384,
+      dtype: 'q8',
+      modelId: collection.modelId,
+      revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+    } as const;
+    useBackgroundIndexingPreferencesStore.getState().setNativeLocalSelection(selection);
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'MiniLM — CPU' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use embedding model' }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Use embedding model' }).hasAttribute('disabled')
+      ).toBe(false)
+    );
+    expect(createWorkspaceMock).not.toHaveBeenCalled();
+    expect(useBackgroundIndexingPreferencesStore.getState()).toMatchObject({
+      managedCollectionId: collection.id,
+      nativeLocalSelection: selection,
+    });
+  });
+
+  it('preserves newer selection even when it returns to the original collection during creation', async () => {
+    let resolveCreation: ((value: object) => void) | undefined;
+    createWorkspaceMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreation = resolve;
+        })
+    );
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('set-1');
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'MiniLM — CPU' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use embedding model' }));
+    await waitFor(() => expect(createWorkspaceMock).toHaveBeenCalledTimes(1));
+    act(() => {
+      useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('set-2');
+      useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('set-1');
+    });
+    await act(async () => {
+      resolveCreation?.({
+        createdAt: '2026-10-05T00:00:00Z',
+        dimensions: 384,
+        distance: 'cosine',
+        id: 'new-local',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        name: 'New index',
+      });
+    });
+    expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe('set-1');
+  });
+
+  it('keeps a failed collection setup visible without selecting or retrying it', async () => {
+    findAllMock.mockResolvedValue([]);
+    createWorkspaceMock.mockRejectedValue(new Error('Collection storage unavailable'));
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'MiniLM — CPU' }));
+    const setup = await screen.findByRole('button', { name: 'Use embedding model' });
+    await waitFor(() => expect(setup.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(setup);
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Collection storage unavailable'
+    );
+    expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBeNull();
+    expect(createWorkspaceMock).toHaveBeenCalledTimes(1);
   });
 
   it('keeps derived rebuild busy until main settles and preserves saved choices', async () => {

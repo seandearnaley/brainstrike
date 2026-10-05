@@ -98,6 +98,23 @@ function nativeProgressError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function getNativeSetupMessage(
+  mode: 'TEXT' | 'VECTOR' | null,
+  collectionId: string | null,
+  hasSelection: boolean
+): string | null {
+  if (mode === null) {
+    return 'Choose a search mode in Search & Indexing settings.';
+  }
+  if (collectionId === null) {
+    return 'Choose an embedding model and set up a collection in Search & Indexing settings.';
+  }
+  if (mode === 'VECTOR' && !hasSelection) {
+    return 'Choose local model execution in Search & Indexing settings.';
+  }
+  return null;
+}
+
 /** Visible UI observes the main-owned producer; closing this view never retires ingestion. */
 export function NativeWorkspaceIndexProvider({
   children,
@@ -138,14 +155,16 @@ export function NativeWorkspaceIndexProvider({
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
   const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
   const mode = useBackgroundIndexingPreferencesStore((state) => state.nativeIndexMode);
+  const selection = useBackgroundIndexingPreferencesStore((state) => state.nativeLocalSelection);
   const collectionId = useBackgroundIndexingPreferencesStore((state) => state.managedCollectionId);
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const publish = useWorkspaceCollectionSyncStatusStore.getState().setStatus;
-    if (!enabled || paused || mode === null) {
+    const setupMessage = getNativeSetupMessage(mode, collectionId, selection !== null);
+    if (!enabled || paused || mode === null || setupMessage !== null) {
       publish({
-        lastError: null,
+        lastError: enabled && !paused ? setupMessage : null,
         managedCollectionId: collectionId,
         state: enabled ? (paused ? 'paused' : 'unconfigured') : 'disabled',
       });
@@ -188,7 +207,7 @@ export function NativeWorkspaceIndexProvider({
         clearTimeout(timer);
       }
     };
-  }, [capability, collectionId, enabled, mode, paused]);
+  }, [capability, collectionId, enabled, mode, paused, selection]);
   return (
     <RootIdentityProvider dbRootIdByAdapterRootId={dbRootIdByAdapterRootId}>
       {children}
