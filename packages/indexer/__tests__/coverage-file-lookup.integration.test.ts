@@ -1,7 +1,12 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { IndexerOptions, IndexScope, ScopedCoverage } from '@brainstrike/indexer';
+import type {
+  IndexerOptions,
+  IndexScope,
+  ScopedCoverage,
+  VectorProfile,
+} from '@brainstrike/indexer';
 import { vectorProfileHash } from '@brainstrike/indexer';
 import { afterEach, expect, it, vi } from 'vitest';
 import { IndexReader, IndexWriter } from '../src/store.js';
@@ -25,7 +30,7 @@ afterEach(async () => {
   }
 });
 
-async function fixture(): Promise<{
+async function fixture(outsideProfile: VectorProfile = profile): Promise<{
   options: IndexerOptions;
   reader: IndexReader;
   writer: IndexWriter;
@@ -42,7 +47,12 @@ async function fixture(): Promise<{
   };
   const rooted = { ...rootless, fileId: 'rooted', relativePath: 'source.txt', rootId: 'root' };
   const empty = { ...rootless, fileId: 'empty' };
-  const outside = { ...rootless, embeddingSetId: 'outside', fileId: 'outside' };
+  const outside = {
+    ...rootless,
+    embeddingSetId: 'outside',
+    fileId: 'outside',
+    profile: outsideProfile,
+  };
   const options: IndexerOptions = {
     dbPath: path.join(directory, 'index.sqlite'),
     embedding: { indexMode: 'text-only' },
@@ -62,18 +72,18 @@ async function fixture(): Promise<{
     [empty, ''],
     [outside, 'foreign\n'],
   ] as const) {
-    const { profile: _profile, ...snapshot } = file;
+    const { profile: fileProfile, ...snapshot } = file;
     const plan = writer.scoped.prepare({
-      profile,
+      profile: fileProfile,
       snapshot: { ...snapshot, chunkLines: 1, content },
     });
     writer.scoped.commitVector({
       embeddings: plan.embeddingChunkIds.map((chunkId) => ({
         chunkId,
-        vector: Array.from({ length: profile.dimensions }, (_, index) => (index === 0 ? 1 : 0)),
+        vector: Array.from({ length: fileProfile.dimensions }, (_, index) => (index === 0 ? 1 : 0)),
       })),
       plan,
-      profile,
+      profile: fileProfile,
     });
   }
   const reader = new IndexReader(options);
@@ -84,6 +94,153 @@ async function fixture(): Promise<{
   });
   return { options, reader, writer };
 }
+
+/** Record actual native query parameters and returned rows without replacing validation. */
+function bindingReads(reader: IndexReader): Array<{ ids: string[]; rows: number }> {
+  const reads: Array<{ ids: string[]; rows: number }> = [];
+  const original = reader.db.prepare.bind(reader.db);
+  const statements: Array<() => void> = [];
+  const preparation = vi.spyOn(reader.db, 'prepare').mockImplementation((sql) => {
+    const statement = original(sql);
+    if (sql.includes('FROM file_records WHERE scoped=1')) {
+      const all = statement.all.bind(statement);
+      const execution = vi
+        .spyOn(statement, 'all')
+        .mockImplementation((...parameters: unknown[]) => {
+          expect(reader.db.inTransaction).toBe(true);
+          const ids: unknown = JSON.parse(String(parameters[0]));
+          if (!(Array.isArray(ids) && ids.every((id): id is string => typeof id === 'string'))) {
+            throw new TypeError('Expected actual canonical binding IDs.');
+          }
+          const rows = Reflect.apply(all, statement, parameters) as unknown[];
+          reads.push({ ids, rows: rows.length });
+          return rows;
+        });
+      statements.push(() => execution.mockRestore());
+    }
+    return statement;
+  });
+  cleanup.push(() => {
+    for (const restore of statements) {
+      restore();
+    }
+    preparation.mockRestore();
+  });
+  return reads;
+}
+
+it('reads and decodes each overlapping binding once while retaining ordered independent native counts', async () => {
+  const { reader } = await fixture();
+  const reads = bindingReads(reader);
+  const batch = reader.scoped.coverageBatch([
+    { profile, scope: workspace },
+    { profile, scope: collection },
+  ]);
+  expect(batch.map((result) => result.counts.chunks)).toEqual([2, 3]);
+  expect(batch.map((result) => result.scope)).toEqual([workspace, collection]);
+  expect(batch.every((result) => result.vectorCoverageComplete)).toBe(true);
+  expect(reads).toEqual([
+    { ids: ['rooted'], rows: 1 },
+    { ids: ['retained', 'empty'], rows: 2 },
+  ]);
+  expect(reader.db.inTransaction).toBe(false);
+});
+
+it('validates disjoint scopes including rootless and zero-chunk canonical files', async () => {
+  const { reader } = await fixture();
+  const reads = bindingReads(reader);
+  const outside = { embeddingSetId: 'outside', kind: 'collection' } as const;
+  const batch = reader.scoped.coverageBatch([
+    { profile, scope: outside },
+    { profile, scope: collection },
+  ]);
+  expect(batch.map((result) => result.counts.chunks)).toEqual([1, 3]);
+  expect(batch.map((result) => result.scope)).toEqual([outside, collection]);
+  expect(reads).toEqual([
+    { ids: ['outside'], rows: 1 },
+    { ids: ['rooted', 'retained', 'empty'], rows: 3 },
+  ]);
+});
+
+it('removes the second native binding query when selections completely overlap', async () => {
+  const { reader } = await fixture();
+  const reads = bindingReads(reader);
+  const batch = reader.scoped.coverageBatch([
+    { profile, scope: collection },
+    { profile, scope: collection },
+  ]);
+  expect(batch.map((result) => result.counts.chunks)).toEqual([3, 3]);
+  expect(reads).toEqual([{ ids: ['rooted', 'retained', 'empty'], rows: 3 }]);
+});
+
+it('retains incomplete coverage for missing canonical rows on a fresh transaction', async () => {
+  const { reader, writer } = await fixture();
+  reader.scoped.coverageBatch([{ profile, scope: collection }]);
+  writer.scoped.remove({ fileId: 'rooted', scope: workspace });
+  const reads = bindingReads(reader);
+  const batch = reader.scoped.coverageBatch([
+    { profile, scope: workspace },
+    { profile, scope: collection },
+  ]);
+  expect(batch.map((result) => result.counts.chunks)).toEqual([0, 1]);
+  expect(batch.map((result) => result.counts.indexedFiles)).toEqual([0, 2]);
+  expect(batch.every((result) => !result.vectorCoverageComplete)).toBe(true);
+  expect(reads).toEqual([
+    { ids: ['rooted'], rows: 0 },
+    { ids: ['retained', 'empty'], rows: 2 },
+  ]);
+});
+
+it.each([
+  { fileId: 'rooted', kind: 'foreign metadata' },
+  { fileId: 'retained', kind: 'foreign metadata' },
+  { fileId: 'rooted', kind: 'invalid metadata bytes' },
+  { fileId: 'retained', kind: 'invalid metadata bytes' },
+] as const)('rejects $kind committed between batches on $fileId', async ({ fileId, kind }) => {
+  const { reader, writer } = await fixture();
+  const requests = [
+    { profile, scope: workspace },
+    { profile, scope: collection },
+  ];
+  reader.scoped.coverageBatch(requests);
+  writer.db
+    .prepare('UPDATE file_records SET source_path=? WHERE id=?')
+    .run(kind === 'foreign metadata' ? '/changed' : Buffer.from([255]), fileId);
+  expect(() => reader.scoped.coverageBatch(requests)).toThrow(
+    kind === 'foreign metadata'
+      ? expect.objectContaining({ code: 'file-ownership-changed' })
+      : TypeError
+  );
+  expect(reader.db.inTransaction).toBe(false);
+});
+
+it('keeps distinct-profile validation fatal when other requests share already-validated bindings', async () => {
+  const other = { ...profile, revision: 'b'.repeat(40) };
+  const { reader, writer } = await fixture(other);
+  const reads = bindingReads(reader);
+  const requests = [
+    { profile, scope: workspace },
+    { profile, scope: collection },
+    { scope: { embeddingSetId: 'outside', kind: 'collection' } as const },
+    { profile: other, scope: { embeddingSetId: 'outside', kind: 'collection' } as const },
+  ];
+  const batch = reader.scoped.coverageBatch(requests);
+  expect(batch.map((result) => result.profileHash)).toEqual([
+    vectorProfileHash(profile),
+    vectorProfileHash(profile),
+    null,
+    vectorProfileHash(other),
+  ]);
+  expect(batch.map((result) => result.counts.chunks)).toEqual([2, 3, 1, 1]);
+  expect(reads.flatMap((read) => read.ids)).toEqual(['rooted', 'retained', 'empty', 'outside']);
+  const corrupt = Buffer.alloc(other.dimensions * 4);
+  corrupt.writeFloatLE(Number.NaN, 0);
+  writer.db
+    .prepare('UPDATE scoped_vectors SET emb=? WHERE profile_hash=?')
+    .run(corrupt, vectorProfileHash(other));
+  expect(() => reader.scoped.coverageBatch(requests)).toThrow('finite');
+  expect(reader.db.inTransaction).toBe(false);
+});
 
 function coveragePlan(
   reader: IndexReader,

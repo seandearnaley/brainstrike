@@ -191,8 +191,13 @@ export function scopeCoverageBatch(
       assertCoverageAuthority(identity, expected);
     }
     const validatedProfiles = new Set<string>();
+    const validatedFileIds = new Set<string>();
     return requests.map(({ request, selected, profile, profileHash }) => {
-      authority.validateStoredBindings(db, selected);
+      const unchecked = selected.filter((file) => !validatedFileIds.has(file.fileId));
+      authority.validateStoredBindings(db, unchecked);
+      for (const file of unchecked) {
+        validatedFileIds.add(file.fileId);
+      }
       if (profileHash && !validatedProfiles.has(profileHash)) {
         validateScopedStorage(db, profileHash);
         validatedProfiles.add(profileHash);
