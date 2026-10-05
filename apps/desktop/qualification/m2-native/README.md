@@ -1,3 +1,9 @@
+# Primary-Mac responsiveness evidence (2026-10-05)
+
+The same-corpus controlled idle phase is a current paused reference, not historical loaded BEFORE5000. Require at least100 finite nonnegative idle chat samples; retain its corpus hash, full scope/profile, period and phase marks. Preserve the accepted54.93ms loaded-chat ceiling, strict frame maximum<50ms and zero long tasks. Record the historical1000 provenance of the chat ceiling separately.
+
+Retain every selected frame interval's renderer start/end timestamps, long-task start/duration, renderer time origin and named phase boundaries beside the unchanged gap/duration arrays. Record the runner time origin so progress timestamps and renderer intervals can be correlated. Selection remains start-inside the existing phase; never remove an outlier. This evidence correction does not explain or repair the retained216.7ms stall. `renderer-timeline.test.mjs` exercises the real output adapter with an outlier and disjoint phases; `native-benchmark.test.mjs` refuses absent/invalid idle chat while preserving numeric gates. CI is disabled due to cost; validation must run locally.
+
 # Historical publication liveness (2026-10-04)
 
 The benchmark keeps a sticky historical liveness credit for each initially incomplete canonical workspace/collection scope. Pin every exposed cold store, full mode/profile/hash/query plan and exact authorized/readiness inventory. Validate every ready status, including after both credits; drift, missing, duplicate or foreign IDs fail. A matching first scan-complete receipt proves historical native publication and earns one credit. Baseline-true scopes begin credited; repeated completion, rewinds, unavailable/invalidated reads, status noise and worker telemetry never earn another credit. The public status omits scan generation/epoch and does not re-fence readiness, so these credits do not assert current same-scan authority or incremental committed progress.

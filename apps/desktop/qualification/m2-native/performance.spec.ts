@@ -438,11 +438,33 @@ test('native full-pipeline historical throughput and calibrated foreground laten
       loadedTool: loaded.tool,
     });
     const evidence = {
+      acceptanceCriteria: {
+        chat: {
+          ceilingMs: 54.93,
+          provenance:
+            'Preserved historical1000 loaded chat p95 49.93ms + 5ms allowance; apps/desktop/qualification/m2-native/README.md, Preserved performance comparison. Same-corpus idle is a current controlled reference, not historical loaded BEFORE5000.',
+        },
+        frames: { maximumExclusiveMs: 50, maximumLongTasks: 0 },
+      },
       assessment,
       before,
       calibration,
       completion:
         'observed current workspace and collection canonical readiness with full native coverage; includes up to 500ms observation delay',
+      controlledIdleBaseline: {
+        chat: summarize(idle.chat),
+        corpus: {
+          bytes: corpus.bytes,
+          files: corpus.files,
+          seed: corpus.seed,
+          sha256: corpus.sha256,
+        },
+        phase:
+          'cold paused, after warmup, before Resume; same session/corpus/store/profile and probe operations',
+        samplePeriodMs: 200,
+        scope,
+        window: idleFrames.windows,
+      },
       corpus,
       elapsedMs,
       final,
@@ -467,6 +489,7 @@ test('native full-pipeline historical throughput and calibrated foreground laten
         toolIdle: summarize(idle.tool),
         toolLoaded: summarize(loaded.tool),
       },
+      runnerTimeOriginMs: performance.timeOrigin,
       schema: 'brainstrike.m2-native-foreground.v1',
       scope,
     };
