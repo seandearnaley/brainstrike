@@ -31,6 +31,7 @@ import {
 } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
+import { newRetryStats, type RetryStats, retrySharing } from './fs-retry.mjs';
 
 export interface LockOwner {
   readonly host: string;
@@ -295,6 +296,7 @@ export class RootLock {
   readonly gen: number;
   readonly owner: LockOwner;
   private released = false;
+  private readonly releaseStats = newRetryStats();
 
   private constructor(dir: string, gen: number, owner: LockOwner) {
     this.dir = dir;
@@ -371,23 +373,105 @@ export class RootLock {
     return this.released;
   }
 
-  /** Mark our generation released (atomic replace of our own file). Throws if it is no longer ours. */
+  /** Windows release-operation accounting; snapshots never expose the mutable counters. */
+  get releaseRetryStats(): Readonly<RetryStats> {
+    return { ...this.releaseStats, codes: { ...this.releaseStats.codes } };
+  }
+
+  private assertReleaseOwner(path: string): void {
+    const cur = readOwner(path);
+    if (
+      !cur ||
+      (cur.released !== undefined && cur.released !== false) ||
+      cur.token !== this.owner.token ||
+      cur.pid !== this.owner.pid ||
+      cur.start !== this.owner.start ||
+      cur.host !== this.owner.host ||
+      cur.root !== this.owner.root
+    ) {
+      throw new Error(`lock: ${path} is no longer ours at release`);
+    }
+    if (generations(this.dir).at(-1) !== this.gen) {
+      throw new Error(`lock: ${path} was superseded at release`);
+    }
+  }
+
+  /** Atomic release; Windows retries only rename faults while full authority remains ours. */
   release(): void {
     if (this.released) {
       return;
     }
     const path = join(this.dir, genName(this.gen));
-    const cur = readOwner(path);
-    if (!cur || cur.token !== this.owner.token) {
-      throw new Error(`lock: ${path} is no longer ours at release`);
+    this.assertReleaseOwner(path);
+    let tmp: string | undefined;
+    let fd: number | undefined;
+    try {
+      const candidate = join(
+        this.dir,
+        `.${this.owner.token}.${randomBytes(4).toString('hex')}.tmp`
+      );
+      fd = openSync(candidate, 'wx');
+      tmp = candidate; // Only a successful exclusive open gives us cleanup authority.
+      writeSync(fd, JSON.stringify({ ...this.owner, released: true }));
+      fsyncSync(fd);
+      closeSync(fd);
+      fd = undefined;
+      const rename = (): void => {
+        try {
+          this.assertReleaseOwner(path);
+        } catch (cause) {
+          // A read/listing EPERM is an authority failure, never a rename retry.
+          throw new ReleaseAuthorityError(cause);
+        }
+        renameSync(candidate, path);
+      };
+      if (process.platform === 'win32') {
+        const error = retrySharing(rename, this.releaseStats);
+        if (error) {
+          throw error;
+        }
+      } else {
+        rename();
+      }
+      this.released = true;
+    } catch (error) {
+      const primary = error instanceof ReleaseAuthorityError ? error.cause : error;
+      const failures: unknown[] = [primary];
+      if (fd !== undefined) {
+        try {
+          closeSync(fd);
+        } catch (cause) {
+          failures.push(cause);
+        }
+      }
+      if (tmp !== undefined) {
+        try {
+          unlinkIfExists(tmp);
+        } catch (cause) {
+          failures.push(cause);
+        }
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(failures, `lock: release failed; owned temp ${tmp}`, {
+          cause: primary,
+        });
+      }
+      throw primary;
     }
-    renameSync(writeTemp(this.dir, { ...this.owner, released: true }), path);
-    this.released = true;
   }
 
   /** Factory reset: release, then remove the lock directory itself. */
   releaseAndRemove(): void {
     this.release();
     rmSync(this.dir, { recursive: true });
+  }
+}
+
+/** Terminal classification inside retrySharing; the caller receives the original authority cause. */
+class ReleaseAuthorityError extends Error {
+  readonly code = 'LOCK_RELEASE_AUTHORITY';
+
+  constructor(cause: unknown) {
+    super('lock: release authority validation failed', { cause });
   }
 }

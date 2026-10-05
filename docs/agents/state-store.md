@@ -39,10 +39,18 @@ Evidence: `state-store/foundation.md`.
   use atomic generation takeover with exactly one winning contender.
 - Windows uses the real UTC FILETIME process creation time; unavailable identity
   must throw rather than imply that a live process disappeared.
+- Release uses one fsynced, closed, exclusively owned temp and atomic rename.
+  Before every rename, validate the generation and full owner identity; missing,
+  changed, malformed or superseded authority is terminal.
+- On Windows, use the existing bounded filesystem retry for release rename only;
+  POSIX attempts once. Set released only after publication, clean up only the
+  owned temp on failure, and preserve primary plus cleanup causes and temp path.
+- Expose detached release retry statistics without changing shared accounting:
+  retries count eventual success; exhausted failures retain attempts and codes.
 
 Guard: `packages/state-store/__tests__/d5-root-lock.test.ts`,
-`m0-lock-start-time.test.ts`, `i6-synced.test.ts`.
-Evidence: `state-store/foundation.md`.
+`m0-lock-start-time.test.ts`, `m0-lock-release.test.ts`, `i6-synced.test.ts`.
+Evidence: `state-store/foundation.md`, `state-store/windows-release-2026-10-05.md`.
 
 ## Blobs, purge and interchange
 
