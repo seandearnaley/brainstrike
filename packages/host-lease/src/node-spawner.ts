@@ -1,4 +1,4 @@
-import { type ChildProcess, fork } from 'node:child_process';
+import { type ChildProcess, fork, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { runWithTimeout } from '@brainstrike/effect-kit';
 import { ForeignLockError, RootLock, RootLockedError } from '@brainstrike/state-store';
@@ -39,16 +39,29 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
     signal.throwIfAborted();
     const startOptions = decodeStartOptions(input);
     const owner = new ResourceOwner();
-    const child = await owner.acquire(
-      async () =>
-        fork(entrypoint, [JSON.stringify(startOptions)], {
-          detached: startOptions.lifetime === 'persistent',
-          execArgv: [...(options.execArgv ?? [])],
-          execPath: process.execPath,
-          stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
-        }),
-      disconnect
-    );
+    const child = await owner.acquire(async (): Promise<ChildProcess> => {
+      if (process.platform === 'win32') {
+        // Windows non-detached children die with the creator's libuv job.
+        // HostRuntime must instead join CLI idle/app-parent cleanup itself.
+        // https://github.com/libuv/libuv/blob/v1.52.1/src/win/process.c
+        // spawn exposes windowsHide and, like fork, creates Node's IPC fd.
+        return spawn(
+          process.execPath,
+          [...(options.execArgv ?? []), entrypoint, JSON.stringify(startOptions)],
+          {
+            detached: true,
+            stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+            windowsHide: true,
+          }
+        );
+      }
+      return fork(entrypoint, [JSON.stringify(startOptions)], {
+        detached: startOptions.lifetime === 'persistent',
+        execArgv: [...(options.execArgv ?? [])],
+        execPath: process.execPath,
+        stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+      });
+    }, disconnect);
     try {
       await runWithTimeout(
         (signal) =>
