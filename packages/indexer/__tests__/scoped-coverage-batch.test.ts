@@ -44,6 +44,7 @@ function fixture(secondProfile: VectorProfile = profile) {
   let transactions = 0;
   let corruption: 'bytes' | 'ownership' | 'coarse' | 'profile' | 'binding' | 'chunks' | null = null;
   const scans: string[] = [];
+  const bindingQueries: string[][] = [];
   const prepare = (sql: string) => {
     const assertSnapshot = () => {
       if (!active) {
@@ -65,6 +66,7 @@ function fixture(secondProfile: VectorProfile = profile) {
         }
         if (sql.includes('FROM file_records WHERE scoped=1')) {
           const ids = JSON.parse(value) as string[];
+          bindingQueries.push(ids);
           return files
             .filter((file) => ids.includes(file.fileId))
             .map(({ profile: _profile, ...file }) => ({
@@ -148,6 +150,7 @@ function fixture(secondProfile: VectorProfile = profile) {
     scopes: [collection, { embeddingSetId: 'imports', kind: 'collection' }],
   });
   return {
+    bindingQueries,
     corrupt: (kind: Exclude<typeof corruption, null> = 'bytes') => {
       corruption = kind;
     },
@@ -169,8 +172,10 @@ it('validates a shared complete profile once inside one snapshot and retains ind
   expect(results.every((result) => result.vectorCoverageComplete)).toBe(true);
   expect(f.transactions()).toBe(1);
   expect(f.scans).toEqual([vectorProfileHash(profile)]);
+  expect(f.bindingQueries).toEqual([['file']]);
   expect(f.index.coverage({ profile, scope: workspace })).toEqual(results[0]);
   expect(f.scans).toHaveLength(2);
+  expect(f.bindingQueries).toEqual([['file'], ['file']]);
 });
 
 it('does not reuse successful validation after vector bytes become corrupt', () => {
@@ -190,13 +195,18 @@ it('validates each distinct complete profile within the same snapshot', () => {
   const f = fixture(other);
   const results = f.index.coverageBatch([
     { profile, scope: workspace },
+    { profile, scope: collection },
+    { scope: { embeddingSetId: 'imports', kind: 'collection' } },
     { profile: other, scope: { embeddingSetId: 'imports', kind: 'collection' } },
   ]);
   expect(results.map((result) => result.profileHash)).toEqual([
     vectorProfileHash(profile),
+    vectorProfileHash(profile),
+    null,
     vectorProfileHash(other),
   ]);
   expect(f.scans).toEqual([vectorProfileHash(profile), vectorProfileHash(other)]);
+  expect(f.bindingQueries).toEqual([['file'], ['import']]);
   expect(f.transactions()).toBe(1);
 });
 
