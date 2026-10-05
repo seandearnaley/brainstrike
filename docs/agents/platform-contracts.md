@@ -420,6 +420,10 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   stopped permit waiter returns before claiming a job. The stop signal does not
   cancel an embedding already executing.
 - Parser host Stop joins every owned generation’s exit and listeners with a 500ms caller wait; timeout rejects while actual cleanup stays owned. A failed kill remains visible and retryable, blocks parsing on that generation, and never acknowledges successful cleanup.
+- Interactive terminal cleanup retains ownership after renderer destruction or
+  IPC removal. The assistant-server shutdown batch and factory reset await both
+  the descendant tree walk and node-pty exit callback, including prior reaps;
+  failures remain visible and the existing application deadline owns the wait.
 - The assistant HTTP server's stop ends live connections after `close()`; an
   already-closed listener (`ERR_SERVER_NOT_RUNNING`) is a successful repeated
   stop and other close failures stay visible. Why: plain `server.close()` waits
@@ -461,8 +465,8 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
 
 Admission retirement precedes host stops, and each timeout sits under
 the application deadline. See ADR-0005 and ADR-0006. Evidence:
-`platform-contracts/graceful-shutdown-ownership.md`, `effect-boundary/parser-generation-scope.md`.
-Guard: `apps/desktop/src/__tests__/main/desktop-graceful-shutdown.test.ts`, `ipc-embedding-backfill.test.ts`, `embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
+`platform-contracts/graceful-shutdown-ownership.md`, `platform-contracts/terminal-shutdown-join.md`, `effect-boundary/parser-generation-scope.md`.
+Guard: `apps/desktop/src/__tests__/terminal-shutdown-join.test.ts`, `apps/desktop/src/__tests__/main/desktop-graceful-shutdown.test.ts`, `ipc-embedding-backfill.test.ts`, `embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
 `renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`, `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`, `parser-host-shutdown.integration.test.ts`, `db-host-manager-close.test.ts`, `db-host-manager-init-phase.test.ts`, `db-host-manager-init-loop.test.ts`, `db-host-init-budget.test.ts`, `db-host-protocol.test.ts`, `db-main.close.test.ts`, `apps/desktop/src/__tests__/platform/host-request-channel.test.ts`, `apps/desktop/src/__tests__/db-clean-shutdown-marker.test.ts`, `db-init-attempt-record.test.ts`, `apps/desktop/src/__tests__/main/db-host-entry.signals.test.ts`, `db-host-entry.db-main.test.ts`, `apps/desktop/src/__tests__/main/shutdown-signals.test.ts`, `boot-order.test.ts`, `apps/desktop/e2e/shutdown-signals.desktop.test.ts`, `apps/desktop/src/__tests__/electron-harness-out-of-band.test.ts`.
 
 ### Browser preference hydration
