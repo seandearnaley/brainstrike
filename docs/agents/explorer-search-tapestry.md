@@ -253,6 +253,11 @@ Guard: `workspace-root-registry{,.integration}.test.ts`,
 
 ### Token indexing has TWO trigger sources
 
+- Read cached worker-request hashes in one canonical `getBatch` call per folder;
+  preserve request order and counting-mode compatibility. A lookup failure rejects
+  dispatch visibly. Publish resolved counts only after their durable cache write.
+  Guard: `packages/token-cache/src/__tests__/use-background-token-indexer.test.tsx`.
+
 Per-file TOKEN counting is separate from the Workspace Index above and is driven
 by `useBackgroundTokenIndexerIntegration`.
 
