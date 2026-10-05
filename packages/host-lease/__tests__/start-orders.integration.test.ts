@@ -86,19 +86,54 @@ async function waitReleased(root: string): Promise<void> {
   }
   throw new Error('Host did not release its root and discovery record');
 }
+async function waitForGone(record: HostRecord): Promise<void> {
+  for (let i = 0; i < 100; i += 1) {
+    if (processStartTime(record.pid) !== record.start) {
+      return;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Owned test host ${record.pid} did not exit`);
+}
 afterEach(async () => {
+  // Snapshot before cleanup so a failed test cannot contaminate the next one.
+  const fixtureRoots = roots.splice(0);
+  const fixtureHosts = [...hosts.values()];
+  hosts.clear();
   await Promise.all(children.splice(0).map((child) => closeClient(child)));
-  for (const record of hosts.values()) {
+  for (const record of fixtureHosts) {
     if (processStartTime(record.pid) === record.start) {
       // Only a proved test-owned host may be terminated during fixture cleanup.
       process.kill(record.pid, 'SIGTERM');
+      await waitForGone(record);
     }
   }
-  for (const root of roots) {
-    await waitReleased(root);
+  for (const root of fixtureRoots) {
+    // Windows force termination cannot run finalizers. Keep failed roots as
+    // evidence; graceful-release assertions belong in the test, before cleanup.
+    if (RootLock.inspect(root)?.owner.released && (await readHostRecord(root)) === null) {
+      await rm(root, { force: true, recursive: true });
+    } else {
+      process.stderr.write(`Retained unclean test-owned root: ${root}\n`);
+    }
   }
-  hosts.clear();
-  await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
+});
+
+test('a CLI creator exits while another client retains the host, then the final client releases and exits it', async () => {
+  const root = await freshRoot();
+  const creator = await client(root, 'cli');
+  const remaining = await client(root, 'cli');
+  expect(remaining.record).toEqual(creator.record);
+  await closeClient(creator.child);
+  expect(processStartTime(creator.record.pid)).toBe(creator.record.start);
+  expect(await readHostRecord(root)).toEqual(creator.record);
+  const lease = RootLock.inspect(root);
+  expect(lease?.owner.pid).toBe(creator.record.pid);
+  expect(lease?.owner.start).toBe(creator.record.start);
+  expect(lease?.owner.released).not.toBe(true);
+  await closeClient(remaining.child);
+  await waitReleased(root);
+  await waitForGone(creator.record);
 });
 
 test('real CLI-first and app-first clients discover the same process in both start orders', async () => {
@@ -135,9 +170,11 @@ test('an app-forked host releases and exits when the app is killed even while a 
   expect(cli.record.pid).toBe(app.record.pid);
   await closeClient(app.child, true);
   await waitReleased(root);
+  await waitForGone(app.record);
   const replacement = await client(root, 'cli');
   expect(replacement.record.pid).not.toBe(app.record.pid);
   await closeClient(cli.child);
   await closeClient(replacement.child);
   await waitReleased(root);
+  await waitForGone(replacement.record);
 });
