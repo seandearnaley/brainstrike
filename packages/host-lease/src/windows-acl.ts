@@ -23,13 +23,22 @@ const AclSchema = Schema.Struct({
 });
 const decodeAcl = makeThrowingDecoder(AclSchema, { onExcessProperty: 'error' });
 // The path travels only through the environment, never PowerShell source.
+// Use Windows PowerShell's .NET Framework ACL primitive (BST-1941): Set-Acl
+// requested SeSecurityPrivilege when reapplying an already-protected DACL.
+// https://learn.microsoft.com/dotnet/api/system.io.directoryinfo.setaccesscontrol?view=netframework-4.8.1
 const command = `
 $ErrorActionPreference = 'Stop'
 $path = $env:BRAINSTRIKE_LEASE_ACL_PATH
 $kind = $env:BRAINSTRIKE_LEASE_ACL_KIND
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $identityType = [System.Security.Principal.SecurityIdentifier]
-$old = Get-Acl -LiteralPath $path
+if ($kind -eq 'directory') {
+  $info = [System.IO.DirectoryInfo]::new($path)
+} else {
+  $info = [System.IO.FileInfo]::new($path)
+}
+$sections = [System.Security.AccessControl.AccessControlSections]::Access -bor [System.Security.AccessControl.AccessControlSections]::Owner
+$old = $info.GetAccessControl($sections)
 if ($old.GetOwner($identityType).Value -ne $sid.Value) { throw 'Host metadata belongs to another user' }
 if ($env:BRAINSTRIKE_LEASE_ACL_ACTION -eq 'set') {
   if ($kind -eq 'directory') {
@@ -43,9 +52,9 @@ if ($env:BRAINSTRIKE_LEASE_ACL_ACTION -eq 'set') {
   $acl.SetAccessRuleProtection($true, $false)
   $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, [System.Security.AccessControl.FileSystemRights]::FullControl, $inheritance, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
   $acl.AddAccessRule($rule)
-  Set-Acl -LiteralPath $path -AclObject $acl
+  $info.SetAccessControl($acl)
 }
-$checked = Get-Acl -LiteralPath $path
+$checked = $info.GetAccessControl($sections)
 $rules = @($checked.GetAccessRules($true, $true, $identityType) | ForEach-Object {
   [ordered]@{ sid = $_.IdentityReference.Value; rights = [int]$_.FileSystemRights; type = $_.AccessControlType.ToString(); isInherited = $_.IsInherited; inheritance = [int]$_.InheritanceFlags; propagation = [int]$_.PropagationFlags }
 })
