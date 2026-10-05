@@ -123,6 +123,49 @@ describe('wasmLoader browser worker host', () => {
     );
   });
 
+  it('uses strict durability when a reload fixture requires durable writes', async () => {
+    const { wasmLoader } = await import('../src/wasm-loader');
+    await wasmLoader.createPGliteClient('idb://web-e2e-reload', { requireDurableWrites: true });
+    expect(pgliteWorkerCreate).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ dataDir: 'idb://web-e2e-reload', relaxedDurability: false })
+    );
+  });
+
+  it('rejects a changed durability requirement on an already open store', async () => {
+    const { wasmLoader } = await import('../src/wasm-loader');
+    await wasmLoader.createPGliteClient('idb://web-e2e-reload');
+    await expect(
+      wasmLoader.createPGliteClient('idb://web-e2e-reload', { requireDurableWrites: true })
+    ).rejects.toThrow('PGlite worker durability cannot change while the store is open');
+    expect(pgliteWorkerCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects strict reuse while a relaxed worker startup is pending', async () => {
+    const workerClient = {
+      close: vi.fn(),
+      live: { query: vi.fn() },
+      query: vi.fn(),
+      transaction: vi.fn(),
+    };
+    let finishStartup: ((client: typeof workerClient) => void) | undefined;
+    pgliteWorkerCreate.mockImplementation(
+      () =>
+        new Promise<typeof workerClient>((resolve) => {
+          finishStartup = resolve;
+        })
+    );
+    const { wasmLoader } = await import('../src/wasm-loader');
+    const startup = wasmLoader.createPGliteClient('idb://web-e2e-pending');
+    await waitForMockCall(pgliteWorkerCreate);
+    await expect(
+      wasmLoader.createPGliteClient('idb://web-e2e-pending', { requireDurableWrites: true })
+    ).rejects.toThrow('PGlite worker durability cannot change while the store is open');
+    finishStartup?.(workerClient);
+    await startup;
+    expect(pgliteWorkerCreate).toHaveBeenCalledTimes(1);
+  });
+
   it('creates worker-owned PGlite for browser OPFS AHP paths', async () => {
     const { wasmLoader } = await import('../src/wasm-loader');
 

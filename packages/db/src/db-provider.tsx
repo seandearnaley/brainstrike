@@ -20,11 +20,18 @@ import { createPgliteDirectTransport } from './pglite-direct-transport.js';
 interface DbProviderProps {
   children: React.ReactNode;
   dbPath?: string;
+  /** Require strict storage durability, including ephemeral reload-test stores. */
+  requireDurableWrites?: boolean;
   useElectronIPC?: boolean;
 }
 
-export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
-  // Both props are MOUNT-TIME configuration: the runtime and its transports are
+export function DbProvider({
+  children,
+  dbPath,
+  requireDurableWrites,
+  useElectronIPC,
+}: DbProviderProps) {
+  // Database options are MOUNT-TIME configuration: the runtime and its transports are
   // built once per mount, so a later change could only take effect if a
   // transport were re-opened, which would silently swap the database out from
   // under live repositories. Every call site passes a constant
@@ -44,6 +51,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         createElectronIpcTransport({ isEnabled: () => useElectronIPC === true }),
         createPgliteDirectTransport({
           getDataDir: () => dbPath ?? getDefaultDbPath(),
+          requireDurableWrites: requireDurableWrites === true,
         }),
       ],
     })

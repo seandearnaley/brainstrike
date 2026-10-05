@@ -34,34 +34,20 @@ jobs:
   web-full-regression:
     name: Web Full Regression
     runs-on: ubuntu-latest
-    # Run inside the official Playwright image: browsers and their system
-    # dependencies are baked in, so there is NO `playwright install` step and
-    # NO download from cdn.playwright.dev at job time. That CDN browser download
-    # was stalling at ~100% and hanging this job to its timeout every night
-    # (GitHub reports the timeout as "cancelled"). Mirrors the web smoke job in
-    # test.yml. KEEP IN SYNC: the image tag MUST equal @playwright/test's
-    # version; the same pin is hard-coded in .github/workflows/{test.yml,
-    # web-e2e.yml,performance.yml} — bump all three together on a Playwright
-    # upgrade. `container.image:` cannot consume a workflow expression, so this
-    # stays a literal; scripts/verify-playwright-pin-sync.mjs (run via
-    # `pnpm test:scripts` in test.yml's Static job) is the automated drift
-    # check.
-    #
-    # NOT folded into the setup-workspace composite (Series C R9a): this
-    # container has no C toolchain/sudo, so the bespoke install below excludes
-    # both native-build projects — see the matching note in test.yml's web-e2e
-    # job.
+    # Official browser/system-dependency fleet; fixed CfT is provisioned below.
+    # Root is Playwright's documented mode for trusted E2E and permits explicit
+    # system-tool installation. No custom image publication is required.
     container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble
-      # `--user 1001` (pwuser) owns the browsers under /ms-playwright; this is
-      # the configuration in Playwright's official GitHub Actions example.
-      options: --user 1001
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: --user 0
     # Lane scripts have bounded Playwright budgets totalling 130 minutes. Allow
     # eleven one-minute web-server starts plus 24 minutes for setup/build overhead.
     timeout-minutes: 165
     env:
       # Browsers are preinstalled in the image; point Playwright at them.
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      BRAINSTRIKE_WEB_CHROMIUM_DIR: ${{ runner.temp }}/web-chromium
+      pnpm_config_verify_deps_before_run: error
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -74,6 +60,25 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: 'pnpm'
+
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
+      - name: Install web test system tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends unzip lsof procps
+
+      - name: Provision qualified web Chromium
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = "v$(cat .nvmrc)"
+          mkdir -p apps/web/test-results
+          node scripts/provision-web-chromium.mjs "$BRAINSTRIKE_WEB_CHROMIUM_DIR" > apps/web/test-results/web-chromium-provisioning.json
 
       # Re-keyed on lockfile+turbo.jsonc content (Series C R9a — same pattern
       # as the setup-workspace composite; see its header comment for the
@@ -89,7 +94,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-turbo-
 
       - name: Install dependencies
-        # Exclude both desktop-only native projects: this pwuser container has no
+        # Exclude both desktop-only native projects: this container has no
         # C toolchain or sudo, and web regression loads neither native surface.
         # See the matching note in test.yml's web-e2e job.
         run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native'

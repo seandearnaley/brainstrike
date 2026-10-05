@@ -87,6 +87,10 @@ const PROVISIONING_STEPS = new Set([
   'browser-tests › Install dependencies',
   'web-e2e › Require successful admission',
   'web-e2e › Install dependencies',
+  // Explicit browser/system-tool provisioning; drift is guarded by
+  // verify-playwright-pin-sync.test.mjs and web-chromium.test.mjs.
+  'web-e2e › Install web test system tools',
+  'web-e2e › Provision qualified web Chromium',
   'desktop-e2e-smoke › Require successful admission',
   'desktop-e2e-smoke › Install Chromium system dependencies',
   'desktop-e2e-smoke › Provision Electron binary',

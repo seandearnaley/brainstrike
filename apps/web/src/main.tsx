@@ -216,7 +216,13 @@ if (import.meta.hot) {
 
 root.render(
   <React.StrictMode>
-    <DbProvider dbPath={webDbPath}>
+    <DbProvider
+      dbPath={webDbPath}
+      requireDurableWrites={
+        window.navigator.webdriver === true &&
+        Reflect.get(window, '__brainstrikeWebE2ERequireDurableWrites__') === true
+      }
+    >
       <DiagnosticSinkBridge source="web-renderer" />
       <WebE2ETestHooks dbPath={webDbPath} />
       <DbSchemaVerifier>
