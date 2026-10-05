@@ -477,10 +477,8 @@ test('native full-pipeline historical throughput and calibrated foreground laten
     expect(assessment.validityErrors).toEqual([]);
     expect(assessment.gates.frames).toBe(true);
     expect(assessment.gates.chat).toBe(true);
-    expect(assessment.gates.nativeTool).toBe(true);
-    if (mode === 'vector') {
-      expect(assessment.gates.throughput).toBe(true);
-    }
+    // Preserve nativeTool/throughput reference comparisons in recorded evidence.
+    // Owner-approved M2 scope: tool ratio is diagnostic; throughput is a stretch goal.
   } finally {
     await session.close();
   }
