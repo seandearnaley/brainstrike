@@ -1,10 +1,31 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
+import { WEB_CHROMIUM_VERSION } from '../config/web-chromium.mjs';
+import type { WebE2ETestHooks } from '../src/web-e2e-test-hooks';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
 import { clickExplorerTreeAction } from './utils/file-tree-locators';
-import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
+import { waitForAppLoad } from './utils/layout-helpers';
 import type { FileTree } from './utils/mock-fs';
+
+test.beforeEach(async ({ page }) => {
+  // Reload assertions need the same strict durable-write guarantee as real web stores.
+  await page.addInitScript(() => {
+    Reflect.set(window, '__brainstrikeWebE2ERequireDurableWrites__', true);
+  });
+});
+
+test.beforeAll(async ({ browser }, testInfo) => {
+  if (browser.browserType().name() !== 'chromium') {
+    return;
+  }
+  const actualVersion = browser.version();
+  await testInfo.attach('chromium-version', {
+    body: JSON.stringify({ actualVersion, expectedVersion: WEB_CHROMIUM_VERSION }),
+    contentType: 'application/json',
+  });
+  expect(actualVersion).toBe(WEB_CHROMIUM_VERSION);
+});
 
 const ROOT_NAME = 'persistent-root';
 const FILE_TREE: FileTree = {
@@ -183,12 +204,38 @@ async function seedRootHandleInCache(page: Page, rootId: string, rootName: strin
 }
 
 async function openPreviewFile(page: Page, fileName: string): Promise<void> {
-  const rowButton = getPanelElements(page)
-    .rightPanel.getByRole('button', { name: fileName })
-    .first();
-  await rowButton.scrollIntoViewIfNeeded();
-  await expect(rowButton).toBeVisible({ timeout: 15_000 });
-  await rowButton.click();
+  // File-name clicks open tabs; Tapestry background buttons create line ranges.
+  const fileLabel = new FileExplorerPage(page).fileTree.getByText(fileName, { exact: true });
+  await fileLabel.scrollIntoViewIfNeeded();
+  await expect(fileLabel).toBeVisible({ timeout: 15_000 });
+  await fileLabel.click();
+  // A rendered file is not an acknowledgement of its asynchronous workspace save.
+  const persisted = await page.waitForFunction(
+    async (expectedName) => {
+      const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+        .__brainstrikeWebE2ETestHooks__;
+      if (!hooks) {
+        return false;
+      }
+      const workspace = await hooks.readActiveThreadWorkspace();
+      const activeFile = workspace?.activeFileTab;
+      const snapshot = workspace?.snapshot;
+      if (!(activeFile && snapshot) || activeFile.path.split('/').at(-1) !== expectedName) {
+        return false;
+      }
+      return (
+        snapshot.fileTabs.activeTabId === activeFile.compositeKey &&
+        snapshot.fileTabs.tabs.some(
+          (tab) => tab.compositeKey === activeFile.compositeKey && tab.path === activeFile.path
+        ) &&
+        snapshot.apps.selection.kind === 'file' &&
+        snapshot.apps.selection.tabId === activeFile.compositeKey
+      );
+    },
+    fileName,
+    { timeout: 15_000 }
+  );
+  await persisted.dispose();
 }
 
 async function clickDirectoryToggle(
@@ -327,9 +374,7 @@ async function seedPersistedSelectionState(
 }
 
 test.describe('File Explorer persistence (web) @stateful @web-file-explorer-persistence', () => {
-  test.fixme('restores last folder via stored handle after reload', {
-    annotation: { description: 'BST-1964', type: 'quarantine' },
-  }, async ({ page, browserName }) => {
+  test('restores last folder via stored handle after reload', async ({ page, browserName }) => {
     if (browserName !== 'chromium') {
       test.skip(true, 'File System Access API is only available in Chromium');
     }
@@ -357,9 +402,7 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     await expect(explorer.fileTree.getByText('alpha.ts')).toBeVisible();
   });
 
-  test.fixme('keeps open tabs after reload once access is restored', {
-    annotation: { description: 'BST-1964', type: 'quarantine' },
-  }, async ({ page, browserName }) => {
+  test('keeps open tabs after reload once access is restored', async ({ page, browserName }) => {
     if (browserName !== 'chromium') {
       test.skip(true, 'File System Access API is only available in Chromium');
     }
@@ -398,9 +441,10 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     await expect(page.getByText('alpha content')).toBeVisible({ timeout: 15_000 });
   });
 
-  test.fixme('restores expanded folders and selected nested files after reload', {
-    annotation: { description: 'BST-1964', type: 'quarantine' },
-  }, async ({ page, browserName }) => {
+  test('restores expanded folders and selected nested files after reload', async ({
+    page,
+    browserName,
+  }) => {
     if (browserName !== 'chromium') {
       test.skip(true, 'File System Access API is only available in Chromium');
     }
@@ -444,9 +488,10 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     await expect(page.getByText('beta content')).toBeVisible({ timeout: 15_000 });
   });
 
-  test.fixme('restores expanded folders without selections and keeps single-click toggles after reload', {
-    annotation: { description: 'BST-1964', type: 'quarantine' },
-  }, async ({ page, browserName }) => {
+  test('restores expanded folders without selections and keeps single-click toggles after reload', async ({
+    page,
+    browserName,
+  }) => {
     if (browserName !== 'chromium') {
       test.skip(true, 'File System Access API is only available in Chromium');
     }
@@ -495,9 +540,7 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     await expect(explorer.fileTree.getByText('deep.ts')).toBeVisible({ timeout: 15_000 });
   });
 
-  test.fixme('completes Select All after restoring web folder access', {
-    annotation: { description: 'BST-1964', type: 'quarantine' },
-  }, async ({ page, browserName }) => {
+  test('completes Select All after restoring web folder access', async ({ page, browserName }) => {
     if (browserName !== 'chromium') {
       test.skip(true, 'File System Access API is only available in Chromium');
     }
@@ -537,9 +580,10 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     await expect(betaCheckbox).toBeChecked({ timeout: 15_000 });
   });
 
-  test.fixme('completes Select All while restored expanded paths are still replaying', {
-    annotation: { description: 'BST-1964', type: 'quarantine' },
-  }, async ({ page, browserName }) => {
+  test('completes Select All while restored expanded paths are still replaying', async ({
+    page,
+    browserName,
+  }) => {
     if (browserName !== 'chromium') {
       test.skip(true, 'File System Access API is only available in Chromium');
     }
@@ -584,9 +628,10 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     await expect(deepCheckbox).toBeChecked({ timeout: 15_000 });
   });
 
-  test.fixme('respects max selection count when Select All is triggered after restore', {
-    annotation: { description: 'BST-1964', type: 'quarantine' },
-  }, async ({ page, browserName }) => {
+  test('respects max selection count when Select All is triggered after restore', async ({
+    page,
+    browserName,
+  }) => {
     if (browserName !== 'chromium') {
       test.skip(true, 'File System Access API is only available in Chromium');
     }
@@ -632,9 +677,10 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     ).toHaveCount(0);
   });
 
-  test.fixme('preserves stale persisted selections and rehydrates them after choosing the root', {
-    annotation: { description: 'BST-1964', type: 'quarantine' },
-  }, async ({ page, browserName }) => {
+  test('preserves stale persisted selections and rehydrates them after choosing the root', async ({
+    page,
+    browserName,
+  }) => {
     if (browserName !== 'chromium') {
       test.skip(true, 'File System Access API is only available in Chromium');
     }
@@ -731,9 +777,10 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
       .toBe(CURRENT_FILE_EXPLORER_STORAGE_VERSION);
   });
 
-  test.fixme('persists large select-all as query-backed selection instead of giant explicit sets', {
-    annotation: { description: 'BST-1964', type: 'quarantine' },
-  }, async ({ page, browserName }) => {
+  test('persists large select-all as query-backed selection instead of giant explicit sets', async ({
+    page,
+    browserName,
+  }) => {
     if (browserName !== 'chromium') {
       test.skip(true, 'File System Access API is only available in Chromium');
     }
@@ -789,9 +836,10 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     });
   });
 
-  test.fixme('restores cached token totals for select-all on a collapsed tree without re-expanding', {
-    annotation: { description: 'BST-1964', type: 'quarantine' },
-  }, async ({ page, browserName }) => {
+  test('restores cached token totals for select-all on a collapsed tree without re-expanding', async ({
+    page,
+    browserName,
+  }) => {
     if (browserName !== 'chromium') {
       test.skip(true, 'File System Access API is only available in Chromium');
     }

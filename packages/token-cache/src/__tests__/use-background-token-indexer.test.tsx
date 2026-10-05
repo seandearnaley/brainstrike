@@ -123,6 +123,142 @@ describe('useBackgroundTokenIndexer', () => {
     vi.clearAllMocks();
   });
 
+  it('dispatches thirteen files after one cache read and publishes each only after its durable write', async () => {
+    const files = Array.from({ length: 13 }, (_, index) => ({
+      compositeKey: `folder|@|file-${index}.ts`,
+      filePath: `file-${index}.ts`,
+      folderId: 'folder',
+    }));
+    let releaseRead!: (entries: Map<string, TokenCacheEntry>) => void;
+    const cacheRead = new Promise<Map<string, TokenCacheEntry>>((resolve) => {
+      releaseRead = resolve;
+    });
+    const writeReleases: Array<() => void> = [];
+    const store = {
+      get: vi.fn(async () => null),
+      getBatch: vi.fn(() => cacheRead),
+      set: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            writeReleases.push(resolve);
+          })
+      ),
+    };
+    const onFileIndexed = vi.fn();
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        mode: 'accurate',
+        onFileIndexed,
+        store,
+      })
+    );
+    const worker = await markWorkerReady();
+    let indexing!: Promise<void>;
+    act(() => {
+      indexing = result.current.indexFiles(files);
+    });
+    await waitFor(() => expect(store.getBatch).toHaveBeenCalledTimes(1));
+    expect(store.getBatch).toHaveBeenCalledWith(
+      'folder',
+      files.map((file) => file.filePath)
+    );
+    expect(store.get).not.toHaveBeenCalled();
+    expect(worker.postMessage).not.toHaveBeenCalled();
+    await act(async () => {
+      releaseRead(new Map());
+    });
+    await waitFor(() => expect(worker.postMessage).toHaveBeenCalledTimes(1));
+    const message = worker.postMessage.mock.calls[0]?.[0] as {
+      requests: Array<{ compositeKey: string }>;
+    };
+    expect(message.requests.map((request) => request.compositeKey)).toEqual(
+      files.map((file) => file.compositeKey)
+    );
+    await act(async () => {
+      for (const file of files) {
+        worker.emitEvent('message', {
+          data: {
+            ...file,
+            contentHash: 'hash',
+            fileSize: 100,
+            mode: 'accurate',
+            skipped: false,
+            tokenCount: 49,
+            type: 'result',
+          },
+        } as MessageEvent);
+      }
+    });
+    expect(store.set).toHaveBeenCalledTimes(13);
+    expect(onFileIndexed).not.toHaveBeenCalled();
+    await act(async () => {
+      writeReleases[0]?.();
+    });
+    expect(onFileIndexed).toHaveBeenCalledTimes(1);
+    expect(onFileIndexed).toHaveBeenCalledWith(files[0]?.compositeKey, 49, 100);
+    await act(async () => {
+      for (const release of writeReleases.slice(1)) {
+        release();
+      }
+    });
+    await expect(indexing).resolves.toBeUndefined();
+    expect(onFileIndexed).toHaveBeenCalledTimes(13);
+  });
+
+  it('keeps folder-specific cached hashes and ignores counts from another mode', async () => {
+    const entry = (folderId: string, countingMode: 'accurate' | 'heuristic'): TokenCacheEntry => ({
+      contentHash: folderId,
+      countingMode,
+      filePath: 'same.ts',
+      fileSize: 100,
+      folderId,
+      modelEncoding: null,
+      mtimeMs: null,
+      tokenCount: 49,
+    });
+    const store = {
+      get: vi.fn(async () => null),
+      getBatch: vi.fn(
+        async (folderId: string) =>
+          new Map([['same.ts', entry(folderId, folderId === 'a' ? 'accurate' : 'heuristic')]])
+      ),
+      set: vi.fn(async () => {}),
+    };
+    const { result } = renderHook(() => useBackgroundTokenIndexer({ mode: 'accurate', store }));
+    const worker = await markWorkerReady();
+    let indexing!: Promise<void>;
+    const files = ['a', 'b'].map((folderId) => ({
+      compositeKey: `${folderId}|@|same.ts`,
+      filePath: 'same.ts',
+      folderId,
+    }));
+    act(() => {
+      indexing = result.current.indexFiles(files);
+    });
+    await waitFor(() => expect(worker.postMessage).toHaveBeenCalledTimes(1));
+    expect(store.getBatch).toHaveBeenCalledTimes(2);
+    expect(store.get).not.toHaveBeenCalled();
+    expect(worker.postMessage).toHaveBeenCalledWith({
+      requests: [
+        expect.objectContaining({
+          cachedFileSize: 100,
+          cachedHash: 'a',
+          compositeKey: 'a|@|same.ts',
+        }),
+        expect.objectContaining({
+          cachedFileSize: undefined,
+          cachedHash: undefined,
+          compositeKey: 'b|@|same.ts',
+        }),
+      ],
+      type: 'index-batch',
+    });
+    act(() => {
+      result.current.cancelIndexing();
+    });
+    await expect(indexing).rejects.toThrow('indexing canceled');
+  });
+
   it('clears isIndexing when worker returns only skipped results', async () => {
     const cachedEntry: TokenCacheEntry = {
       contentHash: 'hash',
@@ -137,6 +273,7 @@ describe('useBackgroundTokenIndexer', () => {
 
     const store = {
       get: vi.fn(async () => cachedEntry),
+      getBatch: vi.fn(async () => new Map([['file.txt', cachedEntry]])),
       set: vi.fn(async () => {}),
     };
 
@@ -1487,6 +1624,7 @@ describe('useBackgroundTokenIndexer', () => {
     const onFileIndexed = vi.fn();
     const store = {
       get: vi.fn(async () => null),
+      getBatch: vi.fn(async () => new Map<string, TokenCacheEntry>()),
       set: vi.fn(async () => {}),
     };
 
@@ -1582,7 +1720,8 @@ describe('useBackgroundTokenIndexer', () => {
     const onFileError = vi.fn();
 
     const store = {
-      get: vi.fn(async () => {
+      get: vi.fn(async () => null),
+      getBatch: vi.fn(async () => {
         throw new Error('db unreachable');
       }),
       set: vi.fn(async () => {}),
@@ -1625,6 +1764,7 @@ describe('useBackgroundTokenIndexer', () => {
 
     const store = {
       get: vi.fn(async () => null),
+      getBatch: vi.fn(async () => new Map<string, TokenCacheEntry>()),
       set: vi.fn(async () => {
         throw new Error('write failed');
       }),

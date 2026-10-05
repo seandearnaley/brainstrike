@@ -1,3 +1,4 @@
+import { accessSync, constants, statSync } from 'node:fs';
 import {
   getCILaunchArgs,
   getEnvironmentConfig,
@@ -7,6 +8,7 @@ import {
 } from '@brainstrike/config/playwright-environment';
 import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
 import { defineConfig } from '@playwright/test';
+import { getWebChromiumExecutablePath } from './config/web-chromium.mjs';
 
 // Environment variable names
 const baseUrlEnv = 'BASE_URL';
@@ -18,13 +20,26 @@ harmonizeColorEnvironment();
 
 // Get environment configuration
 const config = getEnvironmentConfig();
+const executablePath = getWebChromiumExecutablePath(
+  process.env['BRAINSTRIKE_WEB_CHROMIUM_DIR'],
+  process.platform,
+  process.arch
+);
+accessSync(executablePath, constants.X_OK);
+if (!statSync(executablePath).isFile()) {
+  throw new Error(`Provisioned web Chromium executable is not a file: ${executablePath}`);
+}
+const chromiumUse = {
+  channel: 'chromium' as const,
+  launchOptions: { executablePath, ...(config.isCI ? { args: getCILaunchArgs() } : {}) },
+};
 const performanceLaunchArgs = [
   ...(config.isCI ? getCILaunchArgs() : []),
   '--enable-blink-features=ForceEagerMeasureMemory',
 ];
 const performanceUse = {
   channel: 'chromium' as const,
-  launchOptions: { args: performanceLaunchArgs },
+  launchOptions: { args: performanceLaunchArgs, executablePath },
 };
 
 // Check if full browser coverage is requested
@@ -72,7 +87,7 @@ export default defineConfig({
           name: 'functional-chromium',
           testMatch: '**/!(performance)/*.test.ts',
           timeout: 60_000,
-          use: { channel: 'chromium' },
+          use: chromiumUse,
         },
         {
           name: 'functional-firefox',
@@ -92,7 +107,7 @@ export default defineConfig({
           name: 'smoke-chromium',
           testMatch: '**/!(performance)/*.test.ts',
           timeout: 60_000,
-          use: { channel: 'chromium' },
+          use: chromiumUse,
         },
         {
           grep: /@smoke/,
@@ -123,14 +138,14 @@ export default defineConfig({
           name: 'functional',
           testMatch: '**/!(performance)/*.test.ts',
           timeout: 60_000,
-          use: { channel: 'chromium' },
+          use: chromiumUse,
         },
         {
           grep: /@smoke/,
           name: 'smoke',
           testMatch: '**/!(performance)/*.test.ts',
           timeout: 60_000,
-          use: { channel: 'chromium' },
+          use: chromiumUse,
         },
         {
           name: 'performance',

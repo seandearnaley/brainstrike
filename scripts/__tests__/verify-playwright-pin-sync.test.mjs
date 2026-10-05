@@ -4,7 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { checkPlaywrightPinSync, PINNED_WORKFLOWS } from '../verify-playwright-pin-sync.mjs';
+import {
+  checkPlaywrightPinSync,
+  checkWebChromiumProvisioning,
+  PINNED_WORKFLOWS,
+} from '../verify-playwright-pin-sync.mjs';
 
 // Guard: the Playwright container image tag hard-coded in
 // .github/workflows/{test.yml,web-e2e.yml,performance.yml} must match
@@ -204,4 +208,74 @@ test('tolerates multiple identical pins in one file but flags disagreeing duplic
 
   const { mismatches } = checkPlaywrightPinSync({ repoRoot });
   assert.deepEqual(mismatches, []);
+});
+
+async function writeProvisioningFixture(spec = '1.63.0', driverSpec = spec, omit = '') {
+  const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'web-chromium-pin-'));
+  await writeFile(
+    path.join(repoRoot, 'package.json'),
+    JSON.stringify({
+      devDependencies: { '@playwright/test': spec, playwright: driverSpec },
+    })
+  );
+  for (const [file, job] of [
+    ['test.yml', 'web-e2e'],
+    ['web-e2e.yml', 'web-full-regression'],
+    ['performance.yml', 'web-perf'],
+  ]) {
+    const full = path.join(repoRoot, '.github/workflows', file);
+    await mkdir(path.dirname(full), { recursive: true });
+    const content = `jobs:
+  ${job}:
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:${'a'.repeat(64)}
+      options: --user 0
+    env:
+      BRAINSTRIKE_WEB_CHROMIUM_DIR: \${{ runner.temp }}/web-chromium
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Install web test system tools
+        shell: bash
+        run: |
+          apt-get install -y --no-install-recommends unzip lsof procps
+      - name: Provision qualified web Chromium
+        shell: bash
+        run: |
+          test "$(node --version)" = "v$(cat .nvmrc)"
+          node scripts/provision-web-chromium.mjs "$BRAINSTRIKE_WEB_CHROMIUM_DIR"
+`;
+    await writeFile(full, omit ? content.replace(omit, '') : content);
+  }
+  return repoRoot;
+}
+
+test('fixed Chromium jobs retain exact drivers and provision on the official base', async () => {
+  checkWebChromiumProvisioning();
+  checkWebChromiumProvisioning({ repoRoot: await writeProvisioningFixture() });
+});
+
+test('fixed Chromium jobs reject driver drift and missing provisioning requirements', async () => {
+  for (const [spec, driver, message] of [
+    ['^1.63.0', '1.63.0', /exact/],
+    ['1.63.0', '1.62.0', /driver/],
+    ['1.62.0', '1.62.0', /base/],
+  ]) {
+    const repoRoot = await writeProvisioningFixture(spec, driver);
+    assert.throws(() => checkWebChromiumProvisioning({ repoRoot }), message);
+  }
+  for (const omitted of [
+    `@sha256:${'a'.repeat(64)}`,
+    'options: --user 0',
+    'shell: bash',
+    'node-version-file: .nvmrc',
+    'BRAINSTRIKE_WEB_CHROMIUM_DIR',
+    'unzip lsof procps',
+    'test "$(node --version)" = "v$(cat .nvmrc)"',
+    'node scripts/provision-web-chromium.mjs',
+  ]) {
+    const repoRoot = await writeProvisioningFixture('1.63.0', '1.63.0', omitted);
+    assert.throws(() => checkWebChromiumProvisioning({ repoRoot }), /base|provisioning|bash/);
+  }
 });
