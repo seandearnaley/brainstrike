@@ -17,6 +17,9 @@
   Do not reuse an allocated sequence.
 - Verify per-row CRC and contiguous per-thread sequence. A damaged thread is
   read-only; database integrity damage is visible and never triggers deletion.
+- Keep WAL torn-tail qualification exhaustive at both commit endpoints and every
+  byte between them. Report bounded sequential cases and reject gaps/duplicates
+  in both planned and completed offsets without changing recovery or deadlines.
 - Apply forward schema versions transactionally and reject a newer database.
   Preserve existing run rows and settings when upgrading the initial scaffold.
 - SQLite authoritative records use validated JSON TEXT, checked boolean
@@ -24,9 +27,9 @@
   cost decimals as TEXT. Keep absent legacy-parent FK boundaries explicit.
 
 Guard: `packages/state-store/__tests__/m0-sqlite.test.ts`, `schema.test.ts`,
-`i3-corruption.test.ts`, `kill-harness.integration.test.ts`,
+`i3-corruption.test.ts`, `wal-cut-cases.test.ts`, `kill-harness.integration.test.ts`,
 `kernel-sync.integration.test.ts`, `m0-coalescer.test.ts`, `lifecycle.test.ts`.
-Evidence: `state-store/foundation.md`.
+Evidence: `state-store/foundation.md`, `state-store/wal-cases-2026-10-05.md`.
 
 ## Root ownership
 

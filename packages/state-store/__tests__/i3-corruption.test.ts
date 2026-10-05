@@ -4,6 +4,7 @@
 import {
   closeSync,
   copyFileSync,
+  mkdtempSync,
   openSync,
   readFileSync,
   readSync,
@@ -12,14 +13,22 @@ import {
   truncateSync,
   writeSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 import { ThreadDamagedError, ThreadReadOnlyError } from '../src/errors.js';
 import { readAll, SqliteReader } from '../src/sqlite-reader.js';
 import { STATE_DB, StateStore } from '../src/state-store.js';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 import { appendInputs, prose, rng, seedInputs } from './helpers/testkit.js';
+import {
+  assertWalCutCoverage,
+  assertWalCutOffsets,
+  matchesRecoveredWalCommit,
+  partitionWalCuts,
+  type WalCutRange,
+} from './helpers/wal-cut-cases.js';
 
 afterEach(() => cleanupDirs());
 
@@ -174,48 +183,92 @@ describe('item 3 · S integrity', () => {
     }
   });
 
-  test('WAL torn at EVERY byte offset of the last commit: SQLite recovers to the previous commit (built in: WAL frame checksums)', () => {
-    const dir = freshDir('i3swal');
-    const db = new Database(join(dir, 'a.db'));
-    db.pragma('journal_mode = WAL');
-    db.pragma('synchronous = NORMAL');
-    db.pragma('wal_autocheckpoint = 0');
-    db.exec(
-      'CREATE TABLE run_events(id INTEGER PRIMARY KEY, thread_id TEXT, seq INTEGER, payload TEXT, crc INTEGER, UNIQUE(thread_id, seq))'
-    );
-    const ins = db.prepare(
-      'INSERT INTO run_events(thread_id, seq, payload, crc) VALUES (?, ?, ?, 0)'
-    );
-    const r = rng(71);
-    for (let i = 1; i <= 49; i++) {
-      ins.run('t1', i, prose(r, 300));
-    }
-    const size49 = statSync(join(dir, 'a.db-wal')).size;
-    ins.run('t1', 50, prose(r, 300));
-    const size50 = statSync(join(dir, 'a.db-wal')).size;
-    copyFileSync(join(dir, 'a.db'), join(dir, 'base.db'));
-    copyFileSync(join(dir, 'a.db-wal'), join(dir, 'base.db-wal'));
-    db.close();
-    let ok = 0;
-    const fails: string[] = [];
-    for (let cut = size49; cut <= size50; cut++) {
-      const c = join(dir, 'c.db');
-      rmSync(`${c}-shm`, { force: true });
-      copyFileSync(join(dir, 'base.db'), c);
-      copyFileSync(join(dir, 'base.db-wal'), `${c}-wal`);
-      truncateSync(`${c}-wal`, cut);
-      const x = new Database(c);
-      const n = (x.prepare('SELECT count(*) AS n FROM run_events').get() as { n: number }).n;
-      const ic = (x.pragma('quick_check') as Array<{ quick_check: string }>)[0]?.quick_check;
-      x.close();
-      const want = cut === size50 ? 50 : 49;
-      if (n === want && ic === 'ok') {
-        ok++;
-      } else {
-        fails.push(`cut=${cut - size49}: rows=${n} check=${ic}`);
+  describe('WAL torn at EVERY byte offset of the last commit: SQLite recovers to the previous commit (built in: WAL frame checksums)', () => {
+    const caseCount = 32;
+    let dir: string;
+    let size49: number;
+    let size50: number;
+    let ranges: WalCutRange[];
+    const completedCuts: number[] = [];
+    let seedReady = false;
+
+    beforeAll(() => {
+      // Shared seed stays outside cleanupDirs; each case owns its recovery clones.
+      dir = mkdtempSync(join(tmpdir(), 'bs-ss-i3swal-seed-'));
+      const db = new Database(join(dir, 'a.db'));
+      try {
+        db.pragma('journal_mode = WAL');
+        db.pragma('synchronous = NORMAL');
+        db.pragma('wal_autocheckpoint = 0');
+        db.exec(
+          'CREATE TABLE run_events(id INTEGER PRIMARY KEY, thread_id TEXT, seq INTEGER, payload TEXT, crc INTEGER, UNIQUE(thread_id, seq))'
+        );
+        const ins = db.prepare(
+          'INSERT INTO run_events(thread_id, seq, payload, crc) VALUES (?, ?, ?, 0)'
+        );
+        const r = rng(71);
+        for (let i = 1; i <= 49; i++) {
+          ins.run('t1', i, prose(r, 300));
+        }
+        size49 = statSync(join(dir, 'a.db-wal')).size;
+        ins.run('t1', 50, prose(r, 300));
+        size50 = statSync(join(dir, 'a.db-wal')).size;
+        copyFileSync(join(dir, 'a.db'), join(dir, 'base.db'));
+        copyFileSync(join(dir, 'a.db-wal'), join(dir, 'base.db-wal'));
+      } finally {
+        db.close();
       }
-    }
-    expect(fails).toEqual([]);
-    expect(ok).toBe(size50 - size49 + 1);
+      ranges = partitionWalCuts(size49, size50, caseCount);
+      assertWalCutCoverage(ranges, size49, size50);
+      seedReady = true;
+    });
+
+    afterAll(() => {
+      try {
+        if (seedReady) {
+          assertWalCutOffsets(completedCuts, size49, size50);
+          process.stdout.write(
+            `[I3 WAL cuts] ${JSON.stringify({ cases: ranges.length, completed: completedCuts.length, first: size49, last: size50 })}\n`
+          );
+        }
+      } finally {
+        if (dir) {
+          rmSync(dir, { force: true, recursive: true });
+        }
+      }
+    });
+
+    test.each(Array.from({ length: caseCount }, (_, index) => index + 1))(
+      `exhaustive WAL cut case %i / ${caseCount}`,
+      (number) => {
+        const range = ranges[number - 1];
+        if (!range) {
+          throw new Error(`missing WAL cut case ${number}`);
+        }
+        const c = join(freshDir('i3swal'), 'c.db');
+        for (let cut = range.first; cut <= range.last; cut++) {
+          rmSync(`${c}-shm`, { force: true });
+          copyFileSync(join(dir, 'base.db'), c);
+          copyFileSync(join(dir, 'base.db-wal'), `${c}-wal`);
+          truncateSync(`${c}-wal`, cut);
+          const x = new Database(c);
+          let n: number;
+          let ic: string | undefined;
+          try {
+            n = (x.prepare('SELECT count(*) AS n FROM run_events').get() as { n: number }).n;
+            ic = (x.pragma('quick_check') as Array<{ quick_check: string }>)[0]?.quick_check;
+          } finally {
+            x.close();
+          }
+          expect
+            .soft(
+              matchesRecoveredWalCommit(cut, size50, n, ic),
+              `cut=${cut - size49} (absolute ${cut}): rows=${n} check=${ic}`
+            )
+            .toBe(true);
+          completedCuts.push(cut);
+        }
+      }
+    );
   });
 });
