@@ -59,9 +59,11 @@ Guard: `packages/sqlite-query/src/__tests__/host-core.test.ts`, `apps/desktop/sr
   output visibly and fail the operation on deadline instead of returning partial
   success.
 - Prefilter case-sensitive literals in SQLite only when their UTF-8 representation
-  is lossless for matching and fits the configured engine byte limit; retain the
-  canonical line matcher and all selected-row
-  conversion errors. Preserve metadata on empty results and never cap candidates.
+  is lossless for matching and fits the configured engine byte limit. Also
+  prefilter case-insensitive literals whose folded needle is ASCII, retaining
+  every non-ASCII or NUL-containing content row for canonical JavaScript case
+  conversion. Retain the canonical line matcher and all selected-row conversion
+  errors. Preserve metadata on empty results and never cap candidates.
 
 Evidence: `agent-self-query/sqlite-index-foundation.md`,
 `agent-self-query/index-consumer.md`,

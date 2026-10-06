@@ -154,12 +154,12 @@ it('does not hide replacement-character matches from invalid UTF-8 TEXT', () => 
   expect(result.rows.map((row) => row[0])).toEqual(['invalid']);
 });
 
-it('keeps regex and case-insensitive matching on the canonical scan path', () => {
+it('prefilters case-insensitive literals while preserving regex scans', () => {
   insert('NEEDLE', 'upper');
   insert('needle', 'lower');
   insert('ordinary', 'ordinary');
   expect(sandbox.grep({ ...defaults, caseSensitive: false }).matchedChunks).toBe(2);
-  expect(transferredRows).toBe(3);
+  expect(transferredRows).toBe(2);
   transferredRows = 0;
   expect(sandbox.grep({ ...defaults, isRegex: true, pattern: '^NEED' }).matchedChunks).toBe(1);
   expect(transferredRows).toBe(3);
@@ -323,4 +323,62 @@ it('retains the result budget and rejects empty patterns', () => {
   insert(`needle ${'x'.repeat(1024 * 1024)}`);
   expect(() => sandbox.grep(defaults)).toThrow('1 MiB');
   expect(() => sandbox.grep({ ...defaults, pattern: '' })).toThrow();
+});
+
+it.each([
+  ['needle', ['ascii']],
+  ['ke', ['unicode']],
+  ['ai', ['unicode']],
+  ['KE', ['unicode']],
+  ['\u212Ae', ['unicode']],
+  ['workspace indexing startup', ['ascii']],
+])('keeps case-insensitive Unicode matching sound for %j', (pattern, expected) => {
+  insert('NEEDLE workspace INDEXING startup', 'ascii');
+  insert('\u212Aelvin a\u0130 dot', 'unicode');
+  insert('ordinary', 'ordinary');
+  const result = sandbox.grep({ ...defaults, caseSensitive: false, pattern });
+  expect(result.rows.map((row) => row[0])).toEqual(expected);
+  expect(result.matchedChunks).toBe(expected.length);
+});
+
+it('filters a case-insensitive nonmatch before transferring real native rows', () => {
+  for (let index = 0; index < 32; index += 1) {
+    insert(`ordinary content ${index}`, `chunk-${index}`);
+  }
+  expect(sandbox.grep({ ...defaults, caseSensitive: false }).matchedChunks).toBe(0);
+  expect(transferredRows).toBe(1);
+});
+
+it('preserves case-insensitive exhaustive counts, nullable collection identity and ordered caps', () => {
+  insert('NEEDLE one', 'a', 'retained', null);
+  insert('needle two', 'b', 'retained', null);
+  insert('NEEDLE hidden', 'hidden', 'other', 'unauthorized');
+  const result = sandbox.grep({
+    ...defaults,
+    caseSensitive: false,
+    fileIds: ['retained'],
+    maxRows: 1,
+    rootIds: [],
+  });
+  expect(result.matchedChunks).toBe(2);
+  expect(result.truncated).toBe(true);
+  expect(result.rows.map((row) => row[0])).toEqual(['a']);
+  expect(result.rows[0]?.slice(1, 4)).toEqual([null, 'retained', null]);
+});
+
+it('retains non-ASCII needles and embedded NUL content for canonical case conversion', () => {
+  insert('ÉLAN ordinary', 'unicode');
+  insert('before\u0000NEEDLE after', 'nul');
+  expect(
+    sandbox.grep({ ...defaults, caseSensitive: false, pattern: 'élan' }).rows.map((row) => row[0])
+  ).toEqual(['unicode']);
+  expect(sandbox.grep({ ...defaults, caseSensitive: false }).rows.map((row) => row[0])).toEqual([
+    'nul',
+  ]);
+});
+
+it('retains case-insensitive nonmatching row conversion failures', () => {
+  insert('ordinary');
+  writer.prepare('UPDATE file_chunks SET end_line=?').run(Number.POSITIVE_INFINITY);
+  expect(() => sandbox.grep({ ...defaults, caseSensitive: false })).toThrow();
 });

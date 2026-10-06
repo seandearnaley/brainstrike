@@ -219,14 +219,7 @@ export class SqliteSandbox {
       'ch.token_count',
       ...(options.fileIds === undefined ? [] : ['fr.embedding_set_id', 'fr.source_path']),
     ];
-    // A lone surrogate can match half a JS code point; SQLite cannot bind it losslessly.
-    // Node also replaces invalid stored UTF-8 with U+FFFD, unlike SQLite instr.
-    // Public validation counts UTF-16 units; a bound literal must fit the engine's byte limit.
-    const filterLiteral =
-      !options.isRegex &&
-      options.caseSensitive &&
-      Buffer.byteLength(options.pattern) <= LENGTH_LIMIT &&
-      !/[\uD800-\uDFFF\uFFFD]/u.test(options.pattern);
+    const literalFilter = grepLiteralFilter(options);
     // Keep every row that the existing decoder would reject, including nonmatching rows.
     const invalidValue = projection
       .map(
@@ -234,8 +227,8 @@ export class SqliteSandbox {
           `((typeof(${column})='real' AND (${column}>1.7976931348623157e308 OR ${column}<-1.7976931348623157e308)) OR (typeof(${column})='integer' AND (${column}>9007199254740991 OR ${column}<-9007199254740991)))`
       )
       .join(' OR ');
-    const contentPredicate = filterLiteral
-      ? ` AND (typeof(ch.content)<>'text' OR ${invalidValue} OR instr(ch.content,?)>0)`
+    const contentPredicate = literalFilter
+      ? ` AND (typeof(ch.content)<>'text' OR ${invalidValue} OR ${literalFilter.predicate})`
       : '';
     const statement = this.#database.prepare(
       `SELECT md.schema_version,md.store_id,md.index_mode,md.profile_json,md.profile_hash,native_chunks.* FROM index_metadata md LEFT JOIN (SELECT ${projection.join(',')} FROM file_chunks ch JOIN file_records fr ON fr.id=ch.file_record_id AND fr.root_id IS ch.root_id WHERE ${scopePredicate}${contentPredicate}) native_chunks ON 1=1 WHERE md.singleton=1 ORDER BY native_chunks.path,native_chunks.id`
@@ -249,8 +242,8 @@ export class SqliteSandbox {
     let matchedChunks = 0;
     let identity: IndexerIdentity | undefined;
     let resultBytes = columns.reduce((total, column) => total + Buffer.byteLength(column) + 16, 0);
-    const parameters = filterLiteral
-      ? [JSON.stringify(selectedIds), options.pattern]
+    const parameters = literalFilter
+      ? [JSON.stringify(selectedIds), literalFilter.pattern]
       : [JSON.stringify(selectedIds)];
     for (const output of statement.iterate(...parameters)) {
       const snapshotRow = decodeRow(output);
@@ -309,6 +302,32 @@ export class SqliteSandbox {
   close(): void {
     this.#database.close();
   }
+}
+
+function grepLiteralFilter(
+  options: SqliteGrepOptions
+): { readonly pattern: string; readonly predicate: string } | undefined {
+  // Surrogate/replacement needles do not preserve raw SQLite UTF-8 matching.
+  if (
+    options.isRegex ||
+    Buffer.byteLength(options.pattern) > LENGTH_LIMIT ||
+    /[\uD800-\uDFFF\uFFFD]/u.test(options.pattern)
+  ) {
+    return undefined;
+  }
+  if (options.caseSensitive) {
+    return { pattern: options.pattern, predicate: 'instr(ch.content,?)>0' };
+  }
+  const pattern = options.pattern.toLowerCase();
+  if (Buffer.byteLength(pattern) !== pattern.length) {
+    return undefined;
+  }
+  // SQLite lower() folds ASCII only. Keep all non-ASCII/NUL rows for the JS matcher.
+  return {
+    pattern,
+    predicate:
+      '(instr(lower(ch.content),?)>0 OR length(CAST(ch.content AS BLOB))<>length(ch.content))',
+  };
 }
 
 function grepRowBytes(row: readonly SqliteValue[]): number {
