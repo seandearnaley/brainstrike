@@ -4,6 +4,39 @@ This is the integrator's evidence ledger for BST-1977, not an acceptance declara
 
 CI is disabled due to cost; validation must run locally.
 
+## Reviewed Windows fixture integration — 6 October, 22:18 UTC
+
+The parent released PR3548 at reviewed source
+`a21de7f9200a4cee1ad30daa8465522f06ac4982`. Its process and CLI fixtures
+retain the native process handle through identity validation and physical join.
+Only Windows fixture prompt observation changes from one to ten seconds,
+following the reported 1652–4434 ms creation-to-prompt measurements; POSIX
+remains one second. This is neither a runtime deadline change nor a startup
+performance acceptance claim. The author's twelve-case pass predates the final
+exception-filter edit; only its three ownership cases were rerun at final source.
+No final Windows twelve-case pass is claimed here.
+
+The first integrated POSIX run failed all nine cases in fixture teardown:
+`realpath(root)` resolved macOS `/var` to `/private/var`, while the temporary
+ancestor remained unresolved. The bounded fixture correction resolves both
+paths before applying the unchanged containment, allocated-prefix and released
+lease checks. The first failure log and eight observed roots remain retained;
+all 35 recorded PIDs and every retained root owner were absent, and all eight
+observed leases were released. No failed fixture root was deleted to conceal
+the failure.
+
+The same affected command then passed **9/9 POSIX cases / three Windows-only
+skips, 10.59 s**:
+`pnpm --filter @brainstrike/agent-host exec vitest run --config vitest.integration.config.mts __tests__/process.integration.test.ts __tests__/cli-session.integration.test.ts __tests__/windows-owner-join.integration.test.ts`.
+Its ledger verifies all 35 observed PIDs absent, nine allocated roots removed,
+26 transport joins and zero failed-fixture teardown kills. Logs are
+`/tmp/brainstrike-m3-windows3548-integrated-posix.log` and
+`/tmp/brainstrike-m3-windows3548-integrated-posix-final.log`; ledgers and cleanup
+receipts are under `/tmp/brainstrike-m3-windows3548-posix{-final,}-proof/`.
+The source merge and correction use normal hooks. Historical Windows
+EPERM/EBUSY, Mini credential/shutdown, ordinary production composition and full
+regression gaps remain open.
+
 ## Owner-approved reconstruction repair — 6 October, 22:02 UTC
 
 The accountable parent orchestrator approved the documented bounded disposition

@@ -28,7 +28,7 @@ export function fixtureControlEnvironment(control: FixtureCloseControl): NodeJS.
 /** Resolve the disposable target before deletion; retain failed/live leases. */
 export async function removeFixtureRoot(root: string): Promise<void> {
   const target = await realpath(root);
-  const location = relative(resolve(tmpdir()), target);
+  const location = relative(await realpath(tmpdir()), target);
   if (
     !location ||
     location === '..' ||
