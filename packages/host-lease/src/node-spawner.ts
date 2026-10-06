@@ -7,8 +7,12 @@ import { ResourceOwner } from './resource-owner.js';
 import { decodeStartOptions } from './runtime.js';
 import { decodeStartupMessage, type StartupMessage } from './startup-message.js';
 export interface NodeSpawnerOptions {
+  /** Trusted shell composition inputs, appended after the validated start options. */
+  readonly entryArgs?: readonly string[];
   readonly entrypoint?: string;
   readonly execArgv?: readonly string[];
+  /** Detached clients must not keep a short-lived CLI's output pipes open. */
+  readonly output?: 'inherit' | 'ignore';
 }
 async function disconnect(child: ChildProcess): Promise<void> {
   if (child.connected) {
@@ -39,29 +43,47 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
     signal.throwIfAborted();
     const startOptions = decodeStartOptions(input);
     const owner = new ResourceOwner();
-    const child = await owner.acquire(async (): Promise<ChildProcess> => {
-      if (process.platform === 'win32') {
-        // Windows non-detached children die with the creator's libuv job.
-        // HostRuntime must instead join CLI idle/app-parent cleanup itself.
-        // https://github.com/libuv/libuv/blob/v1.52.1/src/win/process.c
-        // spawn exposes windowsHide and, like fork, creates Node's IPC fd.
-        return spawn(
-          process.execPath,
-          [...(options.execArgv ?? []), entrypoint, JSON.stringify(startOptions)],
-          {
-            detached: true,
-            stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
-            windowsHide: true,
-          }
-        );
+    let ready = false;
+    const child = await owner.acquire(
+      async (): Promise<ChildProcess> => {
+        if (process.platform === 'win32') {
+          // Windows non-detached children die with the creator's libuv job.
+          // HostRuntime must instead join CLI idle/app-parent cleanup itself.
+          // https://github.com/libuv/libuv/blob/v1.52.1/src/win/process.c
+          // spawn exposes windowsHide and, like fork, creates Node's IPC fd.
+          return spawn(
+            process.execPath,
+            [
+              ...(options.execArgv ?? []),
+              entrypoint,
+              JSON.stringify(startOptions),
+              ...(options.entryArgs ?? []),
+            ],
+            {
+              detached: true,
+              stdio: ['ignore', options.output ?? 'inherit', options.output ?? 'inherit', 'ipc'],
+              windowsHide: true,
+            }
+          );
+        }
+        return fork(entrypoint, [JSON.stringify(startOptions), ...(options.entryArgs ?? [])], {
+          detached: startOptions.lifetime === 'persistent',
+          execArgv: [...(options.execArgv ?? [])],
+          execPath: process.execPath,
+          stdio: ['ignore', options.output ?? 'inherit', options.output ?? 'inherit', 'ipc'],
+        });
+      },
+      async (child) => {
+        if (!ready && child.exitCode === null && child.signalCode === null) {
+          await new Promise<void>((resolve, reject) => {
+            child.once('exit', () => resolve());
+            child.once('error', reject);
+            child.kill('SIGTERM');
+          });
+        }
+        await disconnect(child);
       }
-      return fork(entrypoint, [JSON.stringify(startOptions)], {
-        detached: startOptions.lifetime === 'persistent',
-        execArgv: [...(options.execArgv ?? [])],
-        execPath: process.execPath,
-        stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
-      });
-    }, disconnect);
+    );
     try {
       await runWithTimeout(
         (signal) =>
@@ -87,6 +109,7 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
               try {
                 const decoded = decodeStartupMessage(inputMessage);
                 if (decoded.event === 'ready') {
+                  ready = true;
                   cleanup();
                   resolve();
                   return;

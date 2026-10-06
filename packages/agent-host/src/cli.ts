@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { launchHost } from '@brainstrike/host-lease';
 import { attachAgentHost, type HostClient } from './client.js';
+import { createAgentHostSpawner } from './launcher.js';
 
 export interface HostCliOutput {
   write(value: string): void;
@@ -30,6 +31,7 @@ export async function runHostCli(
       'from-seq': { type: 'string' },
       interaction: { type: 'string' },
       model: { type: 'string' },
+      platform: { type: 'string' },
       prompt: { type: 'string' },
       root: { type: 'string' },
       run: { type: 'string' },
@@ -37,11 +39,29 @@ export async function runHostCli(
     },
     strict: true,
   });
+  const command = positionals.join(' ');
+  if (
+    ![
+      'host start',
+      'host status',
+      'thread start',
+      'thread read',
+      'run start',
+      'run stop',
+      'interaction respond',
+      'log follow',
+    ].includes(command)
+  ) {
+    throw new Error('Unknown host command');
+  }
   const attachment = await launchHost(resolve(required(values.root, 'root')), {
     attach: attachAgentHost,
-    lifetime: 'cli',
-    spawn: async () => {
-      throw new Error('No M3 host is running for this root; start its configured host first');
+    lifetime: command === 'host start' ? 'persistent' : 'cli',
+    spawn: (options, signal) => {
+      if (command === 'host status') {
+        throw new Error('No host is running for this root');
+      }
+      return createAgentHostSpawner(required(values.platform, 'platform'))(options, signal);
     },
   });
   // This launcher has exactly one supplied attachment implementation.
@@ -53,7 +73,13 @@ export async function runHostCli(
   const threadId = (): string => required(values.thread, 'thread');
   const runId = (): string => required(values.run, 'run');
   try {
-    switch (positionals.join(' ')) {
+    switch (command) {
+      case 'host start':
+      case 'host status': {
+        const { hostVersion, pid, protocolVersion, start } = client.record;
+        print({ hostVersion, pid, protocolVersion, start });
+        break;
+      }
       case 'thread start':
         print(await client.request('thread/start', { commandId }));
         break;
@@ -112,6 +138,11 @@ export async function runHostCli(
           }
         };
         const release = client.onEvent(accept);
+        const detach = (): void => {
+          void client.close();
+        };
+        process.once('SIGINT', detach);
+        process.once('SIGTERM', detach);
         try {
           for (const row of (
             await client.request('log/subscribe', { fromSeq: cursor, threadId: selected })
@@ -121,12 +152,14 @@ export async function runHostCli(
           await client.closed;
         } finally {
           release();
+          process.off('SIGINT', detach);
+          process.off('SIGTERM', detach);
         }
         break;
       }
       default:
         throw new Error(
-          'Expected thread start/read, run start/stop, interaction respond, or log follow'
+          'Expected host start/status, thread start/read, run start/stop, interaction respond, or log follow'
         );
     }
   } finally {
