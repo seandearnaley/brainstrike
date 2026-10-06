@@ -19,16 +19,28 @@ export function scriptedModel(toolId?: string): MockLanguageModelV4 {
 export function scriptedToolSequence(
   calls: readonly { readonly toolId: string; readonly input: unknown }[]
 ): MockLanguageModelV4 {
-  let step = 0;
   return new MockLanguageModelV4({
-    doStream: async () => {
-      const call = calls[step++];
+    doStream: async (options) => {
+      const latestUser = options.prompt.findLastIndex((message) => message.role === 'user');
+      const completed = new Set(
+        options.prompt
+          .slice(latestUser)
+          .flatMap((message) =>
+            message.role === 'tool'
+              ? message.content
+                  .filter((part) => part.type === 'tool-result')
+                  .map((part) => part.toolCallId)
+              : []
+          )
+      );
+      const step = calls.findIndex((_call, index) => !completed.has(`recorded-call-${index + 1}`));
+      const call = calls[step];
       const chunks: Chunk[] = call
         ? [
             { type: 'stream-start', warnings: [] },
             {
               input: JSON.stringify(call.input),
-              toolCallId: `recorded-call-${step}`,
+              toolCallId: `recorded-call-${step + 1}`,
               toolName: call.toolId,
               type: 'tool-call',
             },
@@ -41,6 +53,37 @@ export function scriptedToolSequence(
             { id: 'text-1', type: 'text-end' },
             { finishReason: { raw: 'stop', unified: 'stop' }, type: 'finish', usage },
           ];
+      return {
+        stream: simulateReadableStream({ chunkDelayInMs: null, chunks, initialDelayInMs: null }),
+      };
+    },
+  });
+}
+
+export function parallelToolModel(toolId: string): MockLanguageModelV4 {
+  const finished = scriptedModel();
+  return new MockLanguageModelV4({
+    doStream: async (options) => {
+      if (
+        options.prompt.some(
+          (message) =>
+            message.role === 'tool' && message.content.some((part) => part.type === 'tool-result')
+        )
+      ) {
+        return finished.doStream(options);
+      }
+      const chunks: Chunk[] = [
+        { type: 'stream-start', warnings: [] },
+        ...[1, 2].map(
+          (index): Chunk => ({
+            input: JSON.stringify({ text: `owned-action-${index}` }),
+            toolCallId: `parallel-call-${index}`,
+            toolName: toolId,
+            type: 'tool-call',
+          })
+        ),
+        { finishReason: { raw: 'tool_calls', unified: 'tool-calls' }, type: 'finish', usage },
+      ];
       return {
         stream: simulateReadableStream({ chunkDelayInMs: null, chunks, initialDelayInMs: null }),
       };

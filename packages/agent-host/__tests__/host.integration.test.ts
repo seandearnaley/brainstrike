@@ -20,7 +20,7 @@ import type { HostPlatform, HostTool } from '../src/ports.js';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
 import { nodePortConnection, stdioConnection } from '../src/transports.js';
-import { scriptedModel } from './fixtures/scripted-model.js';
+import { parallelToolModel, scriptedModel } from './fixtures/scripted-model.js';
 
 const roots: string[] = [];
 const hosts: AgentHost[] = [];
@@ -278,7 +278,7 @@ test('MessagePort and stdio dispatch the same authenticated schema into the same
   expect(rows).toEqual(await host.core.read(threadId, 0));
 });
 
-test('restart retains an unanswered approval and deduplicates its accepted response without model/effect replay', async () => {
+test('restart continues an unanswered approval and deduplicates its accepted response without effect replay', async () => {
   const { root, host, client, platform, model } = await setup();
   const { threadId, runId } = await start(client);
   const pending = await event(client, threadId, 'interaction.requested');
@@ -295,11 +295,11 @@ test('restart retains an unanswered approval and deduplicates its accepted respo
     threadId,
   };
   await next.request('interaction/respond', decision);
-  expect((await event(next, threadId, 'run.finished')).outcome).toBe('interrupted');
+  expect((await event(next, threadId, 'run.finished')).outcome).toBe('completed');
   expect(await readFile(join(root, 'permitted.txt'), 'utf8')).toBe(
     'written by permitted host tool'
   );
-  expect(model.doStreamCalls).toHaveLength(1);
+  expect(model.doStreamCalls).toHaveLength(2);
   await resumed.close();
   const again = await startAgentHost({ lifetime: 'persistent', root }, platform);
   hosts.push(again);
@@ -353,4 +353,179 @@ test('Stop acknowledges only after the dispatched native child has physically ex
   expect(exited).toBe(true);
   expect(() => process.kill(pid, 0)).toThrow();
   expect((await event(client, threadId, 'run.finished')).outcome).toBe('stopped');
+});
+
+test('large real tool content is spooled before publication and survives host reopen with model history', async () => {
+  const text = await readFile(
+    new URL('../../../docs/agents/assistant-runtime.md', import.meta.url),
+    'utf8'
+  );
+  expect(Buffer.byteLength(text)).toBeGreaterThan(12 * 1024);
+  const native: HostTool = {
+    description: 'Read the real repository runtime contract',
+    execute: async () => ({
+      text: await readFile(
+        new URL('../../../docs/agents/assistant-runtime.md', import.meta.url),
+        'utf8'
+      ),
+    }),
+    identity: 'native-owned-document-reader',
+    inputSchema: z.object({ text: z.string() }),
+    risk: 'read',
+  };
+  const { root, client, host, platform } = await setup(undefined, native);
+  const { threadId } = await start(client);
+  await event(client, threadId, 'run.finished');
+  const output = await event(client, threadId, 'effect.finished');
+  expect(output.output).toEqual({ text });
+  const stored = await host.core.store.read(threadId);
+  const spooled = stored.filter((row) => typeof row.event['blob'] === 'string');
+  expect(spooled.length).toBeGreaterThan(0);
+  expect(spooled.every((row) => Buffer.byteLength(row.raw) < 12 * 1024)).toBe(true);
+  for (const row of spooled) {
+    expect(
+      Buffer.byteLength(await readFile(join(root, 'blobs', String(row.event['blob'])), 'utf8'))
+    ).toBe(row.event['bytes']);
+  }
+  const committed = await client.request('thread/read', { fromSeq: 0, threadId });
+  await host.close();
+  const freshModel = scriptedModel();
+  const reopened = await startAgentHost(
+    { lifetime: 'persistent', root },
+    { ...platform, resolveModel: async () => freshModel }
+  );
+  hosts.push(reopened);
+  const next = await attachAgentHost(reopened.record);
+  clients.push(next);
+  expect(await next.request('thread/read', { fromSeq: 0, threadId })).toEqual(committed);
+  await next.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Use the preceding document result.',
+    threadId,
+  });
+  await expect
+    .poll(
+      async () =>
+        (await next.request('thread/read', { fromSeq: 0, threadId })).rows.filter(
+          (row) => row.event.type === 'run.finished'
+        ).length
+    )
+    .toBe(2);
+  expect(JSON.stringify(freshModel.doStreamCalls[0]?.prompt)).toContain(
+    JSON.stringify(text).slice(1, -1)
+  );
+});
+
+test('restart uses a fresh model with committed approval context and executes the native effect once', async () => {
+  const { root, client, host, platform } = await setup();
+  const { threadId, runId } = await start(client);
+  const pending = await event(client, threadId, 'interaction.requested');
+  await host.close();
+  const freshModel = scriptedModel('write_file');
+  const reopened = await startAgentHost(
+    { lifetime: 'persistent', root },
+    { ...platform, resolveModel: async () => freshModel }
+  );
+  hosts.push(reopened);
+  const next = await attachAgentHost(reopened.record);
+  clients.push(next);
+  await next.request('interaction/respond', {
+    commandId: randomUUID(),
+    decision: 'approve',
+    interactionId: pending.interactionId,
+    runId,
+    threadId,
+  });
+  expect((await event(next, threadId, 'run.finished')).outcome).toBe('completed');
+  expect(freshModel.doStreamCalls).toHaveLength(1);
+  const rows = (await next.request('thread/read', { fromSeq: 0, threadId })).rows;
+  expect(rows.filter((row) => row.event.type === 'effect.started')).toHaveLength(1);
+  const context = rows
+    .filter((row) => row.event.type === 'model.messages')
+    .flatMap((row) => (row.event.type === 'model.messages' ? row.event.messages : []));
+  expect(JSON.stringify(context)).toContain(
+    JSON.stringify(join(root, 'permitted.txt')).slice(1, -1)
+  );
+});
+
+test('parallel SDK calls retain both approvals and two clients answer without duplicate native execution', async () => {
+  const { root, host, client, platform } = await setup();
+  await host.close();
+  const model = parallelToolModel('write_file');
+  const parallelHost = await startAgentHost(
+    { lifetime: 'persistent', root },
+    { ...platform, resolveModel: async () => model }
+  );
+  hosts.push(parallelHost);
+  const first = await attachAgentHost(parallelHost.record);
+  clients.push(first);
+  const second = await attachAgentHost(parallelHost.record);
+  clients.push(second);
+  const { threadId, runId } = await start(first);
+  await expect
+    .poll(
+      async () =>
+        (await first.request('thread/read', { fromSeq: 0, threadId })).rows.filter(
+          (row) => row.event.type === 'interaction.requested'
+        ).length
+    )
+    .toBe(2);
+  const pending = (await first.request('thread/read', { fromSeq: 0, threadId })).rows.flatMap(
+    (row) => (row.event.type === 'interaction.requested' ? [row.event] : [])
+  );
+  const a = pending[0];
+  const b = pending[1];
+  if (!(a && b)) {
+    throw new Error('Parallel approvals were not committed');
+  }
+  await first.request('interaction/respond', {
+    commandId: randomUUID(),
+    decision: 'approve',
+    interactionId: a.interactionId,
+    runId,
+    threadId,
+  });
+  await expect(readFile(join(root, 'permitted.txt'))).rejects.toThrow();
+  await second.request('interaction/respond', {
+    commandId: randomUUID(),
+    decision: 'approve',
+    interactionId: b.interactionId,
+    runId,
+    threadId,
+  });
+  expect((await event(first, threadId, 'run.finished')).outcome).toBe('completed');
+  const rows = (await first.request('thread/read', { fromSeq: 0, threadId })).rows;
+  expect(rows.filter((row) => row.event.type === 'effect.started')).toHaveLength(2);
+  expect(rows.filter((row) => row.event.type === 'effect.finished')).toHaveLength(2);
+  expect(model.doStreamCalls).toHaveLength(2);
+  await client.close();
+});
+
+test('a final permitted call completes at the existing model-step limit without another model request', async () => {
+  const { root, host, client, platform } = await setup();
+  await host.close();
+  const model = scriptedModel('write_file');
+  const limited = await startAgentHost(
+    { lifetime: 'persistent', root },
+    { ...platform, maxSteps: 1, resolveModel: async () => model }
+  );
+  hosts.push(limited);
+  const next = await attachAgentHost(limited.record);
+  clients.push(next);
+  const { threadId, runId } = await start(next);
+  const pending = await event(next, threadId, 'interaction.requested');
+  await next.request('interaction/respond', {
+    commandId: randomUUID(),
+    decision: 'approve',
+    interactionId: pending.interactionId,
+    runId,
+    threadId,
+  });
+  expect((await event(next, threadId, 'run.finished')).outcome).toBe('completed');
+  expect(await readFile(join(root, 'permitted.txt'), 'utf8')).toBe(
+    'written by permitted host tool'
+  );
+  expect(model.doStreamCalls).toHaveLength(1);
+  await client.close();
 });

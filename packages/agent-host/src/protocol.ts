@@ -56,6 +56,15 @@ export const HostEventSchema = z.discriminatedUnion('type', [
   }),
   z.strictObject({ type: z.literal('stream.chunk'), ...RunFields, chunk: z.json() }),
   z.strictObject({
+    type: z.literal('model.step'),
+    ...RunFields,
+    messages: z.array(z.json()),
+    model: z.json(),
+    stepNumber: Seq,
+    usage: z.json(),
+  }),
+  z.strictObject({ type: z.literal('model.messages'), ...RunFields, messages: z.array(z.json()) }),
+  z.strictObject({
     type: z.literal('interaction.requested'),
     ...Action,
     interactionId: Id,

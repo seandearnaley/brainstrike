@@ -24,6 +24,8 @@
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/host-lease": "workspace:*",
     "@brainstrike/state-store": "workspace:*",
+    "@mastra/core": "1.71.0",
+    "@mastra/memory": "1.32.1",
     "ai": "catalog:",
     "vscode-jsonrpc": "catalog:",
     "zod": "catalog:"
