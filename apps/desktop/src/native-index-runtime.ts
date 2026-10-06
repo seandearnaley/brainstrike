@@ -148,6 +148,7 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
   let bindings = '';
   let port: NativePort | undefined;
   let acquisition: Promise<NativePort> | undefined;
+  let queryRetirement: Promise<void> | undefined;
   let authorityMutation: Promise<unknown> | undefined;
   const reads = new Set<Promise<void>>();
   let readsClosed = false;
@@ -209,8 +210,15 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
   const joinReads = async (): Promise<void> => {
     await Promise.all([...reads]);
   };
+  const closeQueries = (): Promise<void> => {
+    // Query retirement invalidates cached read readiness, even when the writer is unchanged.
+    bindings = '';
+    queryRetirement = dependencies.closeQueries();
+    return queryRetirement;
+  };
   const acquire = async (priorMutation: Promise<unknown> | undefined): Promise<NativePort> => {
     await priorMutation;
+    await queryRetirement;
     await acquireProfile();
     const requested = retainAuthority(await dependencies.getAuthority());
     const requestedScopes = scopeIdentity(requested);
@@ -246,7 +254,7 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
     }
     // Retire query snapshots before changing either membership or immutable scopes.
     await joinReads();
-    await dependencies.closeQueries();
+    await closeQueries();
     if (closed) {
       throw new NativeAuthorityTransitionError(
         'Native index admission closed during reader retirement.'
@@ -258,7 +266,6 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       await port.replaceFileBindings(requested.fileBindings);
       acknowledgedAuthority = requested;
       acknowledgedPort = port;
-      bindings = requestedBindings;
       bindingRemovalPending = false;
       if (closed) {
         throw new NativeAuthorityTransitionError(
@@ -267,6 +274,7 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       }
       await assertAuthorityCurrent();
       dependencies.installQueryTarget(indexOwner);
+      bindings = requestedBindings;
       return port;
     }
     await indexOwner?.close();
@@ -320,7 +328,7 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
             .map((file) => [file.fileId, file])
         );
       }
-      await dependencies.closeQueries();
+      await closeQueries();
       const ready = outgoingPort;
       if (!ready) {
         throw new Error('Outgoing native workspace authority is unavailable.');
@@ -368,7 +376,7 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       if (outgoingCollectionId !== undefined) {
         await settleWorkspaceRetirement();
       }
-      await dependencies.closeQueries();
+      await closeQueries();
       if (destroy && indexOwner) {
         if (!indexOwner.destroy) {
           throw new Error('Native index owner has no destructive reset capability.');
@@ -445,7 +453,7 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
         if (closed || port !== expected) {
           throw new Error('Native mutation writer was retired or replaced.');
         }
-        await dependencies.closeQueries();
+        await closeQueries();
         if (closed || port !== expected) {
           throw new Error('Native mutation writer was retired or replaced.');
         }

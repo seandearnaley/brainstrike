@@ -15,6 +15,7 @@ import {
 
 function fixture() {
   const events: string[] = [];
+  let queryTargetInstalled = false;
   let authority: NativeIndexAuthority = {
     fileBindings: [],
     rootIds: ['root'],
@@ -51,6 +52,7 @@ function fixture() {
     events.push('writer-close');
   });
   const closeQueries = vi.fn(async () => {
+    queryTargetInstalled = false;
     events.push('readers-close');
   });
   const closeProfile = vi.fn(async () => {
@@ -64,6 +66,11 @@ function fixture() {
       return port;
     },
   }));
+  const getAuthority = vi.fn(async () => authority);
+  const installQueryTarget = vi.fn(() => {
+    queryTargetInstalled = true;
+    events.push('reader-install');
+  });
   const runtime = createNativeIndexRuntime({
     closeQueries,
     createIndexOwner,
@@ -73,11 +80,9 @@ function fixture() {
       },
       close: closeProfile,
     }),
-    getAuthority: async () => authority,
+    getAuthority,
     getFileInvalidator: () => () => {},
-    installQueryTarget: () => {
-      events.push('reader-install');
-    },
+    installQueryTarget,
   });
   return {
     closeProfile,
@@ -85,7 +90,13 @@ function fixture() {
     closeWriter,
     createIndexOwner,
     events,
+    getAuthority,
+    installQueryTarget,
     port,
+    queryTargetInstalled: () => queryTargetInstalled,
+    resetBindings: () => {
+      authority = { ...authority, fileBindings: [] };
+    },
     runtime,
     setBindings: () => {
       authority = {
@@ -617,3 +628,112 @@ it.each([
     }
   }
 );
+
+it('admits coverage only with an installed query target after a successful source removal', async () => {
+  const f = fixture();
+  await f.runtime.acquire();
+  expect(f.queryTargetInstalled()).toBe(true);
+  await f.runtime.mutateAuthority(f.port, async () => {
+    f.events.push('remove');
+  });
+  await f.runtime.withRead(f.runtime.acquire, async () => {
+    expect(f.queryTargetInstalled()).toBe(true);
+  });
+  await f.runtime.retireProfile();
+});
+
+it('does not admit coverage through a cached port after catalog change interrupts query retirement', async () => {
+  const f = fixture();
+  await f.runtime.acquire();
+  f.setBindings();
+  const closeQueries = f.closeQueries.getMockImplementation();
+  if (!closeQueries) {
+    throw new Error('Fixture has no original query retirement.');
+  }
+  f.closeQueries.mockImplementationOnce(async () => {
+    await closeQueries();
+    f.resetBindings();
+  });
+  await expect(f.runtime.acquire()).rejects.toThrow('authority changed during acquisition');
+  await f.runtime.withRead(f.runtime.acquire, async () => {
+    expect(f.queryTargetInstalled()).toBe(true);
+  });
+  await f.runtime.retireProfile();
+});
+
+it('retains failed physical query retirement across acquisitions until terminal cleanup', async () => {
+  const f = fixture();
+  await f.runtime.acquire();
+  f.setBindings();
+  const cause = new Error('Reader process did not exit.');
+  f.closeQueries.mockRejectedValueOnce(cause);
+  await expect(f.runtime.acquire()).rejects.toBe(cause);
+  await expect(f.runtime.withRead(f.runtime.acquire, async () => {})).rejects.toBe(cause);
+  expect(f.installQueryTarget).toHaveBeenCalledOnce();
+  await f.runtime.retireProfile();
+});
+
+it('keeps a failed source removal closed to reads without reinstalling a query target', async () => {
+  const f = fixture();
+  await f.runtime.acquire();
+  const cause = new Error('Source removal failed.');
+  await expect(
+    f.runtime.mutateAuthority(f.port, async () => {
+      throw cause;
+    })
+  ).rejects.toBe(cause);
+  await expect(f.runtime.withRead(f.runtime.acquire, async () => {})).rejects.toBe(cause);
+  expect(f.queryTargetInstalled()).toBe(false);
+  expect(f.installQueryTarget).toHaveBeenCalledOnce();
+  await f.runtime.retireProfile();
+});
+
+it('requires successful query installation before caching newly acknowledged bindings', async () => {
+  const f = fixture();
+  await f.runtime.acquire();
+  f.setBindings();
+  const cause = new Error('Query target registration failed.');
+  f.installQueryTarget.mockImplementationOnce(() => {
+    throw cause;
+  });
+  await expect(f.runtime.acquire()).rejects.toBe(cause);
+  await f.runtime.withRead(f.runtime.acquire, async () => {
+    expect(f.queryTargetInstalled()).toBe(true);
+  });
+  await f.runtime.retireProfile();
+});
+
+it('does not reinstall a target after shutdown begins during an owned source removal', async () => {
+  const f = fixture();
+  await f.runtime.acquire();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const removal = f.runtime.mutateAuthority(f.port, async () => {
+    entered.resolve();
+    await release.promise;
+  });
+  await entered.promise;
+  const closing = f.runtime.retireProfile();
+  release.resolve();
+  await Promise.all([removal, closing]);
+  await expect(f.runtime.acquire()).rejects.toThrow('admission is closed');
+  expect(f.queryTargetInstalled()).toBe(false);
+  expect(f.installQueryTarget).toHaveBeenCalledOnce();
+});
+
+it('does not cache new bindings before their final authority validation succeeds', async () => {
+  const f = fixture();
+  await f.runtime.acquire();
+  f.setBindings();
+  const cause = new Error('Final catalog validation failed.');
+  f.port.replaceFileBindings = vi
+    .fn(async () => {})
+    .mockImplementationOnce(async () => {
+      f.getAuthority.mockRejectedValueOnce(cause);
+    });
+  await expect(f.runtime.acquire()).rejects.toBe(cause);
+  await f.runtime.withRead(f.runtime.acquire, async () => {
+    expect(f.queryTargetInstalled()).toBe(true);
+  });
+  await f.runtime.retireProfile();
+});
