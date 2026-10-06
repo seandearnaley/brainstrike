@@ -1,3 +1,4 @@
+export { type HostCliOutput, runHostCli } from './cli.js';
 export { attachAgentHost, authenticateHostClient, type HostClient } from './client.js';
 export { bindHostConnection } from './connection.js';
 export { HostCore } from './core.js';

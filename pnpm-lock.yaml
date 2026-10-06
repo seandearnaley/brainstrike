@@ -480,6 +480,9 @@ importers:
       '@brainstrike/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@brainstrike/agent-host':
+        specifier: workspace:*
+        version: link:../../packages/agent-host
       '@brainstrike/app-shell':
         specifier: workspace:*
         version: link:../../packages/app-shell

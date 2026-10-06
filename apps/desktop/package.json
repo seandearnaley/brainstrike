@@ -80,6 +80,7 @@
     "beforePack": "./scripts/prepare-python-runtime-before-pack.mjs"
   },
   "dependencies": {
+    "@brainstrike/agent-host": "workspace:*",
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/app-shell": "workspace:*",
     "@brainstrike/app-state": "workspace:*",
