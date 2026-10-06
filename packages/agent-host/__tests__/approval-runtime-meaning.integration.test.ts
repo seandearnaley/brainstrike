@@ -22,20 +22,28 @@ class ArrayRuntimeSelection extends Array<number> {
   }
 }
 
-test.each(['subclass', 'extra property'] as const)(
+test.each(['subclass', 'extra property', 'prototype property'] as const)(
   'reopened approval interrupts arrays with process-local runtime meaning (%s)',
   async (shape) => {
     const root = await mkdtemp(join(tmpdir(), 'bs-m3-array-input-'));
     let store = await StateStore.open(root);
     let selection = 'first process selection';
     let executions = 0;
-    const schema = z
-      .object({ text: z.string() })
-      .transform(() =>
-        shape === 'subclass'
-          ? new ArrayRuntimeSelection(selection)
-          : Object.assign([1], { selection })
-      );
+    const schema = z.object({ text: z.string() }).transform(() => {
+      if (shape === 'subclass') {
+        return new ArrayRuntimeSelection(selection);
+      }
+      if (shape === 'prototype property') {
+        return Object.setPrototypeOf(
+          [1],
+          Object.setPrototypeOf(
+            Object.assign([], { map: Array.prototype.map, selection }),
+            Object.prototype
+          )
+        );
+      }
+      return Object.assign([1], { selection });
+    });
     const platform: HostPlatform = {
       close: async () => undefined,
       maxSteps: 3,
@@ -65,9 +73,14 @@ test.each(['subclass', 'extra property'] as const)(
         threadId,
       });
       await expect
-        .poll(async () =>
-          (await core.read(threadId, 0)).some((row) => row.event.type === 'interaction.requested')
-        )
+        .poll(async () => {
+          const rows = await core.read(threadId, 0);
+          const terminal = rows.find((row) => row.event.type === 'run.finished');
+          if (terminal?.event.type === 'run.finished') {
+            throw new Error(terminal.event.detail ?? terminal.event.outcome);
+          }
+          return rows.some((row) => row.event.type === 'interaction.requested');
+        })
         .toBe(true);
       const pending = (await core.read(threadId, 0))
         .map((row) => row.event)

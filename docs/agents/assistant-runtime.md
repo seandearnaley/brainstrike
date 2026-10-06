@@ -19,6 +19,11 @@
 
 ## Native suspension completion
 
+The committed M3 conversation uses the public assistant-ui approval command for
+host interaction IDs. Generic tool cards expose pending decision controls in
+the existing activity disclosure; only a committed response resolves the card.
+This view does not validate, persist or execute an approval.
+
 - Await Mastra's public `getFullOutput()` on the initial, approval-resume and
   suspended-tool-resume legs before publishing a terminal pause or completion.
   Native pause parts can precede durable snapshot storage, so an immediately

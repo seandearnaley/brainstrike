@@ -1,3 +1,4 @@
+import type { ProviderRequestAccounting } from '@brainstrike/agent/provider-request';
 import type {
   McpHostCloseReport,
   McpHostPort,
@@ -5,7 +6,15 @@ import type {
   RuntimeData,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
-import type { FlexibleSchema, LanguageModel, ModelMessage, streamText, Tool, ToolSet } from 'ai';
+import type {
+  FlexibleSchema,
+  LanguageModel,
+  LanguageModelUsage,
+  ModelMessage,
+  streamText,
+  Tool,
+  ToolSet,
+} from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
 
 export interface HostToolContext {
@@ -17,6 +26,17 @@ export interface HostToolContext {
   readonly write?: (chunk: unknown) => Promise<void>;
 }
 export interface HostRunContext {
+  /** These receipts append through HostCore, before publication and terminal join. */
+  recordObserverUsage?(receipt: {
+    readonly kind: 'observation' | 'reflection';
+    readonly modelId: string;
+    readonly usage: LanguageModelUsage;
+  }): Promise<void>;
+  recordProviderRequest?(receipt: {
+    readonly accounting: ProviderRequestAccounting;
+    readonly modelId: string;
+    readonly provider: string;
+  }): Promise<void>;
   readonly runId: string;
   readonly signal: AbortSignal;
   readonly threadId: string;
@@ -24,6 +44,15 @@ export interface HostRunContext {
 /** Fence new work and join every provider, memory, storage and hook tail. */
 export interface HostRunOwner {
   close(): Promise<void>;
+  /** Native Memory may consume only the step that the host already committed. */
+  commitHostStep?(): Promise<void>;
+  /** Enclose the selected concrete model at its final public provider boundary. */
+  prepareHostModel?(model: LanguageModel): LanguageModel;
+  /** Public Memory context selection before the existing provider request boundary. */
+  prepareHostStep?(request: {
+    readonly messages: readonly ModelMessage[];
+    readonly stepNumber: number;
+  }): Promise<{ readonly messages: ModelMessage[]; readonly system?: string }>;
 }
 
 /** Trusted run configuration; credential resolution stays inside the adapter. */

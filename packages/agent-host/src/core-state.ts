@@ -1,6 +1,8 @@
+import type { ModelMessage } from 'ai';
+import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
-import type { HostRunOwner } from './ports.js';
-import type { HostEvent } from './protocol.js';
+import type { HostRunContext, HostRunOwner } from './ports.js';
+import { HOST_METHOD_SCHEMAS, type HostEvent } from './protocol.js';
 
 /** HostCore alone folds and writes accepted command records. */
 export interface AcceptedCommand {
@@ -114,5 +116,94 @@ export function createHostRunState(threadId: string, id: string, modelId: string
     stopped: false,
     terminal: false,
     threadId,
+  };
+}
+
+export function foldHostAcceptedCommand(
+  commands: HostCommandLedger,
+  runs: ReadonlyMap<string, HostRunState>,
+  event: Extract<HostEvent, { type: 'command.accepted' }>
+): void {
+  commands.commit(event.commandId, {
+    method: event.method,
+    payload: canonical(event.payload),
+    result: event.result,
+  });
+  if (event.method !== 'run/stop') {
+    return;
+  }
+  const params = HOST_METHOD_SCHEMAS['run/stop'].parse(event.payload);
+  const run = runs.get(params.runId);
+  if (run) {
+    run.stopped = true;
+  }
+}
+
+/** HostCore supplies already-validated committed messages; no independent fold or writer. */
+export function foldHostRunMessages(
+  run: HostRunState,
+  event: Extract<HostEvent, { type: 'model.step' | 'model.messages' }>,
+  messages: readonly ModelMessage[],
+  previousLength: number
+): void {
+  for (let index = 0; index < messages.length; index += 1) {
+    run.messageIndexes.add(previousLength + index);
+  }
+  if (event.type === 'model.step') {
+    run.steps = event.stepNumber + 1;
+  }
+  recordRawToolInputs(run.rawInputs, messages);
+  for (const message of messages) {
+    if (message.role !== 'tool') {
+      continue;
+    }
+    for (const part of message.content) {
+      if (part.type === 'tool-approval-response') {
+        run.responses.add(part.approvalId);
+      }
+      if (part.type === 'tool-result') {
+        run.checkpointedResults.add(part.toolCallId);
+      }
+    }
+  }
+}
+
+/** Receipts use the caller's existing FULL publisher, with no queue/store of their own. */
+export function createHostRunContext(
+  run: HostRunState,
+  publish: (threadId: string, events: readonly HostEvent[]) => Promise<unknown>
+): HostRunContext {
+  return {
+    recordObserverUsage: async (receipt) => {
+      if (run.terminal) {
+        throw new Error('Memory receipt arrived after the run lifetime joined');
+      }
+      await publish(run.threadId, [
+        {
+          kind: receipt.kind,
+          modelId: receipt.modelId,
+          runId: run.id,
+          type: 'memory.usage',
+          usage: jsonValue(receipt.usage),
+        },
+      ]);
+    },
+    recordProviderRequest: async (receipt) => {
+      if (run.terminal) {
+        throw new Error('Provider receipt arrived after the run lifetime joined');
+      }
+      await publish(run.threadId, [
+        {
+          accounting: jsonValue(receipt.accounting),
+          modelId: receipt.modelId,
+          provider: receipt.provider,
+          runId: run.id,
+          type: 'provider.request.prepared',
+        },
+      ]);
+    },
+    runId: run.id,
+    signal: run.controller.signal,
+    threadId: run.threadId,
   };
 }

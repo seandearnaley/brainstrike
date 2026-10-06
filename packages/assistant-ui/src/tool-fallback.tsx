@@ -1,4 +1,5 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
+import { Button } from '@brainstrike/ui';
 import { useId, useMemo, useState } from 'react';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
@@ -81,6 +82,8 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   // toggles this card — so switching to Developer auto-expands already-rendered
   // cards (and Compact re-collapses them), while an explicit toggle still wins.
   const [userCollapsed, setUserCollapsed] = useState<boolean | null>(null);
+  const [responding, setResponding] = useState(false);
+  const [approvalError, setApprovalError] = useState<string>();
   const isCollapsed = userCollapsed ?? !policy.defaultExpanded;
   const detailsId = useId();
 
@@ -137,6 +140,41 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
         toolCallId={toolCallId}
         toolName={toolName}
       />
+      {props.approval &&
+      props.approval.approved === undefined &&
+      props.approval.resolution === undefined &&
+      (props.approval.display ?? 'decision') === 'decision' &&
+      !props.approval.options?.length &&
+      !props.approval.allowFreeform ? (
+        <fieldset
+          aria-label={`Tool approval ${toolName}`}
+          className="flex flex-col gap-2 px-3 pb-3"
+        >
+          <div className="flex gap-2">
+            {([true, false] as const).map((approved) => (
+              <Button
+                aria-label={`${approved ? 'Approve' : 'Decline'} ${toolName}`}
+                disabled={responding}
+                key={String(approved)}
+                onClick={() => {
+                  setResponding(true);
+                  setApprovalError(undefined);
+                  // The public runtime routes the exact committed interaction.
+                  // Only the host's publication resolves or removes this card.
+                  void props.respondToApproval({ approved }).catch((cause: unknown) => {
+                    setApprovalError(cause instanceof Error ? cause.message : String(cause));
+                    setResponding(false);
+                  });
+                }}
+                variant={approved ? 'default' : 'outline'}
+              >
+                {approved ? 'Approve' : 'Decline'}
+              </Button>
+            ))}
+          </div>
+          {approvalError === undefined ? null : <p role="alert">{approvalError}</p>}
+        </fieldset>
+      ) : null}
       <ToolFallbackBody
         argsText={displayArgsText}
         collapsed={isCollapsed}

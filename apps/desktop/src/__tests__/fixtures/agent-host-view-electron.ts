@@ -26,6 +26,11 @@ app
     window.once('closed', () => {
       void relay.close();
     });
+    void relay.closed.then(() => {
+      if (!window.isDestroyed()) {
+        window.webContents.send('agent-host/disconnected');
+      }
+    });
     await window.loadFile(html, { query: { threadId } });
     window.webContents.postMessage('agent-host/connect', record, [relay.port]);
   })

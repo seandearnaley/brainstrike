@@ -8,8 +8,9 @@
 //   purge_intent  a purge in progress, replayed at open after a crash (M0-A2 src/host.ts)
 
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
+import { MEMORY_SCHEMA } from './memory-domain.mjs';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 4;
 
 const V1 = `
   CREATE TABLE IF NOT EXISTS run_events (
@@ -36,7 +37,17 @@ const V1 = `
 `;
 
 /** @type {readonly string[]} */
-export const UPGRADES = [V1, AUTHORITATIVE_SCHEMA];
+export const UPGRADES = [
+  V1,
+  AUTHORITATIVE_SCHEMA,
+  MEMORY_SCHEMA,
+  `
+  ALTER TABLE purge_intent ADD COLUMN operation TEXT NOT NULL DEFAULT 'event'
+    CHECK (operation IN ('event','thread'));
+  ALTER TABLE purge_intent ADD COLUMN memory_resources TEXT NOT NULL DEFAULT '[]'
+    CHECK (json_valid(memory_resources) AND json_type(memory_resources) = 'array');
+`,
+];
 
 /**
  * Bring the schema to SCHEMA_VERSION. A DB written by a newer build is refused, never downgraded.

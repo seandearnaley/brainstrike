@@ -13,11 +13,13 @@ import {
   ApprovalInputReconstructionError,
   admittedApprovalInput,
   rebuildApprovedRuntimeMessages,
-  recordRawToolInputs,
   validateApprovalInput,
 } from './approval-input.js';
 import {
+  createHostRunContext,
   createHostRunState,
+  foldHostAcceptedCommand,
+  foldHostRunMessages,
   HostCommandLedger,
   type PendingInteraction,
   type HostRunState as Run,
@@ -26,12 +28,7 @@ import { readHostRow, storedHostEvent } from './event-storage.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostPlatform, HostRunOwner } from './ports.js';
-import {
-  HOST_METHOD_SCHEMAS,
-  type HostEvent,
-  type HostLogRow,
-  type HostParams,
-} from './protocol.js';
+import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
 import { createHostSdkTools } from './sdk-tools.js';
 
 export { jsonValue } from './json-value.js';
@@ -49,6 +46,7 @@ export class HostCore {
   private readonly threads = new Set<string>();
   private readonly runs = new Map<string, Run>();
   private readonly messages = new Map<string, ModelMessage[]>();
+  private readonly conversationIds = new Set<string>();
   private readonly listeners = new Set<(row: HostLogRow) => void>();
   private admission: Promise<void> = Promise.resolve();
   private closing = false;
@@ -113,9 +111,13 @@ export class HostCore {
     const event = row.event;
     switch (event.type) {
       case 'command.accepted':
-        this.foldCommand(event);
+        foldHostAcceptedCommand(this.commands, this.runs, event);
+        if (event.method === 'run/start') {
+          this.foldConversationId(event.commandId);
+        }
         break;
       case 'run.started':
+        this.foldConversationId(event.runId);
         this.runs.set(event.runId, createHostRunState(row.threadId, event.runId, event.modelId));
         this.messages.set(row.threadId, [
           ...(this.messages.get(row.threadId) ?? []),
@@ -165,20 +167,11 @@ export class HostCore {
     }
   }
 
-  private foldCommand(event: Extract<HostEvent, { type: 'command.accepted' }>): void {
-    this.commands.commit(event.commandId, {
-      method: event.method,
-      payload: canonical(event.payload),
-      result: event.result,
-    });
-    if (event.method !== 'run/stop') {
-      return;
+  private foldConversationId(id: string): void {
+    if (this.conversationIds.has(id)) {
+      throw new Error('Committed conversation identities collide');
     }
-    const params = HOST_METHOD_SCHEMAS['run/stop'].parse(event.payload);
-    const run = this.runs.get(params.runId);
-    if (run) {
-      run.stopped = true;
-    }
+    this.conversationIds.add(id);
   }
 
   private foldMessages(
@@ -192,26 +185,7 @@ export class HostCore {
     if (!run) {
       return;
     }
-    for (let index = 0; index < messages.length; index += 1) {
-      run.messageIndexes.add(previous.length + index);
-    }
-    if (event.type === 'model.step') {
-      run.steps = event.stepNumber + 1;
-    }
-    recordRawToolInputs(run.rawInputs, messages);
-    for (const message of messages) {
-      if (message.role !== 'tool') {
-        continue;
-      }
-      for (const part of message.content) {
-        if (part.type === 'tool-approval-response') {
-          run.responses.add(part.approvalId);
-        }
-        if (part.type === 'tool-result') {
-          run.checkpointedResults.add(part.toolCallId);
-        }
-      }
-    }
+    foldHostRunMessages(run, event, messages, previous.length);
   }
 
   private async append(
@@ -315,9 +289,16 @@ export class HostCore {
           throw new Error('Thread already has an active root run');
         }
       }
+      if (this.conversationIds.has(params.commandId)) {
+        throw new Error('Input command collides with a committed conversation identity');
+      }
       const model = await this.platform.resolveModel(params.modelId);
       const release = this.retainRun();
       const run = createHostRunState(params.threadId, randomUUID(), params.modelId);
+      if (this.conversationIds.has(run.id) || run.id === params.commandId) {
+        release();
+        throw new Error('Generated run collides with a committed conversation identity');
+      }
       run.release = release;
       const result = { runId: run.id };
       try {
@@ -329,6 +310,8 @@ export class HostCore {
         throw cause;
       }
       this.runs.set(run.id, run);
+      this.foldConversationId(params.commandId);
+      this.foldConversationId(run.id);
       this.messages.set(params.threadId, [
         ...(this.messages.get(params.threadId) ?? []),
         { content: params.prompt, role: 'user' },
@@ -481,7 +464,7 @@ export class HostCore {
     let recordedInputLength = initialMessages.length;
     let historyPrepared = false;
     try {
-      await this.openRun(run);
+      const owner = await this.openRun(run);
       const result = streamText({
         abortSignal: run.controller.signal,
         maxRetries: 0,
@@ -499,7 +482,7 @@ export class HostCore {
           messages: initialMessages,
           resolveInput: (event) => this.approvalInput(run, event),
         }),
-        model,
+        model: owner?.prepareHostModel?.(model) ?? model,
         onStepFinish: async (step) => {
           // AI SDK notify() catches callback errors; keep storage failures on the host's failure path.
           // https://github.com/vercel/ai/blob/main/packages/ai/src/util/notify.ts
@@ -553,6 +536,7 @@ export class HostCore {
               throw new Error('Model step was not committed');
             }
             recordedInputLength += step.response.messages.length;
+            await owner?.commitHostStep?.();
           } catch (cause) {
             checkpointFailure = cause;
             run.controller.abort(cause);
@@ -565,17 +549,18 @@ export class HostCore {
             await this.commitMessages(run, messages.slice(recordedInputLength));
             recordedInputLength = messages.length;
           }
+          let prepared = messages;
           if (!historyPrepared) {
             historyPrepared = true;
-            const prepared = healInterruptedRunHistory(
-              messages,
-              [...this.runs.values()],
-              run.threadId
-            );
+            prepared = healInterruptedRunHistory(messages, [...this.runs.values()], run.threadId);
             recordedInputLength = prepared.length;
-            return { messages: prepared };
           }
-          return {};
+          const memory = await owner?.prepareHostStep?.({
+            messages: prepared,
+            stepNumber: run.steps,
+          });
+          recordedInputLength = memory?.messages.length ?? prepared.length;
+          return memory ?? { messages: prepared };
         },
         stopWhen: stepCountIs(this.platform.maxSteps - run.steps),
         toolApproval: ({ toolCall }) => this.sdkApproval(run, toolCall),
@@ -889,11 +874,9 @@ export class HostCore {
 
   private openRun(run: Run): Promise<HostRunOwner | undefined> {
     run.owner ??= Promise.resolve().then(() =>
-      this.platform.openRun?.({
-        runId: run.id,
-        signal: run.controller.signal,
-        threadId: run.threadId,
-      })
+      this.platform.openRun?.(
+        createHostRunContext(run, (threadId, events) => this.append(threadId, events, 'full'))
+      )
     );
     return run.owner;
   }

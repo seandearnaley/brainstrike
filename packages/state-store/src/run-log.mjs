@@ -265,12 +265,16 @@ export class RunLog {
 
   /**
    * @param {string} id
+   * @param {(() => void) | undefined} [beforeDelete]
    * @returns {void}
    */
-  deleteThread(id) {
-    this.db.prepare('DELETE FROM run_events WHERE thread_id = ?').run(id);
-    this.db.prepare('DELETE FROM run_sync WHERE thread_id = ?').run(id);
-    this.db.prepare('DELETE FROM threads WHERE id = ?').run(id);
+  deleteThread(id, beforeDelete) {
+    this.db.transaction(() => {
+      beforeDelete?.();
+      this.db.prepare('DELETE FROM run_events WHERE thread_id = ?').run(id);
+      this.db.prepare('DELETE FROM run_sync WHERE thread_id = ?').run(id);
+      this.db.prepare('DELETE FROM threads WHERE id = ?').run(id);
+    })();
     this.st.delete(id);
     checkpointTruncate(this.db);
   }

@@ -56,5 +56,10 @@ export async function readHostRow(
   } else {
     event = HostEventSchema.parse(stored);
   }
-  return { event, seq: row.seq, threadId: row.threadId };
+  return {
+    event,
+    seq: row.seq,
+    threadId: row.threadId,
+    ...(row.ts === undefined ? {} : { ts: row.ts }),
+  };
 }

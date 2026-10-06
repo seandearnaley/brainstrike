@@ -1,7 +1,9 @@
 import { attachBrowserHost } from '@brainstrike/agent-host/browser';
+import { CommittedAssistantConversation } from '@brainstrike/assistant-ui';
 import type { HostRecord } from '@brainstrike/host-lease';
+import { TooltipProvider } from '@brainstrike/ui';
 import { createRoot } from 'react-dom/client';
-import { AgentHostPanel } from '../../renderer/components/agent-host-panel';
+import { createCommittedHostConversation } from '../../renderer/committed-host-conversation';
 
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
   const data = event.data;
@@ -22,15 +24,43 @@ window.addEventListener('message', (event: MessageEvent<unknown>) => {
     throw new Error('Owned host view capability was incomplete');
   }
   const closed = Promise.withResolvers<void>();
+  const disconnected = (event: MessageEvent<unknown>): void => {
+    const message = event.data;
+    if (
+      event.source === window &&
+      message &&
+      typeof message === 'object' &&
+      'type' in message &&
+      message.type === 'agent-host/disconnected'
+    ) {
+      closed.resolve();
+    }
+  };
+  window.addEventListener('message', disconnected);
   attachBrowserHost(port, data.record as HostRecord, closed.promise)
     .then((client) => {
       const view = createRoot(element);
-      view.render(<AgentHostPanel client={client} modelId="scripted" threadId={threadId} />);
+      const conversation = createCommittedHostConversation({
+        client,
+        modelId: 'scripted',
+        threadId,
+      });
+      view.render(
+        <TooltipProvider>
+          <CommittedAssistantConversation
+            commands={conversation.commands}
+            label="Assistant"
+            store={conversation.store}
+          />
+        </TooltipProvider>
+      );
       window.addEventListener(
         'beforeunload',
         () => {
           view.unmount();
-          client.close();
+          conversation.close();
+          void client.close();
+          window.removeEventListener('message', disconnected);
           closed.resolve();
         },
         { once: true }

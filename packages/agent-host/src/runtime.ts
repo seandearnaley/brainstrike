@@ -1,4 +1,5 @@
 import type { Socket } from 'node:net';
+import { fileURLToPath } from 'node:url';
 import {
   type HostRecord,
   type HostRuntime,
@@ -120,7 +121,11 @@ export async function startAgentHost(
         },
         acquireRoot: async (retainRun) => {
           signal.throwIfAborted();
-          const store = await StateStore.open(options.root);
+          const store = await StateStore.open(options.root, {
+            memoryCalculatorModule: fileURLToPath(
+              new URL('./adapters/memory-storage-calculator.js', import.meta.url)
+            ),
+          });
           try {
             signal.throwIfAborted();
             // Acquire the durable root owner before constructing credentials,

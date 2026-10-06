@@ -25,6 +25,19 @@ export {
   RootLock,
   RootLockedError,
 } from './lock.js';
+export type {
+  MemoryCalculation,
+  MemoryDomainPort,
+  MemoryDomainRequest,
+  MemoryEntity,
+  MemoryEntityChange,
+  MemoryJson,
+  MemoryJsonObject,
+  MemoryNativeCalculator,
+  MemoryNativeMethod,
+  MemoryNativeRequest,
+  MemorySnapshot,
+} from './memory-types.js';
 export { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 export type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
 export { SCHEMA_VERSION } from './schema.mjs';

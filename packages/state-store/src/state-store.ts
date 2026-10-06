@@ -33,6 +33,7 @@ import {
   type Unreadable,
 } from './event-schema.js';
 import { type LockOptions, RootLock } from './lock.js';
+import type { MemoryDomainPort, MemoryDomainRequest, MemorySnapshot } from './memory-types.js';
 import { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 import type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
 import { openRo, vacuumInto } from './sqlite.js';
@@ -137,6 +138,8 @@ export interface StateStoreOptions extends LockOptions {
   readonly hooks?: StateStoreHooks;
   /** Required by purge, thread delete and the replay of an interrupted purge. */
   readonly indexer?: IndexerPort;
+  /** Trusted host composition only; never supplied in a client memory request. */
+  readonly memoryCalculatorModule?: string;
   readonly onSyncSpan?: (span: SyncSpan) => void;
   readonly onWriteSpan?: (span: WriteSpan) => void;
   /** 'sqlite-auto' is the kernel-sync probe's negative control only: it checkpoints inside streaming commits. */
@@ -302,7 +305,7 @@ function blobsReferencedBy(root: string): Set<string> {
   return hashes;
 }
 
-export class StateStore {
+export class StateStore implements MemoryDomainPort {
   readonly root: string;
   readonly lock: RootLock;
   readonly settings: StoreSettings;
@@ -374,6 +377,7 @@ export class StateStore {
           checkpointPages: options.checkpointPages ?? 1000,
           crashTestHooks: options.crashTestHooks,
           fullfsync: options.fullfsync ?? process.platform === 'darwin',
+          memoryCalculatorModule: options.memoryCalculatorModule,
           path: join(dataRoot, STATE_DB),
           walCheckpoint: options.walCheckpoint ?? 'boundary',
         },
@@ -491,6 +495,7 @@ export class StateStore {
               raw,
               seq: seqs[i] as number,
               threadId: it.threadId,
+              ts: Number(r['ts']),
             };
             return it.rawCount === undefined ? row : { ...row, rawCount: it.rawCount };
           });
@@ -553,6 +558,26 @@ export class StateStore {
     });
   }
 
+  /** One verified writer-side snapshot, for shared-resource transcript projection. */
+  async readAll(): Promise<LogRow[]> {
+    const reply = await this.call({ op: 'readAll' });
+    const rows = reply['rows'] as Array<{
+      seq: number;
+      payload: string;
+      rawCount: number | null;
+      threadId: string;
+      ts: number;
+    }>;
+    return rows.map((row) => ({
+      event: JSON.parse(row.payload) as RunEvent,
+      raw: row.payload,
+      seq: row.seq,
+      threadId: row.threadId,
+      ts: row.ts,
+      ...(row.rawCount === null ? {} : { rawCount: row.rawCount }),
+    }));
+  }
+
   /**
    * Upgraded events (M0-A2 Host.read). An event the schema cannot interpret throws in dev mode; in prod it is returned
    * in place as `unreadable` and listed in `health().visibleErrors`.
@@ -597,6 +622,15 @@ export class StateStore {
     return this.run(async () => {
       await this.call({ key, op: 'setting', value });
     });
+  }
+
+  /** Native metadata/WM/OM use this same writer and mutation chain; transcript stays in the log. */
+  memory(request: MemoryDomainRequest): Promise<MemorySnapshot> {
+    const execute = async (): Promise<MemorySnapshot> => {
+      const reply = await this.call({ op: 'memory', request });
+      return reply['snapshot'] as MemorySnapshot;
+    };
+    return request.operation === 'read' ? execute() : this.run(execute);
   }
 
   health(): { stateDamage: string | null; visibleErrors: Unreadable[] } {
@@ -661,13 +695,18 @@ export class StateStore {
       threadId: string;
       seq: number;
       hashes: string;
+      operation: 'event' | 'thread';
     }>;
     if (intents.length === 0) {
       return;
     }
     const indexer = this.requireIndexer('completing an interrupted purge');
     for (const i of intents) {
-      await this.completePurge(indexer, i.threadId, i.seq, JSON.parse(i.hashes) as string[]);
+      if (i.operation === 'thread') {
+        await this.completeThreadDelete(indexer, i.threadId, JSON.parse(i.hashes) as string[]);
+      } else {
+        await this.completePurge(indexer, i.threadId, i.seq, JSON.parse(i.hashes) as string[]);
+      }
     }
   }
 
@@ -702,9 +741,32 @@ export class StateStore {
     const indexer = this.requireIndexer('thread delete');
     return this.run(async () => {
       await indexer.catchUp(await this.okThreads());
-      await this.call({ op: 'deleteThread', threadId });
-      return this.gc(indexer, await indexer.dropThread(threadId));
+      const hashes = [...new Set((await this.read(threadId)).flatMap((row) => blobsOf(row.raw)))];
+      const intent = await this.call({
+        hashes: JSON.stringify(hashes),
+        op: 'intentRecord',
+        operation: 'thread',
+        seq: 0,
+        threadId,
+      });
+      return this.completeThreadDelete(
+        indexer,
+        threadId,
+        JSON.parse(String(intent['hashes'])) as string[]
+      );
     });
+  }
+
+  private async completeThreadDelete(
+    indexer: IndexerPort,
+    threadId: string,
+    hashes: readonly string[]
+  ): Promise<string[]> {
+    await this.call({ op: 'deleteThread', threadId });
+    const references = await indexer.dropThread(threadId);
+    const deleted = await this.gc(indexer, [...new Set([...hashes, ...references])]);
+    await this.call({ op: 'intentDelete', seq: 0, threadId });
+    return deleted;
   }
 
   // ---- export / import ------------------------------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
-import { migrate, SCHEMA_VERSION } from '../src/schema.mjs';
+import { migrate, SCHEMA_VERSION, UPGRADES } from '../src/schema.mjs';
 import { STATE_DB, StateStore } from '../src/state-store.js';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 
@@ -29,6 +29,7 @@ const C_SMALL = [
   'brainstrike_worktrees',
 ];
 const RUN_LOG = ['purge_intent', 'run_events', 'run_sync', 'settings', 'threads'];
+const MEMORY = ['brainstrike_memory_scopes', 'brainstrike_memory_entities'];
 const ISO = '2026-10-02T00:00:00.000Z';
 
 async function openDb(): Promise<{ store: StateStore; db: Database.Database }> {
@@ -40,19 +41,18 @@ async function openDb(): Promise<{ store: StateStore; db: Database.Database }> {
   return { db, store };
 }
 
-describe('state DB schema v2', () => {
-  test('version 2 holds the run-log, thread, usage and recovered C-small tables', async () => {
+describe('state DB migrations', () => {
+  test('holds the run log, native memory, thread, usage and recovered C-small tables', async () => {
     const { db } = await openDb();
     try {
       expect(db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
-      expect(SCHEMA_VERSION).toBe(2);
       const tables = db
         .prepare(
           "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
         )
         .pluck()
         .all() as string[];
-      expect(tables).toEqual([...C_SMALL, ...RUN_LOG].sort());
+      expect(tables).toEqual([...C_SMALL, ...RUN_LOG, ...MEMORY].sort());
     } finally {
       db.close();
     }
@@ -146,8 +146,9 @@ describe('state DB schema v2', () => {
   test('version 1 scaffold upgrades without losing its run log or settings', () => {
     const db = new Database(':memory:');
     try {
+      db.exec(UPGRADES[0] as string);
       db.exec(
-        "CREATE TABLE run_events (id INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, seq INTEGER NOT NULL, type TEXT NOT NULL, run_id TEXT, payload TEXT NOT NULL, crc INTEGER NOT NULL, raw_count INTEGER, created_at REAL NOT NULL, UNIQUE(thread_id, seq)); CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO settings VALUES ('existing','preserved'); INSERT INTO run_events VALUES (1,'t',1,'text',NULL,'payload',0,NULL,1); PRAGMA user_version=1;"
+        "INSERT INTO settings VALUES ('existing','preserved'); INSERT INTO run_events VALUES (1,'t',1,'text',NULL,'payload',0,NULL,1); PRAGMA user_version=1;"
       );
       migrate(db);
       expect(db.prepare('SELECT value FROM settings').pluck().get()).toBe('preserved');
@@ -169,8 +170,8 @@ describe('state DB schema v2', () => {
     try {
       migrate(db);
       migrate(db);
-      expect(db.pragma('user_version', { simple: true })).toBe(2);
-      db.pragma('user_version = 3');
+      expect(db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+      db.pragma(`user_version = ${SCHEMA_VERSION + 1}`);
       expect(() => migrate(db)).toThrow(/newer than this build supports/);
     } finally {
       db.close();

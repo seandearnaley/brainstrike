@@ -34,6 +34,19 @@ export {
   type CommittedAssistantConversationProps,
 } from './committed-assistant-conversation';
 export {
+  CommittedAssistantLogProjection,
+  type CommittedAssistantLogProjectionOptions,
+  type CommittedAssistantLogRow,
+  type CommittedAssistantLogView,
+  type CommittedAssistantRunIdentity,
+} from './committed-assistant-log-projection';
+export {
+  type CommittedAssistantLogSource,
+  type CommittedAssistantLogSourceSnapshot,
+  CommittedAssistantLogStore,
+  type CommittedAssistantLogStoreOptions,
+} from './committed-assistant-log-store';
+export {
   bindCommittedAssistantCommands,
   type CommittedAssistantCommands,
   type CommittedAssistantSnapshot,

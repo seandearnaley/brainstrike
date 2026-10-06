@@ -4,7 +4,144 @@ This is the integrator's evidence ledger for BST-1977, not an acceptance declara
 
 CI is disabled due to cost; validation must run locally.
 
-## Current composed qualification — 6 October, 19:23 UTC
+## Current composed qualification — 6 October, 21:40 UTC
+
+The current integration batch above `d123f200384e314309384521dcc2518507bb9c88`
+composes the published UI `97f12482` and Memory `47867a08` packets, with the
+Memory `0abca4d0` metadata/JSON-key corrections. This is partial M3 evidence;
+ordinary desktop New Thread and the production CLI platform remain unfinished.
+
+Public Memory borrows the already-acquired SQLite writer through its native
+MemoryStorage domain. A pure native calculator runs inside that writer's
+existing serialized request, without another SQLite connection or admission
+queue. Schema version 4 retains affected Memory resources in the existing purge
+intent before deleting thread truth. The existing physical WAL checkpoint,
+derived-index notification and blob cleanup must finish before erasure is
+acknowledged. A pinned WAL reader and a killed owned process demonstrate failed
+acceptance followed by reopen completion; these tests use the existing
+TruthIndexer test double and do not establish actual semantic-vector erasure.
+
+The native transcript has immutable assistant segments addressed by the existing
+`[threadId, seq]` SQLite primary key encoded as a string. User messages use the
+existing accepted input command ID; the conversation view aggregates by the
+existing run ID. No message-ID writer, backfill, reconciliation or history rewrite
+is introduced. Joined tests prove that later tool results leave prior segments
+unchanged, public MessageList sealing preserves their IDs, and replay retains the
+same tool occurrences and native Memory snapshot. Native OM usage and final
+provider accounting append through HostCore's existing FULL publisher before
+terminal publication. The actor remains the SDK 7 loop; the scripted observer
+exercises public Memory rather than a second actor loop.
+
+The owned real desktop proof now mounts the shipped
+CommittedAssistantConversation and its actual desktop styles. A CLI command and
+Electron MessagePort/socket relay share one authenticated Node host. The user
+opens the existing activity disclosure and approves through the vendor's public
+approval primitive; only a committed host response settles the control. A native
+file write, separate real SQLite BM25 query, visible result disclosure, window
+reopen and physical cleanup passed: **1/1, 5.079 s body / 6.54 s lane**, with
+40 committed rows and three model calls. Host/test PID 10228, indexer PID 10230
+and reopened Electron PID 10290 are recorded in
+`/tmp/brainstrike-m3-committed-vendor-view-proof/`; the indexer/Electron exited,
+the root lock was released, host discovery removed and SQLite reopened with the
+same 40 rows. This test uses text-only index mode and controlled models; it does
+not qualify ordinary New Thread, MiniLM/semantic/hybrid or selected production
+provider/configuration/credential parity. Earlier fixture failures are retained;
+the deadline remains 15 seconds. The fixture now loads the normal compiled
+desktop stylesheet and operates the actual accessible disclosure names.
+
+Focused local Memory qualification: all **65 component cases** passed in 1.49 s;
+joined SQLite/public Memory history and OM plus existing Stop/provider-owner
+cases passed **6/6 in 2.33 s**. Strict erasure/domain cases passed **7/7 in 2.08 s**;
+schema/reset cases passed **10/10 in 0.918 s**; committed view projection/runtime
+passed **10/10 in 2.10 s**. The StateStore, host and assistant-ui builds passed;
+host/StateStore source and test types and desktop source types passed. Scoped
+Ultracite passed after moving the existing run fold/receipt helpers into the
+existing core-state module. These results are affected-package evidence, not a
+full-regression result; the final source-bound batch receipt records subsequent
+checks separately.
+
+The necessary Memory 1.32.1 patch is registered reproducibly in pnpm, with
+SHA-256 `9966af06a023baf33b90bfbeb9c0ee9360800a3f15ed074543376cb9a47d9cec`.
+Sean's 19:45 permission authorizes this narrow temporary patch. Remove it when
+the upstream/M4 library passes public ESM/CJS cancellation/join/error propagation
+and the composed recall/working-memory/OM/usage/erasure/reset/reopen acceptance;
+no calendar deletion clock begins. The legacy agent's ai 6 peer closure remains
+unchanged; the new host uses a documented, tested type bridge at the public V4
+provider middleware DTO boundary.
+
+Mini's exact changed-source qualification is **red** at `d123f200...`, tree
+`be30cff595250d054be51e292c02bf7d199cc36c`. Frozen setup, 58/58 dependency build
+and unsigned canonical package passed. Packaged core failed its original
+authorization-observed predicate at `mcp-packaged-core.desktop.test.ts:315`
+(30 seconds), after Connect OAuth completed. The authorizing row had no stored
+credentials. Context close remained pending and masked that assertion with the
+420003 ms body timeout (438738 ms lane, exit 255). The async repair moved the
+observed Security/Keychain wait from Electron main to
+ThreadPoolForegroundWorker (745 samples); main made progress with zero watchdog
+failures. Cancel/reconnect, approval, elicitation, composer, restart/persisted
+reconnect and reset were not reached. All observed owned processes exited, all
+six loopback ports refused connections, and only proven-owned disposable
+directories were removed, without manual kills. Source/spec/hooks/lock and asar
+hash remained unchanged. Receipt on Mini:
+`/Users/seandearnaley/Documents/Codex/2026-10-06/task-2/evidence/d123f20/qualification.md`.
+Do not replay this unchanged artifact: the remaining causal boundary is native
+credential persistence and its physical shutdown join. Consent state and the
+exact callback remain unverified. The prior `bbfb4e8` three packaged lane passes
+and native provenance are preserved separately and were not repeated on d123.
+
+One newly demonstrated prototype-carried input-reconstruction defect remains
+**red and unquarantined**. The real SQLite/SDK reopened approval executes once
+after a custom array prototype's process-local selection changes; zero effects
+are required. Under root working rule 3, the product predicate is paused for
+Sean's decision. The complete one-page causal note is
+`2026-10-06-m3-prototype-input-root-cause.md`. The proposed existing contract keeps
+live validated objects, reopens ordinary local JSON arrays/records or null
+records, and requires the existing tool-owned reconstruction capability for
+custom or required cross-realm objects. No new gate or durable identity is
+proposed. Elapsed time does not approve this design.
+
+BST-1977 was read-only verified **In Progress**. PR3543 remains draft/open directly
+on exact M2 `5762617e0b3b2a32eb8f4d865fd28c0053fd8fad`, tree
+`e62d5cb3ea618ccdecaacb1b5faa0aac0f90cc4a`; main remains
+`ed97957e030dd3345c232650199dbc88929dad24`. GitHub's M2 PR base is the expected
+M1 `43a8ba0885c6dfe8c32320ad8c82aeaf5dfa0b1d`; the local M1 branch additionally
+contains the historical `508850622` merge. No frozen branch was changed.
+The Windows owner's two reserved process/CLI test files have no Studio edits.
+
+Final composed-source commands (qualified Node 26.8.2, dependency verification
+enabled) retain the first failures without retries or deadline changes:
+
+- `pnpm --filter @brainstrike/agent-host test`: **92 passed**, 2.10 s.
+- `pnpm --filter @brainstrike/agent-host test:integration`: **63 passed,
+  1 failed, 4 Windows-only skips**, 35.77 s. The sole failure is the unquarantined
+  custom-prototype reconstruction case above (one execution instead of zero).
+  Log: `/tmp/brainstrike-m3-composed-final-host-integration.log`.
+- `pnpm --filter @brainstrike/state-store exec vitest run
+  __tests__/schema.test.ts __tests__/i1-purge.test.ts __tests__/i2-reset.test.ts
+  __tests__/i5-export.test.ts __tests__/i6-synced.test.ts --maxWorkers=1
+  --no-file-parallelism`: **32 passed**, 6.87 s. Includes actual 8 MB
+  streaming purge/export and physical WAL-pinning failure visibility.
+  Log: `/tmp/brainstrike-m3-composed-final-state-invariants.log`.
+- `pnpm --filter @brainstrike/state-store exec vitest run --config
+  vitest.integration.config.mts __tests__/memory-domain.integration.test.ts
+  __tests__/memory-erasure.integration.test.ts --maxWorkers=1
+  --no-file-parallelism`: **7 passed**, 2.29 s.
+- The same real desktop command listed below: **1 passed**, 4.948 s body /
+  6.41 s lane, final proof `/tmp/brainstrike-m3-committed-vendor-view-final-proof/`.
+  It records host/test PID 14044, indexer PID 14057, reopened Electron PID 14118,
+  40 replayed rows and all physical cleanup assertions.
+- `pnpm --filter @brainstrike/assistant-ui exec vitest run --project unit
+  src/__tests__/committed-assistant-log-projection.test.ts
+  src/__tests__/committed-assistant-log-runtime.test.tsx
+  src/__tests__/tool-fallback.test.tsx`: **30 passed**, 1.81 s.
+
+The affected-package host result is explicitly red. `pnpm check`,
+`pnpm check --full`, full E2E/coverage, later-source Windows/native platform
+qualification and approved real-account provider replay are not full-green
+claims. Main remains frozen; no M2 merge or legacy deletion follows from this
+receipt. **CI is disabled due to cost; validation must run locally.**
+
+## Historical composed qualification — 6 October, 19:23 UTC
 
 The composed candidate preserves all original host regressions and has **61 passing host integration tests in 12 files, no skips, 36.07 s** (`/tmp/brainstrike-m3-premerge-integration.log`). The four residuals were reproduced before repair: startup cancellation admitted an authenticated pending decision during held publication; equal RAW parallel calls selected the wrong transformed runtime value; array subclasses/extra properties lost runtime meaning after reopen; synchronous platform cleanup skipped a registered physical child join. Their causal tests now pass. A symlinked actual Node/CLI entry is also exercised; canonical native stdio survived structured ENOENT logging, two approval round trips, physical exit and exact replay of 42 committed rows (`/tmp/brainstrike-m3-canonical-stdio-receipt.json`).
 
@@ -18,18 +155,18 @@ The four packaged MCP lanes at `8179ed6` passed sequentially: Apps bridge 26.4 s
 
 | Required outcome | Current evidence | Remaining acceptance gap |
 | --- | --- | --- |
-| Electron-free Node owns the root/run/log | Separate Node 26.8.2 process, configured CLI spawning, root lease and SQLite worker writer; 25 host integration checks | Canonical provider/profile platform selection and desktop utility-process launch of the same host |
+| Electron-free Node owns the root/run/log | Separate Node 26.8.2 process, configured CLI spawning, root lease and SQLite worker writer; real desktop utility launches the same kernel | Canonical production provider/profile platform selection and ordinary New Thread routing |
 | One authenticated protocol | Actual separate-process stdio and socket clients share the same authenticated dispatcher; Node/Electron MessagePort and wrong-token checks pass | Ordinary desktop attachment and launch composition |
-| CLI and GUI share committed truth | Actual CLI subprocess and Electron panel perform approval/file write/native keyword search; close/reopen renderer replays the same log | Panel is exercised in an owned proof window; ordinary new-thread route must bypass the HTTP assistant path |
+| CLI and GUI share committed truth | Actual CLI subprocess and shipped assistant-ui conversation over the MessagePort/socket relay perform approval/file write/native keyword search with SQLite Memory; close/reopen renderer replays the same 40 rows | Conversation is exercised in an owned proof window; ordinary New Thread must use this composition |
 | One permission authority | Approve/deny; explicit deny beats YOLO/session grant; parallel calls answered by two clients; generation identity checked | Canonical native/MCP executor composition and full existing policy/configuration parity |
 | Stop and cleanup join physical work | Actual CLI Stop joins a separate native child; client SIGKILL/reconnect preserves the host; failed starter joins and releases its store; losing root contender constructs no second platform; Electron/indexer exit, root released, host record removed, SQLite reopened | Held/rejected run/platform/startup cleanup, repeated Stop and failed terminal append/FULL-boundary checks now keep admission and the real SQLite lease held; an owned run-tail child exits before acknowledgement. Desktop product lifecycle/MCP authority close reports and the remaining fault matrix remain required |
 | Restart continues from committed context | Public SDK approval pause and complete SDK step messages; actual CLI starts a fresh host at the committed decision and executes the native effect once | Abrupt-process crash matrix, provider reasoning/media replay, ordinary GUI restart route; Windows packet is integrated as component coverage; published 8179 qualification remains red (47 passed / 11 failed) |
 | Large outputs/context are durable | Real repository document tool output uses StateStore content-addressed spooling at the existing 12 KiB boundary; replay and subsequent model context survive reopen | Large canonical MCP Apps/media/provider outputs and full product reset/export proof |
-| Existing model-step limit/accounting | Final approved effect executes without another model request at the supplied step limit; SDK per-step usage/model metadata committed | Existing pricing, model/context settings, OM observer accounting and credential selection parity |
+| Existing model-step limit/accounting | Final approved effect executes without another model request at the supplied step limit; SDK per-step usage/model metadata, native OM usage and final prepared-provider accounting commit through the existing FULL publisher | Production pricing/model/context settings and credential selection parity |
 | Existing MCP authority is preserved | Borrowed adapter integrated; 22 focused checks; independent immutable-source review found no reproducible issue in its two-file scope (source-only evidence); no new client/registry/gate | Supply canonical executable schema/generation bindings; real Tasks/Apps rich results, cancellation, authority physical cleanup |
 | Native CLI retrieval | Actual separate native SQLite indexer process performs BM25 in the composed proof | Canonical CLI BM25/trigram/grep adapters; existing scope/read-authority vs completeness semantics |
 | Semantic/hybrid parity | Working M2 path preserved; no fake vectors, model restrictions or provider fallback added | New host consumes authoritative saved profile/query plan and off-lane embedding capability; demonstrate real assistant results |
-| Public Mastra memory only | Repository-pinned memory 1.32.1/core peer 1.71.0 installed; no Mastra Agent/server introduced. The held lifecycle vendor patch was withdrawn at Sean's 16:47 direction; the assigned memory leaf must use unmodified public APIs | Run-scoped Memory composition remains pending. The host exposes `HostRunOwner.close()` to fence and join provider/memory/storage/hook tails before terminal completion. OM/working memory/semantic recall, host-owned storage projection, cancellation/join and accounting remain required |
+| Public Mastra memory only | Public memory 1.32.1/core 1.71.0 run owner, one SQLite MemoryStorage writer, immutable committed segments, actual OM/working memory/provider receipts and strict erasure/reopen; necessary patch authorized at 19:45 with removal condition; no Mastra Agent/server | Ordinary product composition, default buffering/settings and actual semantic recall/vector erasure; complete cancel/delete/reset/shutdown acceptance |
 | Provider/credentials/context/setting parity | Pinned AI SDK 7.0.126 scripted provider-v4 runtime payloads and committed history | Real-account provider replay needs approved bounded spend; canonical secrets/settings/native content adapters remain required |
 | M3 child-aware contracts | Run identity is explicit in every effect/decision; optional parent-run metadata exists | Complete agreed ownership/interaction schema now; full child migration remains M4 |
 | Full regression and loaded performance | Focused checks below pass; no new retry/timeout/scheduler/budget | Full regression is not green; known M2 startup/scan/loop-stall and baseline fixture/authority/Electron assertion failures remain separate |

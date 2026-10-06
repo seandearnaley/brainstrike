@@ -66,6 +66,20 @@ export const HostEventSchema = z.discriminatedUnion('type', [
   }),
   z.strictObject({ type: z.literal('model.messages'), ...RunFields, messages: z.array(z.json()) }),
   z.strictObject({
+    type: z.literal('memory.usage'),
+    ...RunFields,
+    kind: z.enum(['observation', 'reflection']),
+    modelId: Id,
+    usage: z.json(),
+  }),
+  z.strictObject({
+    type: z.literal('provider.request.prepared'),
+    ...RunFields,
+    accounting: z.json(),
+    modelId: Id,
+    provider: Id,
+  }),
+  z.strictObject({
     type: z.literal('interaction.requested'),
     ...Action,
     interactionId: Id,
@@ -96,6 +110,8 @@ export const HostLogRowSchema = z.strictObject({
   event: HostEventSchema,
   seq: z.number().int().positive(),
   threadId: Id,
+  /** Existing run_events.created_at, including live publication and replay. */
+  ts: z.number().int().nonnegative().optional(),
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {

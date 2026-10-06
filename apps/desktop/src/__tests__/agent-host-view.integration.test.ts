@@ -5,16 +5,24 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { type AgentHost, startAgentHost } from '@brainstrike/agent-host';
 import { attachAgentHost, type HostClient } from '@brainstrike/agent-host/client';
 import { scriptedToolSequence } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { type IndexerPort, openIndexer } from '@brainstrike/indexer';
+import type { IndexerPort } from '@brainstrike/indexer';
 import { RootLock, StateStore } from '@brainstrike/state-store';
+import tailwindcss from '@tailwindcss/vite';
 import { build } from 'esbuild';
-import { _electron, type ElectronApplication } from 'playwright';
+import { _electron, type ElectronApplication, type Page } from 'playwright';
+import { build as buildStyles } from 'vite';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
+import {
+  type AgentHost,
+  StateStoreHostMemory,
+  startAgentHost,
+} from '../../../../packages/agent-host/dist/index.js';
+// This integration starts the emitted public Node entry, whose child lives beside it.
+import { openIndexer } from '../../../../packages/indexer/dist/index.js';
 
 const execute = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../../../..');
@@ -30,9 +38,15 @@ afterEach(async () => {
   application = undefined;
   await client?.close();
   client = undefined;
-  await host?.close();
+  const joined = await Promise.allSettled([host?.close(), indexer?.close()]);
+  const failed = joined.filter((result) => result.status === 'rejected');
+  if (failed.length > 0) {
+    throw new AggregateError(
+      failed.map((result) => result.reason),
+      'Owned host/indexer cleanup failed'
+    );
+  }
   host = undefined;
-  await indexer?.close();
   indexer = undefined;
   if (root) {
     await rm(root, { force: true, recursive: true });
@@ -76,18 +90,38 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
       platform: 'node',
     }),
     build({
-      alias: { '@brainstrike/ui': join(repository, 'packages/ui/src/button.tsx') },
       bundle: true,
       entryPoints: [join(fixtures, 'agent-host-view-renderer.tsx')],
       format: 'iife',
       jsx: 'automatic',
+      loader: { '.png': 'file', '.svg': 'file', '.woff2': 'file' },
       outfile: join(buildDirectory, 'renderer.js'),
       platform: 'browser',
+    }),
+    // The production surface needs the real desktop layout/theme utilities.
+    // Raw esbuild CSS leaves the composer overlaying the transcript.
+    buildStyles({
+      base: './',
+      build: {
+        emptyOutDir: false,
+        outDir: buildDirectory,
+        rollupOptions: {
+          input: join(desktop, 'src/renderer/styles.css'),
+          output: {
+            assetFileNames: (asset) =>
+              asset.names.includes('styles.css') ? 'desktop.css' : 'assets/[name]-[hash][extname]',
+          },
+        },
+      },
+      configFile: false,
+      logLevel: 'error',
+      plugins: [tailwindcss()],
+      root: desktop,
     }),
   ]);
   await writeFile(
     html,
-    '<!doctype html><html><body><div id="root"></div><script src="./renderer.js"></script></body></html>'
+    '<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="./desktop.css"><link rel="stylesheet" href="./renderer.css"></head><body><div id="root"></div><script src="./renderer.js"></script></body></html>'
   );
   checkpoint('bundled');
   const ownedRoot = root;
@@ -107,49 +141,60 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
     { input: { text: 'native SQLite assistant retrieval evidence' }, toolId: 'write_file' },
     { input: { query: 'retrieval' }, toolId: 'search_index' },
   ]);
-  host = await startAgentHost(
-    { lifetime: 'persistent', root },
-    {
-      close: async () => undefined,
-      maxSteps: 3,
-      readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
-      resolveModel: async () => model,
-      tools: {
-        search_index: {
-          description: 'Search the actual native keyword index',
-          execute: (input) =>
-            nativeIndex.search({
-              limit: 10,
-              mode: 'bm25',
-              rootIds: ['owned-root'],
-              text: z.object({ query: z.string() }).parse(input).query,
-            }),
-          identity: 'owned-native-index-reader',
-          inputSchema: z.object({ query: z.string() }),
-          risk: 'read',
-        },
-        write_file: {
-          description: 'Write and index the owned file',
-          execute: async (input) => {
-            const { text } = z.object({ text: z.string() }).parse(input);
-            await writeFile(path, text);
-            const plan = await nativeIndex.prepareFile({
-              chunkLines: 1,
-              content: await readFile(path, 'utf8'),
-              fileId: 'owned-file',
-              relativePath: 'permitted.txt',
-              rootId: 'owned-root',
-            });
-            await nativeIndex.commitTextFile({ plan });
-            return { path };
+  host = await startAgentHost({ lifetime: 'persistent', root }, (context) => ({
+    close: async () => undefined,
+    maxSteps: 3,
+    openRun: (run) =>
+      StateStoreHostMemory.open(run, {
+        native: {
+          options: {
+            observationalMemory: false,
+            semanticRecall: false,
+            workingMemory: { enabled: true, scope: 'thread' },
           },
-          identity: 'owned-native-file-action',
-          inputSchema: z.object({ text: z.string() }),
-          risk: 'edit',
         },
+        providerRequestContext: () => ({ inputTokenLimit: 30_000, provider: 'openai' }),
+        recordPrompt: async () => undefined,
+        resourceId: 'owned-workspace-resource',
+        store: context.store,
+      }),
+    readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
+    resolveModel: async () => model,
+    tools: {
+      search_index: {
+        description: 'Search the actual native keyword index',
+        execute: (input) =>
+          nativeIndex.search({
+            limit: 10,
+            mode: 'bm25',
+            rootIds: ['owned-root'],
+            text: z.object({ query: z.string() }).parse(input).query,
+          }),
+        identity: 'owned-native-index-reader',
+        inputSchema: z.object({ query: z.string() }),
+        risk: 'read',
       },
-    }
-  );
+      write_file: {
+        description: 'Write and index the owned file',
+        execute: async (input) => {
+          const { text } = z.object({ text: z.string() }).parse(input);
+          await writeFile(path, text);
+          const plan = await nativeIndex.prepareFile({
+            chunkLines: 1,
+            content: await readFile(path, 'utf8'),
+            fileId: 'owned-file',
+            relativePath: 'permitted.txt',
+            rootId: 'owned-root',
+          });
+          await nativeIndex.commitTextFile({ plan });
+          return { path };
+        },
+        identity: 'owned-native-file-action',
+        inputSchema: z.object({ text: z.string() }),
+        risk: 'edit',
+      },
+    },
+  }));
   client = await attachAgentHost(host.record);
   checkpoint('host-authenticated');
   const cli = async (args: string[]): Promise<unknown> => {
@@ -188,7 +233,9 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
   );
   page.on('pageerror', (cause) => process.stderr.write(`renderer error: ${cause.message}\n`));
   checkpoint('electron-window');
-  await expect.poll(() => page.getByRole('textbox', { name: 'Message' }).isEnabled()).toBe(true);
+  await expect
+    .poll(() => page.getByRole('textbox', { name: 'Message input' }).isEnabled())
+    .toBe(true);
   const { runId } = z
     .object({ runId: z.string() })
     .parse(
@@ -203,16 +250,50 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
         'Write the owned file and search its native index.',
       ])
     );
-  await page.getByRole('button', { exact: true, name: 'Approve' }).waitFor();
+  await expect
+    .poll(async () => {
+      const committed =
+        (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows ?? [];
+      const terminal = committed.find((row) => row.event.type === 'run.finished');
+      if (terminal?.event.type === 'run.finished') {
+        throw new Error(
+          `Host terminated before approval: ${terminal.event.detail ?? terminal.event.outcome}`
+        );
+      }
+      return committed.some((row) => row.event.type === 'interaction.requested');
+    })
+    .toBe(true);
+  checkpoint('approval-committed');
+  const proofDirectory = process.env['BRAINSTRIKE_M3_PROOF_DIRECTORY'];
+  if (proofDirectory) {
+    await mkdir(proofDirectory, { recursive: true });
+    await page.screenshot({ path: join(proofDirectory, 'pending-approval.png') });
+    await writeFile(join(proofDirectory, 'pending-approval.html'), await page.content());
+    await writeFile(
+      join(proofDirectory, 'pending-approval-log.json'),
+      JSON.stringify((await client.request('thread/read', { fromSeq: 0, threadId })).rows, null, 2)
+    );
+  }
+  process.stderr.write(
+    `${JSON.stringify({ disclosure: await page.getByRole('button', { exact: true, name: 'Expand activity' }).boundingBox() })}\n`
+  );
+  await page.getByRole('button', { exact: true, name: 'Expand activity' }).click();
+  checkpoint('activity-expanded');
+  await expect
+    .poll(() => page.getByRole('button', { exact: true, name: 'Approve write_file' }).count())
+    .toBe(1);
   await expect(access(path)).rejects.toThrow();
-  await page.getByRole('button', { exact: true, name: 'Approve' }).click();
-  await expect.poll(() => page.getByLabel('Run status').textContent()).toBe('completed');
-  expect(await page.getByRole('log', { name: 'Assistant output' }).textContent()).toBe(
-    'Host run completed.'
-  );
-  expect(await page.getByLabel('Tool result').allTextContents()).toContainEqual(
-    expect.stringContaining('owned-file')
-  );
+  await page.getByRole('button', { exact: true, name: 'Approve write_file' }).click();
+  await page.getByText('Host run completed.', { exact: true }).waitFor();
+  const readRenderedSearch = async (view: Page): Promise<void> => {
+    const activity = view
+      .getByTestId('assistant-activity-group')
+      .filter({ hasText: 'Used search_index' });
+    await activity.getByRole('button', { exact: true, name: 'Expand activity' }).click();
+    await activity.getByRole('button', { name: /expand details$/i }).click();
+    await expect.poll(() => activity.textContent()).toContain('owned-file');
+  };
+  await readRenderedSearch(page);
   expect(await readFile(path, 'utf8')).toBe('native SQLite assistant retrieval evidence');
   const rows = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
   expect(rows.filter((row) => row.event.type === 'interaction.requested')).toHaveLength(1);
@@ -226,10 +307,8 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
   await application.close();
   application = await _electron.launch({ args: [main], env: electronEnvironment, executablePath });
   const reopened = await application.firstWindow();
-  await expect.poll(() => reopened.getByLabel('Run status').textContent()).toBe('completed');
-  expect(await reopened.getByRole('log', { name: 'Assistant output' }).textContent()).toBe(
-    'Host run completed.'
-  );
+  await reopened.getByText('Host run completed.', { exact: true }).waitFor();
+  await readRenderedSearch(reopened);
   expect(model.doStreamCalls).toHaveLength(3);
   const artifact = process.env['BRAINSTRIKE_M3_PROOF_DIRECTORY'];
   if (artifact) {
