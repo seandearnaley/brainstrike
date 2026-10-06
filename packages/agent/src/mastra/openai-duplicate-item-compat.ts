@@ -195,11 +195,14 @@ function rebuildPrompt(prompt: Prompt, plan: DropPlan): Prompt {
     const keptParts = parts.filter(
       (_part, partIndex) => !plan.dropPositions.has(positionKey({ messageIndex, partIndex }))
     );
+    if (role === 'assistant') {
+      // BST-1927 / BST-1919: projection filtering can orphan reasoning without
+      // producing a duplicate. Sweep after every filter, including a no-op
+      // duplicate pass (https://github.com/vercel/ai/issues/11036).
+      sweepOrphanedTrailingReasoning(plan, keptParts);
+    }
     if (keptParts.length === parts.length) {
       return [message];
-    }
-    if (role === 'assistant') {
-      sweepOrphanedTrailingReasoning(plan, keptParts);
     }
     if (keptParts.length === 0) {
       return [];
@@ -240,10 +243,10 @@ export class OpenAIDuplicateItemCompat implements Processor<'openai-duplicate-it
     const plan: DropPlan = { dropPositions: new Set(), droppedKeys: new Set() };
     dropStaleItems(plan, itemOccurrences);
     dropUnpairedCalls(plan, callOccurrences);
-    if (plan.dropPositions.size === 0) {
+    const prompt = rebuildPrompt(args.prompt, plan);
+    if (plan.droppedKeys.size === 0) {
       return;
     }
-    const prompt = rebuildPrompt(args.prompt, plan);
     logger.warn(
       {
         code: 'openai_duplicate_items_canonicalized',

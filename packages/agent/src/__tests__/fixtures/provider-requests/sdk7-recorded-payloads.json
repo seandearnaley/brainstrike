@@ -1,0 +1,536 @@
+{
+  "payloads": {
+    "openai": {
+      "model": "gpt-6-sol",
+      "input": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Read README.md"
+            }
+          ]
+        }
+      ],
+      "max_output_tokens": 321,
+      "store": true,
+      "tools": [
+        {
+          "type": "function",
+          "name": "read",
+          "description": "Read a workspace file",
+          "parameters": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+              "line": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "line"
+            ],
+            "additionalProperties": false,
+            "x-optional": [
+              "line"
+            ]
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "stream": true
+    },
+    "openai-codex": {
+      "model": "gpt-6-sol",
+      "input": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Read README.md"
+            }
+          ]
+        }
+      ],
+      "max_output_tokens": 321,
+      "store": false,
+      "include": [
+        "reasoning.encrypted_content"
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "name": "read",
+          "description": "Read a workspace file",
+          "parameters": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+              "line": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "line"
+            ],
+            "additionalProperties": false,
+            "x-optional": [
+              "line"
+            ]
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "stream": true
+    },
+    "anthropic": {
+      "model": "claude-sonnet-5",
+      "max_tokens": 321,
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Read README.md",
+              "cache_control": {
+                "type": "ephemeral"
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "name": "read",
+          "description": "Read a workspace file",
+          "input_schema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+              "line": {
+                "type": "integer"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          },
+          "eager_input_streaming": true
+        }
+      ],
+      "tool_choice": {
+        "type": "auto"
+      },
+      "stream": true
+    },
+    "google": {
+      "generationConfig": {
+        "maxOutputTokens": 321
+      },
+      "contents": [
+        {
+          "role": "user",
+          "parts": [
+            {
+              "text": "Read README.md"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "functionDeclarations": [
+            {
+              "name": "read",
+              "description": "Read a workspace file",
+              "parameters": {
+                "required": [
+                  "path"
+                ],
+                "type": "object",
+                "properties": {
+                  "line": {
+                    "type": "integer"
+                  },
+                  "path": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "toolConfig": {
+        "functionCallingConfig": {
+          "mode": "AUTO"
+        }
+      }
+    },
+    "bedrock": {
+      "system": [],
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "text": "Read README.md"
+            },
+            {
+              "cachePoint": {
+                "type": "default"
+              }
+            }
+          ]
+        }
+      ],
+      "additionalModelResponseFieldPaths": [
+        "/delta/stop_sequence"
+      ],
+      "inferenceConfig": {
+        "maxTokens": 321
+      },
+      "toolConfig": {
+        "tools": [
+          {
+            "toolSpec": {
+              "name": "read",
+              "description": "Read a workspace file",
+              "inputSchema": {
+                "json": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "type": "object",
+                  "properties": {
+                    "line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        ],
+        "toolChoice": {
+          "auto": {}
+        }
+      }
+    },
+    "openrouter": {
+      "model": "qwen/qwen3-coder",
+      "max_tokens": 321,
+      "messages": [
+        {
+          "role": "user",
+          "content": "Read README.md"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "read",
+            "description": "Read a workspace file",
+            "parameters": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {
+                "line": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "stream": true
+    },
+    "ollama": {
+      "model": "qwen3",
+      "max_tokens": 321,
+      "messages": [
+        {
+          "role": "user",
+          "content": "Read README.md"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "read",
+            "description": "Read a workspace file",
+            "parameters": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {
+                "line": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "stream": true
+    },
+    "lmstudio": {
+      "model": "qwen3",
+      "max_tokens": 321,
+      "messages": [
+        {
+          "role": "user",
+          "content": "Read README.md"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "read",
+            "description": "Read a workspace file",
+            "parameters": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {
+                "line": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "stream": true
+    },
+    "openai-stored-replay": {
+      "model": "gpt-6-sol",
+      "input": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Read README.md"
+            }
+          ]
+        },
+        {
+          "type": "item_reference",
+          "id": "rs_recorded"
+        },
+        {
+          "type": "function_call",
+          "call_id": "call_recorded",
+          "name": "read",
+          "arguments": "{\"path\":\"README.md\"}"
+        },
+        {
+          "type": "function_call_output",
+          "call_id": "call_recorded",
+          "output": "Recorded file projection"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Continue with those results"
+            }
+          ]
+        }
+      ],
+      "max_output_tokens": 321,
+      "store": true,
+      "tools": [
+        {
+          "type": "function",
+          "name": "read",
+          "description": "Read a workspace file",
+          "parameters": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+              "line": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "line"
+            ],
+            "additionalProperties": false,
+            "x-optional": [
+              "line"
+            ]
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "stream": true
+    },
+    "openai-stateless-replay": {
+      "model": "gpt-6-sol",
+      "input": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Read README.md"
+            }
+          ]
+        },
+        {
+          "type": "reasoning",
+          "id": "rs_recorded",
+          "encrypted_content": "offline-encrypted-content",
+          "summary": [
+            {
+              "type": "summary_text",
+              "text": "Read the requested file"
+            }
+          ]
+        },
+        {
+          "type": "function_call",
+          "call_id": "call_recorded",
+          "name": "read",
+          "arguments": "{\"path\":\"README.md\"}"
+        },
+        {
+          "type": "function_call_output",
+          "call_id": "call_recorded",
+          "output": "Recorded file projection"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Continue with those results"
+            }
+          ]
+        }
+      ],
+      "max_output_tokens": 321,
+      "store": false,
+      "include": [
+        "reasoning.encrypted_content"
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "name": "read",
+          "description": "Read a workspace file",
+          "parameters": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+              "line": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "line"
+            ],
+            "additionalProperties": false,
+            "x-optional": [
+              "line"
+            ]
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "stream": true
+    }
+  },
+  "source": {
+    "base": "be835943559ab751c9c0267b5572104eaecbe357",
+    "capture": "real installed SDK/provider serialization; fully intercepted fetch; no real account",
+    "sdk": "7.0.126"
+  }
+}

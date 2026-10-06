@@ -249,9 +249,25 @@ function isInlineDataUrl(value: unknown): boolean {
   return typeof value === 'string' && value.startsWith('data:') && value.indexOf(',') >= 5;
 }
 
+/** SDK 7 file parts tag bytes separately; text, remote URLs and references still count. */
+function isInlineProviderFile(part: Record<string, unknown>): boolean {
+  if (part['type'] !== 'file' && part['type'] !== 'reasoning-file') {
+    return false;
+  }
+  const data = part['data'];
+  return (
+    isRecord(data) &&
+    (data['type'] === 'data' ||
+      (data['type'] === 'url' && data['url'] instanceof URL && data['url'].protocol === 'data:'))
+  );
+}
+
 function compactMedia(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(compactMedia);
+  }
+  if (value instanceof URL || value instanceof Date) {
+    return value.toJSON();
   }
   if (!isRecord(value)) {
     return value;
@@ -259,7 +275,9 @@ function compactMedia(value: unknown): unknown {
   const type = value['type'];
   if (
     typeof type === 'string' &&
-    (INLINE_MEDIA_TYPES.has(type) || (URL_MEDIA_TYPES.has(type) && isInlineDataUrl(value['url'])))
+    (INLINE_MEDIA_TYPES.has(type) ||
+      (URL_MEDIA_TYPES.has(type) && isInlineDataUrl(value['url'])) ||
+      isInlineProviderFile(value))
   ) {
     return {
       text: `[${type} payload omitted from token count; media type: ${mediaTypeFromPart(value)}]`,
