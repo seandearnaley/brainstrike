@@ -1,5 +1,5 @@
 import { type ChildProcess, execFile, spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,18 +10,61 @@ import { afterEach, expect, test } from 'vitest';
 import { attachAgentHost, type HostClient } from '../src/client.js';
 import { readHostRow } from '../src/event-storage.js';
 import { HOST_RESULT_SCHEMAS, HostLogRowSchema } from '../src/protocol.js';
+import {
+  closeFixtureHost,
+  createFixtureCloseControl,
+  type FixtureCloseControl,
+  fixtureControlEnvironment,
+  removeFixtureRoot,
+} from './fixtures/cooperative-host-fixture.js';
+import {
+  observeFixtureChild,
+  recordFixtureEvent,
+  startFixtureConsole,
+} from './fixtures/owned-fixture-process.js';
 
 const cliPath = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
-const platformPath = fileURLToPath(new URL('./fixtures/process-platform.mjs', import.meta.url));
+const platformPath = fileURLToPath(
+  new URL(
+    process.platform === 'win32'
+      ? './fixtures/process-platform-cooperative.mjs'
+      : './fixtures/process-platform.mjs',
+    import.meta.url
+  )
+);
 const exec = promisify(execFile);
 const roots: string[] = [];
 const owners: HostRecord[] = [];
 const clients: HostClient[] = [];
 const children: ChildProcess[] = [];
+const consoles: ReturnType<typeof startFixtureConsole>[] = [];
+const controls = new Map<string, FixtureCloseControl>();
+const ownerControls = new Map<string, FixtureCloseControl>();
+const observations = new Map<ChildProcess, ReturnType<typeof observeFixtureChild>>();
+
+function environment(dataRoot: string): NodeJS.ProcessEnv {
+  const control = controls.get(dataRoot);
+  return { ...process.env, ...(control ? fixtureControlEnvironment(control) : {}) };
+}
+
+function observe(child: ChildProcess): ReturnType<typeof observeFixtureChild> {
+  const value = observeFixtureChild(child, (pid) => {
+    const start = processStartTime(pid);
+    if (!start) {
+      throw new Error('Cannot identify owned CLI fixture');
+    }
+    return { executable: process.execPath, pid, start };
+  });
+  observations.set(child, value);
+  return value;
+}
 
 async function root(): Promise<string> {
   const value = await mkdtemp(join(tmpdir(), 'bs-m3-ordinary-cli-'));
   roots.push(value);
+  if (process.platform === 'win32') {
+    controls.set(value, createFixtureCloseControl(value));
+  }
   return value;
 }
 
@@ -30,6 +73,14 @@ async function owner(dataRoot: string): Promise<HostRecord> {
   if (!owners.some((item) => item.pid === value.pid && item.start === value.start)) {
     owners.push(value);
   }
+  const control = controls.get(dataRoot);
+  if (control) {
+    ownerControls.set(`${value.pid}:${value.start}`, control);
+  }
+  recordFixtureEvent('observed-host-owner', {
+    identity: { executable: process.execPath, pid: value.pid, start: value.start },
+    root: dataRoot,
+  });
   return value;
 }
 
@@ -38,72 +89,146 @@ function startCli(
   args: string[],
   tool?: string
 ): {
-  readonly child: ChildProcess;
   readonly done: Promise<number | null>;
   readonly stdout: () => string;
   readonly stderr: () => string;
+  readonly write: (text: string) => void;
+  readonly endInput: () => void;
+  readonly interrupt: () => void;
+  readonly waitForPrompt: () => Promise<void>;
 } {
-  const child = spawn(
-    process.execPath,
-    [cliPath, '--data-root', dataRoot, '--platform', platformPath, ...args],
-    {
-      env: { ...process.env, BRAINSTRIKE_M3_TEST_TOOL: tool },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }
-  );
+  const argsToSpawn = [cliPath, '--data-root', dataRoot, '--platform', platformPath, ...args];
+  const env = { ...environment(dataRoot), BRAINSTRIKE_M3_TEST_TOOL: tool };
+  if (process.platform === 'win32') {
+    const terminal = startFixtureConsole(argsToSpawn, { env });
+    consoles.push(terminal);
+    // Creation FILETIME provides actual target startup time, excluding broker compilation.
+    const spawned = terminal.identity.then(({ start }) =>
+      Number((BigInt(start) - 116444736000000000n) / 10_000n)
+    );
+    const done = terminal.done.then(async ({ code }) => {
+      await terminal.dispose();
+      return code;
+    });
+    void done.catch(() => undefined);
+    return {
+      done,
+      endInput: terminal.endInput,
+      interrupt: terminal.interrupt,
+      stderr: () => terminal.output.stderr(),
+      stdout: () => terminal.output.stdout(),
+      waitForPrompt: async () => {
+        const started = await spawned;
+        // Same 10-second startup bound as the production host spawner. Observe
+        // output events and reject early with exit/stderr instead of a 1s poll.
+        await terminal.output.waitFor(
+          'stderr',
+          'Approve, deny, or stop?',
+          AbortSignal.timeout(10_000)
+        );
+        recordFixtureEvent('cli-prompt-readiness', {
+          elapsedMs: Date.now() - started,
+          root: dataRoot,
+        });
+      },
+      write: terminal.write,
+    };
+  }
+  const child = spawn(process.execPath, argsToSpawn, {
+    env,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
   children.push(child);
-  let stdout = '';
-  let stderr = '';
-  child.stdout?.on('data', (value: Buffer) => {
-    stdout += value.toString();
-  });
-  child.stderr?.on('data', (value: Buffer) => {
-    stderr += value.toString();
-  });
-  const done = new Promise<number | null>((resolve, reject) => {
-    child.once('error', reject);
-    child.once('close', resolve);
-  });
-  return { child, done, stderr: () => stderr, stdout: () => stdout };
+  const observed = observe(child);
+  return {
+    done: observed.done.then(({ code }) => code),
+    endInput: () => {
+      child.stdin?.end();
+    },
+    interrupt: () => {
+      child.kill('SIGINT');
+    },
+    stderr: () => observed.output.stderr(),
+    stdout: () => observed.output.stdout(),
+    // Preserve the original non-Windows 1s observation bound. Windows alone
+    // uses the existing host-startup 10s bound with measured readiness evidence.
+    waitForPrompt: () =>
+      observed.output.waitFor('stderr', 'Approve, deny, or stop?', AbortSignal.timeout(1000)),
+    write: (text) => {
+      child.stdin?.write(text);
+    },
+  };
 }
 
 async function cli(dataRoot: string, args: string[]): Promise<unknown> {
-  const { stdout } = await exec(process.execPath, [
-    cliPath,
-    '--data-root',
-    dataRoot,
-    '--platform',
-    platformPath,
-    ...args,
-  ]);
-  return JSON.parse(stdout);
+  const invocation = exec(
+    process.execPath,
+    [cliPath, '--data-root', dataRoot, '--platform', platformPath, ...args],
+    { env: environment(dataRoot), windowsHide: true }
+  );
+  const observed = observe(invocation.child);
+  invocation.child.stdin?.end();
+  try {
+    const { stdout } = await invocation;
+    return JSON.parse(stdout);
+  } finally {
+    await observed.done;
+  }
 }
 
 async function stop(ownerRecord: HostRecord): Promise<void> {
   if (processStartTime(ownerRecord.pid) === ownerRecord.start) {
-    process.kill(ownerRecord.pid, 'SIGTERM');
+    if (process.platform === 'win32') {
+      const control = ownerControls.get(`${ownerRecord.pid}:${ownerRecord.start}`);
+      if (!control) {
+        throw new Error('Missing owned Windows CLI host fixture control');
+      }
+      await closeFixtureHost(ownerRecord, control);
+    } else {
+      process.kill(ownerRecord.pid, 'SIGTERM');
+    }
   }
   await expect.poll(() => processStartTime(ownerRecord.pid)).not.toBe(ownerRecord.start);
 }
 
-afterEach(async () => {
+afterEach(async (context) => {
   for (const client of clients.splice(0)) {
     await client.close();
   }
-  for (const child of children.splice(0)) {
-    if (child.exitCode === null && child.signalCode === null) {
-      await new Promise<void>((done) => {
-        child.once('close', () => done());
-        child.kill('SIGTERM');
-      });
+  // A CLI can fail before its test reaches owner(). Discover only roots this
+  // fixture allocated, so its detached host is still cooperatively joined.
+  for (const value of roots) {
+    try {
+      await owner(value);
+    } catch (cause) {
+      if (!(cause && typeof cause === 'object' && 'code' in cause && cause.code === 'ENOENT')) {
+        throw cause;
+      }
     }
   }
   for (const item of owners.splice(0)) {
     await stop(item);
   }
-  for (const value of roots.splice(0)) {
-    await rm(value, { force: true, recursive: true });
+  for (const terminal of consoles.splice(0)) {
+    await terminal.dispose();
   }
+  for (const child of children.splice(0)) {
+    if (child.exitCode === null && child.signalCode === null) {
+      recordFixtureEvent('explicit-failed-cli-fixture-teardown', { pid: child.pid });
+      child.kill('SIGKILL');
+    }
+    await observations.get(child)?.done;
+  }
+  for (const value of roots.splice(0)) {
+    if (context.task.result?.state === 'fail') {
+      recordFixtureEvent('preserved-failed-cli-root', { root: value });
+      continue;
+    }
+    await removeFixtureRoot(value);
+  }
+  controls.clear();
+  ownerControls.clear();
+  observations.clear();
 });
 
 test.each(['approve', 'deny'] as const)(
@@ -147,8 +272,8 @@ test.each(['approve', 'deny'] as const)(
       '--interactive',
       '--json',
     ]);
-    await expect.poll(() => attached.stderr()).toContain('Approve, deny, or stop?');
-    attached.child.stdin?.write(`${decision}\n`);
+    await attached.waitForPrompt();
+    attached.write(`${decision}\n`);
     expect(await attached.done).toBe(0);
     const liveRows = attached
       .stdout()
@@ -192,9 +317,9 @@ test('ordinary run SIGINT joins its real native child before the CLI exits', asy
     ['run', 'Run the owned child.', '--model', 'scripted', '--interactive', '--json'],
     'child'
   );
-  await expect.poll(() => run.stderr()).toContain('Approve, deny, or stop?');
+  await run.waitForPrompt();
   const record = await owner(dataRoot);
-  run.child.stdin?.write('approve\n');
+  run.write('approve\n');
   let childPid = 0;
   await expect
     .poll(async () => {
@@ -203,7 +328,10 @@ test('ordinary run SIGINT joins its real native child before the CLI exits', asy
     })
     .toBeGreaterThan(0);
   expect(process.kill(childPid, 0)).toBe(true);
-  run.child.kill('SIGINT');
+  recordFixtureEvent('owned-native-effect-child', {
+    identity: { executable: process.execPath, pid: childPid, start: processStartTime(childPid) },
+  });
+  run.interrupt();
   expect(await run.done).toBe(0);
   expect(() => process.kill(childPid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));
   const rows = run
@@ -227,9 +355,9 @@ test('terminal EOF leaves its unanswered approval owned by the host for reconnec
     '--interactive',
     '--json',
   ]);
-  await expect.poll(() => run.stderr()).toContain('Approve, deny, or stop?');
+  await run.waitForPrompt();
   const record = await owner(dataRoot);
-  run.child.stdin?.end();
+  run.endInput();
   expect(await run.done).toBe(2);
   expect(processStartTime(record.pid)).toBe(record.start);
   const client = await attachAgentHost(record);
