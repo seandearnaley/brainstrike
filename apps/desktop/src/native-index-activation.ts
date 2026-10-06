@@ -953,6 +953,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   });
   return {
     acquire,
+    acquireProfile: runtime.acquireProfile,
     acquireRead,
     captureAcknowledgedAuthority: () => {
       const current = graph;

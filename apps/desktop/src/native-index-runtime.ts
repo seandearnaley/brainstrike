@@ -24,8 +24,8 @@ export interface NativeIndexAuthority {
   readonly scopes: readonly IndexScope[];
 }
 
-interface ProfileOwner {
-  acquire(): Promise<unknown>;
+interface ProfileOwner<Attachment> {
+  acquire(): Promise<Attachment>;
   close(): Promise<void>;
 }
 interface IndexOwner {
@@ -34,10 +34,10 @@ interface IndexOwner {
   destroy?(): Promise<void>;
   start(): Promise<NativePort>;
 }
-interface Dependencies {
+interface Dependencies<Attachment> {
   closeQueries(): Promise<void>;
   createIndexOwner(authority: NativeIndexAuthority): Promise<IndexOwner>;
-  createProfileOwner(): ProfileOwner;
+  createProfileOwner(): ProfileOwner<Attachment>;
   getAuthority(): Promise<NativeIndexAuthority>;
   getFileInvalidator(): ((file: IndexFileBinding) => void) | undefined;
   installQueryTarget(owner: IndexOwner): void;
@@ -47,9 +47,10 @@ export interface CapturedNativeIndexAuthority {
   /** Read only after admitted sources settle; tied to this exact retained writer owner. */
   readAuthority(): NativeIndexAuthority;
 }
-export interface NativeIndexRuntime {
+export interface NativeIndexRuntime<Attachment = unknown> {
   acquire(): Promise<NativePort>;
-  acquireProfile(): Promise<void>;
+  /** Borrows the retained attachment; retirement remains owned by this runtime. */
+  acquireProfile(): Promise<Attachment>;
   captureAcknowledgedAuthority(): CapturedNativeIndexAuthority;
   closeIndex(): Promise<void>;
   destroyIndex(): Promise<void>;
@@ -140,9 +141,11 @@ function workspaceRemoval(file: IndexFileBinding): {
 }
 
 /** Main owns this admission lifetime. Reset resumes only after releasing its deletion guard. */
-export function createNativeIndexRuntime(dependencies: Dependencies): NativeIndexRuntime {
-  let profileOwner: ProfileOwner | undefined;
-  let profileAcquisition: Promise<unknown> | undefined;
+export function createNativeIndexRuntime<Attachment>(
+  dependencies: Dependencies<Attachment>
+): NativeIndexRuntime<Attachment> {
+  let profileOwner: ProfileOwner<Attachment> | undefined;
+  let profileAcquisition: Promise<Attachment> | undefined;
   let indexOwner: IndexOwner | undefined;
   let scopes = '';
   let bindings = '';
@@ -163,16 +166,17 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
   let closing: Promise<void> | undefined;
   let closingKind: 'close' | 'destroy' | undefined;
 
-  const acquireProfile = async (): Promise<void> => {
+  const acquireProfile = async (): Promise<Attachment> => {
     if (closed) {
       throw new NativeAuthorityTransitionError('Native index admission is closed.');
     }
     profileOwner ??= dependencies.createProfileOwner();
     profileAcquisition ??= profileOwner.acquire();
-    await profileAcquisition;
+    const attachment = await profileAcquisition;
     if (closed) {
       throw new NativeAuthorityTransitionError('Native profile ownership closed during startup.');
     }
+    return attachment;
   };
   const retireAbsentBindings = async (
     requested: NativeIndexAuthority,

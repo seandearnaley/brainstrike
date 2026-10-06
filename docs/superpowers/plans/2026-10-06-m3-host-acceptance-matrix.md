@@ -4,6 +4,41 @@ This is the integrator's evidence ledger for BST-1977, not an acceptance declara
 
 CI is disabled due to cost; validation must run locally.
 
+## Existing desktop profile attachment — 6 October, 21:54 UTC
+
+The native index runtime now returns the exact attachment from its existing
+retained profile-acquisition promise, with a generic type carried through the
+trusted desktop activation. Concurrent client/index acquisition shares that
+owner; index close retains the profile, and retirement racing acquisition refuses
+to hand a late attachment to a client before joining the same owner. No second
+lease, discovery record, writer or admission mechanism is introduced. Production
+provider/credential/tool composition and ordinary New Thread remain unfinished.
+
+The existing real Electron fixture now borrows through this runtime. Its seven
+canonical cases passed in **5.92 s**: utility-kernel CLI approval/SQLite replay,
+both app/CLI launch orders, concurrent apps, live-unreachable-owner refusal,
+cooperative close and actual parent death. Command:
+`pnpm --filter @brainstrike/desktop exec vitest run --config vitest.integration.config.mts src/__tests__/main/host-lease-electron.integration.test.ts --pool=forks --maxWorkers=1 --no-file-parallelism`.
+Log: `/tmp/brainstrike-m3-profile-attachment-electron.log`.
+
+Focused runtime/authority units passed **53/63 in 2.61 s**; the runtime file
+including both new attachment regressions passed **28/28**. The two other files
+failed ten pre-existing cases (seven authority-observation and three scope
+retirement/cache cases). One narrow comparison against unchanged `6058894`
+product source reproduced the same ten failed test names, **25/35 in 2.23 s**;
+the edited files were restored byte-for-byte afterward. These remain red,
+unquarantined regression obligations rather than acceptance exceptions. Command:
+`pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/native-index-runtime.test.ts src/__tests__/native-index-runtime-scopes.test.ts src/__tests__/native-authority-observation.test.ts --pool=forks --maxWorkers=1 --no-file-parallelism`.
+Logs: `/tmp/brainstrike-m3-profile-attachment-unit.log` and
+`/tmp/brainstrike-m3-profile-attachment-baseline-unit.log`.
+
+Windows PR3548 remains under the parent's targeted review hold; its reserved
+process/CLI source files were not edited here. The prototype predicate is the
+only held Studio repair: root rule 3 says to get the **owner's approval**, while
+the initial delegation separately requested a **Sean decision** for that third
+same-class fix. The one-page causal note and exact proposed disposition are
+published; no elapsed-time approval or broad integration pause is implied.
+
 ## Current composed qualification — 6 October, 21:40 UTC
 
 The current integration batch above `d123f200384e314309384521dcc2518507bb9c88`
@@ -92,8 +127,9 @@ and native provenance are preserved separately and were not repeated on d123.
 One newly demonstrated prototype-carried input-reconstruction defect remains
 **red and unquarantined**. The real SQLite/SDK reopened approval executes once
 after a custom array prototype's process-local selection changes; zero effects
-are required. Under root working rule 3, the product predicate is paused for
-Sean's decision. The complete one-page causal note is
+are required. Root working rule 3 requires the owner's approval; the initial
+delegation additionally requests a Sean decision. Only this product predicate
+is paused for that decision. The complete one-page causal note is
 `2026-10-06-m3-prototype-input-root-cause.md`. The proposed existing contract keeps
 live validated objects, reopens ordinary local JSON arrays/records or null
 records, and requires the existing tool-owned reconstruction capability for

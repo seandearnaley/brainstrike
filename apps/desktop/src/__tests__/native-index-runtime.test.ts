@@ -58,6 +58,11 @@ function fixture() {
   const closeProfile = vi.fn(async () => {
     events.push('profile-close');
   });
+  const profileAttachment = { closed: Promise.withResolvers<void>().promise };
+  const acquireProfile = vi.fn(async () => {
+    events.push('profile-acquire');
+    return profileAttachment;
+  });
   const createIndexOwner = vi.fn(async () => ({
     close: closeWriter,
     databasePath: '/owned/index.sqlite',
@@ -75,9 +80,7 @@ function fixture() {
     closeQueries,
     createIndexOwner,
     createProfileOwner: () => ({
-      acquire: async () => {
-        events.push('profile-acquire');
-      },
+      acquire: acquireProfile,
       close: closeProfile,
     }),
     getAuthority,
@@ -85,6 +88,7 @@ function fixture() {
     installQueryTarget,
   });
   return {
+    acquireProfile,
     closeProfile,
     closeQueries,
     closeWriter,
@@ -93,6 +97,7 @@ function fixture() {
     getAuthority,
     installQueryTarget,
     port,
+    profileAttachment,
     queryTargetInstalled: () => queryTargetInstalled,
     resetBindings: () => {
       authority = { ...authority, fileBindings: [] };
@@ -115,6 +120,40 @@ function fixture() {
     },
   };
 }
+
+it('shares the existing profile attachment between clients and index acquisition', async () => {
+  const f = fixture();
+  const [first, index, second] = await Promise.all([
+    f.runtime.acquireProfile(),
+    f.runtime.acquire(),
+    f.runtime.acquireProfile(),
+  ]);
+  expect(first).toBe(f.profileAttachment);
+  expect(second).toBe(first);
+  expect(index).toBe(f.port);
+  expect(f.acquireProfile).toHaveBeenCalledOnce();
+  await f.runtime.closeIndex();
+  expect(f.closeProfile).not.toHaveBeenCalled();
+  await expect(f.runtime.acquireProfile()).rejects.toThrow('admission is closed');
+  await f.runtime.retireProfile();
+  expect(f.closeProfile).toHaveBeenCalledOnce();
+});
+
+it('joins a late profile attachment during retirement without returning it to a client', async () => {
+  const f = fixture();
+  const pending = Promise.withResolvers<typeof f.profileAttachment>();
+  f.acquireProfile.mockReturnValueOnce(pending.promise);
+  const acquiring = f.runtime.acquireProfile();
+  const observed = acquiring.catch((cause: unknown) => cause);
+  const retiring = f.runtime.retireProfile();
+  expect(f.closeProfile).not.toHaveBeenCalled();
+  pending.resolve(f.profileAttachment);
+  expect(await observed).toMatchObject({
+    message: 'Native profile ownership closed during startup.',
+  });
+  await retiring;
+  expect(f.closeProfile).toHaveBeenCalledOnce();
+});
 
 it('retains profile ownership until readers and writer have both exited', async () => {
   const f = fixture();
