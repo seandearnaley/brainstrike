@@ -4,6 +4,10 @@ export {
   createCanonicalToolContext,
 } from './adapters/canonical-context.js';
 export { committedMemoryTranscript } from './adapters/committed-memory-transcript.js';
+export {
+  createKeyringNativeBackend,
+  type KeyringNativeBackend,
+} from './adapters/keyring-native-worker.js';
 export { createMcpHostToolAdapter } from './adapters/mcp.js';
 export {
   HostMemory,

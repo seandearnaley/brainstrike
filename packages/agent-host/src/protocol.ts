@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const AGENT_HOST_PROTOCOL_VERSION = 3;
+export const AGENT_HOST_PROTOCOL_VERSION = 4;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
@@ -8,6 +8,13 @@ const Command = { commandId: Id };
 const Thread = { threadId: Id };
 const Run = { ...Thread, runId: Id };
 const Seq = z.number().int().nonnegative();
+/** Credentials and executable capabilities remain process-local. */
+export const HostRunSnapshotSchema = z.strictObject({
+  configuration: z.record(z.string(), z.json()),
+  maxSteps: z.number().int().positive(),
+  toolIdentities: z.record(z.string(), Id),
+});
+export type HostRunSnapshot = z.infer<typeof HostRunSnapshotSchema>;
 export const HOST_METHOD_SCHEMAS = {
   initialize: z.strictObject({
     hostVersion: Id,
@@ -54,6 +61,7 @@ export const HostEventSchema = z.discriminatedUnion('type', [
     modelId: Id,
     parentRunId: Id.optional(),
     prompt: Id,
+    snapshot: HostRunSnapshotSchema.optional(),
   }),
   z.strictObject({ type: z.literal('stream.chunk'), ...RunFields, chunk: z.json() }),
   z.strictObject({

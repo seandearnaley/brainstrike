@@ -1,8 +1,8 @@
 import type { ModelMessage } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
-import type { HostRunContext, HostRunOwner } from './ports.js';
-import { HOST_METHOD_SCHEMAS, type HostEvent } from './protocol.js';
+import type { HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
+import { HOST_METHOD_SCHEMAS, type HostEvent, type HostRunSnapshot } from './protocol.js';
 
 /** HostCore alone folds and writes accepted command records. */
 export interface AcceptedCommand {
@@ -69,6 +69,8 @@ export interface PendingInteraction {
   runtimeInput?: { readonly value: unknown };
 }
 export interface HostRunState {
+  admission?: HostRunAdmission;
+  admissionTask?: Promise<HostRunAdmission>;
   readonly approvals: Map<string, PendingInteraction>;
   readonly checkpointedResults: Set<string>;
   completion?: Promise<void>;
@@ -87,6 +89,7 @@ export interface HostRunState {
   readonly rawInputs: Map<string, Json>;
   release?: (() => void) | undefined;
   readonly responses: Set<string>;
+  readonly snapshot?: HostRunSnapshot;
   readonly started: Set<string>;
   steps: number;
   stopAcceptance?: Promise<void> | undefined;
@@ -96,7 +99,12 @@ export interface HostRunState {
   readonly threadId: string;
 }
 
-export function createHostRunState(threadId: string, id: string, modelId: string): HostRunState {
+export function createHostRunState(
+  threadId: string,
+  id: string,
+  modelId: string,
+  snapshot?: HostRunSnapshot
+): HostRunState {
   return {
     approvals: new Map(),
     checkpointedResults: new Set(),
@@ -106,6 +114,7 @@ export function createHostRunState(threadId: string, id: string, modelId: string
     liveInputs: new Map(),
     messageIndexes: new Set(),
     modelId,
+    ...(snapshot ? { snapshot } : {}),
     outputs: new Map(),
     paused: false,
     permits: new Map(),

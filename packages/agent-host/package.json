@@ -33,6 +33,7 @@
     "@brainstrike/state-store": "workspace:*",
     "@mastra/core": "1.71.0",
     "@mastra/memory": "1.32.1",
+    "@napi-rs/keyring": "2.1.0",
     "ai": "catalog:",
     "vscode-jsonrpc": "catalog:",
     "zod": "catalog:"

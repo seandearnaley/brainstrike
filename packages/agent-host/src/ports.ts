@@ -9,6 +9,7 @@ import type {
 import type {
   FlexibleSchema,
   LanguageModel,
+  LanguageModelCallOptions,
   LanguageModelUsage,
   ModelMessage,
   streamText,
@@ -16,6 +17,7 @@ import type {
   ToolSet,
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
+import type { HostRunSnapshot } from './protocol.js';
 
 export interface HostToolContext {
   readonly runId: string;
@@ -63,16 +65,34 @@ export interface HostProviderRequest {
   readonly signal: AbortSignal;
 }
 
-export interface HostPreparedModelRequest {
+export interface HostPreparedModelRequest extends LanguageModelCallOptions {
   readonly messages: ModelMessage[];
   readonly model: LanguageModel;
-  readonly providerOptions?: Parameters<typeof streamText>[0]['providerOptions'];
+  readonly providerOptions?: NonNullable<Parameters<typeof streamText>[0]['providerOptions']>;
   readonly system?: string;
 }
 
 /** Shipped provider selection and request hygiene, with no second agent loop. */
 export interface HostProviderPort {
   prepare(request: HostProviderRequest): Promise<HostPreparedModelRequest>;
+}
+
+/** One immutable selection retained across approval legs, never re-read from Settings. */
+export interface HostRunAdmission {
+  readonly configuration: Readonly<RuntimeData>;
+  readonly model: LanguageModel;
+  openRun?(context: HostRunContext): Promise<HostRunOwner>;
+  readonly provider?: HostProviderPort;
+  readonly snapshot: HostRunSnapshot;
+  readonly tools: Readonly<Record<string, HostTool>>;
+}
+
+export interface HostRunAdmissionRequest {
+  readonly modelId: string;
+  readonly signal: AbortSignal;
+  /** Reopen the committed selection, rejecting changed executors rather than substituting. */
+  readonly snapshot?: HostRunSnapshot;
+  readonly threadId: string;
 }
 
 /** The existing configured authority and its generation-qualified executors. */
@@ -96,6 +116,7 @@ export interface HostTool {
 
 /** Credentials and process-local capabilities never become protocol payloads. */
 export interface HostPlatform {
+  admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
   close(): Promise<void>;
   /** Supplied by the existing run configuration, not a second host default. */
   readonly maxSteps: number;
