@@ -130,9 +130,10 @@ export class RunLog {
    * so a failed transaction never skips a seq.
    * @param {AppendRow[]} rows
    * @param {number} now
+   * @param {boolean} boundary whether this transaction also commits its durable boundary marker
    * @returns {number[]}
    */
-  append(rows, now) {
+  append(rows, now, boundary = false) {
     /** @type {Map<string, number>} */
     const tails = new Map();
     for (const [t] of rows) {
@@ -163,6 +164,14 @@ export class RunLog {
           )
           .run(t, seq, now, now);
         seqs.push(seq);
+      }
+      if (boundary) {
+        const mark = this.db.prepare(
+          'INSERT INTO run_sync (thread_id, seq, at) VALUES (?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET seq = excluded.seq, at = excluded.at'
+        );
+        for (const [threadId, tail] of next) {
+          mark.run(threadId, tail, now);
+        }
       }
     })();
     for (const [t, tail] of next) {

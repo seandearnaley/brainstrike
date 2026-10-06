@@ -12,6 +12,7 @@ import {
 } from 'ai';
 import { z } from 'zod';
 import { readHostRow, storedHostEvent } from './event-storage.js';
+import { executableInputSchema } from './executable-input-schema.js';
 import type { HostPlatform, HostRunOwner } from './ports.js';
 import {
   HOST_METHOD_SCHEMAS,
@@ -44,6 +45,7 @@ interface Run {
   readonly responses: Set<string>;
   readonly started: Set<string>;
   steps: number;
+  stopAcceptance?: Promise<void> | undefined;
   stopped: boolean;
   task?: Promise<void>;
   terminal: boolean;
@@ -255,11 +257,19 @@ export class HostCore {
     };
   }
 
-  private async append(threadId: string, events: readonly HostEvent[]): Promise<HostLogRow[]> {
+  private async append(
+    threadId: string,
+    events: readonly HostEvent[],
+    durability: 'normal' | 'full' = 'normal',
+    beforePublish?: (rows: readonly HostLogRow[]) => void
+  ): Promise<HostLogRow[]> {
     const committed = await this.store.append(
-      events.map((event) => storedHostEvent(threadId, event))
+      events.map((event) => storedHostEvent(threadId, event)),
+      undefined,
+      durability
     );
     const rows = await Promise.all(committed.map((row) => readHostRow(this.store, row)));
+    beforePublish?.(rows);
     for (const row of rows) {
       for (const listener of this.listeners) {
         listener(row);
@@ -407,11 +417,12 @@ export class HostCore {
     if (this.decision(action.toolId) === 'deny') {
       throw new Error('Tool permission was revoked');
     }
-    const input = registered.inputSchema.parse(action.input);
     await this.append(run.threadId, [action]);
     run.started.add(action.toolCallId);
     run.controller.signal.throwIfAborted();
-    const output = await registered.execute(input, {
+    // The public SDK already validated/transformed this exact admitted input.
+    // Revalidating a canonical value can transform it a second time.
+    const output = await registered.execute(action.input, {
       runId: run.id,
       signal: run.controller.signal,
       threadId: run.threadId,
@@ -434,14 +445,19 @@ export class HostCore {
     for (const [id, registered] of Object.entries(this.platform.tools)) {
       tools[id] = tool({
         description: registered.description,
-        execute: async (_input, options) => {
+        execute: async (input, options) => {
           const action = run.permits.get(options.toolCallId);
           if (!action || action.toolId !== id) {
             throw new Error('Tool execution bypassed host permission admission');
           }
+          if (canonical(jsonValue(input)) !== canonical(action.input)) {
+            throw new Error('SDK execution input changed after permission admission');
+          }
           return this.dispatch(run, action);
         },
-        inputSchema: registered.inputSchema,
+        inputSchema: executableInputSchema(registered.inputSchema),
+        ...(registered.strict === undefined ? {} : { strict: registered.strict }),
+        ...(registered.toModelOutput ? { toModelOutput: registered.toModelOutput } : {}),
       });
     }
     return tools;
@@ -526,12 +542,43 @@ export class HostCore {
               type: 'model.step',
               usage: jsonValue(step.usage),
             };
-            const [row] = await this.append(run.threadId, [event]);
+            const interactions: Interaction[] = step.content.flatMap((part) => {
+              if (part.type !== 'tool-approval-request' || part.isAutomatic === true) {
+                return [];
+              }
+              const registered = this.platform.tools[part.toolCall.toolName];
+              if (!registered) {
+                throw new Error('Approval references an unknown tool');
+              }
+              return [
+                {
+                  input: jsonValue(part.toolCall.input),
+                  interactionId: part.approvalId,
+                  kind: 'approval',
+                  runId: run.id,
+                  toolCallId: part.toolCall.toolCallId,
+                  toolId: part.toolCall.toolName,
+                  toolIdentity: registered.identity,
+                  type: 'interaction.requested',
+                },
+              ];
+            });
+            // The complete public SDK context and its answerable interactions
+            // share one SQLite commit, including when the provider stream is interrupted.
+            const rows = await this.append(
+              run.threadId,
+              [event, ...interactions],
+              'full',
+              (committed) => {
+                for (const row of committed) {
+                  this.fold(row);
+                }
+              }
+            );
+            const row = rows[0];
             if (!row) {
               throw new Error('Model step was not committed');
             }
-            await this.store.syncBoundary(run.threadId);
-            this.fold(row);
             recordedInputLength += step.response.messages.length;
           } catch (cause) {
             checkpointFailure = cause;
@@ -552,25 +599,6 @@ export class HostCore {
         tools: this.sdkTools(run),
       });
       for await (const chunk of result.fullStream) {
-        if (chunk.type === 'tool-approval-request' && chunk.isAutomatic !== true) {
-          const registered = this.platform.tools[chunk.toolCall.toolName];
-          if (!registered) {
-            throw new Error('Approval references an unknown tool');
-          }
-          const event: Interaction = {
-            input: jsonValue(chunk.toolCall.input),
-            interactionId: chunk.approvalId,
-            kind: 'approval',
-            runId: run.id,
-            toolCallId: chunk.toolCall.toolCallId,
-            toolId: chunk.toolCall.toolName,
-            toolIdentity: registered.identity,
-            type: 'interaction.requested',
-          };
-          run.approvals.set(event.interactionId, { event });
-          run.paused = true;
-          await this.append(run.threadId, [event]);
-        }
         if (chunk.type === 'error') {
           failed = chunk.error instanceof Error ? chunk.error.message : String(chunk.error);
         }
@@ -663,7 +691,26 @@ export class HostCore {
     this.fold(row);
   }
 
-  private approvalResponses(run: Run): ToolContent {
+  private async modelResult(
+    toolCallId: string,
+    toolId: string,
+    input: unknown,
+    output: unknown
+  ): Promise<ToolContent[number]> {
+    const project = this.platform.tools[toolId]?.toModelOutput;
+    return {
+      output: project
+        ? await project({ input, output, toolCallId })
+        : typeof output === 'string'
+          ? { type: 'text', value: output }
+          : { type: 'json', value: jsonValue(output) },
+      toolCallId,
+      toolName: toolId,
+      type: 'tool-result',
+    };
+  }
+
+  private async approvalResponses(run: Run): Promise<ToolContent> {
     const responses: ToolContent = [];
     for (const { event, decision } of run.approvals.values()) {
       if (!run.responses.has(event.interactionId)) {
@@ -675,15 +722,9 @@ export class HostCore {
       }
       if (run.outputs.has(event.toolCallId) && !run.checkpointedResults.has(event.toolCallId)) {
         const output = run.outputs.get(event.toolCallId);
-        responses.push({
-          output:
-            typeof output === 'string'
-              ? { type: 'text', value: output }
-              : { type: 'json', value: output ?? null },
-          toolCallId: event.toolCallId,
-          toolName: event.toolId,
-          type: 'tool-result',
-        });
+        responses.push(
+          await this.modelResult(event.toolCallId, event.toolId, event.input, output ?? null)
+        );
       }
     }
     return responses;
@@ -711,15 +752,7 @@ export class HostCore {
     };
     run.permits.set(action.toolCallId, action);
     const output = jsonValue(await this.dispatch(run, action));
-    return {
-      output:
-        typeof output === 'string'
-          ? { type: 'text', value: output }
-          : { type: 'json', value: output },
-      toolCallId: event.toolCallId,
-      toolName: event.toolId,
-      type: 'tool-result',
-    };
+    return this.modelResult(event.toolCallId, event.toolId, event.input, output);
   }
 
   private async finishApprovedCalls(run: Run): Promise<void> {
@@ -748,7 +781,7 @@ export class HostCore {
     try {
       await this.openRun(run);
       // The SDK collects approvals from one final tool message, preserving parallel calls.
-      const responses = this.approvalResponses(run);
+      const responses = await this.approvalResponses(run);
       await this.commitMessages(
         run,
         responses.length > 0 ? [{ content: responses, role: 'tool' }] : []
@@ -776,11 +809,22 @@ export class HostCore {
       const run = this.run(params.threadId, params.runId);
       run.stopped = true;
       run.controller.abort(new Error('Run stopped by user'));
-      if (run.task) {
-        await run.task;
+      const joined = await Promise.allSettled([
+        run.task ?? Promise.resolve(),
+        this.closeRunOwner(run),
+      ]);
+      const failures = [
+        ...new Set(
+          joined.filter((result) => result.status === 'rejected').map((result) => result.reason)
+        ),
+      ];
+      if (failures.length === 1) {
+        throw failures[0];
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(failures, 'Stop cleanup failed');
       }
       await this.finish(run, 'stopped');
-      await this.closeRunOwner(run);
     };
     return this.command(
       'run/stop',
@@ -790,7 +834,31 @@ export class HostCore {
         const result = {
           outcome: run.terminal ? ('already-terminal' as const) : ('stopped' as const),
         };
-        await this.accept(run.threadId, 'run/stop', params, result, []);
+        if (run.stopAcceptance) {
+          await join();
+          return result;
+        }
+        const acceptance = Promise.withResolvers<void>();
+        run.stopAcceptance = acceptance.promise;
+        acceptance.promise.catch(() => undefined);
+        run.stopped = true;
+        run.controller.abort(new Error('Run stopped by user'));
+        try {
+          await this.accept(run.threadId, 'run/stop', params, result, []);
+          acceptance.resolve();
+          run.stopAcceptance = undefined;
+        } catch (cause) {
+          acceptance.reject(cause);
+          const cleanup = await Promise.allSettled([join()]);
+          const failure = cleanup[0];
+          if (failure?.status === 'rejected' && failure.reason !== cause) {
+            throw new AggregateError(
+              [cause, failure.reason],
+              'Stop persistence and cleanup failed'
+            );
+          }
+          throw cause;
+        }
         await join();
         return result;
       },
@@ -838,23 +906,29 @@ export class HostCore {
       // Only the host owns terminal admission, so join all dispatched work first.
       await Promise.allSettled([...run.effects]);
       await this.closeRunOwner(run);
+      await run.stopAcceptance;
       const joinedOutcome = run.stopped
         ? 'stopped'
         : run.controller.signal.aborted && this.closing
           ? 'interrupted'
           : outcome;
-      await this.append(run.threadId, [
-        {
-          outcome: joinedOutcome,
-          runId: run.id,
-          type: 'run.finished',
-          ...(detail ? { detail } : {}),
-        },
-      ]);
-      await this.store.syncBoundary(run.threadId);
-      run.terminal = true;
-      run.release?.();
-      run.release = undefined;
+      await this.append(
+        run.threadId,
+        [
+          {
+            outcome: joinedOutcome,
+            runId: run.id,
+            type: 'run.finished',
+            ...(detail ? { detail } : {}),
+          },
+        ],
+        'full',
+        () => {
+          run.terminal = true;
+          run.release?.();
+          run.release = undefined;
+        }
+      );
     })();
     return run.completion;
   }

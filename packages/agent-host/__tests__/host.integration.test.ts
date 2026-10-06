@@ -10,6 +10,8 @@ import {
   type PermissionToolGateSnapshot,
 } from '@brainstrike/assistant-contract';
 import { RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
+import { toStandardSchema } from '@mastra/core/schema';
+import type { JSONSchema7 } from 'ai';
 import type { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
@@ -528,4 +530,61 @@ test('a final permitted call completes at the existing model-step limit without 
   );
   expect(model.doStreamCalls).toHaveLength(1);
   await client.close();
+});
+
+test('canonical Standard Schema and model projection survive SDK approval without changing the committed native result', async () => {
+  const schema: JSONSchema7 = {
+    $defs: { text: { minLength: 1, type: 'string' } },
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    properties: { optional: { type: 'string' }, text: { $ref: '#/$defs/text' } },
+    required: ['text'],
+    type: 'object',
+  };
+  let executed = 0;
+  const { root, client, model } = await setup(undefined, {
+    description: 'Existing native executor with a canonical MCP schema',
+    execute: async (input) => {
+      const { text } = z.object({ text: z.string() }).parse(input);
+      executed += 1;
+      return { bytes: Buffer.byteLength(text), executions: executed, text };
+    },
+    identity: 'existing-executable-schema-binding',
+    inputSchema: toStandardSchema(schema),
+    risk: 'edit',
+    strict: false,
+    toModelOutput: ({ output }) => {
+      const { bytes } = z.object({ bytes: z.number() }).parse(output);
+      return { type: 'json', value: { bytes } };
+    },
+  });
+  const ids = await start(client);
+  const pending = await event(client, ids.threadId, 'interaction.requested');
+  expect(executed).toBe(0);
+  await client.request('interaction/respond', {
+    commandId: randomUUID(),
+    decision: 'approve',
+    interactionId: pending.interactionId,
+    ...ids,
+  });
+  await event(client, ids.threadId, 'run.finished');
+  expect(executed).toBe(1);
+  const definition = model.doStreamCalls[0]?.tools?.find(
+    (tool) => tool.type === 'function' && tool.name === 'write_file'
+  );
+  expect(definition).toMatchObject({ inputSchema: schema, strict: false });
+  const result = await event(client, ids.threadId, 'effect.finished');
+  const { bytes } = z
+    .object({ bytes: z.number(), executions: z.literal(1), text: z.string() })
+    .parse(result.output);
+  expect(
+    model.doStreamCalls[1]?.prompt.flatMap((message) =>
+      message.role === 'tool' ? message.content : []
+    )
+  ).toContainEqual({
+    output: { type: 'json', value: { bytes } },
+    toolCallId: pending.toolCallId,
+    toolName: pending.toolId,
+    type: 'tool-result',
+  });
+  await expect(StateStore.open(root)).rejects.toBeInstanceOf(RootLockedError);
 });

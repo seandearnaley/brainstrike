@@ -223,7 +223,18 @@ function handle(m) {
       const t0 = clock();
       const rows = /** @type {import('./run-log.mjs').AppendRow[]} */ (m['rows']);
       verifyBlobReferences(rows);
-      const seqs = log.append(rows, Date.now());
+      const boundary = m['boundary'] === true;
+      if (boundary) {
+        db.pragma('synchronous = FULL');
+      }
+      let seqs;
+      try {
+        seqs = log.append(rows, Date.now(), boundary);
+      } finally {
+        if (boundary) {
+          db.pragma('synchronous = NORMAL');
+        }
+      }
       return { seqs, t0, t1: clock() };
     }
     case 'boundary': {

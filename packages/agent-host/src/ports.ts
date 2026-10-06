@@ -1,6 +1,5 @@
 import type { PermissionToolGateSnapshot, ToolRiskCategory } from '@brainstrike/assistant-contract';
-import type { LanguageModel, ToolSet } from 'ai';
-import type { z } from 'zod';
+import type { FlexibleSchema, LanguageModel, Tool, ToolSet } from 'ai';
 
 export interface HostToolContext {
   readonly runId: string;
@@ -22,8 +21,10 @@ export interface HostTool {
   execute(input: unknown, context: HostToolContext): Promise<unknown>;
   /** Existing executor/server-generation identity, bound into pending decisions. */
   readonly identity: string;
-  readonly inputSchema: z.ZodType;
+  readonly inputSchema: FlexibleSchema<unknown>;
   readonly risk: ToolRiskCategory;
+  readonly strict?: boolean;
+  readonly toModelOutput?: Tool<unknown, unknown>['toModelOutput'];
 }
 
 /** Credentials and process-local capabilities never become protocol payloads. */

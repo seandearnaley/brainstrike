@@ -136,7 +136,8 @@ export function createMcpHostToolAdapter(options: McpHostToolAdapterOptions): Mc
         Object.fromEntries(
           entries.map(([toolId, binding]): [string, HostTool] => {
             const source = binding.tool;
-            const { description, execute, identity, inputSchema, risk } = source;
+            const { description, execute, identity, inputSchema, risk, strict, toModelOutput } =
+              source;
             const lease = leases.get(binding.configuredServerId);
             if (!lease) {
               throw new Error('MCP host tool binding has no acquired server lease');
@@ -172,6 +173,8 @@ export function createMcpHostToolAdapter(options: McpHostToolAdapterOptions): Mc
               identity,
               inputSchema,
               risk,
+              ...(strict === undefined ? {} : { strict }),
+              ...(toModelOutput ? { toModelOutput } : {}),
             });
             return [toolId, tool];
           })

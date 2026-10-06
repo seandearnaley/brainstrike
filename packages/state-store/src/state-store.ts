@@ -441,10 +441,16 @@ export class StateStore {
 
   /**
    * Append rows (possibly across threads) as ONE NORMAL commit. `onCommitted` runs right after the COMMIT returned and
-   * before the next write starts: the process-crash contract. A write failure fails the store (later calls are refused,
+   * before the next write starts: the process-crash contract. `full` makes the rows and existing run_sync marker
+   * one FULL transaction, so terminal success is never committed ahead of its kernel sync.
+   * A write failure fails the store (later calls are refused,
    * so no seq is ever reused); a damaged thread refuses the batch without failing the store.
    */
-  append(items: readonly AppendItem[], onCommitted?: () => void): Promise<LogRow[]> {
+  append(
+    items: readonly AppendItem[],
+    onCommitted?: () => void,
+    durability: 'normal' | 'full' = 'normal'
+  ): Promise<LogRow[]> {
     if (this.closed) {
       return Promise.reject(new Error('StateStore is closed'));
     }
@@ -462,9 +468,20 @@ export class StateStore {
           await this.call({ content: b.content, hash: b.hash, op: 'putBlob' });
         }
       }
-      return this.call({ op: 'append', rows }).then(
+      return this.call({ boundary: durability === 'full', op: 'append', rows }).then(
         (r) => {
           this.options.onWriteSpan?.({ t0: Number(r['t0']), t1: Number(r['t1']) });
+          if (durability === 'full') {
+            for (const threadId of new Set(items.map((item) => item.threadId))) {
+              this.options.onSyncSpan?.({
+                checkpoint: null,
+                kind: 'FULL commit',
+                t0: Number(r['t0']),
+                t1: Number(r['t1']),
+                thread: threadId,
+              });
+            }
+          }
           onCommitted?.();
           const seqs = r['seqs'] as number[];
           return items.map((it, i): LogRow => {
