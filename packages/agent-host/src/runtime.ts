@@ -138,6 +138,9 @@ export async function startAgentHost(
             if (platform.openRun) {
               ownedPlatform.openRun = platform.openRun.bind(platform);
             }
+            if (platform.admitRun) {
+              ownedPlatform.admitRun = platform.admitRun.bind(platform);
+            }
             core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
               core = acquired;
               if (signal.aborted) {

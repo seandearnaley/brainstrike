@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { resolvePermissionDecision } from '@brainstrike/assistant-contract';
 import type { StateStore } from '@brainstrike/state-store';
 import {
   type ModelMessage,
@@ -7,11 +6,9 @@ import {
   stepCountIs,
   streamText,
   type ToolContent,
-  type ToolSet,
 } from 'ai';
 import {
   ApprovalInputReconstructionError,
-  admittedApprovalInput,
   rebuildApprovedRuntimeMessages,
   validateApprovalInput,
 } from './approval-input.js';
@@ -27,9 +24,15 @@ import {
 import { readHostRow, storedHostEvent } from './event-storage.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
-import type { HostPlatform, HostRunOwner } from './ports.js';
+import type { HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
 import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
-import { createHostSdkTools } from './sdk-tools.js';
+import {
+  acquireHostRunAdmission,
+  createAdmittedHostSdkTools,
+  ensureHostRunAdmission,
+  hostRunToolDecision,
+  hostRunTools,
+} from './run-admission.js';
 
 export { jsonValue } from './json-value.js';
 
@@ -48,6 +51,7 @@ export class HostCore {
   private readonly messages = new Map<string, ModelMessage[]>();
   private readonly conversationIds = new Set<string>();
   private readonly listeners = new Set<(row: HostLogRow) => void>();
+  private readonly pendingAdmissions = new Set<AbortController>();
   private admission: Promise<void> = Promise.resolve();
   private closing = false;
   private closeTask?: Promise<void>;
@@ -118,7 +122,10 @@ export class HostCore {
         break;
       case 'run.started':
         this.foldConversationId(event.runId);
-        this.runs.set(event.runId, createHostRunState(row.threadId, event.runId, event.modelId));
+        this.runs.set(
+          event.runId,
+          createHostRunState(row.threadId, event.runId, event.modelId, event.snapshot)
+        );
         this.messages.set(row.threadId, [
           ...(this.messages.get(row.threadId) ?? []),
           { content: event.prompt, role: 'user' },
@@ -292,9 +299,27 @@ export class HostCore {
       if (this.conversationIds.has(params.commandId)) {
         throw new Error('Input command collides with a committed conversation identity');
       }
-      const model = await this.platform.resolveModel(params.modelId);
+      const controller = new AbortController();
+      this.pendingAdmissions.add(controller);
+      let admission: HostRunAdmission;
+      try {
+        admission = await acquireHostRunAdmission(this.platform, {
+          modelId: params.modelId,
+          signal: controller.signal,
+          threadId: params.threadId,
+        });
+        controller.signal.throwIfAborted();
+      } finally {
+        this.pendingAdmissions.delete(controller);
+      }
       const release = this.retainRun();
-      const run = createHostRunState(params.threadId, randomUUID(), params.modelId);
+      const run = createHostRunState(
+        params.threadId,
+        randomUUID(),
+        params.modelId,
+        admission.snapshot
+      );
+      run.admission = admission;
       if (this.conversationIds.has(run.id) || run.id === params.commandId) {
         release();
         throw new Error('Generated run collides with a committed conversation identity');
@@ -303,7 +328,13 @@ export class HostCore {
       const result = { runId: run.id };
       try {
         await this.accept(params.threadId, 'run/start', params, result, [
-          { modelId: params.modelId, prompt: params.prompt, runId: run.id, type: 'run.started' },
+          {
+            modelId: params.modelId,
+            prompt: params.prompt,
+            runId: run.id,
+            snapshot: admission.snapshot,
+            type: 'run.started',
+          },
         ]);
       } catch (cause) {
         release();
@@ -316,45 +347,22 @@ export class HostCore {
         ...(this.messages.get(params.threadId) ?? []),
         { content: params.prompt, role: 'user' },
       ]);
-      run.task = this.loop(run, model);
+      run.task = this.loop(run, admission.model);
       // Stop/close joins this task; retain failures rather than leaking rejections.
       run.task.catch(() => undefined);
       return result;
     });
   }
 
-  private decision(toolId: string): 'allow' | 'ask' | 'deny' {
-    const registered = this.platform.tools[toolId];
-    if (!registered) {
-      throw new Error('Tool is not registered');
-    }
-    const snapshot = this.platform.readPermissionPolicy();
-    // ADR-0010: explicit deny outranks a session grant or YOLO.
-    if (
-      snapshot.perToolOverrides?.[toolId] === 'deny' ||
-      snapshot.policies[registered.risk] === 'deny'
-    ) {
-      return 'deny';
-    }
-    return resolvePermissionDecision({
-      policies: snapshot.policies,
-      riskCategory: registered.risk,
-      toolId,
-      ...(snapshot.perToolOverrides ? { perToolOverrides: snapshot.perToolOverrides } : {}),
-      sessionGrants: new Set(snapshot.sessionGrants ?? []),
-      yolo: snapshot.yolo,
-    });
-  }
-
   private async execute(run: Run, action: Action, input: unknown): Promise<unknown> {
-    const registered = this.platform.tools[action.toolId];
+    const registered = hostRunTools(run)[action.toolId];
     const permitted = run.permits.get(action.toolCallId);
     if (!registered || registered.identity !== action.toolIdentity || permitted !== action) {
       throw new Error('Tool execution lacks its exact host permission decision');
     }
     run.permits.delete(action.toolCallId);
     run.controller.signal.throwIfAborted();
-    if (this.decision(action.toolId) === 'deny') {
+    if (hostRunToolDecision(this.platform, run, action.toolId) === 'deny') {
       throw new Error('Tool permission was revoked');
     }
     await this.append(run.threadId, [action]);
@@ -386,23 +394,6 @@ export class HostCore {
     return output;
   }
 
-  private sdkTools(run: Run): ToolSet {
-    return createHostSdkTools({
-      admittedInput: (id, input) => admittedApprovalInput(id, input, run),
-      execute: (id, toolCallId, input) => {
-        const action = run.permits.get(toolCallId);
-        if (!action || action.toolId !== id) {
-          throw new Error('Tool execution bypassed host permission admission');
-        }
-        if (canonical(jsonValue(input)) !== canonical(action.input)) {
-          throw new Error('SDK execution input changed after permission admission');
-        }
-        return this.dispatch(run, action, input);
-      },
-      tools: this.platform.tools,
-    });
-  }
-
   private dispatch(run: Run, action: Action, input: unknown): Promise<unknown> {
     const effect = this.execute(run, action, input);
     run.effects.add(effect);
@@ -418,7 +409,7 @@ export class HostCore {
     call: { toolName: string; toolCallId: string; input: unknown }
   ): 'approved' | 'denied' | 'user-approval' {
     run.controller.signal.throwIfAborted();
-    const registered = this.platform.tools[call.toolName];
+    const registered = hostRunTools(run)[call.toolName];
     if (!registered) {
       throw new Error('Unknown tool');
     }
@@ -430,7 +421,7 @@ export class HostCore {
       toolIdentity: registered.identity,
       type: 'effect.started',
     };
-    const decision = this.decision(call.toolName);
+    const decision = hostRunToolDecision(this.platform, run, call.toolName);
     const prior = [...run.approvals.values()].find(
       (approval) => approval.event.toolCallId === call.toolCallId
     );
@@ -465,6 +456,7 @@ export class HostCore {
     let historyPrepared = false;
     try {
       const owner = await this.openRun(run);
+      const admission = await ensureHostRunAdmission(this.platform, run);
       const result = streamText({
         abortSignal: run.controller.signal,
         maxRetries: 0,
@@ -502,7 +494,7 @@ export class HostCore {
               if (part.type !== 'tool-approval-request' || part.isAutomatic === true) {
                 return [];
               }
-              const registered = this.platform.tools[part.toolCall.toolName];
+              const registered = hostRunTools(run)[part.toolCall.toolName];
               if (!registered) {
                 throw new Error('Approval references an unknown tool');
               }
@@ -560,11 +552,26 @@ export class HostCore {
             stepNumber: run.steps,
           });
           recordedInputLength = memory?.messages.length ?? prepared.length;
-          return memory ?? { messages: prepared };
+          if (!admission.provider) {
+            return memory ?? { messages: prepared };
+          }
+          const provider = await admission.provider.prepare({
+            configuration: admission.configuration,
+            messages: memory?.messages ?? prepared,
+            modelId: run.modelId,
+            signal: run.controller.signal,
+          });
+          return {
+            ...provider,
+            model: owner?.prepareHostModel?.(provider.model) ?? provider.model,
+            ...(memory?.system && !provider.system ? { system: memory.system } : {}),
+          };
         },
-        stopWhen: stepCountIs(this.platform.maxSteps - run.steps),
+        stopWhen: stepCountIs(admission.snapshot.maxSteps - run.steps),
         toolApproval: ({ toolCall }) => this.sdkApproval(run, toolCall),
-        tools: this.sdkTools(run),
+        tools: createAdmittedHostSdkTools(run, (action, input) =>
+          this.dispatch(run, action, input)
+        ),
       });
       for await (const chunk of result.fullStream) {
         if (chunk.type === 'error') {
@@ -627,7 +634,8 @@ export class HostCore {
       if (run.terminal || !pending || pending.decision !== undefined) {
         throw new Error('Approval decision is stale or belongs to another run');
       }
-      const registered = this.platform.tools[pending.event.toolId];
+      await ensureHostRunAdmission(this.platform, run);
+      const registered = hostRunTools(run)[pending.event.toolId];
       if (!registered || registered.identity !== pending.event.toolIdentity) {
         throw new Error('Approval tool identity changed');
       }
@@ -667,12 +675,13 @@ export class HostCore {
   }
 
   private async modelResult(
+    run: Run,
     toolCallId: string,
     toolId: string,
     input: unknown,
     output: unknown
   ): Promise<ToolContent[number]> {
-    const project = this.platform.tools[toolId]?.toModelOutput;
+    const project = hostRunTools(run)[toolId]?.toModelOutput;
     return {
       output: project
         ? await project({ input, output, toolCallId })
@@ -690,7 +699,7 @@ export class HostCore {
     if (!approval) {
       throw new Error('Unknown approval occurrence');
     }
-    const registered = this.platform.tools[event.toolId];
+    const registered = hostRunTools(run)[event.toolId];
     if (!registered || registered.identity !== event.toolIdentity) {
       throw new Error('Approval tool identity changed');
     }
@@ -714,6 +723,7 @@ export class HostCore {
         const output = run.outputs.get(event.toolCallId);
         responses.push(
           await this.modelResult(
+            run,
             event.toolCallId,
             event.toolId,
             await this.approvalInput(run, event),
@@ -729,7 +739,7 @@ export class HostCore {
     run: Run,
     { event, decision }: PendingInteraction
   ): Promise<ToolContent[number]> {
-    if (decision === 'deny' || this.decision(event.toolId) === 'deny') {
+    if (decision === 'deny' || hostRunToolDecision(this.platform, run, event.toolId) === 'deny') {
       return {
         output: { type: 'execution-denied' },
         toolCallId: event.toolCallId,
@@ -748,7 +758,7 @@ export class HostCore {
     };
     run.permits.set(action.toolCallId, action);
     const output = await this.dispatch(run, action, input);
-    return this.modelResult(event.toolCallId, event.toolId, input, output);
+    return this.modelResult(run, event.toolCallId, event.toolId, input, output);
   }
 
   private async finishApprovedCalls(run: Run): Promise<void> {
@@ -775,6 +785,7 @@ export class HostCore {
       return;
     }
     try {
+      const admission = await ensureHostRunAdmission(this.platform, run);
       await this.openRun(run);
       // The SDK collects approvals from one final tool message, preserving parallel calls.
       const responses = await this.approvalResponses(run);
@@ -782,12 +793,11 @@ export class HostCore {
         run,
         responses.length > 0 ? [{ content: responses, role: 'tool' }] : []
       );
-      if (run.steps >= this.platform.maxSteps) {
+      if (run.steps >= admission.snapshot.maxSteps) {
         await this.finishApprovedCalls(run);
         return;
       }
-      const model = await this.platform.resolveModel(run.modelId);
-      await this.loop(run, model);
+      await this.loop(run, admission.model);
     } catch (cause) {
       if (run.completion) {
         throw cause;
@@ -873,11 +883,12 @@ export class HostCore {
   }
 
   private openRun(run: Run): Promise<HostRunOwner | undefined> {
-    run.owner ??= Promise.resolve().then(() =>
-      this.platform.openRun?.(
+    run.owner ??= ensureHostRunAdmission(this.platform, run).then((admission) => {
+      const open = admission.openRun ?? this.platform.openRun?.bind(this.platform);
+      return open?.(
         createHostRunContext(run, (threadId, events) => this.append(threadId, events, 'full'))
-      )
-    );
+      );
+    });
     return run.owner;
   }
 
@@ -940,6 +951,9 @@ export class HostCore {
 
   private async closeOwned(): Promise<void> {
     this.closing = true;
+    for (const controller of this.pendingAdmissions) {
+      controller.abort(new Error('Host is closing'));
+    }
     for (const run of this.runs.values()) {
       run.controller.abort(new Error('Host is closing'));
     }
