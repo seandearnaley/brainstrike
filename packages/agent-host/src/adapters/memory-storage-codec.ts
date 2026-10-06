@@ -2,7 +2,7 @@ import type { MemoryJson, MemoryJsonObject } from '../../../state-store/dist/mem
 
 /** Runtime models/hooks remain capabilities. Persist only their data configuration. */
 export function memoryConfiguration(value: Record<string, unknown>): MemoryJsonObject {
-  const result: Record<string, unknown> = {};
+  const result: Record<string, unknown> = Object.create(null);
   for (const [key, entry] of Object.entries(value)) {
     if (key === 'hooks') {
       continue;
@@ -48,7 +48,7 @@ export function encodeMemory(value: unknown): MemoryJson {
     typeof value === 'object' &&
     (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
   ) {
-    const result: Record<string, MemoryJson> = {};
+    const result: Record<string, MemoryJson> = Object.create(null);
     for (const [key, entry] of Object.entries(value)) {
       if (entry !== undefined) {
         result[key] = encodeMemory(entry);
@@ -77,7 +77,7 @@ export function decodeMemory(value: MemoryJson): unknown {
   if (!(value && typeof value === 'object')) {
     return value;
   }
-  const result: Record<string, unknown> = {};
+  const result: Record<string, unknown> = Object.create(null);
   for (const [key, entry] of Object.entries(value)) {
     if (dates.has(key) && typeof entry === 'string') {
       const date = new Date(entry);

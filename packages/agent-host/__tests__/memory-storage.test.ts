@@ -13,6 +13,47 @@ const committed: MastraDBMessage = {
 };
 const empty: MemorySnapshot = { entities: [], revision: 0 };
 
+test('functional metadata updates preserve native partial-merge semantics', async () => {
+  let current: MemorySnapshot = {
+    entities: [
+      {
+        id: 'thread',
+        kind: 'thread',
+        payload: {
+          createdAt: '2026-10-06T19:00:00.000Z',
+          id: 'thread',
+          metadata: { retained: 'unchanged' },
+          resourceId: 'resource',
+          updatedAt: '2026-10-06T19:00:00.000Z',
+        },
+        threadId: 'thread',
+      },
+    ],
+    revision: 1,
+  };
+  const writer: MemoryDomainPort = {
+    memory: async (request) => {
+      if (request.operation === 'commit') {
+        expect(request.expectedRevision).toBe(1);
+        const first = request.changes[0];
+        if (first?.operation !== 'put') {
+          throw new Error('Expected an atomic metadata put');
+        }
+        current = { entities: [first.entity], revision: 2 };
+      }
+      return current;
+    },
+  };
+  const adapter = new StateStoreMemoryStorage('resource', writer, { read: async () => [] });
+  const updated = await adapter.updateThreadMetadata({
+    id: 'thread',
+    update: () => ({ added: 'new' }),
+  });
+  expect(updated?.metadata).toEqual({ added: 'new', retained: 'unchanged' });
+  expect(current.entities[0]?.payload['metadata']).toEqual(updated?.metadata);
+  await adapter.close();
+});
+
 test('public storage projects committed identities without appending native transcript facts', async () => {
   let mutations = 0;
   const writer: MemoryDomainPort = {

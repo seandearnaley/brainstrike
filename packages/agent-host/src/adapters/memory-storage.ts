@@ -243,7 +243,11 @@ export class StateStoreMemoryStorage extends MemoryStorage {
       if (metadata === undefined) {
         return thread;
       }
-      const updated = { ...thread, metadata, updatedAt: new Date() };
+      const updated = {
+        ...thread,
+        metadata: { ...thread.metadata, ...metadata },
+        updatedAt: new Date(),
+      };
       const payload = encodeMemory(updated) as MemoryJsonObject;
       await this.writer.memory({
         changes: [{ entity: { ...row, payload }, operation: 'put' }],

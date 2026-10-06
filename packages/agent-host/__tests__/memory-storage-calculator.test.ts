@@ -1,7 +1,21 @@
 import { expect, test } from 'vitest';
 import type { MemoryNativeRequest, MemorySnapshot } from '../../state-store/dist/memory-types.js';
 import { calculateMemoryMutation } from '../src/adapters/memory-storage-calculator.js';
-import { decodeMemory, encodeMemory } from '../src/adapters/memory-storage-codec.js';
+import {
+  decodeMemory,
+  encodeMemory,
+  memoryConfiguration,
+} from '../src/adapters/memory-storage-codec.js';
+
+test('the data codec preserves own JSON keys without changing object prototypes', () => {
+  const data = JSON.parse(
+    '{"__proto__":{"fixture":true},"ordinary":"retained","metadata":{"__proto__":{"nested":true}}}'
+  );
+  const wire = JSON.stringify(encodeMemory(data));
+  expect(wire).toBe(JSON.stringify(data));
+  expect(JSON.stringify(decodeMemory(JSON.parse(wire)))).toBe(wire);
+  expect(JSON.stringify(memoryConfiguration(data))).toBe(wire);
+});
 
 test('public native calculator preserves buffer activation, reflection generations and history', async () => {
   let snapshot: MemorySnapshot = { entities: [], revision: 0 };
