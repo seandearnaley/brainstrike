@@ -4,6 +4,26 @@ This is the integrator's evidence ledger for BST-1977, not an acceptance declara
 
 CI is disabled due to cost; validation must run locally.
 
+## Production provider import boundary — 6 October, 22:26 UTC
+
+The new public `@brainstrike/agent/provider-runtime` entry exposes the existing
+provider factory, typed direct auth input and runtime configuration owner to
+Node composition, without the broad entry's browser inference registration.
+No factory, provider defaults, credential resolution or actor behavior changes.
+Both emitted ESM and CJS entries were loaded in fresh plain Node processes:
+**2/2 passed, 0.501 s**. The checks retained explicit local-server endpoint/token
+configuration, constructed the shipped hosted model without invoking it, and
+refused built-in local inference without its existing hidden-host capability.
+The first test run miscalled the existing configuration signature and failed
+two cases; the test call was corrected without changing the product function.
+
+Command: `pnpm --filter @brainstrike/agent exec vitest run --config vitest.integration.config.mts src/__tests__/provider-runtime.integration.spec.ts`.
+The package build passed; seven existing factory/auth/runtime configuration
+files then passed **83/83, 1.08 s** through
+`pnpm --filter @brainstrike/agent exec vitest run src/__tests__/runtime-configuration.spec.ts src/__tests__/provider-factory.spec.ts src/__tests__/provider-factory.auth-input.spec.ts src/__tests__/provider-factory.local.spec.ts src/__tests__/provider-factory.local-runtime.spec.ts src/__tests__/provider-factory.bedrock.spec.ts src/__tests__/provider-factory.anthropic-caching.spec.ts`.
+Logs use `/tmp/brainstrike-m3-provider-runtime-*.log`. This import boundary is a
+production composition dependency, not ordinary New Thread/provider acceptance.
+
 ## Reviewed Windows fixture integration — 6 October, 22:18 UTC
 
 The parent released PR3548 at reviewed source
@@ -12,9 +32,13 @@ retain the native process handle through identity validation and physical join.
 Only Windows fixture prompt observation changes from one to ten seconds,
 following the reported 1652–4434 ms creation-to-prompt measurements; POSIX
 remains one second. This is neither a runtime deadline change nor a startup
-performance acceptance claim. The author's twelve-case pass predates the final
-exception-filter edit; only its three ownership cases were rerun at final source.
-No final Windows twelve-case pass is claimed here.
+performance acceptance claim. The parent subsequently supplied complete final
+Windows qualification at the exact reviewed source/tree: all twelve affected
+cases passed once, **12/12, zero skips/retries, 142.28 s**. The owner's receipt
+reports 1274 observed identities absent, nine successful roots removed, no new
+roots and unchanged source/dependency layout. This supersedes the earlier partial
+three-case receipt. Studio has not independently replayed that Windows run; the
+following changed helper still requires narrow Windows verification.
 
 The first integrated POSIX run failed all nine cases in fixture teardown:
 `realpath(root)` resolved macOS `/var` to `/private/var`, while the temporary
