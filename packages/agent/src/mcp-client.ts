@@ -1,4 +1,10 @@
 export {
+  type CreateMcpRuntimeClientOptions,
+  createMcpRuntimeClient,
+  type McpRuntimeClient,
+  type McpToolsetsWithErrors,
+} from './mastra/mcp-runtime-client';
+export {
   MCP_APPS_CLIENT_EXTENSION_CONTRACT,
   registerMcpAppsClientCapability,
 } from './mcp/apps-extension';

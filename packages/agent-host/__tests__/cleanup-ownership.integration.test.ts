@@ -9,7 +9,7 @@ import { modelMessageSchema } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
-import { HostCore, type HostEventStore } from '../src/core.js';
+import { HostCore, type HostEventStore, jsonValue } from '../src/core.js';
 import type { HostPlatform } from '../src/ports.js';
 import { AgentHostStartupError, startAgentHost } from '../src/runtime.js';
 import { foldHostRuns } from '../src/thread-view.js';
@@ -230,6 +230,106 @@ test.each(['automatic', 'last-step approval', 'async refinement'] as const)(
     }
   }
 );
+
+test.each([
+  'automatic',
+  'last-step approval',
+  'restarted approval',
+  'restarted last-step approval',
+] as const)('validated Date input reaches the native executor through %s', async (mode) => {
+  const dataRoot = await root();
+  let store = await StateStore.open(dataRoot);
+  let received: unknown;
+  let projectedInput: unknown;
+  const capabilities = platform({
+    maxSteps: mode === 'last-step approval' || mode === 'restarted last-step approval' ? 1 : 3,
+    readPermissionPolicy: () => ({
+      policies: { ...DEFAULT_PERMISSION_POLICIES, edit: mode === 'automatic' ? 'allow' : 'ask' },
+      yolo: false,
+    }),
+    resolveModel: async () =>
+      scriptedToolSequence([{ input: { at: '2026-10-06T00:00:00.000Z' }, toolId: 'runtime_date' }]),
+    tools: {
+      runtime_date: {
+        description: 'Runtime input type preservation',
+        execute: async (input) => {
+          received = input;
+          if (!(input && typeof input === 'object' && 'at' in input && input.at instanceof Date)) {
+            throw new TypeError('Native executor requires its validated Date');
+          }
+          return { time: input.at.getTime() };
+        },
+        identity: 'runtime-date',
+        inputSchema: z.object({ at: z.iso.datetime().transform((value) => new Date(value)) }),
+        risk: 'edit',
+        toModelOutput: async ({ input, output }) => {
+          projectedInput = input;
+          return { type: 'json', value: jsonValue(output) };
+        },
+      },
+    },
+  });
+  let core = await HostCore.open(store, capabilities, () => () => undefined);
+  try {
+    const ids = await start(core);
+    if (mode !== 'automatic') {
+      let interaction:
+        | Extract<import('../src/protocol.js').HostEvent, { type: 'interaction.requested' }>
+        | undefined;
+      await expect
+        .poll(async () => {
+          interaction = (await core.read(ids.threadId, 0))
+            .map((row) => row.event)
+            .find((event) => event.type === 'interaction.requested');
+          return interaction !== undefined;
+        })
+        .toBe(true);
+      if (!interaction) {
+        throw new Error('Expected Date approval');
+      }
+      const pending = interaction;
+      expect(pending.input).toEqual({ at: '2026-10-06T00:00:00.000Z' });
+      const committed = await core.read(ids.threadId, 0);
+      const schemaInputs = committed
+        .flatMap((row) => (row.event.type === 'model.step' ? row.event.messages : []))
+        .flatMap((value) => {
+          const message = modelMessageSchema.parse(value);
+          return message.role === 'assistant' && typeof message.content !== 'string'
+            ? message.content
+                .filter((part) => part.type === 'tool-approval-request')
+                .map((part) => part.inputSchemaInput)
+            : [];
+        });
+      expect(schemaInputs).toEqual([{ at: '2026-10-06T00:00:00.000Z' }]);
+      if (mode === 'restarted approval' || mode === 'restarted last-step approval') {
+        await core.close();
+        await store.close();
+        store = await StateStore.open(dataRoot);
+        core = await HostCore.open(store, capabilities, () => () => undefined);
+      }
+      await core.respond({
+        commandId: randomUUID(),
+        decision: 'approve',
+        interactionId: pending.interactionId,
+        ...ids,
+      });
+    }
+    await expect
+      .poll(async () =>
+        (await core.read(ids.threadId, 0)).some((row) => row.event.type === 'run.finished')
+      )
+      .toBe(true);
+    expect(received).toEqual({ at: new Date('2026-10-06T00:00:00.000Z') });
+    expect(projectedInput).toEqual({ at: new Date('2026-10-06T00:00:00.000Z') });
+    expect(
+      (await core.read(ids.threadId, 0)).find((row) => row.event.type === 'run.finished')?.event
+    ).toMatchObject({ outcome: 'completed' });
+  } finally {
+    await core.close();
+    await store.close();
+    await rm(dataRoot, { force: true, recursive: true });
+  }
+});
 
 test('an answerable approval always has its complete committed public SDK context, including after restart', async () => {
   const dataRoot = await root();

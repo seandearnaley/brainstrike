@@ -4,7 +4,6 @@ import type { CreateTaskResult } from '@brainstrike/mcp-tasks-extension';
 import { type StandardSchemaWithJSON, standardSchemaToJSONSchema } from '@mastra/core/schema';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
-  createMcpRuntimeClient,
   MCP_PROGRESS_STREAM_PART_TYPE,
   mapMcpProgressStreamPart,
   retainRawMcpCallToolResult,
@@ -17,6 +16,7 @@ import type {
   ExplicitHttpMcpRequestOptions,
 } from '../mcp/explicit-http-client';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
+import { createMcpRuntimeClient } from '../mcp-client';
 import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import {
   readToolGuardDeadlineSignal,
@@ -131,178 +131,103 @@ describe('MCP runtime client', () => {
     }
   });
 
-  it('converts explicit HTTP tools without losing schemas, metadata, cancellation, or progress', async () => {
-    const abortController = new AbortController();
-    const progressWrites: unknown[] = [];
-    const callTool = vi.fn(
-      async (
-        _params: ExplicitHttpMcpCallToolParams,
-        options?: ExplicitHttpMcpRequestOptions
-      ): Promise<ExplicitHttpMcpCallToolResult> => {
-        options?.onprogress?.({ message: 'Halfway', progress: 1, total: 2 });
-        return {
-          content: [{ text: 'fallback text', type: 'text' }],
-          structuredContent: { echoed: 'hello' },
-        };
-      }
-    );
-    const explicitClient = {
-      callTool,
-      close: vi.fn().mockResolvedValue(undefined),
-      listTools: vi.fn().mockResolvedValue({
-        tools: [
-          {
-            _meta: {
-              mastra: { strict: true },
-              ui: { resourceUri: 'ui://echo/card' },
-            },
-            annotations: { readOnlyHint: true, title: 'Echo' },
-            description: 'Echo a value',
-            inputSchema: {
-              properties: { value: { type: 'string' } },
-              required: ['value'],
-              type: 'object',
-            },
-            name: 'echo',
-            outputSchema: {
-              properties: { echoed: { type: 'string' } },
-              required: ['echoed'],
-              type: 'object',
-            },
-          },
-        ],
-      }),
-    };
-    const { host } = createTestHost({ remote: explicitClient });
-    const runtimeClient = await createMcpRuntimeClient({
-      config: undefined,
-      host,
-    });
-
-    const discovered = await runtimeClient?.listToolsetsWithErrors();
-    expect(discovered?.errors).toEqual({});
-    const tool = requireExecutableTool(discovered?.toolsets['remote']?.['echo']);
-    expect(tool).toMatchObject({
-      description: 'Echo a value',
-      id: 'remote_echo',
-      mcp: {
-        _meta: {
-          mastra: { strict: true },
-          ui: { resourceUri: 'ui://echo/card', serverId: 'remote' },
-        },
-        annotations: { readOnlyHint: true, title: 'Echo' },
-      },
-      mcpMetadata: { serverName: 'remote' },
-      strict: true,
-    });
-    expect(
-      standardSchemaToJSONSchema(tool.inputSchema as StandardSchemaWithJSON, { io: 'input' })
-    ).toMatchObject({
-      properties: { value: { type: 'string' } },
-      required: ['value'],
-      type: 'object',
-    });
-    expect((tool.inputSchema as StandardSchemaWithJSON)['~standard'].validate({})).toMatchObject({
-      issues: expect.any(Array),
-    });
-    expect(standardSchemaToJSONSchema(tool.outputSchema as StandardSchemaWithJSON)).toMatchObject({
-      properties: { echoed: { type: 'string' } },
-      required: ['echoed'],
-      type: 'object',
-    });
-
-    await expect(
-      tool.execute(
-        { value: 'hello' },
-        {
-          _meta: { traceId: 'trace-1' },
-          abortSignal: abortController.signal,
-          agent: { toolCallId: 'call-1' },
-          writer: {
-            custom: async (part: unknown) => {
-              progressWrites.push(part);
-            },
-          },
+  it.each(['agent', 'host'] as const)(
+    'converts explicit HTTP tools without losing schemas, metadata, cancellation, or progress through %s context',
+    async (contextShape) => {
+      const abortController = new AbortController();
+      const progressWrites: unknown[] = [];
+      const callTool = vi.fn(
+        async (
+          _params: ExplicitHttpMcpCallToolParams,
+          options?: ExplicitHttpMcpRequestOptions
+        ): Promise<ExplicitHttpMcpCallToolResult> => {
+          options?.onprogress?.({ message: 'Halfway', progress: 1, total: 2 });
+          return {
+            content: [{ text: 'fallback text', type: 'text' }],
+            structuredContent: { echoed: 'hello' },
+          };
         }
-      )
-    ).resolves.toEqual({
-      app: {
-        mimeType: 'text/html;profile=mcp-app',
-        resourceUri: 'ui://echo/card',
-        serverId: 'remote',
-        toolName: 'echo',
-      },
-      kind: 'mcp-app',
-      result: { echoed: 'hello' },
-    });
-    expect(callTool).toHaveBeenCalledWith(
-      {
-        _meta: { traceId: 'trace-1' },
-        arguments: { value: 'hello' },
-        name: 'echo',
-      },
-      expect.objectContaining({
-        onprogress: expect.any(Function),
-        signal: expect.any(AbortSignal),
-      })
-    );
-    const forwardedSignal = callTool.mock.calls[0]?.[1]?.signal;
-    expect(forwardedSignal?.aborted).toBe(false);
-    abortController.abort();
-    expect(forwardedSignal?.aborted).toBe(true);
-    expect(progressWrites).toEqual([
-      {
-        message: 'Halfway',
-        progress: 1,
-        toolCallId: 'call-1',
-        toolName: 'remote.echo',
-        total: 2,
-        type: MCP_PROGRESS_STREAM_PART_TYPE,
-      },
-    ]);
-    expect(mapMcpProgressStreamPart(progressWrites[0])).toEqual({
-      name: 'remote.echo',
-      payload: {
-        callId: 'call-1',
-        note: 'Halfway',
-        percent: 50,
-        raw: { done: 1, message: 'Halfway', total: 2 },
-        toolCallId: 'call-1',
-      },
-      status: 'progress',
-      type: 'tool-event',
-    });
+      );
+      const explicitClient = {
+        callTool,
+        close: vi.fn().mockResolvedValue(undefined),
+        listTools: vi.fn().mockResolvedValue({
+          tools: [
+            {
+              _meta: {
+                mastra: { strict: true },
+                ui: { resourceUri: 'ui://echo/card' },
+              },
+              annotations: { readOnlyHint: true, title: 'Echo' },
+              description: 'Echo a value',
+              inputSchema: {
+                properties: { value: { type: 'string' } },
+                required: ['value'],
+                type: 'object',
+              },
+              name: 'echo',
+              outputSchema: {
+                properties: { echoed: { type: 'string' } },
+                required: ['echoed'],
+                type: 'object',
+              },
+            },
+          ],
+        }),
+      };
+      const { host } = createTestHost({ remote: explicitClient });
+      const runtimeClient = await createMcpRuntimeClient({
+        config: undefined,
+        host,
+      });
 
-    const mixedStructuredMediaResult: ExplicitHttpMcpCallToolResult = {
-      content: [
-        { text: 'A bounded caption.', type: 'text' },
-        { data: 'aGVsbG8=', mimeType: 'image/png', type: 'image' },
-        { data: 'UklGRg==', mimeType: 'audio/wav', type: 'audio' },
-      ],
-      structuredContent: { echoed: 'hello' },
-    };
-    callTool.mockResolvedValueOnce(mixedStructuredMediaResult);
-    await expect(tool.execute({ value: 'hello' })).resolves.toEqual({
-      app: {
-        mimeType: 'text/html;profile=mcp-app',
-        resourceUri: 'ui://echo/card',
-        serverId: 'remote',
-        toolName: 'echo',
-      },
-      kind: 'mcp-app',
-      result: mixedStructuredMediaResult,
-    });
+      const discovered = await runtimeClient?.listToolsetsWithErrors();
+      expect(discovered?.errors).toEqual({});
+      const tool = requireExecutableTool(discovered?.toolsets['remote']?.['echo']);
+      expect(tool).toMatchObject({
+        description: 'Echo a value',
+        id: 'remote_echo',
+        mcp: {
+          _meta: {
+            mastra: { strict: true },
+            ui: { resourceUri: 'ui://echo/card', serverId: 'remote' },
+          },
+          annotations: { readOnlyHint: true, title: 'Echo' },
+        },
+        mcpMetadata: { serverName: 'remote' },
+        strict: true,
+      });
+      expect(
+        standardSchemaToJSONSchema(tool.inputSchema as StandardSchemaWithJSON, { io: 'input' })
+      ).toMatchObject({
+        properties: { value: { type: 'string' } },
+        required: ['value'],
+        type: 'object',
+      });
+      expect((tool.inputSchema as StandardSchemaWithJSON)['~standard'].validate({})).toMatchObject({
+        issues: expect.any(Array),
+      });
+      expect(standardSchemaToJSONSchema(tool.outputSchema as StandardSchemaWithJSON)).toMatchObject(
+        {
+          properties: { echoed: { type: 'string' } },
+          required: ['echoed'],
+          type: 'object',
+        }
+      );
 
-    const logRecords: LogRecord[] = [];
-    const removeLogListener = addLogListener((record) => logRecords.push(record));
-    try {
       await expect(
         tool.execute(
           { value: 'hello' },
           {
-            agent: { toolCallId: 'call-progress-failure' },
+            _meta: { traceId: 'trace-1' },
+            abortSignal: abortController.signal,
+            ...(contextShape === 'agent'
+              ? { agent: { toolCallId: 'call-1' } }
+              : { toolCallId: 'call-1' }),
             writer: {
-              custom: vi.fn().mockRejectedValue(new Error('progress channel closed')),
+              custom: async (part: unknown) => {
+                progressWrites.push(part);
+              },
             },
           }
         )
@@ -316,20 +241,102 @@ describe('MCP runtime client', () => {
         kind: 'mcp-app',
         result: { echoed: 'hello' },
       });
-      expect(logRecords).toContainEqual(
+      expect(callTool).toHaveBeenCalledWith(
+        {
+          _meta: { traceId: 'trace-1' },
+          arguments: { value: 'hello' },
+          name: 'echo',
+        },
         expect.objectContaining({
-          args: [
-            'MCP progress delivery failed',
-            expect.objectContaining({ serverName: 'remote', toolName: 'echo' }),
-          ],
-          level: 'warn',
-          scope: 'MastraAgentMcpRuntimeClient',
+          onprogress: expect.any(Function),
+          signal: expect.any(AbortSignal),
         })
       );
-    } finally {
-      removeLogListener();
+      const forwardedSignal = callTool.mock.calls[0]?.[1]?.signal;
+      expect(forwardedSignal?.aborted).toBe(false);
+      abortController.abort();
+      expect(forwardedSignal?.aborted).toBe(true);
+      expect(progressWrites).toEqual([
+        {
+          message: 'Halfway',
+          progress: 1,
+          toolCallId: 'call-1',
+          toolName: 'remote.echo',
+          total: 2,
+          type: MCP_PROGRESS_STREAM_PART_TYPE,
+        },
+      ]);
+      expect(mapMcpProgressStreamPart(progressWrites[0])).toEqual({
+        name: 'remote.echo',
+        payload: {
+          callId: 'call-1',
+          note: 'Halfway',
+          percent: 50,
+          raw: { done: 1, message: 'Halfway', total: 2 },
+          toolCallId: 'call-1',
+        },
+        status: 'progress',
+        type: 'tool-event',
+      });
+
+      const mixedStructuredMediaResult: ExplicitHttpMcpCallToolResult = {
+        content: [
+          { text: 'A bounded caption.', type: 'text' },
+          { data: 'aGVsbG8=', mimeType: 'image/png', type: 'image' },
+          { data: 'UklGRg==', mimeType: 'audio/wav', type: 'audio' },
+        ],
+        structuredContent: { echoed: 'hello' },
+      };
+      callTool.mockResolvedValueOnce(mixedStructuredMediaResult);
+      await expect(tool.execute({ value: 'hello' })).resolves.toEqual({
+        app: {
+          mimeType: 'text/html;profile=mcp-app',
+          resourceUri: 'ui://echo/card',
+          serverId: 'remote',
+          toolName: 'echo',
+        },
+        kind: 'mcp-app',
+        result: mixedStructuredMediaResult,
+      });
+
+      const logRecords: LogRecord[] = [];
+      const removeLogListener = addLogListener((record) => logRecords.push(record));
+      try {
+        await expect(
+          tool.execute(
+            { value: 'hello' },
+            {
+              agent: { toolCallId: 'call-progress-failure' },
+              writer: {
+                custom: vi.fn().mockRejectedValue(new Error('progress channel closed')),
+              },
+            }
+          )
+        ).resolves.toEqual({
+          app: {
+            mimeType: 'text/html;profile=mcp-app',
+            resourceUri: 'ui://echo/card',
+            serverId: 'remote',
+            toolName: 'echo',
+          },
+          kind: 'mcp-app',
+          result: { echoed: 'hello' },
+        });
+        expect(logRecords).toContainEqual(
+          expect.objectContaining({
+            args: [
+              'MCP progress delivery failed',
+              expect.objectContaining({ serverName: 'remote', toolName: 'echo' }),
+            ],
+            level: 'warn',
+            scope: 'MastraAgentMcpRuntimeClient',
+          })
+        );
+      } finally {
+        removeLogListener();
+      }
     }
-  });
+  );
 
   it('isolates explicit HTTP discovery failures and throws in-band tool errors', async () => {
     const healthyClient = {

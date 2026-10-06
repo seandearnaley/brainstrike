@@ -17,6 +17,7 @@ import type {
 } from '../mcp/explicit-http-client';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
+import { readToolCallId } from '../tools/read-tool-call-id';
 import { resolveGuardedToolSignal } from '../tools/tool-guard-deadline';
 import type { StreamChunk } from '../types';
 import {
@@ -389,7 +390,7 @@ async function executeMcpTool(
   let progressWrites = Promise.resolve();
   let progressDeliveryError: unknown;
   let lastProgress = Number.NEGATIVE_INFINITY;
-  const toolCallId = context?.agent?.toolCallId;
+  const toolCallId = readToolCallId([undefined, context]);
   const writer = context?.writer;
   const onprogress: NonNullable<ExplicitHttpMcpRequestOptions['onprogress']> | undefined =
     toolCallId && writer

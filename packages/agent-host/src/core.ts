@@ -10,7 +10,15 @@ import {
   type ToolSet,
   tool,
 } from 'ai';
-import { z } from 'zod';
+import {
+  rebuildApprovedRuntimeMessages,
+  recordRawToolInputs,
+  validateApprovalInput,
+} from './approval-input.js';
+import { canonical, type Json, jsonValue } from './json-value.js';
+
+export { jsonValue } from './json-value.js';
+
 import { readHostRow, storedHostEvent } from './event-storage.js';
 import { executableInputSchema } from './executable-input-schema.js';
 import type { HostPlatform, HostRunOwner } from './ports.js';
@@ -21,7 +29,6 @@ import {
   type HostParams,
 } from './protocol.js';
 
-type Json = z.infer<ReturnType<typeof z.json>>;
 type Action = Extract<HostEvent, { type: 'effect.started' }>;
 type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
 interface PendingInteraction {
@@ -41,6 +48,7 @@ interface Run {
   ownerClose?: Promise<void>;
   paused: boolean;
   readonly permits: Map<string, Action>;
+  readonly rawInputs: Map<string, Json>;
   release?: (() => void) | undefined;
   readonly responses: Set<string>;
   readonly started: Set<string>;
@@ -61,21 +69,6 @@ export type HostEventStore = Pick<
   'append' | 'read' | 'root' | 'syncBoundary' | 'threads'
 >;
 
-export function jsonValue(value: unknown): Json {
-  return z.json().parse(JSON.parse(JSON.stringify(value)));
-}
-function canonical(value: Json): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(canonical).join(',')}]`;
-  }
-  if (value !== null && typeof value === 'object') {
-    return `{${Object.entries(value)
-      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-      .map(([key, entry]) => `${JSON.stringify(key)}:${canonical(entry)}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
 /** One writer, one admission queue, and one SDK loop per root run (ADR-0011/12/17). */
 export class HostCore {
   private readonly commands = new Map<string, AcceptedCommand>();
@@ -222,6 +215,7 @@ export class HostCore {
     if (event.type === 'model.step') {
       run.steps = event.stepNumber + 1;
     }
+    recordRawToolInputs(run.rawInputs, messages);
     for (const message of messages) {
       if (message.role !== 'tool') {
         continue;
@@ -248,6 +242,7 @@ export class HostCore {
       outputs: new Map(),
       paused: false,
       permits: new Map(),
+      rawInputs: new Map(),
       responses: new Set(),
       started: new Set(),
       steps: 0,
@@ -406,7 +401,7 @@ export class HostCore {
     });
   }
 
-  private async execute(run: Run, action: Action): Promise<unknown> {
+  private async execute(run: Run, action: Action, input: unknown): Promise<unknown> {
     const registered = this.platform.tools[action.toolId];
     const permitted = run.permits.get(action.toolCallId);
     if (!registered || registered.identity !== action.toolIdentity || permitted !== action) {
@@ -422,7 +417,7 @@ export class HostCore {
     run.controller.signal.throwIfAborted();
     // The public SDK already validated/transformed this exact admitted input.
     // Revalidating a canonical value can transform it a second time.
-    const output = await registered.execute(action.input, {
+    const output = await registered.execute(input, {
       runId: run.id,
       signal: run.controller.signal,
       threadId: run.threadId,
@@ -453,7 +448,7 @@ export class HostCore {
           if (canonical(jsonValue(input)) !== canonical(action.input)) {
             throw new Error('SDK execution input changed after permission admission');
           }
-          return this.dispatch(run, action);
+          return this.dispatch(run, action, input);
         },
         inputSchema: executableInputSchema(registered.inputSchema),
         ...(registered.strict === undefined ? {} : { strict: registered.strict }),
@@ -463,8 +458,8 @@ export class HostCore {
     return tools;
   }
 
-  private dispatch(run: Run, action: Action): Promise<unknown> {
-    const effect = this.execute(run, action);
+  private dispatch(run: Run, action: Action, input: unknown): Promise<unknown> {
+    const effect = this.execute(run, action, input);
     run.effects.add(effect);
     const joined = (): void => {
       run.effects.delete(effect);
@@ -525,7 +520,13 @@ export class HostCore {
       const result = streamText({
         abortSignal: run.controller.signal,
         maxRetries: 0,
-        messages: initialMessages,
+        messages: await rebuildApprovedRuntimeMessages({
+          approvals: [...run.approvals.values()],
+          checkpointedResults: run.checkpointedResults,
+          messages: initialMessages,
+          rawInputs: run.rawInputs,
+          tools: this.platform.tools,
+        }),
         model,
         onStepFinish: async (step) => {
           // AI SDK notify() catches callback errors; keep storage failures on the host's failure path.
@@ -710,6 +711,10 @@ export class HostCore {
     };
   }
 
+  private approvalInput(run: Run, event: Interaction): Promise<unknown> {
+    return validateApprovalInput(this.platform.tools[event.toolId], event, run.rawInputs);
+  }
+
   private async approvalResponses(run: Run): Promise<ToolContent> {
     const responses: ToolContent = [];
     for (const { event, decision } of run.approvals.values()) {
@@ -723,7 +728,12 @@ export class HostCore {
       if (run.outputs.has(event.toolCallId) && !run.checkpointedResults.has(event.toolCallId)) {
         const output = run.outputs.get(event.toolCallId);
         responses.push(
-          await this.modelResult(event.toolCallId, event.toolId, event.input, output ?? null)
+          await this.modelResult(
+            event.toolCallId,
+            event.toolId,
+            await this.approvalInput(run, event),
+            output ?? null
+          )
         );
       }
     }
@@ -742,6 +752,7 @@ export class HostCore {
         type: 'tool-result',
       };
     }
+    const input = await this.approvalInput(run, event);
     const action: Action = {
       input: event.input,
       runId: run.id,
@@ -751,8 +762,8 @@ export class HostCore {
       type: 'effect.started',
     };
     run.permits.set(action.toolCallId, action);
-    const output = jsonValue(await this.dispatch(run, action));
-    return this.modelResult(event.toolCallId, event.toolId, event.input, output);
+    const output = await this.dispatch(run, action, input);
+    return this.modelResult(event.toolCallId, event.toolId, input, output);
   }
 
   private async finishApprovedCalls(run: Run): Promise<void> {
