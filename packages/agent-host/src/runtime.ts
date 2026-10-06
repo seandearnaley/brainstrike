@@ -3,6 +3,7 @@ import {
   type HostRecord,
   type HostRuntime,
   type HostStartOptions,
+  ResourceOwner,
   startHost,
 } from '@brainstrike/host-lease';
 import { StateStore } from '@brainstrike/state-store';
@@ -19,7 +20,14 @@ import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.js';
 export interface AgentHost extends HostRuntime {
   readonly core: HostCore;
 }
-export type HostPlatformInitializer = HostPlatform | (() => HostPlatform | Promise<HostPlatform>);
+export interface HostStartupContext {
+  /** Register a partial resource's join before starting its first side effect. */
+  register(close: () => Promise<void>): Promise<void>;
+  readonly signal: AbortSignal;
+}
+export type HostPlatformInitializer =
+  | HostPlatform
+  | ((context: HostStartupContext) => HostPlatform | Promise<HostPlatform>);
 /** Failed startup still owns its durable root when physical cleanup was not proven. */
 export class AgentHostStartupError extends AggregateError {
   constructor(
@@ -32,8 +40,22 @@ export class AgentHostStartupError extends AggregateError {
 }
 export async function startAgentHost(
   options: HostStartOptions,
-  inputPlatform: HostPlatformInitializer
+  inputPlatform: HostPlatformInitializer,
+  signal: AbortSignal = new AbortController().signal
 ): Promise<AgentHost> {
+  signal.throwIfAborted();
+  const partialPlatform = new ResourceOwner();
+  const context: HostStartupContext = {
+    register: async (close) => {
+      signal.throwIfAborted();
+      await partialPlatform.acquire(
+        async () => close,
+        (join) => join()
+      );
+      signal.throwIfAborted();
+    },
+    signal,
+  };
   let platform = typeof inputPlatform === 'function' ? undefined : inputPlatform;
   const currentPlatform = (): HostPlatform => {
     if (!platform) {
@@ -43,10 +65,19 @@ export async function startAgentHost(
   };
   let platformClose: Promise<void> | undefined;
   const closePlatform = (): Promise<void> => {
-    if (!platform) {
-      return Promise.resolve();
-    }
-    platformClose ??= Promise.resolve().then(() => currentPlatform().close());
+    platformClose ??= Promise.resolve().then(async () => {
+      const joined = await Promise.allSettled([
+        platform ? currentPlatform().close() : Promise.resolve(),
+        partialPlatform.close(),
+      ]);
+      const failures = joined.filter((result) => result.status === 'rejected');
+      if (failures.length > 0) {
+        throw new AggregateError(
+          failures.map((result) => result.reason),
+          'Platform cleanup failed'
+        );
+      }
+    });
     return platformClose;
   };
   const ownedPlatform: HostPlatform = {
@@ -62,67 +93,64 @@ export async function startAgentHost(
   };
   let runtime: HostRuntime | undefined;
   let core: HostCore | undefined;
-  const pendingRetentions = new Set<{ release?: () => void }>();
-  const retainRun = (): (() => void) => {
-    if (runtime) {
-      return runtime.retainRun();
-    }
-    const pending: { release?: () => void } = {};
-    pendingRetentions.add(pending);
-    return () => {
-      pending.release?.();
-      pendingRetentions.delete(pending);
-    };
-  };
   try {
-    runtime = await startHost(options, {
-      acceptSocket: (socket: Socket, record: HostRecord, attached: () => void) => {
-        if (!core) {
-          socket.destroy(new Error('Host store is unavailable'));
-          return;
-        }
-        const connection = createMessageConnection(
-          new StreamMessageReader(socket),
-          new StreamMessageWriter(socket)
-        );
-        bindHostConnection(connection, core, record, attached);
-        socket.once('close', () => connection.dispose());
-      },
-      acquireRoot: async () => {
-        const store = await StateStore.open(options.root);
-        try {
-          // Acquire the durable root owner before constructing credentials,
-          // inference/indexer ports or MCP authority for a configured host.
-          platform ??= typeof inputPlatform === 'function' ? await inputPlatform() : inputPlatform;
-          if (platform.openRun) {
-            ownedPlatform.openRun = platform.openRun.bind(platform);
+    runtime = await startHost(
+      options,
+      {
+        acceptSocket: (socket: Socket, record: HostRecord, attached: () => void) => {
+          if (!core) {
+            socket.destroy(new Error('Host store is unavailable'));
+            return;
           }
-          core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
-            core = acquired;
-          });
-        } catch (cause) {
+          const connection = createMessageConnection(
+            new StreamMessageReader(socket),
+            new StreamMessageWriter(socket)
+          );
+          bindHostConnection(connection, core, record, attached);
+          socket.once('close', () => connection.dispose());
+        },
+        acquireRoot: async (retainRun) => {
+          signal.throwIfAborted();
+          const store = await StateStore.open(options.root);
           try {
-            if (core) {
-              await core.close();
-            } else {
-              await closePlatform();
+            signal.throwIfAborted();
+            // Acquire the durable root owner before constructing credentials,
+            // inference/indexer ports or MCP authority for a configured host.
+            platform ??=
+              typeof inputPlatform === 'function' ? await inputPlatform(context) : inputPlatform;
+            signal.throwIfAborted();
+            if (platform.openRun) {
+              ownedPlatform.openRun = platform.openRun.bind(platform);
             }
-          } catch (cleanupCause) {
-            throw new AgentHostStartupError([cause, cleanupCause], store, core);
-          }
-          await store.close();
-          throw cause;
-        }
-        return {
-          close: async () => {
-            await core?.close();
+            core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
+              core = acquired;
+            });
+            signal.throwIfAborted();
+          } catch (cause) {
+            try {
+              if (core) {
+                await core.close();
+              } else {
+                await closePlatform();
+              }
+            } catch (cleanupCause) {
+              throw new AgentHostStartupError([cause, cleanupCause], store, core);
+            }
             await store.close();
-          },
-          lock: store.lock,
-        };
+            throw cause;
+          }
+          return {
+            close: async () => {
+              await core?.close();
+              await store.close();
+            },
+            lock: store.lock,
+          };
+        },
+        protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
       },
-      protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
-    });
+      signal
+    );
   } catch (cause) {
     if (cause instanceof AgentHostStartupError) {
       throw cause;
@@ -133,9 +161,6 @@ export async function startAgentHost(
       throw new AggregateError([cause, cleanupCause], 'Host startup and platform cleanup failed');
     }
     throw cause;
-  }
-  for (const retention of pendingRetentions) {
-    retention.release = runtime.retainRun();
   }
   if (!core) {
     await runtime.close();

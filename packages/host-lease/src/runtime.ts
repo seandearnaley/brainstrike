@@ -30,7 +30,9 @@ export interface HostRuntime {
 /** M3 composes the existing lease with its store owner and client protocol. */
 export interface HostRuntimeBindings {
   acceptSocket(socket: Socket, record: HostRecord, attached: () => void): void;
-  acquireRoot(): Promise<{ readonly lock: RootLock; close(): Promise<void> }>;
+  acquireRoot(
+    retainRun: () => () => void
+  ): Promise<{ readonly lock: RootLock; close(): Promise<void> }>;
   readonly protocolVersion: number;
 }
 const StartOptionsSchema = Schema.Struct({
@@ -95,8 +97,10 @@ async function prepareSocketDirectory(root: string): Promise<string> {
 
 export async function startHost(
   input: HostStartOptions,
-  bindings?: HostRuntimeBindings
+  bindings?: HostRuntimeBindings,
+  signal?: AbortSignal
 ): Promise<HostRuntime> {
+  signal?.throwIfAborted();
   const options = decodeStartOptions(input);
   if (!isAbsolute(options.root)) {
     throw new TypeError('Host data root must be absolute');
@@ -138,11 +142,28 @@ export async function startHost(
       close().catch(() => undefined); // failure stays visible on completion.promise
     }
   };
+  const retainRun = (): (() => void) => {
+    signal?.throwIfAborted();
+    if (closing) {
+      throw new Error('Host is closing');
+    }
+    activeRuns += 1;
+    let released = false;
+    return (): void => {
+      if (released) {
+        return;
+      }
+      released = true;
+      activeRuns -= 1;
+      finishIfIdle();
+    };
+  };
   try {
+    signal?.throwIfAborted();
     const lease = bindings
       ? (
           await owner.acquire(
-            () => bindings.acquireRoot(),
+            () => bindings.acquireRoot(retainRun),
             (resource) => resource.close()
           )
         ).lock
@@ -150,6 +171,7 @@ export async function startHost(
           () => RootLock.acquire(options.root),
           async (lock) => lock.release()
         );
+    signal?.throwIfAborted();
     const canonicalRoot = lease.owner.root;
     const token = randomBytes(32).toString('hex');
     let endpoint: string;
@@ -185,7 +207,7 @@ export async function startHost(
           }
         });
         bindings.acceptSocket(socket, record, () => {
-          if (attached || closing) {
+          if (attached || closing || signal?.aborted) {
             throw new Error('Host attachment is already initialized or closing');
           }
           attached = true;
@@ -202,7 +224,7 @@ export async function startHost(
         socket.end(`${JSON.stringify({ message, method: 'error' })}\n`);
       };
       const request = (frame: HostRequest): void => {
-        if (rejected || closing) {
+        if (rejected || closing || signal?.aborted) {
           reject('Host is closing');
           return;
         }
@@ -263,6 +285,11 @@ export async function startHost(
       (value) => removeOwnHostRecord(canonicalRoot, value)
     );
     await publishHostRecord(canonicalRoot, record);
+    signal?.throwIfAborted();
+    if (closing) {
+      await closing;
+      throw new Error('Host closed during startup');
+    }
     if (options.lifetime !== 'persistent') {
       await owner.acquire(
         async () =>
@@ -301,21 +328,7 @@ export async function startHost(
       close: () => close(),
       closed: completion.promise,
       record,
-      retainRun: (): (() => void) => {
-        if (closing) {
-          throw new Error('Host is closing');
-        }
-        activeRuns += 1;
-        let released = false;
-        return (): void => {
-          if (released) {
-            return;
-          }
-          released = true;
-          activeRuns -= 1;
-          finishIfIdle();
-        };
-      },
+      retainRun,
     };
   } catch (cause) {
     try {

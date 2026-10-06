@@ -7,6 +7,7 @@ const StartupMessageSchema = Schema.Union([
     event: Schema.Literal('failed'),
     kind: Schema.Literals(['root-locked', 'foreign-lock', 'error']),
     message: Schema.String,
+    ownership: Schema.optional(Schema.Literals(['released', 'retained'])),
   }),
 ]);
 export type StartupMessage = typeof StartupMessageSchema.Type;

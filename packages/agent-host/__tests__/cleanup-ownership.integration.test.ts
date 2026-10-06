@@ -241,6 +241,7 @@ test.each([
   let store = await StateStore.open(dataRoot);
   let received: unknown;
   let projectedInput: unknown;
+  const dateSchema = z.object({ at: z.iso.datetime().transform((value) => new Date(value)) });
   const capabilities = platform({
     maxSteps: mode === 'last-step approval' || mode === 'restarted last-step approval' ? 1 : 3,
     readPermissionPolicy: () => ({
@@ -260,7 +261,8 @@ test.each([
           return { time: input.at.getTime() };
         },
         identity: 'runtime-date',
-        inputSchema: z.object({ at: z.iso.datetime().transform((value) => new Date(value)) }),
+        inputSchema: dateSchema,
+        reconstructApprovalInput: (rawInput) => dateSchema.parseAsync(rawInput),
         risk: 'edit',
         toModelOutput: async ({ input, output }) => {
           projectedInput = input;

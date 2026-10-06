@@ -297,7 +297,8 @@ test('restart continues an unanswered approval and deduplicates its accepted res
     threadId,
   };
   await next.request('interaction/respond', decision);
-  expect((await event(next, threadId, 'run.finished')).outcome).toBe('completed');
+  const finished = await event(next, threadId, 'run.finished');
+  expect(finished.outcome, JSON.stringify(finished)).toBe('completed');
   expect(await readFile(join(root, 'permitted.txt'), 'utf8')).toBe(
     'written by permitted host tool'
   );
@@ -439,7 +440,8 @@ test('restart uses a fresh model with committed approval context and executes th
     runId,
     threadId,
   });
-  expect((await event(next, threadId, 'run.finished')).outcome).toBe('completed');
+  const finished = await event(next, threadId, 'run.finished');
+  expect(finished.outcome, JSON.stringify(finished)).toBe('completed');
   expect(freshModel.doStreamCalls).toHaveLength(1);
   const rows = (await next.request('thread/read', { fromSeq: 0, threadId })).rows;
   expect(rows.filter((row) => row.event.type === 'effect.started')).toHaveLength(1);

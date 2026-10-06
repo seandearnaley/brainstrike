@@ -11,13 +11,20 @@ import {
   tool,
 } from 'ai';
 import {
+  ApprovalInputReconstructionError,
+  admittedApprovalInput,
+  approvalRuntimeSchema,
   rebuildApprovedRuntimeMessages,
   recordRawToolInputs,
   validateApprovalInput,
 } from './approval-input.js';
-import type { AcceptedCommand } from './core-state.js';
+import {
+  createHostRunState,
+  HostCommandLedger,
+  type PendingInteraction,
+  type HostRunState as Run,
+} from './core-state.js';
 import { readHostRow, storedHostEvent } from './event-storage.js';
-import { executableInputSchema } from './executable-input-schema.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostPlatform, HostRunOwner } from './ports.js';
 import {
@@ -31,34 +38,6 @@ export { jsonValue } from './json-value.js';
 
 type Action = Extract<HostEvent, { type: 'effect.started' }>;
 type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
-interface PendingInteraction {
-  decision?: 'approve' | 'deny';
-  readonly event: Interaction;
-}
-interface Run {
-  readonly approvals: Map<string, PendingInteraction>;
-  readonly checkpointedResults: Set<string>;
-  completion?: Promise<void>;
-  readonly controller: AbortController;
-  readonly effects: Set<Promise<unknown>>;
-  readonly id: string;
-  readonly modelId: string;
-  readonly outputs: Map<string, Json>;
-  owner?: Promise<HostRunOwner | undefined>;
-  ownerClose?: Promise<void>;
-  paused: boolean;
-  readonly permits: Map<string, Action>;
-  readonly rawInputs: Map<string, Json>;
-  release?: (() => void) | undefined;
-  readonly responses: Set<string>;
-  readonly started: Set<string>;
-  steps: number;
-  stopAcceptance?: Promise<void> | undefined;
-  stopped: boolean;
-  task?: Promise<void>;
-  terminal: boolean;
-  readonly threadId: string;
-}
 export type HostEventStore = Pick<
   StateStore,
   'append' | 'read' | 'root' | 'syncBoundary' | 'threads'
@@ -66,7 +45,7 @@ export type HostEventStore = Pick<
 
 /** One writer, one admission queue, and one SDK loop per root run (ADR-0011/12/17). */
 export class HostCore {
-  private readonly commands = new Map<string, AcceptedCommand>();
+  private readonly commands = new HostCommandLedger();
   private readonly threads = new Set<string>();
   private readonly runs = new Map<string, Run>();
   private readonly messages = new Map<string, ModelMessage[]>();
@@ -137,7 +116,7 @@ export class HostCore {
         this.foldCommand(event);
         break;
       case 'run.started':
-        this.runs.set(event.runId, this.createRun(row.threadId, event.runId, event.modelId));
+        this.runs.set(event.runId, createHostRunState(row.threadId, event.runId, event.modelId));
         this.messages.set(row.threadId, [
           ...(this.messages.get(row.threadId) ?? []),
           { content: event.prompt, role: 'user' },
@@ -152,7 +131,11 @@ export class HostCore {
         if (!run) {
           throw new Error('Interaction references an unknown run');
         }
-        run.approvals.set(event.interactionId, { event });
+        const runtimeInput = run.liveInputs.get(event.toolCallId);
+        run.approvals.set(event.interactionId, {
+          event,
+          ...(runtimeInput ? { runtimeInput } : {}),
+        });
         run.paused = true;
         break;
       }
@@ -182,7 +165,7 @@ export class HostCore {
   }
 
   private foldCommand(event: Extract<HostEvent, { type: 'command.accepted' }>): void {
-    this.commands.set(event.commandId, {
+    this.commands.commit(event.commandId, {
       method: event.method,
       payload: canonical(event.payload),
       result: event.result,
@@ -202,10 +185,14 @@ export class HostCore {
     event: Extract<HostEvent, { type: 'model.step' | 'model.messages' }>
   ): void {
     const messages = event.messages.map((message) => modelMessageSchema.parse(message));
-    this.messages.set(threadId, [...(this.messages.get(threadId) ?? []), ...messages]);
+    const previous = this.messages.get(threadId) ?? [];
+    this.messages.set(threadId, [...previous, ...messages]);
     const run = this.runs.get(event.runId);
     if (!run) {
       return;
+    }
+    for (let index = 0; index < messages.length; index += 1) {
+      run.messageIndexes.add(previous.length + index);
     }
     if (event.type === 'model.step') {
       run.steps = event.stepNumber + 1;
@@ -224,27 +211,6 @@ export class HostCore {
         }
       }
     }
-  }
-
-  private createRun(threadId: string, id: string, modelId: string): Run {
-    return {
-      approvals: new Map(),
-      checkpointedResults: new Set(),
-      controller: new AbortController(),
-      effects: new Set(),
-      id,
-      modelId,
-      outputs: new Map(),
-      paused: false,
-      permits: new Map(),
-      rawInputs: new Map(),
-      responses: new Set(),
-      started: new Set(),
-      steps: 0,
-      stopped: false,
-      terminal: false,
-      threadId,
-    };
   }
 
   private async append(
@@ -296,15 +262,7 @@ export class HostCore {
       if (this.closing) {
         throw new Error('Host is closing');
       }
-      const payload = canonical(jsonValue(params));
-      const previous = this.commands.get(params.commandId);
-      if (previous) {
-        if (previous.method !== method || previous.payload !== payload) {
-          throw new Error('Command identity was reused with different input');
-        }
-        return repeat ? repeat(previous.result as T) : (previous.result as T);
-      }
-      return perform();
+      return this.commands.perform(method, params, perform, repeat);
     });
     this.admission = result.then(
       () => undefined,
@@ -328,7 +286,11 @@ export class HostCore {
       type: 'command.accepted',
     };
     await this.append(threadId, [accepted, ...events]);
-    this.commands.set(params.commandId, { method, payload: canonical(accepted.payload), result });
+    this.commands.commit(params.commandId, {
+      method,
+      payload: canonical(accepted.payload),
+      result,
+    });
   }
 
   startThread(params: HostParams<'thread/start'>): Promise<{ threadId: string }> {
@@ -354,7 +316,7 @@ export class HostCore {
       }
       const model = await this.platform.resolveModel(params.modelId);
       const release = this.retainRun();
-      const run = this.createRun(params.threadId, randomUUID(), params.modelId);
+      const run = createHostRunState(params.threadId, randomUUID(), params.modelId);
       run.release = release;
       const result = { runId: run.id };
       try {
@@ -455,7 +417,9 @@ export class HostCore {
           }
           return this.dispatch(run, action, input);
         },
-        inputSchema: executableInputSchema(registered.inputSchema),
+        inputSchema: approvalRuntimeSchema(registered.inputSchema, (rawInput) =>
+          admittedApprovalInput(id, rawInput, run)
+        ),
         ...(registered.strict === undefined ? {} : { strict: registered.strict }),
         ...(registered.toModelOutput ? { toModelOutput: registered.toModelOutput } : {}),
       });
@@ -505,6 +469,7 @@ export class HostCore {
       throw new Error('Committed approval action identity changed');
     }
     if (decision === 'ask' && prior?.decision !== 'approve') {
+      run.liveInputs.set(call.toolCallId, { value: call.input });
       return 'user-approval';
     }
     run.permits.set(call.toolCallId, action);
@@ -516,6 +481,7 @@ export class HostCore {
     model: Awaited<ReturnType<HostPlatform['resolveModel']>>
   ): Promise<void> {
     let failed: string | undefined;
+    let interrupted = false;
     let checkpointFailure: unknown;
     run.paused = false;
     const initialMessages = [...(this.messages.get(run.threadId) ?? [])];
@@ -528,9 +494,9 @@ export class HostCore {
         messages: await rebuildApprovedRuntimeMessages({
           approvals: [...run.approvals.values()],
           checkpointedResults: run.checkpointedResults,
+          messageIndexes: run.messageIndexes,
           messages: initialMessages,
-          rawInputs: run.rawInputs,
-          tools: this.platform.tools,
+          resolveInput: (event) => this.approvalInput(run, event),
         }),
         model,
         onStepFinish: async (step) => {
@@ -616,15 +582,20 @@ export class HostCore {
         }
       }
     } catch (cause) {
+      interrupted = cause instanceof ApprovalInputReconstructionError;
       failed = cause instanceof Error ? cause.message : String(cause);
     }
     if (checkpointFailure !== undefined) {
       throw checkpointFailure;
     }
-    await this.finishLoop(run, failed);
+    await this.finishLoop(run, failed, interrupted);
   }
 
-  private async finishLoop(run: Run, failed: string | undefined): Promise<void> {
+  private async finishLoop(
+    run: Run,
+    failed: string | undefined,
+    interrupted = false
+  ): Promise<void> {
     if (
       !run.stopped &&
       ((run.paused && !failed && !run.controller.signal.aborted) ||
@@ -637,9 +608,11 @@ export class HostCore {
       ? this.closing
         ? 'interrupted'
         : 'stopped'
-      : failed
-        ? 'failed'
-        : 'completed';
+      : interrupted
+        ? 'interrupted'
+        : failed
+          ? 'failed'
+          : 'completed';
     await this.finish(run, outcome, failed);
   }
 
@@ -716,8 +689,19 @@ export class HostCore {
     };
   }
 
-  private approvalInput(run: Run, event: Interaction): Promise<unknown> {
-    return validateApprovalInput(this.platform.tools[event.toolId], event, run.rawInputs);
+  private async approvalInput(run: Run, event: Interaction): Promise<unknown> {
+    const approval = run.approvals.get(event.interactionId);
+    if (!approval) {
+      throw new Error('Unknown approval occurrence');
+    }
+    const registered = this.platform.tools[event.toolId];
+    if (!registered || registered.identity !== event.toolIdentity) {
+      throw new Error('Approval tool identity changed');
+    }
+    approval.runtimeInput ??= {
+      value: await validateApprovalInput(registered, event, run.rawInputs),
+    };
+    return approval.runtimeInput.value;
   }
 
   private async approvalResponses(run: Run): Promise<ToolContent> {
@@ -814,7 +798,11 @@ export class HostCore {
       }
       await this.finish(
         run,
-        run.stopped ? 'stopped' : 'failed',
+        run.stopped
+          ? 'stopped'
+          : cause instanceof ApprovalInputReconstructionError
+            ? 'interrupted'
+            : 'failed',
         cause instanceof Error ? cause.message : String(cause)
       );
     }
@@ -852,6 +840,7 @@ export class HostCore {
         };
         if (run.stopAcceptance) {
           await join();
+          await run.stopAcceptance;
           return result;
         }
         const acceptance = Promise.withResolvers<void>();

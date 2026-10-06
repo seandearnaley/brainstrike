@@ -21,6 +21,7 @@ export {
   type AgentHost,
   AgentHostStartupError,
   type HostPlatformInitializer,
+  type HostStartupContext,
   startAgentHost,
 } from './runtime.js';
 export { nodePortConnection, stdioConnection } from './transports.js';

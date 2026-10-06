@@ -58,6 +58,8 @@ export interface HostTool {
   /** Existing executor/server-generation identity, bound into pending decisions. */
   readonly identity: string;
   readonly inputSchema: FlexibleSchema<unknown>;
+  /** Tool-owned recovery of runtime meaning that JSON cannot retain. */
+  reconstructApprovalInput?(rawInput: unknown): Promise<unknown>;
   readonly risk: ToolRiskCategory;
   readonly strict?: boolean;
   readonly toModelOutput?: Tool<unknown, unknown>['toModelOutput'];

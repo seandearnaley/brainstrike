@@ -9,59 +9,59 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { HostCore, jsonValue } from '../src/core.js';
+import type { HostPlatform } from '../src/ports.js';
 import type { HostEvent } from '../src/protocol.js';
 import { scriptedToolSequence } from './fixtures/scripted-model.js';
 
-// BST-1977: OPEN third input-reconstruction repair; no quarantine waiver.
-test.skipIf(process.env['BRAINSTRIKE_M3_APPROVAL_HISTORY_REPRO'] !== '1')(
-  'approving a later run preserves prior committed calls when the public fixture reuses its call ID',
-  async () => {
+// BST-1977: retained occurrence-scope regression, authorized causal repair.
+test.each(['live', 'reopened pending approval'] as const)(
+  'approving a later run preserves prior committed calls with a reused call ID (%s)',
+  async (mode) => {
     const root = await mkdtemp(join(tmpdir(), 'bs-m3-approval-history-'));
-    const store = await StateStore.open(root);
+    let store = await StateStore.open(root);
     const dates = ['2026-10-06T00:00:00.000Z', '2026-10-07T00:00:00.000Z'] as const;
     const providerPrompts: unknown[] = [];
     const executed: unknown[] = [];
-    const core = await HostCore.open(
-      store,
-      {
-        close: async () => undefined,
-        maxSteps: 3,
-        readPermissionPolicy: () => ({
-          policies: { ...DEFAULT_PERMISSION_POLICIES, edit: 'ask' },
-          yolo: false,
-        }),
-        resolveModel: async (modelId) => {
-          const date = modelId === 'date-first' ? dates[0] : dates[1];
-          const source = scriptedToolSequence([{ input: { at: date }, toolId: 'runtime_date' }]);
-          return new MockLanguageModelV4({
-            doStream: async (options) => {
-              if (modelId === 'date-second') {
-                providerPrompts.push(jsonValue(options.prompt));
-              }
-              return source.doStream(options);
-            },
-          });
-        },
-        tools: {
-          runtime_date: {
-            description: 'Recorded Date runtime input',
-            execute: async (input) => {
-              executed.push(input);
-              if (
-                !(input && typeof input === 'object' && 'at' in input && input.at instanceof Date)
-              ) {
-                throw new TypeError('Expected validated Date');
-              }
-              return { at: input.at.toISOString() };
-            },
-            identity: 'runtime-date',
-            inputSchema: z.object({ at: z.iso.datetime().transform((value) => new Date(value)) }),
-            risk: 'edit',
+    const dateSchema = z.object({ at: z.iso.datetime().transform((value) => new Date(value)) });
+    const capabilities: HostPlatform = {
+      close: async () => undefined,
+      maxSteps: 3,
+      readPermissionPolicy: () => ({
+        policies: { ...DEFAULT_PERMISSION_POLICIES, edit: 'ask' },
+        yolo: false,
+      }),
+      resolveModel: async (modelId) => {
+        const date = modelId === 'date-first' ? dates[0] : dates[1];
+        const source = scriptedToolSequence([{ input: { at: date }, toolId: 'runtime_date' }]);
+        return new MockLanguageModelV4({
+          doStream: async (options) => {
+            if (modelId === 'date-second') {
+              providerPrompts.push(jsonValue(options.prompt));
+            }
+            return source.doStream(options);
           },
+        });
+      },
+      tools: {
+        runtime_date: {
+          description: 'Recorded Date runtime input',
+          execute: async (input) => {
+            executed.push(input);
+            if (
+              !(input && typeof input === 'object' && 'at' in input && input.at instanceof Date)
+            ) {
+              throw new TypeError('Expected validated Date');
+            }
+            return { at: input.at.toISOString() };
+          },
+          identity: 'runtime-date',
+          inputSchema: dateSchema,
+          reconstructApprovalInput: (rawInput) => dateSchema.parseAsync(rawInput),
+          risk: 'edit',
         },
       },
-      () => () => undefined
-    );
+    };
+    let core = await HostCore.open(store, capabilities, () => () => undefined);
     try {
       const { threadId } = await core.startThread({ commandId: randomUUID() });
       for (const modelId of ['date-first', 'date-second'] as const) {
@@ -85,6 +85,12 @@ test.skipIf(process.env['BRAINSTRIKE_M3_APPROVAL_HISTORY_REPRO'] !== '1')(
           .toBe(true);
         if (!approval) {
           throw new Error('Expected current-run approval');
+        }
+        if (mode === 'reopened pending approval') {
+          await core.close();
+          await store.close();
+          store = await StateStore.open(root);
+          core = await HostCore.open(store, capabilities, () => () => undefined);
         }
         await core.respond({
           commandId: randomUUID(),
@@ -135,7 +141,9 @@ test.skipIf(process.env['BRAINSTRIKE_M3_APPROVAL_HISTORY_REPRO'] !== '1')(
           : [];
       });
       await writeFile(
-        '/tmp/brainstrike-m3-approval-history-repro.json',
+        mode === 'live'
+          ? '/tmp/brainstrike-m3-approval-history-repro.json'
+          : '/tmp/brainstrike-m3-approval-history-reopened-repro.json',
         JSON.stringify({ committedCalls, executed, modelPrompt, promptCalls }, null, 2)
       );
       expect(committedCalls).toEqual(

@@ -1,7 +1,12 @@
 import { type ChildProcess, fork, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { runWithTimeout } from '@brainstrike/effect-kit';
-import { ForeignLockError, RootLock, RootLockedError } from '@brainstrike/state-store';
+import {
+  ForeignLockError,
+  processStartTime,
+  RootLock,
+  RootLockedError,
+} from '@brainstrike/state-store';
 import type { HostSpawner } from './launcher.js';
 import { ResourceOwner } from './resource-owner.js';
 import { decodeStartOptions } from './runtime.js';
@@ -44,6 +49,7 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
     const startOptions = decodeStartOptions(input);
     const owner = new ResourceOwner();
     let ready = false;
+    let failedWithRetainedOwner = false;
     const child = await owner.acquire(
       async (): Promise<ChildProcess> => {
         if (process.platform === 'win32') {
@@ -75,6 +81,26 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
       },
       async (child) => {
         if (!ready && child.exitCode === null && child.signalCode === null) {
+          const lease = RootLock.inspect(startOptions.root)?.owner;
+          if (
+            lease &&
+            !lease.released &&
+            lease.pid === child.pid &&
+            processStartTime(lease.pid) === lease.start
+          ) {
+            // BST-1977 startup repro: SIGTERM killed an owner whose descendant
+            // could not join. Cancellation travels over the existing IPC lane;
+            // an unreported/failed join retains the actual process and root.
+            if (!failedWithRetainedOwner && child.connected) {
+              await new Promise<void>((resolve, reject) => {
+                child.send({ event: 'cancel-startup' }, (cause: Error | null) =>
+                  cause ? reject(cause) : resolve()
+                );
+              });
+            }
+            await disconnect(child);
+            return;
+          }
           await new Promise<void>((resolve, reject) => {
             child.once('exit', () => resolve());
             child.once('error', reject);
@@ -114,6 +140,7 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
                   resolve();
                   return;
                 }
+                failedWithRetainedOwner = decoded.ownership === 'retained';
                 failed(startupFailure(startOptions.root, decoded));
               } catch (cause) {
                 failed(cause);
