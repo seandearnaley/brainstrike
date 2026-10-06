@@ -1,5 +1,6 @@
 import { Worker, type WorkerOptions } from 'node:worker_threads';
 import { z } from 'zod';
+import type { KeyringCredentialBackend, KeyringEntryRequest } from './credential-contract.js';
 import {
   type KeyringNativeBackend,
   type KeyringNativeRequest,
@@ -110,6 +111,34 @@ export function createKeyringNativeBackend(
         .parse(await perform({ account, operation: 'read' })) ?? undefined,
     write: async (account, value) => {
       z.null().parse(await perform({ account, operation: 'write', value }));
+    },
+  };
+}
+
+/** Borrow the same native completion lane through the credential owner's entry contract. */
+export function createKeyringCredentialBackend(
+  service: string,
+  options: KeyringNativeWorkerOptions = {}
+): KeyringCredentialBackend {
+  const backend = createKeyringNativeBackend(service, options);
+  const validate = (request: Omit<KeyringEntryRequest, 'account'>): void => {
+    if (request.service !== service || request.options.linux.store !== 'secret-service') {
+      throw new Error('Credential operation does not belong to the configured backend');
+    }
+  };
+  return {
+    close: () => backend.close(),
+    createEntry: async (request) => {
+      validate(request);
+      return {
+        deleteCredential: () => backend.delete(request.account),
+        getPassword: () => backend.read(request.account),
+        setPassword: (value) => backend.write(request.account, value),
+      };
+    },
+    listAccounts: async (request) => {
+      validate(request);
+      return await backend.listAccounts();
     },
   };
 }

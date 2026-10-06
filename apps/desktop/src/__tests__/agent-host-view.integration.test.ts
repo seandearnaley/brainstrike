@@ -5,10 +5,11 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { type AgentHost, StateStoreHostMemory, startAgentHost } from '@brainstrike/agent-host';
 import { attachAgentHost, type HostClient } from '@brainstrike/agent-host/client';
 import { scriptedToolSequence } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import type { IndexerPort } from '@brainstrike/indexer';
+import { type IndexerPort, openIndexer } from '@brainstrike/indexer';
 import { RootLock, StateStore } from '@brainstrike/state-store';
 import tailwindcss from '@tailwindcss/vite';
 import { build } from 'esbuild';
@@ -16,13 +17,6 @@ import { _electron, type ElectronApplication, type Page } from 'playwright';
 import { build as buildStyles } from 'vite';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
-import {
-  type AgentHost,
-  StateStoreHostMemory,
-  startAgentHost,
-} from '../../../../packages/agent-host/dist/index.js';
-// This integration starts the emitted public Node entry, whose child lives beside it.
-import { openIndexer } from '../../../../packages/indexer/dist/index.js';
 
 const execute = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../../../..');

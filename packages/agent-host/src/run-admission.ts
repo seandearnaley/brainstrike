@@ -8,6 +8,14 @@ import type { HostEvent } from './protocol.js';
 import { HostRunSnapshotSchema } from './protocol.js';
 import { createHostSdkTools } from './sdk-tools.js';
 
+/** Distinguish rejected selection from a resource owner that failed to join. */
+export class HostRunAdmissionCleanupError extends AggregateError {
+  constructor(cause: unknown, cleanup: unknown) {
+    super([cause, cleanup], 'Run selection and cleanup failed');
+    this.name = 'HostRunAdmissionCleanupError';
+  }
+}
+
 /** Copy data records; credentials/functions and native capabilities stay process-local. */
 function immutableData<T>(input: T): T {
   if (Array.isArray(input)) {
@@ -29,8 +37,15 @@ function immutableData<T>(input: T): T {
 
 /** Retain the selected executors and configuration without freezing the source registry. */
 export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmission {
+  let closing: Promise<void> | undefined;
   return Object.freeze({
     ...selected,
+    ...(selected.close
+      ? {
+          close: (): Promise<void> =>
+            (closing ??= Promise.resolve().then(() => selected.close?.())),
+        }
+      : {}),
     configuration: immutableData(selected.configuration),
     ...(selected.provider
       ? { provider: Object.freeze({ prepare: selected.provider.prepare.bind(selected.provider) }) }
@@ -48,37 +63,81 @@ export async function acquireHostRunAdmission(
   platform: HostPlatform,
   request: HostRunAdmissionRequest
 ): Promise<HostRunAdmission> {
-  const selected = platform.admitRun
-    ? await platform.admitRun(request)
-    : {
+  let selected: HostRunAdmission;
+  if (platform.admitRun) {
+    selected = await platform.admitRun(request);
+  } else {
+    const { maxSteps, resolveModel, tools } = platform;
+    if (!(resolveModel && tools && maxSteps && Number.isSafeInteger(maxSteps) && maxSteps > 0)) {
+      throw new Error('Host platform has no complete run admission capability');
+    }
+    selected = {
+      configuration: {},
+      model: await resolveModel.call(platform, request.modelId),
+      snapshot: {
         configuration: {},
-        model: await platform.resolveModel(request.modelId),
-        snapshot: {
-          configuration: {},
-          maxSteps: platform.maxSteps,
-          toolIdentities: Object.fromEntries(
-            Object.entries(platform.tools).map(([id, binding]) => [id, binding.identity])
-          ),
-        },
-        tools: platform.tools,
-      };
-  const admission = captureHostRunAdmission(selected);
-  const { snapshot, tools } = admission;
-  if (
-    canonical(jsonValue(snapshot.toolIdentities)) !==
-    canonical(
-      jsonValue(Object.fromEntries(Object.entries(tools).map(([id, tool]) => [id, tool.identity])))
-    )
-  ) {
-    throw new Error('Admitted tool catalog does not match its durable identities');
+        maxSteps,
+        toolIdentities: Object.fromEntries(
+          Object.entries(tools).map(([id, binding]) => [id, binding.identity])
+        ),
+      },
+      tools,
+    };
   }
-  if (
-    request.snapshot &&
-    canonical(jsonValue(snapshot)) !== canonical(jsonValue(request.snapshot))
-  ) {
-    throw new ApprovalInputReconstructionError();
+  try {
+    const admission = captureHostRunAdmission(selected);
+    const { snapshot, tools } = admission;
+    if (
+      canonical(jsonValue(snapshot.toolIdentities)) !==
+      canonical(
+        jsonValue(
+          Object.fromEntries(Object.entries(tools).map(([id, tool]) => [id, tool.identity]))
+        )
+      )
+    ) {
+      throw new Error('Admitted tool catalog does not match its durable identities');
+    }
+    if (
+      request.snapshot &&
+      canonical(jsonValue(snapshot)) !== canonical(jsonValue(request.snapshot))
+    ) {
+      throw new ApprovalInputReconstructionError();
+    }
+    return admission;
+  } catch (cause) {
+    try {
+      await selected.close?.();
+    } catch (cleanup) {
+      throw new HostRunAdmissionCleanupError(cause, cleanup);
+    }
+    throw cause;
   }
-  return admission;
+}
+
+/** The Core retains this promise; both owners are attempted even when one join fails. */
+export async function closeHostRunResources(run: HostRunState): Promise<void> {
+  const joined = await Promise.allSettled([
+    Promise.resolve(run.owner).then((owner) => owner?.close()),
+    Promise.resolve(run.admissionTask ?? run.admission).then(
+      (admission) => admission?.close?.(),
+      (cause: unknown) => {
+        // A rejected selection has already joined its acquired resources.
+        if (cause instanceof HostRunAdmissionCleanupError) {
+          throw cause;
+        }
+      }
+    ),
+  ]);
+  const failures = joined.filter((result) => result.status === 'rejected');
+  if (failures.length === 1) {
+    throw failures[0]?.reason;
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures.map((result) => result.reason),
+      'Run resource cleanup failed'
+    );
+  }
 }
 
 export function ensureHostRunAdmission(

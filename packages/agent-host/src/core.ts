@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { StateStore } from '@brainstrike/state-store';
 import {
+  type LanguageModel,
   type ModelMessage,
   modelMessageSchema,
   stepCountIs,
@@ -28,6 +29,7 @@ import type { HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
 import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
 import {
   acquireHostRunAdmission,
+  closeHostRunResources,
   createAdmittedHostSdkTools,
   ensureHostRunAdmission,
   hostRunToolDecision,
@@ -301,7 +303,8 @@ export class HostCore {
       }
       const controller = new AbortController();
       this.pendingAdmissions.add(controller);
-      let admission: HostRunAdmission;
+      let admission: HostRunAdmission | undefined;
+      let release: (() => void) | undefined;
       try {
         admission = await acquireHostRunAdmission(this.platform, {
           modelId: params.modelId,
@@ -309,24 +312,20 @@ export class HostCore {
           threadId: params.threadId,
         });
         controller.signal.throwIfAborted();
-      } finally {
-        this.pendingAdmissions.delete(controller);
-      }
-      const release = this.retainRun();
-      const run = createHostRunState(
-        params.threadId,
-        randomUUID(),
-        params.modelId,
-        admission.snapshot
-      );
-      run.admission = admission;
-      if (this.conversationIds.has(run.id) || run.id === params.commandId) {
-        release();
-        throw new Error('Generated run collides with a committed conversation identity');
-      }
-      run.release = release;
-      const result = { runId: run.id };
-      try {
+        release = this.retainRun();
+        const run = createHostRunState(
+          params.threadId,
+          randomUUID(),
+          params.modelId,
+          admission.snapshot,
+          controller
+        );
+        run.admission = admission;
+        if (this.conversationIds.has(run.id) || run.id === params.commandId) {
+          throw new Error('Generated run collides with a committed conversation identity');
+        }
+        run.release = release;
+        const result = { runId: run.id };
         await this.accept(params.threadId, 'run/start', params, result, [
           {
             modelId: params.modelId,
@@ -336,21 +335,29 @@ export class HostCore {
             type: 'run.started',
           },
         ]);
+        this.runs.set(run.id, run);
+        this.foldConversationId(params.commandId);
+        this.foldConversationId(run.id);
+        this.messages.set(params.threadId, [
+          ...(this.messages.get(params.threadId) ?? []),
+          { content: params.prompt, role: 'user' },
+        ]);
+        run.task = this.loop(run, admission.model);
+        // Stop/close joins this task; retain failures rather than leaking rejections.
+        run.task.catch(() => undefined);
+        return result;
       } catch (cause) {
-        release();
+        controller.abort(cause);
+        try {
+          await admission?.close?.();
+          release?.();
+        } catch (cleanup) {
+          throw new AggregateError([cause, cleanup], 'Run admission cleanup failed');
+        }
         throw cause;
+      } finally {
+        this.pendingAdmissions.delete(controller);
       }
-      this.runs.set(run.id, run);
-      this.foldConversationId(params.commandId);
-      this.foldConversationId(run.id);
-      this.messages.set(params.threadId, [
-        ...(this.messages.get(params.threadId) ?? []),
-        { content: params.prompt, role: 'user' },
-      ]);
-      run.task = this.loop(run, admission.model);
-      // Stop/close joins this task; retain failures rather than leaking rejections.
-      run.task.catch(() => undefined);
-      return result;
     });
   }
 
@@ -443,10 +450,7 @@ export class HostCore {
     return 'approved';
   }
 
-  private async loop(
-    run: Run,
-    model: Awaited<ReturnType<HostPlatform['resolveModel']>>
-  ): Promise<void> {
+  private async loop(run: Run, model: LanguageModel): Promise<void> {
     let failed: string | undefined;
     let interrupted = false;
     let checkpointFailure: unknown;
@@ -893,10 +897,7 @@ export class HostCore {
   }
 
   private closeRunOwner(run: Run): Promise<void> {
-    run.ownerClose ??= Promise.resolve().then(async () => {
-      const owner = await run.owner;
-      await owner?.close();
-    });
+    run.ownerClose ??= closeHostRunResources(run);
     return run.ownerClose;
   }
 

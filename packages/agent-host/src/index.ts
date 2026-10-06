@@ -38,6 +38,11 @@ export {
   loadHostPlatform,
   runAgentHostProcess,
 } from './process-entry.js';
+export {
+  createProductionHostPlatform,
+  type ProductionHostPlatformOptions,
+  type ProductionHostRunConfiguration,
+} from './production-platform.js';
 export * from './protocol.js';
 export {
   type AgentHost,

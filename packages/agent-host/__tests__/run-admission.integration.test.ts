@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DEFAULT_PERMISSION_POLICIES, type RuntimeData } from '@brainstrike/assistant-contract';
+import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
+import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { RootLock, StateStore } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
 import { z } from 'zod';
@@ -234,6 +235,103 @@ test('provider preparation uses the admitted configuration across approval and r
     ).rejects.toThrow();
     expect(effects).toBe(1);
   } finally {
+    await core.close();
+    await store.close();
+    expect(RootLock.inspect(root)?.owner.released).toBe(true);
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('admission and execution share cancellation, and Stop retains selected resources until completion', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-run-cancel-'));
+  const store = await StateStore.open(root);
+  const started = Promise.withResolvers<void>();
+  const aborted = Promise.withResolvers<void>();
+  const nativeCompletion = Promise.withResolvers<void>();
+  const model = scriptedModel('write_file');
+  let admittedSignal: AbortSignal | undefined;
+  let invalidCatalog = true;
+  const closeSelection = vi.fn(async () => {
+    if (!invalidCatalog) {
+      await nativeCompletion.promise;
+    }
+  });
+  const platform: HostPlatform = {
+    admitRun: async ({ signal }) => {
+      admittedSignal = signal;
+      return {
+        close: closeSelection,
+        configuration: {},
+        model,
+        openRun: async (context) => {
+          expect(context.signal).toBe(signal);
+          return { close: async () => undefined };
+        },
+        snapshot: {
+          configuration: {},
+          maxSteps: 3,
+          toolIdentities: { write_file: invalidCatalog ? 'different-executor' : 'native-write-1' },
+        },
+        tools: {
+          write_file: {
+            description: 'Hold an already-started native operation',
+            execute: async (_input, context) => {
+              expect(context.signal).toBe(signal);
+              signal.addEventListener('abort', () => aborted.resolve(), { once: true });
+              started.resolve();
+              await nativeCompletion.promise;
+              signal.throwIfAborted();
+              return { written: true };
+            },
+            identity: 'native-write-1',
+            inputSchema: z.object({ text: z.string() }),
+            risk: 'edit',
+          },
+        },
+      };
+    },
+    close: async () => undefined,
+    maxSteps: 3,
+    readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
+    resolveModel: async () => model,
+    tools: {},
+  };
+  const core = await HostCore.open(store, platform, () => () => undefined);
+  try {
+    const { threadId } = await core.startThread({ commandId: randomUUID() });
+    const input = { modelId: 'scripted', prompt: 'Write', threadId };
+    await expect(core.startRun({ commandId: randomUUID(), ...input })).rejects.toThrow(
+      'Admitted tool catalog does not match'
+    );
+    expect(closeSelection).toHaveBeenCalledTimes(1);
+    invalidCatalog = false;
+    const { runId } = await core.startRun({ commandId: randomUUID(), ...input });
+    const pending = await committed(core, threadId, 'interaction.requested');
+    const approval = core.respond({
+      commandId: randomUUID(),
+      decision: 'approve',
+      interactionId: pending.interactionId,
+      runId,
+      threadId,
+    });
+    await started.promise;
+    let joined = false;
+    const stopping = core.stop({ commandId: randomUUID(), runId, threadId }).then((result) => {
+      joined = true;
+      return result;
+    });
+    await aborted.promise;
+    expect(admittedSignal?.aborted).toBe(true);
+    expect(joined).toBe(false);
+    expect((await core.read(threadId, 0)).some((row) => row.event.type === 'run.finished')).toBe(
+      false
+    );
+    nativeCompletion.resolve();
+    await Promise.all([approval, stopping]);
+    expect((await committed(core, threadId, 'run.finished')).outcome).toBe('stopped');
+    expect(closeSelection).toHaveBeenCalledTimes(2);
+  } finally {
+    nativeCompletion.resolve();
     await core.close();
     await store.close();
     expect(RootLock.inspect(root)?.owner.released).toBe(true);

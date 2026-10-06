@@ -103,12 +103,13 @@ export function createHostRunState(
   threadId: string,
   id: string,
   modelId: string,
-  snapshot?: HostRunSnapshot
+  snapshot?: HostRunSnapshot,
+  controller = new AbortController()
 ): HostRunState {
   return {
     approvals: new Map(),
     checkpointedResults: new Set(),
-    controller: new AbortController(),
+    controller,
     effects: new Set(),
     id,
     liveInputs: new Map(),
