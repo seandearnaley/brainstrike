@@ -18,10 +18,11 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, relative, sep, win32 } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { IndexerRequiredError, ThreadDamagedError, ThreadReadOnlyError } from './errors.js';
 import {
@@ -243,6 +244,28 @@ function listFiles(dir: string, base = dir): string[] {
       return d.isDirectory() ? listFiles(p, base) : [relative(base, p).split('\\').join('/')];
     })
     .sort();
+}
+
+/** Portable bundle paths cannot escape either the source or the destination root. */
+function assertBundleRelativePath(path: unknown): asserts path is string {
+  if (
+    typeof path !== 'string' ||
+    path.includes('\0') ||
+    path.includes('\\') ||
+    isAbsolute(path) ||
+    win32.parse(path).root ||
+    path.split('/').some((part) => !part || part === '.' || part === '..')
+  ) {
+    throw new TypeError('import: manifest file paths must be canonical relative paths');
+  }
+}
+function checkedBundleSource(bundleRoot: string, path: string): string {
+  const source = realpathSync(join(bundleRoot, path));
+  const fromRoot = relative(bundleRoot, source);
+  if (isAbsolute(fromRoot) || fromRoot.split(sep)[0] === '..') {
+    throw new TypeError('import: bundle source escapes its root');
+  }
+  return source;
 }
 
 const GENERATION_FILE = /^g[0-9]{12}$/;
@@ -736,23 +759,40 @@ export class StateStore {
 
   /** Restore a bundle into an empty (or new) root. Verifies every file; open the root afterwards with StateStore.open. */
   static importBundle(bundleDir: string, targetRoot: string): Manifest {
-    const m = JSON.parse(readFileSync(join(bundleDir, 'manifest.json'), 'utf8')) as Manifest;
+    const bundleRoot = realpathSync(bundleDir);
+    const m = JSON.parse(
+      readFileSync(checkedBundleSource(bundleRoot, 'manifest.json'), 'utf8')
+    ) as Manifest;
     if (m.format !== 1) {
       throw new Error(`import: unknown bundle format ${String(m.format)}`);
+    }
+    // Validate the entire manifest before any payload read or destination mutation.
+    for (const file of m.files) {
+      assertBundleRelativePath(file.path);
+    }
+    const lockFiles = existsSync(join(bundleRoot, 'lock'))
+      ? readdirSync(checkedBundleSource(bundleRoot, 'lock')).map((name) => `lock/${name}`)
+      : [];
+    for (const path of lockFiles) {
+      assertBundleRelativePath(path);
+    }
+    for (const path of [...m.files.map((file) => file.path), ...lockFiles]) {
+      checkedBundleSource(bundleRoot, path);
     }
     if (existsSync(targetRoot) && readdirSync(targetRoot).length > 0) {
       throw new Error(`import: ${targetRoot} is not empty`);
     }
     for (const f of m.files) {
-      const b = readFileSync(join(bundleDir, f.path));
+      const b = readFileSync(checkedBundleSource(bundleRoot, f.path));
       if (b.length !== f.bytes || sha256Hex(b) !== f.sha256) {
         throw new Error(`import: ${f.path} does not match the manifest`);
       }
     }
     const copy = (rel: string): void => {
+      const source = checkedBundleSource(bundleRoot, rel);
       const dst = join(targetRoot, rel);
       mkdirSync(join(dst, '..'), { recursive: true });
-      copyFileSync(join(bundleDir, rel), dst);
+      copyFileSync(source, dst);
       const fd = openSync(dst, 'r+');
       try {
         fsyncSync(fd);
@@ -765,10 +805,8 @@ export class StateStore {
         copy(f.path);
       }
     }
-    if (existsSync(join(bundleDir, 'lock'))) {
-      for (const n of readdirSync(join(bundleDir, 'lock'))) {
-        copy(join('lock', n));
-      }
+    for (const path of lockFiles) {
+      copy(path);
     }
     return m;
   }
