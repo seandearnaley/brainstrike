@@ -4,6 +4,33 @@ This is the integrator's evidence ledger for BST-1977, not an acceptance declara
 
 CI is disabled due to cost; validation must run locally.
 
+## Owner-approved reconstruction repair — 6 October, 22:02 UTC
+
+The accountable parent orchestrator approved the documented bounded disposition
+under root rule 3 and explicitly removed the handoff's additional Sean-only
+gate. The prototype predicate uses exact local intrinsic identities and data
+properties, preserving live validated objects, ordinary JSON and null-prototype
+records. Custom/cross-realm reopened values require the existing tool-owned
+hook or interrupt visibly before effect. Native/MCP schema inventory and all
+first-failure receipts are recorded in the updated prototype causal note.
+
+The borrowed MCP adapter now retains a supplied reconstruction hook with its
+original receiver and generation, joining it through the existing pending-work
+owner before watch release. The actual focused omission failed before repair;
+its regression now proves the retained runtime object and held/rejected close.
+No new authority, identity, permission gate, retry or deadline was introduced.
+
+Local source-bound regression: `pnpm --filter @brainstrike/agent-host test:integration`
+passed **72 cases / four Windows-only skips, 36.91 s**; `pnpm --filter @brainstrike/agent-host test`
+passed **93/93, 2.14 s**. Existing native schema/catalog/worktree and MCP-client
+files passed **80/80, 1.42 s** through
+`pnpm --filter @brainstrike/agent exec vitest run src/__tests__/native-tool-input-schema-catalog.spec.ts src/__tests__/tool-schemas.spec.ts src/__tests__/worktree-tool-schemas.spec.ts src/__tests__/mcp-runtime-client.spec.ts`.
+Logs use `/tmp/brainstrike-m3-reconstruction-*.log`. Independent read-only Sol 6.1
+review found no correctness or data-loss findings in the bounded product diff;
+it did not rerun tests or qualify broader regression. Windows PR3548 is still held; ordinary
+production composition, Mini native credential/shutdown and full regression
+acceptance remain unfinished.
+
 ## Existing desktop profile attachment — 6 October, 21:54 UTC
 
 The native index runtime now returns the exact attachment from its existing
@@ -33,13 +60,12 @@ Logs: `/tmp/brainstrike-m3-profile-attachment-unit.log` and
 `/tmp/brainstrike-m3-profile-attachment-baseline-unit.log`.
 
 Windows PR3548 remains under the parent's targeted review hold; its reserved
-process/CLI source files were not edited here. The prototype predicate is the
-only held Studio repair: root rule 3 says to get the **owner's approval**, while
-the initial delegation separately requested a **Sean decision** for that third
-same-class fix. The one-page causal note and exact proposed disposition are
-published; no elapsed-time approval or broad integration pause is implied.
+process/CLI source files were not edited here. At this checkpoint the prototype
+predicate was the only held Studio repair: root rule 3 says to get the **owner's
+approval**, while the initial delegation had separately requested a **Sean
+decision**. The subsequent owner disposition above removes that extra gate.
 
-## Current composed qualification — 6 October, 21:40 UTC
+## Composed qualification — 6 October, 21:40 UTC
 
 The current integration batch above `d123f200384e314309384521dcc2518507bb9c88`
 composes the published UI `97f12482` and Memory `47867a08` packets, with the
@@ -124,8 +150,8 @@ credential persistence and its physical shutdown join. Consent state and the
 exact callback remain unverified. The prior `bbfb4e8` three packaged lane passes
 and native provenance are preserved separately and were not repeated on d123.
 
-One newly demonstrated prototype-carried input-reconstruction defect remains
-**red and unquarantined**. The real SQLite/SDK reopened approval executes once
+At this historical checkpoint the prototype-carried input-reconstruction defect
+was **red and unquarantined**. The real SQLite/SDK reopened approval executed once
 after a custom array prototype's process-local selection changes; zero effects
 are required. Root working rule 3 requires the owner's approval; the initial
 delegation additionally requests a Sean decision. Only this product predicate

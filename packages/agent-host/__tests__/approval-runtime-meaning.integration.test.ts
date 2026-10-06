@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
@@ -22,14 +23,47 @@ class ArrayRuntimeSelection extends Array<number> {
   }
 }
 
-test.each(['subclass', 'extra property', 'prototype property'] as const)(
-  'reopened approval interrupts arrays with process-local runtime meaning (%s)',
-  async (shape) => {
+test.each([
+  { effects: 0, reconstruct: false, shape: 'subclass' },
+  { effects: 0, reconstruct: false, shape: 'extra property' },
+  { effects: 0, reconstruct: false, shape: 'prototype property' },
+  { effects: 0, reconstruct: false, shape: 'record prototype property' },
+  { effects: 0, reconstruct: false, shape: 'cross-realm array' },
+  { effects: 0, reconstruct: false, shape: 'cross-realm record' },
+  { effects: 1, reconstruct: true, shape: 'cross-realm array' },
+  { effects: 1, reconstruct: true, shape: 'cross-realm record' },
+  { effects: 1, reconstruct: false, shape: 'ordinary array' },
+  { effects: 1, reconstruct: false, shape: 'ordinary record' },
+  { effects: 1, reconstruct: false, shape: 'null-prototype record' },
+] as const)(
+  'reopened approval runtime meaning ($shape, reconstruction=$reconstruct)',
+  async ({ effects, reconstruct, shape }) => {
     const root = await mkdtemp(join(tmpdir(), 'bs-m3-array-input-'));
     let store = await StateStore.open(root);
     let selection = 'first process selection';
     let executions = 0;
-    const schema = z.object({ text: z.string() }).transform(() => {
+    const schema = z.object({ text: z.string() }).transform(({ text }): unknown => {
+      if (shape === 'cross-realm array') {
+        return runInNewContext('[1]') as unknown;
+      }
+      if (shape === 'cross-realm record') {
+        return runInNewContext('({text: "recorded action"})') as unknown;
+      }
+      if (shape === 'ordinary array') {
+        return [1];
+      }
+      if (shape === 'ordinary record') {
+        return { text };
+      }
+      if (shape === 'null-prototype record') {
+        return Object.assign(Object.create(null) as Record<string, unknown>, { text });
+      }
+      if (shape === 'record prototype property') {
+        return Object.setPrototypeOf(
+          { text },
+          Object.assign(Object.create(null) as Record<string, unknown>, { selection })
+        );
+      }
       if (shape === 'subclass') {
         return new ArrayRuntimeSelection(selection);
       }
@@ -59,6 +93,9 @@ test.each(['subclass', 'extra property', 'prototype property'] as const)(
           },
           identity: 'array-selection',
           inputSchema: schema,
+          ...(reconstruct
+            ? { reconstructApprovalInput: (raw: unknown) => schema.parseAsync(raw) }
+            : {}),
           risk: 'edit',
         },
       },
@@ -105,13 +142,13 @@ test.each(['subclass', 'extra property', 'prototype property'] as const)(
           (await core.read(threadId, 0)).some((row) => row.event.type === 'run.finished')
         )
         .toBe(true);
-      expect(executions).toBe(0);
+      expect(executions).toBe(effects);
       expect(
         (await core.read(threadId, 0)).some((row) => row.event.type === 'effect.started')
-      ).toBe(false);
+      ).toBe(effects === 1);
       expect(
         (await core.read(threadId, 0)).find((row) => row.event.type === 'run.finished')?.event
-      ).toMatchObject({ outcome: 'interrupted' });
+      ).toMatchObject({ outcome: effects === 1 ? 'completed' : 'interrupted' });
     } finally {
       await core.close();
       await store.close();

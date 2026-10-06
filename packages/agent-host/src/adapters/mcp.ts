@@ -87,6 +87,14 @@ export function createMcpHostToolAdapter(options: McpHostToolAdapterOptions): Mc
   };
 
   const entries = Object.entries(options.bindings);
+  const retain = <T>(work: Promise<T>): Promise<T> => {
+    pending.add(work);
+    const settled = (): void => {
+      pending.delete(work);
+    };
+    work.then(settled, settled);
+    return work;
+  };
   const acquisitionFailed = (cause: unknown): never => {
     controller.abort(cause);
     const failures = releaseWatches();
@@ -136,8 +144,16 @@ export function createMcpHostToolAdapter(options: McpHostToolAdapterOptions): Mc
         Object.fromEntries(
           entries.map(([toolId, binding]): [string, HostTool] => {
             const source = binding.tool;
-            const { description, execute, identity, inputSchema, risk, strict, toModelOutput } =
-              source;
+            const {
+              description,
+              execute,
+              identity,
+              inputSchema,
+              reconstructApprovalInput,
+              risk,
+              strict,
+              toModelOutput,
+            } = source;
             const lease = leases.get(binding.configuredServerId);
             if (!lease) {
               throw new Error('MCP host tool binding has no acquired server lease');
@@ -163,16 +179,35 @@ export function createMcpHostToolAdapter(options: McpHostToolAdapterOptions): Mc
                   signal.throwIfAborted();
                   return output;
                 });
-                pending.add(work);
-                const settled = (): void => {
-                  pending.delete(work);
-                };
-                work.then(settled, settled);
-                return work;
+                return retain(work);
               },
               identity,
               inputSchema,
               risk,
+              ...(reconstructApprovalInput
+                ? {
+                    reconstructApprovalInput(input: unknown): Promise<unknown> {
+                      return retain(
+                        Promise.resolve().then(async () => {
+                          controller.signal.throwIfAborted();
+                          refresh(lease);
+                          lease.controller.signal.throwIfAborted();
+                          if (
+                            source.identity !== identity ||
+                            source.reconstructApprovalInput !== reconstructApprovalInput
+                          ) {
+                            throw lease.retired;
+                          }
+                          const value = await reconstructApprovalInput.call(source, input);
+                          controller.signal.throwIfAborted();
+                          refresh(lease);
+                          lease.controller.signal.throwIfAborted();
+                          return value;
+                        })
+                      );
+                    },
+                  }
+                : {}),
               ...(strict === undefined ? {} : { strict }),
               ...(toModelOutput ? { toModelOutput } : {}),
             });

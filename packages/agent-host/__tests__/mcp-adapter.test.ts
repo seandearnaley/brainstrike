@@ -169,6 +169,45 @@ afterEach(async () => {
 });
 
 describe('borrowed Node MCP host tool bindings', () => {
+  it('retains tool-owned reconstruction and joins it before releasing authority watches', async () => {
+    const source = authority();
+    const entered = Promise.withResolvers<void>();
+    const pending = Promise.withResolvers<unknown>();
+    const reconstructed = new Date('2026-10-06T07:00:00.000Z');
+    let hold = false;
+    let receiver: HostTool | undefined;
+    const admitted = binding({
+      async reconstructApprovalInput(this: HostTool): Promise<unknown> {
+        receiver = this;
+        if (hold) {
+          entered.resolve();
+          return await pending.promise;
+        }
+        return reconstructed;
+      },
+    });
+    const adapter = wrap(source.host, { model_alias: admitted });
+    const reconstruct = tool(adapter).reconstructApprovalInput;
+    expect(reconstruct).toBeTypeOf('function');
+    if (!reconstruct) {
+      throw new Error('Authority reconstruction capability was discarded');
+    }
+    expect(await reconstruct({ at: reconstructed.toISOString() })).toBe(reconstructed);
+    expect(receiver).toBe(admitted.tool);
+    hold = true;
+    const observed = reconstruct({ at: reconstructed.toISOString() }).catch(
+      (cause: unknown) => cause
+    );
+    await entered.promise;
+    const closing = adapter.close();
+    expect(source.releases[0]).not.toHaveBeenCalled();
+    pending.resolve(reconstructed);
+    expect(await observed).toMatchObject({ message: 'MCP host tool adapter is closed' });
+    await closing;
+    expect(source.releases[0]).toHaveBeenCalledOnce();
+    expect(admitted.tool.execute).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['mixed media', richResult],
     [

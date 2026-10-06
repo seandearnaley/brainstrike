@@ -145,14 +145,8 @@ function hasJsonRuntimeMeaning(value: unknown): boolean {
   }
   if (Array.isArray(value)) {
     const prototype: unknown = Object.getPrototypeOf(value);
-    const parent: unknown = prototype && Object.getPrototypeOf(prototype);
-    const ordinary =
-      Array.isArray(prototype) &&
-      parent !== null &&
-      typeof parent === 'object' &&
-      Object.getPrototypeOf(parent) === null;
     return (
-      ordinary &&
+      prototype === Array.prototype &&
       Reflect.ownKeys(value).length === value.length + 1 &&
       Array.from({ length: value.length }, (_unused, index) => {
         const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
@@ -169,14 +163,21 @@ function hasJsonRuntimeMeaning(value: unknown): boolean {
     return false;
   }
   const prototype: unknown = Object.getPrototypeOf(value);
-  // Public schema validators may construct plain records in another realm.
-  const plain =
-    prototype === null ||
-    (typeof prototype === 'object' && Object.getPrototypeOf(prototype) === null);
+  // A prototype's shape cannot prove that inherited runtime meaning is absent.
+  // Required custom/cross-realm values use the tool's explicit reconstruction.
+  const plain = prototype === null || prototype === Object.prototype;
   return (
     plain &&
-    Reflect.ownKeys(value).length === Object.keys(value).length &&
-    Object.values(value).every(hasJsonRuntimeMeaning)
+    Reflect.ownKeys(value).every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return (
+        typeof key === 'string' &&
+        descriptor !== undefined &&
+        Object.hasOwn(descriptor, 'value') &&
+        descriptor.enumerable === true &&
+        hasJsonRuntimeMeaning(descriptor.value)
+      );
+    })
   );
 }
 
