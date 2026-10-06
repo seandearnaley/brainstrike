@@ -240,3 +240,60 @@ it.each(['collection', 'roots', 'profile', 'store'] as const)(
     mounted.unmount();
   }
 );
+
+it.each(['status', 'batch'] as const)(
+  'keeps a retained startup failure from %s visibly blocked across polling and exposes its actionable reason',
+  async (source) => {
+    useBackgroundIndexingPreferencesStore.setState({
+      managedCollectionId: 'selected',
+      nativeIndexMode: 'VECTOR',
+    });
+    const reason =
+      'Native indexing is blocked: Indexer startup exceeded its caller-provided deadline. Open Diagnostics for details.';
+    const capability = {
+      coverage: vi.fn(),
+      coverageBatch: vi.fn(
+        async (): Promise<IndexerCoverageBatch> => ({ kind: 'blocked', reason })
+      ),
+      grep: vi.fn(),
+      rebuild: vi.fn(),
+      search: vi.fn(),
+      status: vi.fn(
+        async (): Promise<IndexerStatus> =>
+          source === 'status'
+            ? { kind: 'unavailable', phase: 'blocked', reason }
+            : {
+                authorizedCollectionIds: ['selected'],
+                authorizedRootIds: ['root'],
+                collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
+                embedding: { indexMode: 'text-only' },
+                kind: 'ready',
+                rootReadiness: [{ rootId: 'root', scanComplete: false }],
+                storeId: 'store',
+              }
+      ),
+    };
+    const mounted = render(
+      <NativeWorkspaceIndexProvider capability={capability}>
+        <span>Workspace</span>
+      </NativeWorkspaceIndexProvider>
+    );
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+        lastError: reason,
+        state: 'blocked',
+      })
+    );
+    await waitFor(() => expect(capability.status).toHaveBeenCalledTimes(2), { timeout: 4000 });
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+      lastError: reason,
+      state: 'blocked',
+    });
+    if (source === 'status') {
+      expect(capability.coverageBatch).not.toHaveBeenCalled();
+    } else {
+      expect(capability.coverageBatch).toHaveBeenCalledTimes(2);
+    }
+    mounted.unmount();
+  }
+);

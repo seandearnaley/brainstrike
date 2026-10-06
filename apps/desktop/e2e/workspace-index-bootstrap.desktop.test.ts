@@ -161,6 +161,9 @@ test.describe('Workspace Index first run (desktop)', () => {
                 if (observation.kind === 'invalidated') {
                   return false;
                 }
+                if (observation.kind === 'blocked') {
+                  throw new Error(observation.reason);
+                }
                 const snapshot = observation.status;
                 const coverage = observation.coverage[0];
                 if (!coverage) {

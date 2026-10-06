@@ -74,6 +74,9 @@ async function readNativeListing(
     return { workspaceIndex };
   }
   const batch = await capability.coverageBatch([{ collectionId: embeddingSetId, rootIds: [] }]);
+  if (batch.kind === 'blocked') {
+    throw new ToolInputError(batch.reason);
+  }
   if (batch.kind === 'invalidated') {
     return { coverageObservation: { code: batch.code, kind: batch.kind }, workspaceIndex };
   }

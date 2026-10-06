@@ -48,7 +48,7 @@ export type IndexerStatus =
   | {
       readonly kind: 'unavailable';
       readonly reason: string;
-      readonly phase?: 'setup-required' | 'preparing';
+      readonly phase?: 'setup-required' | 'preparing' | 'blocked';
     }
   | {
       readonly kind: 'ready';
@@ -157,9 +157,15 @@ export interface IndexerCoverageInvalidatedObservation {
   readonly code: 'native-coverage-observation-invalidated';
   readonly kind: 'invalidated';
 }
+/** A retained activation failure has no current authority or counters. */
+export interface IndexerCoverageBlockedObservation {
+  readonly kind: 'blocked';
+  readonly reason: string;
+}
 export type IndexerCoverageBatch =
   | IndexerCoverageCurrentObservation
-  | IndexerCoverageInvalidatedObservation;
+  | IndexerCoverageInvalidatedObservation
+  | IndexerCoverageBlockedObservation;
 export interface IndexSearchCapability {
   coverage(request: IndexerCoverageRequest): Promise<IndexerCoverage>;
   coverageBatch(requests: readonly IndexerCoverageRequest[]): Promise<IndexerCoverageBatch>;

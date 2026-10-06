@@ -21,6 +21,7 @@ import type { SqliteQueryClient } from '@brainstrike/sqlite-query';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
 import type { NativeScopeReadiness } from './native-canonical-publication';
 import { NativeCoverageObservationInvalidatedError } from './native-coverage-observation-invalidated';
+import { NativeIndexBlockedError } from './native-index-blocked';
 import { NativeReadAuthorityRetiredError } from './native-index-runtime';
 import { grepSnapshot } from './native-index-search';
 import { NativeIndexSetupRequiredError } from './native-index-setup-required';
@@ -385,6 +386,9 @@ export function createNativeScopedSearchCapability(
         };
       });
     } catch (error) {
+      if (error instanceof NativeIndexBlockedError) {
+        return { kind: 'blocked', reason: error.message };
+      }
       const invalidation = coverageAuthorityInvalidation(error);
       if (invalidation === null) {
         throw error;
@@ -395,6 +399,9 @@ export function createNativeScopedSearchCapability(
   return {
     coverage: async (request): Promise<IndexerCoverage> => {
       const observation = await coverageBatch([request]);
+      if (observation.kind === 'blocked') {
+        throw new Error(observation.reason);
+      }
       if (observation.kind === 'invalidated') {
         throw new NativeCoverageObservationInvalidatedError();
       }
@@ -497,6 +504,9 @@ export function createNativeScopedSearchCapability(
           return projectStatus(snapshot.authority, snapshot.storeId, snapshot.embedding);
         });
       } catch (error) {
+        if (error instanceof NativeIndexBlockedError) {
+          return { kind: 'unavailable', phase: 'blocked', reason: error.message };
+        }
         if (
           !(error instanceof NativeIndexSetupRequiredError) &&
           coverageAuthorityInvalidation(error) === null

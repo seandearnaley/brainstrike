@@ -182,8 +182,8 @@ import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { purgeMcpOAuthRuntimeState } from './mcp/oauth-client-provider';
 import { createNativeCallerRead } from './native-caller-query';
 import { createNativeIndexActivation } from './native-index-activation';
+import { reportNativeIndexActivationError as reportNativeIndexFailure } from './native-index-activation-error';
 import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
-import { NativeIndexSetupRequiredError } from './native-index-setup-required';
 import { createNativeRootDataDeletion } from './native-root-data-deletion';
 import { createNativeScopedSearchCapability } from './native-scoped-search';
 import { ParserHostManager } from './parser-host-manager';
@@ -974,11 +974,7 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
   },
 });
 function reportNativeIndexActivationError(message: string, error: unknown): void {
-  if (error instanceof NativeIndexSetupRequiredError) {
-    logger.info('Workspace index setup required', { reason: error.message });
-    return;
-  }
-  logger.error(message, { error });
+  reportNativeIndexFailure(message, error, isDesktopShuttingDown(), logger);
 }
 const nativeIndexActivation = createNativeIndexActivation({
   application: applicationIpcDomain,

@@ -84,6 +84,15 @@ export async function readNativeObservation(
       }
       return requests;
     };
+    type CoverageBatch = Awaited<ReturnType<IndexSearchCapability['coverageBatch']>>;
+    const requireUnblockedCoverage = (
+      batch: CoverageBatch
+    ): Exclude<CoverageBatch, { kind: 'blocked' }> => {
+      if (batch.kind === 'blocked') {
+        throw new Error(batch.reason);
+      }
+      return batch;
+    };
     const readCoverage = async (
       initialStatus: Extract<NativeSnapshot['status'], { kind: 'ready' }>
     ): Promise<
@@ -96,7 +105,7 @@ export async function readNativeObservation(
           value: { collectionCoverage: null, coverage: null, status: initialStatus },
         };
       }
-      const batch = await indexSearch.coverageBatch(requests);
+      const batch = requireUnblockedCoverage(await indexSearch.coverageBatch(requests));
       if (batch.kind === 'invalidated') {
         return batch;
       }

@@ -35,6 +35,7 @@ import {
 } from './native-canonical-profile';
 import { createNativeCanonicalPublication } from './native-canonical-publication';
 import { isolateNativeCoverage } from './native-coverage-reader';
+import { retainedNativeIndexFailure } from './native-index-blocked';
 import {
   catalogFingerprint,
   catalogReadiness,
@@ -229,7 +230,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       const databasePath = path.join(resolveDesktopDatabaseProfileDirectory(), 'index.sqlite');
       const creation = acquireIndexerHost(
         { ...authorized, dbPath: databasePath, embedding: { indexMode: 'text-only' } },
-        { closeMs: 1000, exitMs: 1000, requestMs: 5000, startupMs: 5000 }
+        { closeMs: 1000, exitMs: 1000, requestMs: 5000, startupMs: 15_000 }
       );
       creation.catch(() => undefined);
       return {
@@ -723,12 +724,16 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       await transition(false);
     }
     ensureStartup();
-    await readerReady;
+    try {
+      await readerReady;
+    } catch (error) {
+      throw startupFailed && error === lastError ? retainedNativeIndexFailure(error) : error;
+    }
     if (graph?.sources?.controller.signal.aborted) {
       throw lastError ?? graph.sources.controller.signal.reason;
     }
     if (startupFailed) {
-      throw new Error('Canonical native scan failed.', { cause: lastError });
+      throw retainedNativeIndexFailure(lastError);
     }
     const current = graph;
     if (current) {

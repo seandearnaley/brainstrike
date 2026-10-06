@@ -23,11 +23,7 @@ async function readNativeProgress(
   capability: IndexSearchCapability,
   collectionId: string | null
 ): Promise<
-  | {
-      readonly kind: 'unavailable';
-      readonly reason: string;
-      readonly phase?: 'setup-required' | 'preparing';
-    }
+  | Extract<IndexerStatus, { kind: 'unavailable' }>
   | { readonly kind: 'invalidated'; readonly identity: string }
   | {
       readonly kind: 'ready';
@@ -54,6 +50,9 @@ async function readNativeProgress(
       ...(collectionId === null ? {} : { collectionId }),
     },
   ]);
+  if (observation.kind === 'blocked') {
+    return { kind: 'unavailable', phase: 'blocked', reason: observation.reason };
+  }
   if (observation.kind === 'invalidated') {
     return { identity: progressIdentity(status, collectionId), kind: 'invalidated' };
   }
@@ -129,7 +128,7 @@ function publishUnavailableProgress(
   useWorkspaceCollectionSyncStatusStore.getState().setStatus({
     lastError: progress.reason,
     managedCollectionId: collectionId,
-    state: 'unconfigured',
+    state: progress.phase === 'blocked' ? 'blocked' : 'unconfigured',
   });
 }
 

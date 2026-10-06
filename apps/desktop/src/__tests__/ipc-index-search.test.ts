@@ -1,8 +1,11 @@
+import { IndexerError } from '@brainstrike/indexer';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
 import { NativeCoverageObservationInvalidatedError } from '../native-coverage-observation-invalidated';
+import { NativeIndexBlockedError } from '../native-index-blocked';
+import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { createIpcBridge } from '../platform/ipc-bridge';
 import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
 
@@ -14,6 +17,11 @@ const ipc = vi.hoisted(() => ({
   removeListener: vi.fn(),
 }));
 vi.mock('electron', () => ({ ipcMain: ipc }));
+const registryError = vi.hoisted(() => vi.fn());
+vi.mock('@brainstrike/logging', async (original) => ({
+  ...(await original<typeof import('@brainstrike/logging')>()),
+  createLogger: () => ({ debug: vi.fn(), error: registryError, info: vi.fn(), warn: vi.fn() }),
+}));
 const dispose: Array<() => void> = [];
 afterEach(() => {
   for (const fn of dispose.splice(0)) {
@@ -235,3 +243,59 @@ it.each(['cosine', 'l2', 'ip'] as const)(
     ).toThrow('canonical embedding provider');
   }
 );
+
+it('observes a retained startup failure as stable blocked data without logging another IPC failure per poll', async () => {
+  const original = new IndexerError(
+    'indexer-startup-timeout',
+    'Indexer startup exceeded its caller-provided deadline.'
+  );
+  const retained = new NativeIndexBlockedError(original);
+  const cap = createNativeScopedSearchCapability({
+    openQuery: vi.fn(),
+    rebuild: vi.fn(),
+    withRead: async () => {
+      throw retained;
+    },
+  });
+  dispose.push(registerIndexSearchIpcHandlers(cap));
+  const event = createTrustedInvokeEvent();
+  for (let poll = 0; poll < 3; poll += 1) {
+    await expect(handler('status')(event)).resolves.toMatchObject({
+      ok: true,
+      value: {
+        kind: 'unavailable',
+        phase: 'blocked',
+        reason: expect.stringContaining(original.message),
+      },
+    });
+    await expect(handler('coverageBatch')(event, [{ rootIds: ['root'] }])).resolves.toMatchObject({
+      ok: true,
+      value: { kind: 'blocked', reason: expect.stringContaining(original.message) },
+    });
+  }
+  expect(registryError).not.toHaveBeenCalled();
+  expect(retained.cause).toBe(original);
+  await expect(
+    handler('search')(event, { limit: 10, mode: 'bm25', rootIds: ['root'], text: 'marker' })
+  ).resolves.toMatchObject({ error: { code: 'native-index-failed' }, ok: false });
+  expect(registryError).toHaveBeenCalledOnce();
+  await expect(cap.coverage({ rootIds: ['root'] })).rejects.toThrow(original.message);
+});
+
+it.each([
+  new Error('Indexer startup exceeded its caller-provided deadline.'),
+  new AggregateError(
+    [new NativeIndexBlockedError(new Error('retained startup')), new Error('close failed')],
+    'Independent cleanup failed.'
+  ),
+])('keeps independent observation errors fatal: %s', async (failure) => {
+  const cap = createNativeScopedSearchCapability({
+    openQuery: vi.fn(),
+    rebuild: vi.fn(),
+    withRead: async () => {
+      throw failure;
+    },
+  });
+  await expect(cap.status()).rejects.toBe(failure);
+  await expect(cap.coverageBatch([{ rootIds: ['root'] }])).rejects.toBe(failure);
+});
