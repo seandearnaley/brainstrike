@@ -17,15 +17,14 @@ const metadata = {
   dimensions: 384,
   distance: 'cosine',
   id: 'collection',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+  modelId: 'Xenova/bge-small-en-v1.5',
+  modelKey: 'local::Xenova/bge-small-en-v1.5',
 } as const satisfies Pick<EmbeddingSet, 'dimensions' | 'distance' | 'id' | 'modelId' | 'modelKey'>;
 const selection = {
   device: 'wasm',
   dimensions: metadata.dimensions,
   dtype: 'q8',
   modelId: metadata.modelId,
-  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
 } as const satisfies SelectedEmbeddingRequestPlan;
 const scope: CanonicalSourceScope = { embeddingSetId: metadata.id, kind: 'collection' };
 const profile = (): VectorProfile => resolveNativeCanonicalProfile(metadata, selection).profile;
@@ -87,8 +86,6 @@ describe('saved canonical profile identity', () => {
         dtype: 'q8',
         modelId: metadata.modelId,
         provider: 'local',
-        revision: selection.revision,
-        tokenCap: 512,
       },
       workerPlan: selection,
     });
@@ -118,36 +115,33 @@ describe('saved canonical profile identity', () => {
     }
   );
 
-  it.each([
-    undefined,
-    { ...selection, revision: undefined },
-    { ...selection, device: undefined },
-    { ...selection, dtype: undefined },
-    { ...selection, revision: 'a'.repeat(40) },
-  ])('refuses missing or unverified local pins %#', (saved) => {
-    expect(() => resolveNativeCanonicalProfile(metadata, saved)).toThrow(/explicit|validated/);
-  });
+  it.each([undefined, { ...selection, device: undefined }, { ...selection, dtype: undefined }])(
+    'refuses missing or unverified local pins %#',
+    (saved) => {
+      expect(() => resolveNativeCanonicalProfile(metadata, saved)).toThrow(/explicit|execution/);
+    }
+  );
 
-  it('uses the public fused export rules including its token ceiling and absent q8', () => {
-    const fused = {
+  it('preserves existing Jina model dimensions without fabricated pins', () => {
+    const saved = {
       ...metadata,
-      modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-      modelKey: 'transformers::onnx-community/all-MiniLM-L6-v2-ONNX',
+      dimensions: 768,
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      modelKey: 'transformers::jinaai/jina-embeddings-v2-base-code',
     };
-    const pinned = {
-      ...selection,
+    const chosen = {
       device: 'webgpu' as const,
-      dtype: 'fp16',
-      modelId: fused.modelId,
-      revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
+      dimensions: saved.dimensions,
+      dtype: 'fp32',
+      modelId: saved.modelId,
     };
-    expect(resolveNativeCanonicalProfile(fused, pinned).profile).toMatchObject({
+    expect(resolveNativeCanonicalProfile(saved, chosen).profile).toEqual({
+      dimensions: 768,
+      distance: 'cosine',
+      dtype: 'fp32',
+      modelId: saved.modelId,
       provider: 'transformers',
-      tokenCap: 256,
     });
-    expect(() =>
-      resolveNativeCanonicalProfile(fused, { ...pinned, device: 'wasm', dtype: 'q8' })
-    ).toThrow(/device\/dtype/);
   });
 
   it('never replaces saved dimensions or mismatched selected identity', () => {
@@ -311,23 +305,20 @@ describe('canonical inference ownership', () => {
     await expect(f.inference.join('request')).rejects.toThrow(/response/);
   });
 
-  it('reports unsupported hosted/noncosine execution without substituting the local transport', async () => {
-    const f = fixture();
-    f.query.mockResolvedValueOnce({ rows: [{ ...metadata, distance: 'l2' }] });
-    await expect(
-      f.inference.generate({ ...request(), profile: { ...profile(), distance: 'l2' } })
-    ).rejects.toThrow(/cosine/);
-    f.query.mockResolvedValueOnce({
-      rows: [{ ...metadata, modelId: 'remote', modelKey: 'openai::remote' }],
-    });
-    await expect(
-      f.inference.generate({
-        ...request('hosted'),
-        profile: { dimensions: 384, distance: 'cosine', modelId: 'remote', provider: 'openai' },
-      })
-    ).rejects.toThrow(/unsupported/);
-    expect(f.documentEmbeddings).not.toHaveBeenCalled();
-  });
+  it.each(['l2', 'ip'] as const)(
+    'preserves %s metric while generating unchanged model vectors',
+    async (distance) => {
+      const f = fixture();
+      f.query.mockResolvedValueOnce({ rows: [{ ...metadata, distance }] });
+      const result = await f.inference.generate({
+        ...request(),
+        profile: { ...profile(), distance },
+      });
+      expect(result.profile.distance).toBe(distance);
+      expect(f.documentEmbeddings).toHaveBeenCalledOnce();
+      await f.inference.close();
+    }
+  );
 
   it('holds cancel and join through physical settlement and rejects late success', async () => {
     const f = fixture();
@@ -438,3 +429,45 @@ describe('canonical inference ownership', () => {
     await expect(f.inference.generate(request('closed'))).rejects.toThrow(/closed/);
   });
 });
+
+it.each(['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'] as const)(
+  'canonical document inference preserves durable %s identity and ordered batch',
+  async (provider) => {
+    const saved = {
+      ...metadata,
+      dimensions: 768,
+      modelId: 'saved-model',
+      modelKey: `${provider}::saved-model`,
+    };
+    const resolver = new NativeCanonicalProfileResolver({
+      query: async () => ({ rows: [saved] }),
+      readLocalSelection: async () => undefined,
+      resolveEmbeddingSetId: async () => saved.id,
+    });
+    const documentEmbeddings = vi.fn();
+    const hostedEmbeddings = vi.fn(async () => [
+      new Array<number>(768).fill(1),
+      new Array<number>(768).fill(2),
+    ]);
+    const inference = new NativeCanonicalInference({
+      hostedEmbeddings,
+      resolver,
+      scope,
+      transport: { documentEmbeddings },
+    });
+    const input = { ...request(), profile: resolveNativeCanonicalProfile(saved).profile };
+    const result = await inference.generate(input);
+    expect(result.vectors.map((entry) => entry.chunkId)).toEqual(['first', 'second']);
+    expect(result.vectors.every((entry) => entry.vector.length === 768)).toBe(true);
+    expect(hostedEmbeddings).toHaveBeenCalledWith({
+      dimensions: saved.dimensions,
+      modelId: saved.modelId,
+      provider,
+      purpose: 'document',
+      signal: expect.any(AbortSignal),
+      texts: input.chunks.map((chunk) => chunk.content),
+    });
+    expect(documentEmbeddings).not.toHaveBeenCalled();
+    await inference.close();
+  }
+);

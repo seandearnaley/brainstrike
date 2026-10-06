@@ -2,7 +2,6 @@ import {
   assertEmbedWorkerBatch,
   assertEmbedWorkerComplete,
   assertEmbedWorkerPipelineCacheDiagnostic,
-  FUSED_MINILM_MODEL_ID,
 } from '@brainstrike/indexing-contract';
 import { createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
 import {
@@ -193,10 +192,7 @@ function assertStreamCompletionMatchesRequest(
     );
   }
   const expectedBatchSize = computeInitialBatchSize(request.texts.length, request.maxBatchSize);
-  const matchesBatchLimit =
-    request.model === FUSED_MINILM_MODEL_ID
-      ? complete.metadata.batchSize <= expectedBatchSize
-      : complete.metadata.batchSize === expectedBatchSize;
+  const matchesBatchLimit = complete.metadata.batchSize === expectedBatchSize;
   if (!matchesBatchLimit) {
     throw new Error(
       'Embedding worker complete.metadata.batchSize does not match the request batch size.'

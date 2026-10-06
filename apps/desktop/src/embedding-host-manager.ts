@@ -2,6 +2,7 @@ import {
   createEmptyEmbeddingTelemetrySnapshot,
   type EmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
+import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import { createLogger } from '@brainstrike/logging';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
@@ -35,6 +36,7 @@ import {
   type EmbeddingHostStatus,
   type EmbeddingHostStatusReport,
 } from './embedding-host-shared';
+import { HostedEmbeddingRequests } from './hosted-embedding-requests';
 import { createHostRequestChannel, type HostRequestChannel } from './platform/host-request-channel';
 import {
   createRuntimeHostPlatformStatus,
@@ -86,9 +88,13 @@ function waitForHostStartup(
 
 export interface EmbeddingHostManagerOptions {
   readonly platform?: NodeJS.Platform;
+  readonly storage?:
+    | import('@brainstrike/storage/electron').ElectronStorageAdapter
+    | Pick<import('@brainstrike/storage/electron').ElectronStorageAdapter, 'getItem'>;
 }
 
 export class EmbeddingHostManager {
+  private readonly hostedRequests: HostedEmbeddingRequests;
   private disposed = false;
   private disposing = false;
   private reportedRuntimeId: string | null = null;
@@ -113,6 +119,7 @@ export class EmbeddingHostManager {
   >;
 
   constructor(options: EmbeddingHostManagerOptions = {}) {
+    this.hostedRequests = new HostedEmbeddingRequests(options.storage);
     this.powerSaveBlockerEnabled = (options.platform ?? process.platform) === 'darwin';
     this.queryRequests = createHostRequestChannel<
       EmbeddingHostQueryEmbeddingRequest,
@@ -360,7 +367,9 @@ export class EmbeddingHostManager {
         clearTimeout(timer);
       }
     }
-    const stop = this.stopHostOnce(timeoutMs);
+    const stop = this.hostedRequests.hasPending
+      ? this.hostedRequests.retire().then(() => this.stopHostOnce(timeoutMs))
+      : this.stopHostOnce(timeoutMs);
     this.stopping = stop;
     try {
       return await stop;
@@ -431,6 +440,9 @@ export class EmbeddingHostManager {
 
   async reset(): Promise<EmbeddingHostStatus> {
     this.assertNotDisposed('reset');
+    if (this.hostedRequests.hasPending) {
+      await this.hostedRequests.retire();
+    }
     if (this.stopping) {
       await this.stopping;
     }
@@ -536,6 +548,22 @@ export class EmbeddingHostManager {
   ): Promise<number[]> {
     options?.signal?.throwIfAborted();
     this.assertNotDisposed('queryEmbedding');
+    const selected = parseProviderModelKey(payload.modelKey);
+    if (selected && isHostedProvider(selected.provider)) {
+      if (selected.modelId !== payload.modelId || payload.inferencePlan) {
+        throw new Error('Hosted query identity conflicts with the selected provider/model.');
+      }
+      if (this.stopping) {
+        await this.stopping;
+      }
+      if (this.hostedRequests.retirement) {
+        await this.hostedRequests.retirement;
+      }
+      this.assertNotDisposed('queryEmbedding');
+      options?.signal?.throwIfAborted();
+      return this.hostedRequests.query(selected.provider, payload, options?.signal);
+    }
+
     const status = await waitForHostStartup(
       this.ensureStarted({ waitForRunning: true }),
       options?.signal
@@ -714,6 +742,9 @@ export class EmbeddingHostManager {
     // stop() is waiting on, orphaning that wait for its whole timeout.
     this.disposing = true;
     try {
+      if (this.hostedRequests.hasPending) {
+        await this.hostedRequests.retire();
+      }
       // A trusted renderer status is emitted only after its control listener is
       // registered; a still-loading page cannot acknowledge Stop yet.
       const status = this.lifecycle.getStatus();

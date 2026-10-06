@@ -889,15 +889,6 @@ function authorizeBatch(
 
 function assertExecutableProfile(profile: VectorProfile): void {
   vectorProfileHash(profile);
-  if (
-    (profile.provider !== 'local' && profile.provider !== 'transformers') ||
-    profile.distance !== 'cosine' ||
-    profile.dimensions % 8 !== 0
-  ) {
-    throw new Error(
-      'Canonical VECTOR requires an explicitly saved local cosine profile with supported dimensions.'
-    );
-  }
 }
 function validateVectorPlan(
   plan: ScopedFilePlan,

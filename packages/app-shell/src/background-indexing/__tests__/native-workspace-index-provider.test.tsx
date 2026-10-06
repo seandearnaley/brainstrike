@@ -29,7 +29,7 @@ beforeEach(() => {
   __resetBackgroundIndexingPreferencesStoreForTests();
   __resetWorkspaceCollectionSyncStatusStoreForTests();
 });
-it('names each missing native choice before polling closed admission, then observes the configured runtime', async () => {
+it('reports missing mode and collection, then lets native authority validate provider-specific execution without blocking hosted models', async () => {
   const capability = {
     coverage: vi.fn(),
     coverageBatch: vi.fn(),
@@ -54,21 +54,6 @@ it('names each missing native choice before polling closed admission, then obser
     expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toContain('embedding model')
   );
   act(() => useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('selected'));
-  await waitFor(() =>
-    expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toContain(
-      'local model execution'
-    )
-  );
-  expect(capability.status).not.toHaveBeenCalled();
-  act(() =>
-    useBackgroundIndexingPreferencesStore.getState().setNativeLocalSelection({
-      device: 'wasm',
-      dimensions: 384,
-      dtype: 'q8',
-      modelId: 'Xenova/all-MiniLM-L6-v2',
-      revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-    })
-  );
   await waitFor(() => expect(capability.status).toHaveBeenCalledOnce());
   expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toBe(
     'Waiting for native activation.'

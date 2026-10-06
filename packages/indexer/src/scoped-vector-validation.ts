@@ -9,11 +9,15 @@ const integer = Schema.Int.check(
 );
 export function vectorTable(dimensions: number): string {
   decoder(integer.check(Schema.isLessThanOrEqualTo(16_000)))(dimensions);
-  if (dimensions % 8 !== 0) {
-    throw new IndexerError('unsupported-profile', 'Binary dimensions must be divisible by eight.');
-  }
   return `scope_vec_${dimensions}`;
 }
+/** Padding belongs only to the coarse sign index; retained vectors keep their exact dimensions. */
+export function coarseVectorBlob(embedding: Uint8Array): Buffer {
+  const padded = Buffer.alloc(Math.ceil(embedding.byteLength / 32) * 32);
+  padded.set(embedding);
+  return padded;
+}
+
 export function validateScopedStorage(db: Database.Database, profileHash?: string): void {
   try {
     const invalidChunks = decoder(Schema.Int)(
@@ -102,7 +106,7 @@ function validateCoarseRows(db: Database.Database, dimensions: number, profileHa
   const mismatch = decoder(Schema.Int)(
     db
       .prepare(
-        `SELECT count(*) FROM scoped_vectors v LEFT JOIN ${table} b ON b.id=v.pk WHERE v.dimensions=?${profileHash ? ' AND v.profile_hash=?' : ''} AND (b.id IS NULL OR b.profile_hash!=v.profile_hash OR b.bin!=vec_quantize_binary(v.emb))`
+        `SELECT count(*) FROM scoped_vectors v LEFT JOIN ${table} b ON b.id=v.pk WHERE v.dimensions=?${profileHash ? ' AND v.profile_hash=?' : ''} AND (b.id IS NULL OR b.profile_hash!=v.profile_hash OR b.bin!=vec_quantize_binary(CAST(v.emb||zeroblob(${(Math.ceil(dimensions / 8) * 8 - dimensions) * 4}) AS BLOB)))`
       )
       .pluck()
       .get(dimensions, ...(profileHash ? [profileHash] : []))

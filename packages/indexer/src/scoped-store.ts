@@ -28,7 +28,11 @@ import {
 import { readIndexIdentity, readScopeEpoch } from './index-metadata.js';
 import { ScopeAuthority, supportedVectorProfile, vectorProfileHash } from './scope-authority.js';
 import { scopeCoverage, scopeCoverageBatch, verifyScopedManifest } from './scoped-proofs.js';
-import { validateScopedStorage, vectorTable } from './scoped-vector-validation.js';
+import {
+  coarseVectorBlob,
+  validateScopedStorage,
+  vectorTable,
+} from './scoped-vector-validation.js';
 
 const integer = Schema.Int.check(
   Schema.isGreaterThan(0),
@@ -382,7 +386,7 @@ export class ScopedIndex {
         .prepare(
           `INSERT INTO ${vectorTable(plan.profile.dimensions)}(id,profile_hash,bin) VALUES(?,?,vec_quantize_binary(?))`
         )
-        .run(BigInt(vectorPk), plan.profileHash, emb);
+        .run(BigInt(vectorPk), plan.profileHash, coarseVectorBlob(emb));
     } else if (plan.profile) {
       reusedEmbeddings += 1;
     }
@@ -394,7 +398,7 @@ export class ScopedIndex {
       .prepare('INSERT INTO vector_profiles VALUES(?,?,?) ON CONFLICT(profile_hash) DO NOTHING')
       .run(hash, JSON.stringify(profile), profile.dimensions);
     this.db.exec(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS ${vectorTable(profile.dimensions)} USING vec0(id INTEGER PRIMARY KEY,profile_hash TEXT PARTITION KEY,bin BIT[${profile.dimensions}]);`
+      `CREATE VIRTUAL TABLE IF NOT EXISTS ${vectorTable(profile.dimensions)} USING vec0(id INTEGER PRIMARY KEY,profile_hash TEXT PARTITION KEY,bin BIT[${Math.ceil(profile.dimensions / 8) * 8}]);`
     );
   }
   private deleteVectors(chunkPk: number): void {
@@ -583,18 +587,27 @@ export class ScopedIndex {
         .prepare(
           `SELECT id FROM ${vectorTable(profile.dimensions)} WHERE bin MATCH vec_quantize_binary(?) AND k=100 AND profile_hash=? AND id IN (${source})`
         )
-        .all(q, profileHash, profileHash, ...params)
+        .all(coarseVectorBlob(q), profileHash, profileHash, ...params)
     );
+    const scoreSql =
+      profile.distance === 'ip'
+        ? '0'
+        : profile.distance === 'l2'
+          ? 'vec_distance_l2(v.emb,?)'
+          : 'vec_distance_cosine(v.emb,?)';
     const ranked = candidates
-      .map((candidate) =>
-        decoder(scopedHitSchema)(
-          this.db
-            .prepare(
-              `SELECT ${columns},vec_distance_cosine(v.emb,?) AS score FROM scoped_vectors v JOIN file_chunks c ON c.pk=v.chunk_pk JOIN file_records f ON f.id=c.file_record_id WHERE v.pk=? AND v.profile_hash=?`
-            )
-            .get(q, candidate.id, profileHash)
-        )
-      )
+      .map((candidate) => {
+        const row = this.db
+          .prepare(
+            `SELECT ${columns},${scoreSql} AS score,v.emb AS embedding FROM scoped_vectors v JOIN file_chunks c ON c.pk=v.chunk_pk JOIN file_records f ON f.id=c.file_record_id WHERE v.pk=? AND v.profile_hash=?`
+          )
+          .get(...(profile.distance === 'ip' ? [] : [q]), candidate.id, profileHash);
+        const { embedding, ...hit } = decoder(
+          Schema.Struct({ ...scopedHitSchema.fields, embedding: Schema.Uint8Array })
+        )(row);
+        const score = profile.distance === 'ip' ? negativeInnerProduct(embedding, q) : hit.score;
+        return { ...hit, score };
+      })
       .sort((a, b) => a.score - b.score || a.chunkId.localeCompare(b.chunkId));
     return {
       ...empty,
@@ -622,4 +635,18 @@ export class ScopedIndex {
   validateStorage(): void {
     validateScopedStorage(this.db);
   }
+}
+
+/** pgvector's inner-product distance is the negative dot product (ascending). */
+function negativeInnerProduct(stored: Uint8Array, query: Uint8Array): number {
+  if (stored.byteLength !== query.byteLength) {
+    throw new Error('Stored and query vector dimensions disagree.');
+  }
+  const left = new DataView(stored.buffer, stored.byteOffset, stored.byteLength);
+  const right = new DataView(query.buffer, query.byteOffset, query.byteLength);
+  let dot = 0;
+  for (let offset = 0; offset < stored.byteLength; offset += 4) {
+    dot += left.getFloat32(offset, true) * right.getFloat32(offset, true);
+  }
+  return -dot;
 }

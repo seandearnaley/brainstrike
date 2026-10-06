@@ -4,8 +4,6 @@ export type EmbeddingDeviceHint = EmbeddingDevice;
 
 export type EmbeddingDType = 'fp16' | 'q4' | 'q8' | 'fp32';
 
-export const FUSED_MINILM_MODEL_ID = 'onnx-community/all-MiniLM-L6-v2-ONNX';
-
 export type EmbeddingDimensionParameter =
   | 'dimensions'
   | 'output_dimensionality'

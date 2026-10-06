@@ -29,6 +29,7 @@ vi.mock('@brainstrike/db', async (original) => ({
 }));
 
 import { runHybridSearch } from '../../assistant-server/hybrid-search-tool';
+import { searchNativeAssistantChunks } from '../../assistant-server/native-assistant-retrieval';
 import { runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
 import { projectQueryEmbeddingSpaceModelOutput } from '../../assistant-server/workspace-retrieval-model-projections';
 import { EmbeddingHostManager } from '../../embedding-host-manager';
@@ -582,3 +583,75 @@ describe('native assistant retrieval cutover', () => {
     }
   );
 });
+
+it.each([
+  { distance: 'cosine', score: 0.4, similarity: 0.8 },
+  { distance: 'l2', score: 0.25, similarity: 0.8 },
+  { distance: 'ip', score: -Math.log(4), similarity: 0.8 },
+] as const)(
+  'preserves original $distance similarity threshold semantics for semantic and hybrid retrieval',
+  async ({ distance, score, similarity }) => {
+    const selectedProfile = { ...profile, distance, provider: 'local' as const };
+    const metricEmbedding = {
+      indexMode: 'vector-configured' as const,
+      profile: selectedProfile,
+      profileHash: createHash('sha256')
+        .update(
+          JSON.stringify([
+            'local',
+            profile.modelId,
+            profile.dimensions,
+            distance,
+            profile.revision,
+            profile.dtype,
+            profile.tokenCap,
+          ])
+        )
+        .digest('hex'),
+    };
+    for (const mode of ['semantic', 'hybrid'] as const) {
+      const f = fixture();
+      f.setStatus({ ...f.status, embedding: metricEmbedding });
+      vi.mocked(f.capability.coverage).mockResolvedValue({
+        collections: [{ ...counts, embeddingSetId: 'selected' }],
+        embedding: metricEmbedding,
+        roots: [],
+        storeId: f.result.storeId,
+        totals: counts,
+        vectorCoverageComplete: true,
+      });
+      vi.mocked(f.capability.search).mockImplementation(async () => ({
+        ...f.result,
+        embedding: metricEmbedding,
+        hits: [{ ...hit, score }],
+      }));
+      vi.mocked(f.capability.grep).mockResolvedValue({
+        ...f.result,
+        embedding: metricEmbedding,
+        hits: [],
+      });
+      const input = {
+        capability: f.capability,
+        embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+        embeddingSet: {
+          dimensions: 384,
+          distance,
+          modelId: profile.modelId,
+          modelKey: queryPlan.modelKey,
+        },
+        embeddingSetId: 'selected',
+        mode,
+        query: 'native marker',
+        threshold: similarity,
+      };
+      const accepted = await searchNativeAssistantChunks(input);
+      expect(accepted.vectorResultCount).toBe(1);
+      expect(accepted.hits[0]?.similarity).toBeCloseTo(similarity);
+      const excluded = await searchNativeAssistantChunks({
+        ...input,
+        threshold: similarity + 0.001,
+      });
+      expect(excluded.vectorResultCount).toBe(0);
+    }
+  }
+);

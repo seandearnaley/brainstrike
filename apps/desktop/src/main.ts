@@ -733,7 +733,7 @@ const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
 
 const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
-const embeddingHostManager = new EmbeddingHostManager();
+const embeddingHostManager = new EmbeddingHostManager({ storage });
 const llmHostManager = new LlmHostManager();
 
 // Integrity state clears only when a user-confirmed reset completed: a failed

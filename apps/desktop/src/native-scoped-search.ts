@@ -57,8 +57,30 @@ function embeddingState(profile: VectorProfile | null): IndexerEmbeddingState {
   if (profile === null) {
     return { indexMode: 'text-only' };
   }
-  if (profile.provider !== 'local' && profile.provider !== 'transformers') {
-    throw new Error('Native semantic execution requires an explicitly selected local profile.');
+  if (
+    (profile.provider !== 'local' && profile.provider !== 'transformers') ||
+    profile.revision === undefined ||
+    profile.tokenCap === undefined ||
+    profile.dtype === 'q4' ||
+    profile.distance !== 'cosine'
+  ) {
+    return {
+      indexMode: 'vector-configured',
+      profile: {
+        dimensions: profile.dimensions,
+        distance: profile.distance,
+        modelId: profile.modelId,
+        provider: profile.provider,
+        ...('dtype' in profile ? { dtype: profile.dtype } : {}),
+        ...('revision' in profile && profile.revision !== undefined
+          ? { revision: profile.revision }
+          : {}),
+        ...('tokenCap' in profile && profile.tokenCap !== undefined
+          ? { tokenCap: profile.tokenCap }
+          : {}),
+      },
+      profileHash: vectorProfileHash(profile),
+    };
   }
   const { modelId, revision, dtype, dimensions, tokenCap } = profile;
   const projection = { dimensions, dtype, modelId, revision, tokenCap };
@@ -411,7 +433,9 @@ export function createNativeScopedSearchCapability(
         if (
           request.mode === 'vector' &&
           (snapshot.embedding.indexMode !== 'vector-configured' ||
-            embeddingProfileHash(request.profile) !== snapshot.embedding.profileHash)
+            (request.profile.provider === undefined
+              ? embeddingProfileHash(request.profile)
+              : vectorProfileHash(request.profile)) !== snapshot.embedding.profileHash)
         ) {
           throw new Error('Native query profile differs from the explicitly saved scoped profile.');
         }

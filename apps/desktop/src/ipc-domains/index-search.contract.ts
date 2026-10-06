@@ -12,6 +12,7 @@ import {
   channel,
   parseNoArgs,
 } from '../platform/ipc-contract';
+import { decodeNativeEmbeddingProfile } from '../platform/native-embedding-validation';
 import {
   assertArgCount,
   assertSupportedKeys,
@@ -93,40 +94,23 @@ function parseSearch(raw: readonly unknown[]): [IndexerSearchRequest] {
     ['rootIds', 'collectionId', 'limit', 'mode', 'profile', 'vector'],
     'native vector search'
   );
-  const profile = parseRecord(record['profile'], 'native embedding profile');
-  assertSupportedKeys(
-    profile,
-    ['modelId', 'revision', 'dtype', 'dimensions', 'tokenCap'],
-    'native embedding profile'
-  );
-  const dtype = profile['dtype'];
-  const revision = requireStringType(profile, 'revision', 'native profile');
-  const modelId = requireStringType(profile, 'modelId', 'native profile');
-  const dimensions = requireFiniteNumber(profile, 'dimensions', 'native profile');
-  const tokenCap = requireFiniteNumber(profile, 'tokenCap', 'native profile');
-  if (
-    !(modelId.trim() && /^[a-f0-9]{40}$/u.test(revision)) ||
-    (dtype !== 'q8' && dtype !== 'fp16' && dtype !== 'fp32') ||
-    dimensions !== 384 ||
-    !Number.isSafeInteger(tokenCap) ||
-    tokenCap <= 0
-  ) {
-    throw new TypeError('Native search requires a complete supported embedding profile.');
-  }
+  const profile = decodeNativeEmbeddingProfile(record['profile']);
   const vector = record['vector'];
   if (
     !Array.isArray(vector) ||
-    vector.length !== 384 ||
-    vector.some((value) => typeof value !== 'number' || !Number.isFinite(value))
+    vector.length !== profile.dimensions ||
+    Array.from(vector).some((value) => typeof value !== 'number' || !Number.isFinite(value))
   ) {
-    throw new TypeError('Native search requires 384 finite vector values.');
+    throw new TypeError(
+      'Native search requires exactly the selected dimensions in finite vector values.'
+    );
   }
   return [
     {
       ...collectionScope(record),
       limit: cap,
       mode: 'vector',
-      profile: { dimensions, dtype, modelId, revision, tokenCap },
+      profile,
       rootIds,
       vector: vector as number[],
     },

@@ -15,28 +15,23 @@ import {
   resolveWorkspaceIndexEmbeddingSetId,
 } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { resolveHostedProviderKey } from '@brainstrike/assistant-contract/provider-key-resolution';
 import type { ChunkSearchResult } from '@brainstrike/db';
 import { FileChunkRepository, FileRecordRepository } from '@brainstrike/db';
 import {
-  CohereEmbeddingProvider,
   type EmbeddingProviderType,
-  GoogleEmbeddingProvider,
   type HostedProviderType,
   hostedProviderRequiresApiKey,
   isHostedProvider,
   isLocalProviderType,
-  OpenAIEmbeddingProvider,
   parseProviderModelKey,
-  resolveHostedProviderApiKey,
-  VoyageEmbeddingProvider,
 } from '@brainstrike/embeddings/provider-core';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { type DesktopDatabase, getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
-import { getSecretsService, SecretReadError } from '../secrets';
+import { createHostedProvider, resolveEmbeddingApiKey } from '../hosted-embeddings';
+import { SecretReadError } from '../secrets';
 import {
   resolveNativeAssistantCollection,
   searchNativeAssistantChunks,
@@ -123,12 +118,6 @@ export interface EmbeddingSetRow {
   modelId: string;
   modelKey: string;
 }
-
-type HostedEmbeddingProvider =
-  | OpenAIEmbeddingProvider
-  | GoogleEmbeddingProvider
-  | CohereEmbeddingProvider
-  | VoyageEmbeddingProvider;
 
 export interface FileRecordRow {
   id: string;
@@ -258,87 +247,6 @@ export async function resolveEmbeddingSet(
     throw new Error(ERROR_MESSAGES.invalidEmbeddingSet);
   }
   return row;
-}
-
-async function resolveEmbeddingApiKey(provider: HostedProviderType): Promise<string | undefined> {
-  // Shared resolution order (BST-979): the environment is authoritative, the
-  // keychain is the fallback — previously this path was keychain-first, so a
-  // key rotated via env could stay shadowed by a stale stored key. The
-  // env leg reuses the embeddings resolver (same table + core order); the
-  // secret leg preserves the BST-574 escape hatch: a keychain read failure
-  // is NOT an absent credential and stays visible unless env supplied a key.
-  const fromEnvironment = await resolveHostedProviderApiKey(provider);
-  if (fromEnvironment) {
-    return fromEnvironment;
-  }
-  const secrets = getSecretsService();
-  const stored = await resolveHostedProviderKey({
-    envKeyNames: [],
-    envSources: [],
-    readSecret: () => secrets.getKey(provider),
-  });
-  if (stored.secretReadError) {
-    logger.warn('Stored embedding API key is unreadable and no env key exists', {
-      error: stored.secretReadError,
-      provider,
-    });
-    throw stored.secretReadError;
-  }
-  return stored.key;
-}
-
-function createHostedProvider(
-  provider: HostedProviderType,
-  modelId: string,
-  dimensions: number,
-  apiKey?: string
-): HostedEmbeddingProvider {
-  switch (provider) {
-    case 'openai':
-      return new OpenAIEmbeddingProvider({
-        modelId,
-        provider: 'openai',
-        targetDimensions: dimensions,
-        ...(apiKey ? { apiKey } : {}),
-      });
-    case 'ollama':
-      return new OpenAIEmbeddingProvider({
-        endpoint: 'http://127.0.0.1:11434/v1/embeddings',
-        modelId,
-        provider: 'ollama',
-        targetDimensions: dimensions,
-        ...(apiKey ? { apiKey } : {}),
-        includeDimensions: false,
-        requiresApiKey: false,
-      });
-    case 'lmstudio':
-      return new OpenAIEmbeddingProvider({
-        endpoint: 'http://localhost:1234/v1/embeddings',
-        modelId,
-        provider: 'lmstudio',
-        targetDimensions: dimensions,
-        ...(apiKey ? { apiKey } : {}),
-        includeDimensions: false,
-        requiresApiKey: false,
-      });
-    case 'google':
-      if (!apiKey) {
-        throw new Error(ERROR_MESSAGES.missingApiKey);
-      }
-      return new GoogleEmbeddingProvider({ apiKey, modelId, outputDimensions: dimensions });
-    case 'cohere':
-      if (!apiKey) {
-        throw new Error(ERROR_MESSAGES.missingApiKey);
-      }
-      return new CohereEmbeddingProvider({ apiKey, inputType: 'search_query', modelId });
-    case 'voyage':
-      if (!apiKey) {
-        throw new Error(ERROR_MESSAGES.missingApiKey);
-      }
-      return new VoyageEmbeddingProvider({ apiKey, inputType: 'query', modelId });
-    default:
-      throw new Error(ERROR_MESSAGES.unsupportedProvider);
-  }
 }
 
 async function createSelectionSnapshot(

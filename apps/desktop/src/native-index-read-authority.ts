@@ -62,8 +62,11 @@ export function createNativeIndexReadAuthority(dependencies: Dependencies) {
       collectionId: current.settings.managedCollectionId,
       generation: current.generation,
       profile: resolved?.profile ?? null,
-      queryPlan: resolved?.workerPlan
-        ? { inferencePlan: resolved.workerPlan, modelKey: resolved.modelKey }
+      queryPlan: resolved
+        ? {
+            ...(resolved.workerPlan ? { inferencePlan: resolved.workerPlan } : {}),
+            modelKey: resolved.modelKey,
+          }
         : undefined,
       readiness: dependencies.readiness(current),
       rootIds: authorized.rootIds,

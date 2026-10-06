@@ -47,7 +47,10 @@ export const vectorProfileSchema = Schema.Union([
   Schema.Struct({
     ...profileSchema.fields,
     ...vectorProfileFields,
+    dtype: Schema.Literals(['q4', 'q8', 'fp16', 'fp32']),
     provider: Schema.Literals(['local', 'transformers']),
+    revision: Schema.optional(profileSchema.fields.revision),
+    tokenCap: Schema.optional(profileSchema.fields.tokenCap),
   }),
   Schema.Struct({
     ...vectorProfileFields,

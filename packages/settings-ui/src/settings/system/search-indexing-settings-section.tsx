@@ -1,4 +1,11 @@
+import {
+  useAvailableModels,
+  useAvailableProviders,
+} from '@brainstrike/app-state/hooks/use-available-embedding-models';
+import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/app-state/hooks/use-local-runtime-embedding-model-catalog';
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   getWorkspaceCollectionSyncCurrentActivity,
   getWorkspaceCollectionSyncMetricRows,
@@ -18,6 +25,7 @@ import {
   CardHeader,
   CardTitle,
   Label,
+  ModelPicker,
   Select,
   SelectContent,
   SelectItem,
@@ -47,22 +55,12 @@ interface CollectionOption {
   name: string;
 }
 
-// These are the two pinned exports accepted by the native inference-plan resolver.
-// Choosing a model is explicit; it never rewrites an existing collection profile.
-const NATIVE_INDEX_MODELS = [
-  {
-    dimensions: 384,
-    modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-    modelKey: 'local::onnx-community/all-MiniLM-L6-v2-ONNX',
-    name: 'MiniLM — WebGPU or CPU',
-  },
-  {
-    dimensions: 384,
-    modelId: 'Xenova/all-MiniLM-L6-v2',
-    modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-    name: 'MiniLM — CPU',
-  },
-] as const;
+interface CollectionModel {
+  dimensions: number;
+  modelId: string;
+  modelKey: string;
+  name: string;
+}
 
 function compareCollectionsDesc(
   left: Pick<CollectionOption, 'createdAt' | 'id'>,
@@ -224,7 +222,17 @@ function NativeIndexControls({
   const setNativeLocalSelection = useBackgroundIndexingPreferencesStore(
     (state) => state.setNativeLocalSelection
   );
-  const localPlans = selectedCollection ? getNativeLocalPlans(selectedCollection) : [];
+  const localPlans = selectedCollection
+    ? getNativeLocalPlans(selectedCollection, nativeLocalSelection)
+    : [];
+  const selectedPlan = localPlans.find(
+    ({ selection }) =>
+      selection.device === nativeLocalSelection?.device &&
+      selection.dtype === nativeLocalSelection.dtype &&
+      selection.modelId === nativeLocalSelection.modelId &&
+      selection.dimensions === nativeLocalSelection.dimensions &&
+      selection.revision === nativeLocalSelection.revision
+  );
   return (
     <>
       <div className="space-y-2">
@@ -247,14 +255,14 @@ function NativeIndexControls({
         </Select>
         <p className="text-muted-foreground text-sm">
           Text search indexes files without running an embedding model. Semantic search also uses
-          your selected collection's local model.
+          your selected collection's embedding model and provider.
         </p>
       </div>
-      {nativeIndexMode === 'VECTOR' ? (
+      {nativeIndexMode === 'VECTOR' && localPlans.length > 0 ? (
         <div className="space-y-2">
           <Label htmlFor="native-inference-plan">Local model execution</Label>
           <Select
-            {...{ value: nativeLocalSelection ? JSON.stringify(nativeLocalSelection) : '' }}
+            {...{ value: selectedPlan ? JSON.stringify(selectedPlan.selection) : '' }}
             onValueChange={(value) => {
               const selection = localPlans.find((plan) => JSON.stringify(plan.selection) === value);
               if (!selection) {
@@ -274,10 +282,10 @@ function NativeIndexControls({
               ))}
             </SelectContent>
           </Select>
-          {localPlans.length === 0 ? (
+          {localPlans.length > 0 ? (
             <p className="text-muted-foreground text-sm" role="status">
-              The selected collection has no supported local execution plan. Choose a supported
-              local collection.
+              Choose the execution format provided by your model. Unavailable formats report an
+              error; indexing never substitutes another model or execution device.
             </p>
           ) : null}
         </div>
@@ -309,7 +317,7 @@ function NativeIndexControls({
 
 async function findOrCreateNativeCollection(
   repository: NonNullable<ReturnType<typeof useEmbeddingSetsRepository>>,
-  model: (typeof NATIVE_INDEX_MODELS)[number],
+  model: CollectionModel,
   currentId: string | null
 ) {
   const matches = (await repository.findAll()).filter(
@@ -344,7 +352,29 @@ function NativeCollectionSetup({
   readonly onCreated: (collection: CollectionOption) => void;
 }) {
   const [setupModelKey, setSetupModelKey] = useState('');
-  const setupModel = NATIVE_INDEX_MODELS.find((model) => model.modelKey === setupModelKey);
+  const registryError = useEnsureModelRegistry();
+  const models = useModelRegistryStore((state) => state.models);
+  const providers = useModelRegistryStore((state) => state.providers);
+  const runtime = useLocalRuntimeEmbeddingModelCatalog({
+    maxVerificationModels: 8,
+    verifyEmbeddingDimensions: true,
+  });
+  const availableModels = useAvailableModels(models, runtime.catalog);
+  const availableProviders = useAvailableProviders(providers, runtime.catalog);
+  const selectedModel = availableModels.find((model) => model.id === setupModelKey);
+  const dimensions = selectedModel?.capabilities.defaultDimension;
+  const setupModel: CollectionModel | null =
+    selectedModel &&
+    typeof dimensions === 'number' &&
+    Number.isInteger(dimensions) &&
+    dimensions > 0
+      ? {
+          dimensions,
+          modelId: selectedModel.modelId,
+          modelKey: selectedModel.id,
+          name: selectedModel.name,
+        }
+      : null;
   const setupPending = useRef(false);
   const [creatingCollection, setCreatingCollection] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
@@ -394,23 +424,42 @@ function NativeCollectionSetup({
   return (
     <div className="space-y-2 rounded-md border p-3">
       <p className="text-sm">
-        Choose an embedding model for your Workspace Index. Only models supported by desktop
-        indexing are listed. Selecting a different model creates or selects its own collection and
-        preserves your existing collection.
+        Choose an embedding model from your existing collection providers. Selecting a different
+        model creates or selects its own collection and preserves your existing collection.
       </p>
       <Label htmlFor="workspace-index-model">Embedding model</Label>
-      <Select disabled={creatingCollection} onValueChange={setSetupModelKey} value={setupModelKey}>
-        <SelectTrigger aria-label="Embedding model" id="workspace-index-model">
-          <SelectValue placeholder="Choose an embedding model" />
-        </SelectTrigger>
-        <SelectContent>
-          {NATIVE_INDEX_MODELS.map((model) => (
-            <SelectItem key={model.modelKey} value={model.modelKey}>
-              {model.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <ModelPicker
+        disabled={creatingCollection}
+        mode="single"
+        models={availableModels}
+        modelType="embedding"
+        onChange={(value) => {
+          if (typeof value === 'string') {
+            setSetupModelKey(value);
+          }
+        }}
+        providers={availableProviders}
+        renderTrigger={() => (
+          <Button
+            aria-label="Embedding model"
+            disabled={creatingCollection}
+            id="workspace-index-model"
+            role="combobox"
+            type="button"
+            variant="outline"
+          >
+            {selectedModel?.name ?? 'Choose an embedding model'}
+          </Button>
+        )}
+        value={setupModelKey}
+      />
+      {selectedModel && !setupModel ? (
+        <p role="alert">
+          This model has no verified embedding dimensions. Configure it in Models before creating a
+          collection.
+        </p>
+      ) : null}
+      {registryError || runtime.error ? <p role="alert">{registryError ?? runtime.error}</p> : null}
       <Button
         disabled={!(repository && setupModel) || creatingCollection}
         onClick={() => void setupWorkspaceIndex()}
@@ -748,28 +797,42 @@ export function SearchIndexingSettingsSection({
   );
 }
 
-function getNativeLocalPlans(collection: CollectionOption): readonly {
+function getNativeLocalPlans(
+  collection: CollectionOption,
+  current: NativeLocalSelection | null
+): readonly {
   readonly label: string;
   readonly selection: NativeLocalSelection;
 }[] {
   const provider = parseEmbeddingProviderModelKey(collection.modelKey)?.provider;
-  if ((provider !== 'local' && provider !== 'transformers') || collection.dimensions !== 384) {
+  if (provider !== 'local' && provider !== 'transformers') {
     return [];
   }
-  const base = { dimensions: collection.dimensions, modelId: collection.modelId };
-  if (collection.modelId === 'onnx-community/all-MiniLM-L6-v2-ONNX') {
-    const revision = 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f';
-    return [
-      { label: 'WebGPU · FP16', selection: { ...base, device: 'webgpu', dtype: 'fp16', revision } },
-      { label: 'WASM · FP32', selection: { ...base, device: 'wasm', dtype: 'fp32', revision } },
-    ];
-  }
-  if (collection.modelId === 'Xenova/all-MiniLM-L6-v2') {
-    const revision = '751bff37182d3f1213fa05d7196b954e230abad9';
-    return [
-      { label: 'WASM · Q8', selection: { ...base, device: 'wasm', dtype: 'q8', revision } },
-      { label: 'WASM · FP32', selection: { ...base, device: 'wasm', dtype: 'fp32', revision } },
-    ];
-  }
-  return [];
+  const choices: readonly {
+    device: 'webgpu' | 'wasm';
+    dtype: NativeLocalSelection['dtype'];
+    label: string;
+  }[] = [
+    { device: 'webgpu', dtype: 'fp16', label: 'WebGPU · FP16' },
+    { device: 'webgpu', dtype: 'fp32', label: 'WebGPU · FP32' },
+    { device: 'webgpu', dtype: 'q4', label: 'WebGPU · Q4' },
+    { device: 'webgpu', dtype: 'q8', label: 'WebGPU · Q8' },
+    { device: 'wasm', dtype: 'fp32', label: 'WASM · FP32' },
+    { device: 'wasm', dtype: 'q4', label: 'WASM · Q4' },
+    { device: 'wasm', dtype: 'q8', label: 'WASM · Q8' },
+  ];
+  return choices.map(({ device, dtype, label }) => ({
+    label,
+    selection: {
+      device,
+      dimensions: collection.dimensions,
+      dtype,
+      modelId: collection.modelId,
+      ...(current?.modelId === collection.modelId &&
+      current.dimensions === collection.dimensions &&
+      current.revision
+        ? { revision: current.revision }
+        : {}),
+    },
+  }));
 }

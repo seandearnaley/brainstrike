@@ -84,6 +84,26 @@ export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
     return this.apiKey !== null;
   }
 
+  private validateBatch(
+    embeddings: readonly number[][],
+    dimensions: number
+  ): EmbeddingProviderError | undefined {
+    for (const vector of embeddings) {
+      const validation = this.validateDimensions(vector, dimensions);
+      if (!validation.ok) {
+        return validation.error;
+      }
+      if (!vector.every(Number.isFinite)) {
+        return {
+          field: 'embedding',
+          message: 'Cohere returned nonfinite embedding values.',
+          type: 'validation_error',
+        };
+      }
+    }
+    return undefined;
+  }
+
   async isAvailable(): Promise<boolean> {
     return this.hasApiKey();
   }
@@ -144,7 +164,7 @@ export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
           // biome-ignore lint/style/useNamingConvention: Cohere API expects snake_case key
           input_type: this.inputType,
           model: this.modelId,
-          texts: [input.text],
+          texts: Array.isArray(input.text) ? input.text : [input.text],
         }),
         headers: {
           // biome-ignore lint/style/useNamingConvention: HTTP header casing is standardized
@@ -188,9 +208,16 @@ export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
       }
 
       const payload = (await response.json()) as CohereEmbeddingResponse;
-      const embedding = payload.embeddings?.float?.[0];
+      const embeddings = payload.embeddings?.float;
+      const embedding = embeddings?.[0];
 
-      if (!Array.isArray(embedding)) {
+      if (
+        !(
+          Array.isArray(embeddings) &&
+          Array.isArray(embedding) &&
+          embeddings.length === (Array.isArray(input.text) ? input.text.length : 1)
+        )
+      ) {
         return {
           error: {
             message: 'Cohere response did not include an embedding array.',
@@ -204,14 +231,15 @@ export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
 
       const modelInfo = this.getModelInfo(this.modelId);
       const expectedDimensions = modelInfo?.dimensions ?? embedding.length;
-      const validation = this.validateDimensions(embedding, expectedDimensions);
-      if (!validation.ok) {
-        return validation as Result<EmbeddingOutput, EmbeddingProviderError>;
+      const batchError = this.validateBatch(embeddings, expectedDimensions);
+      if (batchError) {
+        return { error: batchError, ok: false };
       }
 
       const output: EmbeddingOutput = {
         dimensions: embedding.length,
         embedding,
+        embeddings,
         modelId: input.modelId,
         provider: 'cohere',
       };

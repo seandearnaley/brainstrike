@@ -1,10 +1,20 @@
 /** Browser-safe DTOs only. Native process ownership belongs to @brainstrike/indexer. */
 export interface IndexerEmbeddingProfile {
   readonly dimensions: number;
-  readonly dtype: 'q8' | 'fp16' | 'fp32';
+  readonly distance?: 'cosine' | 'l2' | 'ip';
+  readonly dtype?: 'q4' | 'q8' | 'fp16' | 'fp32';
   readonly modelId: string;
-  readonly revision: string;
-  readonly tokenCap: number;
+  readonly provider?:
+    | 'local'
+    | 'transformers'
+    | 'openai'
+    | 'google'
+    | 'cohere'
+    | 'voyage'
+    | 'ollama'
+    | 'lmstudio';
+  readonly revision?: string;
+  readonly tokenCap?: number;
 }
 export type IndexerEmbeddingState =
   | { readonly indexMode: 'text-only' }
@@ -49,11 +59,11 @@ export type IndexerStatus =
       }[];
       readonly queryPlan?: {
         readonly modelKey: string;
-        readonly inferencePlan: {
+        readonly inferencePlan?: {
           readonly modelId: string;
-          readonly revision: string;
-          readonly dimensions: 384;
-          readonly dtype: 'q8' | 'fp16' | 'fp32';
+          readonly revision?: string;
+          readonly dimensions: number;
+          readonly dtype: 'q4' | 'q8' | 'fp16' | 'fp32';
           readonly device: 'wasm' | 'webgpu';
         };
       };
@@ -155,4 +165,74 @@ export interface IndexSearchCapability {
   rebuild(): Promise<void>;
   search(request: IndexerSearchRequest): Promise<IndexerSearchResult>;
   status(): Promise<IndexerStatus>;
+}
+
+/** Same canonical profile identity used by native scoped storage; legacy foundation stays unchanged. */
+export function indexerEmbeddingProfileValues(
+  profile: IndexerEmbeddingProfile
+): readonly (string | number | null)[] {
+  return profile.provider === undefined
+    ? [
+        profile.modelId,
+        profile.revision ?? null,
+        profile.dtype ?? null,
+        profile.dimensions,
+        profile.tokenCap ?? null,
+      ]
+    : [
+        profile.provider,
+        profile.modelId,
+        profile.dimensions,
+        profile.distance ?? null,
+        profile.revision ?? null,
+        profile.dtype ?? null,
+        profile.tokenCap ?? null,
+      ];
+}
+export function validIndexerEmbeddingProfile(profile: IndexerEmbeddingProfile): boolean {
+  if (
+    !(
+      profile.modelId.trim() &&
+      Number.isSafeInteger(profile.dimensions) &&
+      profile.dimensions > 0 &&
+      profile.dimensions <= 16_000
+    )
+  ) {
+    return false;
+  }
+  if (
+    profile.provider !== undefined &&
+    ![
+      'local',
+      'transformers',
+      'openai',
+      'google',
+      'cohere',
+      'voyage',
+      'ollama',
+      'lmstudio',
+    ].includes(profile.provider)
+  ) {
+    return false;
+  }
+  const local =
+    profile.provider === undefined ||
+    profile.provider === 'local' ||
+    profile.provider === 'transformers';
+  if (!local) {
+    return (
+      ['cosine', 'l2', 'ip'].includes(profile.distance ?? '') &&
+      profile.dtype === undefined &&
+      profile.revision === undefined &&
+      profile.tokenCap === undefined
+    );
+  }
+  return (
+    (profile.provider === undefined || ['cosine', 'l2', 'ip'].includes(profile.distance ?? '')) &&
+    profile.dtype !== undefined &&
+    ['q4', 'q8', 'fp16', 'fp32'].includes(profile.dtype) &&
+    (profile.revision === undefined || /^[a-f0-9]{40}$/u.test(profile.revision)) &&
+    (profile.tokenCap === undefined ||
+      (Number.isSafeInteger(profile.tokenCap) && profile.tokenCap > 0))
+  );
 }

@@ -1,70 +1,47 @@
 import { describe, expect, it } from 'vitest';
-import { resolvePinnedEmbeddingPlan } from '../inference-plan.js';
+import {
+  resolveCatalogEmbeddingPlan,
+  validateCatalogEmbeddingWorkerPlan,
+} from '../inference-plan.js';
 
-const fused = {
-  device: 'webgpu' as const,
-  dimensions: 384,
-  dtype: 'fp16',
-  modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-  revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-};
-const legacy = {
-  device: 'wasm' as const,
-  dimensions: 384,
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-};
-
-describe('explicit pinned embedding request plan', () => {
-  it.each([
-    [fused, 256],
-    [{ ...fused, device: 'wasm' as const, dtype: 'fp32' }, 256],
-    [legacy, 512],
-    [{ ...legacy, dtype: 'fp32' }, 512],
-  ])('resolves only the supplied supported worker plan', (request, tokenCap) => {
-    expect(resolvePinnedEmbeddingPlan(request)).toEqual({
+// Original migrated catalog metadata; no model aliases, downloads or qualification list.
+const catalog = [
+  { dimensions: 384, id: 'Xenova/bge-small-en-v1.5' },
+  { dimensions: 768, id: 'Xenova/bge-base-en-v1.5' },
+  { dimensions: 768, id: 'jinaai/jina-embeddings-v2-base-code' },
+];
+describe('canonical catalog local plans', () => {
+  it.each(catalog)('preserves $id and $dimensions', (model) => {
+    const request = {
+      device: 'wasm' as const,
+      dimensions: model.dimensions,
+      dtype: 'q8',
+      modelId: model.id,
+    };
+    expect(resolveCatalogEmbeddingPlan(request, model)).toEqual({
       kind: 'ready',
-      profile: {
-        dimensions: 384,
-        dtype: request.dtype,
-        modelId: request.modelId,
-        revision: request.revision,
-        tokenCap,
-      },
+      profile: { dimensions: model.dimensions, dtype: 'q8', modelId: model.id },
       workerPlan: request,
     });
   });
-  it('does not derive revision, dtype or device from a selected model ID and dimensions', () => {
-    expect(resolvePinnedEmbeddingPlan({ dimensions: 384, modelId: legacy.modelId })).toEqual({
-      kind: 'unavailable',
-      reason: 'The selected embedding request requires an explicit revision, device and dtype.',
-    });
+  it.each(['q4', 'q8', 'fp16', 'fp32'] as const)('preserves explicit %s dtype', (dtype) => {
+    const request = { device: 'webgpu' as const, dimensions: 384, dtype, modelId: catalog[0]!.id };
+    expect(validateCatalogEmbeddingWorkerPlan(request)).toEqual(request);
   });
-  it.each([
-    { ...fused, dtype: 'q8' },
-    { ...fused, device: 'wasm' as const },
-    { ...legacy, dtype: 'q4' },
-    { ...legacy, device: 'webgpu' as const },
-  ])('refuses unsupported device/dtype without changing the request', (request) => {
-    const before = structuredClone(request);
-    expect(resolvePinnedEmbeddingPlan(request)).toEqual({
-      kind: 'unavailable',
-      reason:
-        'The selected pinned embedding export does not support this validated device/dtype profile.',
-    });
-    expect(request).toEqual(before);
+  it.each(['main', '', 'a'.repeat(39)])('refuses malformed supplied revision %j', (revision) => {
+    expect(() =>
+      validateCatalogEmbeddingWorkerPlan({
+        device: 'wasm',
+        dimensions: 384,
+        dtype: 'q8',
+        modelId: catalog[0]!.id,
+        revision,
+      })
+    ).toThrow();
   });
-  it.each([
-    { ...fused, revision: 'main' },
-    { ...fused, revision: legacy.revision },
-    { ...fused, dimensions: 768 },
-    { ...fused, modelId: 'arbitrary/model' },
-  ])('refuses unverified export identity without substituting a model', (request) => {
-    expect(resolvePinnedEmbeddingPlan(request)).toEqual({
-      kind: 'unavailable',
-      reason:
-        'The selected embedding export revision and dimensions are not a validated native vector profile.',
-    });
+  it('never selects an omitted device or dtype', () => {
+    expect(
+      resolveCatalogEmbeddingPlan({ dimensions: 384, modelId: catalog[0]!.id }, catalog[0]!).kind
+    ).toBe('unavailable');
   });
 });

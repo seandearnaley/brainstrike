@@ -34,7 +34,11 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function fixture(scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'root' }) {
+async function fixture(
+  scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'root' },
+  selectedProfile: VectorProfile = profile
+) {
+  const profile = selectedProfile;
   const recorded = JSON.parse(
     await readFile(
       new URL('../../indexer/__tests__/fixtures/canonical-provided-chunks.json', import.meta.url),
@@ -241,18 +245,21 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     await f.host.close();
   });
   it.each(['provider', 'distance'] as const)(
-    'refuses unsupported saved %s without TEXT degradation',
+    'preserves supported saved %s through the canonical vector path',
     async (field) => {
-      const f = await fixture();
-      vi.mocked(f.catalog.resolveProfile).mockResolvedValue(
+      const selected: VectorProfile =
         field === 'provider'
           ? { dimensions: 384, distance: 'cosine', modelId: 'saved-hosted', provider: 'openai' }
-          : { ...profile, distance: 'l2' }
+          : { ...profile, distance: 'l2' };
+      const f = await fixture(undefined, selected);
+      await f.host.scan(f.request);
+      expect(f.inference.generate).toHaveBeenCalledWith(
+        expect.objectContaining({ profile: selected })
       );
-      await expect(f.host.scan(f.request)).rejects.toThrow('explicitly saved local cosine');
-      expect(f.inference.generate).not.toHaveBeenCalled();
+      expect(f.publication.commitVectorFile).toHaveBeenCalledWith(
+        expect.objectContaining({ profile: selected })
+      );
       expect(f.publication.commitTextFile).not.toHaveBeenCalled();
-      expect(f.catalog.completeFiles).not.toHaveBeenCalled();
       await f.host.close();
     }
   );

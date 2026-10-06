@@ -167,19 +167,52 @@ describe('preload contract-derived bridges', () => {
       'search-token'
     );
   });
-  it('rejects incomplete native pins before IPC rather than dropping them', () => {
+  it.each([
+    { dimensions: 384, dtype: 'q8', modelId: 'Xenova/bge-small-en-v1.5' },
+    { dimensions: 768, dtype: 'fp32', modelId: 'Xenova/bge-base-en-v1.5' },
+    { dimensions: 768, dtype: 'q4', modelId: 'jinaai/jina-embeddings-v2-base-code' },
+  ])(
+    'preserves original catalog $modelId without invented revision across query and document preload',
+    async (selected) => {
+      const inferencePlan = { ...selected, device: 'wasm' };
+      for (const kind of ['queryEmbedding', 'documentEmbeddings'] as const) {
+        mockInvoke.mockClear();
+        const payload = {
+          dimensions: selected.dimensions,
+          inferencePlan,
+          modelId: selected.modelId,
+          modelKey: `local::${selected.modelId}`,
+          ...(kind === 'queryEmbedding' ? { query: 'callers' } : { texts: ['document'] }),
+        };
+        await exposedApi('embeddingHost')[kind]?.(payload, { requestId: 'catalog-token' });
+        expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.embeddingHost[kind], {
+          payload,
+          requestId: 'catalog-token',
+        });
+      }
+    }
+  );
+  it.each([
+    { device: undefined },
+    { dtype: undefined },
+    { dtype: 'unknown' },
+    { revision: 'main' },
+    { dimensions: 0 },
+    { dimensions: Number.NaN },
+  ])('rejects invalid explicit local plan before IPC: %j', (invalid) => {
     mockInvoke.mockClear();
     expect(() =>
       exposedApi('embeddingHost')['queryEmbedding']?.({
-        dimensions: 384,
+        dimensions: 768,
         inferencePlan: {
           device: 'wasm',
-          dimensions: 384,
+          dimensions: 768,
           dtype: 'q8',
-          modelId: 'Xenova/all-MiniLM-L6-v2',
+          modelId: 'Xenova/bge-base-en-v1.5',
+          ...invalid,
         },
-        modelId: 'Xenova/all-MiniLM-L6-v2',
-        modelKey: 'native:minilm',
+        modelId: 'Xenova/bge-base-en-v1.5',
+        modelKey: 'local::Xenova/bge-base-en-v1.5',
         query: 'callers',
       })
     ).toThrow();

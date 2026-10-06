@@ -25,7 +25,7 @@ interface NativeSearchStatus {
 }
 function matchesSelection(
   selection: NativeLocalSelection,
-  plan: NonNullable<ReadyStatus['queryPlan']>['inferencePlan']
+  plan: NonNullable<NonNullable<ReadyStatus['queryPlan']>['inferencePlan']>
 ): boolean {
   return (
     selection.modelId === plan.modelId &&
@@ -51,9 +51,10 @@ function matchesSavedChoices(
   return (
     mode === 'VECTOR' &&
     status.embedding.indexMode === 'vector-configured' &&
-    selection !== null &&
     status.queryPlan !== undefined &&
-    matchesSelection(selection, status.queryPlan.inferencePlan)
+    (status.queryPlan.inferencePlan
+      ? selection !== null && matchesSelection(selection, status.queryPlan.inferencePlan)
+      : selection === null)
   );
 }
 
@@ -162,9 +163,13 @@ export function NativeSearchProvider({
       const saved = useBackgroundIndexingPreferencesStore.getState();
       if (
         saved.nativeIndexMode !== 'VECTOR' ||
-        !saved.nativeLocalSelection ||
         !queryPlan ||
-        !matchesSelection(saved.nativeLocalSelection, queryPlan.inferencePlan) ||
+        (queryPlan.inferencePlan
+          ? !(
+              saved.nativeLocalSelection &&
+              matchesSelection(saved.nativeLocalSelection, queryPlan.inferencePlan)
+            )
+          : saved.nativeLocalSelection !== null) ||
         current.kind !== 'ready' ||
         JSON.stringify(executionStatus(current)) !== JSON.stringify(execution) ||
         current.embedding.indexMode !== 'vector-configured' ||
@@ -179,7 +184,7 @@ export function NativeSearchProvider({
       return generateDesktopQueryEmbedding(
         {
           dimensions: requested.dimensions,
-          inferencePlan: queryPlan.inferencePlan,
+          ...(queryPlan.inferencePlan ? { inferencePlan: queryPlan.inferencePlan } : {}),
           modelId: requested.modelId,
           modelKey: queryPlan.modelKey,
           query,

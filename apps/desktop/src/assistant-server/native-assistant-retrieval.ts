@@ -131,22 +131,7 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
   }
   const { profile } = status.embedding;
   const plan = status.queryPlan;
-  if (
-    !plan ||
-    plan.modelKey !== embeddingSet.modelKey ||
-    profile.modelId !== embeddingSet.modelId ||
-    embeddingSet.dimensions !== profile.dimensions ||
-    embeddingSet.distance !== 'cosine' ||
-    plan.inferencePlan.modelId !== profile.modelId ||
-    plan.inferencePlan.revision !== profile.revision ||
-    plan.inferencePlan.dimensions !== profile.dimensions ||
-    plan.inferencePlan.dtype !== profile.dtype ||
-    !['wasm', 'webgpu'].includes(plan.inferencePlan.device)
-  ) {
-    refuse(
-      'Native query inference requires the exact saved model, revision, dimensions, dtype, device and cosine profile.'
-    );
-  }
+  assertSelectedQueryIdentity(profile, plan, embeddingSet);
   const rootIds = request.rootId === undefined ? [] : [request.rootId];
   // Main authorizes only the active collection's bindings. A root scope intersects
   // those bindings; verify membership again on every returned canonical hit.
@@ -178,7 +163,7 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
   // Preserve the exact signal and saved scalar plan; queryEmbedding owns query task/prefix.
   const payload = {
     dimensions: profile.dimensions,
-    inferencePlan: plan.inferencePlan,
+    ...(plan.inferencePlan ? { inferencePlan: plan.inferencePlan } : {}),
     modelId: profile.modelId,
     modelKey: plan.modelKey,
     query,
@@ -229,10 +214,15 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
   if (request.mode === 'semantic') {
     const pool = await read();
     validatePool(pool);
-    const selected = pool.hits.filter((hit) => 1 - hit.score >= request.threshold);
-    hits = selected
-      .slice(0, limit)
-      .map((hit) => ({ hit, rrfScore: 0, similarity: 1 - hit.score, sourceCount: 1 }));
+    const selected = pool.hits.filter(
+      (hit) => distanceSimilarity(hit.score, embeddingSet.distance) >= request.threshold
+    );
+    hits = selected.slice(0, limit).map((hit) => ({
+      hit,
+      rrfScore: 0,
+      similarity: distanceSimilarity(hit.score, embeddingSet.distance),
+      sourceCount: 1,
+    }));
     vectorResultCount = selected.length;
     truncated = pool.truncated || pool.candidatesTruncated || selected.length > limit;
   } else {
@@ -270,7 +260,9 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
     if (!(vectorPool && bm25 && grep)) {
       throw new Error('Native search pool invariant failed.');
     }
-    const vectorHits = vectorPool.hits.filter((hit) => 1 - hit.score >= request.threshold);
+    const vectorHits = vectorPool.hits.filter(
+      (hit) => distanceSimilarity(hit.score, embeddingSet.distance) >= request.threshold
+    );
     const fused = fuseNativeSearchPools(
       { bm25, grep, vector: { ...vectorPool, hits: vectorHits } },
       status
@@ -285,7 +277,9 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
           Number(!!vectorHit) +
           Number(!!keywordHit) +
           Number(grep.hits.some((item) => item.chunkId === hit.chunkId)),
-        ...(vectorHit ? { similarity: 1 - vectorHit.score } : {}),
+        ...(vectorHit
+          ? { similarity: distanceSimilarity(vectorHit.score, embeddingSet.distance) }
+          : {}),
         ...(keywordHit ? { ftsRank: -keywordHit.score } : {}),
       };
     });
@@ -307,4 +301,48 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
         }
       : {}),
   };
+}
+
+/** Match the original collection search policy's normalized metric scores. */
+function distanceSimilarity(score: number, distance: string | null): number {
+  if (distance === 'l2') {
+    return 1 / (1 + score);
+  }
+  if (distance === 'ip') {
+    return 1 / (1 + Math.exp(score));
+  }
+  if (distance === 'cosine') {
+    return 1 - score / 2;
+  }
+  throw new Error('Native collection distance is unsupported.');
+}
+function assertSelectedQueryIdentity(
+  profile: import('@brainstrike/indexing-contract/indexer-client').IndexerEmbeddingProfile,
+  plan: Extract<
+    import('@brainstrike/indexing-contract/indexer-client').IndexerStatus,
+    { kind: 'ready' }
+  >['queryPlan'],
+  selectedSet: EmbeddingSetRow
+): asserts plan is NonNullable<typeof plan> {
+  if (
+    !plan ||
+    plan.modelKey !== selectedSet.modelKey ||
+    profile.modelId !== selectedSet.modelId ||
+    selectedSet.dimensions !== profile.dimensions ||
+    (profile.distance !== undefined && profile.distance !== selectedSet.distance) ||
+    !['cosine', 'l2', 'ip'].includes(selectedSet.distance ?? '') ||
+    (plan.inferencePlan
+      ? plan.inferencePlan.modelId !== profile.modelId ||
+        plan.inferencePlan.revision !== profile.revision ||
+        plan.inferencePlan.dimensions !== profile.dimensions ||
+        plan.inferencePlan.dtype !== profile.dtype ||
+        !['wasm', 'webgpu'].includes(plan.inferencePlan.device)
+      : profile.provider === undefined ||
+        profile.provider === 'local' ||
+        profile.provider === 'transformers')
+  ) {
+    refuse(
+      'Native query inference requires the exact saved model, revision, dimensions, dtype, device and distance profile.'
+    );
+  }
 }

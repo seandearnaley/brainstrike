@@ -46,9 +46,10 @@ describe('main native indexing settings', () => {
     expect(() => readNativeIndexSettings(saved({ managedCollectionId: '' }))).toThrow(
       'requires a saved collection'
     );
-    expect(() => readNativeIndexSettings(saved({ nativeIndexMode: 'VECTOR' }))).toThrow(
-      'explicitly selected local execution plan'
-    );
+    expect(readNativeIndexSettings(saved({ nativeIndexMode: 'VECTOR' }))).toMatchObject({
+      mode: 'VECTOR',
+      selection: null,
+    });
   });
   it('retains every full explicit VECTOR execution field', () => {
     const selection = {

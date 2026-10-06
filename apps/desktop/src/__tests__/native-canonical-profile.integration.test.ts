@@ -18,7 +18,7 @@ const localSelection: SelectedEmbeddingRequestPlan = {
   device: 'wasm',
   dimensions: 384,
   dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
+  modelId: 'Xenova/bge-small-en-v1.5',
   revision: '751bff37182d3f1213fa05d7196b954e230abad9',
 };
 
@@ -35,7 +35,7 @@ beforeAll(async () => {
     VALUES ($1,$2,$3,$4,$5,$6), ($7,$8,$9,$10,$11,$12)`,
     [
       'local',
-      'local::Xenova/all-MiniLM-L6-v2',
+      'local::Xenova/bge-small-en-v1.5',
       localSelection.modelId,
       384,
       'cosine',
@@ -98,7 +98,6 @@ it('resolves actual PG collection/provider metadata without repairing or writing
     modelId: localSelection.modelId,
     provider: 'local',
     revision: localSelection.revision,
-    tokenCap: 512,
   });
   expect((await database.query('SELECT * FROM embedding_sets ORDER BY id')).rows).toEqual(
     before.rows
@@ -130,5 +129,7 @@ it('preserves unsupported local dimensions and rejects stale pins without a defa
     await database.query('UPDATE embedding_sets SET dimensions = $1 WHERE id = $2', [384, 'local']);
   }
   f.readLocalSelection.mockResolvedValueOnce({ ...localSelection, revision: undefined });
-  await expect(f.instance.resolve(scope('local'), context())).rejects.toThrow(/explicit/);
+  const unpinned = await f.instance.resolve(scope('local'), context());
+  expect(unpinned.workerPlan?.revision).toBeUndefined();
+  expect(unpinned.profile).not.toHaveProperty('tokenCap');
 });

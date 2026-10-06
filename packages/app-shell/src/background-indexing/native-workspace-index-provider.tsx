@@ -100,17 +100,13 @@ function nativeProgressError(error: unknown): string {
 
 function getNativeSetupMessage(
   mode: 'TEXT' | 'VECTOR' | null,
-  collectionId: string | null,
-  hasSelection: boolean
+  collectionId: string | null
 ): string | null {
   if (mode === null) {
     return 'Choose a search mode in Search & Indexing settings.';
   }
   if (collectionId === null) {
     return 'Choose an embedding model and set up a collection in Search & Indexing settings.';
-  }
-  if (mode === 'VECTOR' && !hasSelection) {
-    return 'Choose local model execution in Search & Indexing settings.';
   }
   return null;
 }
@@ -161,7 +157,7 @@ export function NativeWorkspaceIndexProvider({
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const publish = useWorkspaceCollectionSyncStatusStore.getState().setStatus;
-    const setupMessage = getNativeSetupMessage(mode, collectionId, selection !== null);
+    const setupMessage = getNativeSetupMessage(mode, collectionId);
     if (!enabled || paused || mode === null || setupMessage !== null) {
       publish({
         lastError: enabled && !paused ? setupMessage : null,

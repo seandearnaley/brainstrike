@@ -31,12 +31,7 @@ export function vectorProfileHash(input: unknown): string {
     .digest('hex');
 }
 export function supportedVectorProfile(profile: VectorProfile): void {
-  if (profile.distance !== 'cosine' || profile.dimensions % 8 !== 0) {
-    throw new IndexerError(
-      'unsupported-profile',
-      'Binary native retrieval requires cosine distance and dimensions divisible by eight. Saved profile metadata is not converted.'
-    );
-  }
+  decoder(vectorProfileSchema)(profile);
 }
 export function scopeKey(scope: IndexScope): string {
   return JSON.stringify(scope);

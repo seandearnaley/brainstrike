@@ -7,14 +7,15 @@ import type {
 import type { EmbeddingSet } from '@brainstrike/db';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import {
-  type PinnedEmbeddingWorkerPlan,
-  resolvePinnedEmbeddingPlan,
+  type CatalogEmbeddingWorkerPlan,
+  resolveCatalogEmbeddingPlan,
   type SelectedEmbeddingRequestPlan,
 } from '@brainstrike/embeddings/inference-plan';
-import { parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
+import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { Schema } from 'effect';
 import type { EmbeddingHostDocumentEmbeddingsPayload } from './embedding-host-shared';
+import { generateHostedEmbeddings } from './hosted-embeddings';
 
 const nonblank = Schema.String.check(Schema.isPattern(/\S/u));
 const metadataSchema = Schema.Struct({
@@ -33,13 +34,14 @@ type ProfileMetadata = Pick<
 export interface NativeCanonicalProfile {
   readonly modelKey: string;
   readonly profile: VectorProfile;
-  readonly workerPlan: PinnedEmbeddingWorkerPlan | null;
+  readonly workerPlan: CatalogEmbeddingWorkerPlan | null;
 }
 
 /** Pure resolution. Reading a profile neither enables vectors nor changes saved choices. */
 export function resolveNativeCanonicalProfile(
   input: ProfileMetadata,
-  selection?: SelectedEmbeddingRequestPlan
+  selection?: SelectedEmbeddingRequestPlan,
+  model?: { readonly id: string; readonly dimensions: number; readonly contextWindow?: number }
 ): NativeCanonicalProfile {
   const metadata = decodeMetadata(input);
   const parsed = parseProviderModelKey(metadata.modelKey);
@@ -68,7 +70,10 @@ export function resolveNativeCanonicalProfile(
   if (selection.modelId !== metadata.modelId || selection.dimensions !== metadata.dimensions) {
     throw new Error('Canonical local selection disagrees with saved model or dimensions.');
   }
-  const plan = resolvePinnedEmbeddingPlan(selection);
+  const plan = resolveCatalogEmbeddingPlan(
+    selection,
+    model ?? { dimensions: metadata.dimensions, id: metadata.modelId }
+  );
   if (plan.kind === 'unavailable') {
     throw new Error(plan.reason);
   }
@@ -135,6 +140,7 @@ export class NativeCanonicalProfileResolver {
 }
 
 export interface NativeCanonicalInferenceDependencies {
+  readonly hostedEmbeddings?: typeof generateHostedEmbeddings;
   readonly resolver: Pick<NativeCanonicalProfileResolver, 'resolve'>;
   readonly scope: CanonicalSourceScope;
   /**
@@ -263,26 +269,31 @@ export class NativeCanonicalInference implements InferencePort {
     if (requestedHash !== vectorProfileHash(resolved.profile)) {
       throw new Error('Canonical inference profile differs from current saved selection.');
     }
-    if (profile.distance !== 'cosine' || profile.dimensions % 8 !== 0) {
-      throw new Error(
-        'Canonical vector execution requires cosine and dimensions divisible by eight.'
-      );
-    }
-    if (!resolved.workerPlan) {
-      throw new Error(
-        `Canonical inference execution is unsupported for provider ${profile.provider}.`
-      );
-    }
-    const vectors = await this.dependencies.transport.documentEmbeddings(
-      {
-        dimensions: profile.dimensions,
-        inferencePlan: resolved.workerPlan,
-        modelId: profile.modelId,
-        modelKey: resolved.modelKey,
-        texts: chunks.map((chunk) => chunk.content),
-      },
-      { signal: context.signal }
-    );
+    const vectors = resolved.workerPlan
+      ? await this.dependencies.transport.documentEmbeddings(
+          {
+            dimensions: profile.dimensions,
+            inferencePlan: resolved.workerPlan,
+            modelId: profile.modelId,
+            modelKey: resolved.modelKey,
+            texts: chunks.map((chunk) => chunk.content),
+          },
+          { signal: context.signal }
+        )
+      : isHostedProvider(profile.provider)
+        ? await (this.dependencies.hostedEmbeddings ?? generateHostedEmbeddings)({
+            dimensions: profile.dimensions,
+            modelId: profile.modelId,
+            provider: profile.provider,
+            purpose: 'document',
+            signal: context.signal,
+            texts: chunks.map((chunk) => chunk.content),
+          })
+        : (() => {
+            throw new Error(
+              `Canonical inference execution is unsupported for provider ${profile.provider}.`
+            );
+          })();
     context.signal.throwIfAborted();
     if (
       !Array.isArray(vectors) ||

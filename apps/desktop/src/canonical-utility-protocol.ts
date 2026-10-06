@@ -220,10 +220,10 @@ const profileFields = {
 export const vectorProfileSchema: Schema.Codec<VectorProfile> = Schema.Union([
   Schema.Struct({
     ...profileFields,
-    dtype: Schema.Literals(['q8', 'fp16', 'fp32']),
+    dtype: Schema.Literals(['q4', 'q8', 'fp16', 'fp32']),
     provider: Schema.Literals(['local', 'transformers']),
-    revision: Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u)),
-    tokenCap: positive,
+    revision: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u))),
+    tokenCap: Schema.optional(positive),
   }),
   Schema.Struct({
     ...profileFields,

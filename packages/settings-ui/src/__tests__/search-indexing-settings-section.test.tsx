@@ -2,6 +2,7 @@ import {
   __resetBackgroundIndexingPreferencesStoreForTests,
   useBackgroundIndexingPreferencesStore,
 } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
@@ -12,6 +13,7 @@ import {
 } from '@brainstrike/utils/browser-events';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeDbModel, makeDbProvider } from '../settings/models/__tests__/catalog-test-harness';
 import { SearchIndexingSettingsSection } from '../settings/system/search-indexing-settings-section';
 
 const { findAllMock, getByIdMock, createWorkspaceMock } = vi.hoisted(() => ({
@@ -26,6 +28,19 @@ const mockRepository = {
   getOrCreateSet: createWorkspaceMock,
 };
 
+vi.mock('@brainstrike/app-state/hooks/use-local-runtime-embedding-model-catalog', () => ({
+  useLocalRuntimeEmbeddingModelCatalog: () => ({
+    catalog: null,
+    error: null,
+    isLoading: false,
+    refresh: vi.fn(),
+  }),
+}));
+
+vi.mock('../../../ui/src/theme-provider', () => ({
+  useTheme: () => ({ setTheme: vi.fn(), theme: 'light' }),
+}));
+
 vi.mock('@brainstrike/db', () => ({
   useEmbeddingSetsRepository: () => mockRepository,
 }));
@@ -37,6 +52,46 @@ vi.mock('@brainstrike/db/react', () => ({
 describe('SearchIndexingSettingsSection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+    );
+    useModelRegistryStore.setState({
+      error: null,
+      hasLoaded: true,
+      isLoading: false,
+      models: [
+        makeDbModel({
+          capabilities: { defaultDimension: 768, type: 'embedding' },
+          id: 'jinaai/jina-embeddings-v2-base-code',
+          isEnabled: true,
+          name: 'Jina Code',
+          providerId: 'transformers',
+        }),
+        makeDbModel({
+          capabilities: { defaultDimension: 768, type: 'embedding' },
+          id: 'Xenova/bge-base-en-v1.5',
+          isEnabled: true,
+          name: 'BGE Base',
+          providerId: 'transformers',
+        }),
+        makeDbModel({
+          capabilities: { defaultDimension: 3072, type: 'embedding' },
+          id: 'text-embedding-3-large',
+          isEnabled: true,
+          name: 'OpenAI Large',
+          providerId: 'openai',
+        }),
+      ],
+      providers: [
+        makeDbProvider('transformers', 'Local models', 0),
+        makeDbProvider('openai', 'OpenAI', 1),
+      ],
+    });
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
       configurable: true,
       value: vi.fn(),
@@ -62,16 +117,100 @@ describe('SearchIndexingSettingsSection', () => {
     });
   });
 
+  it('offers existing enabled embedding models across collection providers instead of a MiniLM allowlist', async () => {
+    useModelRegistryStore.setState({
+      hasLoaded: true,
+      isLoading: false,
+      models: [
+        makeDbModel({
+          capabilities: { defaultDimension: 768, type: 'embedding' },
+          id: 'jinaai/jina-embeddings-v2-base-code',
+          isEnabled: true,
+          name: 'Jina Code',
+          providerId: 'transformers',
+        }),
+        makeDbModel({
+          capabilities: { defaultDimension: 1024, type: 'embedding' },
+          id: 'Xenova/bge-large-en-v1.5',
+          isEnabled: true,
+          name: 'BGE Large',
+          providerId: 'transformers',
+        }),
+        makeDbModel({
+          capabilities: { defaultDimension: 3072, type: 'embedding' },
+          id: 'text-embedding-3-large',
+          isEnabled: true,
+          name: 'OpenAI Large',
+          providerId: 'openai',
+        }),
+        makeDbModel({
+          capabilities: { defaultDimension: 1536, type: 'embedding' },
+          id: 'disabled-model',
+          isEnabled: false,
+          name: 'Disabled model',
+          providerId: 'openai',
+        }),
+      ],
+      providers: [
+        makeDbProvider('transformers', 'Local models', 0),
+        makeDbProvider('openai', 'OpenAI', 1),
+      ],
+    });
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    expect(await screen.findByRole('option', { name: /Jina Code/ })).toBeTruthy();
+    expect(screen.getByRole('option', { name: /BGE Large/ })).toBeTruthy();
+    expect(screen.getByRole('option', { name: /OpenAI Large/ })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /Disabled model/ })).toBeNull();
+  });
+
+  it('selects a remote collection with its actual dimensions without requiring local execution', async () => {
+    findAllMock.mockResolvedValue([]);
+    getByIdMock.mockResolvedValue(null);
+    createWorkspaceMock.mockImplementation(
+      async (modelKey: string, modelId: string, dimensions: number) => {
+        const created = {
+          createdAt: '2026-10-05',
+          dimensions,
+          id: 'remote',
+          modelId,
+          modelKey,
+          name: 'Remote',
+        };
+        findAllMock.mockResolvedValue([created]);
+        getByIdMock.mockResolvedValue(created);
+        return created;
+      }
+    );
+    useBackgroundIndexingPreferencesStore.getState().setNativeIndexMode('VECTOR');
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Large/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use embedding model' }));
+    await waitFor(() =>
+      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe('remote')
+    );
+    expect(createWorkspaceMock).toHaveBeenCalledWith(
+      'openai::text-embedding-3-large',
+      'text-embedding-3-large',
+      3072,
+      'cosine',
+      { name: 'Workspace Index (OpenAI Large)' }
+    );
+    expect(screen.queryByRole('combobox', { name: 'Local model execution' })).toBeNull();
+    expect(useBackgroundIndexingPreferencesStore.getState().nativeLocalSelection).toBeNull();
+  });
+
   it('creates and selects the canonical collection from empty native settings without choosing inference', async () => {
     findAllMock.mockResolvedValue([]);
     getByIdMock.mockResolvedValue(null);
     createWorkspaceMock.mockImplementation(async () => {
       const created = {
         createdAt: '2026-10-05T00:00:00Z',
-        dimensions: 384,
+        dimensions: 768,
         id: 'workspace-local',
-        modelId: 'Xenova/all-MiniLM-L6-v2',
-        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
+        modelKey: 'transformers::jinaai/jina-embeddings-v2-base-code',
         name: 'Workspace Index',
       };
       findAllMock.mockResolvedValue([created]);
@@ -82,7 +221,7 @@ describe('SearchIndexingSettingsSection', () => {
     render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
     expect(createWorkspaceMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: 'MiniLM — CPU' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Jina Code/ }));
     const setup = await screen.findByRole('button', { name: 'Use embedding model' });
     await waitFor(() => expect(setup.hasAttribute('disabled')).toBe(false));
     fireEvent.click(setup);
@@ -98,9 +237,9 @@ describe('SearchIndexingSettingsSection', () => {
     fireEvent.click(screen.getByRole('option', { name: 'WASM · Q8' }));
     expect(useBackgroundIndexingPreferencesStore.getState().nativeLocalSelection).toMatchObject({
       device: 'wasm',
-      dimensions: 384,
+      dimensions: 768,
       dtype: 'q8',
-      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
     });
   });
 
@@ -108,18 +247,18 @@ describe('SearchIndexingSettingsSection', () => {
     useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('set-1');
     useBackgroundIndexingPreferencesStore.getState().setNativeLocalSelection({
       device: 'wasm',
-      dimensions: 384,
+      dimensions: 768,
       dtype: 'q8',
-      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
       revision: '751bff37182d3f1213fa05d7196b954e230abad9',
     });
     createWorkspaceMock.mockImplementation(async () => {
       const created = {
         createdAt: '2026-10-05T00:00:00Z',
-        dimensions: 384,
+        dimensions: 768,
         id: 'fused-collection',
-        modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-        modelKey: 'local::onnx-community/all-MiniLM-L6-v2-ONNX',
+        modelId: 'Xenova/bge-base-en-v1.5',
+        modelKey: 'transformers::Xenova/bge-base-en-v1.5',
         name: 'Fused collection',
       };
       findAllMock.mockResolvedValue([created]);
@@ -128,7 +267,7 @@ describe('SearchIndexingSettingsSection', () => {
     });
     render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: 'MiniLM — WebGPU or CPU' }));
+    fireEvent.click(await screen.findByRole('option', { name: /BGE Base/ }));
     const setup = screen.getByRole('button', { name: 'Use embedding model' });
     await waitFor(() => expect(setup.hasAttribute('disabled')).toBe(false));
     fireEvent.click(setup);
@@ -138,11 +277,11 @@ describe('SearchIndexingSettingsSection', () => {
       )
     );
     expect(createWorkspaceMock).toHaveBeenCalledWith(
-      'local::onnx-community/all-MiniLM-L6-v2-ONNX',
-      'onnx-community/all-MiniLM-L6-v2-ONNX',
-      384,
+      'transformers::Xenova/bge-base-en-v1.5',
+      'Xenova/bge-base-en-v1.5',
+      768,
       'cosine',
-      { name: 'Workspace Index (MiniLM — WebGPU or CPU)' }
+      { name: 'Workspace Index (BGE Base)' }
     );
     expect(useBackgroundIndexingPreferencesStore.getState().nativeLocalSelection).toBeNull();
   });
@@ -150,11 +289,11 @@ describe('SearchIndexingSettingsSection', () => {
   it('reuses the current matching model without duplicating the collection or clearing execution', async () => {
     const collection = {
       createdAt: '2026-10-05T00:00:00Z',
-      dimensions: 384,
+      dimensions: 768,
       distance: 'cosine',
       id: 'current-local',
-      modelId: 'Xenova/all-MiniLM-L6-v2',
-      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      modelKey: 'transformers::jinaai/jina-embeddings-v2-base-code',
       name: 'My index',
     };
     findAllMock.mockResolvedValue([collection]);
@@ -162,7 +301,7 @@ describe('SearchIndexingSettingsSection', () => {
     useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId(collection.id);
     const selection = {
       device: 'wasm',
-      dimensions: 384,
+      dimensions: 768,
       dtype: 'q8',
       modelId: collection.modelId,
       revision: '751bff37182d3f1213fa05d7196b954e230abad9',
@@ -170,7 +309,7 @@ describe('SearchIndexingSettingsSection', () => {
     useBackgroundIndexingPreferencesStore.getState().setNativeLocalSelection(selection);
     render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: 'MiniLM — CPU' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Jina Code/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Use embedding model' }));
     await waitFor(() =>
       expect(
@@ -184,6 +323,37 @@ describe('SearchIndexingSettingsSection', () => {
     });
   });
 
+  it('displays and preserves an existing generic model revision when choosing its execution format', async () => {
+    const collection = {
+      createdAt: '2026-10-05',
+      dimensions: 768,
+      id: 'pinned',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      modelKey: 'transformers::jinaai/jina-embeddings-v2-base-code',
+      name: 'Pinned Jina',
+    };
+    findAllMock.mockResolvedValue([collection]);
+    getByIdMock.mockResolvedValue(collection);
+    const preferences = useBackgroundIndexingPreferencesStore.getState();
+    preferences.setManagedCollectionId(collection.id);
+    preferences.setNativeIndexMode('VECTOR');
+    preferences.setNativeLocalSelection({
+      device: 'wasm',
+      dimensions: 768,
+      dtype: 'q8',
+      modelId: collection.modelId,
+      revision: 'a'.repeat(40),
+    });
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+    const picker = await screen.findByRole('combobox', { name: 'Local model execution' });
+    expect(picker.textContent).toContain('WASM · Q8');
+    fireEvent.click(picker);
+    fireEvent.click(await screen.findByRole('option', { name: 'WASM · Q8' }));
+    expect(useBackgroundIndexingPreferencesStore.getState().nativeLocalSelection?.revision).toBe(
+      'a'.repeat(40)
+    );
+  });
+
   it('preserves newer selection even when it returns to the original collection during creation', async () => {
     let resolveCreation: ((value: object) => void) | undefined;
     createWorkspaceMock.mockImplementation(
@@ -195,7 +365,7 @@ describe('SearchIndexingSettingsSection', () => {
     useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('set-1');
     render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: 'MiniLM — CPU' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Jina Code/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Use embedding model' }));
     await waitFor(() => expect(createWorkspaceMock).toHaveBeenCalledTimes(1));
     act(() => {
@@ -205,11 +375,11 @@ describe('SearchIndexingSettingsSection', () => {
     await act(async () => {
       resolveCreation?.({
         createdAt: '2026-10-05T00:00:00Z',
-        dimensions: 384,
+        dimensions: 768,
         distance: 'cosine',
         id: 'new-local',
-        modelId: 'Xenova/all-MiniLM-L6-v2',
-        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
+        modelKey: 'transformers::jinaai/jina-embeddings-v2-base-code',
         name: 'New index',
       });
     });
@@ -221,7 +391,7 @@ describe('SearchIndexingSettingsSection', () => {
     createWorkspaceMock.mockRejectedValue(new Error('Collection storage unavailable'));
     render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: 'MiniLM — CPU' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Jina Code/ }));
     const setup = await screen.findByRole('button', { name: 'Use embedding model' });
     await waitFor(() => expect(setup.hasAttribute('disabled')).toBe(false));
     fireEvent.click(setup);

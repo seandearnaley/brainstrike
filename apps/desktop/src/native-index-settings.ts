@@ -44,9 +44,6 @@ export function readNativeIndexSettings(value: string | null): NativeIndexSettin
   const selected: unknown = Reflect.get(state, 'nativeLocalSelection');
   const selection =
     selected === null || selected === undefined ? null : validateNativeLocalSelection(selected);
-  if (mode === 'VECTOR' && selection === null) {
-    throw new Error('Semantic indexing requires an explicitly selected local execution plan.');
-  }
   const optIns: unknown = Reflect.get(state, 'worktreeRootIndexingOptInById');
   const worktreeOptIns = readWorktreeOptIns(optIns);
   return {

@@ -7,7 +7,6 @@ import {
   EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
   type EmbedWorkerRequestControl,
-  FUSED_MINILM_MODEL_ID,
 } from '@brainstrike/indexing-contract';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type {
@@ -15,7 +14,7 @@ import type {
   Tensor as TransformersTensor,
 } from '@huggingface/transformers';
 import { Transfer, worker, workerEmit } from 'workerpool';
-import { createTokenBudgetBatchEnds, extractCappedEmbeddings } from './embedding-input-plan';
+import { extractEmbeddingBatch } from './embedding-input-plan';
 import {
   createEmbeddingPipelineCacheController,
   type PipelineCacheDiagnosticSink,
@@ -316,10 +315,6 @@ interface TransformersRuntime {
     allowRemoteModels?: boolean;
     backends?: { onnx?: { webgpu?: { device?: unknown } } };
   };
-  readonly meanPooling?: (
-    lastHiddenState: TransformersTensor,
-    attentionMask: TransformersTensor
-  ) => TransformersTensor;
   readonly pipeline: (
     task: 'feature-extraction',
     model: string,
@@ -391,8 +386,6 @@ async function getTransformersRuntime(): Promise<TransformersRuntime> {
       runtime.env.allowRemoteModels = runtime.env.allowRemoteModels ?? true;
       return {
         env: runtime.env,
-        meanPooling: (lastHiddenState, attentionMask) =>
-          runtimeModule.mean_pooling(lastHiddenState, attentionMask),
         pipeline: runtime.pipeline,
         tensorConstructor,
       };
@@ -1150,9 +1143,9 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
   let dimensions = context.truncateDim ?? 0;
   let peakVectorsInFlight = 0;
   let startIndex = 0;
-  for (const endIndex of createBatchEnds(context, state, extractor)) {
+  for (const endIndex of createBatchEnds(context, state)) {
     const slice = texts.slice(startIndex, endIndex);
-    const rawOutput = await extractBatch(context, extractor, slice, runtime);
+    const rawOutput = await extractEmbeddingBatch(extractor, slice);
     const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
       ? convertTensorToVectors(rawOutput, truncateDim)
       : vectorsFromPipelineOutput(rawOutput, truncateDim);
@@ -1226,10 +1219,10 @@ async function runBatches(
   const runtime = await getTransformersRuntime();
 
   let startIndex = 0;
-  for (const endIndex of createBatchEnds(context, state, extractor)) {
+  for (const endIndex of createBatchEnds(context, state)) {
     throwIfWorkerpoolRequestCanceled(id);
     const slice = texts.slice(startIndex, endIndex);
-    const rawOutput = await extractBatch(context, extractor, slice, runtime);
+    const rawOutput = await extractEmbeddingBatch(extractor, slice);
     const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
       ? convertTensorToVectors(rawOutput, truncateDim)
       : vectorsFromPipelineOutput(rawOutput, truncateDim);
@@ -1257,41 +1250,12 @@ async function runBatches(
   return vectors;
 }
 
-function createBatchEnds(
-  context: EmbeddingContext,
-  state: EmbeddingState,
-  extractor: FeatureExtractor
-): number[] {
-  if (context.model === FUSED_MINILM_MODEL_ID) {
-    const ends = createTokenBudgetBatchEnds(context.texts, extractor.tokenizer, state.batchSize);
-    let start = 0;
-    state.batchSize = 0;
-    for (const end of ends) {
-      state.batchSize = Math.max(state.batchSize, end - start);
-      start = end;
-    }
-    return ends;
-  }
+function createBatchEnds(context: EmbeddingContext, state: EmbeddingState): number[] {
   const ends: number[] = [];
   for (let start = 0; start < context.total; start += state.batchSize) {
     ends.push(Math.min(context.total, start + state.batchSize));
   }
   return ends;
-}
-
-function extractBatch(
-  context: EmbeddingContext,
-  extractor: FeatureExtractor,
-  texts: readonly string[],
-  runtime: TransformersRuntime
-): Promise<unknown> {
-  if (context.model !== FUSED_MINILM_MODEL_ID) {
-    return extractor(texts, { normalize: false, pooling: 'mean' });
-  }
-  if (!runtime.meanPooling) {
-    throw new Error('Fused MiniLM requires the Transformers.js mean_pooling API.');
-  }
-  return extractCappedEmbeddings(extractor, texts, runtime.meanPooling);
 }
 
 function buildSuccessResult(

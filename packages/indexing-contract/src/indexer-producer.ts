@@ -157,7 +157,7 @@ export interface NativeLocalSelection {
   readonly dimensions: number;
   readonly dtype: string;
   readonly modelId: string;
-  readonly revision: string;
+  readonly revision?: string;
 }
 export type NativeIndexMode = 'TEXT' | 'VECTOR';
 export function validateNativeIndexMode(input: unknown): NativeIndexMode | null {
@@ -184,15 +184,15 @@ export function validateNativeLocalSelection(input: unknown): NativeLocalSelecti
     typeof dimensions !== 'number' ||
     !Number.isSafeInteger(dimensions) ||
     dimensions <= 0 ||
-    typeof revision !== 'string' ||
-    !/^[a-f0-9]{40}$/u.test(revision) ||
+    (revision !== undefined &&
+      (typeof revision !== 'string' || !/^[a-f0-9]{40}$/u.test(revision))) ||
     (device !== 'wasm' && device !== 'webgpu') ||
     typeof dtype !== 'string' ||
     !dtype.trim()
   ) {
     throw new Error(
-      'Native local inference requires explicit saved model, dimensions, revision, device and dtype.'
+      'Native local inference requires explicit saved model, dimensions, device, dtype and a valid optional revision.'
     );
   }
-  return { device, dimensions, dtype, modelId, revision };
+  return { device, dimensions, dtype, modelId, ...(revision === undefined ? {} : { revision }) };
 }

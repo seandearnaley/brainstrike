@@ -1,4 +1,4 @@
-import type { IndexerEmbeddingProfile } from '@brainstrike/indexing-contract/indexer-client';
+import type { EmbeddingDType } from '@brainstrike/indexing-contract';
 
 export interface SelectedEmbeddingRequestPlan {
   readonly device?: 'webgpu' | 'wasm';
@@ -7,84 +7,81 @@ export interface SelectedEmbeddingRequestPlan {
   readonly modelId: string;
   readonly revision?: string;
 }
-export interface PinnedEmbeddingWorkerPlan {
+export interface CatalogEmbeddingWorkerPlan {
   readonly device: 'webgpu' | 'wasm';
-  readonly dimensions: 384;
-  readonly dtype: 'fp16' | 'fp32' | 'q8';
+  readonly dimensions: number;
+  readonly dtype: EmbeddingDType;
   readonly modelId: string;
-  readonly revision: string;
+  readonly revision?: string;
 }
-export type PinnedEmbeddingPlan =
+export interface CatalogEmbeddingProfile {
+  readonly dimensions: number;
+  readonly dtype: EmbeddingDType;
+  readonly modelId: string;
+  readonly revision?: string;
+  readonly tokenCap?: number;
+}
+
+/** Validate execution DTOs independently of catalog authorization, including in preload. */
+export function validateCatalogEmbeddingWorkerPlan(
+  request: SelectedEmbeddingRequestPlan
+): CatalogEmbeddingWorkerPlan {
+  if (
+    !(
+      request.modelId.trim() &&
+      Number.isSafeInteger(request.dimensions) &&
+      request.dimensions > 0 &&
+      request.dimensions <= 16_000 &&
+      (request.device === 'wasm' || request.device === 'webgpu') &&
+      (request.dtype === 'q4' ||
+        request.dtype === 'q8' ||
+        request.dtype === 'fp16' ||
+        request.dtype === 'fp32') &&
+      (request.revision === undefined || /^[a-f0-9]{40}$/u.test(request.revision))
+    )
+  ) {
+    throw new Error(
+      'Catalog embedding execution requires exact model, dimensions, device, dtype and a valid optional revision.'
+    );
+  }
+  return {
+    device: request.device,
+    dimensions: request.dimensions,
+    dtype: request.dtype,
+    modelId: request.modelId,
+    ...(request.revision === undefined ? {} : { revision: request.revision }),
+  };
+}
+
+/** Existing catalog authority selects the model; missing revisions remain missing. */
+export function resolveCatalogEmbeddingPlan(
+  request: SelectedEmbeddingRequestPlan,
+  model: { readonly id: string; readonly dimensions: number; readonly contextWindow?: number }
+):
   | { readonly kind: 'unavailable'; readonly reason: string }
   | {
       readonly kind: 'ready';
-      readonly profile: IndexerEmbeddingProfile;
-      readonly workerPlan: PinnedEmbeddingWorkerPlan;
-    };
-
-// Published exports verified by the real Wave0 renderer worker, not model ID aliases.
-const VERIFIED_EXPORTS = [
-  {
-    deviceDtypes: ['webgpu:fp16', 'wasm:fp32'],
-    modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-    revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-    tokenCap: 256,
-  },
-  {
-    deviceDtypes: ['wasm:q8', 'wasm:fp32'],
-    modelId: 'Xenova/all-MiniLM-L6-v2',
-    revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-    tokenCap: 512,
-  },
-] as const;
-
-/** Resolve identity before inference; never infer an omitted pin or execution choice. */
-export function resolvePinnedEmbeddingPlan(
-  request: SelectedEmbeddingRequestPlan
-): PinnedEmbeddingPlan {
-  if (!(request.revision && request.device && request.dtype)) {
+      readonly profile: CatalogEmbeddingProfile;
+      readonly workerPlan: CatalogEmbeddingWorkerPlan;
+    } {
+  if (request.modelId !== model.id || request.dimensions !== model.dimensions) {
     return {
       kind: 'unavailable',
-      reason: 'The selected embedding request requires an explicit revision, device and dtype.',
+      reason: 'Selected execution differs from the authorized catalog model or dimensions.',
     };
   }
-  const verified = VERIFIED_EXPORTS.find(
-    (entry) => entry.modelId === request.modelId && entry.revision === request.revision
-  );
-  if (!verified || request.dimensions !== 384) {
-    return {
-      kind: 'unavailable',
-      reason:
-        'The selected embedding export revision and dimensions are not a validated native vector profile.',
-    };
+  let workerPlan: CatalogEmbeddingWorkerPlan;
+  try {
+    workerPlan = validateCatalogEmbeddingWorkerPlan(request);
+  } catch (error) {
+    return { kind: 'unavailable', reason: error instanceof Error ? error.message : String(error) };
   }
-  if (
-    !(
-      verified.deviceDtypes.some((choice) => choice === `${request.device}:${request.dtype}`) &&
-      (request.dtype === 'q8' || request.dtype === 'fp16' || request.dtype === 'fp32')
-    )
-  ) {
-    return {
-      kind: 'unavailable',
-      reason:
-        'The selected pinned embedding export does not support this validated device/dtype profile.',
-    };
-  }
-  const workerPlan: PinnedEmbeddingWorkerPlan = {
-    device: request.device,
-    dimensions: 384,
-    dtype: request.dtype,
-    modelId: request.modelId,
-    revision: request.revision,
-  };
+  const { device: _device, ...profile } = workerPlan;
   return {
     kind: 'ready',
     profile: {
-      dimensions: workerPlan.dimensions,
-      dtype: workerPlan.dtype,
-      modelId: workerPlan.modelId,
-      revision: workerPlan.revision,
-      tokenCap: verified.tokenCap,
+      ...profile,
+      ...(model.contextWindow === undefined ? {} : { tokenCap: model.contextWindow }),
     },
     workerPlan,
   };

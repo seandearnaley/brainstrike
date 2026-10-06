@@ -301,11 +301,11 @@ it('isolates full profiles and real supported dimensions before binary top100 an
     await expect(
       port.prepareScopedFile({ profile: { ...local, revision: undefined }, snapshot })
     ).rejects.toThrow();
-    const unsupported = { ...bindings[1]!, profile: { ...local, distance: 'l2' as const } };
-    await port.replaceFileBindings([unsupported]);
+    const alternateMetric = { ...bindings[1]!, profile: { ...local, distance: 'l2' as const } };
+    await port.replaceFileBindings([alternateMetric]);
     await expect(
-      port.prepareScopedFile({ profile: unsupported.profile, snapshot })
-    ).rejects.toMatchObject({ code: 'unsupported-profile' });
+      port.prepareScopedFile({ profile: alternateMetric.profile, snapshot })
+    ).resolves.toMatchObject({ profile: alternateMetric.profile });
     await port.replaceFileBindings([...bindings, ...outside]);
     await port.close();
     port = await openIndexer({ ...options, embedding: { indexMode: 'open-existing' } }, deadlines);

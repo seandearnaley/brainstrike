@@ -2,10 +2,7 @@ import {
   assertEmbeddingTelemetrySnapshot,
   type EmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
-import {
-  type PinnedEmbeddingWorkerPlan,
-  resolvePinnedEmbeddingPlan,
-} from '@brainstrike/embeddings/inference-plan';
+import type { CatalogEmbeddingWorkerPlan } from '@brainstrike/embeddings/inference-plan';
 import type {
   BackgroundRuntimeProgress,
   BackgroundRuntimeStatus,
@@ -19,6 +16,7 @@ import {
   serializeRuntimeError,
 } from '@brainstrike/worker-runtime';
 import { assertRuntimeObjectPayloadEnvelope } from '@brainstrike/worker-runtime/validation';
+import { decodeNativeEmbeddingWorkerPlan } from './platform/native-embedding-validation';
 
 export const EMBEDDING_HOST_RUNTIME = createBackgroundRuntimeDescriptor('embedding-host');
 export const EMBEDDING_HOST_LIFECYCLE_CHANNELS = EMBEDDING_HOST_RUNTIME.lifecycleChannels;
@@ -94,7 +92,7 @@ export interface EmbeddingHostBackfillInfo {
 
 export interface EmbeddingHostQueryEmbeddingPayload {
   readonly dimensions: number;
-  readonly inferencePlan?: PinnedEmbeddingWorkerPlan;
+  readonly inferencePlan?: CatalogEmbeddingWorkerPlan;
   readonly modelId: string;
   readonly modelKey: string;
   readonly query: string;
@@ -377,47 +375,15 @@ export function createEmbeddingHostQueryEmbeddingRequest(
 // This shared module is preload reachable: keep the verified-plan decoder plain.
 function assertNativeQueryInferencePlan(
   payload: Record<string, unknown>
-): PinnedEmbeddingWorkerPlan | undefined {
+): CatalogEmbeddingWorkerPlan | undefined {
   if (!Object.hasOwn(payload, 'inferencePlan')) {
     return;
   }
-  const value = payload['inferencePlan'];
-  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
-    throw new Error('Native pinned query inferencePlan must be a complete object.');
+  const ready = decodeNativeEmbeddingWorkerPlan(payload['inferencePlan']);
+  if (ready.modelId !== payload['modelId'] || ready.dimensions !== payload['dimensions']) {
+    throw new Error('Native query inferencePlan must match model and dimensions.');
   }
-  const plan = value as Record<string, unknown>;
-  const device = plan['device'];
-  const dtype = plan['dtype'];
-  if (
-    !(
-      (device === 'wasm' || device === 'webgpu') &&
-      typeof dtype === 'string' &&
-      typeof plan['modelId'] === 'string' &&
-      typeof plan['revision'] === 'string' &&
-      typeof plan['dimensions'] === 'number'
-    )
-  ) {
-    throw new Error(
-      'Native pinned query inferencePlan requires modelId, revision, device, dtype and dimensions.'
-    );
-  }
-  const resolved = resolvePinnedEmbeddingPlan({
-    device,
-    dimensions: plan['dimensions'],
-    dtype,
-    modelId: plan['modelId'],
-    revision: plan['revision'],
-  });
-  if (resolved.kind !== 'ready') {
-    throw new Error(resolved.reason);
-  }
-  if (
-    resolved.workerPlan.modelId !== payload['modelId'] ||
-    resolved.workerPlan.dimensions !== payload['dimensions']
-  ) {
-    throw new Error('Native pinned query inferencePlan must match payload modelId and dimensions.');
-  }
-  return resolved.workerPlan;
+  return ready;
 }
 
 export function assertEmbeddingHostQueryEmbeddingPayload(
@@ -564,7 +530,7 @@ export const EMBEDDING_HOST_REPORT_DOCUMENT_EMBEDDINGS_RESPONSE_CHANNEL =
 export const MAX_DOCUMENT_EMBEDDING_BATCH_SIZE = 64;
 export interface EmbeddingHostDocumentEmbeddingsPayload {
   readonly dimensions: number;
-  readonly inferencePlan: PinnedEmbeddingWorkerPlan;
+  readonly inferencePlan: CatalogEmbeddingWorkerPlan;
   readonly modelId: string;
   readonly modelKey: string;
   readonly texts: string[];

@@ -216,46 +216,43 @@ describe('embedding host shared command helpers', () => {
 describe('explicit native query inference plan', () => {
   const inferencePlan = {
     device: 'wasm',
-    dimensions: 384,
-    dtype: 'q8',
-    modelId: 'Xenova/all-MiniLM-L6-v2',
-    revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+    dimensions: 768,
+    dtype: 'q4',
+    modelId: 'jinaai/jina-embeddings-v2-base-code',
   } as const;
   const payload = {
-    dimensions: 384,
+    dimensions: 768,
     inferencePlan,
     modelId: inferencePlan.modelId,
-    modelKey: 'native:minilm',
+    modelKey: 'transformers::jinaai/jina-embeddings-v2-base-code',
     query: 'find callers',
   };
 
-  it('preserves the verified plan unchanged', () => {
+  it('preserves the catalog plan with optional revision and q4 unchanged', () => {
     expect(assertEmbeddingHostQueryEmbeddingPayload(payload)).toEqual(payload);
   });
   it.each([
     { inferencePlan: null },
-    { inferencePlan: { ...inferencePlan, revision: undefined } },
     { inferencePlan: { ...inferencePlan, device: undefined } },
     { inferencePlan: { ...inferencePlan, dtype: undefined } },
     { inferencePlan: { ...inferencePlan, revision: 'main' } },
-    { inferencePlan: { ...inferencePlan, dtype: 'q4' } },
+    { inferencePlan: { ...inferencePlan, dtype: 'invalid' } },
     { modelId: 'selected-model-alias' },
-    { dimensions: 768 },
+    { dimensions: 384 },
   ])('rejects incomplete, unverified or inconsistent plan %j', (overrides) => {
     expect(() => assertEmbeddingHostQueryEmbeddingPayload({ ...payload, ...overrides })).toThrow();
   });
 });
 
-describe('pinned document payload', () => {
+describe('catalog document payload', () => {
   const inferencePlan = {
     device: 'wasm' as const,
-    dimensions: 384,
+    dimensions: 768,
     dtype: 'q8' as const,
-    modelId: 'Xenova/all-MiniLM-L6-v2',
-    revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+    modelId: 'Xenova/bge-base-en-v1.5',
   };
   const payload = {
-    dimensions: 384,
+    dimensions: 768,
     inferencePlan,
     modelId: inferencePlan.modelId,
     modelKey: 'native:documents',

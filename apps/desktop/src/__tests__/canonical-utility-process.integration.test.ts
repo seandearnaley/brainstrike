@@ -19,6 +19,7 @@ import { MAIN_PROCESS_BUILD_OPTIONS } from '../../scripts/build-main-config.mjs'
 import { CanonicalUtilityParent } from '../canonical-utility-parent';
 import { isCanonicalFrame } from '../canonical-utility-protocol';
 import type { EmbeddingHostDocumentEmbeddingsPayload } from '../embedding-host-shared';
+import { generateHostedEmbeddings } from '../hosted-embeddings';
 import { createNativeCanonicalCatalog } from '../native-canonical-catalog';
 import {
   NativeCanonicalInference,
@@ -48,12 +49,13 @@ function nativeIdentity(file: CanonicalFileIdentity) {
 }
 
 it.each([
-  { fileName: 'source.ts', mode: 'TEXT' },
-  { fileName: 'source.ts', mode: 'VECTOR' },
-  { fileName: 'source.txt', mode: 'VECTOR' },
+  { fileName: 'source.ts', mode: 'TEXT', provider: 'local' },
+  { fileName: 'source.ts', mode: 'VECTOR', provider: 'local' },
+  { fileName: 'source.txt', mode: 'VECTOR', provider: 'local' },
+  { fileName: 'source.ts', mode: 'VECTOR', provider: 'cohere' },
 ] as const)(
-  'publishes $mode $fileName real PG retained source through the built attachment into one native writer and joins process exit',
-  async ({ mode, fileName }) => {
+  'publishes $provider $mode $fileName real PG retained source through the built attachment into one native writer and joins process exit',
+  async ({ mode, fileName, provider }) => {
     const identity = { ...baseIdentity, fileName };
     const directory = await mkdtemp(path.join(os.tmpdir(), 'canonical-native-index-'));
     const fixtureDirectory = await mkdtemp(path.join(desktop, '.indexer-proof-'));
@@ -61,18 +63,27 @@ it.each([
     let original = 'export const native = "canonical transport firstversion";\n';
     await migrate(db);
     const metadata = {
-      dimensions: mode === 'VECTOR' ? 384 : 1536,
+      dimensions: mode === 'VECTOR' ? (provider === 'cohere' ? 1024 : 384) : 1536,
       distance: 'cosine' as const,
       id: scope.embeddingSetId,
-      modelId: mode === 'VECTOR' ? 'Xenova/all-MiniLM-L6-v2' : 'saved-model',
-      modelKey: mode === 'VECTOR' ? 'local::Xenova/all-MiniLM-L6-v2' : 'openai::saved-model',
+      modelId:
+        mode === 'VECTOR'
+          ? provider === 'cohere'
+            ? 'embed-english-v3.0'
+            : 'Xenova/bge-small-en-v1.5'
+          : 'saved-model',
+      modelKey:
+        mode === 'VECTOR'
+          ? provider === 'cohere'
+            ? 'cohere::embed-english-v3.0'
+            : 'local::Xenova/bge-small-en-v1.5'
+          : 'openai::saved-model',
     };
     const selection = {
       device: 'wasm' as const,
       dimensions: 384,
       dtype: 'q8' as const,
-      modelId: 'Xenova/all-MiniLM-L6-v2',
-      revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+      modelId: 'Xenova/bge-small-en-v1.5',
     };
     const profile =
       mode === 'VECTOR' ? resolveNativeCanonicalProfile(metadata, selection).profile : null;
@@ -113,6 +124,34 @@ it.each([
         return payload.texts.map(() => new Array<number>(payload.dimensions).fill(1));
       }
     );
+    const hostedFetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const signal = init?.signal;
+      if (!signal) {
+        throw new Error('Missing physically owned hosted signal.');
+      }
+      const body = JSON.parse(String(init?.body)) as { texts: string[]; input_type: string };
+      expect(body.input_type).toBe(
+        body.texts[0] === 'find canonical source' ? 'search_query' : 'search_document'
+      );
+      if (physicalHold) {
+        signal.addEventListener('abort', physicalHold.aborted, { once: true });
+        physicalHold.entered();
+        await physicalHold.released;
+      }
+      signal.throwIfAborted();
+      return new Response(
+        JSON.stringify({
+          embeddings: {
+            float: body.texts.map(() => new Array<number>(metadata.dimensions).fill(1)),
+          },
+        }),
+        { headers: { 'Content-Type': 'application/json' }, status: 200 }
+      );
+    });
+    if (provider === 'cohere') {
+      vi.stubEnv('COHERE_API_KEY', 'recorded-test-key');
+      vi.stubGlobal('fetch', hostedFetch);
+    }
     const ownedInference = new NativeCanonicalInference({
       resolver,
       scope,
@@ -374,6 +413,19 @@ it.each([
       expect(result.rows[0]?.chunks_count).toBeGreaterThan(0);
       if (profile) {
         expect((await port.coverageScope({ profile, scope })).vectorCoverageComplete).toBe(true);
+        const queryVector =
+          provider === 'cohere'
+            ? (
+                await generateHostedEmbeddings({
+                  dimensions: profile.dimensions,
+                  modelId: metadata.modelId,
+                  provider,
+                  purpose: 'query',
+                  signal: new AbortController().signal,
+                  texts: ['find canonical source'],
+                })
+              )[0]!
+            : new Array<number>(profile.dimensions).fill(1);
         expect(
           (
             await port.searchScopes({
@@ -381,7 +433,7 @@ it.each([
               mode: 'vector',
               profile,
               scopes: [scope],
-              vector: new Array<number>(profile.dimensions).fill(1),
+              vector: queryVector,
             })
           ).hits[0]?.fileId
         ).toBe(identity.fileId);
@@ -415,7 +467,12 @@ it.each([
           })
         ).hits
       ).toHaveLength(1);
-      expect(documentEmbeddings.mock.calls.length).toBe(mode === 'VECTOR' ? 2 : 0);
+      expect(documentEmbeddings.mock.calls.length).toBe(
+        mode === 'VECTOR' && provider === 'local' ? 2 : 0
+      );
+      if (provider === 'cohere') {
+        expect(hostedFetch).toHaveBeenCalledTimes(3);
+      }
       const ids = inference.generate.mock.calls.map(([request]) => request.requestId);
       expect(new Set(ids).size).toBe(ids.length);
       expect(inference.join.mock.calls.map(([requestId]) => requestId)).toEqual(ids);
@@ -486,6 +543,8 @@ it.each([
       expect(connection.exited).toBe(true);
       expect(stderr).not.toContain('Unhandled');
     } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
       await parent.close();
       await connection.close();
       await db.close();

@@ -32,15 +32,19 @@ Guard: `hidden-preload-contract.test.ts`, `hidden-preload-runtime.test.ts`.
 
 - Resolve the actual authorized PGlite embedding-set metadata without writing
   preferences or enabling vectors. Preserve hosted provider/model identity;
-  local execution requires explicit saved device, dtype and revision choices
-  accepted by the public `@brainstrike/embeddings/inference-plan` resolver.
+  local execution requires explicit saved device and dtype choices. An optional
+  immutable revision is preserved when supplied; catalog choices without one stay
+  unpinned. Validate the full selected identity through the public `@brainstrike/embeddings/inference-plan` resolver.
 - Admit 1–64 ordered, unique, nonblank chunks. Reject missing own array entries
   before authority lookup or transport; validate complete profile identity,
   vector cardinality, dimensions and finite values before publication.
 - Supply `NativeCanonicalInference` only with a document relay whose promise
   settles after physical hidden-renderer completion or joined host retirement
   on every outcome. Keep cancellation ownership until that settlement and
-  preserve independent errors through generate/cancel/join/close.
+  preserve independent errors through generate/cancel/join/close. Hosted document
+  and query adapters use the existing provider and credential owners; Ollama and
+  LM Studio read the same saved endpoint/token choices as runtime discovery.
+  Cancellation joins the provider operation before releasing ownership.
 
 Evidence: `local-inference/2026-10-03-canonical-profile-adapter.md`.
 Guard: `native-canonical-profile.test.ts`,
@@ -71,18 +75,14 @@ assertion or re-exposing the full storage bridge. Evidence:
 Guard: `vector-preferences-store.hidden-host.test.ts`,
 `vector-preferences-storage-key-contract.test.ts`, `storage-preferences-ipc.test.ts`.
 
-### Fused MiniLM input and batching
+### Vendor model input and batching
 
-- An explicit model revision reaches the vendor loader, isolates pipeline caches,
-  and must match the completion revision. Omitted revisions preserve existing behavior.
-- Request the fused export by its explicit `FUSED_MINILM_MODEL_ID`; never substitute
-  it for an existing model ID or reuse that model's derived vectors. Choose dtype
-  explicitly from that export's available assets; a missing dtype fails visibly.
-- Cap this export at 256 tokenizer tokens, including special tokens. Keep input
-  order and each inference batch within both the caller's count ceiling and 8192
-  padded tokens; stream completion reports the maximum observed batch size.
+- The selected model's Transformers.js feature-extraction pipeline owns tokenizer
+  limits and mean pooling. Do not impose a model-specific tokenizer cap or substitute
+  another export. Preserve the caller's batch count ceiling and stream order.
+- An explicit revision reaches the vendor loader, isolates pipeline caches, and
+  must match completion metadata. Omitted revisions preserve vendor behavior.
 
-Evidence: `local-inference/fused-minilm-worker.md`.
 Guard: `embedding-input-plan.spec.ts`, `streaming-worker-client-completion.spec.ts`,
 `pipeline-cache-controller.spec.ts`, `embedding-worker-protocol.test.ts`,
 `embedding-telemetry.spec.ts`, `transformers-backend.queue.test.ts`.
@@ -90,14 +90,14 @@ Guard: `embedding-input-plan.spec.ts`, `streaming-worker-client-completion.spec.
 ### Explicit native vector request plan
 
 - Resolve a native vector identity only from an explicit renderer worker plan:
-  model, immutable revision, device, dtype and dimensions. The pinned export
-  resolver validates supported combinations and token caps; selected model
-  ID/key/dimensions alone establish neither revision nor actual dtype.
-- Native hidden-host query requests carry the full verified `inferencePlan`, matching
+  model, optional immutable revision, device, dtype and actual dimensions.
+  The catalog plan resolver preserves those choices without inventing revision
+  pins or token caps; completion metadata proves the requested runtime.
+- Local native hidden-host query requests carry the full validated `inferencePlan`, matching
   payload model ID and dimensions. Preserve revision through preload and scalar
   queue projection; cache the full identity and initialize its explicit target
   dimensions without legacy catalog or device-preference resolution.
-- Native document requests require the same verified plan and 1–64 unchanged
+- Local native document requests require the same validated plan and 1–64 unchanged
   texts; use document `generateEmbeddings` semantics and preserve output order.
   Query and document work share one FIFO, cache identity and physical inference
   owner; both public query and document promises and pending identities settle only after completion or joined retirement on every outcome.

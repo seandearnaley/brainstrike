@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { Page } from 'playwright';
+import type { VisibleEmbeddingHostBridge } from '../src/types/desktop-electron-api';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
@@ -87,8 +88,8 @@ async function createCatalogCollection(page: Page): Promise<string> {
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         id,
-        'local::Xenova/all-MiniLM-L6-v2',
-        'Xenova/all-MiniLM-L6-v2',
+        'local::Xenova/bge-small-en-v1.5',
+        'Xenova/bge-small-en-v1.5',
         384,
         'cosine',
         'Fresh collection',
@@ -99,14 +100,11 @@ async function createCatalogCollection(page: Page): Promise<string> {
 }
 
 test.describe('Workspace Index first run (desktop)', () => {
-  for (const setup of [
-    { execution: 'WebGPU · FP16', model: 'MiniLM — WebGPU or CPU' },
-    { execution: 'WASM · Q8', model: 'MiniLM — CPU' },
-  ]) {
+  for (const setup of [{ execution: 'WASM · Q8', model: 'BGE Small' }]) {
     test(`starts native semantic indexing using visible setup controls: ${setup.execution}`, async ({
       electron,
     }, testInfo) => {
-      // This case deliberately selects WebGPU through the UI; the generic CI harness disables it.
+      // Keep normal device discovery; this case explicitly selects WASM through the UI.
       const previousAllowGpu = process.env['BRAINSTRIKE_E2E_ALLOW_GPU'];
       process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] = '1';
       const folder = await mkdtemp(join(tmpdir(), 'brainstrike-index-setup-'));
@@ -131,10 +129,10 @@ test.describe('Workspace Index first run (desktop)', () => {
           timeout: 15_000,
         });
         await window.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-        await window.getByRole('option', { exact: true, name: setup.model }).click();
+        await window.getByRole('option', { name: new RegExp(setup.model) }).click();
         await window.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
         await expect(window.getByRole('combobox', { name: 'Managed collection' })).toContainText(
-          'Workspace Index (MiniLM',
+          `Workspace Index (${setup.model})`,
           { timeout: 15_000 }
         );
         await window.getByRole('combobox', { name: 'Search mode' }).click();
@@ -180,6 +178,51 @@ test.describe('Workspace Index first run (desktop)', () => {
             { timeout: 60_000 }
           )
           .toBe(true);
+        const semanticResult = await window.evaluate(async () => {
+          const bridges = globalThis as typeof globalThis & {
+            readonly indexSearch?: IndexSearchCapability;
+            readonly embeddingHost?: VisibleEmbeddingHostBridge;
+          };
+          const capability = bridges.indexSearch;
+          const bridge = bridges.embeddingHost;
+          if (!(capability && bridge && 'queryEmbedding' in bridge)) {
+            throw new Error('Native search/query bridge unavailable');
+          }
+          const status = await capability.status();
+          if (
+            status.kind !== 'ready' ||
+            status.embedding.indexMode !== 'vector-configured' ||
+            !status.queryPlan
+          ) {
+            throw new Error('Selected collection has no ready semantic query plan');
+          }
+          const vector = await bridge.queryEmbedding({
+            dimensions: status.embedding.profile.dimensions,
+            modelId: status.embedding.profile.modelId,
+            modelKey: status.queryPlan.modelKey,
+            query: 'document created by the smoke test',
+            ...(status.queryPlan.inferencePlan
+              ? { inferencePlan: status.queryPlan.inferencePlan }
+              : {}),
+          });
+          const result = await capability.search({
+            limit: 5,
+            mode: 'vector',
+            profile: status.embedding.profile,
+            rootIds: status.authorizedRootIds,
+            vector,
+          });
+          return {
+            dimensions: vector.length,
+            hits: result.hits,
+            modelKey: status.queryPlan.modelKey,
+          };
+        });
+        expect(semanticResult.modelKey).toBe('local::Xenova/bge-small-en-v1.5');
+        expect(semanticResult.dimensions).toBe(384);
+        expect(semanticResult.hits.some((hit) => hit.content.includes('smoke test creates'))).toBe(
+          true
+        );
         await testInfo.attach('ui-created-index', {
           body: JSON.stringify(
             {

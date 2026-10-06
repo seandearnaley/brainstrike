@@ -169,3 +169,69 @@ it('parses every batch selector and preserves visible-ui authority and failure p
   expect(result).toMatchObject({ ok: false });
   expect(cap.coverageBatch).toHaveBeenCalledExactlyOnceWith(requests);
 });
+
+it.each([
+  {
+    dimensions: 768,
+    distance: 'cosine',
+    dtype: 'q8',
+    modelId: 'Xenova/bge-base-en-v1.5',
+    provider: 'local',
+  },
+  {
+    dimensions: 768,
+    distance: 'l2',
+    dtype: 'q4',
+    modelId: 'jinaai/jina-embeddings-v2-base-code',
+    provider: 'transformers',
+  },
+  { dimensions: 3072, distance: 'ip', modelId: 'text-embedding-3-large', provider: 'openai' },
+  { dimensions: 3072, distance: 'cosine', modelId: 'gemini-embedding-001', provider: 'google' },
+  { dimensions: 10, distance: 'l2', modelId: 'existing-model', provider: 'ollama' },
+])(
+  'preserves the whole $provider $dimensions $distance profile through the actual IPC parser',
+  (profile) => {
+    const request = {
+      collectionId: 'existing-set',
+      limit: 10,
+      mode: 'vector',
+      profile,
+      rootIds: [],
+      vector: new Array<number>(profile.dimensions).fill(0.5),
+    };
+    expect(indexSearchContract.search.parseArgs([request])).toEqual([request]);
+    for (const invalid of [
+      { vector: request.vector.slice(1) },
+      { vector: [...request.vector.slice(1), Number.NaN] },
+      { profile: { ...profile, unexpected: true } },
+      { profile: { ...profile, revision: 'main' } },
+    ]) {
+      expect(() => indexSearchContract.search.parseArgs([{ ...request, ...invalid }])).toThrow();
+    }
+  }
+);
+
+it.each(['cosine', 'l2', 'ip'] as const)(
+  'rejects providerless legacy profiles carrying an unhashed %s distance',
+  (distance) => {
+    const profile = {
+      dimensions: 384,
+      dtype: 'q8',
+      modelId: 'Xenova/bge-small-en-v1.5',
+      revision: 'a'.repeat(40),
+      tokenCap: 512,
+    };
+    const request = {
+      collectionId: 'existing-set',
+      limit: 10,
+      mode: 'vector',
+      profile,
+      rootIds: [],
+      vector: new Array<number>(384).fill(0.5),
+    };
+    expect(indexSearchContract.search.parseArgs([request])).toEqual([request]);
+    expect(() =>
+      indexSearchContract.search.parseArgs([{ ...request, profile: { ...profile, distance } }])
+    ).toThrow('canonical embedding provider');
+  }
+);

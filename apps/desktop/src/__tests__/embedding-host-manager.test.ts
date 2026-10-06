@@ -1,112 +1,16 @@
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
-
-interface EmbeddingLifecycleStatus {
-  active: boolean;
-  commandId?: string;
-  lastError: string | null;
-  runtimeId: string;
-  runtimeKind?: 'embedding-host';
-  state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
-}
-
-const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(() => {
-  const { EventEmitter } = process.getBuiltinModule('node:events');
-  const hostWindow = Object.assign(new EventEmitter(), {
-    destroy: vi.fn(() => hostWindow.emit('closed')),
-    isDestroyed: vi.fn(() => false),
-    webContents: Object.assign(new EventEmitter(), {
-      id: 91,
-      send: vi.fn(),
-    }),
-  });
-  const currentStatus: EmbeddingLifecycleStatus = {
-    active: false,
-    lastError: null,
-    runtimeId: 'embedding-host-runtime',
-    runtimeKind: 'embedding-host',
-    state: 'running',
-  };
-
-  return {
-    currentLifecycleStatus: currentStatus,
-    lifecycleState: {
-      clearHostWindow: vi.fn(),
-      destroyHostWindow: vi.fn(),
-      dispose: vi.fn(),
-      ensureStarted: vi.fn<() => Promise<EmbeddingLifecycleStatus>>(async () => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'embedding-host-runtime',
-        state: 'running',
-      })),
-      getHostWindow: vi.fn<() => typeof hostWindow | null | undefined>(() => hostWindow),
-      getStatus: vi.fn<() => EmbeddingLifecycleStatus>(() => ({ ...currentStatus })),
-      isHostWindow: vi.fn(() => false),
-      setStatus: vi.fn<(status: EmbeddingLifecycleStatus) => void>((status) => {
-        currentStatus.active = status.active;
-        currentStatus.lastError = status.lastError;
-        currentStatus.runtimeId = status.runtimeId;
-        currentStatus.runtimeKind = status.runtimeKind ?? 'embedding-host';
-        currentStatus.state = status.state;
-      }),
-      waitForStatus: vi.fn<
-        (
-          predicate: (status: EmbeddingLifecycleStatus) => boolean,
-          timeoutMs: number
-        ) => Promise<EmbeddingLifecycleStatus>
-      >(async () => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'embedding-host-runtime',
-        state: 'stopped',
-      })),
-    },
-    mockHostWindow: hostWindow,
-  };
-});
-
-const { powerSaveBlockerIsStartedMock, powerSaveBlockerStartMock, powerSaveBlockerStopMock } =
-  vi.hoisted(() => ({
-    powerSaveBlockerIsStartedMock: vi.fn(() => true),
-    powerSaveBlockerStartMock: vi.fn(() => 101),
-    powerSaveBlockerStopMock: vi.fn(),
-  }));
-
-vi.mock('electron', () => ({
-  app: {
-    getAppPath: vi.fn(() => '/mock/app'),
-    isPackaged: false,
-  },
-  BrowserWindow: vi.fn(),
-  powerSaveBlocker: {
-    isStarted: powerSaveBlockerIsStartedMock,
-    start: powerSaveBlockerStartMock,
-    stop: powerSaveBlockerStopMock,
-  },
-}));
-
-vi.mock('../renderer-host-lifecycle', () => ({
-  RendererHostLifecycle: vi.fn().mockImplementation(function MockRendererHostLifecycle() {
-    return lifecycleState;
-  }),
-}));
-
 import { EmbeddingHostManager } from '../embedding-host-manager';
-
-// Map public keys without private members so tests can expose syncPowerSaveBlocker.
-type TestableEmbeddingHostManager = Omit<EmbeddingHostManager, never> & {
-  syncPowerSaveBlocker: (status: {
-    active: boolean;
-    lastError: string | null;
-    state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
-  }) => void;
-};
-
-function createDarwinManager(): TestableEmbeddingHostManager {
-  return new EmbeddingHostManager({
-    platform: 'darwin',
-  }) as unknown as TestableEmbeddingHostManager;
-}
+import {
+  createDarwinManager,
+  currentLifecycleStatus,
+  type EmbeddingLifecycleStatus,
+  lifecycleState,
+  mockHostWindow,
+  powerSaveBlockerIsStartedMock,
+  powerSaveBlockerStartMock,
+  powerSaveBlockerStopMock,
+  type TestableEmbeddingHostManager,
+} from './embedding-host-manager-fixture';
 
 describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   beforeEach(() => {

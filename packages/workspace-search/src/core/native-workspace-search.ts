@@ -1,12 +1,14 @@
 import { calculateRRFContribution, createGrepLineMatcher, RRF_K_DEFAULT } from '@brainstrike/db';
-import type {
-  IndexerCoverage,
-  IndexerCoverageCounts,
-  IndexerEmbeddingProfile,
-  IndexerEmbeddingState,
-  IndexerSearchHit,
-  IndexerSearchResult,
-  IndexSearchCapability,
+import {
+  type IndexerCoverage,
+  type IndexerCoverageCounts,
+  type IndexerEmbeddingProfile,
+  type IndexerEmbeddingState,
+  type IndexerSearchHit,
+  type IndexerSearchResult,
+  type IndexSearchCapability,
+  indexerEmbeddingProfileValues,
+  validIndexerEmbeddingProfile,
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { NativeWorkspaceSearchDependencies } from './native-workspace-search-context';
 import type {
@@ -29,20 +31,8 @@ export interface NativeSearchScope {
   rootIds: readonly string[];
 }
 
-function validProfile(profile: IndexerEmbeddingProfile): boolean {
-  return (
-    typeof profile.modelId === 'string' &&
-    profile.modelId.trim().length > 0 &&
-    /^[a-f0-9]{40}$/u.test(profile.revision) &&
-    ['q8', 'fp16', 'fp32'].includes(profile.dtype) &&
-    profile.dimensions === 384 &&
-    Number.isSafeInteger(profile.tokenCap) &&
-    profile.tokenCap > 0
-  );
-}
-function profileValues(profile: IndexerEmbeddingProfile): readonly (string | number)[] {
-  return [profile.modelId, profile.revision, profile.dtype, profile.dimensions, profile.tokenCap];
-}
+const validProfile = validIndexerEmbeddingProfile;
+const profileValues = indexerEmbeddingProfileValues;
 function sameProfile(left: IndexerEmbeddingProfile, right: IndexerEmbeddingProfile): boolean {
   return (
     validProfile(left) &&

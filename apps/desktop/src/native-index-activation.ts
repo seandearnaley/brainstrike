@@ -7,15 +7,14 @@ import type {
   CanonicalSourceScope,
   CanonicalWorkspaceLease,
 } from '@brainstrike/canonical-ingestion';
-import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { getFileSizeConfig } from '@brainstrike/file-system';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import { Schema } from 'effect';
 import { getDatabase } from './db-main';
 import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { createDesktopHostLease } from './host-lease-manager';
+import { generateHostedEmbeddings } from './hosted-embeddings';
 import {
   acquireIndexerHost,
   closeIndexerRuntime,
@@ -43,6 +42,7 @@ import {
   observeNativeIndexCatalog,
   triggerCatalogWorkspaces,
 } from './native-index-catalog-observation';
+import { decodeRoots, decodeSelectedCollections } from './native-index-pg-decoders';
 import { createNativeIndexReadAuthority } from './native-index-read-authority';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
 import { createNativeScanAdmission } from './native-index-scan-admission';
@@ -63,19 +63,6 @@ import {
   installIndexQueryTarget,
   openIndexCoverage,
 } from './sqlite-query-host-manager';
-
-const decodeRoots = makeThrowingDecoder(
-  Schema.Array(
-    Schema.Struct({
-      id: Schema.NonEmptyString,
-      kind: Schema.Literals(['path', 'fsa', 'snapshot', 'legacy', 'worktree']),
-    })
-  )
-);
-
-const decodeSelectedCollections = makeThrowingDecoder(
-  Schema.Array(Schema.Struct({ id: Schema.NonEmptyString }))
-);
 
 type WithoutSource<T> = T extends unknown ? Omit<T, 'source'> : never;
 interface Dependencies {
@@ -482,6 +469,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         };
       }
       const inference = new NativeCanonicalInference({
+        hostedEmbeddings: (input) =>
+          generateHostedEmbeddings({ ...input, storage: dependencies.storage }),
         resolver: profileResolver,
         scope,
         transport: dependencies.embedding,

@@ -45,6 +45,7 @@ import { worktreesContract } from './ipc-domains/worktrees.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
 import { createBridgeExposer, createIpcBridge } from './platform/ipc-bridge';
+import { decodeNativeEmbeddingWorkerPlan } from './platform/native-embedding-validation';
 
 type McpContentIpcResponse = import('./ipc-domains/mcp.contract').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
@@ -245,43 +246,6 @@ function assertPreloadPositiveInteger(value: unknown, message: string): number {
   return value as number;
 }
 
-// The preload cannot import the bare verified resolver. Preserve all pins for
-// authoritative main/renderer verification instead of projecting to legacy fields.
-function assertPreloadQueryInferencePlan(
-  value: unknown
-): NonNullable<EmbeddingHostQueryEmbeddingPayload['inferencePlan']> {
-  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
-    throw new Error('Native pinned query inferencePlan must be a complete object.');
-  }
-  const plan = value as Record<string, unknown>;
-  const device = plan['device'];
-  const dtype = plan['dtype'];
-  if (
-    !(
-      (device === 'wasm' || device === 'webgpu') &&
-      (dtype === 'q8' || dtype === 'fp16' || dtype === 'fp32') &&
-      plan['dimensions'] === 384
-    )
-  ) {
-    throw new Error(
-      'Native pinned query inferencePlan requires explicit device, dtype and dimensions.'
-    );
-  }
-  return {
-    device,
-    dimensions: 384,
-    dtype,
-    modelId: assertPreloadNonEmptyString(
-      plan['modelId'],
-      'Native pinned query inferencePlan requires modelId.'
-    ),
-    revision: assertPreloadNonEmptyString(
-      plan['revision'],
-      'Native pinned query inferencePlan requires revision.'
-    ),
-  };
-}
-
 function assertEmbeddingHostQueryEmbeddingPayload(
   value: unknown
 ): EmbeddingHostQueryEmbeddingPayload {
@@ -290,9 +254,9 @@ function assertEmbeddingHostQueryEmbeddingPayload(
   }
   const payload = value as Record<string, unknown>;
   const inferencePlan = Object.hasOwn(payload, 'inferencePlan')
-    ? assertPreloadQueryInferencePlan(payload['inferencePlan'])
+    ? decodeNativeEmbeddingWorkerPlan(payload['inferencePlan'])
     : undefined;
-  return {
+  const validated = {
     ...(inferencePlan ? { inferencePlan } : {}),
     dimensions: assertPreloadPositiveInteger(
       payload['dimensions'],
@@ -311,12 +275,20 @@ function assertEmbeddingHostQueryEmbeddingPayload(
       'Embedding host query embedding payload.query must be a non-empty string.'
     ),
   };
+  if (
+    inferencePlan &&
+    (inferencePlan.modelId !== validated.modelId ||
+      inferencePlan.dimensions !== validated.dimensions)
+  ) {
+    throw new Error('Query inferencePlan must match model and dimensions.');
+  }
+  return validated;
 }
 
 function assertPreloadDocumentPayload(
   value: EmbeddingHostDocumentEmbeddingsPayload
 ): EmbeddingHostDocumentEmbeddingsPayload {
-  const inferencePlan = assertPreloadQueryInferencePlan(value.inferencePlan);
+  const inferencePlan = decodeNativeEmbeddingWorkerPlan(value.inferencePlan);
   if (inferencePlan.modelId !== value.modelId || inferencePlan.dimensions !== value.dimensions) {
     throw new Error('Document inferencePlan must match model and dimensions.');
   }

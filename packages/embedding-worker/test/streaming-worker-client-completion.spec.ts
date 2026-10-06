@@ -119,9 +119,9 @@ describe('streaming completion request correlation', () => {
   );
 
   it.each([1, 3])(
-    'validates a fused-model batch ceiling of 3 against observed size 1, reporting %d',
+    'rejects a catalog model completion that disagrees with its batch ceiling or observed batches: %d',
     async (batchSize) => {
-      const model = 'onnx-community/all-MiniLM-L6-v2-ONNX';
+      const model = 'jinaai/jina-embeddings-v2-base-code';
       const worker = new CompletionMockWorker();
       const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
       const outcome = client.stream(
@@ -148,12 +148,10 @@ describe('streaming completion request correlation', () => {
         await Promise.resolve();
       }
       worker.emitMessage(createComplete({ batchSize, dtype: 'fp32', model }));
-      if (batchSize === 1) {
-        await expect(outcome).resolves.toMatchObject({ batchSize: 1, dtype: 'fp32', model });
-      } else {
-        await expect(outcome).rejects.toThrow('observed stream batches');
-        expect(worker.terminate).toHaveBeenCalledTimes(1);
-      }
+      await expect(outcome).rejects.toThrow(
+        batchSize === 1 ? 'request batch size' : 'observed stream batches'
+      );
+      expect(worker.terminate).toHaveBeenCalledTimes(1);
     }
   );
 
