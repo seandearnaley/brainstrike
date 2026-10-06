@@ -1,8 +1,10 @@
 // @vitest-environment node
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
+import { attachAgentHost, readHostRow } from '@brainstrike/agent-host';
 import { makeThrowingDecoder, runWithTimeout } from '@brainstrike/effect-kit';
 import {
   attachHost,
@@ -12,7 +14,7 @@ import {
   type HostRecord,
   launchHost,
 } from '@brainstrike/host-lease';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -36,10 +38,16 @@ interface AppChild {
 let directory: string;
 let entrypoint: string;
 let driver: string;
+let agentEntrypoint: string;
+let agentPlatform: string;
 const activeApps = new Set<AppChild>();
 const attachments = new Set<HostAttachment>();
 const cliPids = new Map<number, string>();
 function electronPath(): string {
+  const explicit = process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'];
+  if (explicit) {
+    return explicit;
+  }
   const value: unknown = createRequire(import.meta.url)('electron');
   if (typeof value !== 'string') {
     throw new TypeError('Electron package did not expose its executable path');
@@ -52,11 +60,15 @@ beforeAll(async () => {
   directory = await mkdtemp(join(resolve('dist'), 'host-lease-proof-'));
   entrypoint = join(directory, 'host-lease-entry.js');
   driver = join(directory, 'driver.js');
+  agentEntrypoint = join(directory, 'agent-host-entry.js');
+  agentPlatform = join(directory, 'agent-host-utility-platform.js');
   // Real production bundle format, external package graph and Electron runtime.
   await build({
     absWorkingDir: resolve('.'),
     bundle: true,
     entryPoints: {
+      'agent-host-entry': 'src/agent-host-entry.ts',
+      'agent-host-utility-platform': 'src/__tests__/fixtures/agent-host-utility-platform.ts',
       driver: 'src/__tests__/fixtures/host-lease-electron.ts',
       'host-lease-entry': 'src/host-lease-entry.ts',
     },
@@ -106,11 +118,21 @@ async function waitGone(pid: number, start: string): Promise<void> {
     { onTimeout: () => new Error(`Host pid ${pid} stayed alive`), timeoutMs: 5000 }
   );
 }
-function startApp(root: string, startupTimeoutMs?: number): AppChild {
+function startApp(root: string, startupTimeoutMs?: number, platformModule?: string): AppChild {
   const env = { ...process.env };
   Reflect.deleteProperty(env, 'ELECTRON_RUN_AS_NODE');
   env['NODE_PATH'] = resolve('node_modules');
-  const args = [driver, root, entrypoint, String(startupTimeoutMs ?? 10_000)];
+  if (platformModule) {
+    env['BRAINSTRIKE_M3_OWNED_PLATFORM_MODULE'] = platformModule;
+  } else {
+    Reflect.deleteProperty(env, 'BRAINSTRIKE_M3_OWNED_PLATFORM_MODULE');
+  }
+  const args = [
+    driver,
+    root,
+    platformModule ? agentEntrypoint : entrypoint,
+    String(startupTimeoutMs ?? 10_000),
+  ];
   if (process.platform === 'linux' && process.getuid?.() === 0) {
     // Chromium refuses root in this isolated test container without this flag.
     args.push('--no-sandbox');
@@ -196,6 +218,90 @@ async function cli(root: string): Promise<HostAttachment> {
 }
 
 describe('real Electron host lease acquisition', () => {
+  it('M3 utility kernel serves CLI approvals and commits through its acquired SQLite writer', async () => {
+    const root = join(directory, 'm3-app-first');
+    const app = startApp(root, undefined, agentPlatform);
+    const record = await app.attached;
+    expect(app.ownsHost()).toBe(true);
+    expect(record.protocolVersion).toBe(3);
+    const client = await attachAgentHost(record);
+    attachments.add(client);
+    const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+    const { runId } = await client.request('run/start', {
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Use the real utility tool',
+      threadId,
+    });
+    let interactionId: string | undefined;
+    await expect
+      .poll(async () => {
+        const pending = (await client.request('thread/read', { fromSeq: 0, threadId })).rows.find(
+          ({ event }) => event.type === 'interaction.requested'
+        )?.event;
+        interactionId =
+          pending?.type === 'interaction.requested' ? pending.interactionId : undefined;
+        return interactionId !== undefined;
+      })
+      .toBe(true);
+    if (!interactionId) {
+      throw new Error('Expected actual utility approval');
+    }
+    await expect(readFile(join(root, 'utility-permitted.txt'))).rejects.toThrow();
+    await client.request('interaction/respond', {
+      commandId: randomUUID(),
+      decision: 'approve',
+      interactionId,
+      runId,
+      threadId,
+    });
+    await expect
+      .poll(
+        async () =>
+          (await client.request('thread/read', { fromSeq: 0, threadId })).rows.at(-1)?.event.type
+      )
+      .toBe('run.finished');
+    expect(await readFile(join(root, 'utility-permitted.txt'), 'utf8')).toBe(
+      'permitted utility effect'
+    );
+    const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
+    await app.close();
+    await client.closed;
+    await waitGone(record.pid, record.start);
+    expect(RootLock.inspect(root)?.owner.released).toBe(true);
+    const store = await StateStore.open(root);
+    try {
+      expect(
+        await Promise.all((await store.read(threadId)).map((row) => readHostRow(store, row)))
+      ).toEqual(rows);
+    } finally {
+      await store.close();
+    }
+  });
+  it('M3 desktop attaches to the existing plain Node kernel and leaves it owned after desktop close', async () => {
+    const root = join(directory, 'm3-cli-first');
+    const attachment = await launchHost(root, {
+      attach: attachAgentHost,
+      lifetime: 'persistent',
+      // Vitest maps workspace imports to source. Launch the emitted process
+      // entry, as the real CLI does, rather than a nonexistent sibling of .ts.
+      spawn: createNodeHostSpawner({
+        entryArgs: [agentPlatform],
+        entrypoint: resolve('../../packages/agent-host/dist/process-entry.js'),
+        output: 'ignore',
+      }),
+    });
+    cliPids.set(attachment.record.pid, attachment.record.start);
+    attachments.add(attachment);
+    const app = startApp(root, undefined, agentPlatform);
+    expect(await app.attached).toEqual(attachment.record);
+    expect(app.ownsHost()).toBe(false);
+    await app.close();
+    const additional = await attachAgentHost(attachment.record);
+    attachments.add(additional);
+    expect(await additional.request('thread/list', {})).toEqual({ threads: [] });
+    expect(processStartTime(attachment.record.pid)).toBe(attachment.record.start);
+  });
   it('lets two simultaneous apps attach to one owner and closes only the app that spawned it', async () => {
     const root = join(directory, 'app-race');
     const first = startApp(root);

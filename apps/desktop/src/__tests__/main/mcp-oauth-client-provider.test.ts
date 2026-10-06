@@ -64,6 +64,45 @@ describe('MCP OAuth credential boundary', () => {
     expect(createStore).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps OAuth clear joined behind pending native encryption without blocking the main lane', async () => {
+    const encryption = Promise.withResolvers<Buffer>();
+    const started = Promise.withResolvers<void>();
+    const set = vi.fn();
+    const syncAccess = vi.fn(() => {
+      throw new Error('synchronous Keychain access blocks desktop main');
+    });
+    const storage = {
+      decryptString: syncAccess,
+      decryptStringAsync: async () => ({ result: '{}', shouldReEncrypt: false }),
+      encryptString: syncAccess,
+      encryptStringAsync: () => {
+        started.resolve();
+        return encryption.promise;
+      },
+      getSelectedStorageBackend: () => 'keychain',
+      isAsyncEncryptionAvailable: async () => true,
+      isEncryptionAvailable: () => true,
+    };
+    const store = createSafeStorageMcpOAuthStore({ get: () => ({}), set }, storage);
+    const writing = store.write(identity, {});
+    // Observe any early failure before waiting for the actual async entry.
+    writing.catch(started.reject);
+    await started.promise;
+    let cleared = false;
+    const clearing = store.clearAll().then(() => {
+      cleared = true;
+    });
+    await new Promise<void>((done) => setImmediate(done));
+    expect(cleared).toBe(false);
+    expect(set).not.toHaveBeenCalled();
+    encryption.resolve(Buffer.from('owned-encrypted-record'));
+    await writing;
+    await clearing;
+    expect(set).toHaveBeenCalledTimes(2);
+    expect(set).toHaveBeenLastCalledWith('records', {});
+    expect(syncAccess).not.toHaveBeenCalled();
+  });
+
   it('encrypts the dedicated store and refuses an insecure safeStorage backend', async () => {
     const values = new Map<string, string>();
     const electronStore = {
@@ -81,15 +120,19 @@ describe('MCP OAuth credential boundary', () => {
         }
       },
     };
-    const encryptString = vi.fn((value: string) =>
+    const encryptStringAsync = vi.fn(async (value: string) =>
       Buffer.from(`cipher:${Buffer.from(value, 'utf8').toString('base64')}`, 'utf8')
     );
     const safeStorage = {
-      decryptString: (value: Buffer) =>
-        Buffer.from(value.toString('utf8').replace(/^cipher:/u, ''), 'base64').toString('utf8'),
-      encryptString,
+      decryptStringAsync: async (value: Buffer) => ({
+        result: Buffer.from(value.toString('utf8').replace(/^cipher:/u, ''), 'base64').toString(
+          'utf8'
+        ),
+        shouldReEncrypt: false,
+      }),
+      encryptStringAsync,
       getSelectedStorageBackend: () => 'keychain',
-      isEncryptionAvailable: () => true,
+      isAsyncEncryptionAvailable: async () => true,
     };
     const store = createSafeStorageMcpOAuthStore(electronStore as never, safeStorage);
     const persisted: Readonly<Record<string, McpOAuthPersistedState>> = {
@@ -103,10 +146,25 @@ describe('MCP OAuth credential boundary', () => {
       },
     };
     await store.write(identity, persisted);
-    expect(encryptString).toHaveBeenCalledWith(JSON.stringify(persisted));
+    expect(encryptStringAsync).toHaveBeenCalledWith(JSON.stringify(persisted));
     expect(JSON.stringify(Object.fromEntries(values))).not.toContain('access-secret');
     expect(JSON.stringify(Object.fromEntries(values))).not.toContain('refresh-secret');
     await expect(store.read(identity)).resolves.toEqual(persisted);
+
+    const committed = new Map(values);
+    encryptStringAsync.mockRejectedValueOnce(new Error('native encryption unavailable'));
+    await expect(store.write(identity, {})).rejects.toThrow('native encryption unavailable');
+    expect(values).toEqual(committed);
+    await expect(store.read(identity)).resolves.toEqual(persisted);
+
+    const unreadable = createSafeStorageMcpOAuthStore(electronStore, {
+      ...safeStorage,
+      decryptStringAsync: async () => {
+        throw new Error('native decryption unavailable');
+      },
+    });
+    await expect(unreadable.read(identity)).rejects.toThrow('native decryption unavailable');
+    expect(values).toEqual(committed);
 
     const insecure = createSafeStorageMcpOAuthStore(electronStore as never, {
       ...safeStorage,

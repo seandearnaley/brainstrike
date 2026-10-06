@@ -66,10 +66,12 @@ const encryptedStores = new Set<McpOAuthStore>();
 const liveProviders = new Set<McpOAuthClientProvider>();
 
 export interface McpOAuthSafeStorage {
-  decryptString(value: Buffer): string;
-  encryptString(value: string): Buffer;
+  decryptStringAsync(
+    value: Buffer
+  ): Promise<{ readonly result: string; readonly shouldReEncrypt: boolean }>;
+  encryptStringAsync(value: string): Promise<Buffer>;
   getSelectedStorageBackend?(): string;
-  isEncryptionAvailable(): boolean;
+  isAsyncEncryptionAvailable(): Promise<boolean>;
 }
 
 export interface McpOAuthEncryptedStore {
@@ -81,8 +83,11 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function assertSafeStorage(storage: McpOAuthSafeStorage): void {
-  if (!storage.isEncryptionAvailable() || storage.getSelectedStorageBackend?.() === 'basic_text') {
+async function assertSafeStorage(storage: McpOAuthSafeStorage): Promise<void> {
+  if (
+    !(await storage.isAsyncEncryptionAvailable()) ||
+    storage.getSelectedStorageBackend?.() === 'basic_text'
+  ) {
     throw new Error('MCP OAuth persistence requires OS-backed safeStorage encryption.');
   }
 }
@@ -353,22 +358,29 @@ export function createSafeStorageMcpOAuthStore(
     },
     async read(identity) {
       const key = identityKey(identity);
-      return await enqueue(() => {
+      return await enqueue(async () => {
         const records = parseEncryptedRecordMap(store.get('records'));
         const encrypted = records[key];
         if (encrypted === undefined) {
           return {};
         }
-        assertSafeStorage(storage);
-        return parseRecords(storage.decryptString(Buffer.from(encrypted, 'base64')));
+        await assertSafeStorage(storage);
+        const { result: plaintext } = await storage.decryptStringAsync(
+          Buffer.from(encrypted, 'base64')
+        );
+        return parseRecords(plaintext);
       });
     },
     async write(identity, nextRecords) {
       const key = identityKey(identity);
-      await enqueue(() => {
-        assertSafeStorage(storage);
+      await enqueue(async () => {
+        // BST-1977: Mini sampled every main-thread stack inside synchronous
+        // Keychain access. Electron's documented async primitive preserves
+        // the OS-backed boundary while keeping the UI/protocol lane runnable.
+        // https://www.electronjs.org/docs/latest/api/safe-storage
+        await assertSafeStorage(storage);
         const records = parseEncryptedRecordMap(store.get('records'));
-        const encrypted = storage.encryptString(JSON.stringify(nextRecords));
+        const encrypted = await storage.encryptStringAsync(JSON.stringify(nextRecords));
         const next = { ...records, [key]: encrypted.toString('base64') };
         store.set('records', next);
       });

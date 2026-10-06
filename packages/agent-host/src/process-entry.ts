@@ -23,6 +23,12 @@ export type HostPlatformFactory = (
   context: HostStartupContext
 ) => HostPlatform | Promise<HostPlatform>;
 
+/** Launcher control only; client commands still use the authenticated JSON-RPC schema. */
+export interface HostProcessParent {
+  listen(cancel: () => void): () => void;
+  report(message: StartupMessage): Promise<void>;
+}
+
 const Factory = z.custom<HostPlatformFactory>((value: unknown) => typeof value === 'function');
 const Platform = z.custom<HostPlatform>((value: unknown) => {
   if (!(value && typeof value === 'object')) {
@@ -68,8 +74,46 @@ async function report(message: StartupMessage): Promise<void> {
   });
 }
 
+async function reportProcessFailures(
+  failures: readonly unknown[],
+  root: string | undefined,
+  publish: (message: StartupMessage) => Promise<void>
+): Promise<void> {
+  const causes = [...new Set(failures)];
+  if (causes.length === 0) {
+    return;
+  }
+  const cause =
+    causes.length === 1 ? causes[0] : new AggregateError(causes, 'Host process and cleanup failed');
+  const owner = root ? RootLock.inspect(root)?.owner : undefined;
+  const retained =
+    owner &&
+    !owner.released &&
+    owner.pid === process.pid &&
+    processStartTime(process.pid) === owner.start;
+  try {
+    await publish({
+      event: 'failed',
+      kind:
+        cause instanceof RootLockedError
+          ? 'root-locked'
+          : cause instanceof ForeignLockError
+            ? 'foreign-lock'
+            : 'error',
+      message: cause instanceof Error ? cause.message : String(cause),
+      ownership: retained ? 'retained' : 'released',
+    });
+  } catch (reportCause) {
+    process.stderr.write(`Host failure report failed: ${String(reportCause)}\n`);
+  }
+  throw cause;
+}
+
 /** The same Node entry serves socket clients and an optional transparent stdio transport. */
-export async function runAgentHostProcess(args: readonly string[]): Promise<void> {
+export async function runAgentHostProcess(
+  args: readonly string[],
+  parent?: HostProcessParent
+): Promise<void> {
   // Canonical tools and MCP use the shared logger. Stdout belongs exclusively
   // to JSON-RPC framing; configure before dynamically importing the platform.
   configureLogger({ console: { destination: 2 } });
@@ -103,8 +147,11 @@ export async function runAgentHostProcess(args: readonly string[]): Promise<void
   process.on('SIGINT', stop);
   process.on('message', cancelled);
   process.on('disconnect', disconnected);
+  const releaseParent = parent?.listen(stop);
+  const publish = parent?.report.bind(parent) ?? report;
   let bridge: Socket | undefined;
   let root: string | undefined;
+  const failures: unknown[] = [];
   try {
     const options = decodeStartOptions(JSON.parse(args[0] ?? 'null'));
     root = options.root;
@@ -135,17 +182,24 @@ export async function runAgentHostProcess(args: readonly string[]): Promise<void
     }
     controller.signal.throwIfAborted();
     ready = true;
-    await report({ event: 'ready' });
+    await publish({ event: 'ready' });
     await host.closed;
+  } catch (cause) {
+    failures.push(cause);
   } finally {
-    bridge?.destroy();
-    process.stdin.unpipe();
-    process.stdin.pause();
+    if (bridge) {
+      bridge.destroy();
+      process.stdin.unpipe();
+      process.stdin.pause();
+    }
     try {
       await host?.close();
+    } catch (cause) {
+      failures.push(cause);
     } finally {
       const owner = root ? RootLock.inspect(root)?.owner : undefined;
       if (!(owner && !owner.released && owner.pid === process.pid)) {
+        releaseParent?.();
         process.off('SIGTERM', stop);
         process.off('SIGINT', stop);
         process.off('message', cancelled);
@@ -153,34 +207,13 @@ export async function runAgentHostProcess(args: readonly string[]): Promise<void
       }
     }
   }
+  await reportProcessFailures(failures, root, publish);
 }
 
 if (isProcessEntrypoint(import.meta.url)) {
-  runAgentHostProcess(process.argv.slice(2)).catch(async (cause: unknown) => {
+  runAgentHostProcess(process.argv.slice(2)).catch((cause: unknown) => {
     process.exitCode = 1;
     const message = cause instanceof Error ? cause.message : String(cause);
-    const root = decodeStartOptions(JSON.parse(process.argv[2] ?? 'null')).root;
-    const owner = RootLock.inspect(root)?.owner;
-    const retained =
-      owner &&
-      !owner.released &&
-      owner.pid === process.pid &&
-      processStartTime(process.pid) === owner.start;
-    try {
-      await report({
-        event: 'failed',
-        kind:
-          cause instanceof RootLockedError
-            ? 'root-locked'
-            : cause instanceof ForeignLockError
-              ? 'foreign-lock'
-              : 'error',
-        message,
-        ownership: retained ? 'retained' : 'released',
-      });
-    } catch (reportCause) {
-      process.stderr.write(`Host failure report failed: ${String(reportCause)}\n`);
-    }
     process.stderr.write(`${message}\n`);
   });
 }

@@ -60,6 +60,7 @@ function readDesktopPackageConfig(): DesktopPackageConfig {
 describe('main-process bundle config', () => {
   it('bundles every runtime and logging transport entry point', () => {
     expect(MAIN_PROCESS_ENTRY_POINTS).toEqual({
+      'agent-host-entry': 'src/agent-host-entry.ts',
       'db-host-entry': 'src/db-host-entry.ts',
       'hidden-preload': 'src/hidden-preload.ts',
       'host-lease-entry': 'src/host-lease-entry.ts',

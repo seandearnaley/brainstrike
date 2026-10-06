@@ -1,3 +1,4 @@
+import { attachAgentHost } from '@brainstrike/agent-host/client';
 import { runAtPromiseBoundary, runWithTimeout } from '@brainstrike/effect-kit';
 import {
   decodeStartupMessage,
@@ -28,6 +29,8 @@ export interface DesktopHostLeaseOptions {
   readonly closeTimeoutMs?: number;
   readonly entryPath?: string;
   readonly fork?: HostLeaseFork;
+  /** Trusted Node composition module; the GUI and CLI use the same kernel. */
+  readonly platformModule?: string;
   readonly root: string;
   readonly startupTimeoutMs?: number;
 }
@@ -140,18 +143,27 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
   const acquire = async (): Promise<HostAttachment> => {
     try {
       const attachment = await launchHost(options.root, {
+        ...(options.platformModule === undefined ? {} : { attach: attachAgentHost }),
         lifetime: 'app',
         spawn: async (start: HostStartOptions, signal: AbortSignal) => {
           const combined = AbortSignal.any([signal, abort.signal]);
           combined.throwIfAborted();
           const entrypoint =
             options.entryPath ??
-            resolveBundledSiblingPath('Host lease entry', 'host-lease-entry.js');
+            resolveBundledSiblingPath(
+              'Host lease entry',
+              options.platformModule === undefined ? 'host-lease-entry.js' : 'agent-host-entry.js'
+            );
           const fork: HostLeaseFork =
             options.fork ??
             ((path, args) =>
               utilityProcess.fork(path, [...args], { serviceName: 'Brainstrike Host Lease' }));
-          const child = ownChild(fork(entrypoint, [JSON.stringify(start)]));
+          const child = ownChild(
+            fork(entrypoint, [
+              JSON.stringify(start),
+              ...(options.platformModule === undefined ? [] : [options.platformModule]),
+            ])
+          );
           const ready = awaitReady(child, start.root, combined);
           ready.catch(() => undefined);
           await addFinalizer(scope, () => closeChild(child, closeTimeoutMs));

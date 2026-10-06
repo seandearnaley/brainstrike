@@ -20,6 +20,7 @@ const owner = createDesktopHostLease({
     });
     return child;
   },
+  platformModule: process.env['BRAINSTRIKE_M3_OWNED_PLATFORM_MODULE'],
   root,
   startupTimeoutMs,
 });

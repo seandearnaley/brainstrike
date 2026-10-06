@@ -19,6 +19,7 @@ export { createAgentHostSpawner } from './launcher.js';
 export * from './ports.js';
 export {
   type HostPlatformFactory,
+  type HostProcessParent,
   loadHostPlatform,
   runAgentHostProcess,
 } from './process-entry.js';
