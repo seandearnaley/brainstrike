@@ -37,17 +37,18 @@ const Platform = z.custom<HostPlatform>((value: unknown) => {
   return (
     'close' in value &&
     typeof value.close === 'function' &&
-    'resolveModel' in value &&
-    typeof value.resolveModel === 'function' &&
     'readPermissionPolicy' in value &&
     typeof value.readPermissionPolicy === 'function' &&
-    'tools' in value &&
-    value.tools !== null &&
-    typeof value.tools === 'object' &&
-    'maxSteps' in value &&
-    typeof value.maxSteps === 'number' &&
-    Number.isSafeInteger(value.maxSteps) &&
-    value.maxSteps > 0
+    (('admitRun' in value && typeof value.admitRun === 'function') ||
+      ('resolveModel' in value &&
+        typeof value.resolveModel === 'function' &&
+        'tools' in value &&
+        value.tools !== null &&
+        typeof value.tools === 'object' &&
+        'maxSteps' in value &&
+        typeof value.maxSteps === 'number' &&
+        Number.isSafeInteger(value.maxSteps) &&
+        value.maxSteps > 0))
   );
 });
 

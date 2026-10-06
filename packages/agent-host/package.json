@@ -11,6 +11,18 @@
     "./protocol": { "types": "./dist/protocol.d.ts", "default": "./dist/protocol.js" },
     "./committed-identities": { "types": "./dist/committed-identities.d.ts", "default": "./dist/committed-identities.js" },
     "./client": { "types": "./dist/client.d.ts", "default": "./dist/client.js" },
+    "./credential-contract": {
+      "types": "./dist/adapters/credential-contract.d.ts",
+      "default": "./dist/adapters/credential-contract.js"
+    },
+    "./keyring-credentials": {
+      "types": "./dist/adapters/keyring-credentials.d.ts",
+      "default": "./dist/adapters/keyring-credentials.js"
+    },
+    "./keyring-native": {
+      "types": "./dist/adapters/keyring-native-worker.d.ts",
+      "default": "./dist/adapters/keyring-native-worker.js"
+    },
     "./browser": { "types": "./dist/browser-client.d.ts", "default": "./dist/browser-client.js" },
     "./test-fixtures/scripted-model": {
       "types": "./dist/test-fixtures/scripted-model.d.ts",

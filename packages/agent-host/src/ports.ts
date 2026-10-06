@@ -1,9 +1,9 @@
 import type { ProviderRequestAccounting } from '@brainstrike/agent/provider-request';
+import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import type {
   McpHostCloseReport,
   McpHostPort,
   PermissionToolGateSnapshot,
-  RuntimeData,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
 import type {
@@ -79,6 +79,8 @@ export interface HostProviderPort {
 
 /** One immutable selection retained across approval legs, never re-read from Settings. */
 export interface HostRunAdmission {
+  /** Join resources selected before the run is committed, including failed admission. */
+  close?(): Promise<void>;
   readonly configuration: Readonly<RuntimeData>;
   readonly model: LanguageModel;
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
@@ -119,11 +121,11 @@ export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
   close(): Promise<void>;
   /** Supplied by the existing run configuration, not a second host default. */
-  readonly maxSteps: number;
+  readonly maxSteps?: number | undefined;
   /** Run-scoped construction; cached shared memory must not capture a run signal. */
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   readPermissionPolicy(): PermissionToolGateSnapshot;
-  resolveModel(modelId: string): Promise<LanguageModel>;
-  readonly tools: Readonly<Record<string, HostTool>>;
+  resolveModel?(modelId: string): Promise<LanguageModel>;
+  readonly tools?: Readonly<Record<string, HostTool>> | undefined;
 }
 export type HostSdkTools = ToolSet;

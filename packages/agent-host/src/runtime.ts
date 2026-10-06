@@ -85,11 +85,17 @@ export async function startAgentHost(
   };
   const ownedPlatform: HostPlatform = {
     close: closePlatform,
-    get maxSteps(): number {
+    get maxSteps(): number | undefined {
       return currentPlatform().maxSteps;
     },
     readPermissionPolicy: () => currentPlatform().readPermissionPolicy(),
-    resolveModel: (modelId) => currentPlatform().resolveModel(modelId),
+    resolveModel: (modelId) => {
+      const platform = currentPlatform();
+      if (!platform.resolveModel) {
+        throw new Error('Production model selection requires run admission');
+      }
+      return platform.resolveModel(modelId);
+    },
     get tools(): HostPlatform['tools'] {
       return currentPlatform().tools;
     },
