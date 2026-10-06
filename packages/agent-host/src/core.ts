@@ -12,7 +12,7 @@ import {
 } from 'ai';
 import { z } from 'zod';
 import { readHostRow, storedHostEvent } from './event-storage.js';
-import type { HostPlatform } from './ports.js';
+import type { HostPlatform, HostRunOwner } from './ports.js';
 import {
   HOST_METHOD_SCHEMAS,
   type HostEvent,
@@ -30,11 +30,14 @@ interface PendingInteraction {
 interface Run {
   readonly approvals: Map<string, PendingInteraction>;
   readonly checkpointedResults: Set<string>;
+  completion?: Promise<void>;
   readonly controller: AbortController;
   readonly effects: Set<Promise<unknown>>;
   readonly id: string;
   readonly modelId: string;
   readonly outputs: Map<string, Json>;
+  owner?: Promise<HostRunOwner | undefined>;
+  ownerClose?: Promise<void>;
   paused: boolean;
   readonly permits: Map<string, Action>;
   release?: (() => void) | undefined;
@@ -51,6 +54,10 @@ interface AcceptedCommand {
   readonly payload: string;
   readonly result: Json;
 }
+export type HostEventStore = Pick<
+  StateStore,
+  'append' | 'read' | 'root' | 'syncBoundary' | 'threads'
+>;
 
 export function jsonValue(value: unknown): Json {
   return z.json().parse(JSON.parse(JSON.stringify(value)));
@@ -76,19 +83,23 @@ export class HostCore {
   private readonly listeners = new Set<(row: HostLogRow) => void>();
   private admission: Promise<void> = Promise.resolve();
   private closing = false;
+  private closeTask?: Promise<void>;
 
   private constructor(
-    readonly store: StateStore,
+    readonly store: HostEventStore,
     private readonly platform: HostPlatform,
     private readonly retainRun: () => () => void
   ) {}
 
   static async open(
-    store: StateStore,
+    store: HostEventStore,
     platform: HostPlatform,
-    retainRun: () => () => void
+    retainRun: () => () => void,
+    onAcquired?: (core: HostCore) => void
   ): Promise<HostCore> {
     const core = new HostCore(store, platform, retainRun);
+    // The root owner retains partially restored actors if hydration or cleanup fails.
+    onAcquired?.(core);
     for (const threadId of await store.threads()) {
       core.threads.add(threadId);
       for (const row of await store.read(threadId)) {
@@ -274,7 +285,8 @@ export class HostCore {
   private command<T extends Json>(
     method: string,
     params: { commandId: string },
-    perform: () => Promise<T>
+    perform: () => Promise<T>,
+    repeat?: (result: T) => Promise<T>
   ): Promise<T> {
     const result = this.admission.then(async () => {
       if (this.closing) {
@@ -286,7 +298,7 @@ export class HostCore {
         if (previous.method !== method || previous.payload !== payload) {
           throw new Error('Command identity was reused with different input');
         }
-        return previous.result as T;
+        return repeat ? repeat(previous.result as T) : (previous.result as T);
       }
       return perform();
     });
@@ -493,6 +505,7 @@ export class HostCore {
     const initialMessages = [...(this.messages.get(run.threadId) ?? [])];
     let recordedInputLength = initialMessages.length;
     try {
+      await this.openRun(run);
       const result = streamText({
         abortSignal: run.controller.signal,
         maxRetries: 0,
@@ -733,6 +746,7 @@ export class HostCore {
       return;
     }
     try {
+      await this.openRun(run);
       // The SDK collects approvals from one final tool message, preserving parallel calls.
       const responses = this.approvalResponses(run);
       await this.commitMessages(
@@ -746,6 +760,9 @@ export class HostCore {
       const model = await this.platform.resolveModel(run.modelId);
       await this.loop(run, model);
     } catch (cause) {
+      if (run.completion) {
+        throw cause;
+      }
       await this.finish(
         run,
         run.stopped ? 'stopped' : 'failed',
@@ -755,72 +772,136 @@ export class HostCore {
   }
 
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
-    return this.command('run/stop', params, async () => {
+    const join = async (): Promise<void> => {
       const run = this.run(params.threadId, params.runId);
-      const result = {
-        outcome: run.terminal ? ('already-terminal' as const) : ('stopped' as const),
-      };
-      await this.accept(run.threadId, 'run/stop', params, result, []);
-      if (!run.terminal) {
-        run.stopped = true;
-        run.controller.abort(new Error('Run stopped by user'));
-        if (run.task) {
-          await run.task;
-        }
-        if (!run.terminal) {
-          await this.finish(run, 'stopped');
-        }
+      run.stopped = true;
+      run.controller.abort(new Error('Run stopped by user'));
+      if (run.task) {
+        await run.task;
       }
-      return result;
-    });
+      await this.finish(run, 'stopped');
+      await this.closeRunOwner(run);
+    };
+    return this.command(
+      'run/stop',
+      params,
+      async () => {
+        const run = this.run(params.threadId, params.runId);
+        const result = {
+          outcome: run.terminal ? ('already-terminal' as const) : ('stopped' as const),
+        };
+        await this.accept(run.threadId, 'run/stop', params, result, []);
+        await join();
+        return result;
+      },
+      async (result) => {
+        // The committed command records intent, not proof of physical cleanup.
+        // Repeated Stop must observe the same joined completion, including failure.
+        await join();
+        return result;
+      }
+    );
   }
 
-  private async finish(
+  private openRun(run: Run): Promise<HostRunOwner | undefined> {
+    run.owner ??= Promise.resolve().then(() =>
+      this.platform.openRun?.({
+        runId: run.id,
+        signal: run.controller.signal,
+        threadId: run.threadId,
+      })
+    );
+    return run.owner;
+  }
+
+  private closeRunOwner(run: Run): Promise<void> {
+    run.ownerClose ??= Promise.resolve().then(async () => {
+      const owner = await run.owner;
+      await owner?.close();
+    });
+    return run.ownerClose;
+  }
+
+  private finish(
     run: Run,
     outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
     detail?: string
   ): Promise<void> {
-    if (run.terminal) {
-      return;
+    if (run.completion) {
+      return run.completion;
     }
-    try {
+    if (run.terminal) {
+      return this.closeRunOwner(run);
+    }
+    run.completion = (async () => {
       // SDK abort can end its stream before a tool's physical process exits.
       // Only the host owns terminal admission, so join all dispatched work first.
       await Promise.allSettled([...run.effects]);
+      await this.closeRunOwner(run);
+      const joinedOutcome = run.stopped
+        ? 'stopped'
+        : run.controller.signal.aborted && this.closing
+          ? 'interrupted'
+          : outcome;
       await this.append(run.threadId, [
-        { outcome, runId: run.id, type: 'run.finished', ...(detail ? { detail } : {}) },
+        {
+          outcome: joinedOutcome,
+          runId: run.id,
+          type: 'run.finished',
+          ...(detail ? { detail } : {}),
+        },
       ]);
       await this.store.syncBoundary(run.threadId);
       run.terminal = true;
-    } finally {
       run.release?.();
       run.release = undefined;
-    }
+    })();
+    return run.completion;
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    this.closeTask ??= this.closeOwned();
+    return this.closeTask;
+  }
+
+  private async closeOwned(): Promise<void> {
     this.closing = true;
+    for (const run of this.runs.values()) {
+      run.controller.abort(new Error('Host is closing'));
+    }
     await this.admission;
     for (const run of this.runs.values()) {
-      if (!run.terminal) {
-        run.controller.abort(new Error('Host is closing'));
-      }
+      run.controller.abort(new Error('Host is closing'));
     }
-    await Promise.all(
+    const joined = await Promise.allSettled(
       [...this.runs.values()].map(async (run) => {
-        if (run.task) {
-          await run.task;
-          run.release?.();
-          run.release = undefined;
-        } else if (run.terminal || run.approvals.size > 0) {
-          run.release?.();
-          run.release = undefined;
-        } else {
+        const task = await Promise.allSettled([run.task ?? Promise.resolve()]);
+        const owner = await Promise.allSettled([this.closeRunOwner(run)]);
+        const results = [...task, ...owner];
+        const failures = results.filter((result) => result.status === 'rejected');
+        if (failures.length > 0) {
+          throw new AggregateError(
+            failures.map((result) => result.reason),
+            'Run cleanup failed'
+          );
+        }
+        if (!run.terminal && run.approvals.size === 0) {
           await this.finish(run, 'interrupted', 'Host closed with a pending decision');
         }
       })
     );
-    await this.platform.close();
+    const platform = await Promise.allSettled([this.platform.close()]);
+    const failures = [...joined, ...platform].filter((result) => result.status === 'rejected');
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures.map((result) => result.reason),
+        'Host cleanup failed'
+      );
+    }
+    for (const run of this.runs.values()) {
+      run.release?.();
+      run.release = undefined;
+    }
     this.listeners.clear();
   }
 }

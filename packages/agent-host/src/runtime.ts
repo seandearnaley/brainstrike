@@ -20,6 +20,16 @@ export interface AgentHost extends HostRuntime {
   readonly core: HostCore;
 }
 export type HostPlatformInitializer = HostPlatform | (() => HostPlatform | Promise<HostPlatform>);
+/** Failed startup still owns its durable root when physical cleanup was not proven. */
+export class AgentHostStartupError extends AggregateError {
+  constructor(
+    causes: readonly unknown[],
+    readonly store: StateStore,
+    readonly core: HostCore | undefined
+  ) {
+    super(causes, 'Host startup cleanup failed; durable root ownership is retained');
+  }
+}
 export async function startAgentHost(
   options: HostStartOptions,
   inputPlatform: HostPlatformInitializer
@@ -84,19 +94,29 @@ export async function startAgentHost(
           // Acquire the durable root owner before constructing credentials,
           // inference/indexer ports or MCP authority for a configured host.
           platform ??= typeof inputPlatform === 'function' ? await inputPlatform() : inputPlatform;
-          core = await HostCore.open(store, ownedPlatform, retainRun);
+          if (platform.openRun) {
+            ownedPlatform.openRun = platform.openRun.bind(platform);
+          }
+          core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
+            core = acquired;
+          });
         } catch (cause) {
+          try {
+            if (core) {
+              await core.close();
+            } else {
+              await closePlatform();
+            }
+          } catch (cleanupCause) {
+            throw new AgentHostStartupError([cause, cleanupCause], store, core);
+          }
           await store.close();
-          await closePlatform();
           throw cause;
         }
         return {
           close: async () => {
-            try {
-              await core?.close();
-            } finally {
-              await store.close();
-            }
+            await core?.close();
+            await store.close();
           },
           lock: store.lock,
         };
@@ -104,6 +124,9 @@ export async function startAgentHost(
       protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
     });
   } catch (cause) {
+    if (cause instanceof AgentHostStartupError) {
+      throw cause;
+    }
     try {
       await closePlatform();
     } catch (cleanupCause) {
