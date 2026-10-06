@@ -184,6 +184,11 @@ import { createNativeCallerRead } from './native-caller-query';
 import { createNativeIndexActivation } from './native-index-activation';
 import { reportNativeIndexActivationError as reportNativeIndexFailure } from './native-index-activation-error';
 import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
+import {
+  createInitialWindowAfterNativeReader,
+  createNativeStartupFailureReporter,
+  observeNativeReaderStartup,
+} from './native-index-startup-window';
 import { createNativeRootDataDeletion } from './native-root-data-deletion';
 import { createNativeScopedSearchCapability } from './native-scoped-search';
 import { ParserHostManager } from './parser-host-manager';
@@ -1351,11 +1356,14 @@ if (singleInstanceLockAcquired) {
         launchMode,
       });
       configureDesktopRendererTarget(rendererTarget);
-      void nativeIndexActivation
-        .acquire()
-        .catch((error: unknown) =>
-          reportNativeIndexActivationError('Native index activation unavailable', error)
-        );
+      const reportInitialNativeFailure = createNativeStartupFailureReporter((error) =>
+        reportNativeIndexActivationError('Native index activation unavailable', error)
+      );
+      void nativeIndexActivation.acquire().catch(reportInitialNativeFailure);
+      const nativeReaderStartup = observeNativeReaderStartup(
+        nativeIndexActivation.acquireRead(),
+        reportInitialNativeFailure
+      );
       logger.debug('Configured desktop renderer target', { rendererTarget });
 
       // Register the root-validated `brainstrike-asset://` protocol now that the
@@ -2208,7 +2216,18 @@ if (singleInstanceLockAcquired) {
       );
 
       logger.debug('Creating main window...');
-      const mainWindow = await createMainWindow();
+      const mainWindow = await createInitialWindowAfterNativeReader(
+        nativeReaderStartup,
+        createMainWindow,
+        (outcome) =>
+          logger.info('Initial native reader startup settled before visible renderer load', {
+            kind: outcome.kind,
+          }),
+        isDesktopShuttingDown
+      );
+      if (!mainWindow) {
+        return;
+      }
       logger.debug('Main window created successfully');
 
       // Launch argv is a ONE-TIME, launch-scoped producer — enqueued once here,
