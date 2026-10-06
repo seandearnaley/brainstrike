@@ -24,6 +24,8 @@ export interface HostStartupContext {
   /** Register a partial resource's join before starting its first side effect. */
   register(close: () => Promise<void>): Promise<void>;
   readonly signal: AbortSignal;
+  /** Already-acquired canonical writer; adapters borrow it and never open a second store. */
+  readonly store: StateStore;
 }
 export type HostPlatformInitializer =
   | HostPlatform
@@ -45,7 +47,7 @@ export async function startAgentHost(
 ): Promise<AgentHost> {
   signal.throwIfAborted();
   const partialPlatform = new ResourceOwner();
-  const context: HostStartupContext = {
+  const context: Omit<HostStartupContext, 'store'> = {
     register: async (close) => {
       signal.throwIfAborted();
       await partialPlatform.acquire(
@@ -67,8 +69,8 @@ export async function startAgentHost(
   const closePlatform = (): Promise<void> => {
     platformClose ??= Promise.resolve().then(async () => {
       const joined = await Promise.allSettled([
-        platform ? currentPlatform().close() : Promise.resolve(),
-        partialPlatform.close(),
+        Promise.resolve().then(() => platform?.close()),
+        Promise.resolve().then(() => partialPlatform.close()),
       ]);
       const failures = joined.filter((result) => result.status === 'rejected');
       if (failures.length > 0) {
@@ -93,6 +95,13 @@ export async function startAgentHost(
   };
   let runtime: HostRuntime | undefined;
   let core: HostCore | undefined;
+  const cancelled = (): void => {
+    // BST-1977: a socket can already be authenticated while host.json's
+    // publication acknowledgement is held. Fence that command owner now;
+    // startup rollback still owns the store/root until every join settles.
+    void (runtime ? runtime.close() : core?.close())?.catch(() => undefined);
+  };
+  signal.addEventListener('abort', cancelled, { once: true });
   try {
     runtime = await startHost(
       options,
@@ -117,13 +126,18 @@ export async function startAgentHost(
             // Acquire the durable root owner before constructing credentials,
             // inference/indexer ports or MCP authority for a configured host.
             platform ??=
-              typeof inputPlatform === 'function' ? await inputPlatform(context) : inputPlatform;
+              typeof inputPlatform === 'function'
+                ? await inputPlatform({ ...context, store })
+                : inputPlatform;
             signal.throwIfAborted();
             if (platform.openRun) {
               ownedPlatform.openRun = platform.openRun.bind(platform);
             }
             core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
               core = acquired;
+              if (signal.aborted) {
+                cancelled();
+              }
             });
             signal.throwIfAborted();
           } catch (cause) {
@@ -152,6 +166,7 @@ export async function startAgentHost(
       signal
     );
   } catch (cause) {
+    signal.removeEventListener('abort', cancelled);
     if (cause instanceof AgentHostStartupError) {
       throw cause;
     }
@@ -166,6 +181,8 @@ export async function startAgentHost(
     await runtime.close();
     throw new Error('Host store was not initialized');
   }
+  const disconnected = (): void => signal.removeEventListener('abort', cancelled);
+  runtime.closed.then(disconnected, disconnected);
   return {
     get clientCount(): number {
       return runtime.clientCount;

@@ -1,12 +1,74 @@
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { createNodeHostSpawner } from '@brainstrike/host-lease';
-import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
+import { processStartTime, RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
 import { startAgentHost } from '../src/runtime.js';
+
+test('a synchronous platform close failure still joins a registered physical startup child', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-sync-close-'));
+  let child: ReturnType<typeof spawn> | undefined;
+  let exited: Promise<void> | undefined;
+  let joined = false;
+  let initializedStore: StateStore | undefined;
+  const failure = new Error('Recorded synchronous platform close');
+  const host = await startAgentHost({ lifetime: 'persistent', root }, async (context) => {
+    initializedStore = context.store;
+    await expect(StateStore.open(root)).rejects.toBeInstanceOf(RootLockedError);
+    await context.register(async () => {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGTERM');
+      }
+      await exited;
+      joined = true;
+    });
+    child = spawn(
+      process.execPath,
+      ['-e', "process.stdout.write('ready');process.stdin.resume()"],
+      { stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    exited = new Promise<void>((resolve, reject) => {
+      child?.once('close', () => resolve());
+      child?.once('error', reject);
+    });
+    await new Promise<void>((resolve, reject) => {
+      child?.stdout?.once('data', () => resolve());
+      child?.once('error', reject);
+    });
+    return {
+      close: (): Promise<void> => {
+        throw failure;
+      },
+      maxSteps: 3,
+      readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
+      resolveModel: async () => {
+        throw new Error('No model during startup');
+      },
+      tools: {},
+    };
+  });
+  try {
+    expect(initializedStore).toBe(host.core.store);
+    await expect(host.close()).rejects.toThrow();
+    expect(joined).toBe(true);
+    expect(processStartTime(child?.pid ?? 0)).toBeNull();
+    await expect(StateStore.open(root)).rejects.toBeInstanceOf(RootLockedError);
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGTERM');
+    }
+    await exited;
+    if (host.core.store instanceof StateStore) {
+      await host.core.store.close();
+    }
+    await rm(root, { force: true, recursive: true });
+  }
+});
 
 test('cancellation before acquisition constructs no platform and leaves no root owner', async () => {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-before-acquire-'));

@@ -327,6 +327,39 @@ describe('run token diagnostics', () => {
     expect(serialized).not.toContain('secret-base64-payload');
   });
 
+  it('compacts SDK7 inline file bytes while retaining inline text, URLs and references', () => {
+    const output = [
+      { data: { data: 'inline-image-bytes', type: 'data' }, mediaType: 'image/png', type: 'file' },
+      {
+        data: { type: 'url', url: new URL('data:image/png;base64,inline-data-url') },
+        mediaType: 'image/png',
+        type: 'file',
+      },
+      {
+        data: { text: 'important inline document', type: 'text' },
+        mediaType: 'text/plain',
+        type: 'file',
+      },
+      {
+        data: { type: 'url', url: new URL('https://example.test/image.png') },
+        mediaType: 'image/png',
+        type: 'file',
+      },
+      {
+        data: { reference: { openai: 'file_reference' }, type: 'reference' },
+        mediaType: 'image/png',
+        type: 'file',
+      },
+    ];
+    const serialized = serializeModelOutputForTokenMeasurement(output);
+    expect(serialized).not.toContain('inline-image-bytes');
+    expect(serialized).not.toContain('inline-data-url');
+    expect(serialized).toContain('important inline document');
+    expect(serialized).toContain('https://example.test/image.png');
+    expect(serialized).toContain('file_reference');
+    expect(output[0]?.data).toEqual({ data: 'inline-image-bytes', type: 'data' });
+  });
+
   it('counts actual serialized media characters for telemetry even though token counting masks them', async () => {
     const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
     const output = {

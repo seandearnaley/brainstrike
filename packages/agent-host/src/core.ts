@@ -8,12 +8,10 @@ import {
   streamText,
   type ToolContent,
   type ToolSet,
-  tool,
 } from 'ai';
 import {
   ApprovalInputReconstructionError,
   admittedApprovalInput,
-  approvalRuntimeSchema,
   rebuildApprovedRuntimeMessages,
   recordRawToolInputs,
   validateApprovalInput,
@@ -25,6 +23,7 @@ import {
   type HostRunState as Run,
 } from './core-state.js';
 import { readHostRow, storedHostEvent } from './event-storage.js';
+import { healInterruptedRunHistory } from './interrupted-history.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostPlatform, HostRunOwner } from './ports.js';
 import {
@@ -33,6 +32,7 @@ import {
   type HostLogRow,
   type HostParams,
 } from './protocol.js';
+import { createHostSdkTools } from './sdk-tools.js';
 
 export { jsonValue } from './json-value.js';
 
@@ -156,6 +156,7 @@ export class HostCore {
         const run = this.runs.get(event.runId);
         if (run) {
           run.terminal = true;
+          run.outcome = event.outcome;
         }
         break;
       }
@@ -403,28 +404,20 @@ export class HostCore {
   }
 
   private sdkTools(run: Run): ToolSet {
-    const tools: ToolSet = {};
-    for (const [id, registered] of Object.entries(this.platform.tools)) {
-      tools[id] = tool({
-        description: registered.description,
-        execute: async (input, options) => {
-          const action = run.permits.get(options.toolCallId);
-          if (!action || action.toolId !== id) {
-            throw new Error('Tool execution bypassed host permission admission');
-          }
-          if (canonical(jsonValue(input)) !== canonical(action.input)) {
-            throw new Error('SDK execution input changed after permission admission');
-          }
-          return this.dispatch(run, action, input);
-        },
-        inputSchema: approvalRuntimeSchema(registered.inputSchema, (rawInput) =>
-          admittedApprovalInput(id, rawInput, run)
-        ),
-        ...(registered.strict === undefined ? {} : { strict: registered.strict }),
-        ...(registered.toModelOutput ? { toModelOutput: registered.toModelOutput } : {}),
-      });
-    }
-    return tools;
+    return createHostSdkTools({
+      admittedInput: (id, input) => admittedApprovalInput(id, input, run),
+      execute: (id, toolCallId, input) => {
+        const action = run.permits.get(toolCallId);
+        if (!action || action.toolId !== id) {
+          throw new Error('Tool execution bypassed host permission admission');
+        }
+        if (canonical(jsonValue(input)) !== canonical(action.input)) {
+          throw new Error('SDK execution input changed after permission admission');
+        }
+        return this.dispatch(run, action, input);
+      },
+      tools: this.platform.tools,
+    });
   }
 
   private dispatch(run: Run, action: Action, input: unknown): Promise<unknown> {
@@ -486,6 +479,7 @@ export class HostCore {
     run.paused = false;
     const initialMessages = [...(this.messages.get(run.threadId) ?? [])];
     let recordedInputLength = initialMessages.length;
+    let historyPrepared = false;
     try {
       await this.openRun(run);
       const result = streamText({
@@ -494,6 +488,13 @@ export class HostCore {
         messages: await rebuildApprovedRuntimeMessages({
           approvals: [...run.approvals.values()],
           checkpointedResults: run.checkpointedResults,
+          inputBinding: (event) => {
+            const input = run.approvals.get(event.interactionId)?.runtimeInput;
+            if (!input) {
+              throw new Error('Approved runtime input was not acquired');
+            }
+            return input;
+          },
           messageIndexes: run.messageIndexes,
           messages: initialMessages,
           resolveInput: (event) => this.approvalInput(run, event),
@@ -563,6 +564,16 @@ export class HostCore {
           if (messages.length > recordedInputLength) {
             await this.commitMessages(run, messages.slice(recordedInputLength));
             recordedInputLength = messages.length;
+          }
+          if (!historyPrepared) {
+            historyPrepared = true;
+            const prepared = healInterruptedRunHistory(
+              messages,
+              [...this.runs.values()],
+              run.threadId
+            );
+            recordedInputLength = prepared.length;
+            return { messages: prepared };
           }
           return {};
         },
@@ -930,6 +941,7 @@ export class HostCore {
         'full',
         () => {
           run.terminal = true;
+          run.outcome = joinedOutcome;
           run.release?.();
           run.release = undefined;
         }

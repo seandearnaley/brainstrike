@@ -1,11 +1,12 @@
 import { Socket } from 'node:net';
 import { resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import {
   decodeStartOptions,
   type HostStartOptions,
   type StartupMessage,
 } from '@brainstrike/host-lease';
+import { configureLogger } from '@brainstrike/logging';
 import {
   ForeignLockError,
   processStartTime,
@@ -14,6 +15,7 @@ import {
 } from '@brainstrike/state-store';
 import { z } from 'zod';
 import type { HostPlatform } from './ports.js';
+import { isProcessEntrypoint } from './process-entrypoint.js';
 import { type AgentHost, type HostStartupContext, startAgentHost } from './runtime.js';
 
 export type HostPlatformFactory = (
@@ -68,6 +70,9 @@ async function report(message: StartupMessage): Promise<void> {
 
 /** The same Node entry serves socket clients and an optional transparent stdio transport. */
 export async function runAgentHostProcess(args: readonly string[]): Promise<void> {
+  // Canonical tools and MCP use the shared logger. Stdout belongs exclusively
+  // to JSON-RPC framing; configure before dynamically importing the platform.
+  configureLogger({ console: { destination: 2 } });
   const controller = new AbortController();
   let host: AgentHost | undefined;
   let ready = false;
@@ -150,7 +155,7 @@ export async function runAgentHostProcess(args: readonly string[]): Promise<void
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isProcessEntrypoint(import.meta.url)) {
   runAgentHostProcess(process.argv.slice(2)).catch(async (cause: unknown) => {
     process.exitCode = 1;
     const message = cause instanceof Error ? cause.message : String(cause);

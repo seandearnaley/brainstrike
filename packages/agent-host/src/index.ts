@@ -4,6 +4,12 @@ export {
   createCanonicalToolContext,
 } from './adapters/canonical-context.js';
 export { createMcpHostToolAdapter } from './adapters/mcp.js';
+export {
+  HostMemory,
+  type HostMemoryCapabilities,
+  type HostMemoryIdentity,
+  type HostMemoryStep,
+} from './adapters/memory.js';
 export { type HostCliOutput, runHostCli } from './cli.js';
 export { attachAgentHost, authenticateHostClient, type HostClient } from './client.js';
 export { bindHostConnection } from './connection.js';

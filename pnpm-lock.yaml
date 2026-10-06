@@ -1275,6 +1275,9 @@ importers:
 
   packages/agent-host:
     dependencies:
+      '@brainstrike/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
@@ -1284,6 +1287,9 @@ importers:
       '@brainstrike/host-lease':
         specifier: workspace:*
         version: link:../host-lease
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../state-store

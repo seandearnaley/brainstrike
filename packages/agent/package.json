@@ -65,6 +65,11 @@
       "import": "./dist/client.mjs",
       "require": "./dist/client.js"
     },
+    "./provider-request": {
+      "types": "./dist/provider-request.d.ts",
+      "import": "./dist/provider-request.mjs",
+      "require": "./dist/provider-request.js"
+    },
     "./code-execution": {
       "types": "./dist/code-execution.d.ts",
       "import": "./dist/code-execution.mjs",

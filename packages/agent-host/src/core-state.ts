@@ -76,6 +76,7 @@ export interface HostRunState {
   readonly liveInputs: Map<string, { readonly value: unknown }>;
   readonly messageIndexes: Set<number>;
   readonly modelId: string;
+  outcome?: Extract<HostEvent, { type: 'run.finished' }>['outcome'];
   readonly outputs: Map<string, Json>;
   owner?: Promise<HostRunOwner | undefined>;
   ownerClose?: Promise<void>;

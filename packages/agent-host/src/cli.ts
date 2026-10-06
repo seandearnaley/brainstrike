@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { launchHost } from '@brainstrike/host-lease';
 import { HostCliExitError, runHostCliSession } from './cli-session.js';
@@ -275,9 +274,11 @@ Run signals stop and join its execution; attach signals detach.
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isProcessEntrypoint(import.meta.url)) {
   runHostCli(process.argv.slice(2)).catch((cause: unknown) => {
     process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
     process.exitCode = cause instanceof HostCliExitError ? cause.exitCode : 1;
   });
 }
+
+import { isProcessEntrypoint } from './process-entrypoint.js';

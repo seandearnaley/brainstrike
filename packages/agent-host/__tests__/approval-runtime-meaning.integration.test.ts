@@ -15,6 +15,98 @@ class RuntimeSelection {
   constructor(readonly text: string) {}
 }
 
+class ArrayRuntimeSelection extends Array<number> {
+  constructor(readonly selection: string) {
+    super();
+    this.push(1);
+  }
+}
+
+test.each(['subclass', 'extra property'] as const)(
+  'reopened approval interrupts arrays with process-local runtime meaning (%s)',
+  async (shape) => {
+    const root = await mkdtemp(join(tmpdir(), 'bs-m3-array-input-'));
+    let store = await StateStore.open(root);
+    let selection = 'first process selection';
+    let executions = 0;
+    const schema = z
+      .object({ text: z.string() })
+      .transform(() =>
+        shape === 'subclass'
+          ? new ArrayRuntimeSelection(selection)
+          : Object.assign([1], { selection })
+      );
+    const platform: HostPlatform = {
+      close: async () => undefined,
+      maxSteps: 3,
+      readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
+      resolveModel: async () =>
+        scriptedToolSequence([{ input: { text: 'recorded action' }, toolId: 'selection' }]),
+      tools: {
+        selection: {
+          description: 'Array input with selection omitted by JSON',
+          execute: async () => {
+            executions += 1;
+            return { executed: true };
+          },
+          identity: 'array-selection',
+          inputSchema: schema,
+          risk: 'edit',
+        },
+      },
+    };
+    let core = await HostCore.open(store, platform, () => () => undefined);
+    try {
+      const { threadId } = await core.startThread({ commandId: randomUUID() });
+      const { runId } = await core.startRun({
+        commandId: randomUUID(),
+        modelId: 'scripted',
+        prompt: 'Select',
+        threadId,
+      });
+      await expect
+        .poll(async () =>
+          (await core.read(threadId, 0)).some((row) => row.event.type === 'interaction.requested')
+        )
+        .toBe(true);
+      const pending = (await core.read(threadId, 0))
+        .map((row) => row.event)
+        .find((event) => event.type === 'interaction.requested');
+      if (!pending) {
+        throw new Error('Expected array approval');
+      }
+      await core.close();
+      await store.close();
+      selection = 'different process selection';
+      store = await StateStore.open(root);
+      core = await HostCore.open(store, platform, () => () => undefined);
+      await core.respond({
+        commandId: randomUUID(),
+        decision: 'approve',
+        interactionId: pending.interactionId,
+        runId,
+        threadId,
+      });
+      await expect
+        .poll(async () =>
+          (await core.read(threadId, 0)).some((row) => row.event.type === 'run.finished')
+        )
+        .toBe(true);
+      expect(executions).toBe(0);
+      expect(
+        (await core.read(threadId, 0)).some((row) => row.event.type === 'effect.started')
+      ).toBe(false);
+      expect(
+        (await core.read(threadId, 0)).find((row) => row.event.type === 'run.finished')?.event
+      ).toMatchObject({ outcome: 'interrupted' });
+    } finally {
+      await core.close();
+      await store.close();
+      await rm(root, { force: true, recursive: true });
+    }
+  }
+);
+
 test.each(['live', 'reopened'] as const)(
   'approval keeps live validated meaning and interrupts unreconstructable JSON meaning (%s)',
   async (mode) => {

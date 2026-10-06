@@ -6,6 +6,10 @@ import {
   ProviderHistoryCompat,
   StreamErrorRetryProcessor,
 } from '@mastra/core/processors';
+import {
+  CanonicalProviderHistoryCompat,
+  type ProviderCallProvenance,
+} from '../providers/foreign-provider-history';
 
 /**
  * Bounded retry budget for the error-processor layer.
@@ -224,9 +228,12 @@ export function buildAssistantErrorProcessors(provider: string): ErrorProcessor[
  * Returns `undefined` for the local provider (its built-in rules would no-op
  * anyway; excluded for parity with the error stack).
  */
-export function buildProviderHistoryCompatInputProcessor(provider: string): Processor | undefined {
+export function buildProviderHistoryCompatInputProcessor(
+  provider: string,
+  provenance?: ProviderCallProvenance
+): Processor | undefined {
   if (isLocalProvider(provider)) {
     return;
   }
-  return new ProviderHistoryCompat();
+  return new CanonicalProviderHistoryCompat(provider, provenance);
 }

@@ -1,6 +1,6 @@
 import { type ChildProcess, execFile, fork, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -283,10 +283,12 @@ test('CLI-owned run survives its client, restarts a fresh host at the committed 
   }
 });
 
-test('a plain Node process serves the same authenticated schema over actual stdio and socket clients', async () => {
+test('a plain Node process serves the same authenticated schema through a symlink entry over actual stdio and socket clients', async () => {
   const root = await freshRoot();
+  const alias = join(root, 'host-entry-alias.mjs');
+  await symlink(entryPath, alias);
   const child = fork(
-    entryPath,
+    alias,
     [JSON.stringify({ lifetime: 'persistent', root }), platformPath, 'stdio'],
     { execArgv: [], stdio: ['pipe', 'pipe', 'pipe', 'ipc'] }
   );

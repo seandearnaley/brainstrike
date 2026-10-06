@@ -17,17 +17,14 @@ export function admittedApprovalInput(
   run: {
     readonly approvals: ReadonlyMap<string, Approval>;
     readonly checkpointedResults: ReadonlySet<string>;
-    readonly rawInputs: ReadonlyMap<string, Json>;
   }
 ): { readonly value: unknown } | undefined {
-  const raw = canonical(jsonValue(rawInput));
   for (const approval of run.approvals.values()) {
     if (
       approval.decision === 'approve' &&
       approval.event.toolId === toolId &&
       !run.checkpointedResults.has(approval.event.toolCallId) &&
-      run.rawInputs.has(approval.event.interactionId) &&
-      canonical(run.rawInputs.get(approval.event.interactionId) ?? null) === raw
+      approval.runtimeInput === rawInput
     ) {
       return approval.runtimeInput;
     }
@@ -147,7 +144,26 @@ function hasJsonRuntimeMeaning(value: unknown): boolean {
     return Number.isFinite(value) && !Object.is(value, -0);
   }
   if (Array.isArray(value)) {
-    return value.every(hasJsonRuntimeMeaning);
+    const prototype: unknown = Object.getPrototypeOf(value);
+    const parent: unknown = prototype && Object.getPrototypeOf(prototype);
+    const ordinary =
+      Array.isArray(prototype) &&
+      parent !== null &&
+      typeof parent === 'object' &&
+      Object.getPrototypeOf(parent) === null;
+    return (
+      ordinary &&
+      Reflect.ownKeys(value).length === value.length + 1 &&
+      Array.from({ length: value.length }, (_unused, index) => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        return (
+          descriptor !== undefined &&
+          Object.hasOwn(descriptor, 'value') &&
+          descriptor.enumerable === true &&
+          hasJsonRuntimeMeaning(descriptor.value)
+        );
+      }).every(Boolean)
+    );
   }
   if (typeof value !== 'object') {
     return false;
@@ -187,11 +203,14 @@ export async function rebuildApprovedRuntimeMessages(options: {
   readonly messages: readonly ModelMessage[];
   readonly messageIndexes: ReadonlySet<number>;
   readonly resolveInput: (event: Interaction) => Promise<unknown>;
+  readonly inputBinding: (event: Interaction) => { readonly value: unknown };
 }): Promise<ModelMessage[]> {
   const inputs = new Map<string, unknown>();
+  const bindings = new Map<string, { readonly value: unknown }>();
   for (const { event, decision } of options.approvals) {
     if (decision === 'approve' && !options.checkpointedResults.has(event.toolCallId)) {
       inputs.set(event.interactionId, await options.resolveInput(event));
+      bindings.set(event.interactionId, options.inputBinding(event));
     }
   }
   const occurrences = new Map<number, Map<number, unknown>>();
@@ -214,7 +233,15 @@ export async function rebuildApprovedRuntimeMessages(options: {
           content: message.content.map((part, partIndex) =>
             part.type === 'tool-call' && occurrences.get(messageIndex)?.has(partIndex)
               ? { ...part, input: occurrences.get(messageIndex)?.get(partIndex) }
-              : part
+              : part.type === 'tool-approval-request' && bindings.has(part.approvalId)
+                ? {
+                    ...part,
+                    // The public validator receives this exact process-local binding.
+                    // It identifies the existing approval occurrence even when RAW
+                    // arguments are identical; neither durable history nor IDs change.
+                    inputSchemaInput: bindings.get(part.approvalId),
+                  }
+                : part
           ),
         }
       : message
