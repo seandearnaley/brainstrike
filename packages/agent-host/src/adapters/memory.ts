@@ -2,6 +2,7 @@ import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
 import type { LanguageModelMiddleware, LanguageModelUsage } from 'ai';
 import type { HostRunContext, HostRunOwner } from '../ports.js';
+import { type MemoryLanguageModel, MemoryProviderLifetime } from './memory-provider-lifetime.js';
 
 type MemoryConfig = NonNullable<ConstructorParameters<typeof Memory>[0]>;
 type Engine = NonNullable<Awaited<Memory['omEngine']>>;
@@ -58,6 +59,7 @@ export interface HostMemoryStep {
  */
 export class HostMemory implements HostRunOwner {
   private readonly memory: Memory;
+  private readonly providers: MemoryProviderLifetime;
   private readonly messageList: MessageList;
   private readonly pending = new Set<Promise<unknown>>();
   private readonly failures: unknown[] = [];
@@ -70,8 +72,12 @@ export class HostMemory implements HostRunOwner {
     readonly identity: HostMemoryIdentity,
     private readonly capabilities: HostMemoryCapabilities
   ) {
-    const observation: unknown = capabilities.native.options?.observationalMemory;
-    if (observation) {
+    this.providers = new MemoryProviderLifetime(identity.signal, (receipt) =>
+      this.recordObserverUsage(receipt)
+    );
+    let native = capabilities.native;
+    const observation = native.options?.observationalMemory;
+    if (observation && readProperty(observation, 'enabled') !== false) {
       const sharedModel = readModel(observation);
       const observer = readModel(readProperty(observation, 'observation')) ?? sharedModel;
       const reflector = readModel(readProperty(observation, 'reflection')) ?? sharedModel;
@@ -82,22 +88,51 @@ export class HostMemory implements HostRunOwner {
           'Observational memory requires resolved concrete observer and reflector models'
         );
       }
+      if (typeof observation === 'object') {
+        native = {
+          ...native,
+          options: {
+            ...native.options,
+            observationalMemory: {
+              ...observation,
+              model: undefined,
+              observation: {
+                ...observation.observation,
+                model: this.providers.model('observation', observer),
+              },
+              reflection: {
+                ...observation.reflection,
+                model: this.providers.model('reflection', reflector),
+              },
+            },
+          },
+        };
+      }
     }
-    this.memory = new Memory(capabilities.native);
+    this.memory = new Memory(native);
     this.messageList = new MessageList({
       resourceId: identity.resourceId,
       threadId: identity.threadId,
     });
   }
 
-  private track<Value>(operation: () => Promise<Value>): Promise<Value> {
+  private track<Value>(
+    operation: () => Promise<Value>,
+    providerCancellation = false
+  ): Promise<Value> {
     const work = Promise.resolve().then(operation);
     this.pending.add(work);
     work.then(
       () => this.pending.delete(work),
       (cause: unknown) => {
         this.pending.delete(work);
-        if (!(this.identity.signal.aborted && cause === this.identity.signal.reason)) {
+        if (
+          !(
+            providerCancellation &&
+            this.identity.signal.aborted &&
+            cause === this.identity.signal.reason
+          )
+        ) {
           this.failures.push(cause);
         }
       }
@@ -105,7 +140,10 @@ export class HostMemory implements HostRunOwner {
     return work;
   }
 
-  private admit<Value>(operation: () => Promise<Value>): Promise<Value> {
+  private admit<Value>(
+    operation: () => Promise<Value>,
+    providerCancellation = false
+  ): Promise<Value> {
     if (this.closing) {
       return Promise.reject(new Error('Host memory admission is closed'));
     }
@@ -114,7 +152,7 @@ export class HostMemory implements HostRunOwner {
     } catch (cause) {
       return Promise.reject(cause);
     }
-    return this.track(operation);
+    return this.track(operation, providerCancellation);
   }
 
   private identifiers(): { resourceId: string; threadId: string } {
@@ -140,7 +178,7 @@ export class HostMemory implements HostRunOwner {
         });
       }
       return this.memory.getContext(this.identifiers());
-    });
+    }, true);
     return this.beginning;
   }
 
@@ -161,7 +199,7 @@ export class HostMemory implements HostRunOwner {
         observation,
         workingMemory,
       };
-    });
+    }, true);
   }
 
   /** Only after the host committed the SDK step; preserve its stable projection IDs. */
@@ -211,6 +249,16 @@ export class HostMemory implements HostRunOwner {
 
   close(): Promise<void> {
     this.closing ??= Promise.resolve().then(async () => {
+      // Owner cancellation reaches actual provider/source leaves immediately,
+      // before foreground joins. The enclosing owner may also need to cancel
+      // native work before the foreground operation can finish.
+      const abortJoin = this.identity.signal.aborted
+        ? Promise.resolve().then(() => this.capabilities.joinNativeLifetime())
+        : undefined;
+      abortJoin?.catch(() => undefined);
+      if (this.identity.signal.aborted) {
+        await Promise.allSettled([this.track(() => this.providers.join())]);
+      }
       await this.drain();
       if (this.turn && !this.turn.ended) {
         const turn = this.turn;
@@ -218,10 +266,11 @@ export class HostMemory implements HostRunOwner {
       }
       const joined = await Promise.allSettled([
         this.track(() => this.memory.settled()),
-        this.track(() => this.capabilities.joinNativeLifetime()),
+        this.track(() => abortJoin ?? this.capabilities.joinNativeLifetime()),
       ]);
+      const providers = await Promise.allSettled([this.track(() => this.providers.join())]);
       await this.drain();
-      this.joined = joined.every((result) => result.status === 'fulfilled');
+      this.joined = [...joined, ...providers].every((result) => result.status === 'fulfilled');
       if (this.failures.length > 0) {
         throw new AggregateError([...new Set(this.failures)], 'Host memory cleanup failed');
       }
@@ -230,10 +279,12 @@ export class HostMemory implements HostRunOwner {
   }
 }
 
-function isConcreteModel(model: unknown): boolean {
+function isConcreteModel(model: unknown): model is MemoryLanguageModel {
   return (
     typeof model === 'object' &&
     model !== null &&
+    'specificationVersion' in model &&
+    ['v2', 'v3', 'v4'].includes(String(model.specificationVersion)) &&
     'doGenerate' in model &&
     typeof model.doGenerate === 'function' &&
     'doStream' in model &&

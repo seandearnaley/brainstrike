@@ -11,6 +11,7 @@ import {
   type HostMemoryCapabilities,
   type HostMemoryIdentity,
 } from '../src/adapters/memory.js';
+import { MemoryProviderLifetime } from '../src/adapters/memory-provider-lifetime.js';
 import { scriptedModel } from './fixtures/scripted-model.js';
 
 async function fixture(
@@ -96,6 +97,7 @@ test('public Memory preserves working memory and committed message IDs through r
 });
 
 test('adapter drives the public OM turn and foreground observation without vendor changes', async () => {
+  const receipts: Parameters<HostMemoryCapabilities['recordObserverUsage']>[1][] = [];
   const model = new MockLanguageModelV4({
     doStream: async () => ({
       stream: simulateReadableStream({
@@ -123,7 +125,11 @@ test('adapter drives the public OM turn and foreground observation without vendo
     }),
   });
   const f = await fixture(
-    {},
+    {
+      recordObserverUsage: async (_identity, receipt) => {
+        receipts.push(receipt);
+      },
+    },
     {
       observationalMemory: {
         model,
@@ -143,8 +149,191 @@ test('adapter drives the public OM turn and foreground observation without vendo
     expect(step.context.hasObservations).toBe(true);
     expect(step.context.omRecord?.activeObservations).toBeDefined();
     expect(model.doStreamCalls.length).toBeGreaterThan(0);
+    expect(receipts).toHaveLength(model.doStreamCalls.length);
+    expect(receipts[0]).toMatchObject({
+      kind: 'observation',
+      modelId: model.modelId,
+      usage: { inputTokens: 42, outputTokens: 9, totalTokens: 51 },
+    });
   } finally {
     await f.adapter.close();
+    await f.storage.close();
+  }
+});
+
+test('explicitly disabled OM needs no concrete models and preserves ordinary recall', async () => {
+  const f = await fixture({}, { observationalMemory: { enabled: false }, semanticRecall: false });
+  try {
+    const user = message(f.identity, 'user');
+    await f.adapter.commitStep([user]);
+    await f.adapter.beginTurn([user]);
+    expect((await f.adapter.prepareStep(0)).observation).toBeUndefined();
+    expect(
+      (await f.adapter.recall({ resourceId: f.identity.resourceId })).messages.map(
+        (item) => item.id
+      )
+    ).toEqual([user.id]);
+  } finally {
+    await f.adapter.close();
+    await f.storage.close();
+  }
+});
+
+test('native observer Stop aborts immediately and joins a late leaf and held original cancellation', async () => {
+  const entered = Promise.withResolvers<AbortSignal | undefined>();
+  const releaseLeaf = Promise.withResolvers<void>();
+  const cancelEntered = Promise.withResolvers<void>();
+  const releaseCancel = Promise.withResolvers<void>();
+  const model = new MockLanguageModelV4({
+    doStream: async (params) => {
+      entered.resolve(params.abortSignal);
+      await releaseLeaf.promise;
+      return {
+        stream: new ReadableStream({
+          cancel: async () => {
+            cancelEntered.resolve();
+            await releaseCancel.promise;
+          },
+        }),
+      };
+    },
+  });
+  const f = await fixture(
+    {},
+    {
+      observationalMemory: {
+        model,
+        observation: { bufferOnIdle: false, bufferTokens: false, messageTokens: 30 },
+        reflection: { observationTokens: 50_000 },
+      },
+      semanticRecall: false,
+    }
+  );
+  try {
+    const user = message(f.identity, 'user');
+    user.content.parts = [{ text: 'Paris weather. '.repeat(60), type: 'text' }];
+    await f.adapter.commitStep([user]);
+    await f.adapter.beginTurn([user]);
+    const preparing = f.adapter.prepareStep(0);
+    preparing.catch(() => undefined);
+    const actualSignal = await entered.promise;
+    f.controller.abort(new Error('Native observer Stop fixture'));
+    expect(actualSignal?.aborted).toBe(true);
+    let joined = false;
+    const closing = f.adapter.close().finally(() => {
+      joined = true;
+    });
+    closing.catch(() => undefined);
+    await nextTurn();
+    expect(joined).toBe(false);
+    releaseLeaf.resolve();
+    await cancelEntered.promise;
+    expect(joined).toBe(false);
+    releaseCancel.resolve();
+    await preparing.catch(() => undefined);
+    await expect(closing).resolves.toBeUndefined();
+  } finally {
+    releaseLeaf.resolve();
+    releaseCancel.resolve();
+    await f.adapter.close().catch(() => undefined);
+    await f.storage.close();
+  }
+});
+
+test('actual SDK provider AbortError is expected while original cancel AbortError remains a failure', async () => {
+  const controller = new AbortController();
+  const entered = Promise.withResolvers<void>();
+  const lifetime = new MemoryProviderLifetime(controller.signal, async () => undefined);
+  const model = lifetime.model(
+    'observation',
+    new MockLanguageModelV4({
+      doStream: async ({ abortSignal }) => {
+        entered.resolve();
+        await new Promise<never>((_resolve, reject) => {
+          abortSignal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('Provider fetch aborted', 'AbortError')),
+            { once: true }
+          );
+        });
+        throw new Error('Unreachable provider leaf');
+      },
+    })
+  );
+  const result = streamText({
+    abortSignal: controller.signal,
+    maxRetries: 0,
+    model,
+    prompt: 'Actual SDK observer cancellation',
+  });
+  const consuming = result.consumeStream();
+  await entered.promise;
+  controller.abort(new Error('Explicit owner Stop'));
+  await consuming;
+  await expect(lifetime.join()).resolves.toBeUndefined();
+
+  const cancelFailure = new DOMException('Original cancellation failed', 'AbortError');
+  const secondController = new AbortController();
+  const secondLifetime = new MemoryProviderLifetime(secondController.signal, async () => undefined);
+  const secondModel = secondLifetime.model(
+    'observation',
+    new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: new ReadableStream({
+          cancel: () => {
+            throw cancelFailure;
+          },
+        }),
+      }),
+    })
+  );
+  const secondResult = await secondModel.doStream({ prompt: [] });
+  secondController.abort(new Error('Second owner Stop'));
+  await expect(secondLifetime.join()).rejects.toMatchObject({
+    errors: expect.arrayContaining([cancelFailure]),
+  });
+  await secondResult.stream.cancel().catch(() => undefined);
+});
+
+test('native foreground observer accepts the actual SDK AbortError from its stopped provider', async () => {
+  const entered = Promise.withResolvers<void>();
+  const model = new MockLanguageModelV4({
+    doStream: async ({ abortSignal }) => {
+      entered.resolve();
+      await new Promise<never>((_resolve, reject) => {
+        abortSignal?.addEventListener(
+          'abort',
+          () => reject(new DOMException('Native provider fetch aborted', 'AbortError')),
+          { once: true }
+        );
+      });
+      throw new Error('Unreachable native provider leaf');
+    },
+  });
+  const f = await fixture(
+    {},
+    {
+      observationalMemory: {
+        model,
+        observation: { bufferOnIdle: false, bufferTokens: false, messageTokens: 30 },
+        reflection: { observationTokens: 50_000 },
+      },
+      semanticRecall: false,
+    }
+  );
+  try {
+    const user = message(f.identity, 'user');
+    user.content.parts = [{ text: 'Paris weather. '.repeat(60), type: 'text' }];
+    await f.adapter.commitStep([user]);
+    await f.adapter.beginTurn([user]);
+    const preparing = f.adapter.prepareStep(0);
+    preparing.catch(() => undefined);
+    await entered.promise;
+    f.controller.abort(new Error('Native foreground Stop'));
+    await preparing.catch(() => undefined);
+    await expect(f.adapter.close()).resolves.toBeUndefined();
+  } finally {
+    await f.adapter.close().catch(() => undefined);
     await f.storage.close();
   }
 });
