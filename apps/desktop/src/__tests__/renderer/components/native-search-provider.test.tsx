@@ -160,9 +160,16 @@ describe('native provider and search controller observation refresh', () => {
       storeId: ready.storeId,
       truncated: false,
     };
+    const readCoverage = coverageOverride ?? (async () => observedCoverage);
     let capability: IndexSearchCapability = {
-      coverage: vi.fn(coverageOverride ?? (async () => observedCoverage)),
-      coverageBatch: vi.fn(),
+      coverage: vi.fn(readCoverage),
+      coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(async () => {
+        const status = cloneObservations ? structuredClone(observation) : observation;
+        if (status.kind !== 'ready') {
+          return { kind: 'blocked', reason: status.reason };
+        }
+        return { coverage: [await readCoverage({ rootIds: ['root-a'] })], kind: 'current', status };
+      }),
       grep: vi.fn(async () => response),
       rebuild: vi.fn(),
       search: vi.fn(async () => response),
@@ -212,6 +219,44 @@ describe('native provider and search controller observation refresh', () => {
     });
     return { ...mounted, pending };
   }
+
+  it('refreshes an invalidated scan observation through the batch API without singleton IPC failure', async () => {
+    vi.useFakeTimers();
+    const mounted = mountController();
+    try {
+      await vi.waitFor(() =>
+        expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
+      );
+      vi.mocked(mounted.capability.coverage).mockRejectedValue(
+        new Error('Strict singleton must not be called.')
+      );
+      vi.mocked(mounted.capability.coverageBatch).mockResolvedValueOnce({
+        code: 'native-coverage-observation-invalidated',
+        kind: 'invalidated',
+      });
+      mounted.refresh({ ...ready, rootReadiness: [{ rootId: 'root-a', scanComplete: false }] });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(mounted.result.current.controller.semanticAvailability).toEqual({
+        available: false,
+        reason: 'Native vector availability is being verified.',
+      });
+      expect(mounted.capability.coverage).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      await vi.waitFor(() =>
+        expect(mounted.result.current.controller.semanticAvailability).toMatchObject({
+          available: true,
+          hint: expect.stringContaining('Source scan incomplete'),
+        })
+      );
+      expect(mounted.capability.coverage).not.toHaveBeenCalled();
+    } finally {
+      mounted.unmount();
+    }
+  });
 
   it('publishes slow availability across multiple progress polls and then refreshes current readiness', async () => {
     vi.useFakeTimers();

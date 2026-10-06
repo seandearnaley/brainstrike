@@ -90,6 +90,10 @@ function validCoverageCounts(coverage: IndexerCoverage, rootIds: readonly string
   );
 }
 
+function validNativeScope(rootIds: readonly string[], collectionId: string | null): boolean {
+  return (rootIds.length > 0 || collectionId !== null) && new Set(rootIds).size === rootIds.length;
+}
+
 /** Exact-profile native rows are searchable during ingestion; completion remains a separate proof. */
 export async function getNativeSemanticAvailability(
   scope: NativeSearchScope
@@ -105,13 +109,26 @@ export async function getNativeSemanticAvailability(
         'Vector search requires a complete configured embedding profile.'
     );
   }
-  if ((rootIds.length === 0 && collectionId === null) || new Set(rootIds).size !== rootIds.length) {
+  if (!validNativeScope(rootIds, collectionId)) {
     return unavailable('Vector search requires an explicit nonempty workspace root scope.');
   }
   try {
-    const status = await capability.status();
-    if (status.kind !== 'ready') {
-      return unavailable(status.reason);
+    const observation = await capability.coverageBatch([
+      {
+        rootIds,
+        ...(collectionId === null ? {} : { collectionId }),
+      },
+    ]);
+    if (observation.kind === 'invalidated') {
+      return unavailable('Native vector availability is being verified.');
+    }
+    if (observation.kind === 'blocked') {
+      return unavailable(observation.reason);
+    }
+    const { status } = observation;
+    const [coverage] = observation.coverage;
+    if (observation.coverage.length !== 1 || !coverage) {
+      return unavailable('Native vector availability returned a different coverage inventory.');
     }
     if (status.embedding.indexMode !== 'vector-configured') {
       return unavailable('The native store has no explicitly configured vector profile.');
@@ -126,10 +143,6 @@ export async function getNativeSemanticAvailability(
     if (rootIds.some((rootId) => !status.authorizedRootIds.includes(rootId))) {
       return unavailable('Vector search scope contains an unauthorized workspace root.');
     }
-    const coverage = await capability.coverage({
-      rootIds,
-      ...(collectionId === null ? {} : { collectionId }),
-    });
     const reason = coverageRefusal(
       coverage,
       status.storeId,

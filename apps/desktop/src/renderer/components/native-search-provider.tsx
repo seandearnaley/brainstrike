@@ -106,10 +106,11 @@ export function NativeSearchProvider({
   readonly capability: IndexSearchCapability;
   readonly children: ReactNode;
 }): ReactNode {
-  const [{ execution, status }, setStatus] = useState<NativeSearchStatus>(() => {
+  const [observation, setStatus] = useState<NativeSearchStatus>(() => {
     const initial = { kind: 'unavailable' as const, reason: 'Native search is initializing.' };
     return { execution: initial, status: initial };
   });
+  const { execution } = observation;
   const mode = useBackgroundIndexingPreferencesStore((state) => state.nativeIndexMode);
   const selection = useBackgroundIndexingPreferencesStore((state) => state.nativeLocalSelection);
   const collectionId = useBackgroundIndexingPreferencesStore((state) => state.managedCollectionId);
@@ -199,9 +200,11 @@ export function NativeSearchProvider({
       capability,
       embedQuery,
       profile,
-      ...(status.kind === 'unavailable' ? { profileUnavailableReason: status.reason } : {}),
+      ...(observation.status.kind === 'unavailable'
+        ? { profileUnavailableReason: observation.status.reason }
+        : {}),
     }),
-    [capability, embedQuery, profile, status]
+    [capability, embedQuery, observation, profile]
   );
   return (
     <NativeWorkspaceSearchProvider dependencies={dependencies}>

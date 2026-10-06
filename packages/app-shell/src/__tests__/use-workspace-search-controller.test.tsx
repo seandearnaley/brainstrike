@@ -648,7 +648,25 @@ describe('useWorkspaceSearchController', () => {
           totals: counts,
           vectorCoverageComplete: true,
         })),
-        coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(),
+        coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(async () => ({
+          coverage: [
+            {
+              embedding,
+              roots: [{ rootId: 'D1', ...counts }],
+              storeId: 'store-a',
+              totals: counts,
+              vectorCoverageComplete: true,
+            },
+          ],
+          kind: 'current',
+          status: {
+            authorizedRootIds: ['D1'],
+            embedding,
+            kind: 'ready',
+            rootReadiness: [{ rootId: 'D1', scanComplete: true }],
+            storeId: 'store-a',
+          },
+        })),
         grep: vi.fn(),
         rebuild: vi.fn(async () => {}),
         search: vi.fn(),

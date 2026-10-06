@@ -43,19 +43,61 @@ function covered() {
   };
 }
 function capability() {
-  return {
+  const bridge = {
     coverage: vi.fn<IndexSearchCapability['coverage']>(async () => covered()),
-    coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(async () => {
-      throw new Error('Unexpected batch coverage request in the native search fixture.');
-    }),
+    coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(),
     grep: vi.fn<IndexSearchCapability['grep']>(async () => pool([])),
     rebuild: vi.fn<IndexSearchCapability['rebuild']>(async () => {}),
     search: vi.fn<IndexSearchCapability['search']>(async () => pool([])),
     status: vi.fn<IndexSearchCapability['status']>(async () => ready()),
   };
+  bridge.coverageBatch.mockImplementation(async (requests) => {
+    const status = await bridge.status();
+    if (status.kind !== 'ready') {
+      return { kind: 'blocked', reason: status.reason };
+    }
+    return {
+      coverage: await Promise.all(requests.map((request) => bridge.coverage(request))),
+      kind: 'current',
+      status,
+    };
+  });
+  return bridge;
 }
 
 describe('native vector availability', () => {
+  it('treats typed observation invalidation as pending without strict singleton coverage', async () => {
+    const bridge = capability();
+    bridge.coverage.mockRejectedValue(new Error('Strict singleton must not be called.'));
+    bridge.coverageBatch.mockResolvedValueOnce({
+      code: 'native-coverage-observation-invalidated',
+      kind: 'invalidated',
+    });
+    expect(
+      await getNativeSemanticAvailability({ capability: bridge, profile, rootIds: ['root-a'] })
+    ).toEqual({ available: false, reason: 'Native vector availability is being verified.' });
+    expect(bridge.coverage).not.toHaveBeenCalled();
+    bridge.coverageBatch.mockResolvedValueOnce({
+      coverage: [covered()],
+      kind: 'current',
+      status: ready(),
+    });
+    expect(
+      await getNativeSemanticAvailability({ capability: bridge, profile, rootIds: ['root-a'] })
+    ).toEqual({ available: true, reason: null });
+  });
+
+  it('refuses a malformed current observation without admitting semantics', async () => {
+    const bridge = capability();
+    bridge.coverageBatch.mockResolvedValueOnce({ coverage: [], kind: 'current', status: ready() });
+    expect(
+      await getNativeSemanticAvailability({ capability: bridge, profile, rootIds: ['root-a'] })
+    ).toEqual({
+      available: false,
+      reason: 'Native vector availability returned a different coverage inventory.',
+    });
+  });
+
   it('requires the native capability even when a profile is configured', async () => {
     const result = await getNativeSemanticAvailability({
       capability: null,
@@ -127,13 +169,13 @@ describe('native vector availability', () => {
     ).toBe(false);
   });
 
-  it('rejects an unauthorized requested root before reading coverage', async () => {
+  it('rejects an unauthorized requested root in the atomic observation', async () => {
     const bridge = capability();
     expect(
       (await getNativeSemanticAvailability({ capability: bridge, profile, rootIds: ['outside'] }))
         .available
     ).toBe(false);
-    expect(bridge.coverage).not.toHaveBeenCalled();
+    expect(bridge.coverageBatch).toHaveBeenCalled();
   });
 
   it('rejects empty scope rather than widening it', async () => {
@@ -153,7 +195,7 @@ describe('native vector availability', () => {
     });
     expect(result.available).toBe(false);
     expect(result.reason).toMatch(/profile/i);
-    expect(bridge.coverage).not.toHaveBeenCalled();
+    expect(bridge.coverageBatch).toHaveBeenCalled();
   });
 
   it('rejects coverage from another profile', async () => {
@@ -528,7 +570,7 @@ it('does not admit vector search on a text-only store despite a selected profile
     )
   ).rejects.toThrow('no explicitly configured vector profile');
   expect(embedQuery).not.toHaveBeenCalled();
-  expect(bridge.coverage).not.toHaveBeenCalled();
+  expect(bridge.coverageBatch).toHaveBeenCalled();
 });
 
 it('surfaces the selected renderer plan refusal without blocking text or substituting a profile', async () => {
