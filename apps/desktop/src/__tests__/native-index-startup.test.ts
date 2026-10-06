@@ -215,7 +215,7 @@ it.each(['startup', 'cleanup'] as const)(
   }
 );
 
-it.each(['validated', 'deadline'] as const)(
+it.each(['validated', 'deadline', 'request'] as const)(
   'keeps populated startup separate from interactive requests: %s',
   async (scenario) => {
     vi.useFakeTimers();
@@ -255,11 +255,18 @@ it.each(['validated', 'deadline'] as const)(
     );
     await vi.advanceTimersByTimeAsync(0);
     expect(mocks.acquire).toHaveBeenCalledOnce();
-    await vi.advanceTimersByTimeAsync(5500);
+    await vi.advanceTimersByTimeAsync(30_000);
     try {
       expect(settled).toBe(false);
       expect(kill).not.toHaveBeenCalled();
-      if (scenario === 'validated') {
+      if (scenario === 'deadline') {
+        await vi.advanceTimersByTimeAsync(29_999);
+        expect(kill).not.toHaveBeenCalled();
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(2);
+        expect(kill).toHaveBeenCalledOnce();
+        expect(settled).toBe(false);
+      } else {
         if (!message) {
           throw new Error('Expected the owned utility transport.');
         }
@@ -267,10 +274,19 @@ it.each(['validated', 'deadline'] as const)(
         await vi.advanceTimersByTimeAsync(0);
         expect(await read).toHaveProperty('info');
         expect(kill).not.toHaveBeenCalled();
-      } else {
-        await vi.advanceTimersByTimeAsync(9501);
-        expect(kill).toHaveBeenCalledOnce();
-        expect(settled).toBe(false);
+        if (scenario === 'request') {
+          if (!connection) {
+            throw new Error('Expected the owned connection.');
+          }
+          const nativePort = await connection.ready;
+          const request = nativePort.info().catch((error: unknown) => error);
+          await vi.advanceTimersByTimeAsync(4999);
+          expect(kill).not.toHaveBeenCalled();
+          await vi.advanceTimersByTimeAsync(2);
+          expect(kill).toHaveBeenCalledOnce();
+          exited?.();
+          await expect(request).resolves.toMatchObject({ code: 'indexer-request-timeout' });
+        }
       }
     } finally {
       exited?.();

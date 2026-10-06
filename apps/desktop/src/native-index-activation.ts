@@ -230,7 +230,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       const databasePath = path.join(resolveDesktopDatabaseProfileDirectory(), 'index.sqlite');
       const creation = acquireIndexerHost(
         { ...authorized, dbPath: databasePath, embedding: { indexMode: 'text-only' } },
-        { closeMs: 1000, exitMs: 1000, requestMs: 5000, startupMs: 15_000 }
+        { closeMs: 1000, exitMs: 1000, requestMs: 5000, startupMs: 60_000 }
       );
       creation.catch(() => undefined);
       return {
