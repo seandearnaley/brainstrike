@@ -1,11 +1,20 @@
-import type { PermissionToolGateSnapshot, ToolRiskCategory } from '@brainstrike/assistant-contract';
-import type { FlexibleSchema, LanguageModel, Tool, ToolSet } from 'ai';
+import type {
+  McpHostCloseReport,
+  McpHostPort,
+  PermissionToolGateSnapshot,
+  RuntimeData,
+  ToolRiskCategory,
+} from '@brainstrike/assistant-contract';
+import type { FlexibleSchema, LanguageModel, ModelMessage, streamText, Tool, ToolSet } from 'ai';
+import type { McpHostToolBinding } from './adapters/mcp.js';
 
 export interface HostToolContext {
   readonly runId: string;
   readonly signal: AbortSignal;
   readonly threadId: string;
   readonly toolCallId: string;
+  /** Existing native/MCP progress is committed by the run-log owner. */
+  readonly write?: (chunk: unknown) => Promise<void>;
 }
 export interface HostRunContext {
   readonly runId: string;
@@ -15,6 +24,33 @@ export interface HostRunContext {
 /** Fence new work and join every provider, memory, storage and hook tail. */
 export interface HostRunOwner {
   close(): Promise<void>;
+}
+
+/** Trusted run configuration; credential resolution stays inside the adapter. */
+export interface HostProviderRequest {
+  readonly configuration: Readonly<RuntimeData>;
+  readonly messages: readonly ModelMessage[];
+  readonly modelId: string;
+  readonly signal: AbortSignal;
+}
+
+export interface HostPreparedModelRequest {
+  readonly messages: ModelMessage[];
+  readonly model: LanguageModel;
+  readonly providerOptions?: Parameters<typeof streamText>[0]['providerOptions'];
+  readonly system?: string;
+}
+
+/** Shipped provider selection and request hygiene, with no second agent loop. */
+export interface HostProviderPort {
+  prepare(request: HostProviderRequest): Promise<HostPreparedModelRequest>;
+}
+
+/** The existing configured authority and its generation-qualified executors. */
+export interface HostMcpRuntime {
+  readonly authority: McpHostPort;
+  close(): Promise<McpHostCloseReport>;
+  executableTools(): Promise<Readonly<Record<string, McpHostToolBinding>>>;
 }
 export interface HostTool {
   readonly description: string;

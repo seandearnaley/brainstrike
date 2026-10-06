@@ -422,6 +422,12 @@ export class HostCore {
       signal: run.controller.signal,
       threadId: run.threadId,
       toolCallId: action.toolCallId,
+      write: async (chunk: unknown): Promise<void> => {
+        run.controller.signal.throwIfAborted();
+        await this.append(run.threadId, [
+          { chunk: jsonValue(chunk), runId: run.id, type: 'stream.chunk' },
+        ]);
+      },
     });
     await this.append(run.threadId, [
       {

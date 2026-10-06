@@ -13,7 +13,6 @@ import {
   normalizeManageCanvasInput,
   type ReadToolOutputArtifactCursorInput,
   type ReadWorkspaceContextInput,
-  type ReadWorkspaceDirectoryInput,
   type ReadWorkspaceFileInput,
   type RenameWorkspaceFileInput,
   readToolExecutionThreadId,
@@ -33,7 +32,7 @@ import {
 } from './file-mutation-tools';
 import { runManageCanvas } from './manage-canvas-tool';
 import { executorGroup } from './native-tool-executor-context';
-import { runReadWorkspaceDirectory } from './read-workspace-directory-tool';
+import { createReadWorkspaceDirectoryTool } from './read-workspace-directory-executor';
 import { projectReadWorkspaceFileModelOutput } from './read-workspace-file-model-projection';
 import { runReadWorkspaceFile } from './read-workspace-file-tool';
 import {
@@ -230,23 +229,7 @@ export const WORKSPACE_TOOL_EXECUTORS = executorGroup({
     id: NATIVE_TOOL_ID.renameWorkspaceFile,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.renameWorkspaceFile],
   }),
-  [NATIVE_TOOL_ID.readWorkspaceDirectory]: ({ runtimeData }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceDirectory],
-    execute: async (input: ToolExecuteInput<ReadWorkspaceDirectoryInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceDirectory],
-        input
-      );
-      try {
-        return await runReadWorkspaceDirectory(resolvedInput, runtimeData);
-      } catch (error) {
-        logToolFailure('readWorkspaceDirectory failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.readWorkspaceDirectory,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceDirectory],
-  }),
+  [NATIVE_TOOL_ID.readWorkspaceDirectory]: createReadWorkspaceDirectoryTool,
   [NATIVE_TOOL_ID.listWorkspaceContext]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.listWorkspaceContext],
     execute: async (input: ToolExecuteInput<ListWorkspaceContextInput>) => {
