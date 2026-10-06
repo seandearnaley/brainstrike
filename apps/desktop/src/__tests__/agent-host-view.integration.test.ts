@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { type AgentHost, startAgentHost } from '@brainstrike/agent-host';
 import { attachAgentHost, type HostClient } from '@brainstrike/agent-host/client';
+import { scriptedToolSequence } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { type IndexerPort, openIndexer } from '@brainstrike/indexer';
 import { RootLock, StateStore } from '@brainstrike/state-store';
@@ -14,7 +15,6 @@ import { build } from 'esbuild';
 import { _electron, type ElectronApplication } from 'playwright';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
-import { scriptedToolSequence } from '../../../../packages/agent-host/__tests__/fixtures/scripted-model';
 
 const execute = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../../../..');

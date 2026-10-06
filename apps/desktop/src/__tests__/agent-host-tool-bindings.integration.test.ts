@@ -13,8 +13,14 @@ import {
   type ObservedMcpHostRequest,
   startStatefulMcpHostServer,
 } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
-import { attachAgentHost, createMcpHostToolAdapter, startAgentHost } from '@brainstrike/agent-host';
+import {
+  attachAgentHost,
+  createMcpHostToolAdapter,
+  readHostRow,
+  startAgentHost,
+} from '@brainstrike/agent-host';
 import type { HostEvent, HostLogRow } from '@brainstrike/agent-host/protocol';
+import { scriptedToolSequence } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { foldHostRuns } from '@brainstrike/agent-host/thread-view';
 import {
   DEFAULT_PERMISSION_POLICIES,
@@ -23,8 +29,6 @@ import {
 } from '@brainstrike/assistant-contract';
 import { RootLock, StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
-import { scriptedToolSequence } from '../../../../packages/agent-host/__tests__/fixtures/scripted-model';
-import { readHostRow } from '../../../../packages/agent-host/src/event-storage';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
 import { createReadWorkspaceDirectoryTool } from '../assistant-server/read-workspace-directory-executor';
 import { ReadWorkspaceFileCursorRegistry } from '../assistant-server/read-workspace-file-cursor-registry';

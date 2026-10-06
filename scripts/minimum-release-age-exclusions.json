@@ -1,6 +1,1 @@
-{
-  "effect@4.0.0-rc.118": {
-    "publishedAt": "2026-09-28T02:08:42.505Z",
-    "reason": "BST-1851 qualifies the exact Effect 4 rc118 release for adopted resource ownership: rc117 regression tests prove interrupted Scope.close abandons owned cleanup and synchronous onExit callback throws replace primary failures. Upstream #8512 and #8418/#8427 fix these failures. Remove once the unchanged 1440-minute floor admits this release after 2026-09-29 02:09 UTC."
-  }
-}
+{}

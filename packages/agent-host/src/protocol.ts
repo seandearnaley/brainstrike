@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const AGENT_HOST_PROTOCOL_VERSION = 2;
+export const AGENT_HOST_PROTOCOL_VERSION = 3;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
@@ -24,6 +24,7 @@ export const HOST_METHOD_SCHEMAS = {
   'log/unsubscribe': z.strictObject(Thread),
   'run/start': z.strictObject({ ...Command, ...Thread, modelId: Id, prompt: Id }),
   'run/stop': z.strictObject({ ...Command, ...Run }),
+  'thread/list': z.strictObject({}),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
   'thread/start': z.strictObject(Command),
 } as const;
@@ -109,6 +110,7 @@ export const HOST_RESULT_SCHEMAS = {
   'log/unsubscribe': z.strictObject({ unsubscribed: z.literal(true) }),
   'run/start': z.strictObject({ runId: Id }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
+  'thread/list': z.strictObject({ threads: z.array(z.strictObject(Thread)) }),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   'thread/start': z.strictObject(Thread),
 } as const;

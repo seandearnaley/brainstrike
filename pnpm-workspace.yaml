@@ -380,8 +380,7 @@ minimumReleaseAge: 1440
 # The guard exists because an earlier entry ('@mastra/core@1.50.0') outlived its
 # justification by a month: its cleanup note pointed at a minimumReleaseAge floor
 # that was never configured, so nothing ever triggered the removal.
-minimumReleaseAgeExclude:
-  - effect@4.0.0-rc.118
+minimumReleaseAgeExclude: []
 patchedDependencies:
   '@assistant-ui/core@0.3.17': patches/@assistant-ui__core@0.3.17.patch
   '@electric-sql/pglite@0.5.8': patches/@electric-sql__pglite@0.5.8.patch

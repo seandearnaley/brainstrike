@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { scriptedModel } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { z } from 'zod';
 import { attachAgentHost, startAgentHost } from '../../dist/index.js';
-import { scriptedModel } from './scripted-model.ts';
 
 // Explicit recording from real SDK -> socket -> writer-worker SQLite -> replay.
 // This owned fixture uses a scripted model and never invokes a live provider.

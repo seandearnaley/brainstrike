@@ -8,6 +8,7 @@ export { type HostCliOutput, runHostCli } from './cli.js';
 export { attachAgentHost, authenticateHostClient, type HostClient } from './client.js';
 export { bindHostConnection } from './connection.js';
 export { HostCore, type HostEventStore } from './core.js';
+export { readHostRow } from './event-storage.js';
 export { createAgentHostSpawner } from './launcher.js';
 export * from './ports.js';
 export {

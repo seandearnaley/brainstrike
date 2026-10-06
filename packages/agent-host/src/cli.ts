@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { launchHost } from '@brainstrike/host-lease';
+import { HostCliExitError, runHostCliSession } from './cli-session.js';
 import { attachAgentHost, type HostClient } from './client.js';
 import { createAgentHostSpawner } from './launcher.js';
 
@@ -17,20 +18,41 @@ function required(value: string | undefined, name: string): string {
   return value;
 }
 
-/** CLI is a client of the root owner; it never runs a second model/tool loop. */
-export async function runHostCli(
-  args: string[],
-  output: HostCliOutput = process.stdout
-): Promise<void> {
+type CliStringOption =
+  | 'command-id'
+  | 'data-root'
+  | 'decision'
+  | 'from-seq'
+  | 'interaction'
+  | 'model'
+  | 'platform'
+  | 'prompt'
+  | 'root'
+  | 'run'
+  | 'thread';
+type CliBooleanOption = 'help' | 'interactive' | 'json' | 'non-interactive';
+interface HostCliArguments {
+  readonly command: string;
+  readonly interactive: boolean;
+  readonly positionals: readonly string[];
+  readonly values: Partial<Record<CliStringOption, string> & Record<CliBooleanOption, boolean>>;
+}
+
+function parseHostCliArgs(args: string[]): HostCliArguments {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     args,
     options: {
       'command-id': { type: 'string' },
+      'data-root': { type: 'string' },
       decision: { type: 'string' },
       'from-seq': { type: 'string' },
+      help: { type: 'boolean' },
       interaction: { type: 'string' },
+      interactive: { type: 'boolean' },
+      json: { type: 'boolean' },
       model: { type: 'string' },
+      'non-interactive': { type: 'boolean' },
       platform: { type: 'string' },
       prompt: { type: 'string' },
       root: { type: 'string' },
@@ -39,13 +61,19 @@ export async function runHostCli(
     },
     strict: true,
   });
-  const command = positionals.join(' ');
+  const ordinaryRun = positionals[0] === 'run' && !['start', 'stop'].includes(positionals[1] ?? '');
+  const command = values.help ? 'help' : ordinaryRun ? 'run' : positionals.join(' ');
   if (
     ![
       'host start',
       'host status',
+      'help',
       'thread start',
       'thread read',
+      'threads list',
+      'threads show',
+      'run',
+      'attach',
       'run start',
       'run stop',
       'interaction respond',
@@ -54,16 +82,60 @@ export async function runHostCli(
   ) {
     throw new Error('Unknown host command');
   }
-  const attachment = await launchHost(resolve(required(values.root, 'root')), {
-    attach: attachAgentHost,
-    lifetime: command === 'host start' ? 'persistent' : 'cli',
-    spawn: (options, signal) => {
-      if (command === 'host status') {
-        throw new Error('No host is running for this root');
-      }
-      return createAgentHostSpawner(required(values.platform, 'platform'))(options, signal);
-    },
-  });
+  if (values.root && values['data-root'] && resolve(values.root) !== resolve(values['data-root'])) {
+    throw new Error('--root and --data-root must select the same data root');
+  }
+  if (values.interactive && values['non-interactive']) {
+    throw new Error('Choose interactive or non-interactive input');
+  }
+  return {
+    command,
+    interactive: !values['non-interactive'] && (values.interactive ?? Boolean(process.stdin.isTTY)),
+    positionals,
+    values,
+  };
+}
+
+/** CLI is a client of the root owner; it never runs a second model/tool loop. */
+export async function runHostCli(
+  args: string[],
+  output: HostCliOutput = process.stdout
+): Promise<void> {
+  const { command, interactive, positionals, values } = parseHostCliArgs(args);
+  if (command === 'help') {
+    output.write(`brainstrike --data-root <path> [--platform <module>] <command>
+
+run "prompt" --model <id> [--thread <id>] [--json] [--non-interactive]
+attach --thread <id> [--run <id>] [--json] [--interactive]
+threads list
+threads show --thread <id> [--from-seq <n>]
+host start | host status
+thread start | thread read --thread <id>
+run start --thread <id> --model <id> --prompt <text>
+run stop --thread <id> --run <id>
+interaction respond --thread <id> --run <id> --interaction <id> --decision approve|deny
+log follow --thread <id> [--from-seq <n>]
+
+Starting a host currently requires its configured --platform module.
+Unanswered noninteractive decisions exit 2 and remain available for attach.
+An interactive terminal accepts approve, deny, or stop. EOF detaches.
+Run signals stop and join its execution; attach signals detach.
+`);
+    return;
+  }
+  const attachment = await launchHost(
+    resolve(required(values['data-root'] ?? values.root, 'data-root')),
+    {
+      attach: attachAgentHost,
+      lifetime: command === 'host start' ? 'persistent' : 'cli',
+      spawn: (options, signal) => {
+        if (command === 'host status') {
+          throw new Error('No host is running for this root');
+        }
+        return createAgentHostSpawner(required(values.platform, 'platform'))(options, signal);
+      },
+    }
+  );
   // This launcher has exactly one supplied attachment implementation.
   const client = attachment as HostClient;
   const commandId = values['command-id'] ?? randomUUID();
@@ -83,13 +155,49 @@ export async function runHostCli(
       case 'thread start':
         print(await client.request('thread/start', { commandId }));
         break;
+      case 'threads list':
+        print(await client.request('thread/list', {}));
+        break;
       case 'thread read':
+      case 'threads show':
         print(
           await client.request('thread/read', {
             fromSeq: Number(values['from-seq'] ?? 0),
             threadId: threadId(),
           })
         );
+        break;
+      case 'run': {
+        const modelId = required(values.model, 'model');
+        const prompt = required(values.prompt ?? positionals.slice(1).join(' '), 'prompt');
+        const selected =
+          values.thread ??
+          (await client.request('thread/start', { commandId: randomUUID() })).threadId;
+        await runHostCliSession({
+          client,
+          interactive,
+          json: values.json ?? false,
+          output,
+          startRun: () =>
+            client.request('run/start', {
+              commandId,
+              modelId,
+              prompt,
+              threadId: selected,
+            }),
+          threadId: selected,
+        });
+        break;
+      }
+      case 'attach':
+        await runHostCliSession({
+          client,
+          interactive,
+          json: values.json ?? false,
+          output,
+          ...(values.run ? { runId: values.run } : {}),
+          threadId: threadId(),
+        });
         break;
       case 'run start':
         print(
@@ -170,6 +278,6 @@ export async function runHostCli(
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   runHostCli(process.argv.slice(2)).catch((cause: unknown) => {
     process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
-    process.exitCode = 1;
+    process.exitCode = cause instanceof HostCliExitError ? cause.exitCode : 1;
   });
 }

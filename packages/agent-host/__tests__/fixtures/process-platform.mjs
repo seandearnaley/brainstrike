@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
 import { appendFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { scriptedModel } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
-import { scriptedModel } from './scripted-model.ts';
 
 /** @param {import('@brainstrike/host-lease').HostStartOptions} options
  * @returns {Promise<import('../../src/ports.js').HostPlatform>} */

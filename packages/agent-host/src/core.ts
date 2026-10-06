@@ -15,12 +15,10 @@ import {
   recordRawToolInputs,
   validateApprovalInput,
 } from './approval-input.js';
-import { canonical, type Json, jsonValue } from './json-value.js';
-
-export { jsonValue } from './json-value.js';
-
+import type { AcceptedCommand } from './core-state.js';
 import { readHostRow, storedHostEvent } from './event-storage.js';
 import { executableInputSchema } from './executable-input-schema.js';
+import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostPlatform, HostRunOwner } from './ports.js';
 import {
   HOST_METHOD_SCHEMAS,
@@ -28,6 +26,8 @@ import {
   type HostLogRow,
   type HostParams,
 } from './protocol.js';
+
+export { jsonValue } from './json-value.js';
 
 type Action = Extract<HostEvent, { type: 'effect.started' }>;
 type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
@@ -58,11 +58,6 @@ interface Run {
   task?: Promise<void>;
   terminal: boolean;
   readonly threadId: string;
-}
-interface AcceptedCommand {
-  readonly method: string;
-  readonly payload: string;
-  readonly result: Json;
 }
 export type HostEventStore = Pick<
   StateStore,
@@ -276,6 +271,10 @@ export class HostCore {
   onCommitted(listener: (row: HostLogRow) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  listThreads(): { threadId: string }[] {
+    return [...this.threads].map((threadId) => ({ threadId }));
   }
 
   async read(threadId: string, fromSeq: number): Promise<HostLogRow[]> {
