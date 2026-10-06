@@ -17,11 +17,10 @@ export interface HostMemoryIdentity extends HostRunContext {
 
 export interface HostMemoryCapabilities {
   /**
-   * Required enclosing owner: join actual provider/source/storage/hook work and
-   * native async jobs, including work Memory.settled() does not expose. Passing
-   * Memory.settled itself here does not meet this capability's contract.
+   * Optional additional run-owned tails. Called after the patched native
+   * barrier joins. The storage owner may close after HostMemory.close completes.
    */
-  joinNativeLifetime(): Promise<void>;
+  joinNativeLifetime?(): Promise<void>;
   /** Public Memory configuration; storage delegates to the existing StateStore writer. */
   readonly native: MemoryConfig & { readonly storage: NonNullable<MemoryConfig['storage']> };
   /** Actual observer/reflector usage and model identity, for the existing usage ledger. */
@@ -49,13 +48,13 @@ export interface HostMemoryStep {
  * committed transcript messages into storage; this adapter creates no writer,
  * permission gate, provider, scheduler or replacement memory framework.
  *
- * Native Memory 1.32.1 does not expose a complete physical lifecycle barrier.
- * The injected enclosing lifetime is essential to close/reset safety; native
- * settlement is only one participant. Native deleteThread is not a strict purge
- * authority. Root admission, derived cleanup and lease retention remain host-owned.
+ * The isolated M3 compatibility patch supplies native cancellation, failure
+ * retention and a fail-closed settlement barrier. The public provider enclosure
+ * additionally joins raw promises, original sources and actual usage receipts.
+ * Root admission, strict purge, derived cleanup and lease retention remain host-owned.
  * Upstream primitive: https://github.com/mastra-ai/mastra/tree/main/packages/memory
- * Remove the enclosing lifetime requirement only when the unmodified public
- * barrier joins all native tails and propagates failures and owner cancellation.
+ * Remove the temporary patch when the pinned public memory library or M4 memory
+ * implementation passes the same cancellation/join/error regressions unmodified.
  */
 export class HostMemory implements HostRunOwner {
   private readonly memory: Memory;
@@ -95,6 +94,7 @@ export class HostMemory implements HostRunOwner {
             ...native.options,
             observationalMemory: {
               ...observation,
+              abortSignal: identity.signal,
               model: undefined,
               observation: {
                 ...observation.observation,
@@ -171,7 +171,11 @@ export class HostMemory implements HostRunOwner {
       this.messageList.add([...committedMessages], 'memory');
       const engine = await this.memory.omEngine;
       if (engine) {
-        this.turn = engine.beginTurn({ ...this.identifiers(), messageList: this.messageList });
+        this.turn = engine.beginTurn({
+          ...this.identifiers(),
+          abortSignal: this.identity.signal,
+          messageList: this.messageList,
+        });
         await this.turn.start({
           getContext: (options) => this.track(() => this.memory.getContext(options)),
           persistMessages: (messages) => this.track(() => this.memory.persistMessages(messages)),
@@ -249,13 +253,8 @@ export class HostMemory implements HostRunOwner {
 
   close(): Promise<void> {
     this.closing ??= Promise.resolve().then(async () => {
-      // Owner cancellation reaches actual provider/source leaves immediately,
-      // before foreground joins. The enclosing owner may also need to cancel
-      // native work before the foreground operation can finish.
-      const abortJoin = this.identity.signal.aborted
-        ? Promise.resolve().then(() => this.capabilities.joinNativeLifetime())
-        : undefined;
-      abortJoin?.catch(() => undefined);
+      // The run signal reaches native work and raw provider/source leaves as
+      // soon as Stop aborts it, independently of this foreground drain.
       if (this.identity.signal.aborted) {
         await Promise.allSettled([this.track(() => this.providers.join())]);
       }
@@ -264,13 +263,15 @@ export class HostMemory implements HostRunOwner {
         const turn = this.turn;
         await Promise.allSettled([this.track(() => turn.end())]);
       }
-      const joined = await Promise.allSettled([
-        this.track(() => this.memory.settled()),
-        this.track(() => abortJoin ?? this.capabilities.joinNativeLifetime()),
+      const native = await Promise.allSettled([this.track(() => this.memory.settled())]);
+      const enclosing = await Promise.allSettled([
+        this.track(() => this.capabilities.joinNativeLifetime?.() ?? Promise.resolve()),
       ]);
       const providers = await Promise.allSettled([this.track(() => this.providers.join())]);
       await this.drain();
-      this.joined = [...joined, ...providers].every((result) => result.status === 'fulfilled');
+      this.joined = [...native, ...enclosing, ...providers].every(
+        (result) => result.status === 'fulfilled'
+      );
       if (this.failures.length > 0) {
         throw new AggregateError([...new Set(this.failures)], 'Host memory cleanup failed');
       }

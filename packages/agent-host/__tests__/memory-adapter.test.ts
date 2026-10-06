@@ -450,7 +450,7 @@ test('cleanup retains callback failure and joins an admitted sibling write', asy
   }
 });
 
-test('unmodified Memory.settled loses a registered native job failure', async () => {
+test('patched Memory.settled retains the original native job failure on every join', async () => {
   const storage = new InMemoryStore({ id: randomUUID() });
   await storage.init();
   const memory = new Memory({
@@ -464,14 +464,15 @@ test('unmodified Memory.settled loses a registered native job failure', async ()
     }
     const nativeFailure = new Error('Registered native background failure');
     engine.trackBackgroundWork(Promise.reject(nativeFailure));
-    await expect(memory.settled()).resolves.toBeUndefined();
+    await expect(memory.settled()).rejects.toBe(nativeFailure);
+    await expect(memory.settled()).rejects.toBe(nativeFailure);
   } finally {
-    await memory.settled();
+    await memory.settled().catch(() => undefined);
     await storage.close();
   }
 });
 
-test('unmodified Memory.settled can resolve while a registered native job remains held', async () => {
+test('patched Memory.settled fails closed while a registered native job remains held', async () => {
   const storage = new InMemoryStore({ id: randomUUID() });
   await storage.init();
   const memory = new Memory({
@@ -500,26 +501,29 @@ test('unmodified Memory.settled can resolve while a registered native job remain
     };
     register(0);
     let nativeSettled = false;
-    const settling = memory.settled().then(() => {
-      nativeSettled = true;
-    });
+    const settling = memory.settled().then(
+      () => {
+        nativeSettled = true;
+      },
+      (cause: unknown) => cause
+    );
     // Let public Memory enter the engine join before releasing generation zero.
     await nextTurn();
     // Each actual native drain round admits the next job. The published
-    // 100-round guard returns with the final registered job still gated.
+    // 100-round guard rejects with the final registered job still gated.
     for (const gate of gates.slice(0, -1)) {
       gate.resolve();
       await nextTurn();
     }
     expect(jobs).toHaveLength(101);
-    expect(nativeSettled).toBe(true);
+    expect(nativeSettled).toBe(false);
     let finalJobJoined = false;
     jobs.at(-1)?.then(() => {
       finalJobJoined = true;
     });
     await nextTurn();
     expect(finalJobJoined).toBe(false);
-    await settling;
+    expect(await settling).toMatchObject({ name: 'ObservationalMemoryIncompleteSettlementError' });
   } finally {
     for (const gate of gates) {
       gate.resolve();
