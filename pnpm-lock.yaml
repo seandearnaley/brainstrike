@@ -1674,6 +1674,9 @@ importers:
       '@assistant-ui/styles':
         specifier: 'catalog:'
         version: 0.3.7
+      '@brainstrike/agent-host':
+        specifier: workspace:*
+        version: link:../agent-host
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract

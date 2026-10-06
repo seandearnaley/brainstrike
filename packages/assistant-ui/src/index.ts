@@ -30,6 +30,19 @@ export {
   CheckpointTurnRevertControl,
 } from './checkpoint-turn-revert';
 export {
+  CommittedAssistantConversation,
+  type CommittedAssistantConversationProps,
+} from './committed-assistant-conversation';
+export {
+  bindCommittedAssistantCommands,
+  type CommittedAssistantCommands,
+  type CommittedAssistantSnapshot,
+  type CommittedAssistantStore,
+  selectCommittedAssistantMessage,
+  selectCommittedAssistantPart,
+  selectCommittedAssistantTool,
+} from './committed-assistant-store';
+export {
   CompactionSummaryCard,
   type CompactionSummaryCardProps,
 } from './compaction-summary-card';
@@ -134,6 +147,11 @@ export {
   ToolResultRendererProvider,
   type ToolResultRendererProviderProps,
 } from './tool-result-renderer-context';
+export {
+  type CommittedAssistantRuntimeOptions,
+  useCommittedAssistantRuntime,
+  useCommittedAssistantSelector,
+} from './use-committed-assistant-runtime';
 export {
   type DelegatedConversationRuntimeOptions,
   useDelegatedConversationRuntime,

@@ -9,7 +9,7 @@ import {
 } from '@assistant-ui/react';
 import { cn } from '@brainstrike/ui';
 import { Brain } from 'lucide-react';
-import { type ReactNode, useId, useMemo, useState } from 'react';
+import { memo, type ReactNode, useId, useMemo, useState } from 'react';
 import { ActivityStepMetaProvider } from './activity-step-context';
 import { deriveStepMeta } from './activity-step-meta';
 import { StepRowHeader } from './activity-step-row';
@@ -121,12 +121,13 @@ function ActivityPartLayout({ children }: { children?: ReactNode }): ReactNode {
   return <div className="mb-2 last:mb-0 empty:mb-0">{children}</div>;
 }
 
-function ActivityToolPart(props: ToolCallMessagePartProps) {
+// BST-1929: token updates can rerender the group while this tool's fold props are unchanged.
+const ActivityToolPart = memo(function ActivityToolPart(props: ToolCallMessagePartProps) {
   const Component =
     CHAIN_OF_THOUGHT_TOOL_COMPONENTS.by_name[props.toolName] ??
     CHAIN_OF_THOUGHT_TOOL_COMPONENTS.Fallback;
   return <Component {...props} />;
-}
+});
 
 /**
  * The reasoning row's glyph slot. It replaces the generic state glyph rather
