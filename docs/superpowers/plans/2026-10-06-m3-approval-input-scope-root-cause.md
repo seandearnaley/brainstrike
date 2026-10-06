@@ -1,0 +1,23 @@
+# M3 approval-input scope: third-repair design checkpoint
+
+Status: focused source re-review of 3988804e found a historical-context correctness defect. Product source is preserved at that commit. The input-reconstruction class is paused for Sean's decision under root AGENTS working rule 3; the parent owns the decision and the specific combined-design advisor. Startup #1/#6 and completed Stop B remain independently paused. No further implementation or review campaign was dispatched.
+
+## Incident and repair count
+
+53d074e first repaired canonical input being transformed again during native execution, covering numeric transforms and async validation. 3988804e then repaired loss of runtime types through JSON serialization, preserving the actual SDK value live and rebuilding Date values from committed public SDK RAW input for final-step/restarted approval. The newly reported historical-scope defect would be the third correction in the same schema/canonical-input reconstruction class. It must not be renamed into a separate class to continue patching.
+
+The exact regression runs two actual SDK loops in one real SQLite thread. The shipped scripted fixture legitimately reuses `recorded-call-1`: run one approves and executes D1 = `2026-10-06T00:00:00.000Z`; run two approves and executes D2 = `2026-10-07T00:00:00.000Z`. Both committed call inputs and both executed runtime values remain correct. During run-two approval continuation, the actual provider prompt shows both call inputs as D2 while the first tool result remains D1. The repro fails comparing the provider calls against the committed calls. Receipt: `/tmp/brainstrike-m3-approval-history-repro.json`; earliest log: `/tmp/brainstrike-m3-approval-history-earliest-repro.log` (one failed, 0.746 s). Fixture cleanup closes the host/store and removes its isolated root.
+
+The cause is lost occurrence ownership. Approval RAW-input and permit maps are scoped to a Run. The accumulated thread model history is not. Reconstruction takes current-run inputs keyed by toolCallId and applies them to every matching assistant call across that history. A provider call ID is local attribution; no contract makes it globally unique across runs. Matching a value or call ID does not identify the approved message occurrence. The committed log still has runId and row sequence, and the public SDK approval request has its distinct approvalId, but the context reconstruction does not retain/use those owners.
+
+## Proposed design decision
+
+Keep committed model messages immutable and retain their existing committed provenance in the derived runtime context. Identify the exact current approval request by its public approvalId, current runId and existing log-row/message occurrence; bind the associated tool call within that occurrence. Reconstruct runtime input only there from its recorded RAW schema input, preserving every prior message and result unchanged. Keep the existing canonical approval comparison and executor identity checks. Restoration must derive the same ownership from committed rows after restart.
+
+The owner/advisor should choose the concrete provenance representation together with command-attempt and startup ownership. No new durable ID, global call-ID uniqueness guard, alias, backfill, retry or parallel writer is proposed. No fabricated rename of provider call IDs or broad rewriting of historical calls is permitted.
+
+Acceptance after approval: this exact two-run reused-ID case, including restarted pending approval; distinct approval IDs with reused call IDs across previous runs; parallel current calls and completed historical results; stable approved input/executor identity; the existing numeric/async/Date cases. Demonstrate that the provider context preserves historical input/result pairs and that the current executor still receives its validated runtime type.
+
+Sean's design decision is required before this third repair. The opt-in regression (`BRAINSTRIKE_M3_APPROVAL_HISTORY_REPRO=1`) remains an OPEN defect; its default skip is not an approved quarantine waiver or a full-suite pass. CI is disabled due to cost; validation must run locally.
+
+Final qualification: from `packages/agent-host`, `BRAINSTRIKE_M3_APPROVAL_HISTORY_REPRO=1 pnpm exec vitest run --config vitest.integration.config.mts __tests__/approval-history-scope.integration.test.ts` failed the historical-input assertion in 0.753 s (`/tmp/brainstrike-m3-approval-history-qualified-repro.log`). `pnpm --filter @brainstrike/agent-host type-check` passed; scoped `pnpm dlx ultracite fix` passed. Both use qualified Node 26.8.2 and `pnpm_config_verify_deps_before_run=error`. No broad suite was rerun or claimed green; all product implementation bytes remain at 3988804e.
