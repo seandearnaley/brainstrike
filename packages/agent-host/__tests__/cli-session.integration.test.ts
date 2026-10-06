@@ -150,8 +150,10 @@ function startCli(
     },
     stderr: () => observed.output.stderr(),
     stdout: () => observed.output.stdout(),
+    // Preserve the original non-Windows 1s observation bound. Windows alone
+    // uses the existing host-startup 10s bound with measured readiness evidence.
     waitForPrompt: () =>
-      observed.output.waitFor('stderr', 'Approve, deny, or stop?', AbortSignal.timeout(10_000)),
+      observed.output.waitFor('stderr', 'Approve, deny, or stop?', AbortSignal.timeout(1000)),
     write: (text) => {
       child.stdin?.write(text);
     },
