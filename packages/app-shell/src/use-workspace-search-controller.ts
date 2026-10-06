@@ -20,7 +20,7 @@ import {
   WorkspaceSearchExecutor,
   type WorkspaceSearchMode,
 } from '@brainstrike/workspace-search/core';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOptionalRootIdentity } from './roots/root-identity-context';
 
 const logger = createLogger('WorkspaceSearchController');
@@ -199,6 +199,7 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
     readonly scope: Parameters<typeof getNativeSemanticAvailability>[0];
     readonly value: NativeSemanticAvailability;
   } | null>(null);
+  const refreshAvailability = useRef<(() => void) | null>(null);
   const db = usePGliteDatabase();
   const chunkRepository = useFileChunkRepository();
   const rootIdentity = useOptionalRootIdentity();
@@ -310,14 +311,25 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
   );
   const availabilityScope = useMemo(
     () =>
-      nativeDependencies === null
+      nativeEmbedQuery === null
         ? null
         : {
-            ...nativeDependencies,
+            capability: nativeCapability,
+            profile: nativeProfile,
+            ...(nativeProfileReason === undefined
+              ? {}
+              : { profileUnavailableReason: nativeProfileReason }),
             collectionId: selectedCollectionId,
             rootIds: workspaceDbRootIds,
           },
-    [nativeDependencies, selectedCollectionId, workspaceDbRootIds]
+    [
+      nativeCapability,
+      nativeProfile,
+      nativeEmbedQuery,
+      nativeProfileReason,
+      selectedCollectionId,
+      workspaceDbRootIds,
+    ]
   );
   const semanticAvailability: NativeSemanticAvailability =
     availabilityResult?.scope === availabilityScope
@@ -328,15 +340,35 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
       return;
     }
     let current = true;
-    void getNativeSemanticAvailability(availabilityScope).then((value) => {
-      if (current) {
-        setAvailabilityResult({ scope: availabilityScope, value });
+    let pending = false;
+    let refreshRequested = false;
+    const refresh = async (): Promise<void> => {
+      if (pending) {
+        refreshRequested = true;
+        return;
       }
-    });
+      pending = true;
+      do {
+        refreshRequested = false;
+        const value = await getNativeSemanticAvailability(availabilityScope);
+        if (!current) {
+          return;
+        }
+        setAvailabilityResult({ scope: availabilityScope, value });
+      } while (refreshRequested);
+      pending = false;
+    };
+    refreshAvailability.current = () => {
+      void refresh();
+    };
     return () => {
       current = false;
+      refreshAvailability.current = null;
     };
   }, [availabilityScope]);
+  useEffect(() => {
+    refreshAvailability.current?.();
+  }, [availabilityScope, nativeDependencies]);
 
   const runners = useMemo(() => {
     if (nativeExecutor) {

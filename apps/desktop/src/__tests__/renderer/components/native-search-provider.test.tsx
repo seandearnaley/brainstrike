@@ -1,6 +1,7 @@
 import { RootIdentityProvider } from '@brainstrike/app-shell/roots/root-identity-context';
 import { useWorkspaceSearchController } from '@brainstrike/app-shell/use-workspace-search-controller';
 import type {
+  IndexerCoverage,
   IndexerStatus,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
@@ -137,9 +138,19 @@ describe('native query provider cancellation wiring', () => {
 });
 
 describe('native provider and search controller observation refresh', () => {
-  function mountController(cloneObservations = true) {
+  function mountController(
+    cloneObservations = true,
+    coverageOverride?: IndexSearchCapability['coverage']
+  ) {
     let observation: IndexerStatus = ready;
     const counts = { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 };
+    const observedCoverage: IndexerCoverage = {
+      embedding: ready.embedding,
+      roots: [{ rootId: 'root-a', ...counts }],
+      storeId: ready.storeId,
+      totals: counts,
+      vectorCoverageComplete: true,
+    };
     const response = {
       candidateCount: 0,
       candidatesTruncated: false,
@@ -150,13 +161,7 @@ describe('native provider and search controller observation refresh', () => {
       truncated: false,
     };
     let capability: IndexSearchCapability = {
-      coverage: vi.fn(async () => ({
-        embedding: ready.embedding,
-        roots: [{ rootId: 'root-a', ...counts }],
-        storeId: ready.storeId,
-        totals: counts,
-        vectorCoverageComplete: true,
-      })),
+      coverage: vi.fn(coverageOverride ?? (async () => observedCoverage)),
       coverageBatch: vi.fn(),
       grep: vi.fn(async () => response),
       rebuild: vi.fn(),
@@ -185,6 +190,7 @@ describe('native provider and search controller observation refresh', () => {
     return {
       ...mounted,
       capability,
+      observedCoverage,
       refresh: (next: IndexerStatus) => {
         observation = next;
       },
@@ -196,6 +202,68 @@ describe('native provider and search controller observation refresh', () => {
       },
     };
   }
+
+  function holdAvailability() {
+    const pending: ReturnType<typeof Promise.withResolvers<IndexerCoverage>>[] = [];
+    const mounted = mountController(true, () => {
+      const read = Promise.withResolvers<IndexerCoverage>();
+      pending.push(read);
+      return read.promise;
+    });
+    return { ...mounted, pending };
+  }
+
+  it('publishes slow availability across multiple progress polls and then refreshes current readiness', async () => {
+    vi.useFakeTimers();
+    const { pending, observedCoverage: coverage, ...mounted } = holdAvailability();
+    try {
+      await vi.waitFor(() => expect(pending).toHaveLength(1));
+      for (const acknowledgedFiles of [10, 20]) {
+        mounted.refresh({
+          ...ready,
+          publicationProgress: [
+            {
+              acknowledgedFiles,
+              authorityEpoch: 'epoch',
+              authorityRevision: acknowledgedFiles,
+              mutationRevision: acknowledgedFiles,
+              ownerGeneration: 1,
+              profileHash: ready.embedding.profileHash,
+              requestId: 'scan',
+              scanGeneration: 1,
+              scope: { kind: 'workspace', rootId: 'root-a' },
+              storeId: ready.storeId,
+            },
+          ],
+          rootReadiness: [{ rootId: 'root-a', scanComplete: false }],
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2000);
+        });
+      }
+      await act(async () => {
+        pending[0]?.resolve(coverage);
+      });
+      await vi.waitFor(() =>
+        expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
+      );
+      // One fresh follow-up consumes both queued progress observations without dropping the completed check.
+      await vi.waitFor(() => expect(pending).toHaveLength(2));
+      await act(async () => {
+        pending[1]?.resolve(coverage);
+      });
+      await vi.waitFor(() =>
+        expect(mounted.result.current.controller.semanticAvailability?.hint).toContain(
+          'Source scan incomplete'
+        )
+      );
+    } finally {
+      mounted.unmount();
+      for (const read of pending) {
+        read.resolve(coverage);
+      }
+    }
+  });
 
   it('keeps held semantic inference alive across readiness and acknowledged-progress refreshes', async () => {
     vi.useFakeTimers();
@@ -253,7 +321,7 @@ describe('native provider and search controller observation refresh', () => {
     }
   });
 
-  it('publishes readiness availability changes without cancelling the held execution', async () => {
+  it('refreshes partial coverage readiness hints without cancelling the held execution', async () => {
     vi.useFakeTimers();
     const physical = Promise.withResolvers<number[]>();
     queryEmbedding.mockReturnValue(physical.promise);
@@ -275,8 +343,11 @@ describe('native provider and search controller observation refresh', () => {
         await vi.advanceTimersByTimeAsync(2000);
       });
       await vi.waitFor(() =>
-        expect(mounted.result.current.controller.semanticAvailability?.available).toBe(false)
+        expect(mounted.result.current.controller.semanticAvailability?.hint).toContain(
+          'Source scan incomplete'
+        )
       );
+      expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true);
       expect(cancelQueryEmbedding).not.toHaveBeenCalled();
       expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
       mounted.refresh(structuredClone(ready));
@@ -284,8 +355,9 @@ describe('native provider and search controller observation refresh', () => {
         await vi.advanceTimersByTimeAsync(2000);
       });
       await vi.waitFor(() =>
-        expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
+        expect(mounted.result.current.controller.semanticAvailability?.hint).toBeUndefined()
       );
+      expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true);
       await act(async () => {
         physical.resolve(Array.from({ length: 384 }, () => 1));
       });
@@ -348,6 +420,120 @@ describe('native provider and search controller observation refresh', () => {
       next: { kind: 'unavailable', reason: 'Native owner retired.' },
     },
   ];
+
+  it.each(identityChanges)('drops held availability when $name changes', async ({ next }) => {
+    vi.useFakeTimers();
+    const mounted = holdAvailability();
+    try {
+      await vi.waitFor(() => expect(mounted.pending).toHaveLength(1));
+      mounted.refresh(next);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      await act(async () => {
+        mounted.pending[0]?.resolve(mounted.observedCoverage);
+      });
+      expect(mounted.result.current.controller.semanticAvailability?.available).toBe(false);
+    } finally {
+      mounted.unmount();
+      for (const read of mounted.pending) {
+        read.resolve(mounted.observedCoverage);
+      }
+    }
+  });
+
+  it.each(['capability', 'root binding', 'collection'] as const)(
+    'drops held availability on an actual %s replacement',
+    async (change) => {
+      vi.useFakeTimers();
+      const mounted = holdAvailability();
+      try {
+        await vi.waitFor(() => expect(mounted.pending).toHaveLength(1));
+        act(() => {
+          if (change === 'capability') {
+            mounted.replaceCapability();
+            mounted.rerender();
+          }
+          if (change === 'root binding') {
+            mounted.replaceRootBinding();
+            mounted.rerender();
+          }
+          if (change === 'collection') {
+            useWorkspaceSearchStore.getState().setCollectionId('collection-b');
+          }
+        });
+        await act(async () => {
+          mounted.pending[0]?.resolve(mounted.observedCoverage);
+        });
+        expect(mounted.result.current.controller.semanticAvailability?.available).toBe(false);
+      } finally {
+        mounted.unmount();
+        for (const read of mounted.pending) {
+          read.resolve(mounted.observedCoverage);
+        }
+      }
+    }
+  );
+
+  it('keeps a fresh replacement-scope failure visible when old coverage completes late', async () => {
+    vi.useFakeTimers();
+    const mounted = holdAvailability();
+    try {
+      await vi.waitFor(() => expect(mounted.pending).toHaveLength(1));
+      act(() => {
+        mounted.replaceCapability();
+        mounted.rerender();
+      });
+      await vi.waitFor(() => expect(mounted.pending).toHaveLength(2));
+      await act(async () => {
+        mounted.pending[1]?.reject(new Error('Replacement native scope failed.'));
+      });
+      await vi.waitFor(() =>
+        expect(mounted.result.current.controller.semanticAvailability).toMatchObject({
+          available: false,
+          reason: 'Replacement native scope failed.',
+        })
+      );
+      await act(async () => {
+        mounted.pending[0]?.resolve(mounted.observedCoverage);
+      });
+      expect(mounted.result.current.controller.semanticAvailability).toMatchObject({
+        available: false,
+        reason: 'Replacement native scope failed.',
+      });
+    } finally {
+      mounted.unmount();
+      for (const read of mounted.pending) {
+        read.resolve(mounted.observedCoverage);
+      }
+    }
+  });
+
+  it('publishes a held coverage failure instead of enabling semantics optimistically', async () => {
+    vi.useFakeTimers();
+    const mounted = holdAvailability();
+    try {
+      await vi.waitFor(() => expect(mounted.pending).toHaveLength(1));
+      mounted.refresh({ ...ready, rootReadiness: [{ rootId: 'root-a', scanComplete: false }] });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      await act(async () => {
+        mounted.pending[0]?.reject(new Error('Native coverage target unavailable.'));
+      });
+      await vi.waitFor(() =>
+        expect(mounted.result.current.controller.semanticAvailability).toMatchObject({
+          available: false,
+          reason: 'Native coverage target unavailable.',
+        })
+      );
+    } finally {
+      mounted.unmount();
+      for (const read of mounted.pending) {
+        read.resolve(mounted.observedCoverage);
+      }
+    }
+  });
 
   it.each(identityChanges)(
     'cancels held inference on $name and drops its late result',
