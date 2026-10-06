@@ -541,6 +541,10 @@ fallback.
   override (`docs/agents/platform-contracts.md`) is for main-owned callers
   outside this pipeline and is mutually exclusive with coarse reporting,
   including an explicit `[]`.
+- A recoverable Parcel FSEvents dropped-events episode stays `degraded` with
+  `rescan-required`; its actual warning and overflow/full-root refresh remain
+  visible. Emit a changed failure class even while still degraded, so a later
+  unknown backend error cannot be hidden by the earlier overflow.
 - Push typed watcher health (`starting|healthy|degraded|failed|stopped`) on
   one-way `fs:watch-health` scoped to the owning WebContents, with no root path
   on the wire. `fs:watch-retry` is MANUAL-only, throttled and single-flight per

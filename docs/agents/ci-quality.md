@@ -324,6 +324,9 @@ run after `LINEAR_API_KEY` is set; the unit tests script `fetch`, never Linear.
 
 ### Biome 2.5.8 cleared the 2.5.3/2.5.4 module-graph hold
 
+- Force-ignore generated nested checkouts under `.muse/worktrees` in Biome's
+  scanner. They are independent workspaces, not inputs to this checkout's
+  type-aware lint; retain the normal rules for application source.
 - No release hold is active. Pin `@biomejs/biome` to one exact version in root
   and `apps/web` together, and on every bump require a full
   `pnpm exec biome check .` with zero panic output.

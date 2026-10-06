@@ -985,7 +985,7 @@ const nativeIndexActivation = createNativeIndexActivation({
   application: applicationIpcDomain,
   embedding: embeddingHostManager,
   onError: (operation, error) =>
-    logger.error('Native indexing operation failed', { error, operation }),
+    reportNativeIndexActivationError(`Native indexing ${operation} failed`, error),
   onReceipt: (receipt) =>
     logger.info('Canonical native scan settled', { receipt, settledAt: new Date().toISOString() }),
   storage,

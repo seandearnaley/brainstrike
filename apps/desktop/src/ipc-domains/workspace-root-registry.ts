@@ -30,6 +30,7 @@ import {
   recordRecentRootsIfNew,
   resolveGrantedRootHandle,
 } from './workspace-recent-roots';
+import { WorkspaceRootAvailability } from './workspace-root-availability';
 import { WorkspaceRootMountTable } from './workspace-root-mounts';
 import {
   buildDirectoryListing,
@@ -107,6 +108,7 @@ export class WorkspaceRootRegistry {
   private readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
   private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
   private readonly mounts = new WorkspaceRootMountTable();
+  private readonly availability = new WorkspaceRootAvailability();
   private mutationTail: Promise<void> = Promise.resolve();
   private rootDataDeletion: RootDataDeletionReservation | undefined;
   private readonly retiringSourceRoots = new WeakSet<MountedWorkspaceRoot>();
@@ -273,6 +275,7 @@ export class WorkspaceRootRegistry {
     this.disposal ??= Promise.all([this.mutationTail, this.retireSourceLeases()])
       .then(() => {
         this.mounts.closeAll();
+        this.availability.clear();
       })
       .finally(() => {
         this.disposal = undefined;
@@ -579,6 +582,7 @@ export class WorkspaceRootRegistry {
       // since retireMount alone cleans up only under the adapter rootId.
       await this.retireMount(rootId);
       await this.convergeDatabase();
+      this.availability.forget(rootId);
       return;
     }
 
@@ -606,11 +610,13 @@ export class WorkspaceRootRegistry {
     if (resourcesRetired) {
       await clearLastFolderIfMatches(this.storage, removed.path);
       await this.unmountSourceRoot(rootId);
+      this.availability.forget(rootId);
       return;
     }
     await this.unmountSourceRoot(rootId);
     await this.cleanupRootResources(disconnected.map((row) => row.id));
     await clearLastFolderIfMatches(this.storage, removed.path);
+    this.availability.forget(rootId);
   }
 
   restoreLastFolder(): Promise<DirectoryHandle | null> {
@@ -637,6 +643,7 @@ export class WorkspaceRootRegistry {
   restoreRoots(): Promise<RootDescriptor[]> {
     return this.serializeMutation(async () => {
       const entries = await readStoredRoots(this.storage);
+      this.availability.retain(entries);
       const descriptors: RootDescriptor[] = [];
       const retainedRootIds = this.mounts.sessionMountIds();
       const retainedCanonicalPaths = new Set<string>();
@@ -645,7 +652,9 @@ export class WorkspaceRootRegistry {
 
       for (const entry of entries) {
         // eslint-disable-next-line react-doctor/async-await-in-loop -- mounts are intentionally serial: each iteration's canonical-alias dedup and session-supersession bookkeeping depends on the mounts installed by prior iterations.
-        const mountResult = await this.tryMountStoredEntry(entry);
+        const mountResult = await this.availability.tryMount(entry, this.pathExists, (stored) =>
+          this.mount(stored)
+        );
         if (!mountResult.ok) {
           descriptors.push(descriptorFor(entry, 'unknown'));
           storedSurvivors.push(entry);
@@ -856,7 +865,9 @@ export class WorkspaceRootRegistry {
       await this.retireSourceLeases(current);
     }
     this.assertActive();
-    return this.mounts.install(entry, root);
+    const canonicalPath = this.mounts.install(entry, root);
+    this.availability.forget(entry.rootId);
+    return canonicalPath;
   }
 
   private async persistAddedRoot(
@@ -906,27 +917,6 @@ export class WorkspaceRootRegistry {
     } catch (error) {
       secureRoot.close();
       throw error;
-    }
-  }
-
-  private async tryMountStoredEntry(
-    entry: StoredWorkspaceRoot
-  ): Promise<{ canonicalPath: string; ok: true } | { ok: false }> {
-    try {
-      if (!(await this.pathExists(entry.path))) {
-        logger.warn('Workspace root is unavailable and will remain persisted for retry', {
-          rootId: entry.rootId,
-        });
-        return { ok: false };
-      }
-      const canonicalPath = await this.mount(entry);
-      return { canonicalPath, ok: true };
-    } catch (error) {
-      logger.error('Workspace root mount failed and remains persisted for retry', {
-        error,
-        rootId: entry.rootId,
-      });
-      return { ok: false };
     }
   }
 

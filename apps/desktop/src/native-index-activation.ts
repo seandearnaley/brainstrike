@@ -59,6 +59,7 @@ import {
   type NativeIndexSources,
   retireNativeIndexSources,
 } from './native-index-source-retirement';
+import { createNativeIndexWatchHealthHandler } from './native-index-watch-health';
 import {
   closeAllIndexQueries,
   installIndexQueryTarget,
@@ -531,34 +532,15 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
               );
           }
         },
-        onWatchHealth: (health) => {
-          if (sources.controller.signal.aborted) {
-            return;
-          }
-          if (health.state === 'healthy') {
-            const recovering = current.watchFailures.delete(lease.rootId);
-            if (recovering && workspace) {
-              workspace
-                .trigger()
-                .catch((error: unknown) => dependencies.onError('watch recovery scan', error));
-            }
-            return;
-          }
-          if (
-            health.state === 'degraded' ||
-            health.state === 'failed' ||
-            health.state === 'stopped'
-          ) {
-            const reason = health.failure?.message ?? `Workspace watcher is ${health.state}.`;
-            current.watchFailures.set(lease.rootId, reason);
-            current.publication?.invalidateScope(scope);
-            current.publication?.invalidateScope({
-              embeddingSetId: settings.managedCollectionId,
-              kind: 'collection',
-            });
-            dependencies.onError('workspace watcher health', new Error(reason));
-          }
-        },
+        onWatchHealth: createNativeIndexWatchHealthHandler({
+          collectionId: settings.managedCollectionId,
+          onError: dependencies.onError,
+          publication: () => current.publication,
+          rootId: lease.rootId,
+          signal: sources.controller.signal,
+          watchFailures: current.watchFailures,
+          workspace: () => workspace,
+        }),
         source: {
           indexingPolicyPreset: settings.indexingPolicyPreset,
           inventory: inventory(scope),

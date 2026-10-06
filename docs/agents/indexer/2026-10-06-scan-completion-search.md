@@ -1,0 +1,19 @@
+# Search admission during indexing progress
+
+Rule: execution authority determines whether committed rows can be read; scan readiness determines whether that observation can claim source completeness. These are different facts.
+
+The original-profile assistant debug pack captured queryEmbeddingSpace call `call_g7b4Pk8pcRx2hIGTSWwzLjTV` failing at 2026-10-06T05:22:40.829Z with `tool_input_invalid: Native vector availability is being verified.` The main log recorded source-scan completion at 05:22:40.701Z. Another actual post-search refusal occurred at 05:52:11.459Z. Those timings do not prove the exact invalidating field in either live call. A later diagnostic-binary semantic call passed; there is no claim that the earlier live causes were individually identified.
+
+Deterministic production-helper tests reproduced the same refusal in both semantic and hybrid calls, before inference and after retrieval, when only scan generation, publication request, mutation revision or readiness inventory advanced. The first expanded regression run had 20 failures and 34 passes, including 16 production-helper refusals. The prior narrow partial-to-complete exception did not cover these genuine indexing transitions.
+
+The corrected boundary fingerprints only execution authority: owner generation, store, collection, roots, bindings, profile and query plan. Native coverage scope, epoch and revision validation remains unchanged. Captured and final readiness are compared per scope. Any changed proof is projected as incomplete and without its old publication; an unchanged partial proof stays partial. Current and captured publication identity are validated before reconciliation so corruption cannot be disguised as ordinary progress. Independent review identified that latter risk; four new corruption controls failed before the validation correction and passed afterward.
+
+SQLite already supplies short read transactions for scoped coverage and search, with WAL committed snapshots. This change neither retries queries nor holds a transaction across model inference. Semantic and hybrid retrieval continue to use the selected collection's query plan and return partial-coverage hints as appropriate. There is no model change, alternate search backend or relaxation of read ownership.
+
+Guards: `apps/desktop/src/__tests__/native-scoped-search.test.ts` and `native-scoped-assistant-readiness.test.ts`, sharing a fixture with no test registration. Coverage includes semantic/hybrid calls, before-inference and post-search progression, repeated commits, partial-to-complete scans, new scans/requests, lost completeness proof, corrupt publications, actual authority replacements and joined fatal cleanup.
+
+Canonical design references: [SQLite isolation](https://www.sqlite.org/isolation.html) and [SQLite WAL concurrency](https://www.sqlite.org/wal.html). Full regression and live-app demonstration are separate from this focused boundary proof. CI is disabled due to cost; validation must run locally.
+
+Local verification tooling note: the normal Biome hook repeatedly indexed generated nested `.muse/worktrees` checkouts even for one requested source file. Its retained trace contained 173,396 nested-checkout entries. The vendor-documented force-ignore for that generated directory preserves current-source lint rules; the unchanged single-file check then completed in 16 seconds. No hook or rule was bypassed.
+
+The normal diagnostic app quit at 06:10:31Z exposed two additional `sync` log entries for typed `NativeAuthorityTransitionError: Native owner terminal retirement requested.` The operation callback bypassed the existing activation error classifier. It now uses that same classifier: only a typed authority transition while desktop shutdown is actually active is an informational retirement. Generic, timeout and aggregate cleanup failures remain errors. The six existing classifier tests pass; normal live shutdown remains a separate check.

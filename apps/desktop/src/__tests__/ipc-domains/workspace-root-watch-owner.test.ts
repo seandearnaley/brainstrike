@@ -328,3 +328,28 @@ describe('Application-owned mounted-root watcher sharing', () => {
     expect(root.root.close).not.toHaveBeenCalled();
   });
 });
+
+it('forwards recoverable native overflow health and schedules the full-root source recovery signal', async () => {
+  const f = fixture();
+  const root = mounted();
+  const health = vi.fn();
+  const signal = vi.fn();
+  const subscription = await f.owner.subscribe(root, vi.fn(), signal, health, context());
+  const overflow = {
+    backend: 'fs-events',
+    failure: {
+      code: 'rescan-required',
+      message: 'Events were dropped by the FSEvents client. File system must be re-scanned.',
+      retryable: true,
+      terminal: false,
+    },
+    state: 'degraded',
+    timestamp: 1,
+  } as const;
+  f.health(overflow);
+  expect(health).toHaveBeenCalledExactlyOnceWith(overflow);
+  expect(signal).toHaveBeenCalledExactlyOnceWith({ type: 'overflow' });
+  expect(f.startWatch).toHaveBeenCalledOnce();
+  expect(f.stop).not.toHaveBeenCalled();
+  await subscription.close();
+});

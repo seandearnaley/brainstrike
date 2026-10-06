@@ -1,58 +1,22 @@
 // @vitest-environment node
-import {
-  embeddingProfileHash,
-  type IndexerPort,
-  type ScopedCoverageRequest,
-  type ScopedIndexerPort,
-  type VectorProfile,
-  vectorProfileHash,
-} from '@brainstrike/indexer';
+import { embeddingProfileHash } from '@brainstrike/indexer';
 import type { SqliteGrepRows } from '@brainstrike/sqlite-query';
 import { expect, it, vi } from 'vitest';
 import { createBenchmarkProgress } from '../../qualification/m2-native/benchmark-progress';
 import { nativeBuildComplete } from '../../qualification/m2-native/native-benchmark';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
+import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import {
-  createNativeScopedSearchCapability,
-  type NativeSearchAuthority,
-} from '../native-scoped-search';
+  binding,
+  fixture,
+  hit,
+  profile,
+  progressAuthority,
+  scope,
+  storeId,
+  unused,
+} from './native-scoped-search-fixture';
 
-const storeId = 'a'.repeat(64);
-const scope = { embeddingSetId: 'selected', kind: 'collection' } as const;
-const profile = {
-  dimensions: 384,
-  distance: 'cosine',
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  provider: 'local',
-  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-  tokenCap: 256,
-} as const;
-const binding = {
-  embeddingSetId: 'selected',
-  fileId: 'retained',
-  relativePath: null,
-  rootId: null,
-  sourcePath: null,
-};
-const hit = {
-  ...binding,
-  chunkId: 'b'.repeat(64),
-  chunkIndex: 0,
-  chunkSize: 384,
-  chunkType: 'text' as const,
-  content: 'retained marker',
-  contentHash: 'c'.repeat(64),
-  endLine: 1,
-  endOffset: 15,
-  score: 1,
-  startLine: 1,
-  startOffset: 0,
-  tokenCount: 3,
-};
-const unused = async (): Promise<never> => {
-  throw new Error('Unexpected legacy index API.');
-};
 it('keeps an unrelated same-message status failure fatal', async () => {
   const f = fixture();
   const failure = new Error('Native source authority changed.');
@@ -61,195 +25,6 @@ it('keeps an unrelated same-message status failure fatal', async () => {
   };
   await expect(f.capability.status()).rejects.toBe(failure);
 });
-function fixture(selectedProfile: VectorProfile | null = null) {
-  let currentStoreId = storeId;
-  let authority: NativeSearchAuthority = {
-    bindings: [{ ...binding, profile: selectedProfile }],
-    collectionId: 'selected',
-    generation: 1,
-    profile: selectedProfile,
-    queryPlan: undefined,
-    readiness: [{ generation: 1, mutationRevision: 0, scanComplete: true, scope }],
-    rootIds: [],
-  };
-  const searchScopes = vi.fn<ScopedIndexerPort['searchScopes']>(async () => ({
-    candidateCount: 1,
-    candidatesTruncated: false,
-    hits: [hit],
-    profile: selectedProfile,
-    profileHash: selectedProfile === null ? null : vectorProfileHash(selectedProfile),
-    scanLimited: false,
-    storeId,
-    truncated: false,
-  }));
-  const coverageBatch = vi.fn<ScopedIndexerPort['coverageBatch']>(async (input) =>
-    (input as readonly ScopedCoverageRequest[]).map(({ scope: requestedScope }) => ({
-      authorityEpoch: 'd'.repeat(64),
-      authorityRevision: 1,
-      counts: {
-        chunks: authority.rootIds.length === 0 ? 1 : requestedScope.kind === 'workspace' ? 2 : 3,
-        indexedFiles: 1,
-        missingVectors:
-          selectedProfile === null
-            ? authority.rootIds.length === 0
-              ? 1
-              : requestedScope.kind === 'workspace'
-                ? 2
-                : 3
-            : 0,
-        vectors:
-          selectedProfile === null
-            ? 0
-            : authority.rootIds.length === 0
-              ? 1
-              : requestedScope.kind === 'workspace'
-                ? 2
-                : 3,
-      },
-      profile: selectedProfile,
-      profileHash: selectedProfile === null ? null : vectorProfileHash(selectedProfile),
-      scope: requestedScope,
-      storeId,
-      vectorCoverageComplete: selectedProfile !== null,
-    }))
-  );
-  const port: IndexerPort & ScopedIndexerPort = {
-    close: unused,
-    commitFile: unused,
-    commitScopedFile: unused,
-    commitScopedTextFile: unused,
-    commitTextFile: unused,
-    configureVectorProfile: unused,
-    coverage: unused,
-    coverageBatch,
-    coverageScope: async () => ({
-      authorityEpoch: 'd'.repeat(64),
-      authorityRevision: 1,
-      counts: {
-        chunks: 1,
-        indexedFiles: 1,
-        missingVectors: selectedProfile === null ? 1 : 0,
-        vectors: selectedProfile === null ? 0 : 1,
-      },
-      profile: selectedProfile,
-      profileHash: selectedProfile === null ? null : vectorProfileHash(selectedProfile),
-      scope,
-      storeId,
-      vectorCoverageComplete: selectedProfile !== null,
-    }),
-    destroy: unused,
-    info: async () => ({
-      dbPath: '/actual/index.sqlite',
-      embedding: { indexMode: 'text-only' },
-      journalMode: 'wal',
-      pid: 1,
-      readerQueryOnly: 1,
-      storeId: currentStoreId,
-      vecVersion: '0.1.9',
-      writerThreadId: 1,
-    }),
-    prepareFile: unused,
-    prepareScopedFile: unused,
-    removeFile: unused,
-    removeScopedFile: unused,
-    replaceFileBindings: unused,
-    search: unused,
-    searchScopes,
-    verifyManifest: unused,
-    verifyScopedManifest: unused,
-  };
-  const grep = vi.fn(
-    async (): Promise<SqliteGrepRows> => ({
-      columns: [
-        'id',
-        'root_id',
-        'file_record_id',
-        'path',
-        'content',
-        'content_hash',
-        'start_line',
-        'end_line',
-        'chunk_index',
-        'chunk_size',
-        'chunk_type',
-        'start_offset',
-        'end_offset',
-        'token_count',
-        'embedding_set_id',
-        'source_path',
-      ],
-      identity: { embedding: { indexMode: 'text-only' }, storeId },
-      matchedChunks: 1,
-      rows: [
-        [
-          hit.chunkId,
-          null,
-          binding.fileId,
-          null,
-          hit.content,
-          hit.contentHash,
-          1,
-          1,
-          0,
-          384,
-          'text',
-          0,
-          15,
-          3,
-          'selected',
-          null,
-        ],
-      ],
-      truncated: false,
-    })
-  );
-  const close = vi.fn(async () => {});
-  const capability = createNativeScopedSearchCapability({
-    openQuery: async () => ({ close, grep }),
-    rebuild: async () => {},
-    withRead: (work) => work({ getAuthority: async () => authority, port }),
-  });
-  return {
-    capability,
-    close,
-    coverageBatch,
-    getAuthority: () => authority,
-    grep,
-    port,
-    replaceAuthority: (next: NativeSearchAuthority) => {
-      authority = next;
-    },
-    replaceStore: () => {
-      currentStoreId = 'e'.repeat(64);
-    },
-    searchScopes,
-  };
-}
-
-function progressAuthority(f: ReturnType<typeof fixture>): NativeSearchAuthority {
-  return {
-    ...f.getAuthority(),
-    readiness: [
-      {
-        generation: 1,
-        mutationRevision: 99,
-        publication: {
-          acknowledgedFiles: 1,
-          authorityEpoch: 'historical-epoch',
-          authorityRevision: 3,
-          generation: 1,
-          mutationRevision: 2,
-          profileHash: vectorProfileHash(profile),
-          requestId: 'scan',
-          storeId,
-        },
-        scanComplete: false,
-        scope,
-      },
-    ],
-  };
-}
-
 it('projects historical native ACK identity independently of newer admission revision', async () => {
   const f = fixture(profile);
   f.replaceAuthority(progressAuthority(f));
@@ -278,7 +53,7 @@ it('projects historical native ACK identity independently of newer admission rev
   });
 });
 
-it('refuses a progress identity whose scan generation changes during status capture', async () => {
+it('withholds old progress while a new scan starts during status capture', async () => {
   const f = fixture(profile);
   f.replaceAuthority(progressAuthority(f));
   const entered = Promise.withResolvers<void>();
@@ -300,9 +75,9 @@ it('refuses a progress identity whose scan generation changes during status capt
   });
   release.resolve();
   expect(await result).toMatchObject({
-    kind: 'unavailable',
-    phase: 'preparing',
-    reason: expect.stringContaining('changed'),
+    collectionReadiness: [{ scanComplete: false }],
+    kind: 'ready',
+    publicationProgress: [],
   });
 });
 
@@ -344,30 +119,22 @@ it('keeps scan-start status interleaving nonterminal in the actual benchmark pro
   });
   release.resolve();
   const status = await reading;
-  expect(status.kind).toBe('unavailable');
+  expect(status).toMatchObject({
+    kind: 'ready',
+    publicationProgress: [],
+    rootReadiness: [{ scanComplete: false }],
+  });
   let now = 0;
   const record = vi.fn(async (_phase: string, _value: unknown) => {});
-  const snapshot = {
-    collectionCoverage: null,
-    coverage: null,
-    inference: {
-      active: false,
-      lastError: null,
-      runtimeId: 'stopped',
-      runtimeKind: 'embedding-host' as const,
-      state: 'stopped' as const,
-    },
-    status,
-  };
   const progress = createBenchmarkProgress({
     baseline,
     now: () => now,
-    readCoverage: async () => snapshot,
+    readCoverage: async () => null,
     readStatus: async () => status,
     record,
     startedAt: 0,
   });
-  expect(await progress.observe()).toBe(snapshot);
+  expect(await progress.observe()).toBeNull();
   expect(record).toHaveBeenCalledOnce();
   expect(record.mock.calls[0]?.[0]).toBe('benchmark-progress-baseline');
   expect(await f.capability.status()).toMatchObject({ kind: 'ready', publicationProgress: [] });
@@ -375,7 +142,7 @@ it('keeps scan-start status interleaving nonterminal in the actual benchmark pro
   expect(progress.assertLive).toThrow(/200-second stall window/);
 });
 
-it('returns a same-owner historical ACK snapshot when later ACK authority advances during status capture', async () => {
+it('withholds captured completion and ACK when publication advances during status capture', async () => {
   const f = fixture(profile);
   f.replaceAuthority(progressAuthority(f));
   const entered = Promise.withResolvers<void>();
@@ -410,10 +177,9 @@ it('returns a same-owner historical ACK snapshot when later ACK authority advanc
   });
   release.resolve();
   expect(await reading).toMatchObject({
+    collectionReadiness: [{ scanComplete: false }],
     kind: 'ready',
-    publicationProgress: [
-      { acknowledgedFiles: 1, authorityEpoch: 'historical-epoch', mutationRevision: 2 },
-    ],
+    publicationProgress: [],
   });
   expect(await f.capability.status()).toMatchObject({
     kind: 'ready',
@@ -454,6 +220,42 @@ it.each(['store', 'profile', 'generation', 'scope'] as const)(
     await expect(f.capability.status()).rejects.toThrow(
       'Native publication progress differs from the current store, profile, generation or scope.'
     );
+  }
+);
+
+it.each(['store', 'profile', 'generation', 'scope'] as const)(
+  'rejects corrupt current publication %s even when its readiness proof changes',
+  async (field) => {
+    const f = fixture(profile);
+    f.replaceAuthority(progressAuthority(f));
+    const original = f.coverageBatch.getMockImplementation()!;
+    f.coverageBatch.mockImplementationOnce(async (requests) => {
+      const rows = await original(requests);
+      f.replaceAuthority({
+        ...f.getAuthority(),
+        readiness: f.getAuthority().readiness.map((entry) => ({
+          ...entry,
+          mutationRevision: entry.mutationRevision + 1,
+          ...(field === 'scope'
+            ? { scope: { embeddingSetId: 'foreign', kind: 'collection' as const } }
+            : {}),
+          publication: {
+            ...entry.publication!,
+            ...(field === 'store'
+              ? { storeId: 'foreign' }
+              : field === 'profile'
+                ? { profileHash: 'foreign' }
+                : field === 'generation'
+                  ? { generation: 99 }
+                  : {}),
+          },
+        })),
+      });
+      return rows;
+    });
+    await expect(
+      f.capability.coverageBatch([{ collectionId: 'selected', rootIds: [] }])
+    ).rejects.toThrow('Native publication progress differs');
   }
 );
 
@@ -662,48 +464,60 @@ function pairedFixture() {
   return f;
 }
 const pairedRequests = [{ collectionId: 'selected', rootIds: [] }, { rootIds: ['root'] }];
-it('returns atomic partial coverage while the same scan keeps publishing', async () => {
-  const f = pairedFixture();
-  f.replaceAuthority({
-    ...f.getAuthority(),
-    readiness: f.getAuthority().readiness.map((entry) => ({ ...entry, scanComplete: false })),
-  });
-  const original = f.coverageBatch.getMockImplementation()!;
-  f.coverageBatch.mockImplementationOnce(async (requests) => {
-    const result = await original(requests);
+it.each([
+  { commits: 2, complete: false },
+  { commits: 0, complete: true },
+  { commits: 2, complete: true },
+])(
+  'retains partial coverage after $commits commits with completion=$complete',
+  async ({ commits, complete }) => {
+    const f = pairedFixture();
     f.replaceAuthority({
       ...f.getAuthority(),
-      readiness: f.getAuthority().readiness.map((entry) => ({
-        ...entry,
-        mutationRevision: entry.mutationRevision + 2,
-      })),
+      readiness: f.getAuthority().readiness.map((entry) => ({ ...entry, scanComplete: false })),
     });
-    return result;
-  });
-  const observation = await f.capability.coverageBatch(pairedRequests);
-  expect(observation).toMatchObject({
-    kind: 'current',
-    status: {
-      collectionReadiness: [{ scanComplete: false }],
-      rootReadiness: [{ scanComplete: false }],
-    },
-  });
-  if (observation.kind !== 'current') {
-    throw new Error('Expected actual partial coverage during publication.');
+    const original = f.coverageBatch.getMockImplementation()!;
+    f.coverageBatch.mockImplementationOnce(async (requests) => {
+      const result = await original(requests);
+      f.replaceAuthority({
+        ...f.getAuthority(),
+        readiness: f.getAuthority().readiness.map((entry) => ({
+          ...entry,
+          mutationRevision: entry.mutationRevision + commits,
+          scanComplete: complete,
+        })),
+      });
+      return result;
+    });
+    const observation = await f.capability.coverageBatch(pairedRequests);
+    expect(observation).toMatchObject({
+      kind: 'current',
+      status: {
+        collectionReadiness: [{ scanComplete: false }],
+        rootReadiness: [{ scanComplete: false }],
+      },
+    });
+    if (observation.kind !== 'current') {
+      throw new Error('Expected actual partial coverage during publication.');
+    }
+    expect(observation.coverage.map((entry) => entry.totals.chunks)).toEqual([3, 2]);
+    expect(f.coverageBatch).toHaveBeenCalledOnce();
+    expect(await f.capability.status()).toMatchObject({
+      collectionReadiness: [{ scanComplete: complete }],
+      rootReadiness: [{ scanComplete: complete }],
+    });
   }
-  expect(observation.coverage.map((entry) => entry.totals.chunks)).toEqual([3, 2]);
-  expect(f.coverageBatch).toHaveBeenCalledTimes(1);
-});
+);
 
-it.each(['new-scan', 'completed-scan', 'completed-mutation'] as const)(
-  'still invalidates coverage when %s changes its completion proof',
+it.each(['new-scan', 'completed-mutation', 'completed-rescan'] as const)(
+  'keeps committed coverage partial when %s changes its completion proof',
   async (change) => {
     const f = pairedFixture();
     f.replaceAuthority({
       ...f.getAuthority(),
       readiness: f.getAuthority().readiness.map((entry) => ({
         ...entry,
-        scanComplete: change === 'completed-mutation',
+        scanComplete: true,
       })),
     });
     const original = f.coverageBatch.getMockImplementation()!;
@@ -713,7 +527,7 @@ it.each(['new-scan', 'completed-scan', 'completed-mutation'] as const)(
         ...f.getAuthority(),
         readiness: f.getAuthority().readiness.map((entry) => ({
           ...entry,
-          generation: entry.generation + (change === 'new-scan' ? 1 : 0),
+          generation: entry.generation + Number(change !== 'completed-mutation'),
           mutationRevision: entry.mutationRevision + 1,
           scanComplete: change !== 'new-scan',
         })),
@@ -721,7 +535,12 @@ it.each(['new-scan', 'completed-scan', 'completed-mutation'] as const)(
       return result;
     });
     await expect(f.capability.coverageBatch(pairedRequests)).resolves.toMatchObject({
-      kind: 'invalidated',
+      kind: 'current',
+      status: {
+        collectionReadiness: [{ scanComplete: false }],
+        publicationProgress: [],
+        rootReadiness: [{ scanComplete: false }],
+      },
     });
   }
 );
@@ -749,7 +568,7 @@ it.each([
   'profile',
   'collection',
   'generation',
-  'readiness',
+  'queryPlan',
   'owner',
 ] as const)('rejects a %s invalidation during the admitted batch', async (change) => {
   const f = pairedFixture();
@@ -767,7 +586,7 @@ it.each([
         ...(change === 'profile' ? { profile: null } : {}),
         ...(change === 'collection' ? { collectionId: 'replacement' } : {}),
         ...(change === 'generation' ? { generation: authority.generation + 1 } : {}),
-        ...(change === 'readiness' ? { readiness: [] } : {}),
+        ...(change === 'queryPlan' ? { queryPlan: { modelKey: 'changed' } } : {}),
       });
     }
     return result;
@@ -821,28 +640,6 @@ it('does not pair an earlier successful status with full counters after readines
   expect(
     nativeBuildComplete(result.status, result.coverage[1]!, completionScope, result.coverage[0]!)
   ).toBe(false);
-});
-
-it('rejects an invalidate-and-rescan cycle even when the readiness boolean returns to true', async () => {
-  const f = pairedFixture();
-  const original = f.coverageBatch.getMockImplementation()!;
-  f.coverageBatch.mockImplementationOnce(async (requests) => {
-    const result = await original(requests);
-    const authority = f.getAuthority();
-    f.replaceAuthority({
-      ...authority,
-      readiness: authority.readiness.map((entry) => ({
-        ...entry,
-        generation: entry.generation + 1,
-        mutationRevision: entry.mutationRevision + 1,
-      })),
-    });
-    return result;
-  });
-  await expect(f.capability.coverageBatch(pairedRequests)).resolves.toEqual({
-    code: 'native-coverage-observation-invalidated',
-    kind: 'invalidated',
-  });
 });
 
 it.each(['status', 'coverageBatch'] as const)(

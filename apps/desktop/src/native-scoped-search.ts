@@ -39,6 +39,7 @@ export interface NativeScopedRead {
   getAuthority(): Promise<NativeSearchAuthority>;
   readonly port: IndexerPort & ScopedIndexerPort;
 }
+
 interface Dependencies {
   openQuery(): Promise<Pick<SqliteQueryClient, 'grep' | 'close'>>;
   rebuild(): Promise<void>;
@@ -92,11 +93,7 @@ function embeddingState(profile: VectorProfile | null): IndexerEmbeddingState {
     profileHash: embeddingProfileHash(projection),
   };
 }
-function fingerprint(
-  authority: NativeSearchAuthority,
-  includeReadiness: boolean,
-  includePublicationIdentity = false
-): string {
+function fingerprint(authority: NativeSearchAuthority): string {
   return JSON.stringify([
     authority.generation,
     authority.collectionId,
@@ -104,30 +101,28 @@ function fingerprint(
     authority.bindings,
     authority.profile,
     authority.queryPlan,
-    ...(includeReadiness
-      ? [
-          authority.readiness.map((receipt) => [
-            receipt.scope,
-            receipt.generation,
-            receipt.scanComplete,
-            receipt.publication?.requestId,
-            // Incomplete scans expose an atomic row snapshot, not a completion
-            // proof. Ordinary commits must not starve that observation. Completed
-            // receipts still fence every mutation, including invalidate/reverify.
-            ...(receipt.scanComplete ? [receipt.mutationRevision] : []),
-          ]),
-        ]
-      : []),
-    ...(includePublicationIdentity
-      ? [
-          authority.readiness.map(({ generation, scope, publication }) => [
-            scope,
-            generation,
-            publication?.requestId,
-          ]),
-        ]
-      : []),
   ]);
+}
+/** Completeness is a proof about this observation, not permission to read committed rows. */
+function observedAuthority(
+  captured: NativeSearchAuthority,
+  current: NativeSearchAuthority
+): NativeSearchAuthority {
+  return {
+    ...captured,
+    readiness: captured.readiness.map((receipt) => {
+      const matching = current.readiness.find(
+        (candidate) => JSON.stringify(candidate.scope) === JSON.stringify(receipt.scope)
+      );
+      if (JSON.stringify(receipt) === JSON.stringify(matching)) {
+        return receipt;
+      }
+      // A scan, commit or publication advanced while the read was in flight.
+      // Keep its committed data usable, without pairing it with a later proof.
+      const { publication: _publication, ...partial } = receipt;
+      return { ...partial, scanComplete: false };
+    }),
+  };
 }
 function requestedScopes(
   authority: NativeSearchAuthority,
@@ -321,32 +316,31 @@ function projectStatus(
 export function createNativeScopedSearchCapability(
   dependencies: Dependencies
 ): IndexSearchCapability {
-  const capture = async (
-    read: NativeScopedRead,
-    includeReadiness = false,
-    includePublicationIdentity = false
-  ) => {
+  const capture = async (read: NativeScopedRead) => {
     const port = read.port;
     const authority = await read.getAuthority();
     const info = await port.info();
-    const key = fingerprint(authority, includeReadiness, includePublicationIdentity);
+    const embedding = embeddingState(authority.profile);
+    projectStatus(authority, info.storeId, embedding);
+    const key = fingerprint(authority);
     return {
-      assertCurrent: async (): Promise<void> => {
+      assertCurrent: async (): Promise<NativeSearchAuthority> => {
         const currentInfo = await port.info();
         if (currentInfo.storeId !== info.storeId) {
           throw new Error('Native store changed during search.');
         }
-        if (
-          key !==
-          fingerprint(await read.getAuthority(), includeReadiness, includePublicationIdentity)
-        ) {
+        const currentAuthority = await read.getAuthority();
+        if (key !== fingerprint(currentAuthority)) {
           throw new NativeAuthorityTransitionError(
             'Native source or saved profile changed during search.'
           );
         }
+        // Validate progress identity before discarding an obsolete completeness proof.
+        projectStatus(currentAuthority, info.storeId, embedding);
+        return observedAuthority(authority, currentAuthority);
       },
       authority,
-      embedding: embeddingState(authority.profile),
+      embedding,
       port,
       storeId: info.storeId,
     };
@@ -359,7 +353,7 @@ export function createNativeScopedSearchCapability(
         if (requests.length === 0) {
           throw new TypeError('Native coverage batch requires at least one request.');
         }
-        const snapshot = await capture(read, true);
+        const snapshot = await capture(read);
         const groups = requests.map((request) => requestedScopes(snapshot.authority, request));
         const scopes = groups.flat();
         const coverage = await snapshot.port.coverageBatch(
@@ -369,7 +363,7 @@ export function createNativeScopedSearchCapability(
           }))
         );
         assertCoverageBatch(coverage, scopes, snapshot.storeId, snapshot.authority.profile);
-        await snapshot.assertCurrent();
+        const observed = await snapshot.assertCurrent();
         let offset = 0;
         return {
           coverage: groups.map((group) => {
@@ -382,7 +376,7 @@ export function createNativeScopedSearchCapability(
             return result;
           }),
           kind: 'current',
-          status: projectStatus(snapshot.authority, snapshot.storeId, snapshot.embedding),
+          status: projectStatus(observed, snapshot.storeId, snapshot.embedding),
         };
       });
     } catch (error) {
@@ -426,7 +420,7 @@ export function createNativeScopedSearchCapability(
           throw new Error('Native grep returned a different store.');
         }
         assertHits(result.hits, bindings);
-        await snapshot.assertCurrent();
+        const observed = await snapshot.assertCurrent();
         return {
           ...result,
           embedding: snapshot.embedding,
@@ -434,7 +428,7 @@ export function createNativeScopedSearchCapability(
             result.scanLimited ||
             scopes.some(
               (scope) =>
-                !snapshot.authority.readiness.some(
+                !observed.readiness.some(
                   (receipt) =>
                     receipt.scanComplete &&
                     (scope.kind === 'workspace' && receipt.scope.kind === 'workspace'
@@ -476,7 +470,7 @@ export function createNativeScopedSearchCapability(
           throw new Error('Scoped native search returned a different store or vector profile.');
         }
         assertHits(result.hits, selectedBindings(snapshot.authority, scopes));
-        await snapshot.assertCurrent();
+        const observed = await snapshot.assertCurrent();
         return {
           ...result,
           embedding: snapshot.embedding,
@@ -484,7 +478,7 @@ export function createNativeScopedSearchCapability(
             result.scanLimited ||
             scopes.some(
               (scope) =>
-                !snapshot.authority.readiness.some(
+                !observed.readiness.some(
                   (receipt) =>
                     receipt.scanComplete &&
                     (scope.kind === 'workspace' && receipt.scope.kind === 'workspace'
@@ -499,9 +493,9 @@ export function createNativeScopedSearchCapability(
     status: async () => {
       try {
         return await dependencies.withRead(async (read) => {
-          const snapshot = await capture(read, false, true);
-          await snapshot.assertCurrent();
-          return projectStatus(snapshot.authority, snapshot.storeId, snapshot.embedding);
+          const snapshot = await capture(read);
+          const observed = await snapshot.assertCurrent();
+          return projectStatus(observed, snapshot.storeId, snapshot.embedding);
         });
       } catch (error) {
         if (error instanceof NativeIndexBlockedError) {

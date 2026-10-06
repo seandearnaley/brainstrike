@@ -553,8 +553,12 @@ in `docs/agents/ci-quality.md`.
 
 - Represent absent user choices with `NativeIndexSetupRequiredError`. Public status reports its actionable setup reason as unavailable with `phase: setup-required`; routine authority transitions report `phase: preparing`. Strict reads still refuse. Preserve that reason through closed admission. Invalid settings, profiles, storage failures and cleanup aggregates remain errors.
 - Log initial setup and incomplete saved-choice transitions as informational setup state, not repeated indexing errors. No model, collection or execution defaults are invented.
+- Warn once per unavailable saved-root identity/path episode, while retaining its
+  unavailable descriptor and checking again on every restore. Successful remount
+  rearms the warning. Do not delete saved roots or suppress real mount failures.
 
 Guard: `apps/desktop/src/__tests__/native-index-setup-required.test.ts`.
+Guard: `apps/desktop/src/__tests__/ipc-domains/workspace-root-warning-transitions.test.ts`.
 
 ## FILE WATCHER SERVICE LIFECYCLE
 
@@ -567,6 +571,12 @@ on this local latency path; assistant tools consume indexed state only.
   malformed `BRAINSTRIKE_WATCHER_BACKEND`, subscribe timeout, or runtime backend
   failure throws or surfaces typed health — never a fallback engine, never
   polling. `legacy` throws.
+- **Recoverable native rescan**: only Parcel's three exact FSEvents
+  `MustScanSubDirs` messages carry `rescan-required` health. They retain the
+  native subscription and log an actual warning while requesting full-root
+  reconciliation. Unknown errors retain backend-error severity. Parcel's
+  Windows overflow retires its subscription, and its inotify overflow branch
+  emits no error, so neither qualifies for this recoverable classification.
 - **Silent host death is a real state and health cannot see it.** On some macOS
   hosts FSEventStream delivery stops while `subscribe()` resolves and health
   still reports `healthy`. Discriminate it with
@@ -587,7 +597,8 @@ on this local latency path; assistant tools consume indexed state only.
   forwarding a fixture name to OS watcher IPC, while delegating every real root
   unchanged.
 - **Typed health**: engines emit `starting|healthy|degraded|failed|stopped`
-  exactly once per state change; `fs:watch-health` pushes are scoped to the
+  on state or failure-class change; repeated same-class failures are deduped.
+  `fs:watch-health` pushes are scoped to the
   owning WebContents with no root-path field on the wire; retry is manual-only
   with escalating 1s/5s/30s throttling, single-flight per watchId.
   `fs:watch-telemetry` is in-memory counters only — deliberately not persisted,

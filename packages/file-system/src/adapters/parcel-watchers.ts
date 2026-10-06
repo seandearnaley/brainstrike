@@ -5,9 +5,9 @@
 // - One native subscription per root; subscribe is bounded by a timeout and a
 //   late-resolving subscription after timeout/dispose is unsubscribed, never
 //   leaked.
-// - Backend callback errors (e.g. FSEvents "events were dropped") degrade to
-//   a root-level invalidation (`directory`/`modified` on the root) with ONE
-//   structured log per subscription — the subscription itself stays alive.
+// - Known FSEvents rescan-required errors retain their native subscription,
+//   degraded health and root-level invalidation. Unknown backend errors keep
+//   their actual error severity; log each failure class once per episode.
 // - Normalization reuses the safe-invalidation idiom: any removed or
 //   unstat-able path becomes `directory`/`removed`, which invalidates the
 //   same-path record plus stale descendants without a full-tree rescan.
@@ -53,6 +53,7 @@ import {
   type ParcelWatcherModule,
   selectParcelBackend,
 } from './parcel-backend.js';
+import { classifyParcelWatchFailure } from './parcel-watch-failure.js';
 
 const logger = createLogger('ParcelWatchers');
 const REPORTABLE_DEFAULT_FILTER_PATTERNS: ReadonlySet<string> = new Set([
@@ -115,7 +116,7 @@ export interface StartParcelWatchOptions {
   /** Test seam: overrides the lazy binding load. */
   loadModule?: () => Promise<ParcelWatcherModule>;
   /**
-   * Receives typed health transitions, exactly once per state CHANGE:
+   * Receives typed health transitions on state or failure-class change:
    * starting -> healthy | failed; healthy <-> degraded per backend-error
    * episode (a clean batch recovers degraded to healthy); stopped once.
    */
@@ -184,14 +185,16 @@ async function startParcelWatchOwned(
   // option broadens bounded native delivery for Git freshness.
   const ignoreRegex = ignorePatterns === undefined ? null : buildIgnorePatternRegex(ignorePatterns);
 
-  // Health transitions fire exactly once per state change; a repeated cause
-  // (e.g. an FSEvents error storm) cannot re-emit the same state.
+  // Health transitions fire on state or failure-class change; a repeated cause
+  // (e.g. an FSEvents error storm) cannot re-emit the same classification.
   let healthState: WatcherHealthState | null = null;
+  let healthFailureCode: string | undefined;
   const transitionHealth = (state: WatcherHealthState, failure?: WatcherFailure): void => {
-    if (healthState === state) {
+    if (healthState === state && healthFailureCode === failure?.code) {
       return;
     }
     healthState = state;
+    healthFailureCode = failure?.code;
     options.onHealth?.({
       backend,
       ...(failure ? { failure } : {}),
@@ -217,7 +220,7 @@ async function startParcelWatchOwned(
 
   const batcher = createFileSystemChangeBatcher(callback);
   let stopped = false;
-  let loggedBackendError = false;
+  const loggedBackendErrors = new Set<string>();
 
   // Backends report kernel realpaths (macOS tmp: /var -> /private/var), but
   // every consumer matches change paths against the handle-rooted prefix —
@@ -352,20 +355,20 @@ async function startParcelWatchOwned(
       return;
     }
     if (error) {
-      // Backend-level failure without per-path attribution (FSEvents drop,
-      // inotify overflow). Root invalidation forces consumers to re-enumerate
-      // the root; the subscription stays alive. Log once per subscription so
-      // an error storm cannot loop the logger.
-      if (!loggedBackendError) {
-        loggedBackendError = true;
-        logger.error('Parcel watcher backend error; root invalidated', {
-          backend,
-          errorMessage: error.message,
-          path: handle.path,
-        });
+      const code = classifyParcelWatchFailure(backend, error);
+      // Known native overflow requires a rescan, retaining the actual warning
+      // and live subscription. Unknown errors keep their failure severity.
+      if (!loggedBackendErrors.has(code)) {
+        loggedBackendErrors.add(code);
+        const details = { backend, errorMessage: error.message, path: handle.path };
+        if (code === 'rescan-required') {
+          logger.warn('Parcel watcher events lost; root rescan required', details);
+        } else {
+          logger.error('Parcel watcher backend error; root invalidated', details);
+        }
       }
       transitionHealth('degraded', {
-        code: 'backend-error',
+        code,
         message: error.message,
         retryable: true,
         terminal: false,
@@ -384,7 +387,7 @@ async function startParcelWatchOwned(
       // the watch to healthy (PR #1774 review — degraded must not be sticky
       // for the chip). Resetting the log-once flag keeps "one structured log
       // per degradation EPISODE": the next distinct storm logs again.
-      loggedBackendError = false;
+      loggedBackendErrors.clear();
       transitionHealth('healthy');
     }
     for (const event of events) {
