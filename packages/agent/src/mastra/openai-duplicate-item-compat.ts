@@ -86,12 +86,13 @@ function recordOccurrence(
   index: OccurrenceIndex,
   part: PromptPart,
   role: 'assistant' | 'tool',
-  position: PartPosition
+  position: PartPosition,
+  callKey: string
 ): void {
   if (part.type === 'tool-call' || part.type === 'tool-result') {
-    const occurrences = index.callOccurrences.get(part.toolCallId) ?? { calls: [], outputs: [] };
+    const occurrences = index.callOccurrences.get(callKey) ?? { calls: [], outputs: [] };
     (part.type === 'tool-call' ? occurrences.calls : occurrences.outputs).push(position);
-    index.callOccurrences.set(part.toolCallId, occurrences);
+    index.callOccurrences.set(callKey, occurrences);
     return;
   }
   if (role !== 'assistant') {
@@ -107,13 +108,30 @@ function recordOccurrence(
 
 function collectOccurrences(prompt: Prompt): OccurrenceIndex {
   const index: OccurrenceIndex = { callOccurrences: new Map(), itemOccurrences: new Map() };
+  let turn = 0;
+  const callKeys = new Map<string, string>();
   for (const [messageIndex, message] of prompt.entries()) {
+    if (message.role === 'user' || message.role === 'system') {
+      turn++;
+      callKeys.clear();
+    }
     const role = roleOf(message);
     if (!role) {
       continue;
     }
     for (const [partIndex, part] of partsOf(message).entries()) {
-      recordOccurrence(index, part, role, { messageIndex, partIndex });
+      let callKey = '';
+      if (part.type === 'tool-call') {
+        // Distinct stored function items are distinct occurrences even if a
+        // transcript reuses the SDK call ID. ID-less clones dedupe only within
+        // their user turn, preserving completed pairs in earlier turns.
+        const itemId = readOpenAIItemId(part);
+        callKey = itemId ? `item:${itemId}` : `turn:${turn}:${part.toolCallId}`;
+        callKeys.set(part.toolCallId, callKey);
+      } else if (part.type === 'tool-result') {
+        callKey = callKeys.get(part.toolCallId) ?? `turn:${turn}:${part.toolCallId}`;
+      }
+      recordOccurrence(index, part, role, { messageIndex, partIndex }, callKey);
     }
   }
   return index;
@@ -177,11 +195,65 @@ function dropUnpairedCalls(
  * Drops trailing reasoning runs whose followers were removed — OpenAI rejects
  * a replayed reasoning item "without its required following item".
  */
-function sweepOrphanedTrailingReasoning(plan: DropPlan, keptParts: PromptPart[]): void {
-  while (keptParts.length > 0 && keptParts.at(-1)?.type === 'reasoning') {
-    const orphan = keptParts.pop();
-    const orphanItemId = orphan ? readOpenAIItemId(orphan) : undefined;
-    plan.droppedKeys.add(orphanItemId ? `item:${orphanItemId}` : 'item:orphaned-reasoning');
+function sweepReasoningRow(
+  plan: DropPlan,
+  parts: PromptPart[],
+  surviving: PromptPart[],
+  messageIndex: number,
+  followingRowHasFollower: boolean
+): boolean {
+  let hasFollower = followingRowHasFollower;
+  // Trailing reasoning after a stale cloned call belongs to that response.
+  // A reasoning-only row, however, can be a legitimate split SDK step with
+  // its required follower in the next surviving assistant row.
+  const firstReasoning = parts.findIndex(
+    (part, partIndex) =>
+      part.type === 'reasoning' && !plan.dropPositions.has(positionKey({ messageIndex, partIndex }))
+  );
+  const staleClone =
+    surviving.every((part) => part.type === 'reasoning') &&
+    parts
+      .slice(0, firstReasoning)
+      .some(
+        (part, partIndex) =>
+          part.type === 'tool-call' &&
+          plan.dropPositions.has(positionKey({ messageIndex, partIndex }))
+      );
+  for (let partIndex = parts.length - 1; partIndex >= 0; partIndex--) {
+    const part = parts[partIndex];
+    const key = positionKey({ messageIndex, partIndex });
+    if (!part || plan.dropPositions.has(key)) {
+      continue;
+    }
+    if (part.type !== 'reasoning') {
+      hasFollower = true;
+    } else if (!hasFollower || staleClone) {
+      plan.dropPositions.add(key);
+      const orphanItemId = readOpenAIItemId(part);
+      plan.droppedKeys.add(orphanItemId ? `item:${orphanItemId}` : 'item:orphaned-reasoning');
+    }
+  }
+  return hasFollower;
+}
+
+function sweepOrphanedTrailingReasoning(plan: DropPlan, prompt: Prompt): void {
+  let hasFollower = false;
+  for (let messageIndex = prompt.length - 1; messageIndex >= 0; messageIndex--) {
+    const message = prompt[messageIndex];
+    if (!message) {
+      continue;
+    }
+    const parts = partsOf(message);
+    const surviving = parts.filter(
+      (_part, partIndex) => !plan.dropPositions.has(positionKey({ messageIndex, partIndex }))
+    );
+    if (roleOf(message) && surviving.length === 0) {
+      continue;
+    }
+    hasFollower =
+      message.role === 'assistant'
+        ? sweepReasoningRow(plan, parts, surviving, messageIndex, hasFollower)
+        : false;
   }
 }
 
@@ -195,12 +267,6 @@ function rebuildPrompt(prompt: Prompt, plan: DropPlan): Prompt {
     const keptParts = parts.filter(
       (_part, partIndex) => !plan.dropPositions.has(positionKey({ messageIndex, partIndex }))
     );
-    if (role === 'assistant') {
-      // BST-1927 / BST-1919: projection filtering can orphan reasoning without
-      // producing a duplicate. Sweep after every filter, including a no-op
-      // duplicate pass (https://github.com/vercel/ai/issues/11036).
-      sweepOrphanedTrailingReasoning(plan, keptParts);
-    }
     if (keptParts.length === parts.length) {
       return [message];
     }
@@ -243,6 +309,9 @@ export class OpenAIDuplicateItemCompat implements Processor<'openai-duplicate-it
     const plan: DropPlan = { dropPositions: new Set(), droppedKeys: new Set() };
     dropStaleItems(plan, itemOccurrences);
     dropUnpairedCalls(plan, callOccurrences);
+    // Inspect the surviving assistant sequence across row boundaries, after
+    // duplicate/filter removal (https://github.com/vercel/ai/issues/11036).
+    sweepOrphanedTrailingReasoning(plan, args.prompt);
     const prompt = rebuildPrompt(args.prompt, plan);
     if (plan.droppedKeys.size === 0) {
       return;

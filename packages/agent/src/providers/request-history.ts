@@ -1,4 +1,8 @@
-import type { LanguageModelV4Prompt, LanguageModelV4ToolResultPart } from '@ai-sdk/provider';
+import type {
+  LanguageModelV4Prompt,
+  LanguageModelV4ToolCallPart,
+  LanguageModelV4ToolResultPart,
+} from '@ai-sdk/provider';
 
 export class ProviderRequestBoundaryError extends Error {
   readonly code = 'provider_request_invalid_boundary';
@@ -12,6 +16,54 @@ export class ProviderRequestBoundaryError extends Error {
 type Message = LanguageModelV4Prompt[number];
 type Part = Exclude<Message, { role: 'system' }>['content'][number];
 
+export interface ToolPartPosition {
+  readonly messageIndex: number;
+  readonly partIndex: number;
+}
+
+export interface ToolCallOccurrence {
+  readonly call: LanguageModelV4ToolCallPart;
+  readonly position: ToolPartPosition;
+  result?: ToolPartPosition;
+}
+
+export function toolPartPositionKey(position: ToolPartPosition): string {
+  return `${position.messageIndex}:${position.partIndex}`;
+}
+
+/** SDK IDs are scoped to an occurrence, not globally unique across replay. */
+export function collectToolCallOccurrences(prompt: LanguageModelV4Prompt): ToolCallOccurrence[] {
+  const occurrences: ToolCallOccurrence[] = [];
+  const pending = new Map<string, ToolCallOccurrence>();
+  for (const [messageIndex, message] of prompt.entries()) {
+    // Match SDK 7's user/system boundary for pending tool results.
+    if (message.role === 'user' || message.role === 'system') {
+      pending.clear();
+      continue;
+    }
+    if (!Array.isArray(message.content)) {
+      continue;
+    }
+    for (const [partIndex, part] of message.content.entries()) {
+      if (part.type === 'tool-call') {
+        const occurrence: ToolCallOccurrence = {
+          call: part,
+          position: { messageIndex, partIndex },
+        };
+        occurrences.push(occurrence);
+        pending.set(part.toolCallId, occurrence);
+      } else if (part.type === 'tool-result') {
+        const occurrence = pending.get(part.toolCallId);
+        if (occurrence) {
+          occurrence.result = { messageIndex, partIndex };
+          pending.delete(part.toolCallId);
+        }
+      }
+    }
+  }
+  return occurrences;
+}
+
 function itemId(part: Part): string | undefined {
   const value = part.providerOptions?.['openai']?.['itemId'];
   return typeof value === 'string' ? value : undefined;
@@ -22,28 +74,25 @@ export function dropAbortedOpenAIItems(
   prompt: LanguageModelV4Prompt,
   abortedItemIds: ReadonlySet<string>
 ): LanguageModelV4Prompt {
-  const abortedCalls = new Set<string>();
-  for (const message of prompt) {
-    if (message.role !== 'assistant') {
-      continue;
-    }
-    for (const part of message.content) {
-      const id = itemId(part);
-      if (part.type === 'tool-call' && id && abortedItemIds.has(id)) {
-        abortedCalls.add(part.toolCallId);
+  const abortedPositions = new Set<string>();
+  for (const occurrence of collectToolCallOccurrences(prompt)) {
+    const id = itemId(occurrence.call);
+    if (id && abortedItemIds.has(id)) {
+      abortedPositions.add(toolPartPositionKey(occurrence.position));
+      if (occurrence.result) {
+        abortedPositions.add(toolPartPositionKey(occurrence.result));
       }
     }
   }
-  return prompt.flatMap<Message>((message) => {
+  return prompt.flatMap<Message>((message, messageIndex) => {
     if (message.role === 'system' || message.role === 'user') {
       return [message];
     }
-    const content = message.content.filter((part) => {
+    const content = message.content.filter((part, partIndex) => {
       const id = itemId(part);
       return !(
         (id && abortedItemIds.has(id)) ||
-        ((part.type === 'tool-call' || part.type === 'tool-result') &&
-          abortedCalls.has(part.toolCallId))
+        abortedPositions.has(toolPartPositionKey({ messageIndex, partIndex }))
       );
     });
     return content.length === 0 ? [] : [{ ...message, content } as Message];
@@ -55,31 +104,28 @@ export function healInterruptedToolCalls(
   prompt: LanguageModelV4Prompt,
   interruptedToolCallIds: ReadonlySet<string>
 ): LanguageModelV4Prompt {
-  const completed = new Set<string>();
-  for (const message of prompt) {
-    if (message.role === 'assistant' || message.role === 'tool') {
-      for (const part of message.content) {
-        if (part.type === 'tool-result') {
-          completed.add(part.toolCallId);
-        }
-      }
+  const missing = new Set<string>();
+  for (const occurrence of collectToolCallOccurrences(prompt)) {
+    if (
+      !occurrence.result &&
+      occurrence.call.providerExecuted !== true &&
+      interruptedToolCallIds.has(occurrence.call.toolCallId)
+    ) {
+      missing.add(toolPartPositionKey(occurrence.position));
     }
   }
-  return prompt.flatMap<Message>((message) => {
-    if (message.role !== 'assistant') {
+  return prompt.flatMap<Message>((message, messageIndex) => {
+    if (message.role !== 'assistant' || !Array.isArray(message.content)) {
       return [message];
     }
     const results: LanguageModelV4ToolResultPart[] = [];
-    for (const part of message.content) {
+    for (const [partIndex, part] of message.content.entries()) {
       if (
         part.type !== 'tool-call' ||
-        part.providerExecuted === true ||
-        !interruptedToolCallIds.has(part.toolCallId) ||
-        completed.has(part.toolCallId)
+        !missing.has(toolPartPositionKey({ messageIndex, partIndex }))
       ) {
         continue;
       }
-      completed.add(part.toolCallId);
       results.push({
         output: {
           type: 'error-text',

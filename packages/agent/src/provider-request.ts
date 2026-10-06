@@ -10,7 +10,7 @@ import type {
   LanguageModelV4Prompt,
 } from '@ai-sdk/provider';
 import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
-import type { MastraDBMessage } from '@mastra/core/agent';
+import { type MastraDBMessage, TripWire } from '@mastra/core/agent';
 import { type ProcessLLMRequestArgs, type Processor, TokenLimiter } from '@mastra/core/processors';
 import { buildBedrockMessageHygieneInputProcessor } from './mastra/bedrock-message-hygiene';
 import { buildProviderHistoryCompatInputProcessor } from './mastra/error-processors';
@@ -23,6 +23,11 @@ import {
   serializeModelOutputForTokenMeasurement,
 } from './mastra/token-measurement';
 import { rewriteToolProjectionPrompt } from './mastra/tool-projection-rewrite-processor';
+import { createCanonicalLimiterView } from './providers/canonical-provider-limiter';
+import {
+  collectProviderCallProvenance,
+  type ProviderCallProvenance,
+} from './providers/foreign-provider-history';
 import {
   buildGenerationProviderOptionsOption,
   buildModelSettingsOption,
@@ -32,6 +37,7 @@ import {
   assertProviderRequestBoundaries,
   dropAbortedOpenAIItems,
   healInterruptedToolCalls,
+  ProviderRequestBoundaryError,
 } from './providers/request-history';
 import type { SupportedProvider } from './providers/types';
 import type { RuntimeData, ToolProjectionRewriteEntry } from './types';
@@ -142,12 +148,13 @@ async function compatiblePrompt(
   prompt: LanguageModelV4Prompt,
   model: LanguageModelV4,
   provider: SupportedProvider,
-  history?: readonly MastraDBMessage[]
+  history?: readonly MastraDBMessage[],
+  provenance?: ProviderCallProvenance
 ): Promise<LanguageModelV4Prompt> {
   // Runs AFTER projection and stale-history filtering: those transforms can
   // orphan reasoning even in the absence of duplicated stored item IDs.
   let compatible = await applyCanonicalProcessor(
-    buildProviderHistoryCompatInputProcessor(provider),
+    buildProviderHistoryCompatInputProcessor(provider, provenance),
     prompt,
     model,
     history
@@ -192,12 +199,54 @@ function countRequest(
   };
 }
 
+async function limitProviderPrompt(
+  input: LanguageModelV4Prompt,
+  model: LanguageModelV4,
+  context: ProviderRequestContext,
+  provenance: ProviderCallProvenance,
+  accounting: ProviderRequestAccounting,
+  limit: number
+): Promise<LanguageModelV4Prompt> {
+  // Reuse native grouping and contiguous trimming after memory/projection,
+  // reserving the actual outgoing tool surface. The V4 view is counting-only.
+  const promptLimit = limit - accounting.toolTokens;
+  if (promptLimit <= 0) {
+    throw new ProviderRequestContextOverflowError(accounting, limit);
+  }
+  try {
+    const counting = createCanonicalLimiterView(input);
+    const limited = await applyCanonicalProcessor(
+      new TokenLimiter({ limit: promptLimit, trimMode: 'contiguous' }),
+      counting.prompt as unknown as LanguageModelV4Prompt,
+      model
+    );
+    let prompt = counting.restore(limited as unknown as LegacyPrompt);
+    // A native contiguous cut can leave an old assistant/tool group at the
+    // start. Drop that prefix through the first surviving user turn, retaining
+    // every system message. If no user survives, ask the host to compact.
+    const firstUser = prompt.findIndex((message) => message.role === 'user');
+    if (firstUser > 0) {
+      prompt = prompt.filter((message, index) => message.role === 'system' || index >= firstUser);
+    }
+    prompt = await compatiblePrompt(prompt, model, context.provider, context.history, provenance);
+    assertProviderRequestBoundaries(prompt);
+    return prompt;
+  } catch (cause) {
+    if (cause instanceof TripWire || cause instanceof ProviderRequestBoundaryError) {
+      throw new ProviderRequestContextOverflowError(accounting, limit, { cause });
+    }
+    // Programming/shape failures are not token overflows.
+    throw cause;
+  }
+}
+
 export async function prepareProviderRequest(
   params: LanguageModelV4CallOptions,
   model: LanguageModelV4,
   context: ProviderRequestContext
 ): Promise<PreparedProviderRequest> {
   params.abortSignal?.throwIfAborted();
+  const provenance = collectProviderCallProvenance(params.prompt, context.history ?? []);
   const runtimeData: RuntimeData = { ...context.runtimeData, provider: context.provider };
   const selected = buildGenerationProviderOptionsOption(runtimeData).providerOptions;
   const sanitized = buildGenerationProviderOptionsOption({
@@ -228,7 +277,7 @@ export async function prepareProviderRequest(
     prompt = rewriteToolProjectionPrompt(prompt as unknown as LegacyPrompt, context.rewrites)
       .prompt as unknown as LanguageModelV4Prompt;
   }
-  prompt = await compatiblePrompt(prompt, model, context.provider, context.history);
+  prompt = await compatiblePrompt(prompt, model, context.provider, context.history, provenance);
   assertProviderRequestBoundaries(prompt);
   const projectedPrompt = prompt;
   const modelSettings = buildModelSettingsOption(runtimeData).modelSettings;
@@ -250,33 +299,21 @@ export async function prepareProviderRequest(
     throw new RangeError('inputTokenLimit must be a positive integer');
   }
   if (limit !== undefined) {
-    // BST-1927: run the installed canonical limiter AFTER projection and memory
-    // injection, reserving the actual outgoing tool surface. Measurement stays
-    // observational; Mastra owns grouping, contiguous trimming and safety counts.
-    const promptLimit = limit - accounting.toolTokens;
-    if (promptLimit <= 0) {
-      throw new ProviderRequestContextOverflowError(accounting, limit);
-    }
-    try {
-      prompt = await applyCanonicalProcessor(
-        new TokenLimiter({ limit: promptLimit, trimMode: 'contiguous' }),
-        prepared.prompt,
-        model
-      );
-      // A native contiguous cut can leave an old assistant/tool group at the
-      // start. Drop that prefix through the first surviving user turn, retaining
-      // every system message. If no user survives, ask the host to compact.
-      const firstUser = prompt.findIndex((message) => message.role === 'user');
-      if (firstUser > 0) {
-        prompt = prompt.filter((message, index) => message.role === 'system' || index >= firstUser);
-      }
-      prompt = await compatiblePrompt(prompt, model, context.provider, context.history);
-      assertProviderRequestBoundaries(prompt);
-    } catch (cause) {
-      throw new ProviderRequestContextOverflowError(accounting, limit, { cause });
-    }
+    prompt = await limitProviderPrompt(
+      prepared.prompt,
+      model,
+      context,
+      provenance,
+      accounting,
+      limit
+    );
     prepared = { ...prepared, prompt };
     accounting = countRequest(prepared, measurement, projectedPrompt.length - prompt.length);
+    if (accounting.totalTokens > limit) {
+      // BST-1927 review: a native media safety estimate can undercount inline
+      // text/custom V4 payloads. Never dispatch a measured over-budget prompt.
+      throw new ProviderRequestContextOverflowError(accounting, limit);
+    }
   }
   params.abortSignal?.throwIfAborted();
   return { accounting, params: prepared, projectedPrompt };
