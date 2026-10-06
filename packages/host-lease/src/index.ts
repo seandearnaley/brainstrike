@@ -12,6 +12,7 @@ export {
   decodeStartOptions,
   type HostLifetime,
   type HostRuntime,
+  type HostRuntimeBindings,
   type HostStartOptions,
   startHost,
 } from './runtime.js';

@@ -27,6 +27,12 @@ export interface HostRuntime {
   readonly record: HostRecord;
   retainRun(): () => void;
 }
+/** M3 composes the existing lease with its store owner and client protocol. */
+export interface HostRuntimeBindings {
+  acceptSocket(socket: Socket, record: HostRecord, attached: () => void): void;
+  acquireRoot(): Promise<{ readonly lock: RootLock; close(): Promise<void> }>;
+  readonly protocolVersion: number;
+}
 const StartOptionsSchema = Schema.Struct({
   lifetime: Schema.Literals(['app', 'cli', 'persistent']),
   parent: Schema.optional(
@@ -87,7 +93,10 @@ async function prepareSocketDirectory(root: string): Promise<string> {
   return directory;
 }
 
-export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
+export async function startHost(
+  input: HostStartOptions,
+  bindings?: HostRuntimeBindings
+): Promise<HostRuntime> {
   const options = decodeStartOptions(input);
   if (!isAbsolute(options.root)) {
     throw new TypeError('Host data root must be absolute');
@@ -130,10 +139,17 @@ export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
     }
   };
   try {
-    const lease = await owner.acquire(
-      () => RootLock.acquire(options.root),
-      async (lock) => lock.release()
-    );
+    const lease = bindings
+      ? (
+          await owner.acquire(
+            () => bindings.acquireRoot(),
+            (resource) => resource.close()
+          )
+        ).lock
+      : await owner.acquire(
+          () => RootLock.acquire(options.root),
+          async (lock) => lock.release()
+        );
     const canonicalRoot = lease.owner.root;
     const token = randomBytes(32).toString('hex');
     let endpoint: string;
@@ -150,7 +166,7 @@ export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
       endpoint,
       hostVersion: HOST_VERSION,
       pid: process.pid,
-      protocolVersion: PROTOCOL_VERSION,
+      protocolVersion: bindings?.protocolVersion ?? PROTOCOL_VERSION,
       start: lease.owner.start,
       token,
     };
@@ -159,6 +175,25 @@ export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
       let initialized = false;
       let attached = false;
       let rejected = false;
+      if (bindings) {
+        socket.on('error', () => socket.destroy());
+        socket.once('close', () => {
+          sockets.delete(socket);
+          if (attached) {
+            clients -= 1;
+            finishIfIdle();
+          }
+        });
+        bindings.acceptSocket(socket, record, () => {
+          if (attached || closing) {
+            throw new Error('Host attachment is already initialized or closing');
+          }
+          attached = true;
+          attachedOnce = true;
+          clients += 1;
+        });
+        return;
+      }
       const reject = (message: string): void => {
         if (rejected) {
           return;

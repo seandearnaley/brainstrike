@@ -26,6 +26,9 @@ cleanupUnusedCatalogs: true
 # prune either), and a comment attached to an entry that is itself pruned has no
 # measured verdict — so keep rationale beside entries that stay.
 catalog:
+  # ADR-0012: only the new host consumes this pin; the legacy Mastra closure retains ai 6.
+  ai: 7.0.126
+  vscode-jsonrpc: 9.0.2
   '@ai-sdk/amazon-bedrock': 5.0.76
   '@anthropic-ai/sandbox-runtime': 0.0.75
   # BST-1353: the AWS default credential chain (profiles, SSO, process creds,

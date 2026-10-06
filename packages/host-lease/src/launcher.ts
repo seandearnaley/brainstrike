@@ -17,6 +17,8 @@ import type { HostLifetime, HostStartOptions } from './runtime.js';
 import { windowsPrivateAcl } from './windows-acl.js';
 export type HostSpawner = (options: HostStartOptions, signal: AbortSignal) => Promise<void>;
 export interface HostLaunchOptions {
+  /** The new host uses canonical JSON-RPC; old-path callers retain their handshake. */
+  readonly attach?: (record: HostRecord, timeoutMs: number) => Promise<HostAttachment>;
   readonly attachTimeoutMs?: number;
   readonly lifetime: HostLifetime;
   readonly spawn: HostSpawner;
@@ -114,9 +116,13 @@ async function publishedRecord(
     }
   );
 }
-async function attach(record: HostRecord, timeoutMs: number): Promise<HostAttachment> {
+async function attach(
+  record: HostRecord,
+  timeoutMs: number,
+  attachClient: (record: HostRecord, timeoutMs: number) => Promise<HostAttachment>
+): Promise<HostAttachment> {
   try {
-    return await attachHost(record, timeoutMs);
+    return await attachClient(record, timeoutMs);
   } catch (cause) {
     throw new LiveHostUnavailableError(record.pid, cause);
   }
@@ -153,6 +159,7 @@ export async function launchHost(
   assertNotSyncedRoot(root);
   const startupTimeoutMs = options.startupTimeoutMs ?? 10_000;
   const attachTimeoutMs = options.attachTimeoutMs ?? 1500;
+  const attachClient = options.attach ?? attachHost;
   if (![startupTimeoutMs, attachTimeoutMs].every((value) => Number.isFinite(value) && value > 0)) {
     throw new RangeError('Host launch deadlines must be positive finite milliseconds');
   }
@@ -168,10 +175,14 @@ export async function launchHost(
     const record = matches(existing, lease)
       ? existing
       : await publishedRecord(root, lease, startupTimeoutMs);
-    return attach(record, attachTimeoutMs);
+    return attach(record, attachTimeoutMs, attachClient);
   }
   if (lease) {
-    return attach(await publishedRecord(root, lease, startupTimeoutMs), attachTimeoutMs);
+    return attach(
+      await publishedRecord(root, lease, startupTimeoutMs),
+      attachTimeoutMs,
+      attachClient
+    );
   }
   const startOptions = startOptionsFor(root, options.lifetime);
   try {
@@ -189,11 +200,19 @@ export async function launchHost(
     if (!winner) {
       throw cause;
     }
-    return attach(await publishedRecord(root, winner, startupTimeoutMs), attachTimeoutMs);
+    return attach(
+      await publishedRecord(root, winner, startupTimeoutMs),
+      attachTimeoutMs,
+      attachClient
+    );
   }
   const acquired = await liveLease(root);
   if (!acquired) {
     throw new Error('Host starter returned without a live root lease');
   }
-  return attach(await publishedRecord(root, acquired, startupTimeoutMs), attachTimeoutMs);
+  return attach(
+    await publishedRecord(root, acquired, startupTimeoutMs),
+    attachTimeoutMs,
+    attachClient
+  );
 }

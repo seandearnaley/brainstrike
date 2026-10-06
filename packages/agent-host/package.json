@@ -1,0 +1,35 @@
+{
+  "name": "@brainstrike/agent-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=24.20.0 <25 || >=26.8.2 <27" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./protocol": { "types": "./dist/protocol.d.ts", "default": "./dist/protocol.js" },
+    "./client": { "types": "./dist/client.d.ts", "default": "./dist/client.js" },
+    "./browser": { "types": "./dist/browser-client.d.ts", "default": "./dist/browser-client.js" }
+  },
+  "scripts": {
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
+    "test": "vitest run --exclude \"**/*.integration.test.*\"",
+    "test:integration": "vitest run --config vitest.integration.config.mts"
+  },
+  "dependencies": {
+    "@brainstrike/effect-kit": "workspace:*",
+    "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/host-lease": "workspace:*",
+    "@brainstrike/state-store": "workspace:*",
+    "ai": "catalog:",
+    "vscode-jsonrpc": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
