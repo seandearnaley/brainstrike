@@ -12,7 +12,6 @@ import {
   type McpExtensionEnablement,
   resolveMcpExtensionEnablement,
 } from '@brainstrike/assistant-contract';
-import type { McpTaskDatabase } from '@brainstrike/db';
 import type { ResolvedMcpServer } from '../mcp-loader';
 import type { ExplicitClient } from './host-connection';
 import type { McpTaskConnectionClient } from './task-host';
@@ -84,13 +83,5 @@ export function requireTaskConnectionClient(
       typeof client.requestExtension === 'function'
         ? client.requestExtension(contract, params, options)
         : missing('request'),
-  };
-}
-
-export function createDefaultTaskDatabaseOpener(): () => Promise<McpTaskDatabase> {
-  return async () => {
-    const { getDatabase } = await import('../db-main');
-    const database = await getDatabase();
-    return { query: (sql, params) => database.query(sql, params) };
   };
 }
