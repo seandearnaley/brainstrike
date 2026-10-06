@@ -50,9 +50,53 @@ describe('background-indexing-policy', () => {
         '**/.claude/worktrees/**',
         '**/.brainstrike/worktrees',
         '**/.brainstrike/worktrees/**',
+        '**/.muse/worktrees',
+        '**/.muse/worktrees/**',
       ]);
     });
   });
+
+  it.each(['balanced', 'full-root'] as const)(
+    '%s excludes nested Muse worktree copies without excluding ordinary Muse content',
+    (preset) => {
+      const policy = createBackgroundIndexingEntryPolicy({ preset });
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: 'worktrees',
+          relativePath: '.muse/worktrees',
+        })
+      ).toBe(false);
+      expect(
+        policy.shouldIncludeFile({
+          fileName: 'index.ts',
+          fileSize: 128,
+          relativePath: '.muse/worktrees/old/src/index.ts',
+        })
+      ).toBe(false);
+      for (const relativePath of [
+        '.muse/settings.md',
+        '.muse/worktrees-backup/index.ts',
+        'src/index.ts',
+      ]) {
+        expect(
+          policy.shouldIncludeFile({
+            fileName: relativePath.split('/').at(-1) ?? '',
+            fileSize: 128,
+            relativePath,
+          })
+        ).toBe(true);
+      }
+      expect(isUnconditionalExcludedNativePath('/repo/.muse/worktrees/old/src/index.ts')).toBe(
+        true
+      );
+      expect(
+        isUnconditionalExcludedNativePath('C:\\repo\\.MUSE\\worktrees\\old\\src\\index.ts')
+      ).toBe(true);
+      expect(isUnconditionalExcludedNativePath('/repo/.muse/worktrees-backup/index.ts')).toBe(
+        false
+      );
+    }
+  );
 
   it('keeps BrainStrike managed worktrees in the unconditional exclusion floor', () => {
     expect(UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES).toContain('.brainstrike/worktrees');

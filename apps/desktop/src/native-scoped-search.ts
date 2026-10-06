@@ -23,6 +23,7 @@ import type { NativeScopeReadiness } from './native-canonical-publication';
 import { NativeCoverageObservationInvalidatedError } from './native-coverage-observation-invalidated';
 import { NativeReadAuthorityRetiredError } from './native-index-runtime';
 import { grepSnapshot } from './native-index-search';
+import { NativeIndexSetupRequiredError } from './native-index-setup-required';
 
 export interface NativeSearchAuthority {
   readonly bindings: readonly IndexFileBinding[];
@@ -483,11 +484,15 @@ export function createNativeScopedSearchCapability(
           return projectStatus(snapshot.authority, snapshot.storeId, snapshot.embedding);
         });
       } catch (error) {
-        if (coverageAuthorityInvalidation(error) === null) {
+        if (
+          !(error instanceof NativeIndexSetupRequiredError) &&
+          coverageAuthorityInvalidation(error) === null
+        ) {
           throw error;
         }
         return {
           kind: 'unavailable',
+          phase: error instanceof NativeIndexSetupRequiredError ? 'setup-required' : 'preparing',
           reason: error instanceof Error ? error.message : String(error),
         };
       }

@@ -56,6 +56,16 @@ export const ticketSchema = Schema.Struct({
   storeId: identifier,
 });
 export const receiptSchema = Schema.Struct({
+  excluded: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        fileId: Schema.NullOr(identifier),
+        reason: Schema.Literals(['null-byte-content', 'binary-content']),
+        relativePath: Schema.NullOr(identifier),
+        rootId: Schema.NullOr(identifier),
+      })
+    )
+  ),
   reason: Schema.Literals([
     'complete',
     'partial',

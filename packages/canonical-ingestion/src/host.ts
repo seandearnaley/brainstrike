@@ -28,6 +28,7 @@ import type {
   CanonicalScanReceipt,
   CanonicalScanRequest,
   CanonicalScanTicket,
+  CanonicalSourceExclusion,
   CanonicalSourceFile,
   CanonicalSourcePort,
   CanonicalSourceScope,
@@ -57,6 +58,7 @@ interface PreparedVectorFile extends VectorFileInput {
 }
 interface DiscoveryOutcome {
   readonly completion: CanonicalDiscoveryCompletion;
+  readonly excluded: readonly CanonicalSourceExclusion[];
   readonly failure: unknown;
   readonly files: readonly CanonicalManifestFile[];
 }
@@ -288,7 +290,7 @@ export class CanonicalIngestionHost {
     if (!sameTicket(receipt.ticket, ticket)) {
       throw new Error('Canonical scan receipt belongs to another generation.');
     }
-    return receipt;
+    return outcome.excluded.length > 0 ? { ...receipt, excluded: outcome.excluded } : receipt;
   }
 
   private async discoverScan(
@@ -325,6 +327,7 @@ export class CanonicalIngestionHost {
     } catch (error) {
       outcome = {
         completion: { errors: [errorMessage(error)], full: false, truncatedDirectories: [] },
+        excluded: [],
         failure: error,
         files: [],
       };
@@ -341,6 +344,7 @@ export class CanonicalIngestionHost {
     stopAdmission: () => void
   ): Promise<DiscoveryOutcome> {
     const files: CanonicalManifestFile[] = [];
+    const excluded: CanonicalSourceExclusion[] = [];
     const fileIds = new Set<string>();
     const workspacePaths = new Set<string>();
     let completion: CanonicalDiscoveryCompletion = {
@@ -380,7 +384,8 @@ export class CanonicalIngestionHost {
           discovered,
           fileIds,
           profile,
-          vectorFiles
+          vectorFiles,
+          excluded
         );
         files.push(...manifest);
       }
@@ -404,7 +409,7 @@ export class CanonicalIngestionHost {
         }
       }
     }
-    return { completion, failure, files };
+    return { completion, excluded, failure, files };
   }
 
   private async processBatch(
@@ -416,7 +421,8 @@ export class CanonicalIngestionHost {
     discovered: readonly CanonicalDiscoveredSourceFile[],
     seenFileIds: Set<string>,
     profile: VectorProfile | undefined,
-    vectorFiles: ScopedManifestFile[]
+    vectorFiles: ScopedManifestFile[],
+    excluded: CanonicalSourceExclusion[]
   ): Promise<CanonicalManifestFile[]> {
     const { catalog, publication, source } = this.dependencies;
     const authorized = await catalog.loadAuthorizedBatch(
@@ -436,12 +442,13 @@ export class CanonicalIngestionHost {
     if (inventory.storeId !== ticket.storeId) {
       throw new Error('Canonical native inventory changed stores during its scan.');
     }
-    const force = new Set([...inventory.missing, ...inventory.changed].map((file) => file.fileId));
-    for (const fileId of request.forceFileIds ?? []) {
-      force.add(fileId);
-    }
+    const force = new Set([
+      ...[...inventory.missing, ...inventory.changed].map((file) => file.fileId),
+      ...(request.forceFileIds ?? []),
+    ]);
     const manifest: CanonicalManifestFile[] = [];
     const reads: CanonicalPreparedRead[] = [];
+    const removals = [...removed];
     for (const file of files) {
       context.signal.throwIfAborted();
       const prior = byId.get(file.fileId);
@@ -456,6 +463,11 @@ export class CanonicalIngestionHost {
         continue;
       }
       const read = await readCanonicalSource(source, file, request.maxFileBytes, context);
+      if (read.kind === 'excluded') {
+        excluded.push(read.exclusion);
+        removals.push(file);
+        continue;
+      }
       reads.push({ ...read, file });
       manifest.push({ ...file, contentHash: read.contentHash });
     }
@@ -478,6 +490,7 @@ export class CanonicalIngestionHost {
       catalog,
       context,
       discovered,
+      excluded,
       request,
       seenFileIds,
       source,
@@ -530,13 +543,13 @@ export class CanonicalIngestionHost {
     if (completed.length > 0) {
       await catalog.completeFiles({ files: completed, scope: request.scope }, context);
     }
-    for (const file of removed) {
+    for (const file of removals) {
       context.signal.throwIfAborted();
       await publication.removeFile({ file, ticket });
       context.signal.throwIfAborted();
     }
-    if (removed.length > 0) {
-      await catalog.removeFiles({ files: removed, scope: request.scope }, context);
+    if (removals.length > 0) {
+      await catalog.removeFiles({ files: removals, scope: request.scope }, context);
     }
     return manifest;
   }

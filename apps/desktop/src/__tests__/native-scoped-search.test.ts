@@ -301,6 +301,7 @@ it('refuses a progress identity whose scan generation changes during status capt
   release.resolve();
   expect(await result).toMatchObject({
     kind: 'unavailable',
+    phase: 'preparing',
     reason: expect.stringContaining('changed'),
   });
 });

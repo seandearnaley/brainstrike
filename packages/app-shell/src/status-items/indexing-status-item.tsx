@@ -11,6 +11,7 @@ import {
   shouldShowWorkspaceCollectionSyncPauseControl,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import {
   Accordion,
   AccordionContent,
@@ -41,6 +42,7 @@ const selectCollectionSyncStatus = (
   managedCollectionId: state.managedCollectionId,
   managedCollectionName: state.managedCollectionName,
   pauseReasons: state.pauseReasons,
+  processedFiles: state.processedFiles,
   queueProgress: state.queueProgress,
   scanSummary: state.scanSummary,
   state: state.state,
@@ -95,6 +97,7 @@ function formatSnapshotActivity(snapshot: IndexingActivitySnapshot): string {
 
 function getDisplayStatus(args: {
   readonly enabled: boolean;
+  readonly native: boolean;
   readonly managedStats: IndexingManagedCollectionStatsState;
   readonly paused: boolean;
   readonly snapshot: IndexingActivitySnapshot;
@@ -129,7 +132,8 @@ function getDisplayStatus(args: {
       value: 'Backfilling',
     };
   }
-  const syncValue = formatSyncState(syncStatus.state);
+  const syncValue =
+    args.native && syncStatus.state === 'waiting' ? 'Preparing' : formatSyncState(syncStatus.state);
   if (syncValue) {
     return { busy: true, toneClassName: 'text-info', value: syncValue };
   }
@@ -435,7 +439,41 @@ function IndexingActivityRegion({
   );
 }
 
-export function IndexingStatusItem() {
+function indexingError(
+  syncStatus: CollectionSyncStatus,
+  managedStats: IndexingManagedCollectionStatsState,
+  snapshot: IndexingActivitySnapshot
+): string | null {
+  const syncError = syncStatus.state === 'unconfigured' ? null : syncStatus.lastError;
+  const snapshotError = snapshot.status === 'error' ? snapshot.lastError : null;
+  return syncError ?? managedStats.error ?? snapshotError;
+}
+
+function currentIndexActivity(
+  syncStatus: CollectionSyncStatus,
+  native: boolean
+): { label: string; value: string } | null {
+  if (native && syncStatus.state === 'waiting') {
+    return { label: 'Preparing', value: 'Waiting for a current native index observation.' };
+  }
+  if (syncStatus.state === 'unconfigured' && syncStatus.lastError) {
+    return { label: 'Set up indexing', value: syncStatus.lastError };
+  }
+  if (!(native && syncStatus.state === 'scanning')) {
+    return getWorkspaceCollectionSyncCurrentActivity(syncStatus);
+  }
+  const root = syncStatus.activeRootPath ? ` · ${syncStatus.activeRootPath}` : '';
+  return {
+    label: 'Scanning',
+    value: `${syncStatus.processedFiles.toLocaleString()} files indexed${root}`,
+  };
+}
+
+export function IndexingStatusItem({
+  nativeIndexSearch,
+}: {
+  readonly nativeIndexSearch?: IndexSearchCapability | null;
+}) {
   const [open, setOpen] = useState(false);
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
   const popoverTitleId = useId();
@@ -451,13 +489,20 @@ export function IndexingStatusItem() {
   const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
   const setPaused = useBackgroundIndexingPreferencesStore((state) => state.setPaused);
   const syncStatus = useWorkspaceCollectionSyncStatusStore(selectCollectionSyncStatus);
-  const displayStatus = getDisplayStatus({ enabled, managedStats, paused, snapshot, syncStatus });
+  const displayStatus = getDisplayStatus({
+    enabled,
+    managedStats,
+    native: Boolean(nativeIndexSearch),
+    paused,
+    snapshot,
+    syncStatus,
+  });
   const selectedPolicy = getBackgroundIndexingPolicyOption(indexingPolicyPreset);
   const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
-  const currentActivity = getWorkspaceCollectionSyncCurrentActivity(syncStatus);
+  const currentActivity = currentIndexActivity(syncStatus, Boolean(nativeIndexSearch));
   const stats = getVisibleStats(managedStats);
   const coveragePercent = getCoveragePercent(managedStats);
-  const combinedError = syncStatus.lastError ?? managedStats.error ?? snapshot.lastError;
+  const combinedError = indexingError(syncStatus, managedStats, snapshot);
   const collectionName =
     syncStatus.managedCollectionName ??
     snapshot.background.managedCollectionName ??
@@ -580,11 +625,13 @@ export function IndexingStatusItem() {
             />
           </div>
 
-          <dl className="rounded-md border px-3 py-2">
-            <SummaryRow label="Embedding queue" value={formatDurableQueue(snapshot)} />
-            <SummaryRow label="Workspace queue" value={formatWorkspaceQueue(syncStatus)} />
-            <SummaryRow label="Active backfill" value={formatBackfillSummary(snapshot)} />
-          </dl>
+          {!nativeIndexSearch && (
+            <dl className="rounded-md border px-3 py-2">
+              <SummaryRow label="Embedding queue" value={formatDurableQueue(snapshot)} />
+              <SummaryRow label="Workspace queue" value={formatWorkspaceQueue(syncStatus)} />
+              <SummaryRow label="Active backfill" value={formatBackfillSummary(snapshot)} />
+            </dl>
+          )}
 
           <IndexingActivityRegion
             currentActivity={currentActivity}
@@ -599,7 +646,9 @@ export function IndexingStatusItem() {
               </AccordionTrigger>
               <AccordionContent className="space-y-2 pb-3">
                 <dl className="space-y-1">
-                  <SummaryRow label="Worker state" value={snapshot.worker?.state ?? 'Unknown'} />
+                  {!nativeIndexSearch && (
+                    <SummaryRow label="Worker state" value={snapshot.worker?.state ?? 'Unknown'} />
+                  )}
                   <SummaryRow label="Database QoS" value={formatDatabaseQueueSummary(snapshot)} />
                   <SummaryRow label="DB completed" value={formatDatabaseCompleted(snapshot)} />
                   <SummaryRow label="DB yields" value={formatDatabaseYields(snapshot)} />

@@ -5,6 +5,7 @@ import {
   validateNativeLocalSelection,
 } from '@brainstrike/indexing-contract/indexer-producer';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils/background-indexing-policy';
+import { NativeIndexSetupRequiredError } from './native-index-setup-required';
 
 export const NATIVE_INDEX_SETTINGS_KEY = 'background-indexing-preferences.v1';
 export interface NativeIndexSettings {
@@ -19,20 +20,15 @@ export interface NativeIndexSettings {
 /** Read the same durable settings the visible UI writes; missing choices remain unavailable. */
 export function readNativeIndexSettings(value: string | null): NativeIndexSettings {
   if (value === null) {
-    throw new Error('Choose a native search mode in Workspace Index settings.');
+    throw new NativeIndexSetupRequiredError('Choose a search mode in Search & Indexing settings.');
   }
   const state = readPreferenceState(value);
-  const mode = validateNativeIndexMode(Reflect.get(state, 'nativeIndexMode'));
-  if (mode === null) {
-    throw new Error('Choose a native search mode in Workspace Index settings.');
-  }
   const managedCollectionId: unknown = Reflect.get(state, 'managedCollectionId');
   const enabled: unknown = Reflect.get(state, 'enabled');
   const paused: unknown = Reflect.get(state, 'paused');
   const indexingPolicyPreset: unknown = Reflect.get(state, 'indexingPolicyPreset');
   if (
-    typeof managedCollectionId !== 'string' ||
-    !managedCollectionId.trim() ||
+    !isOptionalCollectionId(managedCollectionId) ||
     typeof enabled !== 'boolean' ||
     typeof paused !== 'boolean' ||
     (indexingPolicyPreset !== 'balanced' && indexingPolicyPreset !== 'full-root')
@@ -44,6 +40,15 @@ export function readNativeIndexSettings(value: string | null): NativeIndexSettin
   const selected: unknown = Reflect.get(state, 'nativeLocalSelection');
   const selection =
     selected === null || selected === undefined ? null : validateNativeLocalSelection(selected);
+  const mode = validateNativeIndexMode(Reflect.get(state, 'nativeIndexMode'));
+  if (mode === null) {
+    throw new NativeIndexSetupRequiredError('Choose a search mode in Search & Indexing settings.');
+  }
+  if (managedCollectionId === null || managedCollectionId === undefined) {
+    throw new NativeIndexSetupRequiredError(
+      'Choose an embedding model and collection in Search & Indexing settings.'
+    );
+  }
   const optIns: unknown = Reflect.get(state, 'worktreeRootIndexingOptInById');
   const worktreeOptIns = readWorktreeOptIns(optIns);
   return {
@@ -55,6 +60,12 @@ export function readNativeIndexSettings(value: string | null): NativeIndexSettin
     selection,
     worktreeOptIns,
   };
+}
+
+function isOptionalCollectionId(value: unknown): value is string | null | undefined {
+  return (
+    value === null || value === undefined || (typeof value === 'string' && value.trim().length > 0)
+  );
 }
 
 function readWorktreeOptIns(optIns: unknown): ReadonlySet<string> {
@@ -75,7 +86,7 @@ function readPreferenceState(value: string): object {
     throw new Error('Native index preferences are invalid.');
   }
   const state: unknown = Reflect.get(envelope, 'state');
-  if (!state || typeof state !== 'object') {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) {
     throw new Error('Native index preferences have no state.');
   }
   return state;

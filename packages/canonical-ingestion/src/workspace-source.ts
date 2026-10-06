@@ -13,6 +13,7 @@ import type {
   CanonicalSourceFile,
   CanonicalSourcePort,
 } from './ports.js';
+import { CanonicalSourceContentExcludedError } from './source-content-exclusion.js';
 import { discoverCanonicalWorkspace } from './workspace-source-discovery.js';
 import type {
   CanonicalSourceSubscription,
@@ -106,7 +107,7 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
         if (Buffer.byteLength(result.content, 'utf8') > maxFileBytes) {
           throw new Error('Retained source exceeds its explicit byte bound.');
         }
-        this.assertContent(result.content, file.fileName);
+        this.assertContent(result.content, file.fileName, false);
         return result;
       }
       const lease = this.dependencies.lease;
@@ -132,7 +133,7 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
         maxFileBytes
       );
       readContext.signal.throwIfAborted();
-      this.assertContent(content, file.fileName);
+      this.assertContent(content, file.fileName, true);
       return {
         content,
         stat: { mtimeMs: node.lastModified ?? null, size: node.size ?? content.length },
@@ -308,13 +309,17 @@ export class CanonicalWorkspaceSource implements CanonicalSourcePort {
     this.stopping.signal.throwIfAborted();
   }
 
-  private assertContent(content: string, fileName: string): void {
+  private assertContent(content: string, fileName: string, filesystem: boolean): void {
     const error = getContentIndexingError({ content, status: 'accessible' });
     if (error) {
-      throw new Error(error);
+      throw filesystem
+        ? new CanonicalSourceContentExcludedError('null-byte-content', error)
+        : new Error(error);
     }
     if (isBinaryExtension(getFileExtension(fileName)) || !fileContent.isTextContent(content)) {
-      throw new Error(BINARY_CONTENT_MESSAGE);
+      throw filesystem
+        ? new CanonicalSourceContentExcludedError('binary-content', BINARY_CONTENT_MESSAGE)
+        : new Error(BINARY_CONTENT_MESSAGE);
     }
   }
 

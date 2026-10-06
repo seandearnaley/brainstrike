@@ -688,6 +688,7 @@ export function RootLayoutContent({
       <AppLayout
         config={appConfig}
         currentPath={shellTab === 'explorer' ? '/' : `/${shellTab}`}
+        nativeIndexSearch={nativeIndexSearch ?? null}
         onNavigationClick={handleNavigationClick}
         onOpenSettings={openSettings}
       >
@@ -721,7 +722,7 @@ export function RootLayoutContent({
                 encloses BOTH the collection browser (sidebar DatabasePanel) and
                 the workspace-search panel (ExplorerSearchTabs) below. */}
                   <SearchEmbedderProvider>
-                    <IndexingActivityCoordinator />
+                    <IndexingActivityCoordinator nativeIndexSearch={nativeIndexSearch ?? null} />
                     <div
                       aria-hidden={shellTab !== 'explorer'}
                       className={

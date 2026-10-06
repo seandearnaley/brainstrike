@@ -14,6 +14,8 @@ import type {
   CanonicalSourcePort,
   CanonicalSourceScope,
 } from '../src/ports.js';
+import { CanonicalWorkspaceSource } from '../src/workspace-source.js';
+import type { CanonicalWorkspaceLease } from '../src/workspace-source-ports.js';
 
 function deferred(): {
   promise: Promise<void>;
@@ -847,5 +849,143 @@ describe('utility canonical retained-source ingestion', () => {
       return { ...f.completion, truncatedDirectories: ['src'] };
     };
     await expect(f.host.scan(f.request)).rejects.toThrow('incomplete');
+  });
+});
+
+describe('workspace content eligibility through the canonical scan', () => {
+  it.each([
+    ['null-byte-content', false],
+    ['null-byte-content', true],
+    ['binary-content', false],
+    ['binary-content', true],
+  ] as const)(
+    'completes the eligible text manifest and reports %s exclusion (managed=%s)',
+    async (reason, managed) => {
+      const f = await fixture();
+      const captured = JSON.parse(
+        await readFile(
+          new URL('./fixtures/null-byte-workspace-source.json', import.meta.url),
+          'utf8'
+        )
+      ) as { fileName: string; content: string };
+      const excludedFile: CanonicalSourceFile = {
+        ...f.file,
+        fileId: 'existing-unsupported',
+        fileName: captured.fileName,
+        relativePath: captured.fileName,
+        sourcePath: captured.fileName,
+      };
+      const excludedContent =
+        reason === 'null-byte-content'
+          ? captured.content
+          : captured.content.replaceAll('\0', '\u0001');
+      const entries = [f.file.fileName, captured.fileName];
+      const lease: CanonicalWorkspaceLease = {
+        canonicalPath: '/workspace',
+        generation: 'actual-borrow',
+        listDir: async () => ({
+          entries: entries.map((name) => ({
+            isDirectory: false,
+            isFile: true,
+            isSymbolicLink: false,
+            lastModified: 123,
+            name,
+            size: 100,
+          })),
+          inspected: 2,
+          truncated: false,
+        }),
+        readFile: async (relativePath) => ({
+          content: Buffer.from(
+            relativePath === captured.fileName ? excludedContent : f.recorded.content
+          ),
+          status: 'ok',
+        }),
+        retire: async () => {},
+        rootId: 'root',
+        signal: new AbortController().signal,
+        subscribe: async () => ({ close: async () => {} }),
+      };
+      const source = new CanonicalWorkspaceSource({
+        indexingPolicyPreset: 'balanced',
+        inventory: {
+          loadFiles: async () => (managed ? [excludedFile] : []),
+          readRetained: vi.fn(),
+        },
+        lease,
+      });
+      vi.mocked(f.catalog.prepareManagedSourcesBatch).mockImplementation(async ({ files }) =>
+        files.map((file) => ({ ...f.file, ...file }))
+      );
+      const host = new CanonicalIngestionHost({
+        catalog: f.catalog,
+        parser: { parser: 'oxc', treeSitterLanguages: ['python'] },
+        publication: f.publication,
+        source,
+      });
+      try {
+        const receipt = await host.scan(f.request);
+        expect(receipt.scanComplete).toBe(true);
+        expect(receipt).toMatchObject({
+          excluded: [
+            {
+              fileId: managed ? excludedFile.fileId : null,
+              reason,
+              relativePath: captured.fileName,
+              rootId: 'root',
+            },
+          ],
+        });
+        expect(f.catalog.prepareManagedSourcesBatch).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            files: [expect.objectContaining({ fileName: f.file.fileName })],
+          }),
+          expect.anything()
+        );
+        expect(f.publication.commitTextFile).toHaveBeenCalledOnce();
+        expect(f.publication.finishScan).toHaveBeenCalledWith(
+          expect.objectContaining({
+            errors: [],
+            files: [expect.objectContaining({ fileName: f.file.fileName })],
+            full: true,
+          })
+        );
+        expect(f.publication.abortScan).not.toHaveBeenCalled();
+        if (managed) {
+          expect(f.publication.removeFile).toHaveBeenCalledExactlyOnceWith({
+            file: expect.objectContaining({ fileId: excludedFile.fileId }),
+            ticket: f.ticket,
+          });
+          expect(f.catalog.removeFiles).toHaveBeenCalledExactlyOnceWith(
+            {
+              files: [expect.objectContaining({ fileId: excludedFile.fileId })],
+              scope: f.request.scope,
+            },
+            expect.anything()
+          );
+          expect(f.order).toEqual(['native-remove', 'catalog-remove']);
+        } else {
+          expect(f.publication.removeFile).not.toHaveBeenCalled();
+          expect(f.catalog.removeFiles).not.toHaveBeenCalled();
+        }
+      } finally {
+        await host.close();
+      }
+    }
+  );
+
+  it('does not infer eligibility from a generic error message', async () => {
+    const f = await fixture();
+    const failure = new Error('File contains null bytes and cannot be indexed.');
+    vi.mocked(f.source.read).mockRejectedValueOnce(failure);
+    try {
+      await expect(f.host.scan(f.request)).rejects.toBe(failure);
+      expect(f.publication.abortScan).toHaveBeenCalledOnce();
+      expect(f.catalog.removeFiles).not.toHaveBeenCalled();
+      expect(f.catalog.applyManagedCacheBatch).not.toHaveBeenCalled();
+      expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+    } finally {
+      await f.host.close();
+    }
   });
 });

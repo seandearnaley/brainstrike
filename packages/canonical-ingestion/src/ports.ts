@@ -146,7 +146,14 @@ export interface CanonicalManifestResult {
   readonly storeId: string;
   readonly unexpected: readonly CanonicalManifestFile[];
 }
+export interface CanonicalSourceExclusion {
+  readonly fileId: string | null;
+  readonly reason: 'null-byte-content' | 'binary-content';
+  readonly relativePath: string | null;
+  readonly rootId: string | null;
+}
 export interface CanonicalScanReceipt {
+  readonly excluded?: readonly CanonicalSourceExclusion[];
   readonly reason:
     | 'complete'
     | 'partial'

@@ -549,6 +549,13 @@ in `docs/agents/ci-quality.md`.
 
 ---
 
+### Native indexing setup observations
+
+- Represent absent user choices with `NativeIndexSetupRequiredError`. Public status reports its actionable setup reason as unavailable with `phase: setup-required`; routine authority transitions report `phase: preparing`. Strict reads still refuse. Preserve that reason through closed admission. Invalid settings, profiles, storage failures and cleanup aggregates remain errors.
+- Log initial setup and incomplete saved-choice transitions as informational setup state, not repeated indexing errors. No model, collection or execution defaults are invented.
+
+Guard: `apps/desktop/src/__tests__/native-index-setup-required.test.ts`.
+
 ## FILE WATCHER SERVICE LIFECYCLE
 
 OS file watching is a PLATFORM capability beneath the assistant runtime. Mastra

@@ -111,6 +111,64 @@ describe('IndexingStatusItem', () => {
     });
   });
 
+  it('shows native scan activity and omits retired PG queue and worker diagnostics', async () => {
+    useWorkspaceCollectionSyncStatusStore
+      .getState()
+      .setStatus({ activeRootPath: '/owned/repo', processedFiles: 54, state: 'scanning' });
+    const capability = {
+      coverage: () => Promise.reject(new Error('unused')),
+      coverageBatch: () => Promise.reject(new Error('unused')),
+      grep: () => Promise.reject(new Error('unused')),
+      rebuild: async () => {},
+      search: () => Promise.reject(new Error('unused')),
+      status: async () => ({ kind: 'unavailable' as const, reason: 'setup' }),
+    };
+    render(<IndexingStatusItem nativeIndexSearch={capability} />);
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+    expect(screen.queryByText('Embedding queue')).not.toBeInTheDocument();
+    expect(screen.queryByText('No active indexing work')).not.toBeInTheDocument();
+    expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent('Scanning');
+    expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent('54 files indexed');
+  });
+
+  it('presents setup instructions neutrally while keeping genuine fatal failures actionable', async () => {
+    useWorkspaceCollectionSyncStatusStore
+      .getState()
+      .setStatus({ lastError: 'Choose an embedding model.', state: 'unconfigured' });
+    useIndexingActivityStore.getState().setBackgroundSnapshot({
+      enabled: true,
+      lastError: 'Choose an embedding model.',
+      managedCollectionId: null,
+      managedCollectionName: null,
+      paused: false,
+      pauseReasons: [],
+      state: 'unconfigured',
+    });
+    render(<IndexingStatusItem />);
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+    expect(screen.queryByText('Indexing needs attention')).not.toBeInTheDocument();
+    expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent(
+      'Choose an embedding model.'
+    );
+    act(() =>
+      useIndexingActivityStore.getState().setIndexingActivityError('Read host retirement failed.')
+    );
+    expect(screen.getByText('Indexing needs attention')).toBeInTheDocument();
+    expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent(
+      'Read host retirement failed.'
+    );
+    act(() => useIndexingActivityStore.getState().setIndexingActivityError(null));
+    act(() =>
+      useWorkspaceCollectionSyncStatusStore
+        .getState()
+        .setStatus({ lastError: 'Stored vector payload is corrupt.', state: 'error' })
+    );
+    expect(screen.getByText('Indexing needs attention')).toBeInTheDocument();
+    expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent(
+      'Stored vector payload is corrupt.'
+    );
+  });
+
   it('keeps one coarse live status outside a fixed-width interactive trigger', () => {
     render(<IndexingStatusItem />);
 

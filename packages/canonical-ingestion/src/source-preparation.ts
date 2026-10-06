@@ -7,10 +7,12 @@ import type {
   CanonicalOperationContext,
   CanonicalScanRequest,
   CanonicalSourceBatch,
+  CanonicalSourceExclusion,
   CanonicalSourceFile,
   CanonicalSourcePort,
   CanonicalSourceStat,
 } from './ports.js';
+import { CanonicalSourceContentExcludedError } from './source-content-exclusion.js';
 
 export interface CanonicalPreparedRead {
   readonly content: string;
@@ -35,18 +37,40 @@ export async function readCanonicalSource(
   file: CanonicalSourceFile | CanonicalDiscoveredSourceFile,
   maxFileBytes: number,
   context: CanonicalOperationContext
-): Promise<{
-  readonly content: string;
-  readonly contentHash: string;
-  readonly stat: CanonicalSourceStat;
-}> {
+): Promise<
+  | {
+      readonly kind: 'content';
+      readonly content: string;
+      readonly contentHash: string;
+      readonly stat: CanonicalSourceStat;
+    }
+  | { readonly kind: 'excluded'; readonly exclusion: CanonicalSourceExclusion }
+> {
   context.signal.throwIfAborted();
-  const read = await source.read(file, maxFileBytes, context);
+  let read: Awaited<ReturnType<CanonicalSourcePort['read']>>;
+  try {
+    read = await source.read(file, maxFileBytes, context);
+  } catch (error) {
+    context.signal.throwIfAborted();
+    if (!(error instanceof CanonicalSourceContentExcludedError)) {
+      throw error;
+    }
+    return {
+      exclusion: {
+        fileId: 'fileId' in file ? file.fileId : null,
+        reason: error.reason,
+        relativePath: file.relativePath,
+        rootId: file.rootId,
+      },
+      kind: 'excluded',
+    };
+  }
   context.signal.throwIfAborted();
   if (Buffer.byteLength(read.content, 'utf8') > maxFileBytes) {
     throw new Error('Canonical source exceeds its explicit read bound.');
   }
   return {
+    kind: 'content',
     ...read,
     contentHash: createHash('sha256').update(read.content, 'utf8').digest('hex'),
   };
@@ -138,6 +162,7 @@ export async function prepareDiscoveredSources(args: {
   readonly catalog: CanonicalCatalogPort;
   readonly context: CanonicalOperationContext;
   readonly discovered: readonly CanonicalDiscoveredSourceFile[];
+  readonly excluded: CanonicalSourceExclusion[];
   readonly request: CanonicalScanRequest;
   readonly seenFileIds: Set<string>;
   readonly source: CanonicalSourcePort;
@@ -154,7 +179,14 @@ export async function prepareDiscoveredSources(args: {
       args.request.maxFileBytes,
       args.context
     );
-    reads.push({ ...file, ...read });
+    if (read.kind === 'excluded') {
+      args.excluded.push(read.exclusion);
+      continue;
+    }
+    reads.push({ ...file, content: read.content, contentHash: read.contentHash, stat: read.stat });
+  }
+  if (reads.length === 0) {
+    return [];
   }
   const bindings = await args.catalog.prepareManagedSourcesBatch(
     { files: reads, scope },

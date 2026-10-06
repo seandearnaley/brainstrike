@@ -39,9 +39,9 @@ describe('main native indexing settings', () => {
     });
   });
   it('refuses absent mode, collection and execution choices', () => {
-    expect(() => readNativeIndexSettings(null)).toThrow('Choose a native search mode');
+    expect(() => readNativeIndexSettings(null)).toThrow('Choose a search mode');
     expect(() => readNativeIndexSettings(saved({ nativeIndexMode: null }))).toThrow(
-      'Choose a native search mode'
+      'Choose a search mode'
     );
     expect(() => readNativeIndexSettings(saved({ managedCollectionId: '' }))).toThrow(
       'requires a saved collection'

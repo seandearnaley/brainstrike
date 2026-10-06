@@ -45,7 +45,11 @@ export interface IndexerPublicationProgress {
   readonly storeId: string;
 }
 export type IndexerStatus =
-  | { readonly kind: 'unavailable'; readonly reason: string }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason: string;
+      readonly phase?: 'setup-required' | 'preparing';
+    }
   | {
       readonly kind: 'ready';
       readonly embedding: IndexerEmbeddingState;

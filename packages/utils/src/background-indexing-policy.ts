@@ -186,7 +186,11 @@ const SPECIAL_TEXT_PREFIXES = [
 // two-segment paths — rather than all of `.claude` or `.brainstrike` — keeps
 // their useful config trees indexable. Applied to both presets: for balanced
 // this is a content decision, for full-root a safety exclusion like node_modules.
-const EXCLUDED_DIRECTORY_PATH_PREFIXES = ['.claude/worktrees', '.brainstrike/worktrees'] as const;
+const EXCLUDED_DIRECTORY_PATH_PREFIXES = [
+  '.claude/worktrees',
+  '.brainstrike/worktrees',
+  '.muse/worktrees',
+] as const;
 
 /**
  * BST-1246 companion to the segments export: the nested-path exclusions the

@@ -16,6 +16,7 @@ import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { Schema } from 'effect';
 import type { EmbeddingHostDocumentEmbeddingsPayload } from './embedding-host-shared';
 import { generateHostedEmbeddings } from './hosted-embeddings';
+import { NativeIndexSetupRequiredError } from './native-index-setup-required';
 
 const nonblank = Schema.String.check(Schema.isPattern(/\S/u));
 const metadataSchema = Schema.Struct({
@@ -65,7 +66,9 @@ export function resolveNativeCanonicalProfile(
     };
   }
   if (!selection) {
-    throw new Error('Canonical local profile requires explicit saved inference choices.');
+    throw new NativeIndexSetupRequiredError(
+      'Choose local model execution in Search & Indexing settings.'
+    );
   }
   if (selection.modelId !== metadata.modelId || selection.dimensions !== metadata.dimensions) {
     throw new Error('Canonical local selection disagrees with saved model or dimensions.');
