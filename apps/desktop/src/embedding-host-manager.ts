@@ -685,15 +685,16 @@ export class EmbeddingHostManager {
       }
       return;
     }
+    const contents = window.webContents;
     const closed = new Promise<void>((resolve) => {
       const retired = (): void => {
         window.removeListener('closed', retired);
-        window.webContents.removeListener('render-process-gone', retired);
+        contents.removeListener('render-process-gone', retired);
         this.lifecycle.clearHostWindow(window);
         resolve();
       };
       window.once('closed', retired);
-      window.webContents.once('render-process-gone', retired);
+      contents.once('render-process-gone', retired);
     });
     const failures = [...initialFailures];
     const promise = closed.then(() => {

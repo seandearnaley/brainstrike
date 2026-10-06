@@ -370,7 +370,10 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   }
   let workerLifetimeTelemetryFailure: Error | null = null;
   let workerLifetimeRecovery: Promise<void> | null = null;
-  const recoverWorkerpoolAfterLifetimeError = (event: EmbedWorkerLifetimeError): void => {
+  const recoverWorkerpoolAfterLifetimeError = (
+    event: Pick<EmbedWorkerLifetimeError, 'message' | 'workerInstanceId'>,
+    idleClosure = false
+  ): void => {
     assertManagedWorkerInstanceId(event.workerInstanceId);
     if (!activeWorkerInstanceIds.has(event.workerInstanceId)) {
       return;
@@ -378,11 +381,13 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     if (workerLifetimeRecovery !== null || terminalState !== 'active') {
       return;
     }
-    embeddingTelemetry.recordFailure(WORKER_LIFETIME_RECOVERY_REASON);
-    logger.error('Embedding worker lifetime failure triggered workerpool recovery.', {
-      reason: event.message,
-      workerInstanceId: event.workerInstanceId,
-    });
+    const details = { reason: event.message, workerInstanceId: event.workerInstanceId };
+    if (idleClosure) {
+      logger.info('Idle embedding worker closed; retiring workerpool.', details);
+    } else {
+      embeddingTelemetry.recordFailure(WORKER_LIFETIME_RECOVERY_REASON);
+      logger.error('Embedding worker lifetime failure triggered workerpool recovery.', details);
+    }
     const failedPool = pool;
     workerLifetimeRecovery = (async (): Promise<void> => {
       try {
@@ -458,6 +463,15 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         assertEmbedWorkerTelemetrySourceClosed(event.data);
         assertManagedWorkerInstanceId(event.data.workerInstanceId);
         removeWorkerTelemetrySource(event.data.workerInstanceId);
+        // Web Workers emit no owner-side exit event for self.close(). Retire through
+        // workerpool's public lifetime API before another request can use this slot.
+        recoverWorkerpoolAfterLifetimeError(
+          {
+            message: 'Embedding worker closed after WebGPU device loss.',
+            workerInstanceId: event.data.workerInstanceId,
+          },
+          activeTasks === 0
+        );
         return;
       }
       const diagnostic = readPipelineCacheDiagnostic(event.data);

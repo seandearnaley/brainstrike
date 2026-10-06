@@ -813,7 +813,7 @@ describe('createWorkerpoolAdapter', () => {
     );
   });
 
-  it('removes a worker telemetry source when the worker announces self-close', async () => {
+  it('retires the pool when an active worker announces self-close', async () => {
     const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     createWorkerpoolAdapter(createWorkerOptions());
     const { workerInstanceId } = createManagedWorker();
@@ -840,7 +840,7 @@ describe('createWorkerpoolAdapter', () => {
     expect(removeEmbeddingTelemetrySourceMock).toHaveBeenCalledWith(
       `workerpool-embedding-${workerInstanceId}`
     );
-    expect(poolTerminateMock).not.toHaveBeenCalled();
+    expect(poolTerminateMock).toHaveBeenCalledWith(true);
   });
 
   it('accepts a managed worker close notice that arrives after its termination callback', async () => {

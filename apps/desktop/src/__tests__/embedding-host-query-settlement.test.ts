@@ -671,6 +671,35 @@ describe('query transport physical settlement', () => {
     expect(await document).toBeInstanceOf(Error);
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
+  it('settles a timed-out query when closed makes BrowserWindow webContents inaccessible', async () => {
+    const contents = window.webContents;
+    let destroyed = false;
+    Object.defineProperty(window, 'webContents', {
+      configurable: true,
+      get: () => {
+        if (destroyed) {
+          throw new TypeError('Object has been destroyed');
+        }
+        return contents;
+      },
+    });
+    window.isDestroyed = () => destroyed;
+    window.destroy.mockImplementation(() => {
+      destroyed = true;
+      window.emit('closed');
+    });
+    const { outcome, settled } = await start();
+    const stopError = new Error('Stop join failed');
+    await vi.advanceTimersByTimeAsync(60_000);
+    stopAck.reject(stopError);
+    await flush();
+    expect(settled).toHaveBeenCalledOnce();
+    expect(failureCauses(await outcome)).toContain(stopError);
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
+    expect(contents.listenerCount('render-process-gone')).toBe(0);
+    expect(window.listenerCount('closed')).toBe(0);
+  });
+
   it('joins an errored host before a new request can replace its unresolved inference owner', async () => {
     const { outcome, settled } = await start();
     const admission = vi.fn(async () => fixture.lifecycle.getStatus());

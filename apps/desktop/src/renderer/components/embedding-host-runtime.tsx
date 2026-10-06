@@ -333,6 +333,19 @@ async function handleQueryEmbeddingRequest(options: {
     runtimeIdRef,
   } = options;
 
+  const startedAt = performance.now();
+  const reportQueryPhase = (stage: 'service-preparation' | 'inference' | 'complete'): void => {
+    if (request.channel !== 'query-embedding') {
+      return;
+    }
+    logger.info('Embedding host query execution phase', {
+      elapsedMs: Math.max(0, performance.now() - startedAt),
+      provider: 'local',
+      requestId: request.requestId,
+      runtimeId: request.runtimeId,
+      stage,
+    });
+  };
   queryEmbeddingActiveCountRef.current += 1;
   reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
     active: true,
@@ -350,6 +363,7 @@ async function handleQueryEmbeddingRequest(options: {
       drainTimeoutMs: QUERY_DRAIN_TIMEOUT_MS,
       gate,
       generate: async () => {
+        reportQueryPhase('service-preparation');
         const service = await getQueryEmbeddingService(
           db,
           request,
@@ -369,6 +383,7 @@ async function handleQueryEmbeddingRequest(options: {
           signal
         );
         assertQueryEmbeddingRuntimeCurrent(isCurrent);
+        reportQueryPhase('inference');
         const generated = await runOwnedQueryEmbeddingInference<
           EmbeddingResult | EmbeddingResult[]
         >(
@@ -391,6 +406,7 @@ async function handleQueryEmbeddingRequest(options: {
           assertEmbeddingResultDimensions(request, result);
           assertPinnedQueryEmbeddingResult(request, result);
         }
+        reportQueryPhase('complete');
         const runtime = results[0]?.runtime;
         if (runtime) {
           const selectedDevicePreference =

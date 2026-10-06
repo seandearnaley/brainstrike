@@ -253,6 +253,13 @@ Evidence: `local-inference/embedding-queue-load-verification.md`.
 
 ### Foreground query coordination
 
+- A browser worker's `self.close()` emits no owner-side exit event. Its validated
+  source-close notice must join public workerpool retirement before new requests
+  use a replacement. An interrupted request keeps its failure without retry;
+  idle closure retains its reason as informational telemetry, while active work
+  and retirement failures remain errors. Capture `webContents` while its window
+  is alive so physical-close cleanup never reads a destroyed `BrowserWindow`.
+  Evidence: `local-inference/2026-10-06-idle-worker-retirement.md`.
 - Never overlap indexing and foreground inference; FIFO generations own isolated service caches and serialize selection, initialization and generation.
   Gate only `waitForBackgroundPermit('embedding claim')`, never completion, with one host gate.
 - Failed background drain rejects before generation; `createForegroundEmbeddingGate`, `runCoordinatedQueryEmbedding` and `composeClaimPermit` share that gate.
