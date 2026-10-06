@@ -509,7 +509,12 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           first.reject(error);
           dependencies.onError(operation, error);
         },
-        onReceipt: (receipt) => {
+        onReceipt: (receipt, sourceInvalidated) => {
+          if (sourceInvalidated) {
+            scanAdmission.releaseInvalidatedWorkspace(receipt);
+            dependencies.onReceipt?.(receipt);
+            return;
+          }
           scanAdmission.completeWorkspace(receipt);
           dependencies.onReceipt?.(receipt);
           if (receipt.scanComplete) {

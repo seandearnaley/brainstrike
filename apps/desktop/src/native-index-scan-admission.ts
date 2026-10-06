@@ -119,6 +119,21 @@ export function createNativeScanAdmission(assertSource: () => void, signal: Abor
       }
     },
     getInventory: () => inventory,
+    releaseInvalidatedWorkspace: (receipt: CanonicalScanReceipt): void => {
+      if (
+        receipt.scanComplete ||
+        receipt.reason !== 'manifest-mismatch' ||
+        receipt.ticket.scope.kind !== 'workspace'
+      ) {
+        throw new Error('Workspace recovery requires its settled invalidated source receipt.');
+      }
+      const workspace = workspaces.get(receipt.ticket.requestId);
+      if (!workspace || workspace.rootId !== receipt.ticket.scope.rootId) {
+        throw new Error('Invalidated workspace receipt has no matching admission owner.');
+      }
+      workspace.completion.resolve();
+      workspaces.delete(receipt.ticket.requestId);
+    },
     retainInventory: (records: readonly NativeCanonicalCatalogRecord[]): void => {
       if (!collection) {
         throw new Error('Collection inventory has no admitted source owner.');

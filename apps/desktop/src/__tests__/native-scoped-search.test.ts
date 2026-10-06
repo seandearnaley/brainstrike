@@ -662,6 +662,70 @@ function pairedFixture() {
   return f;
 }
 const pairedRequests = [{ collectionId: 'selected', rootIds: [] }, { rootIds: ['root'] }];
+it('returns atomic partial coverage while the same scan keeps publishing', async () => {
+  const f = pairedFixture();
+  f.replaceAuthority({
+    ...f.getAuthority(),
+    readiness: f.getAuthority().readiness.map((entry) => ({ ...entry, scanComplete: false })),
+  });
+  const original = f.coverageBatch.getMockImplementation()!;
+  f.coverageBatch.mockImplementationOnce(async (requests) => {
+    const result = await original(requests);
+    f.replaceAuthority({
+      ...f.getAuthority(),
+      readiness: f.getAuthority().readiness.map((entry) => ({
+        ...entry,
+        mutationRevision: entry.mutationRevision + 2,
+      })),
+    });
+    return result;
+  });
+  const observation = await f.capability.coverageBatch(pairedRequests);
+  expect(observation).toMatchObject({
+    kind: 'current',
+    status: {
+      collectionReadiness: [{ scanComplete: false }],
+      rootReadiness: [{ scanComplete: false }],
+    },
+  });
+  if (observation.kind !== 'current') {
+    throw new Error('Expected actual partial coverage during publication.');
+  }
+  expect(observation.coverage.map((entry) => entry.totals.chunks)).toEqual([3, 2]);
+  expect(f.coverageBatch).toHaveBeenCalledTimes(1);
+});
+
+it.each(['new-scan', 'completed-scan', 'completed-mutation'] as const)(
+  'still invalidates coverage when %s changes its completion proof',
+  async (change) => {
+    const f = pairedFixture();
+    f.replaceAuthority({
+      ...f.getAuthority(),
+      readiness: f.getAuthority().readiness.map((entry) => ({
+        ...entry,
+        scanComplete: change === 'completed-mutation',
+      })),
+    });
+    const original = f.coverageBatch.getMockImplementation()!;
+    f.coverageBatch.mockImplementationOnce(async (requests) => {
+      const result = await original(requests);
+      f.replaceAuthority({
+        ...f.getAuthority(),
+        readiness: f.getAuthority().readiness.map((entry) => ({
+          ...entry,
+          generation: entry.generation + (change === 'new-scan' ? 1 : 0),
+          mutationRevision: entry.mutationRevision + 1,
+          scanComplete: change !== 'new-scan',
+        })),
+      });
+      return result;
+    });
+    await expect(f.capability.coverageBatch(pairedRequests)).resolves.toMatchObject({
+      kind: 'invalidated',
+    });
+  }
+);
+
 it('returns both independent coverage results and readiness from the same fenced observation', async () => {
   const f = pairedFixture();
   const result = await f.capability.coverageBatch(pairedRequests);

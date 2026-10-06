@@ -42,6 +42,14 @@ import {
   readCanonicalSource,
 } from './source-preparation.js';
 
+/** An owned, physically settled scan whose source proof is incomplete. */
+export class CanonicalScanIncompleteError extends Error {
+  constructor(readonly receipt: CanonicalScanReceipt) {
+    super(`Canonical scan receipt is incomplete: ${receipt.reason}.`);
+    this.name = 'CanonicalScanIncompleteError';
+  }
+}
+
 interface ActiveScan {
   readonly controller: AbortController;
   error: unknown;
@@ -284,11 +292,14 @@ export class CanonicalIngestionHost {
       throw failure;
     }
     context.signal.throwIfAborted();
-    if (!receipt?.scanComplete) {
-      throw new Error(`Canonical scan receipt is incomplete: ${receipt?.reason ?? 'missing'}.`);
+    if (!receipt) {
+      throw new Error('Canonical scan receipt is incomplete: missing.');
     }
     if (!sameTicket(receipt.ticket, ticket)) {
       throw new Error('Canonical scan receipt belongs to another generation.');
+    }
+    if (!receipt.scanComplete) {
+      throw new CanonicalScanIncompleteError(receipt);
     }
     return outcome.excluded.length > 0 ? { ...receipt, excluded: outcome.excluded } : receipt;
   }

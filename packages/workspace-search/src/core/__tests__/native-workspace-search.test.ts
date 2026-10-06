@@ -81,7 +81,7 @@ describe('native vector availability', () => {
     expect(bridge.status).not.toHaveBeenCalled();
   });
 
-  it('admits a matching profile only after actual root scan and vector coverage', async () => {
+  it('admits a matching profile with actual indexed vector coverage', async () => {
     const bridge = capability();
     expect(
       await getNativeSemanticAvailability({ capability: bridge, profile, rootIds: ['root-a'] })
@@ -90,7 +90,7 @@ describe('native vector availability', () => {
     expect(bridge.search).not.toHaveBeenCalled();
   });
 
-  it('does not accept complete vectors from an incomplete source scan', async () => {
+  it('admits indexed vectors during source scanning and explicitly reports partial coverage', async () => {
     const bridge = capability();
     bridge.status.mockResolvedValueOnce({
       ...ready(),
@@ -101,14 +101,16 @@ describe('native vector availability', () => {
       profile,
       rootIds: ['root-a'],
     });
-    expect(result.available).toBe(false);
-    expect(result.reason).toBe(
-      'Vector search requires a complete source scan for every requested root.'
-    );
-    expect(bridge.coverage).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      available: true,
+      hint: expect.stringMatching(
+        /Partial index coverage.*2 files.*4 chunks.*4 vectors.*Source scan incomplete/
+      ),
+    });
+    expect(bridge.coverage).toHaveBeenCalledOnce();
   });
 
-  it('requires scan readiness for every requested root', async () => {
+  it('requires actual coverage for every requested root', async () => {
     const bridge = capability();
     bridge.status.mockResolvedValueOnce({
       ...ready(),
@@ -189,22 +191,26 @@ describe('native vector availability', () => {
     ).toBe(false);
   });
 
-  it('rejects partial vectors and a false completeness flag', async () => {
-    for (const coverage of [
-      { ...covered(), vectorCoverageComplete: false },
-      {
-        ...covered(),
-        roots: [{ rootId: 'root-a', ...counts, missingVectors: 1, vectors: 3 }],
-        totals: { ...counts, missingVectors: 1, vectors: 3 },
-      },
-    ]) {
-      const bridge = capability();
-      bridge.coverage.mockResolvedValueOnce(coverage);
-      expect(
-        (await getNativeSemanticAvailability({ capability: bridge, profile, rootIds: ['root-a'] }))
-          .available
-      ).toBe(false);
-    }
+  it('admits the valid vector subset while refusing contradictory coverage counts', async () => {
+    const bridge = capability();
+    const partial = {
+      ...covered(),
+      roots: [{ rootId: 'root-a', ...counts, missingVectors: 1, vectors: 3 }],
+      totals: { ...counts, missingVectors: 1, vectors: 3 },
+      vectorCoverageComplete: false,
+    };
+    bridge.coverage.mockResolvedValueOnce(partial);
+    expect(
+      await getNativeSemanticAvailability({ capability: bridge, profile, rootIds: ['root-a'] })
+    ).toMatchObject({
+      available: true,
+      hint: expect.stringContaining('3 vectors, 1 chunks awaiting vectors'),
+    });
+    bridge.coverage.mockResolvedValueOnce({ ...partial, vectorCoverageComplete: true });
+    expect(
+      (await getNativeSemanticAvailability({ capability: bridge, profile, rootIds: ['root-a'] }))
+        .available
+    ).toBe(false);
   });
 
   it('surfaces bridge failure without requesting a search or rewriting selection', async () => {
@@ -303,7 +309,12 @@ describe('native search consumer boundary', () => {
   });
   it('semantic rejects incomplete coverage before inference or any candidate arm', async () => {
     const bridge = capability();
-    bridge.coverage.mockResolvedValueOnce({ ...covered(), vectorCoverageComplete: false });
+    bridge.coverage.mockResolvedValueOnce({
+      ...covered(),
+      roots: [{ rootId: 'root-a', ...counts, missingVectors: 4, vectors: 0 }],
+      totals: { ...counts, missingVectors: 4, vectors: 0 },
+      vectorCoverageComplete: false,
+    });
     const embedQuery = vi.fn();
     await expect(
       new NativeWorkspaceSearchExecutor({ capability: bridge, embedQuery, profile }).searchSemantic(
@@ -316,9 +327,12 @@ describe('native search consumer boundary', () => {
   });
   it('rechecks scope coverage after renderer inference and never runs lexical-only semantic search', async () => {
     const bridge = capability();
-    bridge.coverage
-      .mockResolvedValueOnce(covered())
-      .mockResolvedValueOnce({ ...covered(), vectorCoverageComplete: false });
+    bridge.coverage.mockResolvedValueOnce(covered()).mockResolvedValueOnce({
+      ...covered(),
+      roots: [{ rootId: 'root-a', ...counts, missingVectors: 4, vectors: 0 }],
+      totals: { ...counts, missingVectors: 4, vectors: 0 },
+      vectorCoverageComplete: false,
+    });
     const embedQuery = vi.fn(async () => Array.from({ length: 384 }, () => 1));
     await expect(
       new NativeWorkspaceSearchExecutor({ capability: bridge, embedQuery, profile }).searchSemantic(
@@ -583,7 +597,7 @@ it('searches the actual retained collection without manufacturing a workspace ro
   expect(embedQuery).not.toHaveBeenCalled();
 });
 
-it('requires the actual collection receipt and scoped vector coverage for a rootless semantic query', async () => {
+it('admits rootless indexed vectors and marks an incomplete collection receipt explicitly', async () => {
   const bridge = capability();
   const status = {
     ...ready(),
@@ -605,5 +619,8 @@ it('requires the actual collection receipt and scoped vector coverage for a root
     ...status,
     collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
   });
-  expect((await getNativeSemanticAvailability(scope)).available).toBe(false);
+  expect(await getNativeSemanticAvailability(scope)).toMatchObject({
+    available: true,
+    hint: expect.stringContaining('Source scan incomplete'),
+  });
 });

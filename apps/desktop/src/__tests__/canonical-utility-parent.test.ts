@@ -141,6 +141,40 @@ function call(
 }
 
 describe('captured canonical utility capabilities', () => {
+  it.each(['owned', 'complete', 'foreign', 'write-failed'] as const)(
+    'preserves only an owned invalidated workspace receipt across the utility channel: %s',
+    async (scenario) => {
+      const dependencies = fixture();
+      const { parent, owner } = await attached(dependencies);
+      const receipt = {
+        reason: scenario === 'write-failed' ? 'write-failed' : 'manifest-mismatch',
+        scanComplete: scenario === 'complete',
+        ticket: {
+          generation: 1,
+          requestId: 'physical-scan',
+          scope: { ...scope, rootId: scenario === 'foreign' ? 'foreign' : 'root' },
+          storeId: 'store',
+        },
+      };
+      const receive = () =>
+        parent.receive({
+          channel: CANONICAL_CHANNEL,
+          event: 'source-invalidated',
+          kind: 'event',
+          owner,
+          value: receipt,
+        });
+      if (scenario === 'owned') {
+        receive();
+        expect(dependencies.onReceipt).toHaveBeenCalledWith(receipt, true);
+      } else {
+        expect(receive).toThrow();
+        expect(dependencies.onReceipt).not.toHaveBeenCalled();
+      }
+      await parent.close();
+    }
+  );
+
   it.each([
     ['load-files', { kind: 'workspace', rootId: 'foreign' }],
     ['load-files', {}],

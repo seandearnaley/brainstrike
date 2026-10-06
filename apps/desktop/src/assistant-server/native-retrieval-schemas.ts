@@ -34,6 +34,6 @@ export const NativeHybridSearchInputSchema = providerCompatibleInputSchema(
   })
 );
 export const NATIVE_SEMANTIC_RETRIEVAL_DESCRIPTION =
-  'Native semantic workspace context using the saved collection and exact local query profile; requires ready VECTOR mode. Up to 10 results from 100 vector candidates. Refine with query, root, threshold, maxChunks or tokenBudget; filePaths and selection snapshots are unsupported.';
+  'Native semantic workspace context using the saved collection and exact local query profile; requires configured VECTOR mode with indexed vectors. During indexing results explicitly report partial coverage. Up to 10 results from 100 vector candidates. Refine with query, root, threshold, maxChunks or tokenBudget; filePaths and selection snapshots are unsupported.';
 export const NATIVE_HYBRID_RETRIEVAL_DESCRIPTION =
-  'Native workspace retrieval fusing BM25, grep and vector rankings with fixed equal RRF60 weights; requires ready VECTOR mode. Omit embeddingSetId for the saved collection. Up to 10 results from 100 candidates per arm. Refine with query, root or vectorThreshold; filePaths and chunk filters are unsupported.';
+  'Native workspace retrieval fusing BM25, grep and vector rankings with fixed equal RRF60 weights; requires configured VECTOR mode with indexed vectors. During indexing results explicitly report partial coverage. Omit embeddingSetId for the saved collection. Up to 10 results from 100 candidates per arm. Refine with query, root or vectorThreshold; filePaths and chunk filters are unsupported.';

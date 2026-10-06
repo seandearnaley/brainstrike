@@ -10,7 +10,11 @@ import type {
   FileSystemChange,
   WatcherHealthTransition,
 } from '@brainstrike/types';
-import { type CanonicalIngestionDependencies, CanonicalIngestionHost } from './host.js';
+import {
+  type CanonicalIngestionDependencies,
+  CanonicalIngestionHost,
+  CanonicalScanIncompleteError,
+} from './host.js';
 import type {
   CanonicalManifestFile,
   CanonicalOperationContext,
@@ -28,7 +32,7 @@ export type CanonicalWorkspaceRuntimeDependencies =
   WithoutSource<CanonicalIngestionDependencies> & {
     readonly managedCollectionId: string;
     readonly onError: (operation: string, error: unknown) => void;
-    readonly onReceipt: (receipt: CanonicalScanReceipt) => void;
+    readonly onReceipt: (receipt: CanonicalScanReceipt, sourceInvalidated?: true) => void;
     readonly onWatchHealth: (health: WatcherHealthTransition) => void;
     readonly request: Omit<CanonicalScanRequest, 'requestId' | 'scope' | 'forceFileIds'>;
     readonly source: Omit<CanonicalWorkspaceSourceDependencies, 'lease' | 'resolveScanScope'> & {
@@ -41,6 +45,7 @@ interface ActivePass {
   error?: unknown;
   scanStarted: boolean;
   settled: Promise<void>;
+  sourceInvalidated: boolean;
 }
 
 /** Existing WorkspaceIndexingCoordinator, driven by the existing main watch owner. */
@@ -139,6 +144,9 @@ export class CanonicalWorkspaceIngestionRuntime {
         }),
       (signal) => {
         if (signal.type === 'overflow') {
+          if (this.active) {
+            this.active.sourceInvalidated = true;
+          }
           this.trigger({
             mode: 'paths',
             roots: [
@@ -187,6 +195,7 @@ export class CanonicalWorkspaceIngestionRuntime {
       controller,
       scanStarted: false,
       settled: Promise.resolve(),
+      sourceInvalidated: false,
     };
     this.active = active;
     const running = this.runPass(active, changes);
@@ -253,6 +262,20 @@ export class CanonicalWorkspaceIngestionRuntime {
       });
       active.context.signal.throwIfAborted();
       this.dependencies.onReceipt(receipt);
+    } catch (error) {
+      if (
+        error instanceof CanonicalScanIncompleteError &&
+        error.receipt.reason === 'manifest-mismatch' &&
+        error.receipt.ticket.requestId === active.context.requestId &&
+        active.sourceInvalidated &&
+        !active.context.signal.aborted
+      ) {
+        // The watch owner already queued this root's full recovery. Release only
+        // this settled source proof; storage and independent scan failures throw.
+        this.dependencies.onReceipt(error.receipt, true);
+        return;
+      }
+      throw error;
     } finally {
       active.scanStarted = false;
     }

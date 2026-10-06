@@ -273,7 +273,7 @@ export const SEARCH_TOOL_EXECUTORS = executorGroup({
         projectHybridSearchModelOutput(output, resolveActiveDomainCharBudget()),
     };
   },
-  [NATIVE_TOOL_ID.listEmbeddingSpaces]: ({ runtimeData }) => ({
+  [NATIVE_TOOL_ID.listEmbeddingSpaces]: ({ dependencies, runtimeData }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.listEmbeddingSpaces],
     execute: async (input: ToolExecuteInput<ListEmbeddingSetsInput>) => {
       const resolvedInput = parseToolExecuteInput(
@@ -281,7 +281,11 @@ export const SEARCH_TOOL_EXECUTORS = executorGroup({
         input
       );
       try {
-        return await runListEmbeddingSpaces(resolvedInput, runtimeData);
+        return await runListEmbeddingSpaces(
+          resolvedInput,
+          runtimeData,
+          dependencies.nativeIndexSearch
+        );
       } catch (error) {
         logToolFailure('listEmbeddingSpaces failed', error, resolvedInput);
         throw error;

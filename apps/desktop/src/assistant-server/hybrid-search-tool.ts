@@ -234,7 +234,7 @@ export async function runHybridSearch(
           truncated,
           vectorWeight: 1,
           ...(root ? { root: root.displayName } : {}),
-          ...(truncated
+          ...(native.hint || truncated
             ? {
                 hint:
                   native.hint ??

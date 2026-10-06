@@ -31,7 +31,10 @@ vi.mock('@brainstrike/db', async (original) => ({
 import { runHybridSearch } from '../../assistant-server/hybrid-search-tool';
 import { searchNativeAssistantChunks } from '../../assistant-server/native-assistant-retrieval';
 import { runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
-import { projectQueryEmbeddingSpaceModelOutput } from '../../assistant-server/workspace-retrieval-model-projections';
+import {
+  projectHybridSearchModelOutput,
+  projectQueryEmbeddingSpaceModelOutput,
+} from '../../assistant-server/workspace-retrieval-model-projections';
 import { EmbeddingHostManager } from '../../embedding-host-manager';
 import type { EmbeddingHostQueryEmbeddingRequest } from '../../embedding-host-shared';
 import {
@@ -161,6 +164,44 @@ const tools = [
   { name: 'hybrid', run: runHybridSearch },
 ] as const;
 describe('native assistant retrieval cutover', () => {
+  it.each(tools)(
+    'runs $name on valid indexed vectors while the source scan and publication advance',
+    async ({ run }) => {
+      const f = fixture();
+      f.setStatus({
+        ...f.status,
+        collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
+      } as IndexerStatus);
+      vi.mocked(f.capability.search).mockResolvedValue({ ...f.result, scanLimited: true });
+      vi.mocked(f.capability.grep).mockResolvedValue({ ...f.result, scanLimited: true });
+      f.queryEmbedding.mockImplementationOnce(async () => {
+        f.setStatus({
+          ...f.status,
+          collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: true }],
+        } as IndexerStatus);
+        return Array.from({ length: 384 }, () => 0.1);
+      });
+      const result = await run({ query: 'native marker' }, undefined, {
+        embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+        nativeIndexSearch: f.capability,
+      });
+      expect(result).toMatchObject({ hint: expect.stringMatching(/partial.*coverage/i) });
+      const projected =
+        run === runHybridSearch
+          ? projectHybridSearchModelOutput(result)
+          : projectQueryEmbeddingSpaceModelOutput(result);
+      expect(projected.value).toMatch(/hint: Partial index coverage observed/);
+      expect(f.queryEmbedding).toHaveBeenCalledOnce();
+      expect(f.capability.search).toHaveBeenCalledWith(expect.objectContaining({ mode: 'vector' }));
+      if (run === runHybridSearch) {
+        expect(f.capability.search).toHaveBeenCalledWith(expect.objectContaining({ mode: 'bm25' }));
+        expect(f.capability.grep).toHaveBeenCalledOnce();
+      }
+      expect(pg.search).not.toHaveBeenCalled();
+      expect(pg.fts).not.toHaveBeenCalled();
+    }
+  );
+
   it.each(tools)(
     'routes $name through native vectors with the exact saved query plan and signal',
     async ({ run }) => {
@@ -502,16 +543,10 @@ describe('native assistant retrieval cutover', () => {
       expect(pg.search).not.toHaveBeenCalled();
     }
   );
-  it.each(['receipt', 'coverage', 'token-cap'] as const)(
+  it.each(['coverage', 'token-cap'] as const)(
     'refuses incomplete or mismatched native %s before inference',
     async (failure) => {
       const f = fixture();
-      if (failure === 'receipt') {
-        f.setStatus({
-          ...f.status,
-          collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
-        } as IndexerStatus);
-      }
       if (failure === 'token-cap') {
         f.setStatus({
           ...f.status,

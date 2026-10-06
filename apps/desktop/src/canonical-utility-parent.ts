@@ -450,6 +450,19 @@ export class CanonicalUtilityParent {
       return;
     }
     switch (frame.event) {
+      case 'source-invalidated': {
+        const receipt = decode(receiptSchema)(frame.value);
+        if (
+          receipt.scanComplete ||
+          receipt.reason !== 'manifest-mismatch' ||
+          receipt.ticket.scope.kind !== 'workspace' ||
+          !sameScope(receipt.ticket.scope, session.config.scope)
+        ) {
+          throw new Error('Canonical source invalidation differs from its captured workspace.');
+        }
+        session.dependencies.onReceipt(receipt, true);
+        return;
+      }
       case 'receipt':
         session.dependencies.onReceipt(decode(receiptSchema)(frame.value));
         return;

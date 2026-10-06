@@ -1,4 +1,8 @@
-export { type CanonicalIngestionDependencies, CanonicalIngestionHost } from './host.js';
+export {
+  type CanonicalIngestionDependencies,
+  CanonicalIngestionHost,
+  CanonicalScanIncompleteError,
+} from './host.js';
 export * from './ports.js';
 export {
   CanonicalWorkspaceIngestionRuntime,

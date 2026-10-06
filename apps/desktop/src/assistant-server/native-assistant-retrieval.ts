@@ -2,6 +2,7 @@ import { ToolInputError } from '@brainstrike/assistant-contract';
 import type {
   IndexerSearchHit,
   IndexerSearchResult,
+  IndexerStatus,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import {
@@ -37,6 +38,19 @@ export interface NativeAssistantHit {
   similarity?: number;
   sourceCount: number;
 }
+function executionIdentity(status: IndexerStatus): string {
+  if (status.kind !== 'ready') {
+    return JSON.stringify(status);
+  }
+  const {
+    collectionReadiness: _collections,
+    rootReadiness: _roots,
+    publicationProgress: _progress,
+    ...identity
+  } = status;
+  return JSON.stringify(identity);
+}
+
 function refuse(message: string): never {
   throw new ToolInputError(message);
 }
@@ -139,6 +153,8 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
     rootIds,
     ...(request.rootId === undefined ? { collectionId: embeddingSetId } : {}),
   };
+  let coverageHint: string | undefined;
+  let scanLimited = false;
   const assertCurrent = async (): Promise<void> => {
     signal?.throwIfAborted();
     const availability = await getNativeSemanticAvailability({ capability, profile, ...scope });
@@ -146,9 +162,10 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
     if (!availability.available) {
       refuse(availability.reason ?? 'Native semantic coverage is unavailable.');
     }
+    coverageHint ??= availability.hint;
     const current = await capability.status();
     signal?.throwIfAborted();
-    if (JSON.stringify(current) !== JSON.stringify(status)) {
+    if (executionIdentity(current) !== executionIdentity(status)) {
       refuse(
         'Native search authority or saved query profile changed during retrieval. Retry the query.'
       );
@@ -184,11 +201,11 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
     if (
       pool.storeId !== status.storeId ||
       JSON.stringify(pool.embedding) !== JSON.stringify(status.embedding) ||
-      pool.scanLimited ||
       pool.hits.length > NATIVE_SEARCH_CANDIDATE_LIMIT
     ) {
       refuse('Native search returned an incomplete or changed store/profile scope.');
     }
+    scanLimited ||= pool.scanLimited;
     for (const hit of pool.hits) {
       if (
         hit.embeddingSetId !== embeddingSetId ||
@@ -288,6 +305,7 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
     truncated = fused.truncated || fused.candidatesTruncated || fused.hits.length > limit;
   }
   await assertCurrent();
+  const hint = retrievalHint(coverageHint, scanLimited, truncated);
   return {
     assertCurrent,
     ftsResultCount,
@@ -295,12 +313,25 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
     limit,
     truncated,
     vectorResultCount,
-    ...(truncated
-      ? {
-          hint: 'Native retrieval is limited to 100 candidates per arm and 10 final results. Narrow the query or root scope.',
-        }
-      : {}),
+    ...(hint ? { hint } : {}),
   };
+}
+
+function retrievalHint(
+  coverageHint: string | undefined,
+  scanLimited: boolean,
+  truncated: boolean
+): string | undefined {
+  const hints = [
+    coverageHint ??
+      (scanLimited
+        ? 'Partial index coverage: results cover the indexed subset while source scanning is incomplete.'
+        : undefined),
+    truncated
+      ? 'Native retrieval is limited to 100 candidates per arm and 10 final results. Narrow the query or root scope.'
+      : undefined,
+  ].filter((hint): hint is string => hint !== undefined);
+  return hints.length > 0 ? hints.join(' ') : undefined;
 }
 
 /** Match the original collection search policy's normalized metric scores. */

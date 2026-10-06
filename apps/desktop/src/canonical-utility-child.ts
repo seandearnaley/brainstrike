@@ -232,10 +232,10 @@ export class CanonicalUtilityChild {
             owner,
             value: { error: canonicalFault(error), operation },
           }),
-        onReceipt: (receipt) =>
+        onReceipt: (receipt, sourceInvalidated) =>
           this.send({
             channel: CANONICAL_CHANNEL,
-            event: 'receipt',
+            event: sourceInvalidated ? 'source-invalidated' : 'receipt',
             kind: 'event',
             owner,
             value: receipt,

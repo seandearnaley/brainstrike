@@ -21,6 +21,7 @@ import { buildGrepPattern } from './workspace-search-executor';
 
 export interface NativeSemanticAvailability {
   available: boolean;
+  hint?: string;
   reason: string | null;
 }
 export interface NativeSearchScope {
@@ -46,22 +47,20 @@ async function nativeProfileHash(profile: IndexerEmbeddingProfile): Promise<stri
   );
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
-function completeCounts(counts: IndexerCoverageCounts): boolean {
+function validCounts(counts: IndexerCoverageCounts): boolean {
   return (
     [counts.chunks, counts.indexedFiles, counts.missingVectors, counts.vectors].every(
       (value) => Number.isSafeInteger(value) && value >= 0
     ) &&
-    counts.indexedFiles > 0 &&
-    counts.chunks > 0 &&
-    counts.vectors === counts.chunks &&
-    counts.missingVectors === 0
+    counts.vectors + counts.missingVectors === counts.chunks &&
+    (counts.chunks === 0 || counts.indexedFiles > 0)
   );
 }
 function unavailable(reason: string): NativeSemanticAvailability {
   return { available: false, reason };
 }
 
-function completeCoverageCounts(coverage: IndexerCoverage, rootIds: readonly string[]): boolean {
+function validCoverageCounts(coverage: IndexerCoverage, rootIds: readonly string[]): boolean {
   const totals = { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 };
   for (const rootId of rootIds) {
     const rows = coverage.roots.filter((root) => root.rootId === rootId);
@@ -69,7 +68,7 @@ function completeCoverageCounts(coverage: IndexerCoverage, rootIds: readonly str
     if (
       rows.length !== 1 ||
       !row ||
-      !completeCounts({
+      !validCounts({
         chunks: row.chunks,
         indexedFiles: row.indexedFiles,
         missingVectors: row.missingVectors,
@@ -84,14 +83,14 @@ function completeCoverageCounts(coverage: IndexerCoverage, rootIds: readonly str
     totals.missingVectors += row.missingVectors;
   }
   return (
-    completeCounts(coverage.totals) &&
+    validCounts(coverage.totals) &&
     Object.entries(totals).every(
       ([key, value]) => coverage.totals[key as keyof IndexerCoverageCounts] === value
     )
   );
 }
 
-/** Native row coverage and producer scan receipts are independent required proofs. */
+/** Exact-profile native rows are searchable during ingestion; completion remains a separate proof. */
 export async function getNativeSemanticAvailability(
   scope: NativeSearchScope
 ): Promise<NativeSemanticAvailability> {
@@ -127,9 +126,6 @@ export async function getNativeSemanticAvailability(
     if (rootIds.some((rootId) => !status.authorizedRootIds.includes(rootId))) {
       return unavailable('Vector search scope contains an unauthorized workspace root.');
     }
-    if (!completeScopeReceipts(status, rootIds, collectionId)) {
-      return unavailable('Vector search requires a complete source scan for every requested root.');
-    }
     const coverage = await capability.coverage({
       rootIds,
       ...(collectionId === null ? {} : { collectionId }),
@@ -145,10 +141,25 @@ export async function getNativeSemanticAvailability(
     if (reason !== null) {
       return unavailable(reason);
     }
-    return { available: true, reason: null };
+    return admittedCoverage(coverage, completeScopeReceipts(status, rootIds, collectionId));
   } catch (error) {
     return unavailable(error instanceof Error ? error.message : String(error));
   }
+}
+
+function admittedCoverage(
+  coverage: IndexerCoverage,
+  sourceComplete: boolean
+): NativeSemanticAvailability {
+  if (sourceComplete && coverage.vectorCoverageComplete) {
+    return { available: true, reason: null };
+  }
+  const { indexedFiles, chunks, vectors, missingVectors } = coverage.totals;
+  return {
+    available: true,
+    hint: `Partial index coverage observed: ${indexedFiles} files, ${chunks} chunks, ${vectors} vectors, ${missingVectors} chunks awaiting vectors. Source scan ${sourceComplete ? 'complete' : 'incomplete'}; results cover the indexed subset.`,
+    reason: null,
+  };
 }
 
 export const NATIVE_SEARCH_CANDIDATE_LIMIT = 100;
@@ -617,21 +628,25 @@ function coverageRefusal(
     collectionId === null
       ? coverage.roots.length === rootIds.length
       : coverage.collections?.length === 1;
-  if (!(coverage.vectorCoverageComplete && expectedScopeCount)) {
+  if (
+    !expectedScopeCount ||
+    coverage.totals.vectors === 0 ||
+    (coverage.vectorCoverageComplete && coverage.totals.missingVectors !== 0)
+  ) {
     return 'Vector coverage is incomplete for the requested workspace roots.';
   }
   const complete =
     collectionId === null
-      ? completeCoverageCounts(coverage, rootIds)
-      : completeCollectionCounts(coverage, collectionId);
+      ? validCoverageCounts(coverage, rootIds)
+      : validCollectionCounts(coverage, collectionId);
   return complete ? null : 'Native vector coverage totals are inconsistent or incomplete.';
 }
-function completeCollectionCounts(coverage: IndexerCoverage, collectionId: string): boolean {
+function validCollectionCounts(coverage: IndexerCoverage, collectionId: string): boolean {
   const collection = coverage.collections?.find((row) => row.embeddingSetId === collectionId);
   return (
     !!collection &&
-    completeCounts(collection) &&
-    completeCounts(coverage.totals) &&
+    validCounts(collection) &&
+    validCounts(coverage.totals) &&
     Object.entries(coverage.totals).every(
       ([key, value]) => collection[key as keyof IndexerCoverageCounts] === value
     )

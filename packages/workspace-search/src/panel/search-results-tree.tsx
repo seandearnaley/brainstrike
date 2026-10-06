@@ -515,7 +515,7 @@ export function SearchResultsTree({
     <div className="flex min-h-0 flex-1 flex-col gap-1">
       {notices?.scanLimited ? (
         <p className="text-muted-foreground text-xs" role="status">
-          Broad pattern — results limited
+          Partial search coverage — some files may not be included
         </p>
       ) : null}
       {notices && notices.skippedMissingLineMetadata > 0 ? (

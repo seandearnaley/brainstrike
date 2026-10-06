@@ -103,7 +103,20 @@ function fingerprint(
     authority.bindings,
     authority.profile,
     authority.queryPlan,
-    ...(includeReadiness ? [authority.readiness] : []),
+    ...(includeReadiness
+      ? [
+          authority.readiness.map((receipt) => [
+            receipt.scope,
+            receipt.generation,
+            receipt.scanComplete,
+            receipt.publication?.requestId,
+            // Incomplete scans expose an atomic row snapshot, not a completion
+            // proof. Ordinary commits must not starve that observation. Completed
+            // receipts still fence every mutation, including invalidate/reverify.
+            ...(receipt.scanComplete ? [receipt.mutationRevision] : []),
+          ]),
+        ]
+      : []),
     ...(includePublicationIdentity
       ? [
           authority.readiness.map(({ generation, scope, publication }) => [

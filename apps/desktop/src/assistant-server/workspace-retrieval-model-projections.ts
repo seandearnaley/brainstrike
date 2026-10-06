@@ -170,7 +170,6 @@ function parseSemanticResult(output: unknown): SemanticResult | UnavailableResul
   const result = output as unknown as SemanticResult;
   if (
     (result.truncated === true && !result.hint?.trim()) ||
-    (result.truncated !== true && result.hint !== undefined) ||
     result.totalTokens + result.remainingTokens !== result.budget ||
     result.skippedForMissingSourceRange > result.skipped ||
     result.chunkContentIncludedInContext !== result.chunks.length > 0 ||
@@ -228,8 +227,7 @@ function parseHybridResult(output: unknown): HybridResult {
   if (
     result.results.length > result.metadata.fusedResultCount ||
     result.results.some((item, index) => item.position !== index + 1) ||
-    (result.truncated && (!result.hint || result.hint.trim().length === 0)) ||
-    (!result.truncated && result.hint !== undefined)
+    (result.truncated && (!result.hint || result.hint.trim().length === 0))
   ) {
     throw new ToolProjectionInputRejectedError(
       'hybridSearch model projection received a malformed result'

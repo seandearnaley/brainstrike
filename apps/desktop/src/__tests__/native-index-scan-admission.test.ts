@@ -1,7 +1,10 @@
 // @vitest-environment node
 import type { CanonicalFileIdentity, CanonicalSourceScope } from '@brainstrike/canonical-ingestion';
 import type { ScopedIndexerPort } from '@brainstrike/indexer';
+import type { FileSystemWatchSignal } from '@brainstrike/types';
 import { expect, it, vi } from 'vitest';
+import { CanonicalUtilityChild } from '../canonical-utility-child';
+import { CanonicalUtilityParent } from '../canonical-utility-parent';
 import { createNativeCanonicalPublication } from '../native-canonical-publication';
 import { createNativeScanAdmission } from '../native-index-scan-admission';
 
@@ -68,12 +71,141 @@ function fixture() {
       })
     ),
   };
-  const publication = admission.workspacePublication(
-    createNativeCanonicalPublication(writer, [workspace, collection])
-  );
+  const nativePublication = createNativeCanonicalPublication(writer, [workspace, collection]);
+  const publication = admission.workspacePublication(nativePublication);
   const context = (requestId: string) => ({ requestId, signal: source.signal });
-  return { admission, context, publication, source, writer };
+  return { admission, context, nativePublication, publication, source, writer };
 }
+
+it.each(['overflow', 'unexplained-mismatch', 'write-failure'] as const)(
+  'keeps settled scan admission honest during %s',
+  async (scenario) => {
+    const test = fixture();
+    const verifying = Promise.withResolvers<void>();
+    const released = Promise.withResolvers<void>();
+    const original = test.writer.verifyScopedManifest.getMockImplementation()!;
+    const writeFailure = new Error('Actual native manifest read failed.');
+    let verifications = 0;
+    test.writer.verifyScopedManifest.mockImplementation(async (request) => {
+      verifications += 1;
+      if (verifications === 1) {
+        verifying.resolve();
+        await released.promise;
+        if (scenario === 'write-failure') {
+          throw writeFailure;
+        }
+      }
+      return original(request);
+    });
+    let watchSignal: ((signal: FileSystemWatchSignal) => void) | undefined;
+    const receipt = vi.fn(
+      (
+        result: Parameters<typeof test.admission.completeWorkspace>[0],
+        sourceInvalidated?: true
+      ) => {
+        if (sourceInvalidated) {
+          test.admission.releaseInvalidatedWorkspace(result);
+          return;
+        }
+        test.admission.completeWorkspace(result);
+      }
+    );
+    const error = vi.fn((operation: string, cause: unknown) => {
+      if (operation === 'sync' || operation === 'sync loop') {
+        test.admission.failWorkspace(workspace.rootId, cause);
+      }
+    });
+    const parent = new CanonicalUtilityParent(
+      (frame) => queueMicrotask(() => child.receive(structuredClone(frame))),
+      vi.fn()
+    );
+    const child = new CanonicalUtilityChild((frame) =>
+      queueMicrotask(() => parent.receive(structuredClone(frame)))
+    );
+    await parent.attachWorkspace({
+      catalog: {
+        applyManagedCacheBatch: async () => {},
+        completeFiles: async () => {},
+        loadAuthorizedBatch: async () => [],
+        prepareManagedSourcesBatch: async () => [],
+        removeFiles: async () => {},
+        resolveProfile: async () => {
+          throw new Error('TEXT must not resolve inference.');
+        },
+      },
+      managedCollectionId: 'selected',
+      onError: error,
+      onReceipt: receipt,
+      onWatchHealth: () => {},
+      parser: { parser: 'oxc', treeSitterLanguages: ['python'] },
+      publication: test.publication,
+      request: { batchSize: 2, chunkingOptions: { strategy: 'auto' }, maxFileBytes: 1024 },
+      source: {
+        indexingPolicyPreset: 'balanced',
+        inventory: {
+          loadFiles: async () => [],
+          readRetained: async () => {
+            throw new Error('Empty root must not read retained files.');
+          },
+        },
+        lease: {
+          canonicalPath: '/actual/root',
+          generation: 'actual-borrow',
+          listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
+          readFile: async () => {
+            throw new Error('Empty root must not read files.');
+          },
+          retire: async () => {},
+          rootId: workspace.rootId,
+          signal: test.source.signal,
+          subscribe: async (_batch, signal) => {
+            watchSignal = signal;
+            return { close: async () => {} };
+          },
+        },
+      },
+    });
+    await vi.waitFor(() => expect(test.writer.verifyScopedManifest).toHaveBeenCalledOnce());
+    await verifying.promise;
+    // The real main watch owner invalidates readiness before forwarding overflow.
+    test.nativePublication.invalidateScope(workspace);
+    if (!watchSignal) {
+      throw new Error('Expected the actual mounted watch subscription.');
+    }
+    if (scenario !== 'unexplained-mismatch') {
+      watchSignal({ type: 'overflow' });
+    }
+    released.resolve();
+    try {
+      if (scenario !== 'overflow') {
+        await vi.waitFor(() => expect(error).toHaveBeenCalled());
+        expect(receipt).not.toHaveBeenCalled();
+        if (scenario === 'write-failure') {
+          expect(error.mock.calls[0]?.[1]).toMatchObject({ message: writeFailure.message });
+          await expect(test.admission.runCollection('after-failure', async () => {})).rejects.toBe(
+            error.mock.calls[0]?.[1]
+          );
+        } else {
+          expect(error.mock.calls[0]?.[1]).toMatchObject({
+            message: 'Canonical scan receipt is incomplete: manifest-mismatch.',
+            name: 'CanonicalScanIncompleteError',
+          });
+        }
+        return;
+      }
+      await vi.waitFor(() => expect(receipt).toHaveBeenCalledTimes(2));
+      expect(error).not.toHaveBeenCalled();
+      expect(receipt).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ reason: 'manifest-mismatch', scanComplete: false }),
+        true
+      );
+      expect(receipt).toHaveBeenNthCalledWith(2, expect.objectContaining({ scanComplete: true }));
+    } finally {
+      await parent.close();
+    }
+  }
+);
 
 it('drains native workspace removal and the physical host receipt; existing ACK stays admissible and later publication waits', async () => {
   const test = fixture();

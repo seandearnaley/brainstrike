@@ -367,7 +367,9 @@ describe('SearchResultsTree', () => {
   it('renders the scanLimited notice', () => {
     seedResults(makeResults([fileResult()], { scanLimited: true }));
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
-    expect(screen.getByText('Broad pattern — results limited')).toBeInTheDocument();
+    expect(
+      screen.getByText('Partial search coverage — some files may not be included')
+    ).toBeInTheDocument();
   });
 
   it('renders a Show more button for truncated results when onShowMore is provided', () => {
@@ -436,7 +438,9 @@ describe('SearchResultsTree', () => {
     // notices would double-report the same limitation.
     seedResults(makeResults([fileResult()], { candidatesTruncated: true, scanLimited: true }));
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
-    expect(screen.getByText('Broad pattern — results limited')).toBeInTheDocument();
+    expect(
+      screen.getByText('Partial search coverage — some files may not be included')
+    ).toBeInTheDocument();
     expect(
       screen.queryByText('Match list may be incomplete (candidate pool capped) — narrow the query.')
     ).not.toBeInTheDocument();
