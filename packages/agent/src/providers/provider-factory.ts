@@ -2,6 +2,7 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogle } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
+import type { LanguageModelV2 } from '@ai-sdk/provider';
 import {
   assertSafeBearerToken,
   buildRuntimeEndpoint,
@@ -45,9 +46,35 @@ import {
 export type LocalLanguageModelFactory = (
   modelId: string,
   settings?: LocalLanguageModelSettings
-) => unknown;
+) => LanguageModelV2;
 
 let localLanguageModelFactory: LocalLanguageModelFactory | undefined;
+
+/** The factory's actual public outputs; routers have a distinct stream-shaped generate API. */
+export type ProviderModelConfiguration =
+  | ReturnType<ReturnType<typeof createOpenAI>>
+  | ReturnType<ReturnType<typeof createAnthropic>>
+  | ReturnType<ReturnType<typeof createGoogle>>
+  | ReturnType<ReturnType<typeof createAmazonBedrock>>
+  | LanguageModelV2
+  | ModelRouterLanguageModel
+  | OpenAICompatibleConfig;
+
+/** Preserve the existing Mastra consumer's vendored SDK declaration boundary. */
+export function toMastraModelConfiguration(model: ProviderModelConfiguration): MastraModelConfig {
+  if (
+    'specificationVersion' in model &&
+    model.specificationVersion === 'v2' &&
+    !(model instanceof ModelRouterLanguageModel)
+  ) {
+    // Both represent the public V2 model. Mastra vendors an older mutable JSON
+    // declaration; the current provider permits readonly JSON. No runtime copy.
+    // https://github.com/vercel/ai/tree/main/packages/provider/src/language-model/v2
+    // Remove this declaration bridge when the existing Mastra/provider pins agree.
+    return model as unknown as Extract<MastraModelConfig, { specificationVersion: 'v2' }>;
+  }
+  return model;
+}
 
 export type ConcreteLanguageModel = Exclude<MastraModelConfig, string | OpenAICompatibleConfig>;
 const PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS = new Set<SupportedProvider>([
@@ -136,7 +163,7 @@ export function createProvider(
   auth?: ProviderAuthInput,
   model?: string,
   runtime?: Pick<RuntimeData, 'localLlmHostClient' | 'providerOptions'>
-): MastraModelConfig {
+): ProviderModelConfiguration {
   // Shape validation (aws region) happens BEFORE provider dispatch so a
   // malformed input fails identically on every provider case.
   assertValidProviderAuthInput(auth);
@@ -353,11 +380,7 @@ export function createProvider(
       // in-process backend — that path requires a browser environment.
       const hostClient = runtime?.localLlmHostClient;
       if (hostClient) {
-        return createLlmHostChatModel(
-          modelName,
-          hostClient,
-          runtime?.providerOptions?.local
-        ) as MastraModelConfig;
+        return createLlmHostChatModel(modelName, hostClient, runtime?.providerOptions?.local);
       }
       if (!localLanguageModelFactory) {
         throw createMastraAgentError('mastra_agent_runtime_init_failed', {
@@ -366,10 +389,7 @@ export function createProvider(
             'The in-process local model factory is unavailable from this agent entrypoint. Import the root @brainstrike/agent entrypoint before selecting the local provider.',
         });
       }
-      return localLanguageModelFactory(
-        modelName,
-        runtime?.providerOptions?.local
-      ) as MastraModelConfig;
+      return localLanguageModelFactory(modelName, runtime?.providerOptions?.local);
     }
 
     default:
@@ -414,7 +434,9 @@ export function createLanguageModelProvider(
 
   // Persistent memory stays on the resolved-string surface; the ONE
   // string→union adapter wraps it for the factory seam (BST-1352).
-  const modelConfig = createProvider(provider, apiKeyAuthInput(apiKey), model, runtime);
+  const modelConfig = toMastraModelConfiguration(
+    createProvider(provider, apiKeyAuthInput(apiKey), model, runtime)
+  );
   if (isConcreteLanguageModel(modelConfig)) {
     return modelConfig;
   }

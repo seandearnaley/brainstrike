@@ -4,6 +4,54 @@ This is the integrator's evidence ledger for BST-1977, not an acceptance declara
 
 CI is disabled due to cost; validation must run locally.
 
+## Ordinary New Thread connected slice — 7 October, 00:19 UTC
+
+The integrator applied reviewed credential commit `799d960` without the worker's
+ancestry synchronization merge. The ordinary desktop route now borrows its actual
+retained profile attachment over a visible-frame-authorized MessagePort/socket
+relay. Scan admission remains closed on a fresh Setup required profile; assistant
+attachment does not choose indexing settings or reopen index authority. Failed
+physical profile retirement remains joined and visible.
+
+The real normal built main/renderer/preload qualification passed **1/1, 4.594 s
+body / 6.96 s lane**. Ordinary New Thread created its committed host thread and
+sent the root run. GUI approval admitted the actual owned native file/index write
+and generation-qualified existing MCP authority execution, followed by real SQLite
+keyword retrieval, the committed conversation view and an actual CLI read of the
+same log. Exactly three completed effects and a completed run were asserted.
+The model was scripted; IPC, public Memory, writer, filesystem, indexer, MCP,
+permission decisions and rendering were real. Command:
+`pnpm --filter @brainstrike/desktop exec vitest run --config vitest.integration.config.mts src/__tests__/ordinary-host-new-thread.integration.test.ts --pool=forks --maxWorkers=1 --no-file-parallelism`.
+Log: `/tmp/brainstrike-m3-ordinary-all-gates.log`. Evidence:
+`/tmp/brainstrike-m3-ordinary-evidence-50a9ce1b-f1f1-431b-8664-d6235f86e632/`.
+Application/client/root/indexer/MCP/fixture close promises joined, main PID absence
+was asserted, rootReleased=true, failures=[]; a read-only follow-up process check
+found no owned disposable processes. No manual kill or shared profile change.
+
+Earlier receipts are retained: the actual closed-index admission failure, an
+early-read harness race, the source-alias/emitted native calculator path mismatch,
+and a collapsed second activity selector. Corrected harness admission uses the
+emitted public Node host entry and waits for committed thread identity. Deadlines
+and retry behavior are unchanged. This was not a zero-attempt result.
+
+Combined host units passed **119/119, 3.59 s** including the SDK 7 provider-router
+bridge's six intercepted-provider cases and native completion ownership tests.
+Native lifetime and credential-store tests passed **30/30 and 16/16**. OAuth's
+first sandbox-only attempt failed ten loopback binds with EPERM; its loopback-
+enabled lane passed **31/31, 0.789 s**. Affected build/types passed **63/63 tasks,
+36.437 s**, including 725 selected desktop test files and strict Effect diagnostics
+over 731 files. Logs use `/tmp/brainstrike-m3-combined-*`.
+
+This slice does not establish ordinary acceptance or full M3. The fixture's
+Electron-store model seed did not affect the actual browser-local selected model;
+provider/settings parity remains unqualified. The screenshot displays one
+diagnostic error whose cause must be captured. Ordinary reload/catalog hydration,
+default app-start production composition, complete native catalog/context/OM/
+credential/Tasks/Apps parity and full regression remain open. No legacy shadow
+thread/run records, aliases, paid provider calls or Keychain/security changes were
+introduced. Parent retains worker/machine coordination; the integrator keeps the
+next work on this same actual route.
+
 ## Production provider import boundary — 6 October, 22:26 UTC
 
 The new public `@brainstrike/agent/provider-runtime` entry exposes the existing

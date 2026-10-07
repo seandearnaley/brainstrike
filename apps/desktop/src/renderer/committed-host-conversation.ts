@@ -17,6 +17,7 @@ export interface CommittedHostConversation {
 export function createCommittedHostConversation(options: {
   readonly client: HostClient;
   readonly modelId: string;
+  readonly readModelId?: () => string;
   readonly threadId: string;
 }): CommittedHostConversation {
   const { client, modelId, threadId } = options;
@@ -52,7 +53,7 @@ export function createCommittedHostConversation(options: {
         .join('\n');
       await client.request('run/start', {
         commandId: crypto.randomUUID(),
-        modelId,
+        modelId: options.readModelId?.() ?? modelId,
         prompt,
         threadId,
       });

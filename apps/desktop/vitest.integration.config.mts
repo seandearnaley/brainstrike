@@ -30,6 +30,17 @@ export default defineConfig({
     // Native process proofs consume the built public entries, before source aliases.
     alias: [
       {
+        find: /^@brainstrike\/agent-host$/,
+        replacement: path.resolve(import.meta.dirname, '../../packages/agent-host/dist/index.js'),
+      },
+      {
+        find: /^@brainstrike\/agent-host\/test-fixtures\/scripted-model$/,
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../../packages/agent-host/dist/test-fixtures/scripted-model.js'
+        ),
+      },
+      {
         find: /^@brainstrike\/indexer$/,
         replacement: path.resolve(import.meta.dirname, '../../packages/indexer/dist/index.js'),
       },

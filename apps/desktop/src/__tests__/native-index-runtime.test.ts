@@ -139,6 +139,28 @@ it('shares the existing profile attachment between clients and index acquisition
   expect(f.closeProfile).toHaveBeenCalledOnce();
 });
 
+it('admits an assistant profile while setup keeps index and read admission closed', async () => {
+  const f = fixture();
+  await f.runtime.closeIndex();
+  const attachment = await f.runtime.acquireProfile({ indexIndependent: true });
+  expect(attachment).toBe(f.profileAttachment);
+  expect(f.acquireProfile).toHaveBeenCalledOnce();
+  expect(f.createIndexOwner).not.toHaveBeenCalled();
+  await expect(f.runtime.acquire()).rejects.toThrow('admission is closed');
+  await f.runtime.retireProfile();
+  expect(f.closeProfile).toHaveBeenCalledOnce();
+});
+
+it('keeps failed physical profile retirement visible to assistant admission', async () => {
+  const f = fixture();
+  await f.runtime.acquireProfile({ indexIndependent: true });
+  const failure = new Error('owned profile has not physically retired');
+  f.closeProfile.mockRejectedValueOnce(failure);
+  await expect(f.runtime.retireProfile()).rejects.toBe(failure);
+  await expect(f.runtime.acquireProfile({ indexIndependent: true })).rejects.toBe(failure);
+  expect(f.acquireProfile).toHaveBeenCalledOnce();
+});
+
 it('joins a late profile attachment during retirement without returning it to a client', async () => {
   const f = fixture();
   const pending = Promise.withResolvers<typeof f.profileAttachment>();

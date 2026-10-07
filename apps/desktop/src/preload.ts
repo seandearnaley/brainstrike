@@ -57,6 +57,21 @@ const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 // exactly `Object.keys(contract)`, each routed to its manifest channel with
 // the ONE `IpcResult` unwrap. Pinned by preload-contract-bridges.test.ts.
 const exposeBridge = createBridgeExposer({ contextBridge, ipcRenderer });
+// Only the visible preload receives this client transport. Main authorizes the
+// requesting frame before transferring a port; the host authenticates commands.
+contextBridge.exposeInMainWorld('agentHost', {
+  connect: (requestId: string): Promise<void> =>
+    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.hostConnect, requestId),
+});
+ipcRenderer.on(
+  DESKTOP_IPC_CHANNELS.agent.hostConnected,
+  (event: { ports: readonly MessagePort[] }, payload: unknown) => {
+    window.postMessage({ payload, type: 'agent-host/connected' }, '*', [...event.ports]);
+  }
+);
+ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.hostDisconnected, (_event: unknown, payload: unknown) => {
+  window.postMessage({ payload, type: 'agent-host/disconnected' }, '*');
+});
 // This set only selects the E2E-only seed channel; MAIN validates the exact
 // authoritative allowlist again on every call.
 const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);

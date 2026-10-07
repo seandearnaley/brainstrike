@@ -1,6 +1,8 @@
+import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host';
 import { attachAgentHost } from '@brainstrike/agent-host/client';
 import { runAtPromiseBoundary, runWithTimeout } from '@brainstrike/effect-kit';
 import {
+  attachHost,
   decodeStartupMessage,
   type HostAttachment,
   type HostStartOptions,
@@ -143,7 +145,10 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
   const acquire = async (): Promise<HostAttachment> => {
     try {
       const attachment = await launchHost(options.root, {
-        ...(options.platformModule === undefined ? {} : { attach: attachAgentHost }),
+        attach: (record, timeoutMs) =>
+          record.protocolVersion === AGENT_HOST_PROTOCOL_VERSION
+            ? attachAgentHost(record, timeoutMs)
+            : attachHost(record, timeoutMs),
         lifetime: 'app',
         spawn: async (start: HostStartOptions, signal: AbortSignal) => {
           const combined = AbortSignal.any([signal, abort.signal]);

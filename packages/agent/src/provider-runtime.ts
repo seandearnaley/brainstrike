@@ -16,6 +16,7 @@ export {
   type ConcreteLanguageModel,
   createLanguageModelProvider,
   createProvider,
+  type ProviderModelConfiguration,
 } from './providers/provider-factory';
 export type { SupportedProvider } from './providers/types';
 export type { RuntimeData } from './types';

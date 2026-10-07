@@ -60,6 +60,7 @@ declare global {
     agent: {
       chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
     };
+    agentHost?: { connect(requestId: string): Promise<void> };
     /**
      * Desktop-only subagent persona discovery bridge. Absent on web (no
      * preload) — consumers MUST capability-check `window.assistantPersonas`.

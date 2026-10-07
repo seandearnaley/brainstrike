@@ -57,6 +57,10 @@
     "node": ">=22"
   },
   "exports": {
+    "./assistant-thread-host-context": {
+      "types": "./dist/assistant-thread-host-context.d.ts",
+      "import": "./dist/assistant-thread-host-context.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"

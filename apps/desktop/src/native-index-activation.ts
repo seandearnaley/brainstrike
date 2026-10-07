@@ -953,7 +953,22 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   });
   return {
     acquire,
-    acquireProfile: runtime.acquireProfile,
+    acquireProfile: async () => {
+      if (terminalRequested) {
+        throw new TransitionError('Profile admission is closed for terminal retirement.');
+      }
+      // Index setup errors remain on their own surface. The runtime separately
+      // retains and rejects failed physical profile retirement before attachment.
+      await reconfiguration?.catch(() => undefined);
+      if (terminalRequested) {
+        throw new TransitionError('Profile admission closed during index reconfiguration.');
+      }
+      const attachment = await runtime.acquireProfile({ indexIndependent: true });
+      if (terminalRequested) {
+        throw new TransitionError('Profile admission closed during attachment.');
+      }
+      return attachment;
+    },
     acquireRead,
     captureAcknowledgedAuthority: () => {
       const current = graph;

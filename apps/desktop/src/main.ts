@@ -20,6 +20,7 @@ import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
+import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
@@ -643,7 +644,10 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       },
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
-      'native-index': () => nativeIndexActivation.close(),
+      'native-index': async () => {
+        await agentHostClientIpc.close();
+        await nativeIndexActivation.close();
+      },
       'parser-host': async () => {
         await parserHostManager.stop();
       },
@@ -991,6 +995,8 @@ const nativeIndexActivation = createNativeIndexActivation({
   storage,
 });
 installIndexCallerRead(createNativeCallerRead(nativeIndexActivation.withRead));
+const agentHostClientIpc = registerAgentHostClientIpc(nativeIndexActivation.acquireProfile);
+ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
 const nativeRootDataDeletion = createNativeRootDataDeletion({
   acquire: () => nativeIndexActivation.acquire(),
   captureOwner: async () => {

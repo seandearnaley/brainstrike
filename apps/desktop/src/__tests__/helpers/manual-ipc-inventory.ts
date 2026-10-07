@@ -27,6 +27,11 @@ function classify(
  */
 export const MANUAL_PRODUCTION_REGISTRATIONS: readonly ManualIpcRegistration[] = [
   ...classify(
+    'separate-capability',
+    'Visible-frame authorization transfers a client MessagePort for the existing root host.',
+    [[DESKTOP_IPC_CHANNELS.agent.hostConnect, 'invoke']]
+  ),
+  ...classify(
     'separate-protocol',
     'Bidirectional worker, logging, or workspace lifecycle protocol with event channels.',
     [

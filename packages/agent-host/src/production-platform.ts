@@ -17,6 +17,7 @@ import {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
 } from './adapters/state-store-host-memory.js';
+import { materializeHostProviderModel } from './model-router-sdk.js';
 import type {
   HostMcpRuntime,
   HostPlatform,
@@ -60,12 +61,7 @@ function rootModel(configuration: RuntimeData, auth: ProviderAuthInput | undefin
     selected.runtime.model,
     selected.runtime
   );
-  if (typeof model === 'string' || !('doStream' in model)) {
-    throw new Error('The configured provider requires a concrete SDK host model adapter');
-  }
-  // The existing provider package pins its own SDK declaration closure. The
-  // root uses the same public model object, without a second loop or resolver.
-  return model as unknown as LanguageModel;
+  return materializeHostProviderModel(model);
 }
 
 /** Node-only production composition; Core remains the sole dispatcher and event writer. */

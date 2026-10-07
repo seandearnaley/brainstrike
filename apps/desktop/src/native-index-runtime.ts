@@ -50,7 +50,7 @@ export interface CapturedNativeIndexAuthority {
 export interface NativeIndexRuntime<Attachment = unknown> {
   acquire(): Promise<NativePort>;
   /** Borrows the retained attachment; retirement remains owned by this runtime. */
-  acquireProfile(): Promise<Attachment>;
+  acquireProfile(options?: { readonly indexIndependent: true }): Promise<Attachment>;
   captureAcknowledgedAuthority(): CapturedNativeIndexAuthority;
   closeIndex(): Promise<void>;
   destroyIndex(): Promise<void>;
@@ -146,6 +146,7 @@ export function createNativeIndexRuntime<Attachment>(
 ): NativeIndexRuntime<Attachment> {
   let profileOwner: ProfileOwner<Attachment> | undefined;
   let profileAcquisition: Promise<Attachment> | undefined;
+  let profileRetirement: Promise<void> | undefined;
   let indexOwner: IndexOwner | undefined;
   let scopes = '';
   let bindings = '';
@@ -166,14 +167,21 @@ export function createNativeIndexRuntime<Attachment>(
   let closing: Promise<void> | undefined;
   let closingKind: 'close' | 'destroy' | undefined;
 
-  const acquireProfile = async (): Promise<Attachment> => {
-    if (closed) {
+  const acquireProfile = async (options?: {
+    readonly indexIndependent: true;
+  }): Promise<Attachment> => {
+    // BST-1977: ordinary New Thread was rejected on a fresh "Setup required"
+    // profile. Root admission does not reopen a closed scan/index authority.
+    if (profileRetirement) {
+      await profileRetirement;
+    }
+    if (closed && !options?.indexIndependent) {
       throw new NativeAuthorityTransitionError('Native index admission is closed.');
     }
     profileOwner ??= dependencies.createProfileOwner();
     profileAcquisition ??= profileOwner.acquire();
     const attachment = await profileAcquisition;
-    if (closed) {
+    if ((closed && !options?.indexIndependent) || profileRetirement) {
       throw new NativeAuthorityTransitionError('Native profile ownership closed during startup.');
     }
     return attachment;
@@ -483,11 +491,18 @@ export function createNativeIndexRuntime<Attachment>(
       await acquireProfile();
     },
     retireProfile: async (): Promise<void> => {
-      await closeIndex();
-      await profileAcquisition?.catch(() => undefined);
-      await profileOwner?.close();
-      profileOwner = undefined;
-      profileAcquisition = undefined;
+      const retirement = (async (): Promise<void> => {
+        await closeIndex();
+        await profileAcquisition?.catch(() => undefined);
+        await profileOwner?.close();
+        profileOwner = undefined;
+        profileAcquisition = undefined;
+      })();
+      profileRetirement = retirement;
+      await retirement;
+      if (profileRetirement === retirement) {
+        profileRetirement = undefined;
+      }
     },
     retireReads: async (): Promise<void> => {
       readsClosed = true;

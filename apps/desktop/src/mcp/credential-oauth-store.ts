@@ -1,13 +1,15 @@
-import { addAbortListener } from 'node:events';
+import { observeCredentialCancellation } from '@brainstrike/agent-host/credential-contract';
 import type {
   McpOAuthPersistedState,
   McpOAuthStore,
   McpOAuthStoreIdentity,
 } from './oauth-client-provider';
+import { registerMcpOAuthStore } from './oauth-client-provider';
 
 /** The injected object is the same credential authority used by provider auth. */
 export interface McpOAuthCredentialStorage {
   delete(account: string, signal?: AbortSignal): Promise<boolean>;
+  join(): Promise<void>;
   listAccounts(signal?: AbortSignal): Promise<readonly string[]>;
   read(account: string, signal?: AbortSignal): Promise<string | null>;
   write(account: string, value: string, signal?: AbortSignal): Promise<void>;
@@ -29,10 +31,13 @@ export interface CredentialMcpOAuthStoreOptions {
 export interface CredentialMcpOAuthStore extends McpOAuthStore {
   clear(identity: McpOAuthStoreIdentity, signal?: AbortSignal): Promise<void>;
   clearAll(signal?: AbortSignal): Promise<void>;
+  join(): Promise<void>;
   read(
     identity: McpOAuthStoreIdentity,
     signal?: AbortSignal
   ): Promise<Readonly<Record<string, McpOAuthPersistedState>>>;
+  /** Release reset registration after the owning runtime has joined shutdown. */
+  unregister(): void;
   write(
     identity: McpOAuthStoreIdentity,
     records: Readonly<Record<string, McpOAuthPersistedState>>,
@@ -68,25 +73,10 @@ export function createCredentialMcpOAuthStore(
       () => undefined,
       () => undefined
     );
-    if (!signal) {
-      return completion;
-    }
-    return new Promise<T>((resolve, reject) => {
-      const listener = addAbortListener(signal, () => reject(signal.reason));
-      completion.then(
-        (value) => {
-          listener[Symbol.dispose]();
-          resolve(value);
-        },
-        (error: unknown) => {
-          listener[Symbol.dispose]();
-          reject(error);
-        }
-      );
-    });
+    return observeCredentialCancellation(completion, signal);
   };
 
-  return {
+  const result: CredentialMcpOAuthStore = {
     async clear(identity, signal) {
       const target = account(identity);
       await enqueue(async () => {
@@ -113,6 +103,10 @@ export function createCredentialMcpOAuthStore(
         }
       }, signal);
     },
+    async join() {
+      await completionTail;
+      await options.credentials.join();
+    },
     async read(identity, signal) {
       const target = account(identity);
       return await enqueue(async () => {
@@ -122,6 +116,9 @@ export function createCredentialMcpOAuthStore(
         signal?.throwIfAborted();
         return records;
       }, signal);
+    },
+    unregister() {
+      unregister();
     },
     async write(identity, records, signal) {
       const target = account(identity);
@@ -133,4 +130,6 @@ export function createCredentialMcpOAuthStore(
       }, signal);
     },
   };
+  const unregister = registerMcpOAuthStore(result);
+  return result;
 }

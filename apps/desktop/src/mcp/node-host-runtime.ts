@@ -285,7 +285,16 @@ export class McpHostRuntime {
       close: async () => {
         this.elicitationPresenter.close();
         const report = await this.service.close();
-        await this.taskHost.close();
+        const settled = await Promise.allSettled([
+          this.taskHost.close(),
+          this.oauthStore.join?.() ?? Promise.resolve(),
+        ]);
+        const failures = settled.flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
+        );
+        if (failures.length > 0) {
+          throw new AggregateError(failures, 'MCP task or credential cleanup failed.');
+        }
         return report;
       },
       control: (request) =>
@@ -699,6 +708,7 @@ export class McpHostRuntime {
         ...(server.auth.scopes ? { scopes: server.auth.scopes } : {}),
         serverId: server.name,
         serverUrl: server.url,
+        signal: context.signal,
         store: this.oauthStore,
       });
       updateAuth(provider.authSnapshot());

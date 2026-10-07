@@ -1,14 +1,16 @@
-import { createHash } from 'node:crypto';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  type CredentialMcpOAuthStoreOptions,
   createCredentialMcpOAuthStore,
   type McpOAuthCredentialStorage,
 } from '../../mcp/credential-oauth-store';
 import {
   createMcpOAuthStoreIdentity,
-  createSafeStorageMcpOAuthStore,
+  identityKey,
   type McpOAuthPersistedState,
   type McpOAuthStoreIdentity,
+  parseRecords,
+  purgeMcpOAuthRuntimeState,
   readMcpOAuthAuthProjection,
 } from '../../mcp/oauth-client-provider';
 
@@ -17,39 +19,25 @@ const identity = createMcpOAuthStoreIdentity('fixture-server', 'https://mcp.exam
 ]);
 const issuer = 'https://auth.example.test';
 
-// The existing dedicated-store key scheme, bound as a composition input. The
-// disposable fixture prefix is not a production profile/account decision.
-function identityHash(input: McpOAuthStoreIdentity): string {
-  return createHash('sha256')
-    .update(JSON.stringify([input.serverId, input.resourceUrl, input.scopeKey]), 'utf8')
-    .digest('hex');
-}
+const unregisterStores = new Set<() => void>();
+afterEach(() => {
+  for (const unregister of unregisterStores) {
+    unregister();
+  }
+  unregisterStores.clear();
+});
 
-/** Exercise the shipped parser through its current public persistence boundary. */
-async function parseWithExistingAuthority(
-  raw: string
-): Promise<Readonly<Record<string, McpOAuthPersistedState>>> {
-  const parser = createSafeStorageMcpOAuthStore(
-    {
-      get: () => ({
-        [identityHash(identity)]: Buffer.from('fixture-ciphertext').toString('base64'),
-      }),
-      set: () => undefined,
-    },
-    {
-      decryptStringAsync: async () => ({ result: raw, shouldReEncrypt: false }),
-      encryptStringAsync: async () => Buffer.from('fixture-ciphertext'),
-      getSelectedStorageBackend: () => 'fixture-os-backed',
-      isAsyncEncryptionAvailable: async () => true,
-    }
-  );
-  return await parser.read(identity);
+function trackedStore(options: CredentialMcpOAuthStoreOptions) {
+  const store = createCredentialMcpOAuthStore(options);
+  unregisterStores.add(store.unregister);
+  return store;
 }
 
 function fixture() {
   const values = new Map<string, string>();
   const credentials = {
     delete: vi.fn(async (account: string) => values.delete(account)),
+    join: vi.fn(async () => undefined),
     listAccounts: vi.fn(async () => [...values.keys()]),
     read: vi.fn(async (account: string) => values.get(account) ?? null),
     write: vi.fn(async (account: string, value: string) => {
@@ -57,12 +45,12 @@ function fixture() {
     }),
   } satisfies McpOAuthCredentialStorage;
   const accountForIdentity = (input: McpOAuthStoreIdentity): string =>
-    `fixture-oauth:${identityHash(input)}`;
-  const store = createCredentialMcpOAuthStore({
+    `fixture-oauth:${identityKey(input)}`;
+  const store = trackedStore({
     accountForIdentity,
     credentials,
     ownsAccount: (account) => account.startsWith('fixture-oauth:'),
-    parseRecords: parseWithExistingAuthority,
+    parseRecords,
   });
   return { accountForIdentity, credentials, store, values };
 }
@@ -141,11 +129,11 @@ describe('MCP OAuth projection onto the injected credential authority', () => {
 
   it('rejects an account mapping outside the supplied namespace before touching credentials', async () => {
     const { credentials } = fixture();
-    const store = createCredentialMcpOAuthStore({
+    const store = trackedStore({
       accountForIdentity: () => 'fixture-provider:openai',
       credentials,
       ownsAccount: (account) => account.startsWith('fixture-oauth:'),
-      parseRecords: parseWithExistingAuthority,
+      parseRecords,
     });
     await expect(store.read(identity)).rejects.toThrow('outside the configured namespace');
     expect(credentials.read).not.toHaveBeenCalled();
@@ -193,7 +181,7 @@ describe('MCP OAuth projection onto the injected credential authority', () => {
     const { credentials } = fixture();
     const entered = Promise.withResolvers<void>();
     const validation = Promise.withResolvers<Readonly<Record<string, McpOAuthPersistedState>>>();
-    const store = createCredentialMcpOAuthStore({
+    const store = trackedStore({
       accountForIdentity: () => 'fixture-oauth:account',
       credentials,
       ownsAccount: (account) => account.startsWith('fixture-oauth:'),
@@ -241,6 +229,19 @@ describe('MCP OAuth projection onto the injected credential authority', () => {
     credentials.delete.mockRejectedValueOnce(clearFailure);
     await expect(store.clear(identity)).rejects.toBe(clearFailure);
     expect(credentials.delete).toHaveBeenCalledOnce();
+  });
+
+  it('participates in canonical reset and joins the borrowed credential authority', async () => {
+    const { accountForIdentity, credentials, store, values } = fixture();
+    await store.write(identity, records);
+    await store.join();
+    expect(credentials.join).toHaveBeenCalledOnce();
+    await purgeMcpOAuthRuntimeState();
+    expect(values.has(accountForIdentity(identity))).toBe(false);
+    await store.write(identity, records);
+    store.unregister();
+    await purgeMcpOAuthRuntimeState();
+    expect(values.has(accountForIdentity(identity))).toBe(true);
   });
 
   it('attempts every MCP account on clearAll and reports partial cleanup failure', async () => {

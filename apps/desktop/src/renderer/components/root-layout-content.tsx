@@ -39,6 +39,7 @@ import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
 import { GitBranch, Globe, NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { registerDesktopEmbeddingRuntimeConfig } from '../create-embedding-queue';
+import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
 import { resolveMcpAppBridge } from '../mcp-app-bridge';
 import { resolveMcpTaskBridge } from '../mcp-task-bridge';
 import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
@@ -379,7 +380,9 @@ export default function RootLayoutContent() {
         <McpAppsEnablementProvider isEnabled={mcpAppsEnabled}>
           <McpAppBridgeProvider bridge={mcpAppBridge}>
             <ToolResultRendererProvider renderers={MCP_APP_TOOL_RESULT_RENDERERS}>
-              <RootLayout {...sharedProps} />
+              <DesktopHostThreadProvider>
+                <RootLayout {...sharedProps} />
+              </DesktopHostThreadProvider>
             </ToolResultRendererProvider>
           </McpAppBridgeProvider>
         </McpAppsEnablementProvider>
