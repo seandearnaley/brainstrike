@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
-import { attachAgentHost } from '@brainstrike/agent-host';
+import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
 import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
@@ -298,7 +298,7 @@ setInterval(() => {}, 1000);
       const record = decodeHostRecord(
         JSON.parse(await readFile(join(profile, 'host.json'), 'utf8'))
       );
-      expect(record.protocolVersion).toBe(5);
+      expect(record.protocolVersion).toBe(AGENT_HOST_PROTOCOL_VERSION);
       expect(record.pid).not.toBe(process.pid);
       const start = processStartTime(record.pid);
       if (start) {
@@ -691,7 +691,7 @@ setInterval(() => {}, 1000);
         .poll(async () => {
           try {
             next = decodeHostRecord(JSON.parse(await readFile(join(profile, 'host.json'), 'utf8')));
-            return next.protocolVersion === 5;
+            return next.protocolVersion === AGENT_HOST_PROTOCOL_VERSION;
           } catch (cause) {
             if (cause instanceof Error && 'code' in cause && cause.code === 'ENOENT') {
               return false;

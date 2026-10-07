@@ -40,6 +40,7 @@ async function describePlatformSelection(
         {
           description: tool.description,
           identity: tool.identity,
+          ...(tool.mcpAuthority ? { mcpAuthority: tool.mcpAuthority } : {}),
           inputSchema: await canonicalToolInputJsonSchema(tool.inputSchema),
           permissionToolId: tool.permissionToolId ?? name,
           risk: tool.risk,

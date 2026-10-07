@@ -5,7 +5,11 @@ import {
   type RuntimeData,
   type ScaledToolResultBudget,
 } from '@brainstrike/agent/tool-runtime';
-import type { HostMcpToolRequest, HostMcpToolSelection } from '@brainstrike/agent-host';
+import {
+  assertMcpAuthorityReconstruction,
+  type HostMcpToolRequest,
+  type HostMcpToolSelection,
+} from '@brainstrike/agent-host';
 import {
   joinCredentialCleanup,
   type KeyringCredentialBackend,
@@ -17,6 +21,7 @@ import {
   createKeyringSecretsService,
 } from '@brainstrike/agent-host/keyring-credentials';
 import { createKeyringCredentialBackend } from '@brainstrike/agent-host/keyring-native';
+import type { HostRunSnapshot } from '@brainstrike/agent-host/protocol';
 import type { McpHostCloseReport, McpHostSnapshot } from '@brainstrike/assistant-contract';
 import type { ProviderCredentialReader } from '@brainstrike/assistant-service/ports';
 import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
@@ -38,6 +43,9 @@ export function bindMcpTool(options: {
   readonly canonicalId: string;
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
   readonly source: CanonicalTools[string];
+  readonly runtime: McpHostRuntime;
+  readonly snapshot?: HostRunSnapshot;
+  readonly toolId: string;
   readonly toolTimeoutMs: number;
 }): ExecutableMcpBindings[string] {
   const { after, before, canonicalId, source } = options;
@@ -66,6 +74,16 @@ export function bindMcpTool(options: {
     throw new Error('MCP collector returned no canonical executor identity.');
   }
   const identity = JSON.stringify([owner.configuredServerId, owner.generation, source.id]);
+  const mcpAuthority = options.runtime.describeToolAuthority(
+    owner.configuredServerId,
+    owner.generation
+  );
+  if (options.snapshot) {
+    assertMcpAuthorityReconstruction(
+      options.snapshot.mcpAuthorities?.[options.toolId],
+      mcpAuthority
+    );
+  }
   const bound = createAgentHostToolBindings({
     bindings: { [canonicalId]: { identity, risk: 'mcp' } },
     resolvedToolResultBudget: options.resolvedToolResultBudget,
@@ -80,7 +98,11 @@ export function bindMcpTool(options: {
   if (!tool) {
     throw new Error('MCP collector returned no executable binding.');
   }
-  return { configuredServerId: owner.configuredServerId, generation: owner.generation, tool };
+  return {
+    configuredServerId: owner.configuredServerId,
+    generation: owner.generation,
+    tool: { ...tool, mcpAuthority },
+  };
 }
 
 export class AgentHostAdapterClosedError extends Error {
@@ -324,7 +346,10 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
                 before,
                 canonicalId: toolNameMap.get(name) ?? name,
                 resolvedToolResultBudget,
+                runtime: authority,
+                ...(request.snapshot ? { snapshot: request.snapshot } : {}),
                 source,
+                toolId: name,
                 toolTimeoutMs,
               });
             }

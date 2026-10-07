@@ -14,6 +14,7 @@ export {
   type HostLifetime,
   type HostRuntime,
   type HostRuntimeBindings,
+  type HostSocketLifecycle,
   type HostStartOptions,
   startHost,
 } from './runtime.js';

@@ -59,3 +59,7 @@ The ordinary non-crash lane separately passed approval, denial, reconnect, Stop,
 reload and reopen. It does not qualify this fault. Windows needs its own native
 tail shape rather than assuming POSIX SIGTERM semantics. Full M3 acceptance and
 full regression remain open. CI is disabled due to cost; validation must run locally.
+
+Owner approval received through parent dot at 06:13 UTC, 7 October 2026. Sean replied "you can proceed with the proposal" to the bundled questions for persisted MCP server binding and an isolated crash-lifetime prototype. Parent supplied the exact transcript; this is the explicit missing owner decision, superseding the prior pending state.
+
+Crash authorization is only for a bounded isolated Mac/Windows prototype and explicit fail-closed recovery where physical cleanup is unproved. It does not authorize silently shipping a production supervisor or lease-format redesign. Parent allocated existing SEAN9 and Mini workers separate task-local native harnesses, 30 active minutes with a 15-minute checkpoint, no production RootLock/Core/durable-format edits. Windows qualifies Job Object lifetime/kill-on-close against physical children/grandchildren. POSIX qualifies crash ownership and reports detached/closed-fd limits. Studio retains production composition; actual prototype evidence must be reviewed before selecting the final design. Preserve the original failing predicate and deadlines.

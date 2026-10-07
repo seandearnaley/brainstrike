@@ -29,11 +29,21 @@ export interface HostRuntime {
 }
 /** M3 composes the existing lease with its store owner and client protocol. */
 export interface HostRuntimeBindings {
-  acceptSocket(socket: Socket, record: HostRecord, attached: () => void): void;
+  acceptSocket(
+    socket: Socket,
+    record: HostRecord,
+    attached: () => void,
+    lifecycle: HostSocketLifecycle
+  ): void;
   acquireRoot(
     retainRun: () => () => void
   ): Promise<{ readonly lock: RootLock; close(): Promise<void> }>;
   readonly protocolVersion: number;
+}
+export interface HostSocketLifecycle {
+  readonly closing: boolean;
+  /** Keep this socket through its actual RPC response write, after Root joins. */
+  stop(replyFinished: Promise<void>): Promise<void>;
 }
 const StartOptionsSchema = Schema.Struct({
   lifetime: Schema.Literals(['app', 'cli', 'persistent']),
@@ -67,12 +77,6 @@ async function listen(server: Server, endpoint: string): Promise<Server> {
     server.listen(endpoint);
   });
   return server;
-}
-async function closeServer(server: Server, sockets: Set<Socket>): Promise<void> {
-  await Promise.all([...sockets].map(destroySocket));
-  await new Promise<void>((resolve, reject) =>
-    server.close((error?: Error) => (error ? reject(error) : resolve()))
-  );
 }
 async function prepareSocketDirectory(root: string): Promise<string> {
   const hash = createHash('sha256').update(root).digest('hex').slice(0, 16);
@@ -117,16 +121,35 @@ export async function startHost(
   // unhandled-rejection race before the launcher has received the runtime.
   completion.promise.catch(() => undefined);
   let closing: Promise<void> | undefined;
+  const rootJoined = Promise.withResolvers<void>();
+  rootJoined.promise.catch(() => undefined);
+  let serverClosing: Promise<void> | undefined;
+  let stopReply: { readonly socket: Socket; readonly finished: Promise<void> } | undefined;
   let clients = 0;
   let activeRuns = 0;
   let attachedOnce = false;
   const close = (cause?: unknown): Promise<void> => {
     if (!closing) {
-      closing = owner.close().then(() => {
-        if (cause !== undefined) {
-          throw cause;
+      const rootClosing = owner.close();
+      rootClosing.then(rootJoined.resolve, rootJoined.reject);
+      closing = (async () => {
+        try {
+          await rootClosing;
+          if (cause !== undefined) {
+            throw cause;
+          }
+        } finally {
+          if (stopReply) {
+            // BST-1977 host/stop: successful replies follow physical platform
+            // joins and Root release, then the actual JSON-RPC writer joins
+            // before this last transport is destroyed. Client loss also
+            // settles finished; it never substitutes for Root cleanup.
+            await stopReply.finished;
+            await destroySocket(stopReply.socket);
+            await serverClosing;
+          }
         }
-      });
+      })();
       closing.then(completion.resolve, completion.reject);
     }
     return closing;
@@ -206,14 +229,31 @@ export async function startHost(
             finishIfIdle();
           }
         });
-        bindings.acceptSocket(socket, record, () => {
-          if (attached || closing || signal?.aborted) {
-            throw new Error('Host attachment is already initialized or closing');
+        bindings.acceptSocket(
+          socket,
+          record,
+          () => {
+            if (attached || closing || signal?.aborted) {
+              throw new Error('Host attachment is already initialized or closing');
+            }
+            attached = true;
+            attachedOnce = true;
+            clients += 1;
+          },
+          {
+            get closing(): boolean {
+              return closing !== undefined;
+            },
+            stop: (finished) => {
+              if (closing || !attached) {
+                return Promise.reject(new Error('Host is closing or unauthenticated'));
+              }
+              stopReply = { finished, socket };
+              void close().catch(() => undefined);
+              return rootJoined.promise;
+            },
           }
-          attached = true;
-          attachedOnce = true;
-          clients += 1;
-        });
+        );
         return;
       }
       const reject = (message: string): void => {
@@ -272,7 +312,18 @@ export async function startHost(
     });
     await owner.acquire(
       () => listen(server, endpoint),
-      (value) => closeServer(value, sockets)
+      async (value) => {
+        serverClosing = new Promise<void>((resolve, reject) =>
+          value.close((error?: Error) => (error ? reject(error) : resolve()))
+        );
+        serverClosing.catch(() => undefined);
+        await Promise.all(
+          [...sockets].filter((socket) => socket !== stopReply?.socket).map(destroySocket)
+        );
+        if (!stopReply) {
+          await serverClosing;
+        }
+      }
     );
     server.on('error', (cause: Error) => {
       close(cause).catch(() => undefined);

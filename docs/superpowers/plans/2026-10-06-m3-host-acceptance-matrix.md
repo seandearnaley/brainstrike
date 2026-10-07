@@ -1046,3 +1046,96 @@ failures remains pending; do not substitute leaf passes. Final package/native
 provenance is also pending. Root/MCP owner gates, full regression and all other
 milestone frontier items remain open. **CI is disabled due to cost; validation
 must run locally.**
+
+7 October 06:13 UTC owner decisions: parent dot supplied Sean's exact "you can proceed with the proposal" approval for persisted non-secret MCP authority capture/comparison and the bounded isolated crash-lifetime prototype. MCP binding implementation is now authorized, with explicit refusal for missing/unsafe comparison and no secret hashing or new writer. Crash production design remains gated on actual Mac/Windows prototype evidence, parent allocation active. Earlier red repro receipts remain active until actual product qualification. The two approved scopes are recorded in their existing decision notes.
+
+## Authenticated host shutdown and persisted MCP binding, 7 October 06:48 UTC
+
+Unpublished composition on `df0c00d2ca5b946864f53a0be468f8e01ed9c8a2` adds
+protocol version 6 and authenticated `host/stop {}` through the existing lease.
+The requesting socket stays through Core/platform/native joins, SQLite close,
+host-record removal and Root release, then the actual JSON-RPC response write.
+The host's `closed` Promise also joins the last socket/server close. Other
+clients close and new commands are fenced. Failed cleanup reports an error and
+retains Root; client loss cannot substitute for cleanup. There is no durable
+shutdown command ID, new owner, timeout, retry or PID-kill fallback. Direct
+unowned unit transport bindings expose an explicit unavailable lifecycle;
+production client transports bridge the authenticated socket owner.
+
+The approved MCP representation comes from the configured-server owner and is
+captured once in the existing immutable run snapshot. Replacement binding is
+refused before approval when destination/transport/protocol/extensions or
+supported stdio command/cwd changes, legacy capture is missing, or private
+principal comparison is unavailable. Existing bearer record identity detects
+replacement; even an unchanged record is refused because it cannot prove the
+principal stayed unchanged after secret edits. Private args/environment/headers,
+credential-bearing URL components and OAuth principal comparison remain visible
+restart gaps. The existing transient executor generation guard remains.
+
+Actual local commands and receipts:
+
+- From agent-host, `pnpm exec vitest run --config
+  vitest.integration.config.mts __tests__/host.integration.test.ts
+  __tests__/run-admission.integration.test.ts`: **20/20**, **7.66 s**.
+  Four shutdown cases cover actual native exit before reply/Root reuse,
+  client loss during a held join, fenced commands/repeated stop, and failed
+  cleanup retaining Root. Receipt
+  `/tmp/brainstrike-m3-authority-shutdown-host-final.log`.
+- From host-lease, `pnpm exec vitest run --config
+  vitest.integration.config.mts __tests__/runtime.integration.test.ts
+  __tests__/handshake.integration.test.ts
+  __tests__/start-orders.integration.test.ts`: **9/9**, **4.75 s**. Receipt
+  `/tmp/brainstrike-m3-host-stop-lease-final.log`.
+- From agent-host, `pnpm exec vitest run --exclude
+  '**/*.integration.test.*'`: **119/119**, **2.62 s**. Receipt
+  `/tmp/brainstrike-m3-authority-host-unit.log`.
+- From desktop, `pnpm exec vitest run --config
+  vitest.integration.config.mts
+  src/__tests__/agent-host-adapter-services.integration.test.ts
+  src/__tests__/agent-host-mcp-authority.integration.test.ts`: **27/27**,
+  **6.24 s**. The preserved restart regression moved into the dedicated file;
+  no negative case was removed. Real HTTP/SQLite restart demonstrates one
+  unchanged unauthenticated effect and zero changed-endpoint, changed-credential
+  or unproved-private effects. Actual changed stdio command is refused and both
+  children exit. The missing-capture component proof uses an actual committed
+  snapshot projected to its former shape, not an entire legacy DB migration.
+  Receipt `/tmp/brainstrike-m3-mcp-authority-principal-final.log`.
+- From desktop, `pnpm exec vitest run
+  src/__tests__/main/mcp-host-runtime.test.ts
+  src/__tests__/main/mcp-host-runtime-features.test.ts
+  src/__tests__/main/mcp-bearer-host-runtime.test.ts`: **37/37**, **3.66 s**.
+  Initial sandbox listener EPERM failures remain separately retained; the
+  supported local listener run uses unchanged specs. Receipt
+  `/tmp/brainstrike-m3-mcp-owner-regression-local.log`.
+- `pnpm exec turbo run type-check --filter=@brainstrike/desktop`: **59/59**,
+  **36.254 s**, **733 desktop test files**, **739 Effect diagnostics files**.
+  Receipt `/tmp/brainstrike-m3-mcp-authority-composed-final-types.log`.
+- From desktop, unchanged-deadline ordinary integration `-t normal`:
+  **1 passed / 1 failed / 1 utility-loss unselected**, **17.56 s**. Normal
+  passes **9.153 s** through actual reopen, committed row replay and exact
+  context provenance. Normal-OM fails **7.274 s** at `page.reload`, with
+  visible renderer `reason=crashed`, `exitCode=5`, at 06:40:38.986 UTC.
+  The first real observer/run, native/MCP/context, denial, reconnect and Stop
+  with physical native exit completed. OM reload/reopen is unqualified on this
+  composition. No unchanged rerun or speculative product fix follows this
+  failure. Receipt
+  `/tmp/brainstrike-m3-authority-shutdown-ordinary-current-protocol.log`.
+
+The ordinary launch first found the own-worktree pinned Electron dependency's
+`dist` and `path.txt` missing. Only Electron 44.4.5 arm64 was restored with the
+vendor installer/bundled checksums and a task-local cache. The dependency's
+disappearance cause is unproved. Next attempts exposed the old version-5 pins
+at launch and reopen; both now use the exported protocol constant. These
+startup/predicate failures remain retained. Successful normal evidence
+`q2rX8I-evidence` reports errors `[]`, remaining `[]`, failure `null`, Root
+released `true`; failed OM `flob9I-evidence` reports errors `[]`, remaining
+`[]`, Root released `true` and the actual page-crash failure. The failed owned
+profile is retained for diagnosis; no crash dump was found within it.
+
+CLI four-file integration and default CLI metadata/bootstrap remain pending.
+The native crashed-utility Root reuse regression remains red pending prototype
+and production design; it was not rerun or bypassed. Windows composed caller,
+packaged fleet, loaded foreground benchmark and full local regression are
+unqualified. Full regression remains red/unquarantined; no whole milestone
+acceptance or `pnpm check --full` pass is claimed. **CI is disabled due to cost;
+validation must run locally.**

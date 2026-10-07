@@ -35,6 +35,27 @@ the named peers. Doing it from M3 costs about two to three more weeks.
   when the desktop indexer already built them for that root and a query embedder is
   available.
 
+### Persisted MCP authority and explicit host shutdown
+
+Sean approved the persisted-authority proposal on 7 October 2026 after the real
+A-to-B pending-approval restart incident. The existing configured-server owner
+supplies a versioned immutable non-secret description; Core captures it in the
+existing run snapshot, keyed by the existing admitted tool IDs. Reconstruction
+compares that capture before constructing the replacement binding or accepting
+approval. No second store, writer, identity, alias or backfill is introduced.
+Missing legacy capture refuses explicitly. Private arguments, environment,
+headers, destination credentials and unproved OAuth/bearer principals have no
+secret hash or surrogate comparison; they remain visible restart capability
+gaps. Existing bearer credential record IDs can detect replacement but cannot
+prove the principal remained unchanged when their private values were edited.
+
+Authenticated `host/stop {}` uses the sole lease lifecycle. Success means Core,
+platform and native tails joined, SQLite closed, the host record was removed and
+Root released. The requesting transport remains only through the actual JSON-RPC
+response write; the host's `closed` Promise also joins its final socket/server
+close. Failed cleanup reports an error and retains Root. This lifecycle operation
+creates no durable thread command and does not use a PID-kill fallback.
+
 ## Consequences
 
 - ADR-0007 is worded by thread, not process: inference never runs on a thread that

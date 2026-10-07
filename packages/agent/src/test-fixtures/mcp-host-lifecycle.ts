@@ -13,6 +13,8 @@ export interface ObservedMcpHostRequest {
 export interface RunningMcpHostServer {
   close(): Promise<void>;
   readonly requests: ObservedMcpHostRequest[];
+  /** Fresh real server session at the same fixture destination after client teardown. */
+  resetSession(): Promise<void>;
   readonly url: string;
 }
 
@@ -82,15 +84,19 @@ function respondWithFixtureFailure(response: ServerResponse, error: unknown): vo
 export async function startStatefulMcpHostServer(): Promise<RunningMcpHostServer> {
   const requests: ObservedMcpHostRequest[] = [];
   const pathname = '/mcp';
-  const mcp = new McpServer({ name: 'desktop-host-lifecycle', version: '1.0.0' });
-  mcp.registerTool('host_lifecycle_probe', {}, async () => ({
-    content: [{ text: 'ok', type: 'text' }],
-  }));
-  const transport = new NodeStreamableHTTPServerTransport({
-    enableJsonResponse: true,
-    sessionIdGenerator: () => 'desktop-surviving-host-session',
-  });
-  await mcp.connect(transport);
+  const openSession = async () => {
+    const mcp = new McpServer({ name: 'desktop-host-lifecycle', version: '1.0.0' });
+    mcp.registerTool('host_lifecycle_probe', {}, async () => ({
+      content: [{ text: 'ok', type: 'text' }],
+    }));
+    const transport = new NodeStreamableHTTPServerTransport({
+      enableJsonResponse: true,
+      sessionIdGenerator: () => 'desktop-surviving-host-session',
+    });
+    await mcp.connect(transport);
+    return { mcp, transport };
+  };
+  let session = await openSession();
 
   const server = createServer(async (request, response) => {
     try {
@@ -112,15 +118,20 @@ export async function startStatefulMcpHostServer(): Promise<RunningMcpHostServer
         response.writeHead(405).end();
         return;
       }
-      await transport.handleRequest(request, response, body);
+      await session.transport.handleRequest(request, response, body);
     } catch (error) {
       respondWithFixtureFailure(response, error);
     }
   });
   const running = await listen(server);
   return {
-    close: async () => await closeAll([() => mcp.close(), () => transport.close(), running.close]),
+    close: async () =>
+      await closeAll([() => session.mcp.close(), () => session.transport.close(), running.close]),
     requests,
+    resetSession: async () => {
+      await closeAll([() => session.mcp.close(), () => session.transport.close()]);
+      session = await openSession();
+    },
     url: `${running.origin}${pathname}`,
   };
 }

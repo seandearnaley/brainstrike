@@ -1,7 +1,5 @@
-import type { Socket } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import {
-  type HostRecord,
   type HostRuntime,
   type HostStartOptions,
   ResourceOwner,
@@ -10,6 +8,7 @@ import {
 import { StateStore } from '@brainstrike/state-store';
 import {
   createMessageConnection,
+  type Message,
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
@@ -113,16 +112,50 @@ export async function startAgentHost(
     runtime = await startHost(
       options,
       {
-        acceptSocket: (socket: Socket, record: HostRecord, attached: () => void) => {
+        acceptSocket: (socket, record, attached, lifecycle) => {
           if (!core) {
             socket.destroy(new Error('Host store is unavailable'));
             return;
           }
+          const replyFinished = Promise.withResolvers<void>();
+          let dispatchingMessage: Message | undefined;
+          let shutdownMessage: Message | undefined;
+          socket.once('close', () => replyFinished.resolve());
           const connection = createMessageConnection(
             new StreamMessageReader(socket),
-            new StreamMessageWriter(socket)
+            new StreamMessageWriter(socket),
+            undefined,
+            {
+              messageStrategy: {
+                handleMessage: async (message, next) => {
+                  const previous = dispatchingMessage;
+                  dispatchingMessage = message;
+                  let handled: ReturnType<typeof next>;
+                  try {
+                    handled = next(message);
+                  } finally {
+                    dispatchingMessage = previous;
+                  }
+                  try {
+                    await handled;
+                  } finally {
+                    if (message === shutdownMessage) {
+                      replyFinished.resolve();
+                    }
+                  }
+                },
+              },
+            }
           );
-          bindHostConnection(connection, core, record, attached);
+          bindHostConnection(connection, core, record, attached, {
+            get closing(): boolean {
+              return lifecycle.closing;
+            },
+            stop: () => {
+              shutdownMessage = dispatchingMessage;
+              return lifecycle.stop(replyFinished.promise);
+            },
+          });
           socket.once('close', () => connection.dispose());
         },
         acquireRoot: async (retainRun) => {

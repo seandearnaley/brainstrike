@@ -9,6 +9,7 @@ import {
   type McpClientCapabilityOptions,
   type McpClientExtensionRegistry,
 } from '@brainstrike/agent/mcp-client';
+import { type McpToolAuthority, McpToolAuthoritySchema } from '@brainstrike/agent-host/protocol';
 import {
   type ConfiguredMcpServerId,
   MCP_EXTENSIONS_ENABLED,
@@ -72,6 +73,80 @@ export type { ExplicitClient } from './host-connection';
 type ActorContext = Parameters<McpServerActorClientFactory>[0];
 type ConfiguredServer = McpHostConfig['servers'][number];
 const MCP_OAUTH_MAX_STEP_UP_RETRIES = 3;
+type UnavailableAuthorityReason = Extract<McpToolAuthority, { kind: 'unavailable' }>['reason'];
+function unavailableAuthority(reason: UnavailableAuthorityReason): McpToolAuthority {
+  return Object.freeze({ kind: 'unavailable', reason, version: 1 });
+}
+function authorityBase(server: ResolvedMcpServer) {
+  return {
+    extensions: resolveMcpServerExtensions(server),
+    protocol: server.protocol ?? (server.transport === 'sse' ? 'legacy' : 'auto'),
+    version: 1,
+  };
+}
+function captureHttpToolAuthority(
+  server: Exclude<ResolvedMcpServer, { transport: 'stdio' }>
+): McpToolAuthority {
+  const destination = new URL(server.url);
+  if (destination.username || destination.password || destination.search || destination.hash) {
+    return unavailableAuthority('private-http-destination');
+  }
+  if (server.headers && Object.keys(server.headers).length > 0) {
+    return unavailableAuthority('private-http-headers');
+  }
+  // The OAuth account identifies resource/scopes, not a stable user principal.
+  if (server.auth?.type === 'oauth-user') {
+    return unavailableAuthority('oauth-principal-not-comparable');
+  }
+  return McpToolAuthoritySchema.parse({
+    ...authorityBase(server),
+    auth:
+      server.auth?.type === 'bearer'
+        ? { ...server.auth, principalComparison: 'unavailable' }
+        : { type: 'none' },
+    destination: destination.href,
+    kind: 'http',
+    transport: server.transport,
+  });
+}
+function captureStdioToolAuthority(
+  server: Extract<ResolvedMcpServer, { transport: 'stdio' }>
+): McpToolAuthority {
+  // No existing non-secret declaration covers private arguments or environment.
+  // Keep the live capability, never copy or hash these fields for restart.
+  if (server.args?.length) {
+    return unavailableAuthority('private-stdio-arguments');
+  }
+  if (server.env && Object.keys(server.env).length > 0) {
+    return unavailableAuthority('private-stdio-environment');
+  }
+  return McpToolAuthoritySchema.parse({
+    ...authorityBase(server),
+    args: [],
+    command: server.command,
+    cwd: process.cwd(),
+    kind: 'stdio',
+  });
+}
+function captureConfiguredToolAuthority(server: ResolvedMcpServer): McpToolAuthority {
+  const authority =
+    server.transport === 'stdio'
+      ? captureStdioToolAuthority(server)
+      : captureHttpToolAuthority(server);
+  if (authority.kind === 'stdio') {
+    Object.freeze(authority.args);
+  }
+  if (authority.kind === 'http') {
+    if (authority.auth.type === 'bearer') {
+      Object.freeze(authority.auth.credential);
+    }
+    Object.freeze(authority.auth);
+  }
+  if (authority.kind !== 'unavailable') {
+    Object.freeze(authority.extensions);
+  }
+  return Object.freeze(authority);
+}
 /** Platform-owned construction; the configured-server authority owns no desktop defaults. */
 export interface McpHostRuntimePlatform {
   /** Rich Apps is a client capability; text-only hosts never advertise the UI extension. */
@@ -321,6 +396,21 @@ export class McpHostRuntime {
     return this.enqueueReplacement(() =>
       this.applyConfiguration(snapshot, this.extensionPreferences)
     );
+  }
+
+  /** Existing configured definition, without a private-value hash or replacement ID. */
+  describeToolAuthority(
+    configuredServerId: ConfiguredMcpServerId,
+    generation: number
+  ): McpToolAuthority {
+    const live = this.service
+      .snapshot()
+      .servers.find((server) => server.configuredServerId === configuredServerId);
+    const entry = this.currentById.get(configuredServerId);
+    if (!entry || live?.generation !== generation || live.state !== 'connected') {
+      throw new Error('MCP configured authority is no longer admitted');
+    }
+    return captureConfiguredToolAuthority(entry.server);
   }
 
   /** Effective global dials the next connection generation would advertise. */

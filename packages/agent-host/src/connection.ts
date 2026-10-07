@@ -9,12 +9,19 @@ import {
   type HostParams,
 } from './protocol.js';
 
+export interface HostConnectionLifecycle {
+  readonly closing: boolean;
+  /** Resolves after Root cleanup joins; the transport owns its final response write. */
+  stop(): Promise<void>;
+}
+
 /** All transports enter this same authenticated method dispatcher. */
 export function bindHostConnection(
   connection: MessageConnection,
   core: HostCore,
   record: HostRecord,
-  attached: () => void
+  attached: () => void,
+  lifecycle?: HostConnectionLifecycle
 ): () => void {
   let initialized = false;
   let disposed = false;
@@ -35,10 +42,20 @@ export function bindHostConnection(
         if (disposed || (!initialized && method !== 'initialize')) {
           throw new Error('Host connection requires authentication');
         }
+        if (lifecycle?.closing) {
+          throw new Error('Host is closing');
+        }
         return request(HOST_METHOD_SCHEMAS[method].parse(input) as HostParams<M>);
       })
     );
   };
+  handle('host/stop', async () => {
+    if (!lifecycle) {
+      throw new Error('Host lifecycle is unavailable on this transport');
+    }
+    await lifecycle.stop();
+    return { outcome: 'stopped', rootReleased: true };
+  });
   handle('initialize', (params) => {
     if (
       initialized ||

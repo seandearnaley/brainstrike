@@ -3,6 +3,7 @@ import type { ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import type { HostRunState } from './core-state.js';
 import { canonical, jsonValue } from './json-value.js';
+import { McpAuthorityReconstructionError } from './mcp-authority.js';
 import type {
   HostPlatform,
   HostPreparedModelRequest,
@@ -73,6 +74,11 @@ function immutableData<T>(input: T): T {
 /** Retain the selected executors and configuration without freezing the source registry. */
 export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmission {
   let closing: Promise<void> | undefined;
+  const mcpAuthorities = Object.fromEntries(
+    Object.entries(selected.tools).flatMap(([id, tool]) =>
+      tool.mcpAuthority ? [[id, tool.mcpAuthority]] : []
+    )
+  );
   return Object.freeze({
     ...selected,
     ...(selected.close
@@ -85,7 +91,12 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
     ...(selected.provider
       ? { provider: Object.freeze({ prepare: selected.provider.prepare.bind(selected.provider) }) }
       : {}),
-    snapshot: immutableData(HostRunSnapshotSchema.parse(selected.snapshot)),
+    snapshot: immutableData(
+      HostRunSnapshotSchema.parse({
+        ...selected.snapshot,
+        ...(Object.keys(mcpAuthorities).length > 0 ? { mcpAuthorities } : {}),
+      })
+    ),
     tools: Object.freeze(
       Object.fromEntries(
         Object.entries(selected.tools).map(([id, binding]) => [id, Object.freeze({ ...binding })])
@@ -122,6 +133,12 @@ export async function acquireHostRunAdmission(
   try {
     const admission = captureHostRunAdmission(selected);
     const { snapshot, tools } = admission;
+    if (
+      request.snapshot &&
+      Object.values(tools).some((tool) => tool.mcpAuthority?.kind === 'unavailable')
+    ) {
+      throw new McpAuthorityReconstructionError('private-comparison-unavailable');
+    }
     if (
       canonical(jsonValue(snapshot.toolIdentities)) !==
       canonical(

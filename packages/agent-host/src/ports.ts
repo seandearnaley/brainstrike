@@ -109,6 +109,7 @@ export interface HostMcpToolSelection {
 }
 export interface HostMcpToolRequest {
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
+  readonly snapshot?: HostRunSnapshot;
   readonly toolTimeoutMs: number;
 }
 export interface HostMcpRuntime {
@@ -122,6 +123,7 @@ export interface HostTool {
   /** Existing executor/server-generation identity, bound into pending decisions. */
   readonly identity: string;
   readonly inputSchema: FlexibleSchema<unknown>;
+  readonly mcpAuthority?: import('./protocol.js').McpToolAuthority;
   /** Existing catalog ID used by Settings policy, before provider-name sanitization. */
   readonly permissionToolId?: string;
   /** Tool-owned recovery of runtime meaning that JSON cannot retain. */

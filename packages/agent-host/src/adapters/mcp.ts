@@ -149,6 +149,7 @@ export function createMcpHostToolAdapter(options: McpHostToolAdapterOptions): Mc
               execute,
               identity,
               inputSchema,
+              mcpAuthority,
               permissionToolId,
               reconstructApprovalInput,
               risk,
@@ -161,6 +162,7 @@ export function createMcpHostToolAdapter(options: McpHostToolAdapterOptions): Mc
             }
             const tool: HostTool = Object.freeze({
               description,
+              ...(mcpAuthority ? { mcpAuthority } : {}),
               execute(input: unknown, context: HostToolContext): Promise<unknown> {
                 const signal = AbortSignal.any([
                   context.signal,

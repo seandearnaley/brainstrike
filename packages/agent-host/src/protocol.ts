@@ -1,7 +1,7 @@
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 
-export const AGENT_HOST_PROTOCOL_VERSION = 5;
+export const AGENT_HOST_PROTOCOL_VERSION = 6;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
@@ -9,14 +9,57 @@ const Command = { commandId: Id };
 const Thread = { threadId: Id };
 const Run = { ...Thread, runId: Id };
 const Seq = z.number().int().nonnegative();
+const McpAuthorityBase = {
+  extensions: z.strictObject({ apps: z.boolean(), tasks: z.boolean() }),
+  protocol: z.enum(['legacy', 'auto', '2026-07-28']),
+  version: z.literal(1),
+};
+/** Supplied by the configured-server owner; private values have no durable surrogate. */
+export const McpToolAuthoritySchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    ...McpAuthorityBase,
+    auth: z.discriminatedUnion('type', [
+      z.strictObject({ type: z.literal('none') }),
+      z.strictObject({
+        credential: z.strictObject({ id: z.uuid(), store: z.literal('mcp-credentials') }),
+        principalComparison: z.literal('unavailable'),
+        type: z.literal('bearer'),
+      }),
+    ]),
+    destination: z.url(),
+    kind: z.literal('http'),
+    transport: z.enum(['streamable-http', 'sse']),
+  }),
+  z.strictObject({
+    ...McpAuthorityBase,
+    args: z.tuple([]),
+    command: Id,
+    cwd: Id,
+    kind: z.literal('stdio'),
+  }),
+  z.strictObject({
+    kind: z.literal('unavailable'),
+    reason: z.enum([
+      'private-stdio-arguments',
+      'private-stdio-environment',
+      'private-http-headers',
+      'private-http-destination',
+      'oauth-principal-not-comparable',
+    ]),
+    version: z.literal(1),
+  }),
+]);
+export type McpToolAuthority = z.infer<typeof McpToolAuthoritySchema>;
 /** Credentials and executable capabilities remain process-local. */
 export const HostRunSnapshotSchema = z.strictObject({
   configuration: z.record(z.string(), z.json()),
   maxSteps: z.number().int().positive(),
+  mcpAuthorities: z.record(z.string(), McpToolAuthoritySchema).optional(),
   toolIdentities: z.record(z.string(), Id),
 });
 export type HostRunSnapshot = z.infer<typeof HostRunSnapshotSchema>;
 export const HOST_METHOD_SCHEMAS = {
+  'host/stop': z.strictObject({}),
   initialize: z.strictObject({
     hostVersion: Id,
     protocolVersion: z.number().int().positive(),
@@ -137,6 +180,7 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
     hostVersion: Id,
     pid: z.number().int().positive(),

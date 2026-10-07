@@ -139,6 +139,7 @@ export async function createHostPlatform(
           {
             description: descriptor.description,
             identity: descriptor.identity,
+            ...(descriptor.mcpAuthority ? { mcpAuthority: descriptor.mcpAuthority } : {}),
             permissionToolId: descriptor.permissionToolId,
             risk: descriptor.risk,
             ...(descriptor.strict === undefined ? {} : { strict: descriptor.strict }),

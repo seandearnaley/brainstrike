@@ -132,6 +132,7 @@ export async function createProductionHostPlatform(
       return undefined;
     }
     const borrowed = await authority.executableTools({
+      ...(request.snapshot ? { snapshot: request.snapshot } : {}),
       resolvedToolResultBudget: selected.resolvedToolResultBudget,
       toolTimeoutMs: selected.toolTimeoutMs,
     });

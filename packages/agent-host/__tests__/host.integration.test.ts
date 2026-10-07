@@ -358,6 +358,126 @@ test('Stop acknowledges only after the dispatched native child has physically ex
   expect((await event(client, threadId, 'run.finished')).outcome).toBe('stopped');
 });
 
+test('host/stop replies after the owned native child and Root join, then closes every client', async () => {
+  const started = Promise.withResolvers<number>();
+  let exited = false;
+  const native: HostTool = {
+    description: 'Run an owned child through host shutdown',
+    execute: async (_input, context) => {
+      const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+        signal: context.signal,
+        stdio: 'ignore',
+      });
+      child.once('spawn', () => {
+        if (child.pid) {
+          started.resolve(child.pid);
+        }
+      });
+      await new Promise<void>((resolve, reject) => {
+        child.once('error', (cause) => {
+          if (!context.signal.aborted) {
+            reject(cause);
+          }
+        });
+        child.once('close', () => {
+          exited = true;
+          resolve();
+        });
+      });
+      return { joined: true };
+    },
+    identity: 'owned-host-stop-process-fixture-1',
+    inputSchema: z.object({ text: z.string() }),
+    risk: 'read',
+  };
+  const { client, root, host } = await setup(undefined, native);
+  const other = await attachAgentHost(host.record);
+  clients.push(other);
+  await start(client);
+  const pid = await started.promise;
+  expect(process.kill(pid, 0)).toBe(true);
+  expect(await client.request('host/stop', {})).toEqual({
+    outcome: 'stopped',
+    rootReleased: true,
+  });
+  expect(exited).toBe(true);
+  expect(() => process.kill(pid, 0)).toThrow();
+  expect(RootLock.inspect(root)?.owner.released).toBe(true);
+  await expect(readFile(join(root, 'host.json'))).rejects.toThrow();
+  const contender = await RootLock.acquire(root);
+  await contender.release();
+  await Promise.all([client.closed, other.closed, host.closed]);
+});
+
+test('host/stop client loss retains Root until the held platform join settles', async () => {
+  const entered = Promise.withResolvers<void>();
+  const joined = Promise.withResolvers<void>();
+  const { root, client, host, platform } = await setup();
+  platform.close = async () => {
+    entered.resolve();
+    await joined.promise;
+  };
+  const request = client.request('host/stop', {});
+  request.catch(() => undefined);
+  try {
+    await entered.promise;
+    await expect(RootLock.acquire(root)).rejects.toBeInstanceOf(RootLockedError);
+    await client.close();
+    await expect(request).rejects.toThrow();
+    await expect(RootLock.acquire(root)).rejects.toBeInstanceOf(RootLockedError);
+  } finally {
+    joined.resolve();
+  }
+  await host.closed;
+  expect(RootLock.inspect(root)?.owner.released).toBe(true);
+  const contender = await RootLock.acquire(root);
+  await contender.release();
+});
+
+test('host/stop fences later commands while the platform join is pending', async () => {
+  const entered = Promise.withResolvers<void>();
+  const joined = Promise.withResolvers<void>();
+  const { root, client, host, platform } = await setup();
+  platform.close = async () => {
+    entered.resolve();
+    await joined.promise;
+  };
+  const request = client.request('host/stop', {});
+  try {
+    await entered.promise;
+    await expect(client.request('thread/start', { commandId: randomUUID() })).rejects.toThrow(
+      /closing/
+    );
+    await expect(client.request('host/stop', {})).rejects.toThrow(/closing/);
+    await expect(RootLock.acquire(root)).rejects.toBeInstanceOf(RootLockedError);
+  } finally {
+    joined.resolve();
+  }
+  expect(await request).toEqual({ outcome: 'stopped', rootReleased: true });
+  await host.closed;
+});
+
+test('host/stop reports cleanup failure and retains Root instead of reporting release', async () => {
+  const { root, client, host, platform } = await setup();
+  const store = host.core.store;
+  if (!(store instanceof StateStore)) {
+    throw new Error('Shutdown fixture did not acquire its real SQLite store');
+  }
+  platform.close = async () => {
+    throw new Error('Owned fixture cleanup failed');
+  };
+  try {
+    await expect(client.request('host/stop', {})).rejects.toThrow(/cleanup failed/i);
+    await expect(host.closed).rejects.toThrow();
+    await expect(RootLock.acquire(root)).rejects.toBeInstanceOf(RootLockedError);
+  } finally {
+    // This fixture platform acquired no external resources. Retain the failed
+    // production close result, then release only the test's owned SQLite root.
+    await store.close();
+    hosts.splice(hosts.indexOf(host), 1);
+  }
+});
+
 test('large real tool content is spooled before publication and survives host reopen with model history', async () => {
   const text = await readFile(
     new URL('../../../docs/agents/assistant-runtime.md', import.meta.url),

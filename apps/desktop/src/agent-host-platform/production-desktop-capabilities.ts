@@ -390,7 +390,10 @@ export function productionDesktopCapabilities(
                 before,
                 canonicalId: names.get(name) ?? name,
                 resolvedToolResultBudget: budget,
+                runtime: runtimeMcp,
+                ...(request.snapshot ? { snapshot: request.snapshot } : {}),
                 source,
+                toolId: name,
                 toolTimeoutMs: resilience.toolTimeoutMs,
               }),
             ])

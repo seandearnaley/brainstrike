@@ -1743,6 +1743,14 @@ Tool output budget contract:
 - Host tool bindings retain the existing canonical catalog ID for Settings
   permission overrides before provider-name sanitization. The same permission
   engine checks that ID, including an explicit deny ahead of session grants.
+- M3 restart reconstruction compares the configured-server owner's versioned
+  non-secret authority capture in the existing committed run snapshot before
+  admitting an MCP binding. Changed destination, command or credential record
+  identity refuses with zero effects; missing legacy capture refuses explicitly.
+  Private args/env/headers/URL credentials and unproved OAuth/bearer principals
+  remain visible restart gaps. A credential reference alone cannot establish
+  unchanged principal after its secret value changes. No private value or hash
+  enters the capture. ADR-0017 records Sean's approved representation.
 
 - Budgets are token-denominated at 4 chars/token. The two default budgets resolve
   once per Mastra run from the active model context window; explicit per-tool
