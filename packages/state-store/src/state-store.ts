@@ -100,6 +100,23 @@ export interface IndexerPort {
   reset(): Promise<void>;
 }
 
+/** Trusted host composition after writer readiness, before interrupted purge replay. */
+export interface StateStoreStartupOwner {
+  acquire(store: StateStore): Promise<IndexerPort | undefined>;
+  /** Failed startup joins external resources before the canonical writer or Root can close. */
+  close(): Promise<void>;
+}
+
+/** Failed startup retains the original writer and Root when external cleanup is unproved. */
+export class StateStoreStartupError extends AggregateError {
+  constructor(
+    causes: readonly unknown[],
+    readonly store: StateStore
+  ) {
+    super(causes, 'State startup cleanup failed; durable root ownership is retained');
+  }
+}
+
 export interface StateStoreHooks {
   readonly exportAfterSnapshot?: () => Promise<void>;
   readonly exportBeforeBlobs?: () => Promise<void>;
@@ -142,6 +159,7 @@ export interface StateStoreOptions extends LockOptions {
   readonly memoryCalculatorModule?: string;
   readonly onSyncSpan?: (span: SyncSpan) => void;
   readonly onWriteSpan?: (span: WriteSpan) => void;
+  readonly startup?: StateStoreStartupOwner;
   /** 'sqlite-auto' is the kernel-sync probe's negative control only: it checkpoints inside streaming commits. */
   readonly walCheckpoint?: 'boundary' | 'sqlite-auto';
 }
@@ -315,6 +333,7 @@ export class StateStore implements MemoryDomainPort {
   private readonly blobsPath: string;
   private readonly worker: Worker;
   private readonly options: StateStoreOptions;
+  private indexer: IndexerPort | undefined;
   private readonly waiters = new Map<number, Waiter>();
   private readonly inflight = new Set<Promise<void>>();
   private readonly deferredGc = new Set<string>();
@@ -339,6 +358,7 @@ export class StateStore implements MemoryDomainPort {
     this.settings = ready.settings;
     this.stateDamage = ready.damage;
     this.options = options;
+    this.indexer = options.indexer;
     this.statePath = join(root, STATE_DB);
     this.blobsPath = join(root, BLOBS_DIR);
     worker.on('message', (m: Reply) => {
@@ -368,6 +388,7 @@ export class StateStore implements MemoryDomainPort {
     mkdirSync(dataRoot, { recursive: true });
     const lock = await RootLock.acquire(dataRoot, options);
     let worker: Worker | null = null;
+    let store: StateStore | undefined;
     try {
       mkdirSync(join(dataRoot, BLOBS_DIR), { recursive: true });
       worker = new Worker(new URL('./writer-worker.mjs', import.meta.url), {
@@ -383,12 +404,23 @@ export class StateStore implements MemoryDomainPort {
         },
       });
       const ready = await waitReady(worker);
-      const store = new StateStore(dataRoot, lock, worker, ready, options);
+      store = new StateStore(dataRoot, lock, worker, ready, options);
+      if (options.startup) {
+        await store.acquireStartupIndexer();
+      }
       if (ready.damage === null) {
-        await store.run(() => store.replayPurgeIntents());
+        const acquired = store;
+        await acquired.run(() => acquired.replayPurgeIntents());
       }
       return store;
     } catch (e) {
+      if (store && options.startup) {
+        try {
+          await options.startup.close();
+        } catch (cleanup) {
+          throw new StateStoreStartupError([e, cleanup], store);
+        }
+      }
       if (worker) {
         await worker.terminate(); // better-sqlite3 closes the connection when the worker is torn down
       }
@@ -396,6 +428,13 @@ export class StateStore implements MemoryDomainPort {
         lock.release();
       }
       throw e;
+    }
+  }
+
+  private async acquireStartupIndexer(): Promise<void> {
+    const indexer = await this.options.startup?.acquire(this);
+    if (indexer) {
+      this.indexer = indexer;
     }
   }
 
@@ -434,7 +473,7 @@ export class StateStore implements MemoryDomainPort {
   }
 
   private requireIndexer(operation: string): IndexerPort {
-    const { indexer } = this.options;
+    const { indexer } = this;
     if (!indexer) {
       throw new IndexerRequiredError(operation);
     }
@@ -907,7 +946,7 @@ export class StateStore implements MemoryDomainPort {
    */
   reset(): Promise<void> {
     return this.run(async () => {
-      await this.options.indexer?.reset();
+      await this.indexer?.reset();
       await this.shutdownWriter();
       for (const n of STORE_ENTRIES) {
         rmSync(join(this.root, n), { force: true, recursive: true });

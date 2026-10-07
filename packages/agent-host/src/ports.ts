@@ -7,6 +7,7 @@ import type {
   PermissionToolGateSnapshot,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
+import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import type {
   FlexibleSchema,
   LanguageModel,
@@ -151,6 +152,8 @@ export interface HostPlatform {
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
   resolveModel?(modelId: string): Promise<LanguageModel>;
+  /** Borrowed existing native writer; startup acquires it before interrupted purge replay. */
+  readonly stateIndexer?: StateStoreIndexerPort;
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
 }
 export type HostSdkTools = ToolSet;

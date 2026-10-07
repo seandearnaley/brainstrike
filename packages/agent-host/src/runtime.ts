@@ -5,7 +5,7 @@ import {
   ResourceOwner,
   startHost,
 } from '@brainstrike/host-lease';
-import { StateStore } from '@brainstrike/state-store';
+import { StateStore, StateStoreStartupError } from '@brainstrike/state-store';
 import {
   createMessageConnection,
   type Message,
@@ -160,25 +160,41 @@ export async function startAgentHost(
         },
         acquireRoot: async (retainRun) => {
           signal.throwIfAborted();
-          const store = await StateStore.open(options.root, {
-            memoryCalculatorModule: fileURLToPath(
-              new URL('./adapters/memory-storage-calculator.js', import.meta.url)
-            ),
-          });
+          let store: StateStore;
+          try {
+            store = await StateStore.open(options.root, {
+              memoryCalculatorModule: fileURLToPath(
+                new URL('./adapters/memory-storage-calculator.js', import.meta.url)
+              ),
+              startup: {
+                acquire: async (acquired) => {
+                  signal.throwIfAborted();
+                  // BST-1977: purge replay needs its borrowed native owner before
+                  // host readiness. Root and the canonical writer are already held.
+                  platform ??=
+                    typeof inputPlatform === 'function'
+                      ? await inputPlatform({ ...context, store: acquired })
+                      : inputPlatform;
+                  signal.throwIfAborted();
+                  return platform.stateIndexer;
+                },
+                close: closePlatform,
+              },
+            });
+          } catch (cause) {
+            if (cause instanceof StateStoreStartupError) {
+              throw new AgentHostStartupError([cause], cause.store, core);
+            }
+            throw cause;
+          }
           try {
             signal.throwIfAborted();
-            // Acquire the durable root owner before constructing credentials,
-            // inference/indexer ports or MCP authority for a configured host.
-            platform ??=
-              typeof inputPlatform === 'function'
-                ? await inputPlatform({ ...context, store })
-                : inputPlatform;
-            signal.throwIfAborted();
-            if (platform.openRun) {
-              ownedPlatform.openRun = platform.openRun.bind(platform);
+            const acquiredPlatform = currentPlatform();
+            if (acquiredPlatform.openRun) {
+              ownedPlatform.openRun = acquiredPlatform.openRun.bind(acquiredPlatform);
             }
-            if (platform.admitRun) {
-              ownedPlatform.admitRun = platform.admitRun.bind(platform);
+            if (acquiredPlatform.admitRun) {
+              ownedPlatform.admitRun = acquiredPlatform.admitRun.bind(acquiredPlatform);
             }
             core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
               core = acquired;

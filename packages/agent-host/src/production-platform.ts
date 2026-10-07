@@ -11,6 +11,7 @@ import {
 } from '@brainstrike/agent/provider-runtime';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
+import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import type { LanguageModel } from 'ai';
 import { z } from 'zod';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
@@ -61,6 +62,7 @@ export interface ProductionHostPlatformOptions {
   ) => Promise<LanguageModel>;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   readonly startup: HostStartupContext;
+  readonly stateIndexer?: StateStoreIndexerPort;
 }
 
 function rootModel(configuration: RuntimeData, auth: ProviderAuthInput | undefined): LanguageModel {
@@ -157,6 +159,7 @@ export async function createProductionHostPlatform(
   // Register ownership before the first provider, Memory or MCP side effect.
   await options.startup.register(close);
   return {
+    ...(options.stateIndexer ? { stateIndexer: options.stateIndexer } : {}),
     admitRun: async (request) => {
       if (closing) {
         throw new Error('Production host is closing');

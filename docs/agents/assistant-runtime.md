@@ -19,6 +19,14 @@
 
 ## Native suspension completion
 
+Core startup acquires Root and the canonical StateStore writer before constructing
+the platform, then acquires its optional borrowed `stateIndexer` before replaying
+interrupted purge or thread-delete intents. Platform rollback joins native owners
+before writer shutdown and Root release. Unproved rollback retains the same writer
+and Root in the startup error; discovery is never published for that startup.
+This seam qualifies Core startup ordering; the Main bootstrap borrow and production
+Memory vector/local-inference capability remain separate integration gates.
+
 The committed M3 conversation uses the public assistant-ui approval command for
 host interaction IDs. Approval-bearing tool cards stay outside the activity
 disclosure, including answered history. Questions and plans submit the canonical

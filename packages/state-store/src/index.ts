@@ -57,6 +57,8 @@ export {
   StateStore,
   type StateStoreHooks,
   type StateStoreOptions,
+  StateStoreStartupError,
+  type StateStoreStartupOwner,
   type StoredText,
   type StoreSettings,
   type SyncSpan,
