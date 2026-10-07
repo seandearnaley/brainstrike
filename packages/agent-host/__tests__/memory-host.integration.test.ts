@@ -17,9 +17,13 @@ import { readHostRow } from '../src/event-storage.js';
 import type { HostPlatform } from '../src/ports.js';
 import { scriptedToolSequence } from './fixtures/scripted-model.js';
 
-test.each(['history', 'OM'] as const)(
-  'existing SQLite writer composes public Memory with real approval, file effect and canonical replay (%s)',
-  async (mode) => {
+test.each([
+  ['history', 3],
+  ['history', 40],
+  ['OM', 3],
+] as const)(
+  'existing SQLite writer composes public Memory with real approval, file effect and canonical replay (%s, window %i)',
+  async (mode, lastMessages) => {
     const root = await mkdtemp(join(tmpdir(), 'bs-m3-memory-host-'));
     const target = join(root, 'permitted.txt');
     const resourceId = randomUUID();
@@ -33,6 +37,7 @@ test.each(['history', 'OM'] as const)(
     const receipts: { readonly kind: 'observation' | 'reflection'; readonly modelId: string }[] =
       [];
     const prepared: unknown[] = [];
+    const hostPreparedMessages: unknown[] = [];
     const observer = new MockLanguageModelV4({
       doStream: async () => ({
         stream: simulateReadableStream({
@@ -70,6 +75,7 @@ test.each(['history', 'OM'] as const)(
         const owner = await StateStoreHostMemory.open(context, {
           native: {
             options: {
+              lastMessages,
               observationalMemory:
                 mode === 'OM'
                   ? {
@@ -112,6 +118,31 @@ test.each(['history', 'OM'] as const)(
           risk: 'edit',
         },
       },
+    };
+    const providerSystem = 'host-context-fixture:72a4bd96';
+    platform.admitRun = async () => {
+      const tools = platform.tools;
+      if (!tools) {
+        throw new Error('The recorded native catalog is missing');
+      }
+      return {
+        configuration: {},
+        model,
+        provider: {
+          prepare: async ({ messages }) => {
+            hostPreparedMessages.push(structuredClone(messages));
+            return { messages: [...messages], model, system: providerSystem };
+          },
+        },
+        snapshot: {
+          configuration: { system: providerSystem },
+          maxSteps: 3,
+          toolIdentities: Object.fromEntries(
+            Object.entries(tools).map(([name, tool]) => [name, tool.identity])
+          ),
+        },
+        tools,
+      };
     };
     let core = await HostCore.open(store, platform, () => () => undefined);
     let failure: unknown;
@@ -168,6 +199,11 @@ test.each(['history', 'OM'] as const)(
         committed.filter((row) => row.event.type === 'provider.request.prepared')
       ).toHaveLength(model.doStreamCalls.length);
       expect(prepared).toEqual(model.doStreamCalls);
+      const systemContext = JSON.stringify(
+        model.doStreamCalls.at(-1)?.prompt.filter((message) => message.role === 'system')
+      );
+      expect(systemContext).toContain(providerSystem);
+      expect(systemContext).toContain('retained working memory');
       expect(committed.every((row) => row.ts !== undefined)).toBe(true);
       const identity = committedRunIdentity(committed, runId);
       expect(identity).toMatchObject({
@@ -243,6 +279,56 @@ test.each(['history', 'OM'] as const)(
       expect(await store.check()).toEqual({ gaps: 0, integrity: 'ok' });
       const all = await Promise.all((await store.readAll()).map((row) => readHostRow(store, row)));
       expect(all).toEqual(replay);
+      const second = await core.startRun({
+        commandId: randomUUID(),
+        modelId: 'scripted',
+        prompt: 'Decline the second recorded write.',
+        threadId,
+      });
+      await expect
+        .poll(async () => {
+          const rows = await core.read(threadId, 0);
+          const result = rows.find(
+            ({ event }) =>
+              'runId' in event &&
+              event.runId === second.runId &&
+              (event.type === 'interaction.requested' || event.type === 'run.finished')
+          )?.event;
+          if (result?.type === 'run.finished') {
+            throw new Error(JSON.stringify({ hostPreparedMessages, result }, null, 2));
+          }
+          return result;
+        })
+        .toMatchObject({ type: 'interaction.requested' });
+      const secondRows = await core.read(threadId, 0);
+      const secondPending = secondRows.find(
+        ({ event }) => event.type === 'interaction.requested' && event.runId === second.runId
+      )?.event;
+      if (secondPending?.type !== 'interaction.requested') {
+        throw new Error('The second recorded write has no committed approval');
+      }
+      const secondPrompt = model.doStreamCalls.at(-1)?.prompt;
+      expect(secondPrompt?.filter((message) => message.role !== 'system')[0]?.role).toBe('user');
+      if (mode === 'history') {
+        expect(JSON.stringify(secondPrompt).includes(command.prompt)).toBe(lastMessages === 40);
+      }
+      await core.respond({
+        commandId: randomUUID(),
+        decision: 'deny',
+        interactionId: secondPending.interactionId,
+        runId: second.runId,
+        threadId,
+      });
+      await expect
+        .poll(
+          async () =>
+            (await core.read(threadId, 0)).find(
+              ({ event }) => event.type === 'run.finished' && event.runId === second.runId
+            )?.event
+        )
+        .toMatchObject({ outcome: 'completed' });
+      expect(executions).toBe(1);
+      expect((await core.read(threadId, 0)).slice(0, replay.length)).toEqual(replay);
     } catch (cause) {
       failure = cause;
     }

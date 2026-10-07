@@ -178,9 +178,14 @@ export class StateStoreHostMemory implements HostRunOwner {
       }
       const previousRunId = started.event.runId;
       const previous = committedRunIdentity(rows, previousRunId);
-      if (selected.has(previous.userMessageId)) {
-        historical.push({ content: started.event.prompt, role: 'user' });
+      // BST-1977's ordinary second turn failed when the bounded native history
+      // window started inside an older turn. Its
+      // assistant tail cannot be a standalone provider conversation. Keep the
+      // selected window and immutable rows; omit that incomplete runtime turn.
+      if (!selected.has(previous.userMessageId)) {
+        continue;
       }
+      historical.push({ content: started.event.prompt, role: 'user' });
       if (
         !rows.some(
           (row) =>

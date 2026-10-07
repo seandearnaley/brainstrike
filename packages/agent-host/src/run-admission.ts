@@ -3,10 +3,37 @@ import type { ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import type { HostRunState } from './core-state.js';
 import { canonical, jsonValue } from './json-value.js';
-import type { HostPlatform, HostRunAdmission, HostRunAdmissionRequest } from './ports.js';
+import type {
+  HostPlatform,
+  HostPreparedModelRequest,
+  HostRunAdmission,
+  HostRunAdmissionRequest,
+  HostRunOwner,
+} from './ports.js';
 import type { HostEvent } from './protocol.js';
 import { HostRunSnapshotSchema } from './protocol.js';
 import { createHostSdkTools } from './sdk-tools.js';
+
+/** Provider instructions and public Memory context share the same SDK system input. */
+export function combineHostSystemContext(
+  provider: string | undefined,
+  memory: string | undefined
+): { readonly system?: string } {
+  const sections = [provider, memory].filter((section): section is string => Boolean(section));
+  return sections.length > 0 ? { system: sections.join('\n\n') } : {};
+}
+
+export function prepareHostProviderStep(
+  provider: HostPreparedModelRequest,
+  memorySystem: string | undefined,
+  owner: HostRunOwner | undefined
+): HostPreparedModelRequest {
+  return {
+    ...provider,
+    model: owner?.prepareHostModel?.(provider.model) ?? provider.model,
+    ...combineHostSystemContext(provider.system, memorySystem),
+  };
+}
 
 export function assertHostRunStartAvailable(runs: Iterable<HostRunState>, threadId: string): void {
   for (const active of runs) {

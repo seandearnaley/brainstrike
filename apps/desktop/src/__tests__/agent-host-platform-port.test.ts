@@ -20,6 +20,7 @@ import {
   type DesktopPlatformSelection,
   serveDesktopPlatform,
 } from '../agent-host-platform/main-platform';
+import { decodePlatformAuth } from '../agent-host-platform/platform-auth';
 
 /** Real Node ports with the Electron utility port's public MessageEvent shape. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -77,7 +78,10 @@ function selected(
     toolTimeoutMs: 5000,
   };
 }
-function harness(readConfiguration: DesktopPlatformCapabilities['readConfiguration']) {
+function harness(
+  readConfiguration: DesktopPlatformCapabilities['readConfiguration'],
+  resolveProviderAuth: DesktopPlatformCapabilities['resolveProviderAuth'] = async () => undefined
+) {
   const channel = new MessageChannel();
   const first = new UtilityPort(channel.port1);
   const second = new UtilityPort(channel.port2);
@@ -86,12 +90,13 @@ function harness(readConfiguration: DesktopPlatformCapabilities['readConfigurati
   const owner = serveDesktopPlatform(server, {
     readConfiguration,
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
-    resolveProviderAuth: async () => undefined,
+    resolveProviderAuth,
   });
   client.onClose(() => client.dispose());
   client.listen();
   return {
     client,
+    crash: () => second.close(),
     destroy: () => {
       client.dispose();
       server.dispose();
@@ -99,11 +104,120 @@ function harness(readConfiguration: DesktopPlatformCapabilities['readConfigurati
       second.close();
     },
     owner,
+    server,
   };
 }
+
+it('retains the resolved AWS chain across the private port once without a bearer fallback', async () => {
+  const identity = {
+    accessKeyId: 'AKIDEXAMPLE',
+    accountId: '123456789012',
+    expiration: new Date('2030-01-01T00:00:00.000Z'),
+    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+    sessionToken: 'owned-fixture-session',
+  };
+  const resolve = vi.fn(async () => identity);
+  const h = harness(
+    async () => selected({}),
+    async () => ({
+      credentialProvider: resolve,
+      kind: 'aws',
+      region: 'us-east-1',
+    })
+  );
+  try {
+    const auth = decodePlatformAuth(
+      await h.client.sendRequest('platform/auth', { provider: 'bedrock' })
+    );
+    if (auth?.kind !== 'aws' || !auth.credentialProvider) {
+      throw new Error('The private port lost the selected chain capability');
+    }
+    expect(auth.apiKey).toBeUndefined();
+    expect(auth.region).toBe('us-east-1');
+    expect(await auth.credentialProvider()).toEqual(identity);
+    expect(await auth.credentialProvider()).toEqual(identity);
+    expect(resolve).toHaveBeenCalledTimes(1);
+  } finally {
+    h.destroy();
+    await h.owner.close();
+  }
+});
 async function admit(client: MessageConnection): Promise<unknown> {
   return client.sendRequest('platform/admit', { modelId: 'openai::fixture', threadId: 'thread' });
 }
+
+it('utility loss aborts a progress-blocked executor and joins its physical tail before releasing the selection', async () => {
+  const entered = Promise.withResolvers<AbortSignal>();
+  const progressEntered = Promise.withResolvers<void>();
+  const progressHeld = Promise.withResolvers<void>();
+  const physicalTail = Promise.withResolvers<void>();
+  const serverClosed = Promise.withResolvers<void>();
+  const release = vi.fn(async () => undefined);
+  let progressRejected = false;
+  const h = harness(async () =>
+    selected(
+      {
+        tool: {
+          description: 'fixture',
+          execute: async (_input, context) => {
+            entered.resolve(context.signal);
+            try {
+              await context.write?.({ pending: true });
+            } catch (cause) {
+              progressRejected = true;
+              throw cause;
+            } finally {
+              await physicalTail.promise;
+            }
+            return {};
+          },
+          identity: 'canonical',
+          inputSchema: z.object({}),
+          risk: 'execute',
+        },
+      },
+      release
+    )
+  );
+  h.server.onClose(() => serverClosed.resolve());
+  h.client.onRequest('platform/progress', async () => {
+    progressEntered.resolve();
+    await progressHeld.promise;
+  });
+  try {
+    await admit(h.client);
+    const executing = h.client.sendRequest('platform/execute', {
+      input: {},
+      runId: 'run',
+      threadId: 'thread',
+      toolCallId: 'call',
+      toolId: 'tool',
+    });
+    executing.catch(() => undefined);
+    const signal = await entered.promise;
+    await progressEntered.promise;
+    h.crash();
+    await serverClosed.promise;
+    await vi.waitFor(() => expect(signal.aborted).toBe(true));
+    await vi.waitFor(() => expect(progressRejected).toBe(true));
+    let closed = false;
+    const closing = h.owner.close().then(() => {
+      closed = true;
+    });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    expect(release).not.toHaveBeenCalled();
+    physicalTail.resolve();
+    await closing;
+    await expect(executing).rejects.toThrow();
+    expect(release).toHaveBeenCalledTimes(1);
+  } finally {
+    physicalTail.resolve();
+    progressHeld.resolve();
+    h.destroy();
+    await h.owner.close();
+  }
+});
 
 it('preserves canonical transforms, validator failures, progress acknowledgement and model projection over real ports', async () => {
   const inputSchema = canonicalToolInputSchema(

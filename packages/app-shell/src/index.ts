@@ -7,6 +7,9 @@ export {
   buildAgentLoopSettings,
   buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,
+  getRuntimeProviderLlmModels,
+  type LlmProviderModelDefinition,
+  toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
 export * from './connected-prompt-manager';
@@ -14,6 +17,11 @@ export * from './connected-prompt-manager-lazy';
 export * from './database-panel';
 export * from './diagnostics';
 export * from './hooks/use-assistant-availability';
+export { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
+export { useAssistantModelChange } from './hooks/use-assistant-model-change';
+export { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
+export { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
+export { useEnableModel } from './hooks/use-enable-model';
 export * from './navigation';
 export * from './page-wrapper';
 export * from './provider-verification-client';
@@ -21,5 +29,8 @@ export * from './root-layout-content';
 export * from './status-items';
 export * from './threads-panel';
 export * from './types';
+export { useAssistantSlashCommands } from './use-assistant-slash-commands';
+export { useComposerDraftChannel } from './use-composer-draft-channel';
+export { useFileMentions } from './use-file-mentions';
 export * from './verify-provider-credential';
 export * from './workspace-connect/workspace-connect-host';

@@ -1,4 +1,6 @@
+import { homedir } from 'node:os';
 import {
+  createAssistantSkillTools,
   isSupportedProvider,
   type RuntimeData,
   resolveAssistantResilienceConfig,
@@ -26,21 +28,25 @@ import {
   resolveToolRiskCategory,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-repository';
-import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
 import { z } from 'zod';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
 import {
   buildDesktopAssistantTools,
   type DesktopAssistantToolDependencies,
 } from '../assistant-server/assistant-tools';
+import { deriveAssistantTurnAuthInput } from '../assistant-server/provider-auth-input';
+import { prepareRequestSkills } from '../assistant-server/request-skills';
+import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
 import { getDatabase } from '../db-main';
 import { readDesktopMcpHostSnapshot } from '../ipc-mcp';
 import { getDesktopMcpHostRuntime } from '../mcp/host-runtime';
 import { readProviderCredential } from '../provider-api-key';
 import { bindMcpTool } from './adapter-services';
-import type { DesktopPlatformCapabilities } from './main-platform';
+import { readDesktopHostSystemContext } from './desktop-host-context';
+import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
 import {
   PlatformClientConfigurationSchema,
   PlatformModelConfigurationSchema,
@@ -51,6 +57,32 @@ interface DesktopCatalogSelection {
   readonly definition: NonNullable<ReturnType<typeof findLlmModelDefinition>>;
   readonly model: string;
   readonly provider: SupportedProvider;
+}
+
+function desktopSystemFields(system: string | undefined): { readonly system?: string } {
+  return system === undefined ? {} : { system };
+}
+
+function desktopDurableConfiguration(
+  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  observerTarget: string | null,
+  system: string | undefined
+): DesktopPlatformSelection['durableConfiguration'] {
+  return z.record(z.string(), z.json()).parse(
+    JSON.parse(
+      JSON.stringify({
+        intent,
+        ...desktopSystemFields(system),
+        memoryResolution: {
+          observationalMemory: desktopObservationResolution(
+            intent.memorySettings.observationalMemory.enabled,
+            observerTarget
+          ),
+          observerTarget,
+        },
+      })
+    )
+  );
 }
 
 function desktopInputTokenLimit(
@@ -172,8 +204,16 @@ async function createDesktopNativeTools(
   intent: z.output<typeof PlatformClientConfigurationSchema>,
   dependencies: DesktopAssistantToolDependencies,
   budget: ReturnType<typeof resolveScaledToolResultBudget>
-): Promise<Record<string, import('@brainstrike/agent-host').HostTool>> {
+): Promise<{
+  readonly runtime: RuntimeData;
+  readonly tools: Record<string, import('@brainstrike/agent-host').HostTool>;
+  readonly workspaceSkills?: import('@brainstrike/agent').ScannedWorkspaceSkills;
+}> {
   const roots = await loadWorkspaceRootsFromDatabase(db);
+  const focused = roots.find((root) => root.rootId === intent.selectionFolderId);
+  if (intent.selectionFolderId && !focused) {
+    throw new Error('The selected workspace root is no longer mounted');
+  }
   const runtime: RuntimeData = {
     model: configuration.model,
     provider: configuration.provider,
@@ -189,32 +229,58 @@ async function createDesktopNativeTools(
       : {}),
     workspaceInstructionsPreference: intent.workspaceInstructionsPreference,
     workspaceRoots: roots,
+    ...(focused
+      ? {
+          selectionFilePaths:
+            intent.workspaceContext?.files
+              .filter((file) => file.rootId === focused.rootId)
+              .map((file) => file.path) ?? [],
+          selectionFolderId: focused.rootId,
+          workspaceRootPath: focused.path,
+        }
+      : {}),
+    ...(intent.skillsPreference ? { skillsPreference: intent.skillsPreference } : {}),
   };
+  const { workspaceSkills } = prepareRequestSkills({
+    fs: createSecureSkillsFs([...roots.map((root) => root.path), homedir()]),
+    homedir,
+    runtimeData: runtime,
+  });
+  const skillTools = workspaceSkills ? createAssistantSkillTools(workspaceSkills) : {};
   const nativeBindings = Object.fromEntries(
-    DESKTOP_NATIVE_TOOLS.map((tool) => [
-      tool.id,
-      { identity: tool.id, risk: resolveToolRiskCategory(tool.defaults) },
-    ])
+    [
+      ...DESKTOP_NATIVE_TOOLS,
+      ...Object.keys(skillTools).map(
+        (id) => NATIVE_TOOL_REGISTRIES.byId[id as 'skill' | 'skill_read' | 'skill_search']
+      ),
+    ].map((tool) => [tool.id, { identity: tool.id, risk: resolveToolRiskCategory(tool.defaults) }])
   );
   const build = (context?: HostToolContext) =>
     createAgentHostToolBindings({
       bindings: nativeBindings,
       resolvedToolResultBudget: budget,
-      tools: buildDesktopAssistantTools(
-        {
-          ...runtime,
-          ...(context
-            ? {
-                memory: {
-                  resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-                  runId: context.runId,
-                  threadId: context.threadId,
-                },
-              }
-            : {}),
-        },
-        { ...dependencies, resolvedToolResultBudget: budget }
-      ),
+      tools: {
+        ...buildDesktopAssistantTools(
+          {
+            ...runtime,
+            ...(context
+              ? {
+                  memory: {
+                    resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+                    runId: context.runId,
+                    threadId: context.threadId,
+                  },
+                }
+              : {}),
+          },
+          {
+            ...dependencies,
+            ...(workspaceSkills ? { skillScriptResolver: workspaceSkills } : {}),
+            resolvedToolResultBudget: budget,
+          }
+        ),
+        ...skillTools,
+      },
     });
   const native = build();
   const tools = Object.fromEntries(
@@ -232,7 +298,7 @@ async function createDesktopNativeTools(
       },
     ])
   );
-  return tools;
+  return { runtime, tools, ...(workspaceSkills ? { workspaceSkills } : {}) };
 }
 
 /** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
@@ -254,13 +320,19 @@ export function productionDesktopCapabilities(
         throw new Error('Captured settings do not belong to the selected catalog model');
       }
       const inputTokenLimit = desktopInputTokenLimit(definition, intent, configuration);
-      const observation = intent.memorySettings.observationalMemory;
       const { memorySettings, observerTarget } = resolveDesktopMemorySettings(
         intent,
         configuration.provider
       );
       const budget = resolveScaledToolResultBudget(definition.contextWindow);
-      const tools = await createDesktopNativeTools(db, configuration, intent, dependencies, budget);
+      const native = await createDesktopNativeTools(
+        db,
+        configuration,
+        intent,
+        dependencies,
+        budget
+      );
+      const { tools } = native;
       const runtimeMcp = getDesktopMcpHostRuntime();
       const before = await readDesktopMcpHostSnapshot(runtimeMcp);
       request.signal.throwIfAborted();
@@ -332,28 +404,23 @@ export function productionDesktopCapabilities(
           tools[name] = tool;
         }
         policies.set(request.threadId, permissionPolicy);
+        const system = await readDesktopHostSystemContext({
+          inputTokenLimit,
+          request,
+          runtime: native.runtime,
+          tools,
+          ...(native.workspaceSkills ? { workspaceSkills: native.workspaceSkills } : {}),
+        });
         return {
           close,
           configuration,
           contextWindow: definition.contextWindow,
-          durableConfiguration: z.record(z.string(), z.json()).parse(
-            JSON.parse(
-              JSON.stringify({
-                intent,
-                memoryResolution: {
-                  observationalMemory: desktopObservationResolution(
-                    observation.enabled,
-                    observerTarget
-                  ),
-                  observerTarget,
-                },
-              })
-            )
-          ),
+          durableConfiguration: desktopDurableConfiguration(intent, observerTarget, system),
           inputTokenLimit,
           maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
           memory: { options: intent.memoryOptions, settings: memorySettings },
           resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+          ...desktopSystemFields(system),
           tools,
           toolTimeoutMs: resilience.toolTimeoutMs,
         };
@@ -382,7 +449,7 @@ export function productionDesktopCapabilities(
       if (!isSupportedProvider(provider)) {
         throw new Error('Unsupported provider credential request');
       }
-      return providerAuthInputFromCredential(provider, await readProviderCredential(provider));
+      return deriveAssistantTurnAuthInput({ provider }, await readProviderCredential(provider));
     },
   };
 }

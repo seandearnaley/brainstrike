@@ -576,6 +576,75 @@ UTC; no elapsed/compute extension, main/M2 mutation, signing/release, hosted
 workflow, paid provider, deletion clock or shared-profile change occurred.
 **CI is disabled due to cost; validation must run locally.**
 
+### Studio integrated causal checkpoint — 7 October, 04:40 UTC
+
+The affected host suite passes **119/119 unit**, 2.52 s, and **79 integration /
+7 Windows-only skips**, 39.16 s. Receipts
+`/tmp/brainstrike-m3-integrated-parity-host-unit.log` and
+`/tmp/brainstrike-m3-integrated-parity-host-integration.log`. The rebuilt closure
+passes **59/59** build/types, 33.258 s, receipt
+`/tmp/brainstrike-m3-integrated-parity-types.log`. These are scoped checks, not
+full regression.
+
+The parent-confirmed empty SDK error defect is corrected by testing failure
+presence rather than message truthiness, including the paused-run condition and
+retention of an empty diagnostic. Provider worker commit
+`e1ab722aa383115c980e435b5f64be600b5e9cf2` (exact parent a07, one new file) was
+fetched, verified and applied with `git cherry-pick --no-commit` for the same
+normal-hook integration batch. Before: two offline passes/four failures. After:
+`pnpm --filter @brainstrike/agent-host exec vitest run --config
+vitest.integration.config.mts __tests__/provider-http-error.integration.test.ts`
+passes **6/6**, 1.732 s bodies / 2.60 s lane, with dependency verification enabled.
+Receipt `/tmp/brainstrike-m3-provider-http-error-after.log`. Actual production
+provider adapters/public Memory/SQLite commit failed outcomes for HTTP 400 with
+nonempty, empty and malformed-empty envelopes; no network or paid calls.
+
+The ordinary utility-loss variant is **red**, 6.710 s / 7.84 s. Its real contender
+acquires Root while the actual native PID/start remains alive before and after
+acquisition. Final app cleanup has errors `[]`, remaining `[]`, Root released
+`true`. The explicit owned utility SIGKILL is fault injection, not a cleanup
+success. No unchanged retry or Root-lock patch followed. The causal note is
+[crashed-utility Root ownership](2026-10-07-m3-crashed-utility-root-ownership.md);
+receipt `/tmp/brainstrike-m3-utility-loss-root-reuse-before.log`. This closes the
+uncertainty by demonstrating the defect, not by qualifying reuse. Its POSIX
+native-tail shape is explicitly platform-limited on Windows, whose physical
+ownership qualification remains separate. The normal variant is an active test
+and was unselected by the causal run's `-t utility-loss`, not quarantined.
+
+Both this third-strike Root-ownership predicate and persisted MCP authority
+comparison require the stated Sean decisions; independent integration continues.
+[Current packet allocation](2026-10-07-m3-current-packet-allocation.md) gives the
+finite dependency graph, exclusive worker files, measured timings and proposed
+90-minute/4.5 active agent-hour ceiling. It makes no whole-M3 completion promise.
+Anthropic live inference is owner-deferred/unrun until identity verification;
+the successful OpenAI result remains valid and accounted by its sole ledger
+owner. **CI is disabled due to cost; validation must run locally.**
+
+
+### Studio publication validation — 7 October, 04:55 UTC
+
+After integrating the empty-error repair and correcting the fixture's pinned
+Vitest `test.for` registration, the ordinary normal lane passed **1 selected /
+1 unselected**, **9.089 s body / 10.21 s lane**. Command:
+`pnpm exec vitest run --config vitest.integration.config.mts
+src/__tests__/ordinary-app-owned-host.integration.test.ts -t normal` from
+`apps/desktop` with the provisioned Electron executable. Receipt
+`/tmp/brainstrike-m3-integrated-parity-ordinary-normal.log`; evidence
+`/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/brainstrike-m3-app-owned-I0juc4-evidence/`.
+Cleanup records errors `[]`, remaining `[]`, failure `null`, Root released `true`.
+The causal utility-loss regression remains active and red; this normal selection
+does not qualify it. Fixture type-check covers **728 files**, exit 0, receipt
+`/tmp/brainstrike-m3-final-fault-fixture-types-confirmed.log`. Earlier incorrect
+Vitest callback signatures failed type checking and remain retained separately;
+no test deadline or product behavior was changed to correct registration.
+
+The parent now owns two disjoint 45-active-minute implementation packets with
+20-minute checkpoints, described in the current allocation. The advisor's Root
+assessment remains read-only: neither an in-memory nor Main-PID-only repair
+proves descendant lifetime. Sean's explicit native-lifetime prototype/recovery
+decision and the MCP authority decision remain pending; no design was patched.
+Normal hooks and one unsigned publication follow in this same candidate.
+**CI is disabled due to cost; validation must run locally.**
 
 ### Released FIFO leaf integrated — 7 October, 01:52 UTC
 
@@ -701,3 +770,134 @@ agent-host unit Vitest selection and serialized integration config; receipts
 `/tmp/brainstrike-m3-app-owned-host-integration.log`. No other subsystem or full
 regression pass is implied. Normal publication hooks remain the final type and
 staged-secret checks for this batch.
+
+### Studio parity and cleanup checkpoint — 7 October, 04:10 UTC
+
+Published source remains `a07e08dc8ce0a0924e4e38df9344ccd0c6798581`.
+The following changes and results are unpublished WIP on that source, not a
+qualification of the published artifact. Parent now treats 06:54:27 UTC as
+a replan/accounting checkpoint rather than automatic shutdown.
+
+The ordinary app route captures existing per-thread draft model/settings and
+restores the shared model picker, settings, composer command channel, file
+mentions and slash menu. Main composes the existing bounded workspace/file/skill
+processors and public skill catalog; the resulting system context is captured
+in the existing run snapshot. Core combines provider instructions with public
+Memory system context. The original SDK loop, permission gate and SQLite writer
+remain the owners. The private credential response now retains resolved AWS
+chain identity separately from durable intent; the existing per-turn resolver
+remains authoritative and no live credential or paid request was used.
+
+Actual local checks:
+
+- `pnpm --filter @brainstrike/agent-host exec vitest run --config
+  vitest.integration.config.mts __tests__/memory-host.integration.test.ts`:
+  **2/2**, 865 ms body / 1.78 s lane. Both history and OM cases prove provider
+  instructions and retained working memory in the actual model request.
+  Receipt `/tmp/brainstrike-m3-context-public-memory-after.log`. The earlier
+  sandbox `ps` EPERM was setup failure, not a product verdict.
+- `pnpm --filter @brainstrike/desktop exec vitest run
+  src/__tests__/agent-host-platform-port.test.ts`: **6/6**, 65 ms / 1.09 s.
+  Receipt `/tmp/brainstrike-m3-provider-aws-private-port.log`. The utility-loss
+  regression first failed with an un-aborted executor; repaired ownership
+  rejects blocked progress, aborts and joins its actual held tail before
+  releasing the selection. Cross-process Root reuse remains unqualified.
+- `pnpm --filter @brainstrike/agent exec vitest run
+  src/__tests__/provider-factory.bedrock.spec.ts`: **20/20**, 23 ms / 674 ms.
+  Receipt `/tmp/brainstrike-m3-provider-aws-factory.log`; intercepted fetch,
+  including existing real SDK signing, not a paid provider call.
+- `pnpm exec turbo run type-check --filter=@brainstrike/desktop`: **59/59**,
+  34.056 s, including the ordinary build and 728 desktop test files / 734
+  Effect diagnostic files. Receipt
+  `/tmp/brainstrike-m3-context-composer-types-after.log`.
+- `pnpm --filter @brainstrike/desktop exec vitest run --config
+  vitest.integration.config.mts
+  src/__tests__/ordinary-app-owned-host.integration.test.ts`: **1/1**,
+  7.920 s body / 9.07 s lane. The real slash-menu skill selection stages an
+  editable draft without sending; normal Send then proves context, native
+  approval, MCP, committed view and reload/reopen. Receipt
+  `/tmp/brainstrike-m3-context-composer-ordinary.log`; evidence
+  `/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/brainstrike-m3-app-owned-rFXih5-evidence/`.
+  Cleanup has no errors, no remaining owned processes and Root released.
+
+Earlier context fixture corrections and their failures remain retained: the
+canonical model catalog, model sampling constraints and actual skill tiers.
+An ordinary launch also overlapped a build replacing its dist; it closed before
+its first window. That run is retained at `kuu1CW-evidence` and qualifies no UI
+behavior. Subsequent build and launch were serialized. Fixture cleanup now
+captures the owned main PID and attempts app close independently of diagnostic
+capture, preserving both failures. No product deadline or retry was added.
+
+The separate actual MCP restart regression is red: after committed approval
+for A and reopening the same root with the same configured name at B, approval
+sends one call to B. The original receipt and the rule-1 design decision are in
+[MCP authority decision](2026-10-07-m3-mcp-restart-authority-decision.md).
+No authority comparison or temporary refusal was implemented without the owner
+decision. Windows reports seven reproduced exact-mode failures and two still
+unclassified HTTP failures; native ACL protection must be measured and retained,
+not replaced with a mode-check bypass. OS keyring is not qualified by file-store
+fixtures. Standalone headless startup, default credential migration, vectors,
+subscription/hidden local inference, the remaining default fault matrix, loaded
+p95 and full regression remain open. **CI is disabled due to cost; validation
+must run locally.**
+
+### Studio ordinary lifecycle and bounded-history receipt — 7 October, 04:25 UTC
+
+This remains unpublished work on `a07e08dc8ce0a0924e4e38df9344ccd0c6798581`.
+The added second ordinary turn first failed before approval with the provider
+request boundary error. Evidence `1PBxcV-evidence` and
+`/tmp/brainstrike-m3-default-fault-matrix.log` retain the screenshot, logs and
+successful physical cleanup. A real public Memory/SQLite reproducer narrowed
+the cause: a bounded native history window retained an older assistant tail
+after its user input was outside the window. Receipt
+`/tmp/brainstrike-m3-second-turn-memory-window-before.log`: one history failure,
+one OM pass, 2.91 s lane. The runtime projection now omits that incomplete older
+turn without adding a user input outside the selected window or changing
+committed rows. Narrow history, full history and OM pass **3/3**, 2.015 s bodies /
+2.84 s lane, including second-turn denial with no additional effect and unchanged
+earlier rows. Receipt `/tmp/brainstrike-m3-second-turn-memory-window-after.log`.
+
+`pnpm exec turbo run type-check --filter=@brainstrike/desktop` passed **59/59**,
+32.82 s, including rebuilt desktop and 728 test files. Receipt
+`/tmp/brainstrike-m3-second-turn-memory-types.log`. The next ordinary run reached
+the actual approval; its fixture failed because it did not expand the new
+activity group. That retained result is `tfrXYY-evidence`, with no cleanup
+errors, remaining processes or unreleased Root. The fixture now uses the same
+ordinary Expand activity action as the first turn; no hidden/forced click or
+deadline change was introduced.
+
+The expanded ordinary lane passes **1/1**, 8.952 s body / 10.08 s lane:
+`pnpm --filter @brainstrike/desktop exec vitest run --config
+vitest.integration.config.mts
+src/__tests__/ordinary-app-owned-host.integration.test.ts`.
+Receipt `/tmp/brainstrike-m3-default-fault-matrix-visible-activity.log`; evidence
+`/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/brainstrike-m3-app-owned-fEDOED-evidence/`.
+It proves native approval, real HTTP MCP, composed context, normal denial with
+no denied file, an actual non-Electron Node command, authenticated client
+reconnect, and Stop returning only after its recorded native process identity
+is gone. Reload and app reopen preserve the committed prefix. Cleanup reports
+errors `[]`, remaining `[]`, failure `null`, and Root released `true`.
+Renderer transport loss is exercised; the app's lease attachment remains, so
+this does not qualify last-client loss or cross-process Root reuse after a
+crashed utility with a Main-owned physical tail.
+
+Parent reports independent exact-a07 Mini build **57/57** and ordinary lane
+**1/1**, 10.315 s, with physical cleanup; earlier packaged OAuth failure remains
+separate. Windows selected qualification is **66 pass / 9 fail / 1 skip**,
+including host/process/CLI **12/12**, 147.47 s, physically cleaned. Seven failures
+directly expose POSIX 0600 assumptions; two HTTP failures share that credential
+read path, with additional causes still unverified. Protected native Windows
+file I/O is reserved as a separate worker module, with Studio owning adapter
+wiring; no platform mode-check bypass is authorized.
+
+The sole live-provider ledger owner reports exact-a07 OpenAI
+`gpt-4.1-mini-2025-04-14` approval/read/continuation/SQLite replay passed,
+260 input / 30 output tokens, calculated US$0.000152. Anthropic inference is
+blocked by account identity verification; its failed redaction-envelope harness
+is not qualification. Studio made no paid calls. Persisted MCP A-to-B authority
+comparison still needs Sean's explicit rule-1 design approval after the parent's
+proposed approval was rejected by automatic review; neither the comparison nor
+an alternate refusal design is implemented. Full regression, credential
+migration, standalone production headless startup, vectors, subscription/local
+provider parity and crashed-utility Root reuse remain open.
+**CI is disabled due to cost; validation must run locally.**

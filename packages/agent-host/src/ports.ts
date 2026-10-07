@@ -94,6 +94,7 @@ export interface HostRunAdmissionRequest {
   /** Canonical non-secret UI settings/context captured with this input command. */
   readonly configuration?: HostRunSnapshot['configuration'];
   readonly modelId: string;
+  readonly prompt?: string;
   readonly signal: AbortSignal;
   /** Reopen the committed selection, rejecting changed executors rather than substituting. */
   readonly snapshot?: HostRunSnapshot;

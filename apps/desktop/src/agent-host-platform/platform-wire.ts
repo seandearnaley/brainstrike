@@ -9,6 +9,7 @@ const Decision = z.enum(PERMISSION_DECISIONS);
 export const PlatformRunRequestSchema = z.strictObject({
   configuration: z.record(z.string(), z.json()).optional(),
   modelId: Id,
+  prompt: z.string().optional(),
   snapshot: HostRunSnapshotSchema.optional(),
   threadId: Id,
 });
@@ -127,6 +128,13 @@ export const PlatformClientConfigurationSchema = z.strictObject({
   memorySettings: PlatformMemorySettingsSchema,
   modelConfiguration: PlatformModelConfigurationSchema,
   permissionPolicy: PlatformPolicySchema,
+  selectionFolderId: Id.optional(),
+  skillsPreference: z
+    .strictObject({
+      disabledSkillKeys: z.array(z.string()),
+      masterEnabled: z.boolean(),
+    })
+    .optional(),
   workspaceContext: PlatformWorkspaceContextSchema.optional(),
   workspaceInstructionsPreference: z.strictObject({
     masterEnabled: z.boolean(),
@@ -144,6 +152,7 @@ export const PlatformSelectionSchema = z.strictObject({
     settings: PlatformMemorySettingsSchema,
   }),
   resourceId: Id,
+  system: z.string().optional(),
   tools: z.record(
     z.string(),
     z.strictObject({
@@ -167,6 +176,18 @@ export const PlatformProgressSchema = z.strictObject({
 export const PlatformAuthSchema = z.union([
   z.strictObject({ apiKey: z.string(), kind: z.literal('api_key') }),
   z.strictObject({ apiKey: z.string(), kind: z.literal('aws'), region: Id }),
+  z.strictObject({
+    identity: z.strictObject({
+      accessKeyId: Id,
+      accountId: z.string().optional(),
+      credentialScope: z.string().optional(),
+      expiration: z.iso.datetime().optional(),
+      secretAccessKey: Id,
+      sessionToken: z.string().optional(),
+    }),
+    kind: z.literal('aws'),
+    region: Id,
+  }),
   z.null(),
 ]);
 export type PlatformSelection = z.output<typeof PlatformSelectionSchema>;

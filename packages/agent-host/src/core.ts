@@ -38,6 +38,7 @@ import {
   ensureHostRunAdmission,
   hostRunToolDecision,
   hostRunTools,
+  prepareHostProviderStep,
 } from './run-admission.js';
 
 export { jsonValue } from './json-value.js';
@@ -307,6 +308,7 @@ export class HostCore {
         admission = await acquireHostRunAdmission(this.platform, {
           ...(params.configuration ? { configuration: params.configuration } : {}),
           modelId: params.modelId,
+          prompt: params.prompt,
           signal: controller.signal,
           threadId: params.threadId,
         });
@@ -566,11 +568,7 @@ export class HostCore {
             modelId: run.modelId,
             signal: run.controller.signal,
           });
-          return {
-            ...provider,
-            model: owner?.prepareHostModel?.(provider.model) ?? provider.model,
-            ...(memory?.system && !provider.system ? { system: memory.system } : {}),
-          };
+          return prepareHostProviderStep(provider, memory?.system, owner);
         },
         stopWhen: stepCountIs(admission.snapshot.maxSteps - run.steps),
         toolApproval: ({ toolCall }) => this.sdkApproval(run, toolCall),
@@ -606,7 +604,7 @@ export class HostCore {
   ): Promise<void> {
     if (
       !run.stopped &&
-      ((run.paused && !failed && !run.controller.signal.aborted) ||
+      ((run.paused && failed === undefined && !run.controller.signal.aborted) ||
         (this.closing && run.approvals.size > 0))
     ) {
       await Promise.allSettled([...run.effects]);
@@ -618,9 +616,9 @@ export class HostCore {
         : 'stopped'
       : interrupted
         ? 'interrupted'
-        : failed
-          ? 'failed'
-          : 'completed';
+        : failed === undefined
+          ? 'completed'
+          : 'failed';
     await this.finish(run, outcome, failed);
   }
 
@@ -934,7 +932,7 @@ export class HostCore {
             outcome: joinedOutcome,
             runId: run.id,
             type: 'run.finished',
-            ...(detail ? { detail } : {}),
+            ...(detail === undefined ? {} : { detail }),
           },
         ],
         'full',

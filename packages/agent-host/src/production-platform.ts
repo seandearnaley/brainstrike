@@ -40,6 +40,7 @@ export interface ProductionHostRunConfiguration {
   readonly memory: Omit<StateStoreHostMemoryOptions, 'store' | 'providerRequestContext'>;
   readonly providerRequestContext: ProviderRequestContext;
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
+  readonly system?: string;
   /** Complete shipped native catalog with its canonical schema/output projections. */
   readonly tools: Readonly<Record<string, HostTool>>;
   readonly toolTimeoutMs: number;
@@ -223,6 +224,7 @@ export async function createProductionHostPlatform(
                   : {}),
                 messages: [...messages],
                 model,
+                ...(selected.system === undefined ? {} : { system: selected.system }),
               };
             },
           },

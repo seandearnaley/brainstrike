@@ -1,6 +1,13 @@
 /** Node composition borrows the shipped tool pipeline without registering browser inference. */
 
+export { formatSkillsCatalog } from '@mastra/core/processors';
 export { DEFAULT_AGENT_MAX_STEPS } from './agent-loop-defaults';
+export {
+  buildContextBudgetNote,
+  buildCurrentDateNote,
+  buildDefaultInstructions,
+  buildLocalDefaultInstructions,
+} from './mastra/default-instructions';
 export { applyToolModelOutputProjections } from './mastra/tool-model-output';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 export {

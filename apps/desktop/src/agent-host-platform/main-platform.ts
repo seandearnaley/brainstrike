@@ -8,8 +8,8 @@ import {
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
+import { encodePlatformAuth } from './platform-auth';
 import {
-  PlatformAuthSchema,
   PlatformPolicySchema,
   PlatformProgressSchema,
   PlatformRunRequestSchema,
@@ -128,6 +128,7 @@ export function serveDesktopPlatform(
           ...(request.configuration ? { configuration: request.configuration } : {}),
           ...(request.snapshot ? { snapshot: request.snapshot } : {}),
           modelId: request.modelId,
+          ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
           signal,
           threadId: request.threadId,
         });
@@ -181,7 +182,7 @@ export function serveDesktopPlatform(
         const { provider } = z.strictObject({ provider: z.string().min(1) }).parse(input);
         const auth = await capabilities.resolveProviderAuth(provider);
         // Closures are never dropped or silently replaced at this private boundary.
-        return PlatformAuthSchema.parse(auth ?? null);
+        return encodePlatformAuth(auth);
       })
   );
   connection.onRequest(
@@ -238,7 +239,7 @@ export function serveDesktopPlatform(
     })
   );
   const close = (): Promise<void> => {
-    closing ??= (async () => {
+    closing ??= Promise.resolve().then(async () => {
       for (const controller of controllers) {
         controller.abort(new Error('Desktop platform is closing'));
       }
@@ -255,15 +256,26 @@ export function serveDesktopPlatform(
         throw new AggregateError(failures, 'Desktop platform capability cleanup failed');
       }
       selections.clear();
-    })();
+    });
     return closing;
   };
+  const disconnect = (): Promise<void> => {
+    const joined = close();
+    // vscode-jsonrpc close does not reject pending responses. Dispose before
+    // joining executors so a lost progress acknowledgement cannot hold a tail.
+    connection.dispose();
+    return joined;
+  };
+  connection.onClose(() => {
+    // Keep the rejected join observable through the owner returned below.
+    void disconnect().catch(() => undefined);
+  });
+  connection.onDispose(() => {
+    void close().catch(() => undefined);
+  });
   connection.onRequest('platform/close', close);
   connection.listen();
   return {
-    close: async () => {
-      await close();
-      connection.dispose();
-    },
+    close: disconnect,
   };
 }

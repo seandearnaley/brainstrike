@@ -1,4 +1,4 @@
-import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
+import type { ProviderAuthInput, RuntimeData } from '@brainstrike/agent/provider-runtime';
 import { createLanguageModelProvider } from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
@@ -8,8 +8,10 @@ import {
   type HostStartupContext,
   type HostTool,
   type HostToolContext,
+  type ProductionHostRunConfiguration,
   platformToolInputSchema,
 } from '@brainstrike/agent-host';
+import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import type { HostStartOptions } from '@brainstrike/host-lease';
@@ -17,17 +19,15 @@ import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
 import { mainPlatformConnection } from './connection';
 import { parentPlatformPort } from './parent-platform-port';
+import { decodePlatformAuth } from './platform-auth';
 import {
-  PlatformAuthSchema,
   PlatformPolicySchema,
   PlatformProgressSchema,
   PlatformSelectionSchema,
 } from './platform-wire';
 
 type PlatformSelection = z.output<typeof PlatformSelectionSchema>;
-type ResolvePlatformAuth = (
-  provider: string
-) => Promise<z.output<typeof PlatformAuthSchema> | undefined>;
+type ResolvePlatformAuth = (provider: string) => Promise<ProviderAuthInput | undefined>;
 
 async function parsePlatformSelection(
   response: unknown,
@@ -57,6 +57,53 @@ async function resolveObserverModel(
     throw new Error('Observational Memory requires the configured concrete provider credential');
   }
   return createLanguageModelProvider(target.provider, auth.apiKey, target.model);
+}
+
+function desktopRuntimeConfiguration(
+  selected: PlatformSelection
+): RuntimeData & { readonly provider: SupportedProvider } {
+  const provider = selected.configuration.provider;
+  if (!isSupportedProvider(provider)) {
+    throw new Error('Desktop selected an unsupported provider');
+  }
+  return {
+    model: selected.configuration.model,
+    provider,
+    ...(selected.configuration.modelSettings
+      ? { modelSettings: selected.configuration.modelSettings }
+      : {}),
+    ...(selected.configuration.providerOptions
+      ? { providerOptions: selected.configuration.providerOptions }
+      : {}),
+  };
+}
+
+function desktopMemoryConfiguration(
+  selected: PlatformSelection,
+  observerModel: ReturnType<typeof createLanguageModelProvider> | undefined
+): ProductionHostRunConfiguration['memory'] {
+  const observation = selected.memory.settings.observationalMemory;
+  return {
+    native: {
+      options: {
+        ...selected.memory.options,
+        observationalMemory: observerModel
+          ? {
+              model: observerModel,
+              scope: observation.scope,
+              ...(observation.retrievalMode === 'messages'
+                ? { retrieval: { scope: observation.scope } }
+                : {}),
+              observation: { messageTokens: observation.messageTokens },
+              reflection: { observationTokens: observation.observationTokens },
+            }
+          : false,
+        semanticRecall: false,
+      },
+    },
+    recordPrompt: async () => undefined,
+    resourceId: selected.resourceId,
+  };
 }
 
 /** Electron-free production entry: Node owns the model loop, Memory and committed log. */
@@ -98,7 +145,7 @@ export async function createHostPlatform(
     port.close();
   });
   const resolveAuth = async (provider: string) =>
-    PlatformAuthSchema.parse(await request('platform/auth', { provider })) ?? undefined;
+    decodePlatformAuth(await request('platform/auth', { provider }));
   return createProductionHostPlatform({
     close: async () => {
       await request('platform/close', {});
@@ -110,6 +157,7 @@ export async function createHostPlatform(
           ...(admission.configuration ? { configuration: admission.configuration } : {}),
           ...(admission.snapshot ? { snapshot: admission.snapshot } : {}),
           modelId: admission.modelId,
+          ...(admission.prompt === undefined ? {} : { prompt: admission.prompt }),
           threadId: admission.threadId,
         },
         admission.signal
@@ -117,10 +165,8 @@ export async function createHostPlatform(
       const selected = await parsePlatformSelection(response, () =>
         request('platform/release', { threadId: admission.threadId })
       );
-      const provider = selected.configuration.provider;
-      if (!isSupportedProvider(provider)) {
-        throw new Error('Desktop selected an unsupported provider');
-      }
+      const configuration = desktopRuntimeConfiguration(selected);
+      const provider = configuration.provider;
       const observation = selected.memory.settings.observationalMemory;
       let observerModel: ReturnType<typeof createLanguageModelProvider> | undefined;
       try {
@@ -197,44 +243,15 @@ export async function createHostPlatform(
           },
         ])
       );
-      const configuration: RuntimeData = {
-        model: selected.configuration.model,
-        provider,
-        ...(selected.configuration.modelSettings
-          ? { modelSettings: selected.configuration.modelSettings }
-          : {}),
-        ...(selected.configuration.providerOptions
-          ? { providerOptions: selected.configuration.providerOptions }
-          : {}),
-      };
       return {
         close: async () => {
           await request('platform/release', { threadId: admission.threadId });
         },
         configuration,
         durableConfiguration: selected.durableConfiguration,
+        ...(selected.system === undefined ? {} : { system: selected.system }),
         maxSteps: selected.maxSteps,
-        memory: {
-          native: {
-            options: {
-              ...selected.memory.options,
-              observationalMemory: observerModel
-                ? {
-                    model: observerModel,
-                    scope: observation.scope,
-                    ...(observation.retrievalMode === 'messages'
-                      ? { retrieval: { scope: observation.scope } }
-                      : {}),
-                    observation: { messageTokens: observation.messageTokens },
-                    reflection: { observationTokens: observation.observationTokens },
-                  }
-                : false,
-              semanticRecall: false,
-            },
-          },
-          recordPrompt: async () => undefined,
-          resourceId: selected.resourceId,
-        },
+        memory: desktopMemoryConfiguration(selected, observerModel),
         providerRequestContext: {
           inputTokenLimit: selected.inputTokenLimit,
           provider,

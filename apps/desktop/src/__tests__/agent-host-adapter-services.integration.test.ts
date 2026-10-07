@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import {
   chmod,
@@ -14,6 +15,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import {
   CEILING_SCALED_TOOL_RESULT_BUDGET,
@@ -23,18 +25,26 @@ import {
 } from '@brainstrike/agent';
 import { collectCombinedTools } from '@brainstrike/agent/mcp-client';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
-import { createMcpHostToolAdapter, createProductionHostPlatform } from '@brainstrike/agent-host';
+import {
+  createMcpHostToolAdapter,
+  createProductionHostPlatform,
+  HostCore,
+} from '@brainstrike/agent-host';
 import {
   createKeyringCredentialStore,
   createKeyringSecretsService,
 } from '@brainstrike/agent-host/keyring-credentials';
-import { scriptedModel } from '@brainstrike/agent-host/test-fixtures/scripted-model';
+import {
+  scriptedModel,
+  scriptedToolSequence,
+} from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import {
   DEFAULT_PERMISSION_POLICIES,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import {
   type AgentHostAdapterCapabilities,
   type AgentHostMcpCollection,
@@ -53,6 +63,9 @@ import {
 } from '../mcp/oauth-client-provider';
 
 const roots = new Set<string>();
+const memoryCalculatorModule = fileURLToPath(
+  new URL('./adapters/memory-storage-calculator.js', import.meta.resolve('@brainstrike/agent-host'))
+);
 const stores = new Set<ReturnType<typeof createKeyringCredentialStore>>();
 const oauthStores = new Set<ReturnType<typeof createCredentialMcpOAuthStore>>();
 const disposers = new Set<() => Promise<void>>();
@@ -90,6 +103,137 @@ async function releaseCredentialFifoReader(path: string): Promise<void> {
 }
 
 describe('one Node adapter composition', () => {
+  it('refuses a persisted MCP approval when the same named server points to another authority after restart', async () => {
+    const { root, startup } = await compositionRoot(true);
+    const first = await startStatefulMcpHostServer();
+    const replacement = await startStatefulMcpHostServer();
+    disposers.add(first.close);
+    disposers.add(replacement.close);
+    let store = startup.store;
+    const openPlatform = async (url: string) => {
+      const services = await createAgentHostAdapterServicesFactory(fixtureCapabilities)({
+        appUi: 'text',
+        credentialStore: { kind: 'file', path: join(root, 'explicit-credentials.json') },
+        mcpConfiguration: {
+          servers: [
+            {
+              name: parseConfiguredMcpServerId('fixture.restarted'),
+              protocol: 'legacy',
+              startup: 'automatic',
+              transport: 'streamable-http',
+              url,
+            },
+          ],
+        },
+        openExternal: async () => undefined,
+        openTaskDatabase: async () => {
+          throw new Error('No Tasks database expected by this legacy fixture');
+        },
+        root,
+        startup: { ...startup, store },
+      });
+      disposers.add(services.close);
+      const selected = await services.mcp.executableTools(fixtureToolRequest);
+      const name = Object.keys(selected.bindings)[0];
+      if (!name) {
+        throw new Error('The real fixture MCP catalog is empty');
+      }
+      await selected.close();
+      return createProductionHostPlatform({
+        close: services.close,
+        mcp: services.mcp,
+        readConfiguration: async () => ({
+          configuration: { model: 'fixture', provider: 'openai' },
+          durableConfiguration: { model: 'fixture', provider: 'openai' },
+          maxSteps: 3,
+          memory: {
+            native: { options: { observationalMemory: false, semanticRecall: false } },
+            recordPrompt: async () => undefined,
+            resourceId: 'workspace',
+          },
+          providerRequestContext: { inputTokenLimit: 30_000, provider: 'openai' },
+          resolvedToolResultBudget: CEILING_SCALED_TOOL_RESULT_BUDGET,
+          tools: {},
+          toolTimeoutMs: fixtureToolRequest.toolTimeoutMs,
+        }),
+        readPermissionPolicy: () => ({
+          policies: { ...DEFAULT_PERMISSION_POLICIES, mcp: 'ask' },
+          yolo: false,
+        }),
+        resolveModel: async () => scriptedToolSequence([{ input: {}, toolId: name }]),
+        resolveProviderAuth: async () => undefined,
+        startup: { ...startup, store },
+      });
+    };
+    let core = await HostCore.open(store, await openPlatform(first.url), () => () => undefined);
+    const failures: unknown[] = [];
+    try {
+      const { threadId } = await core.startThread({ commandId: randomUUID() });
+      const { runId } = await core.startRun({
+        commandId: randomUUID(),
+        modelId: 'fixture',
+        prompt: 'Call the configured MCP probe',
+        threadId,
+      });
+      let interactionId: string | undefined;
+      await expect
+        .poll(async () => {
+          const event = (await core.read(threadId, 0)).find(
+            ({ event }) => event.type === 'interaction.requested'
+          )?.event;
+          if (event?.type === 'interaction.requested') {
+            interactionId = event.interactionId;
+          }
+          return interactionId !== undefined;
+        })
+        .toBe(true);
+      if (!interactionId) {
+        throw new Error('The real MCP call did not require approval');
+      }
+      await core.close();
+      await store.close();
+      store = await StateStore.open(root, { memoryCalculatorModule });
+      disposers.add(() => store.close());
+      core = await HostCore.open(store, await openPlatform(replacement.url), () => () => undefined);
+      let refusal: unknown;
+      try {
+        await core.respond({
+          commandId: randomUUID(),
+          decision: 'approve',
+          interactionId,
+          runId,
+          threadId,
+        });
+      } catch (cause) {
+        refusal = cause;
+      }
+      if (!refusal) {
+        await expect
+          .poll(async () =>
+            (await core.read(threadId, 0)).some(({ event }) => event.type === 'run.finished')
+          )
+          .toBe(true);
+      }
+      const calls = replacement.requests.filter(
+        ({ body }) => z.object({ method: z.literal('tools/call') }).safeParse(body).success
+      );
+      expect(calls).toHaveLength(0);
+      expect(refusal).toBeInstanceOf(Error);
+    } catch (cause) {
+      failures.push(cause);
+    }
+    const cleanup = await Promise.allSettled([core.close()]);
+    cleanup.push(...(await Promise.allSettled([store.close()])));
+    failures.push(
+      ...cleanup.filter((result) => result.status === 'rejected').map((result) => result.reason)
+    );
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'MCP restart assertion and cleanup failed');
+    }
+  });
   it('joins a partially constructed native backend on startup failure without choosing a file fallback', async () => {
     const { root, startup, registered } = await compositionRoot();
     let closed = 0;
@@ -575,10 +719,10 @@ const fixtureToolRequest = {
   toolTimeoutMs: resolveAssistantResilienceConfig().toolTimeoutMs,
 };
 
-async function compositionRoot() {
+async function compositionRoot(memory = false) {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-adapters-owned-'));
   roots.add(root);
-  const store = await StateStore.open(root);
+  const store = await StateStore.open(root, memory ? { memoryCalculatorModule } : undefined);
   disposers.add(() => store.close());
   const registered: (() => Promise<void>)[] = [];
   return {

@@ -1,13 +1,17 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
 import { attachAgentHost } from '@brainstrike/agent-host';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
-import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract';
+import {
+  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  encodeFileMentionId,
+  serializeFileMentionDirective,
+} from '@brainstrike/assistant-contract';
 import { decodeHostRecord, type HostRecord } from '@brainstrike/host-lease';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { processStartTime, RootLock, RootLockedError } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron } from 'playwright';
 import { expect, test } from 'vitest';
@@ -19,9 +23,15 @@ import {
 } from '../../e2e/utils/model-provider-shim';
 
 const desktop = resolve(import.meta.dirname, '../..');
-test(
-  'ordinary desktop owns the first M3 Root, New Thread, CLI attachment and reopen',
-  async () => {
+test.for(['normal', 'utility-loss'] as const)(
+  'ordinary desktop owns the first M3 Root, New Thread, CLI attachment and reopen (%s)',
+  { timeout: getAdjustedTimeout('e2e') },
+  async (fault, context) => {
+    // This native-tail fixture uses POSIX SIGTERM handling; Windows needs its
+    // own physical tail fixture rather than treating taskkill as a grace period.
+    if (fault === 'utility-loss' && process.platform === 'win32') {
+      context.skip();
+    }
     const disposable = await mkdtemp(join(tmpdir(), 'brainstrike-m3-app-owned-'));
     const profile = join(disposable, 'profiles/m3-owned');
     await mkdir(profile, { recursive: true });
@@ -29,6 +39,22 @@ test(
     await mkdir(evidence, { recursive: true });
     const workspace = join(disposable, 'workspace');
     await mkdir(workspace);
+    await writeFile(join(workspace, 'AGENTS.md'), 'M3 workspace context sentinel 7246.');
+    await writeFile(join(workspace, 'referenced.txt'), 'M3 referenced file sentinel 9312.');
+    await writeFile(
+      join(workspace, 'owned-command.mjs'),
+      `import { writeFileSync } from 'node:fs';
+${fault === 'utility-loss' ? "process.on('SIGTERM', () => {});" : ''}
+writeFileSync('owned-command-pid.json', JSON.stringify({ pid: process.pid, ppid: process.ppid, electron: process.versions.electron ?? null }));
+process.stdout.write('owned command started\\n');
+setInterval(() => {}, 1000);
+`
+    );
+    await mkdir(join(workspace, '.brainstrike/skills/m3-owned-skill'), { recursive: true });
+    await writeFile(
+      join(workspace, '.brainstrike/skills/m3-owned-skill/SKILL.md'),
+      '---\nname: m3-owned-skill\ndescription: A disposable M3 qualification skill.\n---\nM3 activated skill sentinel 8521.'
+    );
     const fixture = await startStatefulMcpHostServer();
     const providerRequests: ModelProviderRequest[] = [];
     let workspaceRootId: string | undefined;
@@ -66,7 +92,12 @@ test(
       join(disposable, 'mcp/mcp.config.json'),
       JSON.stringify({
         servers: [
-          { name: 'owned-mcp', protocol: 'legacy', transport: 'streamable-http', url: fixture.url },
+          {
+            name: 'owned-mcp',
+            protocol: 'legacy',
+            transport: 'streamable-http',
+            url: fixture.url,
+          },
         ],
       })
     );
@@ -109,9 +140,18 @@ test(
     const errors: unknown[] = [];
     const outputs: string[] = [];
     const owners: { pid: number; start: string }[] = [];
+    const captured = new WeakSet<NonNullable<typeof application>>();
     const capture = async (app: NonNullable<typeof application>): Promise<void> => {
-      app.process().stdout?.on('data', (data: Buffer) => outputs.push(data.toString()));
-      app.process().stderr?.on('data', (data: Buffer) => outputs.push(data.toString()));
+      if (!captured.has(app)) {
+        const process = app.process();
+        const start = process.pid && processStartTime(process.pid);
+        if (process.pid && start) {
+          owners.push({ pid: process.pid, start });
+        }
+        process.stdout?.on('data', (data: Buffer) => outputs.push(data.toString()));
+        process.stderr?.on('data', (data: Buffer) => outputs.push(data.toString()));
+        captured.add(app);
+      }
       for (const { pid } of await app.evaluate(({ app }) => app.getAppMetrics())) {
         const start = processStartTime(pid);
         if (start) {
@@ -138,13 +178,13 @@ test(
           }
           await window.electronAPI.db.query(
             'UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2',
-            ['openai/gpt-5.4', 'openrouter']
+            ['anthropic/claude-sonnet-4.6', 'openrouter']
           );
           localStorage.setItem(
             'assistant-preferences.v1',
             JSON.stringify({
               state: {
-                modelsByProvider: { openrouter: 'openai/gpt-5.4' },
+                modelsByProvider: { openrouter: 'anthropic/claude-sonnet-4.6' },
                 providerSettings: {
                   openrouter: {
                     agentInputTokenLimit: 24_000,
@@ -155,7 +195,7 @@ test(
                     workingMemoryEnabled: true,
                   },
                 },
-                selectedModel: 'openrouter::openai/gpt-5.4',
+                selectedModel: 'openrouter::anthropic/claude-sonnet-4.6',
               },
               version,
             })
@@ -229,10 +269,49 @@ test(
         throw new Error('New Thread has no committed Root identity');
       }
       checkpoint('ordinary-new-thread-rendered');
+      const mountedRootId = workspaceRootId;
+      if (!mountedRootId) {
+        throw new Error('The ordinary workspace has no mounted root');
+      }
+      await page.evaluate((threadId) => {
+        const previous = JSON.parse(
+          localStorage.getItem('brainstrike-assistant-threads-v1') ?? '{"state":{},"version":4}'
+        ) as { state: Record<string, unknown>; version: number };
+        localStorage.setItem(
+          'brainstrike-assistant-threads-v1',
+          JSON.stringify({
+            ...previous,
+            state: {
+              ...previous.state,
+              draftRuntimeByThreadId: {
+                [threadId]: {
+                  model: 'anthropic/claude-sonnet-4.6',
+                  modelSettings: { maxOutputTokens: 733, temperature: 0.35 },
+                  provider: 'openrouter',
+                },
+              },
+            },
+          })
+        );
+      }, threadId);
+      await page.reload();
+      await ensureAssistantShellVisible(page);
       const panel = page.getByTestId(`assistant-thread-panel-${threadId}`);
+      const input = panel.getByRole('textbox', { name: 'Message input' });
+      await input.fill('');
+      await input.pressSequentially('/skill:m3-owned-skill');
+      await page
+        .getByTestId('assistant-slash-popover')
+        .getByRole('option', { name: 'm3-owned-skill' })
+        .click();
+      const activatedDraft = await input.inputValue();
+      expect(activatedDraft).toContain(':skill[m3-owned-skill]');
+      expect(providerRequests).toHaveLength(0);
       await panel
         .getByRole('textbox', { name: 'Message input' })
-        .fill('Write the owned file, call MCP, and inspect workspace context.');
+        .fill(
+          `Write the owned file, call MCP, and inspect workspace context. ${activatedDraft} ${serializeFileMentionDirective({ id: encodeFileMentionId(mountedRootId, 'referenced.txt'), label: 'referenced.txt' })}`
+        );
       await panel.getByRole('textbox', { name: 'Message input' }).press('Enter');
       await expect
         .poll(async () =>
@@ -256,7 +335,7 @@ test(
       expect(await readFile(join(workspace, 'permitted.txt'), 'utf8')).toBe(
         'ordinary app-owned M3 evidence'
       );
-      const committed = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
+      let committed = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
       expect(committed.some(({ event }) => event.type === 'thread.started')).toBe(true);
       expect(committed.filter(({ event }) => event.type === 'effect.finished')).toHaveLength(3);
       const started = committed.find(({ event }) => event.type === 'run.started')?.event;
@@ -272,12 +351,212 @@ test(
         )
       ).toBe(true);
       expect(providerRequests.length).toBeGreaterThan(3);
-      // Provider preferences currently project the output window through the
-      // shared builder; temperature belongs to a thread's explicit draft.
-      expect(
-        z.object({ max_tokens: z.number() }).parse(providerRequests[0]?.requestBody).max_tokens
-      ).toBe(900);
+      const requestBody = z
+        .object({ max_tokens: z.number(), temperature: z.number() })
+        .parse(providerRequests[0]?.requestBody);
+      expect(requestBody.max_tokens).toBe(733);
+      expect(requestBody.temperature).toBe(0.35);
+      expect(started.snapshot?.configuration['intent']).toMatchObject({
+        modelConfiguration: { modelSettings: { maxOutputTokens: 733, temperature: 0.35 } },
+      });
+      const system = providerRequests[0]?.messages.filter(
+        (message) => z.object({ role: z.literal('system') }).safeParse(message).success
+      );
+      expect(JSON.stringify(system)).toContain('M3 workspace context sentinel 7246.');
+      expect(JSON.stringify(system)).toContain('M3 referenced file sentinel 9312.');
+      expect(JSON.stringify(system)).toContain('M3 activated skill sentinel 8521.');
+      expect(providerRequests[0]?.toolNames).toContain('skill');
+      expect(started.snapshot?.configuration['system']).toBeTypeOf('string');
       checkpoint('ordinary-default-native-mcp-context-run-completed');
+      model.setScript((request) => {
+        providerRequests.push(request);
+        return {
+          finalText: 'The denied file was not written.',
+          toolCall: {
+            arguments: {
+              content: 'must not be written',
+              path: 'denied.txt',
+              root: mountedRootId,
+            },
+            name: 'brainstrike_writeWorkspaceFile',
+          },
+        };
+      });
+      await input.fill('Deny this owned file write.');
+      await input.press('Enter');
+      await expect
+        .poll(
+          async () =>
+            (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.filter(
+              ({ event }) => event.type === 'interaction.requested'
+            ).length
+        )
+        .toBe(2);
+      await page.getByRole('button', { exact: true, name: 'Expand activity' }).last().click();
+      await page
+        .getByRole('button', { exact: true, name: 'Decline brainstrike_writeWorkspaceFile' })
+        .click();
+      await expect
+        .poll(
+          async () =>
+            (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.filter(
+              ({ event }) => event.type === 'run.finished'
+            ).length
+        )
+        .toBe(2);
+      await expect(stat(join(workspace, 'denied.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+      checkpoint('ordinary-denied-effect-refused');
+
+      model.setScript((request) => {
+        providerRequests.push(request);
+        return {
+          finalText: 'The owned command completed.',
+          toolCall: {
+            arguments: { command: 'node owned-command.mjs', root: mountedRootId },
+            name: 'brainstrike_executeCommand',
+          },
+        };
+      });
+      await input.fill('Start the owned command, then stop it.');
+      await input.press('Enter');
+      await expect
+        .poll(
+          async () =>
+            (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.filter(
+              ({ event }) => event.type === 'interaction.requested'
+            ).length
+        )
+        .toBe(3);
+      await page.getByRole('button', { exact: true, name: 'Expand activity' }).last().click();
+      await page
+        .getByRole('button', { exact: true, name: 'Approve brainstrike_executeCommand' })
+        .click();
+      let commandOwner: { pid: number; ppid: number; electron: null } | undefined;
+      await expect
+        .poll(async () => {
+          try {
+            commandOwner = z
+              .object({
+                electron: z.null(),
+                pid: z.number().int().positive(),
+                ppid: z.number().int().positive(),
+              })
+              .parse(JSON.parse(await readFile(join(workspace, 'owned-command-pid.json'), 'utf8')));
+            return true;
+          } catch (cause) {
+            if (cause instanceof Error && 'code' in cause && cause.code === 'ENOENT') {
+              return false;
+            }
+            throw cause;
+          }
+        })
+        .toBe(true);
+      if (!commandOwner) {
+        throw new Error('The actual native command did not record its process identity');
+      }
+      const commandPids = [commandOwner.pid, commandOwner.ppid].filter(
+        (pid) => pid !== application?.process().pid
+      );
+      const commandIdentities = commandPids.map((pid) => {
+        const start = processStartTime(pid);
+        if (!start) {
+          throw new Error('The owned command exited before the cancellation check');
+        }
+        return { pid, start };
+      });
+      owners.push(...commandIdentities);
+      if (fault === 'utility-loss') {
+        const originalOwner = RootLock.inspect(profile)?.owner;
+        expect(processStartTime(record.pid)).toBe(record.start);
+        // Explicit fault injection targets only this test's proven-owned utility.
+        // The real native executor still owns its existing SIGTERM/grace tail.
+        process.kill(record.pid, 'SIGKILL');
+        await expect.poll(() => processStartTime(record.pid)).not.toBe(record.start);
+        const before = commandIdentities.filter(
+          ({ pid, start }) => processStartTime(pid) === start
+        );
+        expect(before.length).toBeGreaterThan(0);
+        let contender: RootLock | undefined;
+        let refusal: unknown;
+        try {
+          contender = await RootLock.acquire(profile);
+        } catch (cause) {
+          refusal = cause;
+        }
+        const after = commandIdentities.filter(({ pid, start }) => processStartTime(pid) === start);
+        await writeFile(
+          join(evidence, 'utility-loss-root-reuse.json'),
+          JSON.stringify(
+            {
+              after,
+              before,
+              contender: contender?.owner,
+              originalOwner,
+              refusal: refusal instanceof Error ? refusal.message : null,
+              utility: { pid: record.pid, start: record.start },
+            },
+            null,
+            2
+          )
+        );
+        contender?.release();
+        expect(after.length).toBeGreaterThan(0);
+        expect(refusal).toBeInstanceOf(RootLockedError);
+        return;
+      }
+      const activeRows = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
+      const commandRun = activeRows.findLast(({ event }) => event.type === 'run.started')?.event;
+      if (commandRun?.type !== 'run.started') {
+        throw new Error('The native command has no committed run');
+      }
+      await client.close();
+      await client.closed;
+      client = undefined;
+      const ordinaryUrl = page.url();
+      await page.goto('about:blank');
+      expect(processStartTime(record.pid)).toBe(record.start);
+      client = await attachAgentHost(record);
+      expect(
+        (await client.request('thread/read', { fromSeq: 0, threadId })).rows.slice(
+          0,
+          activeRows.length
+        )
+      ).toEqual(activeRows);
+      await client.request('run/stop', {
+        commandId: crypto.randomUUID(),
+        runId: commandRun.runId,
+        threadId,
+      });
+      for (const { pid, start } of commandIdentities) {
+        expect(processStartTime(pid)).not.toBe(start);
+      }
+      const stopped = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
+      expect(
+        stopped.some(
+          ({ event }) =>
+            event.type === 'run.finished' &&
+            event.runId === commandRun.runId &&
+            event.outcome === 'stopped'
+        )
+      ).toBe(true);
+      await writeFile(
+        join(evidence, 'native-command-cleanup.json'),
+        JSON.stringify(
+          {
+            commandIdentities,
+            commandRun: commandRun.runId,
+            host: { pid: record.pid, start: record.start },
+            stoppedRows: stopped,
+          },
+          null,
+          2
+        )
+      );
+      await page.goto(ordinaryUrl);
+      await ensureAssistantShellVisible(page);
+      await page.getByTestId(`assistant-thread-panel-${threadId}`).waitFor();
+      committed = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
+      checkpoint('ordinary-client-loss-reconnect-stop-physical-command-joined');
       await client.close();
       await client.closed;
       client = undefined;
@@ -396,8 +675,12 @@ test(
       try {
         if (application) {
           await capture(application);
-          await application.close();
         }
+      } catch (cause) {
+        errors.push(cause);
+      }
+      try {
+        await application?.close();
       } catch (cause) {
         errors.push(cause);
       }
@@ -443,6 +726,5 @@ test(
     if (failure) {
       throw failure;
     }
-  },
-  getAdjustedTimeout('e2e')
+  }
 );

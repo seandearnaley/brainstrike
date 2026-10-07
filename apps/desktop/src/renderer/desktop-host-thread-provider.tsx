@@ -4,7 +4,6 @@ import {
   type AssistantThreadHostCapability,
   AssistantThreadHostContext,
 } from '@brainstrike/app-shell/assistant-thread-host-context';
-import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { DEFAULT_THREAD_TITLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import {
@@ -19,7 +18,8 @@ import {
   type CommittedHostConversation,
   createCommittedHostConversation,
 } from './committed-host-conversation';
-import { readDesktopHostConfiguration } from './desktop-host-configuration';
+import { readDesktopHostConfiguration, readDesktopHostModel } from './desktop-host-configuration';
+import { useDesktopHostPresentation } from './use-desktop-host-presentation';
 
 function HostThread({
   client,
@@ -29,6 +29,7 @@ function HostThread({
   readonly threadId: string;
 }): ReactElement {
   const explorer = useFileExplorerStoreContext();
+  const presentation = useDesktopHostPresentation(threadId);
   const [conversation, setConversation] = useState<CommittedHostConversation>();
   useEffect(() => {
     // Commit-time view ownership survives StrictMode render replay without
@@ -36,14 +37,9 @@ function HostThread({
     const current = createCommittedHostConversation({
       client,
       modelId: '',
-      readConfiguration: () => readDesktopHostConfiguration(explorer.getState().currentFolderId),
-      readModelId: () => {
-        const model = useAssistantPreferencesStore.getState().selectedModel;
-        if (!model) {
-          throw new Error('Select a provider and model before sending');
-        }
-        return model;
-      },
+      readConfiguration: () =>
+        readDesktopHostConfiguration(threadId, explorer.getState().currentFolderId),
+      readModelId: () => readDesktopHostModel(threadId),
       threadId,
     });
     setConversation(current);
@@ -51,6 +47,7 @@ function HostThread({
   }, [client, explorer, threadId]);
   return conversation ? (
     <CommittedAssistantConversation
+      {...presentation}
       commands={conversation.commands}
       label="Assistant"
       store={conversation.store}

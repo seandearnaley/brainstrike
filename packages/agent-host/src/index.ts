@@ -34,6 +34,7 @@ export { bindHostConnection } from './connection.js';
 export { HostCore, type HostEventStore } from './core.js';
 export { readHostRow } from './event-storage.js';
 export { createAgentHostSpawner } from './launcher.js';
+export { materializeHostProviderModel } from './model-router-sdk.js';
 export * from './ports.js';
 export {
   type HostPlatformFactory,
