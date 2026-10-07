@@ -1,4 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { addAbortListener } from 'node:events';
+import {
+  joinCredentialCleanup,
+  observeCredentialCancellation,
+} from '@brainstrike/agent-host/credential-contract';
 import type { McpHostOAuthAuthSnapshot } from '@brainstrike/assistant-contract';
 import {
   checkResourceAllowed,
@@ -32,16 +37,13 @@ export interface McpOAuthPersistedState {
   codeVerifier?: string;
   discoveryState?: OAuthDiscoveryState;
   lastSuccessfulConnectionAt?: number;
-  /**
-   * TCP port the loopback callback listener was bound to when this record was
-   * written. Rebinding it on the next launch keeps the dynamic-registration
-   * redirect URI byte-identical, so the registration survives a restart.
-   */
+  /** Reuse this port on restart so the registered loopback redirect URI remains identical. */
   loopbackPort?: number;
   resourceUrl?: string;
   tokens?: StoredOAuthTokens;
   updatedAt: number;
 }
+export type McpOAuthRecords = Readonly<Record<string, McpOAuthPersistedState>>;
 export interface McpOAuthStoreIdentity {
   readonly resourceUrl: string;
   readonly scopeKey: string;
@@ -49,12 +51,15 @@ export interface McpOAuthStoreIdentity {
 }
 
 export interface McpOAuthStore {
-  clear(identity: McpOAuthStoreIdentity): Promise<void>;
-  clearAll(): Promise<void>;
-  read(identity: McpOAuthStoreIdentity): Promise<Readonly<Record<string, McpOAuthPersistedState>>>;
+  clear(identity: McpOAuthStoreIdentity, signal?: AbortSignal): Promise<void>;
+  clearAll(signal?: AbortSignal): Promise<void>;
+  /** Actual persistence completion; aborting a caller does not satisfy this join. */
+  join?(): Promise<void>;
+  read(identity: McpOAuthStoreIdentity, signal?: AbortSignal): Promise<McpOAuthRecords>;
   write(
     identity: McpOAuthStoreIdentity,
-    records: Readonly<Record<string, McpOAuthPersistedState>>
+    records: McpOAuthRecords,
+    signal?: AbortSignal
   ): Promise<void>;
 }
 
@@ -64,6 +69,13 @@ export interface EncryptedStoreSchema {
 
 const encryptedStores = new Set<McpOAuthStore>();
 const liveProviders = new Set<McpOAuthClientProvider>();
+
+export function registerMcpOAuthStore(store: McpOAuthStore): () => void {
+  encryptedStores.add(store);
+  return () => {
+    encryptedStores.delete(store);
+  };
+}
 
 export interface McpOAuthSafeStorage {
   decryptStringAsync(
@@ -101,7 +113,7 @@ function assertSecureOAuthUrl(input: string | URL | Request): void {
   }
 }
 
-function identityKey(identity: McpOAuthStoreIdentity): string {
+export function identityKey(identity: McpOAuthStoreIdentity): string {
   return createHash('sha256')
     .update(JSON.stringify([identity.serverId, identity.resourceUrl, identity.scopeKey]), 'utf8')
     .digest('hex');
@@ -141,7 +153,7 @@ function byOAuthRecordRecency(left: McpOAuthPersistedState, right: McpOAuthPersi
 }
 
 function latestOAuthRecord(
-  records: Readonly<Record<string, McpOAuthPersistedState>>,
+  records: McpOAuthRecords,
   preferredIssuer?: string
 ): readonly [string, McpOAuthPersistedState] | undefined {
   if (preferredIssuer !== undefined) {
@@ -156,14 +168,8 @@ function latestOAuthRecord(
   return sorted.find(([, record]) => record.tokens !== undefined) ?? sorted[0];
 }
 
-/**
- * Every record for one store identity is written by the same provider, so they
- * share a loopback port; the most recent one wins if a legacy record predates
- * port persistence.
- */
-function persistedLoopbackPort(
-  records: Readonly<Record<string, McpOAuthPersistedState>>
-): number | undefined {
+/** Records share one listener; the latest persisted port wins for legacy records. */
+function persistedLoopbackPort(records: McpOAuthRecords): number | undefined {
   return Object.values(records)
     .sort(byOAuthRecordRecency)
     .map((record) => record.loopbackPort)
@@ -186,7 +192,7 @@ function parseGrantedScopes(scope: string | undefined): readonly string[] | unde
 }
 
 function projectMcpOAuthAuth(
-  records: Readonly<Record<string, McpOAuthPersistedState>>,
+  records: McpOAuthRecords,
   identity: McpOAuthStoreIdentity,
   requestedScopes: readonly string[],
   preferredIssuer?: string
@@ -222,7 +228,7 @@ export async function readMcpOAuthAuthProjection(
   return projectMcpOAuthAuth(await store.read(identity), identity, requestedScopes);
 }
 
-function parseRecords(raw: string): Readonly<Record<string, McpOAuthPersistedState>> {
+export function parseRecords(raw: string): McpOAuthRecords {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -235,7 +241,7 @@ function parseRecords(raw: string): Readonly<Record<string, McpOAuthPersistedSta
   for (const state of Object.values(parsed)) {
     validatePersistedRecord(state);
   }
-  return parsed as Readonly<Record<string, McpOAuthPersistedState>>;
+  return parsed as McpOAuthRecords;
 }
 
 function parseEncryptedRecordMap(value: unknown): EncryptedStoreSchema['records'] {
@@ -273,14 +279,12 @@ function validatePersistedRecord(value: unknown): void {
 }
 
 function validatePersistedLoopbackPort(value: unknown): void {
-  if (value === undefined) {
-    return;
-  }
   if (
-    typeof value !== 'number' ||
-    !Number.isSafeInteger(value) ||
-    value < MIN_LOOPBACK_PORT ||
-    value > MAX_LOOPBACK_PORT
+    value !== undefined &&
+    (typeof value !== 'number' ||
+      !Number.isSafeInteger(value) ||
+      value < MIN_LOOPBACK_PORT ||
+      value > MAX_LOOPBACK_PORT)
   ) {
     throw new Error('MCP OAuth persisted state is malformed.');
   }
@@ -290,10 +294,11 @@ function validatePersistedTokens(value: unknown): void {
   if (value === undefined) {
     return;
   }
-  if (!isRecord(value)) {
-    throw new Error('MCP OAuth persisted state is malformed.');
-  }
-  if (typeof value['access_token'] !== 'string' || typeof value['token_type'] !== 'string') {
+  if (
+    !isRecord(value) ||
+    typeof value['access_token'] !== 'string' ||
+    typeof value['token_type'] !== 'string'
+  ) {
     throw new Error('MCP OAuth persisted state is malformed.');
   }
   for (const field of ['refresh_token', 'scope', 'issuer']) {
@@ -304,22 +309,17 @@ function validatePersistedTokens(value: unknown): void {
 }
 
 function validatePersistedClientInformation(value: unknown): void {
-  if (value === undefined) {
-    return;
-  }
-  if (!isRecord(value) || typeof value['client_id'] !== 'string') {
+  if (value !== undefined && (!isRecord(value) || typeof value['client_id'] !== 'string')) {
     throw new Error('MCP OAuth persisted state is malformed.');
   }
 }
 
 function validatePersistedDiscoveryState(value: unknown): void {
-  if (value === undefined) {
-    return;
-  }
   if (
-    !isRecord(value) ||
-    typeof value['authorizationServerUrl'] !== 'string' ||
-    !URL.canParse(value['authorizationServerUrl'])
+    value !== undefined &&
+    (!isRecord(value) ||
+      typeof value['authorizationServerUrl'] !== 'string' ||
+      !URL.canParse(value['authorizationServerUrl']))
   ) {
     throw new Error('MCP OAuth persisted state is malformed.');
   }
@@ -330,18 +330,27 @@ export function createSafeStorageMcpOAuthStore(
   storage: McpOAuthSafeStorage
 ): McpOAuthStore {
   let queueTail: Promise<void> = Promise.resolve();
+  const cancelledNativeFailures: unknown[] = [];
 
-  function enqueue<T>(operation: () => T | Promise<T>): Promise<T> {
-    const result = queueTail.then(operation);
-    queueTail = result.then(
-      () => undefined,
-      () => undefined
-    );
-    return result;
+  function enqueue<T>(operation: () => T | Promise<T>, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted();
+    const result = queueTail
+      .then(() => {
+        signal?.throwIfAborted();
+        return operation();
+      })
+      .catch((error: unknown) => {
+        if (signal?.aborted && error !== signal.reason) {
+          cancelledNativeFailures.push(error);
+        }
+        throw error;
+      });
+    queueTail = result.then(() => undefined).catch(() => undefined);
+    return observeCredentialCancellation(result, signal);
   }
 
   const result: McpOAuthStore = {
-    async clear(identity) {
+    async clear(identity, signal) {
       const key = identityKey(identity);
       await enqueue(() => {
         const records = parseEncryptedRecordMap(store.get('records'));
@@ -351,12 +360,21 @@ export function createSafeStorageMcpOAuthStore(
         const next = { ...records };
         delete next[key];
         store.set('records', next);
-      });
+      }, signal);
     },
-    async clearAll() {
-      await enqueue(() => store.set('records', {}));
+    async clearAll(signal) {
+      await enqueue(() => store.set('records', {}), signal);
     },
-    async read(identity) {
+    async join() {
+      await queueTail;
+      if (cancelledNativeFailures.length > 0) {
+        throw new AggregateError(
+          [...cancelledNativeFailures],
+          'MCP OAuth persistence completed with failures after caller cancellation.'
+        );
+      }
+    },
+    async read(identity, signal) {
       const key = identityKey(identity);
       return await enqueue(async () => {
         const records = parseEncryptedRecordMap(store.get('records'));
@@ -365,28 +383,29 @@ export function createSafeStorageMcpOAuthStore(
           return {};
         }
         await assertSafeStorage(storage);
+        signal?.throwIfAborted();
         const { result: plaintext } = await storage.decryptStringAsync(
           Buffer.from(encrypted, 'base64')
         );
+        signal?.throwIfAborted();
         return parseRecords(plaintext);
-      });
+      }, signal);
     },
-    async write(identity, nextRecords) {
+    async write(identity, nextRecords, signal) {
       const key = identityKey(identity);
       await enqueue(async () => {
-        // BST-1977: Mini sampled every main-thread stack inside synchronous
-        // Keychain access. Electron's documented async primitive preserves
-        // the OS-backed boundary while keeping the UI/protocol lane runnable.
-        // https://www.electronjs.org/docs/latest/api/safe-storage
+        // Async native encryption preserves the OS boundary without blocking the protocol lane.
         await assertSafeStorage(storage);
+        signal?.throwIfAborted();
         const records = parseEncryptedRecordMap(store.get('records'));
         const encrypted = await storage.encryptStringAsync(JSON.stringify(nextRecords));
+        signal?.throwIfAborted();
         const next = { ...records, [key]: encrypted.toString('base64') };
         store.set('records', next);
-      });
+      }, signal);
     },
   };
-  encryptedStores.add(result);
+  registerMcpOAuthStore(result);
   return result;
 }
 
@@ -414,24 +433,34 @@ export function createLazySafeStorageMcpOAuthStore(
       );
     return pending;
   };
+  const resolveForOperation = async (signal?: AbortSignal): Promise<McpOAuthStore> => {
+    signal?.throwIfAborted();
+    const resolved = await observeCredentialCancellation(resolveStore(), signal);
+    signal?.throwIfAborted();
+    return resolved;
+  };
   return {
-    async clear(identity) {
-      await (await resolveStore()).clear(identity);
+    async clear(identity, signal) {
+      await (await resolveForOperation(signal)).clear(identity, signal);
     },
-    async clearAll() {
-      await (await resolveStore()).clearAll();
+    async clearAll(signal) {
+      await (await resolveForOperation(signal)).clearAll(signal);
     },
-    async read(identity) {
-      return await (await resolveStore()).read(identity);
+    async join() {
+      const resolved = store ?? (pending ? await pending : undefined);
+      await resolved?.join?.();
     },
-    async write(identity, records) {
-      await (await resolveStore()).write(identity, records);
+    async read(identity, signal) {
+      return await (await resolveForOperation(signal)).read(identity, signal);
+    },
+    async write(identity, records, signal) {
+      await (await resolveForOperation(signal)).write(identity, records, signal);
     },
   };
 }
 
 export function createInMemoryMcpOAuthStore(): McpOAuthStore {
-  const records = new Map<string, Readonly<Record<string, McpOAuthPersistedState>>>();
+  const records = new Map<string, McpOAuthRecords>();
   return {
     async clear(identity) {
       records.delete(identityKey(identity));
@@ -448,22 +477,26 @@ export function createInMemoryMcpOAuthStore(): McpOAuthStore {
   };
 }
 
-/**
- * Reads persisted state before binding the listener: the stored loopback port is
- * an input to the bind, so the two cannot run concurrently.
- */
+/** Read the persisted port before binding the callback listener. */
 async function loadOAuthStartupState(
   store: McpOAuthStore,
-  identity: McpOAuthStoreIdentity
+  identity: McpOAuthStoreIdentity,
+  signal?: AbortSignal
 ): Promise<{
   callback: LoopbackCallback;
-  persistedRecords: Readonly<Record<string, McpOAuthPersistedState>>;
+  persistedRecords: McpOAuthRecords;
 }> {
-  const persistedRecords = await store.read(identity);
+  signal?.throwIfAborted();
+  const persistedRecords = await store.read(identity, signal);
+  signal?.throwIfAborted();
   const callback = await startLoopbackCallback(
     DEFAULT_CALLBACK_PATH,
     persistedLoopbackPort(persistedRecords)
   );
+  if (signal?.aborted) {
+    await callback.close();
+    signal.throwIfAborted();
+  }
   return { callback, persistedRecords };
 }
 
@@ -478,6 +511,7 @@ export interface McpOAuthClientProviderOptions {
   readonly scopes?: readonly string[];
   readonly serverId: string;
   readonly serverUrl: string | URL;
+  readonly signal?: AbortSignal;
   readonly store: McpOAuthStore;
 }
 
@@ -489,11 +523,7 @@ export interface McpOAuthClientProvider extends OAuthClientProvider {
   readonly fetch: FetchLike;
   recordSuccessfulConnection(): Promise<void>;
   readonly redirectUrl: string;
-  /**
-   * True when a stored registration cannot redirect to this listener, or a
-   * non-interactive reconnect reaches browser authorization. A wrapped SDK
-   * connection failure then requires explicit authorization, not transport repair.
-   */
+  /** Redirect mismatch or browser consent requires explicit reauthorization, not transport repair. */
   requiresReauthorization(): boolean;
   takePendingAuthorizationCallback(signal: AbortSignal): Promise<URLSearchParams> | undefined;
 }
@@ -515,7 +545,11 @@ export async function createMcpOAuthClientProvider(
   validateClientMetadataUrl(options.clientMetadataUrl);
   const identity = createMcpOAuthStoreIdentity(options.serverId, serverUrl, requestedScopes);
   const resourceUrl = identity.resourceUrl;
-  const { callback, persistedRecords } = await loadOAuthStartupState(options.store, identity);
+  const { callback, persistedRecords } = await loadOAuthStartupState(
+    options.store,
+    identity,
+    options.signal
+  );
   const records = new Map<string, McpOAuthPersistedState>(Object.entries(persistedRecords));
   const loopbackPort = callback.port;
   reportLoopbackListenerBound({
@@ -536,16 +570,20 @@ export async function createMcpOAuthClientProvider(
   const tokenGenerations = new Map<string, number>();
   const tokenFlights = new Map<string, Promise<Response>>();
   let writeTail: Promise<void> = Promise.resolve();
+  const persistence = new AbortController();
+  let actorAbortListener: ReturnType<typeof addAbortListener> | undefined;
 
   const assertOpen = (): void => {
     if (closed) {
       throw new Error('MCP OAuth client provider is closed.');
     }
+    persistence.signal.throwIfAborted();
   };
 
   const persist = (): Promise<void> => {
     const next = writeTail.then(async () => {
-      await options.store.write(identity, Object.fromEntries(records));
+      persistence.signal.throwIfAborted();
+      await options.store.write(identity, Object.fromEntries(records), persistence.signal);
     });
     writeTail = next.catch(() => undefined);
     return next;
@@ -651,12 +689,21 @@ export async function createMcpOAuthClientProvider(
       return closePromise;
     }
     closed = true;
+    persistence.abort();
+    actorAbortListener?.[Symbol.dispose]();
     staleDiscoveryByIssuer.clear();
     callback.cancel();
-    closePromise = Promise.all([writeTail, callback.close()]).then(() => {
-      liveProviders.delete(provider);
-      return { callbacksClosed: 1, loopbackPortsClosed: 1 };
-    });
+    closePromise = joinCredentialCleanup(
+      [
+        writeTail,
+        options.store.join?.() ?? Promise.resolve(),
+        callback.close().then(() => liveProviders.delete(provider)),
+      ],
+      'MCP OAuth persistence or callback cleanup failed.'
+    ).then(() => ({
+      callbacksClosed: 1,
+      loopbackPortsClosed: 1,
+    }));
     return closePromise;
   };
 
@@ -710,8 +757,7 @@ export async function createMcpOAuthClientProvider(
         return stored;
       }
       if (stored) {
-        // A DCR bound to a different loopback port cannot redirect here and must
-        // be replaced, which costs the user an explicit reconnect.
+        // Redirect mismatch requires a new DCR and explicit reconnect.
         staleRegistrationDiscarded = true;
         reportStaleDynamicClientRegistration(currentIssuer);
         clearCurrentRecordField('clientInformation');
@@ -928,11 +974,26 @@ export async function createMcpOAuthClientProvider(
       return expected;
     },
   };
+  if (options.signal) {
+    actorAbortListener = addAbortListener(options.signal, () => {
+      generation += 1;
+      tokenGenerations.clear();
+      persistence.abort(options.signal?.reason);
+      callback.cancel();
+    });
+    if (options.signal.aborted) {
+      await provider.close();
+      options.signal.throwIfAborted();
+    }
+  }
   liveProviders.add(provider);
   return provider;
 }
 /** Clears every live MCP OAuth provider and encrypted MCP OAuth store. */
 export async function purgeMcpOAuthRuntimeState(): Promise<void> {
-  await Promise.all([...liveProviders].map(async (provider) => await provider.disconnect()));
-  await Promise.all([...encryptedStores].map(async (store) => await store.clearAll()));
+  await joinCredentialCleanup(
+    [...liveProviders].map(async (provider) => await provider.disconnect()),
+    'MCP OAuth reset completed with failures.',
+    () => [...encryptedStores].map(async (store) => await store.clearAll())
+  );
 }

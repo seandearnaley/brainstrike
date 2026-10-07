@@ -1,3 +1,4 @@
+import { getEventListeners } from 'node:events';
 import { createServer } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -5,8 +6,11 @@ import {
   createLazySafeStorageMcpOAuthStore,
   createMcpOAuthClientProvider,
   createSafeStorageMcpOAuthStore,
+  identityKey,
   type McpOAuthPersistedState,
+  purgeMcpOAuthRuntimeState,
   readMcpOAuthAuthProjection,
+  registerMcpOAuthStore,
 } from '../../mcp/oauth-client-provider';
 
 const identity = {
@@ -16,6 +20,194 @@ const identity = {
 } as const;
 
 describe('MCP OAuth credential boundary', () => {
+  it('joins a never-used lazy store without constructing desktop credentials', async () => {
+    const factory = vi.fn(() => createInMemoryMcpOAuthStore());
+    await createLazySafeStorageMcpOAuthStore(factory).join?.();
+    expect(factory).not.toHaveBeenCalled();
+  });
+
+  it('cancels lazy construction for the caller while retaining its actual join', async () => {
+    const construction = Promise.withResolvers<ReturnType<typeof createInMemoryMcpOAuthStore>>();
+    const entered = Promise.withResolvers<void>();
+    const store = createLazySafeStorageMcpOAuthStore(() => {
+      entered.resolve();
+      return construction.promise;
+    });
+    const controller = new AbortController();
+    const reading = store.read(identity, controller.signal);
+    await entered.promise;
+    controller.abort();
+    await expect(reading).rejects.toMatchObject({ name: 'AbortError' });
+    let joined = false;
+    const joining = store.join?.().then(() => {
+      joined = true;
+    });
+    expect(joined).toBe(false);
+    construction.resolve(createInMemoryMcpOAuthStore());
+    await joining;
+    expect(joined).toBe(true);
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+  });
+
+  it('rejects cancelled OAuth startup before reading credentials or opening the browser', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const store = createInMemoryMcpOAuthStore();
+    const read = vi.spyOn(store, 'read');
+    const openExternal = vi.fn(async () => undefined);
+    await expect(
+      createMcpOAuthClientProvider({
+        openExternal,
+        serverId: identity.serverId,
+        serverUrl: identity.resourceUrl,
+        signal: controller.signal,
+        store,
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(read).not.toHaveBeenCalled();
+    expect(openExternal).not.toHaveBeenCalled();
+  });
+
+  it.each(['read', 'write'] as const)(
+    'joins native %s after cancellation and fences its late result',
+    async (operation) => {
+      const native = Promise.withResolvers<Buffer>();
+      const entered = Promise.withResolvers<void>();
+      const set = vi.fn();
+      const store = createSafeStorageMcpOAuthStore(
+        {
+          get: () => ({
+            [identityKey(identity)]: Buffer.from('fixture-ciphertext').toString('base64'),
+          }),
+          set,
+        },
+        {
+          decryptStringAsync: async () => {
+            entered.resolve();
+            await native.promise;
+            return { result: '{}', shouldReEncrypt: false };
+          },
+          encryptStringAsync: () => {
+            entered.resolve();
+            return native.promise;
+          },
+          getSelectedStorageBackend: () => 'keychain',
+          isAsyncEncryptionAvailable: async () => true,
+        }
+      );
+      const controller = new AbortController();
+      const caller =
+        operation === 'read'
+          ? store.read(identity, controller.signal)
+          : store.write(identity, {}, controller.signal);
+      await entered.promise;
+      controller.abort();
+      await expect(caller).rejects.toMatchObject({ name: 'AbortError' });
+      let joined = false;
+      const joining = store.join?.().then(() => {
+        joined = true;
+      });
+      expect(joined).toBe(false);
+      native.resolve(Buffer.from('fixture-ciphertext'));
+      await joining;
+      expect(set).not.toHaveBeenCalled();
+    }
+  );
+
+  it('retains a late native encryption failure for the cleanup owner', async () => {
+    const encryption = Promise.withResolvers<Buffer>();
+    const entered = Promise.withResolvers<void>();
+    const store = createSafeStorageMcpOAuthStore(
+      { get: () => ({}), set: () => undefined },
+      {
+        decryptStringAsync: async () => ({ result: '{}', shouldReEncrypt: false }),
+        encryptStringAsync: () => {
+          entered.resolve();
+          return encryption.promise;
+        },
+        getSelectedStorageBackend: () => 'keychain',
+        isAsyncEncryptionAvailable: async () => true,
+      }
+    );
+    const unregister = registerMcpOAuthStore(store);
+    try {
+      const controller = new AbortController();
+      const writing = store.write(identity, {}, controller.signal);
+      await entered.promise;
+      controller.abort();
+      await expect(writing).rejects.toMatchObject({ name: 'AbortError' });
+      const failure = new Error('fixture-native-encryption-denied');
+      const joined = expect(store.join?.()).rejects.toMatchObject({
+        errors: [failure],
+        name: 'AggregateError',
+      });
+      encryption.reject(failure);
+      await joined;
+    } finally {
+      unregister();
+    }
+  });
+
+  it('joins pending provider persistence and releases the actor signal listener on close', async () => {
+    const encryption = Promise.withResolvers<Buffer>();
+    const entered = Promise.withResolvers<void>();
+    const set = vi.fn();
+    const store = createSafeStorageMcpOAuthStore(
+      { get: () => ({}), set },
+      {
+        decryptStringAsync: async () => ({ result: '{}', shouldReEncrypt: false }),
+        encryptStringAsync: () => {
+          entered.resolve();
+          return encryption.promise;
+        },
+        getSelectedStorageBackend: () => 'keychain',
+        isAsyncEncryptionAvailable: async () => true,
+      }
+    );
+    const controller = new AbortController();
+    const provider = await createMcpOAuthClientProvider({
+      openExternal: async () => undefined,
+      serverId: identity.serverId,
+      serverUrl: identity.resourceUrl,
+      signal: controller.signal,
+      store,
+    });
+    await provider.clientInformation({ issuer: 'https://auth.example.test' });
+    const writing = provider.saveCodeVerifier('fixture-verifier');
+    await entered.promise;
+    let closed = false;
+    const closing = provider.close().then((proof) => {
+      closed = true;
+      return proof;
+    });
+    await expect(writing).rejects.toMatchObject({ name: 'AbortError' });
+    expect(closed).toBe(false);
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
+    encryption.resolve(Buffer.from('fixture-ciphertext'));
+    await expect(closing).resolves.toEqual({ callbacksClosed: 1, loopbackPortsClosed: 1 });
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it('attempts every registered store on reset and reports original failures', async () => {
+    const failed = {
+      ...createInMemoryMcpOAuthStore(),
+      clearAll: vi.fn(async () => {
+        throw new Error('fixture-reset-denied');
+      }),
+    };
+    const healthy = { ...createInMemoryMcpOAuthStore(), clearAll: vi.fn(async () => undefined) };
+    const unregisterFailed = registerMcpOAuthStore(failed);
+    const unregisterHealthy = registerMcpOAuthStore(healthy);
+    try {
+      await expect(purgeMcpOAuthRuntimeState()).rejects.toMatchObject({ name: 'AggregateError' });
+      expect(failed.clearAll).toHaveBeenCalledOnce();
+      expect(healthy.clearAll).toHaveBeenCalledOnce();
+    } finally {
+      unregisterFailed();
+      unregisterHealthy();
+    }
+  });
+
   it('requires explicit interactive consent when the authorization option is omitted', async () => {
     const openExternal = vi.fn(async () => undefined);
     const provider = await createMcpOAuthClientProvider({

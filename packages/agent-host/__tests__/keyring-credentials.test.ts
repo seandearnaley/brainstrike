@@ -1,5 +1,6 @@
 import { getEventListeners } from 'node:events';
-import { parseStoredCredential } from '@brainstrike/assistant-contract';
+import { MessageChannel, Worker } from 'node:worker_threads';
+import { MalformedCredentialError, parseStoredCredential } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CredentialStoreClosedError,
@@ -7,8 +8,14 @@ import {
   type KeyringCredentialBackend,
   type KeyringEntryRequest,
   type KeyringNativeEntry,
+  SecretReadError,
 } from '../src/adapters/credential-contract.js';
-import { createKeyringCredentialStore } from '../src/adapters/keyring-credentials.js';
+import {
+  createKeyringCredentialStore,
+  createKeyringSecretsService,
+  SecretReadError as PublicSecretReadError,
+} from '../src/adapters/keyring-credentials.js';
+import { createKeyringCredentialBackend } from '../src/adapters/keyring-native-worker.js';
 
 function fixture() {
   const values = new Map<string, string>();
@@ -31,6 +38,35 @@ function fixture() {
 }
 
 describe('injected keyring credential authority', () => {
+  it('uses the native owner’s single retained worker for every credential operation', async () => {
+    const observed = new MessageChannel();
+    let worker: Worker | undefined;
+    const createWorker = vi.fn((_entry: URL, options: ConstructorParameters<typeof Worker>[1]) => {
+      worker = new Worker(new URL('./fixtures/keyring-native-worker.mjs', import.meta.url), {
+        ...options,
+        transferList: [observed.port2],
+        workerData: { observationPort: observed.port2 },
+      });
+      return worker;
+    });
+    const store = createKeyringCredentialStore({
+      backend: createKeyringCredentialBackend('fixture-profile-only', { createWorker }),
+      service: 'fixture-profile-only',
+    });
+    try {
+      await store.write('fixture-account', 'fixture-value');
+      await expect(store.read('fixture-account')).resolves.toBe('fixture-value');
+      await expect(store.listAccounts()).resolves.toEqual(['fixture-account']);
+      await expect(store.delete('fixture-account')).resolves.toBe(true);
+      await store.close();
+      expect(createWorker).toHaveBeenCalledOnce();
+      expect(worker?.threadId).toBe(-1);
+    } finally {
+      await store.close();
+      observed.port1.close();
+    }
+  });
+
   it('requires the profile service and supplies explicit Secret Service selection', async () => {
     const { backend, requests, store } = fixture();
     expect(() => createKeyringCredentialStore({ backend, service: '' })).toThrow(TypeError);
@@ -305,5 +341,108 @@ describe('injected keyring credential authority', () => {
     expect(store.completion().pendingNativeOperations).toBe(0);
     expect(store.completion().state).toBe('closing');
     expect(backend.close).toHaveBeenCalledOnce();
+  });
+});
+
+describe('provider projection over the shared credential authority', () => {
+  function providerFixture() {
+    const { backend, store, values } = fixture();
+    const secrets = createKeyringSecretsService({
+      accountForProvider: (provider) => `fixture-provider:${provider}`,
+      credentials: store,
+      providerForAccount: (account) =>
+        account.startsWith('fixture-provider:')
+          ? account.slice('fixture-provider:'.length)
+          : undefined,
+    });
+    return { backend, secrets, store, values };
+  }
+
+  it('exports the exact shared error constructor and preserves typed OAuth and AWS envelopes', async () => {
+    const { secrets, store } = providerFixture();
+    expect(PublicSecretReadError).toBe(SecretReadError);
+    const oauth = {
+      access: 'fixture-access',
+      expires: 123,
+      refresh: 'fixture-refresh',
+      type: 'oauth',
+    } as const;
+    const aws = {
+      mode: 'profile_chain',
+      profile: 'fixture-profile',
+      region: 'us-east-1',
+      type: 'aws',
+    } as const;
+    await secrets.setCredential('subscription', oauth);
+    await secrets.setCredential('bedrock', aws);
+    await expect(secrets.getCredential('subscription')).resolves.toEqual(oauth);
+    await expect(secrets.getCredential('bedrock')).resolves.toEqual(aws);
+    await expect(secrets.getKey('subscription')).rejects.toBeInstanceOf(SecretReadError);
+    await expect(secrets.getKey('bedrock')).rejects.toMatchObject({
+      code: 'credential_type_unsupported',
+    });
+    await store.close();
+  });
+
+  it('keeps a malformed tagged credential and unavailable storage distinguishable from missing', async () => {
+    const { backend, secrets, store, values } = providerFixture();
+    await expect(secrets.getCredential('absent')).resolves.toBeNull();
+    values.set('fixture-provider:malformed', '{"type":"oauth","access":"fixture-access"}');
+    await expect(secrets.getCredential('malformed')).rejects.toMatchObject({
+      code: 'malformed_credential',
+    });
+    backend.createEntry.mockRejectedValueOnce(new Error('fixture-keyring-locked'));
+    await expect(secrets.getCredential('locked')).rejects.toMatchObject({
+      code: 'decrypt_failed',
+      name: 'SecretReadError',
+      provider: 'locked',
+    });
+    await store.close();
+  });
+
+  it('validates typed writes before persistence and retains the existing API-key save path', async () => {
+    const { backend, secrets, store } = providerFixture();
+    await expect(secrets.saveKey('openai', '')).rejects.toBeInstanceOf(MalformedCredentialError);
+    expect(backend.createEntry).not.toHaveBeenCalled();
+    await expect(secrets.saveKey('openai', 'fixture-key')).resolves.toBe(true);
+    await expect(secrets.getKey('openai')).resolves.toBe('fixture-key');
+    await store.close();
+  });
+
+  it('lists and clears provider accounts without deleting MCP credentials', async () => {
+    const { secrets, store, values } = providerFixture();
+    values.set('fixture-oauth:server', '{}');
+    await secrets.saveKey('openai', 'fixture-key');
+    await expect(secrets.listProviders()).resolves.toEqual(['openai']);
+    await expect(secrets.clearAll()).resolves.toBe(true);
+    expect(values.has('fixture-oauth:server')).toBe(true);
+    await expect(secrets.listProviders()).resolves.toEqual([]);
+    await store.close();
+  });
+
+  it('reports partial reset failure through the existing false result and attempts remaining accounts', async () => {
+    const { backend, secrets, store, values } = providerFixture();
+    values.set('fixture-provider:first', 'fixture-first');
+    values.set('fixture-provider:second', 'fixture-second');
+    backend.createEntry.mockResolvedValueOnce({
+      deleteCredential: async () => {
+        throw new Error('fixture-delete-denied');
+      },
+      getPassword: async () => undefined,
+      setPassword: async () => undefined,
+    });
+    await expect(secrets.clearAll()).resolves.toBe(false);
+    expect(values.has('fixture-provider:first')).toBe(true);
+    expect(values.has('fixture-provider:second')).toBe(false);
+    await store.close();
+  });
+
+  it('joins native completion without closing admission for subsequent cleanup', async () => {
+    const { store } = providerFixture();
+    await store.write('fixture-provider:first', 'fixture-value');
+    await store.join();
+    expect(store.completion().state).toBe('open');
+    await expect(store.delete('fixture-provider:first')).resolves.toBe(true);
+    await store.close();
   });
 });

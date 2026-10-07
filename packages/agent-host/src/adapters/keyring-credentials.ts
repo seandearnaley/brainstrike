@@ -1,12 +1,23 @@
 import {
+  isProviderCredential,
+  MalformedCredentialError,
+  type ProviderCredential,
+} from '@brainstrike/assistant-contract';
+import {
   CredentialStoreClosedError,
   type CredentialStoreOperation,
   CredentialStoreUnavailableError,
+  credentialToApiKey,
   type KeyringCredentialBackend,
   type KeyringCredentialStore,
   type KeyringEntryRequest,
   type KeyringNativeEntry,
+  parseCredentialOrThrow,
+  SecretReadError,
+  type SecretsService,
 } from './credential-contract.js';
+
+export * from './credential-contract.js';
 
 export interface KeyringCredentialStoreOptions {
   readonly backend: KeyringCredentialBackend;
@@ -162,6 +173,15 @@ export function createKeyringCredentialStore(
         return await native('delete', () => target.deleteCredential());
       }, signal);
     },
+    async join() {
+      await completionTail;
+      if (cancelledNativeFailures.length > 0) {
+        throw new AggregateError(
+          [...cancelledNativeFailures],
+          'Credential operations completed with failures after caller cancellation.'
+        );
+      }
+    },
     async listAccounts(signal) {
       return await enqueue(async () => {
         const accounts = await native('list', () =>
@@ -186,5 +206,84 @@ export function createKeyringCredentialStore(
         await native('write', () => target.setPassword(value));
       }, signal);
     },
+  };
+}
+
+export interface KeyringSecretsServiceOptions {
+  readonly accountForProvider: (provider: string) => string;
+  readonly credentials: KeyringCredentialStore;
+  readonly providerForAccount: (account: string) => string | undefined;
+}
+
+/** Provider projection over the same injected authority used by MCP OAuth. */
+export function createKeyringSecretsService(options: KeyringSecretsServiceOptions): SecretsService {
+  const account = (provider: string): string => {
+    const target = options.accountForProvider(provider);
+    if (target.length === 0 || options.providerForAccount(target) !== provider) {
+      throw new Error('Provider credential account is outside the configured namespace.');
+    }
+    return target;
+  };
+
+  const readCredential = async (provider: string): Promise<ProviderCredential | null> => {
+    let raw: string | null;
+    try {
+      raw = await options.credentials.read(account(provider));
+    } catch (error) {
+      if (error instanceof CredentialStoreUnavailableError) {
+        throw new SecretReadError('decrypt_failed', provider, error);
+      }
+      throw error;
+    }
+    return raw === null ? null : parseCredentialOrThrow(provider, raw);
+  };
+
+  const writeCredential = async (
+    provider: string,
+    credential: ProviderCredential
+  ): Promise<boolean> => {
+    if (!isProviderCredential(credential)) {
+      throw new MalformedCredentialError(
+        'setCredential received an invalid or unrecognized credential object'
+      );
+    }
+    await options.credentials.write(account(provider), JSON.stringify(credential));
+    return true;
+  };
+
+  return {
+    async clearAll() {
+      let success = true;
+      const accounts = await options.credentials.listAccounts();
+      for (const target of accounts) {
+        if (options.providerForAccount(target) !== undefined) {
+          try {
+            await options.credentials.delete(target);
+          } catch {
+            success = false;
+          }
+        }
+      }
+      return success;
+    },
+    async deleteKey(provider) {
+      return await options.credentials.delete(account(provider));
+    },
+    getCredential: readCredential,
+    async getKey(provider) {
+      const credential = await readCredential(provider);
+      return credential === null ? null : credentialToApiKey(provider, credential);
+    },
+    async listProviders() {
+      const accounts = await options.credentials.listAccounts();
+      return accounts.flatMap((target) => {
+        const provider = options.providerForAccount(target);
+        return provider === undefined ? [] : [provider];
+      });
+    },
+    async saveKey(provider, value) {
+      return await writeCredential(provider, { key: value, type: 'api_key' });
+    },
+    setCredential: writeCredential,
   };
 }
