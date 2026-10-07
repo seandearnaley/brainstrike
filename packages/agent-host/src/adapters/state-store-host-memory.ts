@@ -41,17 +41,29 @@ export class StateStoreHostMemory implements HostRunOwner {
     private readonly domain: StateStoreMemoryStorage,
     private readonly storage: MastraCompositeStore,
     private readonly readRows: () => Promise<HostLogRow[]>,
-    private readonly providerContext: ProviderRequestContext | undefined
+    private readonly providerContext: ProviderRequestContext | undefined,
+    private readonly semanticRecall: boolean,
+    private readonly resourceRecall: boolean
   ) {}
 
   static async open(
     context: HostRunContext,
     options: StateStoreHostMemoryOptions
   ): Promise<StateStoreHostMemory> {
+    const recall = options.native.options?.semanticRecall;
+    const semanticRecall = Boolean(recall);
+    const resourceRecall =
+      semanticRecall && !(typeof recall === 'object' && recall.scope === 'thread');
+    if (
+      semanticRecall &&
+      (!(options.native.vector && options.native.embedder) ||
+        typeof options.native.embedder === 'string')
+    ) {
+      throw new Error('Semantic recall requires the borrowed vector owner and a concrete embedder');
+    }
     // Snapshot configuration before constructing native run-owned resources.
     const providerContext = await options.providerRequestContext?.();
-    const readRows = async (): Promise<HostLogRow[]> =>
-      Promise.all((await options.store.readAll()).map((row) => readHostRow(options.store, row)));
+    const readRows = (): Promise<HostLogRow[]> => readResourceRows(context, options);
     const readTranscript = async (): Promise<MastraDBMessage[]> =>
       committedMemoryTranscript(await readRows(), options.resourceId);
     const identity = { ...context, resourceId: options.resourceId };
@@ -84,12 +96,18 @@ export class StateStoreHostMemory implements HostRunOwner {
       domain,
       storage,
       readRows,
-      providerContext
+      providerContext,
+      semanticRecall,
+      resourceRecall
     );
     try {
       await storage.init();
-      const rows = await readRows();
-      const committed = committedRunIdentity(rows, context.runId);
+      const inputRows = await Promise.all(
+        (await options.store.read(context.threadId, 0)).map((row) =>
+          readHostRow(options.store, row)
+        )
+      );
+      const committed = committedRunIdentity(inputRows, context.runId);
       if (!(await domain.getThreadById({ threadId: context.threadId }))) {
         await domain.saveThread({
           thread: {
@@ -101,6 +119,7 @@ export class StateStoreHostMemory implements HostRunOwner {
           },
         });
       }
+      const rows = await readRows();
       const currentIds = new Set(
         rows.flatMap((row) =>
           'runId' in row.event && row.event.runId === context.runId
@@ -160,17 +179,44 @@ export class StateStoreHostMemory implements HostRunOwner {
     });
   }
 
+  private async recallMessageIds(query: string): Promise<ReadonlySet<string>> {
+    if (!(this.semanticRecall && query.trim())) {
+      return new Set();
+    }
+    // Public getContext has no semantic query argument. Use the library's
+    // recall primitive; it resolves returned IDs through committed storage.
+    const { messages } = await this.memory.recall({
+      resourceId: this.identity.resourceId,
+      threadConfig: { lastMessages: false },
+      vectorSearchString: query,
+    });
+    return new Set(messages.map((message) => message.id));
+  }
+
   async prepareHostStep(request: {
     readonly messages: readonly ModelMessage[];
     readonly stepNumber: number;
   }): Promise<{ messages: ModelMessage[]; system?: string }> {
+    const currentUser = request.messages.findLastIndex((message) => message.role === 'user');
+    const current = request.messages[currentUser];
+    if (current?.role !== 'user') {
+      throw new Error('Memory preparation has no current committed user input');
+    }
+    const query =
+      typeof current.content === 'string'
+        ? current.content
+        : current.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
     const step = await this.memory.prepareStep(request.stepNumber);
     const selected = new Set(step.messages.map((message) => message.id));
+    const recalled = await this.recallMessageIds(query);
+    for (const id of recalled) {
+      selected.add(id);
+    }
     const rows = await this.readRows();
     const historical: ModelMessage[] = [];
     for (const started of rows) {
       if (
-        started.threadId !== this.identity.threadId ||
+        (!this.resourceRecall && started.threadId !== this.identity.threadId) ||
         started.event.type !== 'run.started' ||
         started.event.runId === this.identity.runId
       ) {
@@ -180,9 +226,17 @@ export class StateStoreHostMemory implements HostRunOwner {
       const previous = committedRunIdentity(rows, previousRunId);
       // BST-1977's ordinary second turn failed when the bounded native history
       // window started inside an older turn. Its
-      // assistant tail cannot be a standalone provider conversation. Keep the
-      // selected window and immutable rows; omit that incomplete runtime turn.
-      if (!selected.has(previous.userMessageId)) {
+      // assistant tail cannot be a standalone provider conversation. A semantic
+      // hit anchors its actual committed turn; an ordinary history tail does not.
+      const recalledSegment =
+        recalled.size > 0 &&
+        rows.some(
+          (row) =>
+            'runId' in row.event &&
+            row.event.runId === previousRunId &&
+            recalled.has(committedRowAddress(row))
+        );
+      if (!(selected.has(previous.userMessageId) || recalledSegment)) {
         continue;
       }
       historical.push({ content: started.event.prompt, role: 'user' });
@@ -198,7 +252,7 @@ export class StateStoreHostMemory implements HostRunOwner {
       }
       const occurrence = rows.flatMap((row) => {
         const event = row.event;
-        return row.threadId === this.identity.threadId &&
+        return row.threadId === started.threadId &&
           (event.type === 'model.step' || event.type === 'model.messages') &&
           event.runId === previousRunId
           ? event.messages.map((message) => modelMessageSchema.parse(message))
@@ -230,10 +284,6 @@ export class StateStoreHostMemory implements HostRunOwner {
     // Active SDK messages retain their actual validated approval/runtime objects.
     // Public Memory selects previous committed turns, never reconstructs an
     // active call or changes the existing host approval occurrence.
-    const currentUser = request.messages.findLastIndex((message) => message.role === 'user');
-    if (currentUser < 0) {
-      throw new Error('Memory preparation has no current committed user input');
-    }
     const system = [step.context.systemMessage, step.context.otherThreadsContext]
       .filter((part) => part !== undefined && part.length > 0)
       .join('\n\n');
@@ -279,4 +329,38 @@ export class StateStoreHostMemory implements HostRunOwner {
     })();
     return this.closing;
   }
+}
+
+/** Vendor metadata cannot authorize a Root thread for the acquired resource. */
+async function readResourceRows(
+  context: HostRunContext,
+  options: StateStoreHostMemoryOptions
+): Promise<HostLogRow[]> {
+  const snapshot = await options.store.memory({
+    operation: 'read',
+    ownerThreadId: context.threadId,
+    resourceId: options.resourceId,
+  });
+  const threads = new Set<string>();
+  for (const entity of snapshot.entities) {
+    if (entity.kind !== 'thread') {
+      continue;
+    }
+    if (
+      entity.threadId !== entity.id ||
+      entity.payload['id'] !== entity.id ||
+      entity.payload['resourceId'] !== options.resourceId
+    ) {
+      throw new Error('Durable Memory thread binding crossed its resource owner');
+    }
+    threads.add(entity.id);
+  }
+  if (!threads.has(context.threadId)) {
+    throw new Error('Acquired Memory thread has no durable resource binding');
+  }
+  return Promise.all(
+    (await options.store.readAll())
+      .filter((row) => threads.has(row.threadId))
+      .map((row) => readHostRow(options.store, row))
+  );
 }
