@@ -153,6 +153,9 @@ Run signals stop and join its execution; attach signals detach.
         print({ hostVersion, pid, protocolVersion, start });
         break;
       }
+      case 'host stop':
+        print(await client.request('host/stop', {}));
+        break;
       case 'thread start':
         print(await client.request('thread/start', { commandId }));
         break;

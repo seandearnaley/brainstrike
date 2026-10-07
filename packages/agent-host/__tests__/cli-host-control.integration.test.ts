@@ -41,12 +41,16 @@ async function root(): Promise<string> {
   return value;
 }
 
-function command(dataRoot: string, name: 'status' | 'stop'): Promise<number> {
-  return new Promise<number>((resolve, reject) => {
+function command(
+  dataRoot: string,
+  name: 'status' | 'stop'
+): Promise<{ readonly code: number; readonly stdout: string; readonly stderr: string }> {
+  return new Promise((resolve, reject) => {
     execFile(
       process.execPath,
       [cli, '--data-root', dataRoot, '--platform', platform, 'host', name],
       {
+        encoding: 'utf8',
         env: {
           BRAINSTRIKE_M3_TEST_TOOL: 'fail',
           LC_ALL: 'C',
@@ -57,11 +61,11 @@ function command(dataRoot: string, name: 'status' | 'stop'): Promise<number> {
         timeout: 10_000,
         windowsHide: true,
       },
-      (cause) => {
+      (cause, stdout, stderr) => {
         if (!cause) {
-          resolve(0);
+          resolve({ code: 0, stderr, stdout });
         } else if (typeof cause.code === 'number') {
-          resolve(cause.code);
+          resolve({ code: cause.code, stderr, stdout });
         } else {
           reject(cause);
         }
@@ -90,8 +94,10 @@ test.each(['status', 'stop'] as const)(
   'cold host %s never starts the supplied platform or acquires the root',
   async (name) => {
     const dataRoot = await root();
-    const code = await command(dataRoot, name);
-    expect(code).toBe(1);
+    const result = await command(dataRoot, name);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr.length).toBeGreaterThan(0);
     expect(RootLock.inspect(dataRoot)).toBeNull();
     await expect(access(join(dataRoot, 'host.json'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(access(join(dataRoot, 'fixture-platform-pids'))).rejects.toMatchObject({
@@ -103,7 +109,10 @@ test.each(['status', 'stop'] as const)(
 test('host stop returns only after canonical platform and root cleanup', async () => {
   const dataRoot = await root();
   const owner = await host(dataRoot);
-  expect(await command(dataRoot, 'stop')).toBe(0);
+  const result = await command(dataRoot, 'stop');
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual({ outcome: 'stopped', rootReleased: true });
+  expect(result.stderr).toBe('');
   // A disconnected socket alone is not joined host shutdown.
   expect(RootLock.inspect(dataRoot)?.owner.released).toBe(true);
   await expect(access(join(dataRoot, 'host.json'))).rejects.toMatchObject({ code: 'ENOENT' });
@@ -166,7 +175,10 @@ test('host stop joins the existing scripted native tool before reporting success
   }
   childPids.push(childPid);
   expect(processStartTime(childPid)).not.toBeNull();
-  expect(await command(dataRoot, 'stop')).toBe(0);
+  const result = await command(dataRoot, 'stop');
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual({ outcome: 'stopped', rootReleased: true });
+  expect(result.stderr).toBe('');
   expect(processStartTime(childPid)).toBeNull();
   expect(RootLock.inspect(dataRoot)?.owner.released).toBe(true);
   await owner.closed;
