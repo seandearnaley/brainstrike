@@ -6,16 +6,22 @@ import {
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   createSanitizedToolNameMap,
   resolveAssistantResilienceConfig,
+  resolveToolResultBudgetForModel,
 } from '@brainstrike/agent';
+import { collectCombinedTools } from '@brainstrike/agent/mcp-client';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
-import { createMcpHostToolAdapter } from '@brainstrike/agent-host';
+import { createMcpHostToolAdapter, createProductionHostPlatform } from '@brainstrike/agent-host';
 import {
   createKeyringCredentialStore,
   createKeyringSecretsService,
 } from '@brainstrike/agent-host/keyring-credentials';
-import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import { scriptedModel } from '@brainstrike/agent-host/test-fixtures/scripted-model';
+import {
+  DEFAULT_PERMISSION_POLICIES,
+  parseConfiguredMcpServerId,
+} from '@brainstrike/assistant-contract';
 import { StateStore } from '@brainstrike/state-store';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type AgentHostAdapterCapabilities,
   type AgentHostMcpCollection,
@@ -121,7 +127,7 @@ describe('one Node adapter composition', () => {
       startup,
     });
     try {
-      const discovery = services.mcp.executableTools();
+      const discovery = services.mcp.executableTools(fixtureToolRequest);
       const rejected = expect(discovery).rejects.toMatchObject({
         code: 'agent_host_adapter_closed',
       });
@@ -175,7 +181,9 @@ describe('one Node adapter composition', () => {
     await expect(services.resolveProviderAuth('bedrock')).rejects.toMatchObject({
       code: 'credential_type_unsupported',
     });
-    await expect(services.mcp.executableTools()).resolves.toEqual({});
+    const selection = await services.mcp.executableTools(fixtureToolRequest);
+    expect(selection.bindings).toEqual({});
+    await selection.close();
     const close = services.close();
     expect(registered[0]?.()).toBe(close);
     await close;
@@ -235,7 +243,8 @@ describe('one Node adapter composition', () => {
           },
         ],
       });
-      const bindings = await services.mcp.executableTools();
+      const selection = await services.mcp.executableTools(fixtureToolRequest);
+      const { bindings } = selection;
       expect(Object.keys(bindings)).toHaveLength(1);
       const [name, binding] = Object.entries(bindings)[0]!;
       expect(binding.configuredServerId).toBe('fixture.composed');
@@ -259,6 +268,7 @@ describe('one Node adapter composition', () => {
           }
         )
       ).resolves.toEqual({ content: [{ text: 'ok', type: 'text' }] });
+      expect(binding.tool.permissionToolId).toBe('fixture.composed.host_lifecycle_probe');
       const initialized = server.requests.filter(
         ({ body }) =>
           body && typeof body === 'object' && 'method' in body && body.method === 'initialize'
@@ -286,12 +296,152 @@ describe('one Node adapter composition', () => {
           body && typeof body === 'object' && 'method' in body && body.method === 'tools/call'
       );
       expect(calls).toHaveLength(1);
+      await adapter.close();
+      await selection.close();
       const report = await services.mcp.close();
       expect(report.failures).toEqual([]);
       expect(report.clientsClosed).toBe(1);
       expect(internalErrors).toEqual([]);
     }
   );
+
+  it('joins each admission borrow while retaining one HTTP authority and immutable model budgets', async () => {
+    const { root, startup } = await compositionRoot();
+    const server = await startStatefulMcpHostServer();
+    disposers.add(server.close);
+    const entered = Promise.withResolvers<void>();
+    const releaseDiscovery = Promise.withResolvers<void>();
+    const observedBudgets: number[] = [];
+    const small = { ...resolveToolResultBudgetForModel('ollama', 'runtime-observed-model') };
+    const large = { ...resolveToolResultBudgetForModel('openai', 'gpt-5.4') };
+    const originalSmall = small.transportResultTokens;
+    const services = await createAgentHostAdapterServicesFactory({
+      ...fixtureCapabilities,
+      collectCombinedTools: async (options) => {
+        observedBudgets.push(options.scaledDefaultTokens);
+        if (observedBudgets.length === 1) {
+          entered.resolve();
+          await releaseDiscovery.promise;
+        }
+        return collectCombinedTools(options);
+      },
+    })({
+      appUi: 'text',
+      credentialStore: { kind: 'file', path: join(root, 'explicit-credentials.json') },
+      mcpConfiguration: {
+        servers: [
+          {
+            name: parseConfiguredMcpServerId('fixture.bounded'),
+            protocol: 'legacy',
+            startup: 'automatic',
+            transport: 'streamable-http',
+            url: server.url,
+          },
+        ],
+      },
+      openExternal: async () => undefined,
+      openTaskDatabase: async () => {
+        throw new Error('No Tasks database expected.');
+      },
+      root,
+      startup,
+    });
+    disposers.add(services.close);
+    let watches = 0;
+    const watch = services.mcp.authority.watch.bind(services.mcp.authority);
+    const observeWatch = vi
+      .spyOn(services.mcp.authority, 'watch')
+      .mockImplementation((filter, listener) => {
+        const unwatch = watch(filter, listener);
+        watches += 1;
+        let released = false;
+        return () => {
+          if (!released) {
+            released = true;
+            unwatch();
+            watches -= 1;
+          }
+        };
+      });
+    const platform = await createProductionHostPlatform({
+      close: services.close,
+      mcp: services.mcp,
+      readConfiguration: async (request) => ({
+        configuration: { model: request.modelId, provider: 'openai' },
+        durableConfiguration: { model: request.modelId, provider: 'openai' },
+        maxSteps: 1,
+        memory: {
+          native: { options: { observationalMemory: false, semanticRecall: false } },
+          recordPrompt: async () => undefined,
+          resourceId: 'owned-resource',
+        },
+        providerRequestContext: { inputTokenLimit: 30_000, provider: 'openai' },
+        resolvedToolResultBudget: request.modelId === 'small' ? small : large,
+        tools: {},
+        toolTimeoutMs: fixtureToolRequest.toolTimeoutMs,
+      }),
+      readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
+      resolveModel: async () => scriptedModel(),
+      resolveProviderAuth: async () => undefined,
+      startup,
+    });
+    disposers.add(platform.close);
+    const admit = (modelId: string) =>
+      platform.admitRun!({
+        modelId,
+        signal: new AbortController().signal,
+        threadId: 'owned-thread',
+      });
+    try {
+      const first = admit('small');
+      await entered.promise;
+      small.transportResultTokens = large.transportResultTokens;
+      const second = await admit('large');
+      releaseDiscovery.resolve();
+      const initial = await first;
+      expect(observedBudgets).toEqual([originalSmall, large.transportResultTokens]);
+      expect(originalSmall).toBeLessThan(large.transportResultTokens);
+      expect(watches).toBe(4);
+      await initial.close?.();
+      expect(watches).toBe(2);
+      await second.close?.();
+      expect(watches).toBe(0);
+      for (let run = 0; run < 3; run += 1) {
+        const selection = await admit('large');
+        expect(watches).toBe(2);
+        const tool = Object.values(selection.tools)[0]!;
+        await expect(
+          tool.execute(
+            {},
+            {
+              runId: `owned-run-${run}`,
+              signal: new AbortController().signal,
+              threadId: 'owned-thread',
+              toolCallId: `owned-call-${run}`,
+            }
+          )
+        ).resolves.toEqual({ content: [{ text: 'ok', type: 'text' }] });
+        await selection.close?.();
+        await selection.close?.();
+        expect(watches).toBe(0);
+      }
+      expect(
+        server.requests.filter(
+          ({ body }) =>
+            body && typeof body === 'object' && 'method' in body && body.method === 'initialize'
+        )
+      ).toHaveLength(1);
+      expect(server.requests.filter(({ method }) => method === 'DELETE')).toHaveLength(0);
+      expect(services.mcp.authority.snapshot().servers[0]?.state).toBe('connected');
+      await platform.close();
+      expect(watches).toBe(0);
+      expect(server.requests.filter(({ method }) => method === 'DELETE')).toHaveLength(1);
+    } finally {
+      releaseDiscovery.resolve();
+      await platform.close();
+      observeWatch.mockRestore();
+    }
+  });
 
   it('registers ownership before native construction and retains actual read completion and backend exit', async () => {
     const { root, startup, registered } = await compositionRoot();
@@ -389,6 +539,9 @@ const fixtureCapabilities: AgentHostAdapterCapabilities<AgentHostMcpCollection> 
   onMcpDiscoverySkips: async (skips) => {
     expect(skips).toEqual([]);
   },
+};
+
+const fixtureToolRequest = {
   resolvedToolResultBudget: CEILING_SCALED_TOOL_RESULT_BUDGET,
   toolTimeoutMs: resolveAssistantResilienceConfig().toolTimeoutMs,
 };

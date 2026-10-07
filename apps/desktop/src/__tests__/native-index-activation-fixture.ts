@@ -24,6 +24,13 @@ const mocks = vi.hoisted(() => ({
 
 export { mocks };
 
+/** Load the product constructor through the module that owns these hoisted mocks. */
+export function createActivation(
+  options: Parameters<typeof createNativeIndexActivation>[0]
+): ReturnType<typeof createNativeIndexActivation> {
+  return createNativeIndexActivation(options);
+}
+
 vi.mock('../db-main', () => ({ getDatabase: async () => mocks.database }));
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',

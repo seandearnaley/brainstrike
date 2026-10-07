@@ -755,7 +755,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   };
   const closeOwned = (): Promise<void> => {
     stopping ??= stopSourcesOwned()
-      .then(() => runtime.retireProfile())
+      .then(() => runtime.closeIndex())
       .then(clearRetiredGraph)
       .finally(() => {
         stopping = undefined;
@@ -776,7 +776,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   const destroyOwned = async (): Promise<void> => {
     await stopSourcesOwned();
     await runtime.destroyIndex();
-    await runtime.retireProfile();
     clearRetiredGraph();
   };
   const closeForReconfiguration = async (): Promise<void> => {
@@ -811,10 +810,12 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   const close = async (): Promise<void> => {
     await stopSources();
     await closeOwned();
+    await runtime.retireProfile();
   };
   const destroyAndRetireProfile = async (): Promise<void> => {
     await stopSources();
     await destroyOwned();
+    await runtime.retireProfile();
   };
   const resume = async (): Promise<void> => {
     const epoch = terminalEpoch;

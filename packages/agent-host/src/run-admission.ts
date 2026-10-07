@@ -177,9 +177,10 @@ export function hostRunToolDecision(
     throw new Error('Tool is not registered');
   }
   const snapshot = platform.readPermissionPolicy();
+  const permissionToolId = registered.permissionToolId ?? toolId;
   // ADR-0010: explicit deny outranks a session grant or YOLO.
   if (
-    snapshot.perToolOverrides?.[toolId] === 'deny' ||
+    snapshot.perToolOverrides?.[permissionToolId] === 'deny' ||
     snapshot.policies[registered.risk] === 'deny'
   ) {
     return 'deny';
@@ -187,7 +188,7 @@ export function hostRunToolDecision(
   return resolvePermissionDecision({
     policies: snapshot.policies,
     riskCategory: registered.risk,
-    toolId,
+    toolId: permissionToolId,
     ...(snapshot.perToolOverrides ? { perToolOverrides: snapshot.perToolOverrides } : {}),
     sessionGrants: new Set(snapshot.sessionGrants ?? []),
     yolo: snapshot.yolo,

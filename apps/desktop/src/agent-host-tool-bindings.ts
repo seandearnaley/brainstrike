@@ -77,6 +77,7 @@ export function createAgentHostToolBindings(options: {
         await execute.call(source, input, createCanonicalToolContext(context, canonicalId)),
       identity: binding.identity,
       inputSchema: canonicalToolInputSchema(source.inputSchema),
+      permissionToolId: canonicalId,
       risk: binding.risk,
       ...(strict === undefined ? {} : { strict }),
       ...(project

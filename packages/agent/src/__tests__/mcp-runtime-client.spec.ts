@@ -95,7 +95,7 @@ describe('MCP runtime client', () => {
     await runtimeB?.disconnect();
   });
 
-  it('logs adapter release failures without closing host-owned clients', async () => {
+  it('retains adapter release failures while attempting all leases without closing host-owned clients', async () => {
     const logRecords: LogRecord[] = [];
     const removeLogListener = addLogListener((record) => logRecords.push(record));
     const brokenClient = {
@@ -115,7 +115,8 @@ describe('MCP runtime client', () => {
     const runtimeClient = await createMcpRuntimeClient({ config: undefined, host });
 
     try {
-      await expect(runtimeClient?.disconnect()).resolves.toBeUndefined();
+      await expect(runtimeClient?.disconnect()).rejects.toThrow('watch release failed');
+      await expect(runtimeClient?.disconnect()).rejects.toThrow('watch release failed');
       expect(brokenClient.close).not.toHaveBeenCalled();
       expect(healthyClient.close).not.toHaveBeenCalled();
       expect(unwatch).toHaveBeenCalledOnce();

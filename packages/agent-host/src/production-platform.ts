@@ -9,6 +9,7 @@ import {
   type RuntimeData,
   resolveRuntimeConfiguration,
 } from '@brainstrike/agent/provider-runtime';
+import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import type { LanguageModel } from 'ai';
 import { z } from 'zod';
@@ -20,6 +21,7 @@ import {
 import { materializeHostProviderModel } from './model-router-sdk.js';
 import type {
   HostMcpRuntime,
+  HostMcpToolSelection,
   HostPlatform,
   HostRunAdmission,
   HostRunAdmissionRequest,
@@ -35,8 +37,10 @@ export interface ProductionHostRunConfiguration {
   readonly maxSteps: number;
   readonly memory: Omit<StateStoreHostMemoryOptions, 'store' | 'providerRequestContext'>;
   readonly providerRequestContext: ProviderRequestContext;
+  readonly resolvedToolResultBudget: ScaledToolResultBudget;
   /** Complete shipped native catalog with its canonical schema/output projections. */
   readonly tools: Readonly<Record<string, HostTool>>;
+  readonly toolTimeoutMs: number;
 }
 
 export interface ProductionHostPlatformOptions {
@@ -64,6 +68,28 @@ function rootModel(configuration: RuntimeData, auth: ProviderAuthInput | undefin
   return materializeHostProviderModel(model);
 }
 
+async function closeMcpAdmission(
+  adapter: ReturnType<typeof createMcpHostToolAdapter>,
+  borrowed: HostMcpToolSelection
+): Promise<void> {
+  const failures: unknown[] = [];
+  try {
+    await adapter.close();
+  } catch (cause) {
+    failures.push(cause);
+  }
+  // Adapter close joins execution even when releasing one of its watches fails.
+  // The separately borrowed runtime lease still has to be released afterward.
+  try {
+    await borrowed.close();
+  } catch (cause) {
+    failures.push(cause);
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'Production MCP admission cleanup failed');
+  }
+}
+
 /** Node-only production composition; Core remains the sole dispatcher and event writer. */
 export async function createProductionHostPlatform(
   options: ProductionHostPlatformOptions
@@ -86,6 +112,35 @@ export async function createProductionHostPlatform(
     })();
     return closing;
   };
+  const acquireMcp = async (
+    request: HostRunAdmissionRequest,
+    selected: ProductionHostRunConfiguration
+  ): Promise<{
+    borrowed: HostMcpToolSelection;
+    mcp: ReturnType<typeof createMcpHostToolAdapter>;
+  }> => {
+    const borrowed = await options.mcp.executableTools({
+      resolvedToolResultBudget: selected.resolvedToolResultBudget,
+      toolTimeoutMs: selected.toolTimeoutMs,
+    });
+    try {
+      request.signal.throwIfAborted();
+      if (closing) {
+        throw new Error('Production host is closing');
+      }
+      return {
+        borrowed,
+        mcp: createMcpHostToolAdapter({ bindings: borrowed.bindings, host: options.mcp.authority }),
+      };
+    } catch (cause) {
+      try {
+        await borrowed.close();
+      } catch (cleanup) {
+        throw new AggregateError([cause, cleanup], 'Production MCP acquisition cleanup failed');
+      }
+      throw cause;
+    }
+  };
   // Register ownership before the first provider, Memory or MCP side effect.
   await options.startup.register(close);
   return {
@@ -100,15 +155,12 @@ export async function createProductionHostPlatform(
         ? await options.resolveModel(selected.configuration, auth)
         : rootModel(selected.configuration, auth);
       request.signal.throwIfAborted();
-      const mcp = createMcpHostToolAdapter({
-        bindings: await options.mcp.executableTools(),
-        host: options.mcp.authority,
-      });
+      const { borrowed, mcp } = await acquireMcp(request, selected);
       let joined: Promise<void> | undefined;
       const tools = { ...selected.tools };
       const selection: HostRunAdmission = {
         close: () => {
-          joined ??= mcp.close().then(() => {
+          joined ??= closeMcpAdmission(mcp, borrowed).then(() => {
             selections.delete(selection);
           });
           return joined;

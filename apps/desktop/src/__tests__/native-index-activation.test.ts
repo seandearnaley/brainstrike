@@ -28,13 +28,13 @@ import {
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
-import { createNativeIndexActivation } from '../native-index-activation';
 import {
   createInitialWindowAfterNativeReader,
   observeNativeReaderStartup,
 } from '../native-index-startup-window';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import {
+  createActivation,
   emptyCollection,
   fixture,
   mocks,
@@ -49,6 +49,27 @@ import {
 beforeEach(resetActivationFixture);
 
 afterEach(resetFileSizeConfig);
+
+it('retains the assistant profile through index settings replacement and rebuild until terminal close', async () => {
+  mocks.manager.attachCanonicalCollection.mockImplementation(
+    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
+  );
+  const { activation } = fixture();
+  try {
+    await activation.acquireProfile();
+    await activation.acquire();
+    await activation.reconfigure();
+    expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
+    await activation.rebuild();
+    expect(mocks.destroy).toHaveBeenCalledOnce();
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
+    await activation.acquireProfile();
+  } finally {
+    await activation.close();
+  }
+  expect(mocks.closeProfile).toHaveBeenCalledOnce();
+});
 
 it.each([DEFAULT_MAX_FILE_SIZE, 4096])(
   'activates ordinary TEXT source reads with the actual configured %i-byte limit',
@@ -289,19 +310,21 @@ it.each(['close', 'destroyAndRetireProfile'] as const)(
     );
     const { activation } = fixture();
     await activation.acquire();
-    const profileExit = Promise.withResolvers<void>();
-    mocks.closeProfile.mockReturnValueOnce(profileExit.promise);
+    const writerExit = Promise.withResolvers<void>();
+    mocks.close.mockReturnValueOnce(writerExit.promise);
     const changing = activation.reconfigure().catch((error: unknown) => error);
-    await vi.waitFor(() => expect(mocks.closeProfile).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
     let terminalSettled = false;
     const terminal = activation[operation]().then(() => {
       terminalSettled = true;
     });
     await Promise.resolve();
     expect(terminalSettled).toBe(false);
-    profileExit.resolve();
+    writerExit.resolve();
     await Promise.all([changing, terminal]);
     expect(mocks.acquire).toHaveBeenCalledTimes(1);
+    expect(mocks.closeProfile).toHaveBeenCalledOnce();
     await expect(activation.acquireRead()).rejects.toThrow('closed');
   }
 );
@@ -691,7 +714,7 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
   const documentEmbeddings = vi.fn(unused);
-  const activation = createNativeIndexActivation({
+  const activation = createActivation({
     application,
     embedding: { documentEmbeddings },
     onError: vi.fn(),

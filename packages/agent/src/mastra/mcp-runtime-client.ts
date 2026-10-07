@@ -235,6 +235,7 @@ function resolveTaskTracking(
 
 class CompositeMcpRuntimeClient implements McpRuntimeClient {
   readonly configuredServers: readonly { enabledTools?: string[]; name: string }[];
+  private closing: Promise<void> | undefined;
   constructor(private readonly serverClients: readonly TransportOwnedServerClient[]) {
     this.configuredServers = serverClients.map(({ server }) => structuredClone(server));
   }
@@ -248,17 +249,30 @@ class CompositeMcpRuntimeClient implements McpRuntimeClient {
     return { errors, toolsets };
   }
 
-  async disconnect(): Promise<void> {
+  disconnect(): Promise<void> {
+    this.closing ??= this.closeAdapters();
+    return this.closing;
+  }
+
+  private async closeAdapters(): Promise<void> {
     const results = await Promise.allSettled(
       this.serverClients.map(({ client }) => client.close())
     );
+    const failures: unknown[] = [];
     for (const [index, result] of results.entries()) {
       if (result.status === 'rejected') {
+        failures.push(result.reason);
         logger.warn('MCP adapter release failed', {
           error: result.reason,
           serverName: this.serverClients[index]?.server.name ?? 'unknown',
         });
       }
+    }
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'MCP adapter release failed');
     }
   }
 

@@ -5,7 +5,10 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { CEILING_SCALED_TOOL_RESULT_BUDGET } from '@brainstrike/agent';
+import {
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
+  resolveAssistantResilienceConfig,
+} from '@brainstrike/agent';
 import { createMcpRuntimeClient } from '@brainstrike/agent/mcp-client';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
 import {
@@ -153,7 +156,7 @@ test(
       if (!(tool && generation)) {
         throw new Error('The actual MCP executor was not discovered');
       }
-      const mcpId = `${configuredServerId}_host_lifecycle_probe`;
+      const mcpId = `${configuredServerId}.host_lifecycle_probe`;
       const bindings = createAgentHostToolBindings({
         bindings: {
           [mcpId]: {
@@ -187,7 +190,8 @@ test(
             authority: authority.host,
             close: () => authority.host.close(),
             executableTools: async () => ({
-              [mcpName]: { configuredServerId, generation, tool: mcpTool },
+              bindings: { [mcpName]: { configuredServerId, generation, tool: mcpTool } },
+              close: async () => undefined,
             }),
           },
           readConfiguration: async (request) => {
@@ -208,6 +212,7 @@ test(
                 resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
               },
               providerRequestContext: { inputTokenLimit: 30_000, provider: 'openai' },
+              resolvedToolResultBudget: CEILING_SCALED_TOOL_RESULT_BUDGET,
               tools: {
                 search_index: {
                   description: 'Search the actual SQLite keyword index',
@@ -242,10 +247,11 @@ test(
                   risk: 'edit',
                 },
               },
+              toolTimeoutMs: resolveAssistantResilienceConfig().toolTimeoutMs,
             };
           },
           readPermissionPolicy: () => ({
-            perToolOverrides: { [mcpName]: 'ask' },
+            perToolOverrides: { [mcpId]: 'ask' },
             policies: { ...DEFAULT_PERMISSION_POLICIES },
             yolo: false,
           }),

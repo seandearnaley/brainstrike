@@ -8,7 +8,7 @@ import {
   type RuntimeData,
   type ScaledToolResultBudget,
 } from '@brainstrike/agent/tool-runtime';
-import type { HostMcpRuntime } from '@brainstrike/agent-host';
+import type { HostMcpToolRequest, HostMcpToolSelection } from '@brainstrike/agent-host';
 import {
   joinCredentialCleanup,
   type KeyringCredentialBackend,
@@ -32,7 +32,7 @@ import { identityKey, parseRecords } from '../mcp/oauth-client-provider';
 import type { AgentHostAdapterServices, AgentHostAdapterServicesOptions } from './contracts';
 
 type CanonicalTools = NonNullable<RuntimeData['mastraTools']>;
-type ExecutableMcpBindings = Awaited<ReturnType<HostMcpRuntime['executableTools']>>;
+type ExecutableMcpBindings = HostMcpToolSelection['bindings'];
 
 function bindMcpTool(options: {
   readonly after: McpHostSnapshot;
@@ -117,10 +117,7 @@ export interface AgentHostAdapterCapabilities<Collection extends AgentHostMcpCol
   readonly createProviderCredentialReader: (secrets: SecretsService) => ProviderCredentialReader;
   /** Publish through the owning host dispatcher, before admission returns. */
   readonly onMcpDiscoverySkips: (skips: Collection['mcpDiscoverySkips']) => Promise<void>;
-  readonly resolvedToolResultBudget: ScaledToolResultBudget;
   readonly runtimeDependencies?: McpHostRuntimeDependencies;
-  /** Supply the existing resilience configuration; this leaf introduces no budget. */
-  readonly toolTimeoutMs: number;
 }
 
 /** Process-local Settings, Apps, Tasks and elicitation ports all borrow this runtime. */
@@ -144,7 +141,7 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
     let configuration: Promise<unknown> | undefined;
     let detachElicitation: (() => void) | undefined;
     const clients = new Set<McpRuntimeClient>();
-    const collections = new Set<Promise<ExecutableMcpBindings>>();
+    const collections = new Set<Promise<HostMcpToolSelection>>();
     let closing: Promise<void> | undefined;
     let mcpClosing: Promise<McpHostCloseReport> | undefined;
     const ensureOpen = (): void => {
@@ -276,9 +273,23 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
       configuration = authority.replaceResolvedConfig(options.mcpConfiguration);
       await configuration;
       ensureOpen();
-      const executableTools = (): Promise<ExecutableMcpBindings> => {
+      const executableTools = (request: HostMcpToolRequest): Promise<HostMcpToolSelection> => {
         ensureOpen();
+        // Capture the existing model and resilience selection before discovery
+        // can overlap another run or a Settings change.
+        const resolvedToolResultBudget = Object.freeze({ ...request.resolvedToolResultBudget });
+        const toolTimeoutMs = request.toolTimeoutMs;
         let borrowedClient: McpRuntimeClient | undefined;
+        let borrowedClosing: Promise<void> | undefined;
+        const closeBorrow = (): Promise<void> => {
+          borrowedClosing ??= Promise.resolve().then(async () => {
+            if (borrowedClient) {
+              await borrowedClient.disconnect();
+              clients.delete(borrowedClient);
+            }
+          });
+          return borrowedClosing;
+        };
         const work = Promise.resolve()
           .then(async () => {
             ensureOpen();
@@ -287,7 +298,7 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
               config: undefined,
               host: authority.host,
               mcpTaskTracking: authority.taskHost,
-              toolTimeoutMs: capabilities.toolTimeoutMs,
+              toolTimeoutMs,
             });
             borrowedClient = client;
             if (client) {
@@ -300,7 +311,7 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
               mcpClient: client,
               mcpConfig: undefined,
               sanitizedLocalTools: undefined,
-              scaledDefaultTokens: capabilities.resolvedToolResultBudget.transportResultTokens,
+              scaledDefaultTokens: resolvedToolResultBudget.transportResultTokens,
               timeoutOverrideMs: undefined,
               toolNameMap,
             });
@@ -314,18 +325,17 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
                 after,
                 before,
                 canonicalId: toolNameMap.get(name) ?? name,
-                resolvedToolResultBudget: capabilities.resolvedToolResultBudget,
+                resolvedToolResultBudget,
                 source,
-                toolTimeoutMs: capabilities.toolTimeoutMs,
+                toolTimeoutMs,
               });
             }
-            return Object.freeze(bindings);
+            return Object.freeze({ bindings: Object.freeze(bindings), close: closeBorrow });
           })
           .catch(async (cause: unknown) => {
             if (borrowedClient) {
-              clients.delete(borrowedClient);
               try {
-                await borrowedClient.disconnect();
+                await closeBorrow();
               } catch (cleanup) {
                 throw new AggregateError(
                   [cause, cleanup],

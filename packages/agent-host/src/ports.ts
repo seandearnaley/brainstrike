@@ -1,5 +1,6 @@
 import type { ProviderRequestAccounting } from '@brainstrike/agent/provider-request';
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
+import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type {
   McpHostCloseReport,
   McpHostPort,
@@ -98,10 +99,19 @@ export interface HostRunAdmissionRequest {
 }
 
 /** The existing configured authority and its generation-qualified executors. */
+export interface HostMcpToolSelection {
+  readonly bindings: Readonly<Record<string, McpHostToolBinding>>;
+  /** Release this run's borrowed client after its executions and watches join. */
+  close(): Promise<void>;
+}
+export interface HostMcpToolRequest {
+  readonly resolvedToolResultBudget: ScaledToolResultBudget;
+  readonly toolTimeoutMs: number;
+}
 export interface HostMcpRuntime {
   readonly authority: McpHostPort;
   close(): Promise<McpHostCloseReport>;
-  executableTools(): Promise<Readonly<Record<string, McpHostToolBinding>>>;
+  executableTools(request: HostMcpToolRequest): Promise<HostMcpToolSelection>;
 }
 export interface HostTool {
   readonly description: string;
@@ -109,6 +119,8 @@ export interface HostTool {
   /** Existing executor/server-generation identity, bound into pending decisions. */
   readonly identity: string;
   readonly inputSchema: FlexibleSchema<unknown>;
+  /** Existing catalog ID used by Settings policy, before provider-name sanitization. */
+  readonly permissionToolId?: string;
   /** Tool-owned recovery of runtime meaning that JSON cannot retain. */
   reconstructApprovalInput?(rawInput: unknown): Promise<unknown>;
   readonly risk: ToolRiskCategory;

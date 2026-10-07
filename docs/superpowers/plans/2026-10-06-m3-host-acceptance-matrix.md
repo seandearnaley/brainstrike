@@ -506,3 +506,72 @@ Actual local validation, Node 26.8.2/pnpm 11.15.0 with dependency verification:
 The parent reports Windows qualification on exact published `06039d3` / tree `040eb7b`: **37 selected cases passed**, 17 integration in 152.06 s plus 20 fake-credential in 4.74 s, zero skips/retries, 19/19 build/type tasks. All 1,610 recorded owned identities exited, nine successful roots were removed, no new roots remained, and 774 sealed prior files/protected closure stayed unchanged. Initial missing pinned keyring offline setup failure is preserved; normal frozen registry setup then succeeded. Receipt `C:\Users\seand\Documents\Codex\2026-10-06\task\windows-integrated-06039d3\HANDOFF-06039D3.md`, as reported by Windows owner. This supersedes earlier 47/11 counts for the latest scoped portable packet, while historical EPERM/EBUSY causes remain unresolved. It does not qualify this later batch, desktop, public Memory, real keyring/provider or loaded p95.
 
 The ordinary fixture uses a CLI-started host that outlives application close. It does not yet prove default app-owned Root startup/restart, the full native catalog/checkpoint attribution, semantic/hybrid retrieval, full provider/model/context/credential/OM/settings/Tasks/Apps parity, general questions/plans/elicitation or real OS credential shutdown. Host-thread rename/delete remain incomplete. Mini's exact `d123f20` remains authorization-predicate failure followed by pending physical close; approval/restart/reset remain unqualified. Full local regression remains red/unquarantined, including known M2 baselines and six parent-reported root-script failures. No main/M2 mutation, signing/release, CI activation, paid provider, shared-profile/credential edit, medical-data artifact or deletion clock occurred. **CI is disabled due to cost; validation must run locally.**
+
+
+## Admission/root lifetime qualification — 7 October, 01:46 UTC
+
+This cohesive batch follows published `ebc488bc49c5122b2611c9060426a880e46c4fc1`
+/ tree `9b4a31ca68b3b72dc485a74b1859f1d40c9b394d`. Studio retains shared-interface
+and admission ownership. The parent retains allocation/publication of the
+credential worker's FIFO correction; its file backend is not changed here.
+
+The independent leaf review identified a borrowed MCP client retained after each
+successful run. The existing production admission now owns a binding selection
+whose close joins its tool executions and then releases the borrowed client's
+watches; Root alone closes the actual configured authority. The existing client
+now attempts every release and retains a failed join instead of logging success.
+The original release failure is `/tmp/brainstrike-m3-borrow-release-before.log`
+(21 pass, 1 fail). Five concurrent/sequential real HTTP admissions demonstrate
+zero remaining watches after each closed selection, one server initialize and
+no session DELETE before Root close. The existing model result budget and
+resilience timeout are captured per admission before asynchronous discovery;
+concurrent selections retain distinct budgets. This adds no scheduler, retry,
+new timeout, durable ID, alias or writer.
+
+Canonical Settings tool IDs now reach the same permission engine directly,
+including explicit deny before session grants. The real canonical read/MCP
+approve/deny reproducer originally failed 2/2 because sanitized provider names
+bypassed the unsanitized ask override; its source and causal log remain retained
+at `/tmp/brainstrike-m3-canonical-policy-before.log`. Final ordinary qualification
+also exposed its old fixture's sanitized policy key (one approval instead of
+expected two); `/tmp/brainstrike-m3-ordinary-admission-root-final.log` and evidence
+`/tmp/brainstrike-m3-ordinary-evidence-94f7907a-b1ec-4f0a-9409-12f02eadbb11/`
+retain that failure and successful physical cleanup. The fixture now supplies
+Settings' canonical catalog ID. No assertion, product policy or deadline was
+weakened.
+
+Index-only reconfiguration/rebuild joins and replaces the index owner while
+retaining the existing profile/Root attachment. Terminal app close/reset still
+retires that attachment after index cleanup; resume rejects an outstanding
+profile retirement. The causal product failure and initial constructor-mock
+load failure are retained separately in the `root-index-lifetime-*before.log`
+receipts. The fixture owns constructor loading so its hoisted platform mocks
+are effective. These are focused ownership tests, not a demonstration of
+application-owned default M3 startup.
+
+Actual local commands/results on the final batch:
+
+- `pnpm --filter @brainstrike/agent-host exec vitest run --config vitest.integration.config.mts --pool=forks --maxWorkers=1 --no-file-parallelism`: **78 passed / 7 Windows-only skipped, 38.40 s**; `/tmp/brainstrike-m3-admission-host-integration.log`. All local integration files selected. Windows source/native behavior is not qualified by these skips.
+- `pnpm --filter @brainstrike/agent-host exec vitest run --exclude '**/*.integration.test.*'`: **119/119 passed, 2.52 s**; `/tmp/brainstrike-m3-admission-host-unit.log`.
+- `pnpm --filter @brainstrike/agent exec vitest run src/__tests__/mcp-runtime-client.spec.ts --pool=forks --maxWorkers=1 --no-file-parallelism`: **22/22 passed, 1.41 s**; `/tmp/brainstrike-m3-borrow-release-after.log`.
+- Desktop adapter-services and canonical tool-binding integration with its existing integration config and one fork: **22/22 passed, 4.40 s**; `/tmp/brainstrike-m3-admission-root-desktop-integration.log`.
+- Desktop native-index runtime, activation, startup and source-retirement units with one fork: **59/59 passed, 3.21 s**; `/tmp/brainstrike-m3-root-index-lifetime-publish.log`. A broader earlier six-file selection was **81 passed / 8 failed**: one constructor fixture issue was corrected, while seven known pause/scope authority failures remain red and unquarantined. `/tmp/brainstrike-m3-root-index-lifetime-regression.log` retains the actual result; no full suite pass is claimed.
+- `pnpm exec turbo run type-check --filter=@brainstrike/desktop --filter=@brainstrike/agent-host --filter=@brainstrike/agent`: **61/61 tasks passed, 33.88 s**, including 726 desktop test files and 732 Effect diagnostic files, zero errors; `/tmp/brainstrike-m3-admission-release-types.log`. Final normal hooks validate the later cleanup helper and canonical fixture correction.
+- Existing ordinary New Thread desktop lane with its integration config, one fork and the provisioned Electron executable: **1/1 passed, 6.817 s body / 9.17 s lane**; `/tmp/brainstrike-m3-ordinary-canonical-admission-final.log`. Real GUI approvals, native effect, MCP call, SQLite search, CLI committed view, renderer reload and new Electron process reopen use the same actual Root and committed thread. Evidence `/tmp/brainstrike-m3-ordinary-evidence-d537c7dd-059c-4386-82af-78934f0b2414/` retains screenshots, workspace, committed CLI rows and diagnostics. Cleanup reports no failures, no remaining observed application PIDs and released Root; no manual kill occurred.
+
+The concrete default-profile gate is
+[credential ownership decision](2026-10-07-m3-default-profile-credential-ownership-gate.md).
+Production's encrypted provider/OAuth maps and the proposed keyring accounts are
+different durable records. No default selection, credential migration or
+shared-profile mutation has been applied. Parent/Sean owns this decision under
+AGENTS rule 1; the approved repair decision excludes alias/backfill/new writer.
+
+The ordinary pass uses a CLI-started controlled host; it does not demonstrate
+default app-owned Root startup/restart. Full canonical native/checkpoint and
+provider/model/context/credential/OM/settings/Tasks/Apps parity, general
+questions/plans/elicitation, semantic/hybrid retrieval, Mini core acceptance and
+full local regression remain unqualified. The FIFO read-open review finding
+remains pending its separate parent-owned leaf. The hard ceiling stays 06:54:27
+UTC; no elapsed/compute extension, main/M2 mutation, signing/release, hosted
+workflow, paid provider, deletion clock or shared-profile change occurred.
+**CI is disabled due to cost; validation must run locally.**

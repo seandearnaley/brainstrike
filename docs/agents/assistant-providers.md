@@ -1734,6 +1734,16 @@ Guard: `apps/desktop/src/__tests__/assistant-server/native-assistant-retrieval.t
 
 Tool output budget contract:
 
+- M3 production admission borrows one MCP runtime client for its selected server
+  generations. Closing the admission first joins its tool executions and then
+  releases that client's watches; only the Root closes the shared authority.
+  Failed release remains a rejected join, including repeated close. The existing
+  model result budget and resilience timeout are captured before discovery; a
+  concurrent run or Settings change cannot replace that selection.
+- Host tool bindings retain the existing canonical catalog ID for Settings
+  permission overrides before provider-name sanitization. The same permission
+  engine checks that ID, including an explicit deny ahead of session grants.
+
 - Budgets are token-denominated at 4 chars/token. The two default budgets resolve
   once per Mastra run from the active model context window; explicit per-tool
   overrides remain fixed and authoritative.

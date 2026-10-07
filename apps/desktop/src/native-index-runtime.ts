@@ -483,7 +483,7 @@ export function createNativeIndexRuntime<Attachment>(
       return operation;
     },
     resume: async (): Promise<void> => {
-      if (indexOwner || profileOwner || closing || acquisition) {
+      if (indexOwner || profileRetirement || closing || acquisition) {
         throw new Error('Previous native ownership must retire before reset resumes.');
       }
       closed = false;

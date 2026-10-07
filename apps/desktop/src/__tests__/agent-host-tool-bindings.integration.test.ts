@@ -143,12 +143,11 @@ test.each(['approve', 'deny'] as const)(
             expect(report.clientsClosed).toBe(1);
           },
           maxSteps: 3,
-          readPermissionPolicy: () =>
-            bindings.permissionPolicy({
-              perToolOverrides: { [mcpId]: 'ask' },
-              policies: { ...DEFAULT_PERMISSION_POLICIES },
-              yolo: false,
-            }),
+          readPermissionPolicy: () => ({
+            perToolOverrides: { [mcpId]: 'ask' },
+            policies: { ...DEFAULT_PERMISSION_POLICIES, mcp: 'allow' },
+            yolo: false,
+          }),
           resolveModel: async () => model,
           tools: { ...bindings.tools, ...adapter.tools },
         }

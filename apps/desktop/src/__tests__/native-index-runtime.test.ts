@@ -139,6 +139,22 @@ it('shares the existing profile attachment between clients and index acquisition
   expect(f.closeProfile).toHaveBeenCalledOnce();
 });
 
+it('reuses the app profile attachment after physical index reconfiguration', async () => {
+  const f = fixture();
+  const original = await f.runtime.acquireProfile({ indexIndependent: true });
+  await f.runtime.acquire();
+  await f.runtime.closeIndex();
+  await f.runtime.resume();
+  expect(await f.runtime.acquireProfile({ indexIndependent: true })).toBe(original);
+  await f.runtime.acquire();
+  expect(f.acquireProfile).toHaveBeenCalledOnce();
+  expect(f.closeProfile).not.toHaveBeenCalled();
+  expect(f.closeWriter).toHaveBeenCalledOnce();
+  expect(f.createIndexOwner).toHaveBeenCalledTimes(2);
+  await f.runtime.retireProfile();
+  expect(f.closeProfile).toHaveBeenCalledOnce();
+});
+
 it('admits an assistant profile while setup keeps index and read admission closed', async () => {
   const f = fixture();
   await f.runtime.closeIndex();

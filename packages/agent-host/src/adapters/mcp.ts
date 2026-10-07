@@ -149,6 +149,7 @@ export function createMcpHostToolAdapter(options: McpHostToolAdapterOptions): Mc
               execute,
               identity,
               inputSchema,
+              permissionToolId,
               reconstructApprovalInput,
               risk,
               strict,
@@ -184,6 +185,7 @@ export function createMcpHostToolAdapter(options: McpHostToolAdapterOptions): Mc
               identity,
               inputSchema,
               risk,
+              ...(permissionToolId === undefined ? {} : { permissionToolId }),
               ...(reconstructApprovalInput
                 ? {
                     reconstructApprovalInput(input: unknown): Promise<unknown> {
