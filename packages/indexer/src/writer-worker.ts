@@ -13,7 +13,7 @@ let writer: IndexWriter;
 try {
   const options = validateIndexerOptions(workerData);
   const projection = options.stateProjection
-    ? await loadStateProjection(options.stateProjection)
+    ? await loadStateProjection(options.stateProjection, options.stateRoot)
     : undefined;
   writer = new IndexWriter(options, projection);
   port.postMessage({ kind: 'ready', value: writer.info });
@@ -27,6 +27,18 @@ try {
       stateOperation = request.op.startsWith('state-');
       let value: unknown;
       switch (request.op) {
+        case 'state-message-prepare':
+          value = writer.requireState().messages.prepare(request.payload);
+          break;
+        case 'state-message-upsert':
+          value = writer.requireState().messages.upsert(request.payload);
+          break;
+        case 'state-message-query':
+          value = writer.requireState().messages.query(request.payload);
+          break;
+        case 'state-message-purge':
+          value = writer.requireState().messages.purge(request.payload);
+          break;
         case 'state-health':
           decoder(Schema.Null)(request.payload);
           value = writer.requireState().health();

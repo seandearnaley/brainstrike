@@ -42,7 +42,7 @@ export { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 export type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
 export { SCHEMA_VERSION } from './schema.mjs';
 export { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
-export { type ReadItem, readAll, SqliteReader } from './sqlite-reader.js';
+export { type MemoryThreadBinding, type ReadItem, readAll, SqliteReader } from './sqlite-reader.js';
 export {
   BLOB_MIN_BYTES,
   BLOBS_DIR,

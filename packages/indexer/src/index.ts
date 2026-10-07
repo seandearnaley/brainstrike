@@ -12,6 +12,13 @@ import type {
   ScopedManifestResult,
   ScopedSearchResult,
   SearchResult,
+  StateMessageHit,
+  StateMessagePlan,
+  StateMessagePrepare,
+  StateMessagePurge,
+  StateMessageQuery,
+  StateMessageUpsert,
+  StateMessageUpsertResult,
   StateProjectionStats,
 } from './contracts.js';
 import type { CoverageAuthorityPort } from './coverage-authority.js';
@@ -52,6 +59,15 @@ export type {
   ScopedSearchResult,
   SearchRequest,
   SearchResult,
+  StateMessageHit,
+  StateMessageIdentity,
+  StateMessagePlan,
+  StateMessagePrepare,
+  StateMessagePurge,
+  StateMessageQuery,
+  StateMessageScope,
+  StateMessageUpsert,
+  StateMessageUpsertResult,
   StateProjectionOptions,
   StateProjectionStats,
   TextFileCommit,
@@ -59,6 +75,7 @@ export type {
 } from './contracts.js';
 export { IndexerError } from './contracts.js';
 export { vectorProfileHash } from './scope-authority.js';
+export type { StateMessageEvent, StateProducerDecoder } from './state-projection.js';
 export type { IndexerDeadlines } from './transport.js';
 export { IndexerLifecycleError } from './transport.js';
 export interface IndexerPort {
@@ -94,6 +111,13 @@ export interface ScopedIndexerPort {
   replaceFileBindings(bindings: unknown): Promise<void>;
   searchScopes(request: unknown): Promise<ScopedSearchResult>;
   verifyScopedManifest(request: unknown): Promise<ScopedManifestResult>;
+}
+/** Acquired Root owner only. Join external inference before purge/reset. */
+export interface StateMessageVectorPort {
+  prepareStateMessageVectors(request: StateMessagePrepare): Promise<StateMessagePlan>;
+  purgeStateMessageVectors(request: StateMessagePurge): Promise<boolean>;
+  queryStateMessageVectors(request: StateMessageQuery): Promise<readonly StateMessageHit[]>;
+  upsertStateMessageVectors(request: StateMessageUpsert): Promise<StateMessageUpsertResult>;
 }
 export interface StateIndexerPort {
   catchUpState(threads: readonly string[]): Promise<void>;
@@ -133,7 +157,12 @@ export async function openIndexer(
   input: unknown,
   deadlineInput: unknown
 ): Promise<
-  IndexerPort & PurgeIndexerPort & ScopedIndexerPort & StateIndexerPort & CoverageAuthorityPort
+  IndexerPort &
+    PurgeIndexerPort &
+    ScopedIndexerPort &
+    StateIndexerPort &
+    StateMessageVectorPort &
+    CoverageAuthorityPort
 > {
   if (process.versions['electron']) {
     throw new Error('Standalone indexer requires Node; use the explicit Electron utility adapter.');

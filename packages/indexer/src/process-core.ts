@@ -13,6 +13,9 @@ import {
   scopedRemoveSchema,
   stateCountsSchema,
   stateHealthSchema,
+  stateMessageHitSchema,
+  stateMessagePlanSchema,
+  stateMessageUpsertResultSchema,
   stateStatsSchema,
 } from './contracts.js';
 import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.js';
@@ -115,6 +118,26 @@ export async function runIndexerProcess(
               })
             )();
             assertCoverageAuthorityBound(work);
+            break;
+          case 'state-message-prepare':
+            work = client.call(request.op, request.payload, decoder(stateMessagePlanSchema));
+            break;
+          case 'state-message-upsert':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(stateMessageUpsertResultSchema)
+            );
+            break;
+          case 'state-message-query':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(Schema.Array(stateMessageHitSchema))
+            );
+            break;
+          case 'state-message-purge':
+            work = client.call(request.op, request.payload, decoder(Schema.Boolean));
             break;
           case 'state-health':
             work = client.call(request.op, request.payload, decoder(stateHealthSchema));
