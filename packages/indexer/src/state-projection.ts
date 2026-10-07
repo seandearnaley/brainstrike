@@ -121,7 +121,7 @@ export async function loadStateProjection(
       if (Schema.is(unreadable)(event)) {
         return { gap: event.reason, seq, text: null };
       }
-      return { gap: null, seq, text: decoder(Schema.String)(loaded.text(event)) };
+      return { gap: null, seq, text: decoder(Schema.NullOr(Schema.String))(loaded.text(event)) };
     },
     event: decode,
     identity: createHash('sha256')

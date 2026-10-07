@@ -28,7 +28,8 @@ export function text(event) {
   if (event.type === 'model.step' || event.type === 'model.messages') {
     return JSON.stringify(event.messages);
   }
-  return '';
+  // The Core producer gives recognized metadata no searchable source text.
+  return null;
 }
 export function messages(rows) {
   return rows.flatMap(({ threadId, seq, event }) => {

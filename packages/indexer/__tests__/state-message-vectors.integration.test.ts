@@ -593,7 +593,7 @@ it('requires the exact acquired selected profile and detects corrupt stored Floa
   }
 });
 
-it('decodes real unversioned Core producer payloads across SQLite reopen without mapping versions or rewriting truth', async () => {
+it('accepts null text from real Core metadata across SQLite/vector reopen without rewriting unversioned truth', async () => {
   const root = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'core-message-vectors-')));
   const captured: unknown = JSON.parse(
     await readFile(
@@ -658,8 +658,37 @@ it('decodes real unversioned Core producer payloads across SQLite reopen without
     });
     const rawBefore = (await store.read(threadId)).map((row) => row.raw);
     expect(rawBefore.map((raw) => JSON.parse(raw)['v'])).toEqual(rows.map(() => undefined));
+    const metadata = rows.filter(
+      (row) => row.event['type'] === 'command.accepted' || row.event['type'] === 'stream.chunk'
+    );
+    expect(metadata.length).toBeGreaterThan(0);
+    const readMetadata = () => {
+      const db = openConnection(options.dbPath, { readonly: true });
+      try {
+        return decoder(
+          Schema.Array(
+            Schema.Struct({
+              content: Schema.NullOr(Schema.String),
+              gap: Schema.NullOr(Schema.String),
+              seq: Schema.Int,
+            })
+          )
+        )(
+          db
+            .prepare(
+              'SELECT seq,content,gap_reason AS gap FROM state_event_rows WHERE thread_id=? AND seq IN (SELECT value FROM json_each(?)) ORDER BY seq'
+            )
+            .all(threadId, JSON.stringify(metadata.map((row) => row.seq)))
+        );
+      } finally {
+        db.close();
+      }
+    };
     await port.catchUpState([threadId]);
-    expect((await port.stateStats(threadId)).cursor).toBe(rows.length);
+    expect(await port.stateStats(threadId)).toEqual({ cursor: rows.length, docs: 1, gaps: [] });
+    const nullMetadata = metadata.map((row) => ({ content: null, gap: null, seq: row.seq }));
+    expect(readMetadata()).toEqual(nullMetadata);
+    expect(await port.matchState(threadId, 'command')).toEqual([]);
     const currentScope = { ...scope, threadId };
     const plan = await port.prepareStateMessageVectors({
       messages: [{ messageId: accepted.event['commandId'], seq: started.seq }],
@@ -683,6 +712,8 @@ it('decodes real unversioned Core producer payloads across SQLite reopen without
     port = await openIndexer({ ...options, embedding: { indexMode: 'open-existing' } }, deadlines);
     store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
     expect((await store.read(threadId)).map((row) => row.raw)).toEqual(rawBefore);
+    expect(readMetadata()).toEqual(nullMetadata);
+    expect(await port.stateStats(threadId)).toEqual({ cursor: rows.length, docs: 1, gaps: [] });
     expect(await port.queryStateMessageVectors({ ...query, scope: currentScope })).toEqual(before);
     await store.purge(threadId, started.seq);
     const db = openConnection(options.dbPath, { readonly: true });
