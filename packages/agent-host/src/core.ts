@@ -14,9 +14,12 @@ import {
 } from './approval-input.js';
 import {
   abortHostThreadRuns,
+  assertHostAdmissionCleanup,
   finishHostRun,
+  joinHostClosingRun,
   joinHostRunOwner,
   joinHostThreadDeletion,
+  rejectHostRunAdmission,
 } from './core-run-lifecycle.js';
 import {
   acceptHostWorkspaceSnapshot,
@@ -72,6 +75,7 @@ export class HostCore {
   private readonly conversationIds = new Set<string>();
   private readonly listeners = new Set<(row: HostLogRow) => void>();
   private readonly pendingAdmissions = new Map<AbortController, string>();
+  private readonly failedAdmissions = new Map<string, unknown>();
   private readonly deletions = new Map<string, Promise<{ deleted: true }>>();
   private admission: Promise<void> = Promise.resolve();
   private closing = false;
@@ -272,6 +276,7 @@ export class HostCore {
         if (this.deletions.has(params.threadId)) {
           throw new Error('Thread deletion has closed command admission');
         }
+        assertHostAdmissionCleanup(this.failedAdmissions, params.threadId);
       }
       return this.commands.perform(method, params, perform, repeat);
     });
@@ -326,6 +331,7 @@ export class HostCore {
       if (this.closing) {
         throw new Error('Host is closing');
       }
+      assertHostAdmissionCleanup(this.failedAdmissions, params.threadId);
       const runs = [...this.runs.values()].filter((run) => run.threadId === params.threadId);
       await joinHostThreadDeletion(
         runs,
@@ -423,13 +429,13 @@ export class HostCore {
         return result;
       } catch (cause) {
         controller.abort(cause);
-        try {
-          await admission?.close?.();
-          release?.();
-        } catch (cleanup) {
-          throw new AggregateError([cause, cleanup], 'Run admission cleanup failed');
-        }
-        throw cause;
+        return await rejectHostRunAdmission(
+          params.threadId,
+          cause,
+          admission,
+          release,
+          this.failedAdmissions
+        );
       } finally {
         this.pendingAdmissions.delete(controller);
       }
@@ -965,29 +971,23 @@ export class HostCore {
       run.controller.abort(new Error('Host is closing'));
     }
     const joined = await Promise.allSettled(
-      [...this.runs.values()].map(async (run) => {
-        const task = await Promise.allSettled([run.task ?? Promise.resolve()]);
-        const owner = await Promise.allSettled([this.closeRunOwner(run)]);
-        const results = [...task, ...owner];
-        const failures = results.filter((result) => result.status === 'rejected');
-        if (failures.length > 0) {
-          throw new AggregateError(
-            failures.map((result) => result.reason),
-            'Run cleanup failed'
-          );
-        }
-        if (!run.terminal && run.approvals.size === 0) {
-          await this.finish(run, 'interrupted', 'Host closed with a pending decision');
-        }
-      })
+      [...this.runs.values()].map((run) =>
+        joinHostClosingRun(
+          run,
+          (owned) => this.closeRunOwner(owned),
+          (owned) => this.finish(owned, 'interrupted', 'Host closed with a pending decision')
+        )
+      )
     );
     const platform = await Promise.allSettled([this.platform.close()]);
-    const failures = [...joined, ...platform].filter((result) => result.status === 'rejected');
+    const failures = [
+      ...this.failedAdmissions.values(),
+      ...[...joined, ...platform]
+        .filter((result) => result.status === 'rejected')
+        .map((result) => result.reason),
+    ];
     if (failures.length > 0) {
-      throw new AggregateError(
-        failures.map((result) => result.reason),
-        'Host cleanup failed'
-      );
+      throw new AggregateError(failures, 'Host cleanup failed');
     }
     for (const run of this.runs.values()) {
       run.release?.();

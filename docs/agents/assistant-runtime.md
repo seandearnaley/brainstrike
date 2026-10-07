@@ -32,7 +32,10 @@ fences that thread's commands, aborts its pending admission and run signals, and
 joins SDK effects, Memory/provider work and run owners before StateStore's existing
 thread-delete intent erases canonical and derived data. Only a joined deletion
 clears Core's transient conversation, workspace and command payload projections.
-Independent cleanup errors retain the fence and report failure. The operation
+Independent cleanup errors retain the fence and report failure, including failed
+platform retirement before a run was committed. Core preserves that pre-run
+failure through the normalized command queue and refuses deletion and host close.
+The operation
 introduces no durable command record or second deletion writer.
 
 The committed M3 conversation uses the public assistant-ui approval command for

@@ -1,5 +1,38 @@
 import type { HostRunState } from './core-state.js';
+import type { HostRunAdmission } from './ports.js';
 import type { HostEvent } from './protocol.js';
+import { HostRunAdmissionCleanupError } from './run-admission.js';
+
+export function assertHostAdmissionCleanup(
+  failures: ReadonlyMap<string, unknown>,
+  threadId: string
+): void {
+  if (failures.has(threadId)) {
+    throw failures.get(threadId);
+  }
+}
+
+/** BST-1977: a cancelled pre-run selection can fail cleanup before a run exists. */
+export async function rejectHostRunAdmission(
+  threadId: string,
+  cause: unknown,
+  admission: HostRunAdmission | undefined,
+  release: (() => void) | undefined,
+  failures: Map<string, unknown>
+): Promise<never> {
+  if (cause instanceof HostRunAdmissionCleanupError) {
+    failures.set(threadId, cause);
+  }
+  try {
+    await admission?.close?.();
+    release?.();
+  } catch (cleanup) {
+    const failure = new AggregateError([cause, cleanup], 'Run admission cleanup failed');
+    failures.set(threadId, failure);
+    throw failure;
+  }
+  throw cause;
+}
 
 export function abortHostThreadRuns(
   deletingThreadId: string,
@@ -57,6 +90,25 @@ export async function joinHostThreadDeletion(
       failures.map((result) => result.reason),
       'Thread deletion cleanup failed'
     );
+  }
+}
+
+export async function joinHostClosingRun(
+  run: HostRunState,
+  closeOwner: (run: HostRunState) => Promise<void>,
+  finish: (run: HostRunState) => Promise<void>
+): Promise<void> {
+  const task = await Promise.allSettled([run.task ?? Promise.resolve()]);
+  const owner = await Promise.allSettled([closeOwner(run)]);
+  const failures = [...task, ...owner].filter((result) => result.status === 'rejected');
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures.map((result) => result.reason),
+      'Run cleanup failed'
+    );
+  }
+  if (!run.terminal && run.approvals.size === 0) {
+    await finish(run);
   }
 }
 
