@@ -451,7 +451,11 @@ export function createFileCredentialBackend(path: string): KeyringCredentialBack
   const read = async (): Promise<FileCredentialRecords> => {
     let handle: Awaited<ReturnType<typeof open>>;
     try {
-      handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+      // A FIFO must reach descriptor validation without waiting for a writer.
+      handle = await open(
+        file,
+        constants.O_RDONLY | constants.O_NOFOLLOW | (constants.O_NONBLOCK ?? 0)
+      );
     } catch (error) {
       if (isMissingFile(error)) {
         return { records: {}, secrets: {}, version: 1 };

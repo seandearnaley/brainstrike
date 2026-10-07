@@ -1,7 +1,20 @@
 // @vitest-environment node
-import { chmod, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { constants } from 'node:fs';
+import {
+  chmod,
+  mkdtemp,
+  open,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import {
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   createSanitizedToolNameMap,
@@ -59,6 +72,22 @@ afterEach(async () => {
   );
   roots.clear();
 });
+
+async function releaseCredentialFifoReader(path: string): Promise<void> {
+  try {
+    const writer = await open(
+      path,
+      constants.O_WRONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW
+    );
+    await writer.close();
+  } catch (error) {
+    if (
+      !(typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENXIO')
+    ) {
+      throw error;
+    }
+  }
+}
 
 describe('one Node adapter composition', () => {
   it('joins a partially constructed native backend on startup failure without choosing a file fallback', async () => {
@@ -673,6 +702,45 @@ describe('explicit private credential file backend', () => {
         code: 'credential_store_unavailable',
       });
       expect(await readFile(path, 'utf8')).toBe(raw);
+    }
+  );
+
+  it.skipIf(process.platform !== 'darwin' && process.platform !== 'linux')(
+    'rejects a FIFO with no writer and physically joins the read before close',
+    async () => {
+      expect(typeof constants.O_NONBLOCK).toBe('number');
+      const { credentials, path, root } = await fixture();
+      await promisify(execFile)('mkfifo', ['-m', '600', path]);
+      expect((await stat(path)).isFIFO()).toBe(true);
+      const failures: unknown[] = [];
+      try {
+        await expect(credentials.read('openai', AbortSignal.timeout(1000))).rejects.toMatchObject({
+          code: 'credential_store_unavailable',
+        });
+        expect(credentials.completion().pendingNativeOperations).toBe(0);
+      } catch (cause) {
+        failures.push(cause);
+      }
+      try {
+        // Regression recovery: a nonblocking writer releases an old blocking
+        // reader, without writing bytes or confusing abort with completion.
+        stores.delete(credentials);
+        await releaseCredentialFifoReader(path);
+        await credentials.close();
+      } catch (cause) {
+        failures.push(cause);
+      }
+      if (failures.length > 0) {
+        throw new AggregateError(failures, 'FIFO admission or physical cleanup failed');
+      }
+      expect(credentials.completion()).toEqual({
+        pendingNativeOperations: 0,
+        queuedOperations: 0,
+        state: 'closed',
+      });
+      expect((await stat(path)).isFIFO()).toBe(true);
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+      expect(await readdir(root)).toEqual(['explicit-credentials.json']);
     }
   );
 

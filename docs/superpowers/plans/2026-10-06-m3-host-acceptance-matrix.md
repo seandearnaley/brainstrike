@@ -575,3 +575,44 @@ remains pending its separate parent-owned leaf. The hard ceiling stays 06:54:27
 UTC; no elapsed/compute extension, main/M2 mutation, signing/release, hosted
 workflow, paid provider, deletion clock or shared-profile change occurred.
 **CI is disabled due to cost; validation must run locally.**
+
+
+### Released FIFO leaf integrated — 7 October, 01:52 UTC
+
+Parent supplied the exact two-file repair based on `ebc488bc`, applied on normal
+hook commit `4aad85ed738cce80d1d621adf2f790f79abe4c86` / tree
+`5bb5aec6c64e163f165f6049012b03dcb5b18da0`. That commit's hooks passed **61/61
+in 44.14 s**, with unchanged hooks, staged secret scan and commitlint. Studio
+owns the combined admission/backend qualification; the existing worker owns
+the released backend design. No competing writer or ancestry merge was used.
+
+The file reader now opens with `O_RDONLY | O_NOFOLLOW | (O_NONBLOCK ?? 0)` and
+still validates the opened descriptor as a private regular file before reading.
+No path pre-check, plaintext fallback, migration or credential store was added.
+The leaf's FIFO test explicitly selects macOS/Linux and asserts nonblocking flag
+support; Windows does not attempt `mkfifo`. Its cleanup opens one nonblocking
+writer without writing bytes so the original blocked reader physically returns.
+The test retains both the original read assertion and any subsequent physical
+cleanup error rather than allowing cleanup to replace the first failure.
+
+On Studio/macOS, unchanged backend source failed after the unchanged 1000 ms
+caller bound: actual `TimeoutError` instead of `credential_store_unavailable`,
+followed by the retained late native cleanup failure. The original leaf-test
+receipt `/tmp/brainstrike-m3-credential-fifo-before.log` and the expanded causal
+receipt `/tmp/brainstrike-m3-credential-fifo-causal-before.log` are both retained.
+The released product fix then passed the FIFO in **4 ms**, with zero native or
+queued operations at physical close, unchanged FIFO identity/mode 0600 and no
+writer bytes. The full changed desktop integration selection passed **23/23,
+4.14 s**, zero skips, including regular-file persistence, symlink/mode refusal,
+admission boundedness/model budgets and actual canonical approve/deny:
+`pnpm --filter @brainstrike/desktop exec vitest run --config vitest.integration.config.mts src/__tests__/agent-host-adapter-services.integration.test.ts src/__tests__/agent-host-tool-bindings.integration.test.ts --reporter=verbose --pool=forks --maxWorkers=1 --no-file-parallelism`.
+Receipt `/tmp/brainstrike-m3-credential-fifo-integrated-after.log`.
+
+The reviewer-identified borrowed-client and FIFO defects are repaired locally;
+this does not constitute a whole-source review clearance or M3 acceptance. No
+real OS credential call, shared profile access or default factory cutover was
+performed. The preceding 78-case host matrix and ordinary route were not repeated
+for this file-backend-only repair; its actual changed paths were selected above.
+Final normal hooks validate integrated types. Default credential ownership and
+full production/regression acceptance remain held as described above.
+**CI is disabled due to cost; validation must run locally.**

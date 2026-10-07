@@ -4,13 +4,19 @@ Status: OPEN owner decision; no default cutover, credential migration, new accou
 namespace, shared-profile mutation or old-record deletion has been applied.
 Studio owns admission release and cohesive integration. The parent retains
 allocation of the FIFO leaf repair to the existing credential worker; Studio
-will not edit that worker's file-backend read/write section.
+applied its parent-released two-file FIFO repair after the admission batch,
+without changing the worker's backend design. Integrated types/hooks remain
+Studio's responsibility.
 
 The reviewed source is published `ebc488bc49c5122b2611c9060426a880e46c4fc1`,
 tree `9b4a31ca68b3b72dc485a74b1859f1d40c9b394d`, plus the current admission/root
 lifetime batch. Ordinary desktop qualification still attaches to a CLI-started
 controlled Root. Default `createNativeIndexActivation` supplies no platform
 module, so its application-owned lease still starts the M2 lease entry.
+The visible committed New Thread route expects the M3 host protocol. Thus
+source composition currently has an incompatible default route; the controlled
+CLI-started proof does not establish ordinary default New Thread acceptance.
+No fixture platform or automatic legacy fallback was selected as a default.
 
 ## Actual conflicting records
 
