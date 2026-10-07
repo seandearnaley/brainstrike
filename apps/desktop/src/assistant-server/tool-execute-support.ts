@@ -146,14 +146,16 @@ export function resolveShellOutputStreamer(
   options: ToolExecuteContext | undefined,
   onError: (error: unknown) => void
 ): ShellOutputStreamer | undefined {
-  const custom: StreamWriterLike | undefined = options?.writer?.custom ?? options?.outputWriter;
+  const custom: StreamWriterLike | undefined =
+    options?.writer?.custom.bind(options.writer) ?? options?.outputWriter;
   const toolCallId = options?.agent?.toolCallId ?? options?.toolCallId;
   if (!(custom && toolCallId)) {
     return;
   }
   const writer = {
-    custom: (data: { type: string } & Record<string, unknown>) =>
-      Promise.resolve(custom(data)).then(() => undefined),
+    custom: async (data: { type: string } & Record<string, unknown>): Promise<void> => {
+      await custom(data);
+    },
   };
   return (part) => {
     void writeShellOutputChunk(writer, { ...part, toolCallId }).catch(onError);

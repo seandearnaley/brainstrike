@@ -627,6 +627,23 @@ setInterval(() => {}, 1000);
       if (!commandOwner) {
         throw new Error('The actual native command did not record its process identity');
       }
+      await expect
+        .poll(async () =>
+          (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
+            ({ event }) =>
+              event.type === 'stream.chunk' &&
+              z
+                .object({
+                  chunk: z.literal('owned command started\n'),
+                  stream: z.literal('stdout'),
+                  toolCallId: z.string().min(1),
+                  type: z.literal('brainstrike.shell-output.chunk'),
+                })
+                .safeParse(event.chunk).success
+          )
+        )
+        .toBe(true);
+      checkpoint('ordinary-command-live-output-committed');
       const commandPids = [commandOwner.pid, commandOwner.ppid].filter(
         (pid) => pid !== application?.process().pid
       );
