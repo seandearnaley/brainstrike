@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
@@ -36,6 +37,35 @@ const recordedModelMetadata = parseOpenRouterModelMetadata(
 test('ordinary app-owned fresh Root returns scoped assistant grep results to the model', {
   timeout: getAdjustedTimeout('e2e'),
 }, async () => {
+  await qualifyOrdinarySearch('none');
+});
+
+test('post-provider MCP setup failure closes the acquired local model', {
+  timeout: getAdjustedTimeout('e2e'),
+}, async () => {
+  await qualifyOrdinarySearch('mcp-setup-failure');
+});
+
+async function providerPortRefused(baseUrl: string): Promise<boolean> {
+  const url = new URL(baseUrl);
+  return await new Promise<boolean>((resolve, reject) => {
+    const socket = createConnection({ host: url.hostname, port: Number(url.port) });
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.once('error', (cause) => {
+      socket.destroy();
+      if ('code' in cause && cause.code === 'ECONNREFUSED') {
+        resolve(true);
+      } else {
+        reject(cause);
+      }
+    });
+  });
+}
+
+async function qualifyOrdinarySearch(fault: 'none' | 'mcp-setup-failure'): Promise<void> {
   const disposable = await mkdtemp(join(tmpdir(), 'brainstrike-m3-app-owned-search-'));
   const profile = join(disposable, 'profiles/m3-search');
   const evidence = `${disposable}-evidence`;
@@ -54,6 +84,23 @@ test('ordinary app-owned fresh Root returns scoped assistant grep results to the
   );
   const providerRequests: ModelProviderRequest[] = [];
   let workspaceRootId: string | undefined;
+  let application: ElectronApplication | undefined;
+  let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;
+  let failure: unknown;
+  const errors: unknown[] = [];
+  const outputs: string[] = [];
+  const owners: { pid: number; start: string }[] = [];
+  const capture = async (app: ElectronApplication): Promise<void> => {
+    for (const { pid } of await app.evaluate(({ app }) => app.getAppMetrics())) {
+      const start = processStartTime(pid);
+      if (start && !owners.some((owner) => owner.pid === pid && owner.start === start)) {
+        owners.push({ pid, start });
+      }
+    }
+  };
+  const checkpoint = (phase: string): void => {
+    process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), phase })}\n`);
+  };
   const model = await startModelProviderShim((request) => {
     providerRequests.push(request);
     if (!request.toolNames.includes('brainstrike_grepSearch')) {
@@ -79,48 +126,35 @@ test('ordinary app-owned fresh Root returns scoped assistant grep results to the
       ],
     };
   });
-  // Keep this search case independent of real or inherited MCP configuration.
-  await mkdir(join(disposable, 'mcp'));
-  await writeFile(join(disposable, 'mcp/mcp.config.json'), JSON.stringify({ servers: [] }));
-  const env: Record<string, string> = {};
-  for (const [name, value] of Object.entries(process.env)) {
-    if (
-      value !== undefined &&
-      name !== 'ELECTRON_RUN_AS_NODE' &&
-      !/(API_KEY|AUTH_TOKEN|ACCESS_TOKEN|SECRET|AWS_)/.test(name)
-    ) {
-      env[name] = value;
+  try {
+    // A real mkdir collision exercises the setup failure after listener acquisition.
+    if (fault === 'mcp-setup-failure') {
+      await writeFile(join(disposable, 'mcp'), 'MCP directory collision fixture');
     }
-  }
-  Object.assign(env, {
-    BRAINSTRIKE_DB_PROFILE: 'm3-search',
-    BRAINSTRIKE_DB_ROOT_PATH: disposable,
-    BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
-    BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES: '1',
-    BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace,
-    BRAINSTRIKE_E2E_USER_DATA_DIR: disposable,
-    BRAINSTRIKE_OPENROUTER_API_KEY: 'owned-local-fixture-key',
-    ELECTRON_IS_E2E_TEST: 'true',
-    OPENROUTER_BASE_URL: model.baseUrl,
-  });
-  let application: ElectronApplication | undefined;
-  let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;
-  let failure: unknown;
-  const errors: unknown[] = [];
-  const outputs: string[] = [];
-  const owners: { pid: number; start: string }[] = [];
-  const capture = async (app: ElectronApplication): Promise<void> => {
-    for (const { pid } of await app.evaluate(({ app }) => app.getAppMetrics())) {
-      const start = processStartTime(pid);
-      if (start && !owners.some((owner) => owner.pid === pid && owner.start === start)) {
-        owners.push({ pid, start });
+    // Keep this search case independent of real or inherited MCP configuration.
+    await mkdir(join(disposable, 'mcp'));
+    await writeFile(join(disposable, 'mcp/mcp.config.json'), JSON.stringify({ servers: [] }));
+    const env: Record<string, string> = {};
+    for (const [name, value] of Object.entries(process.env)) {
+      if (
+        value !== undefined &&
+        name !== 'ELECTRON_RUN_AS_NODE' &&
+        !/(API_KEY|AUTH_TOKEN|ACCESS_TOKEN|SECRET|AWS_)/.test(name)
+      ) {
+        env[name] = value;
       }
     }
-  };
-  const checkpoint = (phase: string): void => {
-    process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), phase })}\n`);
-  };
-  try {
+    Object.assign(env, {
+      BRAINSTRIKE_DB_PROFILE: 'm3-search',
+      BRAINSTRIKE_DB_ROOT_PATH: disposable,
+      BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
+      BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES: '1',
+      BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace,
+      BRAINSTRIKE_E2E_USER_DATA_DIR: disposable,
+      BRAINSTRIKE_OPENROUTER_API_KEY: 'owned-local-fixture-key',
+      ELECTRON_IS_E2E_TEST: 'true',
+      OPENROUTER_BASE_URL: model.baseUrl,
+    });
     expect(RootLock.inspect(profile)).toBeNull();
     checkpoint('ordinary-search-launch-start');
     application = await _electron.launch({
@@ -339,6 +373,7 @@ test('ordinary app-owned fresh Root returns scoped assistant grep results to the
       )
     );
   } finally {
+    let providerClosed = false;
     try {
       await client?.close();
       await client?.closed;
@@ -359,15 +394,20 @@ test('ordinary app-owned fresh Root returns scoped assistant grep results to the
     }
     try {
       await model.close();
+      providerClosed = await providerPortRefused(model.baseUrl);
+      if (!providerClosed) {
+        errors.push(new Error('Acquired model provider listener remains open'));
+      }
     } catch (cause) {
       errors.push(cause);
     }
     const remaining = owners.filter(({ pid, start }) => processStartTime(pid) === start);
-    const rootReleased = RootLock.inspect(profile)?.owner.released;
+    const root = RootLock.inspect(profile);
+    const rootReleased = root?.owner.released ?? null;
     if (remaining.length > 0) {
       errors.push(new Error('Owned app or Root process remains live'));
     }
-    if (rootReleased !== true) {
+    if (application && rootReleased !== true) {
       errors.push(new Error('Ordinary app-owned Root did not release its lock'));
     }
     await writeFile(join(evidence, 'output.log'), outputs.join(''));
@@ -375,11 +415,15 @@ test('ordinary app-owned fresh Root returns scoped assistant grep results to the
       join(evidence, 'cleanup.json'),
       JSON.stringify(
         {
+          appLaunched: application !== undefined,
           errors: errors.map(String),
           failure: failure ? String(failure) : null,
+          fault,
           owners,
           providerBaseUrl: model.baseUrl,
+          providerClosed,
           remaining,
+          rootAbsent: root === null,
           rootReleased,
         },
         null,
@@ -397,7 +441,20 @@ test('ordinary app-owned fresh Root returns scoped assistant grep results to the
       'Ordinary app-owned search and cleanup failed'
     );
   }
+  if (fault === 'mcp-setup-failure') {
+    expect(failure).toMatchObject({
+      code: 'EEXIST',
+      path: join(disposable, 'mcp'),
+      syscall: 'mkdir',
+    });
+    expect(application).toBeUndefined();
+    expect(providerRequests).toHaveLength(0);
+    expect(RootLock.inspect(profile)).toBeNull();
+    await rm(disposable, { recursive: true });
+    checkpoint('expected-mcp-setup-failure-provider-cleanup-completed');
+    return;
+  }
   if (failure) {
     throw failure;
   }
-});
+}
