@@ -13,6 +13,7 @@
   "references": [
     { "path": "../assistant-contract" },
     { "path": "../host-lease" },
+    { "path": "../indexer" },
     { "path": "../state-store" }
   ]
 }

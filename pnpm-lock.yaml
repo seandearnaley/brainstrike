@@ -1289,6 +1289,9 @@ importers:
       '@brainstrike/host-lease':
         specifier: workspace:*
         version: link:../host-lease
+      '@brainstrike/indexer':
+        specifier: workspace:*
+        version: link:../indexer
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
