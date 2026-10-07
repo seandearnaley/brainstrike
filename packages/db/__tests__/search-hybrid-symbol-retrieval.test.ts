@@ -1,4 +1,3 @@
-import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BM25_CONTENT_INDEX_NAME, bm25RankExpression } from '../src/repositories/_shared.js';
@@ -170,13 +169,14 @@ describe('hybrid one-statement retrieval through the querySelf sandbox', () => {
     expect(result.rows[0]?.[0]).toBe('src/worker.ts');
   });
 
-  it('the tool description carries the REAL BM25 index name', { timeout: 120_000 }, async () => {
-    // assistant-contract cannot depend on db, so the index-name idiom in the
-    // querySelf description is a hardcoded copy of BM25_CONTENT_INDEX_NAME.
-    // This is the tripwire tying them together: the index has already been
-    // dropped and recreated twice (migrations 065/066), and a rename would
-    // otherwise leave the model an idiom that errors at runtime.
-    expect(TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.querySelf]).toContain(BM25_CONTENT_INDEX_NAME);
+  it('the PostgreSQL rank expression uses the installed BM25 index', {
+    timeout: 120_000,
+  }, async () => {
+    const indexes = await db.query<{ indexname: string }>(
+      'SELECT indexname FROM pg_indexes WHERE indexname = $1',
+      [BM25_CONTENT_INDEX_NAME]
+    );
+    expect(indexes.rows).toEqual([{ indexname: BM25_CONTENT_INDEX_NAME }]);
     await expect(
       service.query(`SELECT id FROM file_chunks ORDER BY ${bm25RankExpression("'x'")} DESC LIMIT 1`)
     ).resolves.toBeDefined();

@@ -85,6 +85,7 @@
       "owner": "assistant",
       "packages": [
         "@brainstrike/agent",
+        "@brainstrike/agent-host",
         "@brainstrike/assistant-service",
         "@brainstrike/mcp-app-host",
         "@brainstrike/mcp-app-host-ui"

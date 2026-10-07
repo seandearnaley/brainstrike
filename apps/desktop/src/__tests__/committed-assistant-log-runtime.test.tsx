@@ -7,28 +7,27 @@ import {
 } from '@assistant-ui/react';
 import { HostLogRowSchema } from '@brainstrike/agent-host/protocol';
 import { CommittedThreadView } from '@brainstrike/agent-host/thread-view';
+import type {
+  CommittedAssistantLogRow,
+  CommittedAssistantRunIdentity,
+} from '@brainstrike/assistant-ui';
+import {
+  CommittedAssistantConversation,
+  type CommittedAssistantLogSourceSnapshot,
+  CommittedAssistantLogStore,
+  resetContextUsageStore,
+  selectCommittedAssistantTool,
+  useCommittedAssistantRuntime,
+  useCommittedAssistantSelector,
+  useContextUsageStore,
+} from '@brainstrike/assistant-ui';
+import { ToolFallback } from '@brainstrike/assistant-ui/tool-fallback';
+import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
+import type { ToolResultRenderer } from '@brainstrike/assistant-ui/tool-result-renderers';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { memo } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CommittedAssistantConversation } from '../committed-assistant-conversation';
-import type {
-  CommittedAssistantLogRow,
-  CommittedAssistantRunIdentity,
-} from '../committed-assistant-log-projection';
-import {
-  type CommittedAssistantLogSourceSnapshot,
-  CommittedAssistantLogStore,
-} from '../committed-assistant-log-store';
-import { selectCommittedAssistantTool } from '../committed-assistant-store';
-import { resetContextUsageStore, useContextUsageStore } from '../context-usage-store';
-import { ToolFallback } from '../tool-fallback';
-import { ToolResultRendererProvider } from '../tool-result-renderer-context';
-import {
-  useCommittedAssistantRuntime,
-  useCommittedAssistantSelector,
-} from '../use-committed-assistant-runtime';
-import type { ToolResultRenderer } from '../use-tool-result-renderers';
 // Recorded through public HostCore + native StateStore + the pinned SDK, with a
 // local scripted model: two approved runs reuse a toolCallId, with real split
 // input, provider metadata, reasoning, tool-written child data and 48 tokens.
@@ -190,10 +189,10 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
         />
       </TooltipProvider>
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Expand activity' }));
     const approve = await screen.findByRole('button', {
       name: `Approve ${requested.event.toolId}`,
     });
+    expect(approve).toBeVisible();
     const pending = selectCommittedAssistantTool(
       bridge.getSnapshot(),
       requested.event.runId,

@@ -1,5 +1,3 @@
-import { HostLogRowSchema } from '@brainstrike/agent-host/protocol';
-import { CommittedThreadView } from '@brainstrike/agent-host/thread-view';
 import { describe, expect, it } from 'vitest';
 import {
   CommittedAssistantLogProjection,
@@ -109,30 +107,6 @@ describe('rich committed-log presentation projection', () => {
     expect(unordered.getSnapshot().repository.messages).toEqual([]);
     unordered.acceptCommitted(rows);
     expect(unordered.getSnapshot()).toEqual(fresh.getSnapshot());
-  });
-
-  it('reuses the public owner gap fold and equals a fresh fold after reconnect overlap', () => {
-    const committedRows = recording.map((row) => HostLogRowSchema.parse(row));
-    const owner = new CommittedThreadView(threadId);
-    const projection = projector();
-    let publications = 0;
-    owner.subscribe(() => {
-      projection.acceptCommitted(owner.getSnapshot());
-      publications += 1;
-    });
-    owner.accept(committedRows.slice(8));
-    expect(publications).toBe(0);
-    owner.accept(committedRows.slice(0, 8));
-    expect(publications).toBe(1);
-    const prior = projection.getSnapshot();
-    owner.accept(structuredClone(committedRows));
-    expect(publications).toBe(1);
-    expect(projection.getSnapshot()).toBe(prior);
-    const freshOwner = new CommittedThreadView(threadId);
-    freshOwner.accept(committedRows);
-    const fresh = projector();
-    fresh.acceptCommitted(freshOwner.getSnapshot());
-    expect(projection.getSnapshot()).toEqual(fresh.getSnapshot());
   });
 
   it('merges SDK provider/child metadata independently of host tool input and result authority', () => {

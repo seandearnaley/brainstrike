@@ -48,6 +48,7 @@
       "dependsOn": [
         "$TURBO_EXTENDS$",
         "@brainstrike/agent#build",
+        "@brainstrike/agent-host#build",
         "@brainstrike/assistant-contract#build",
         "@brainstrike/assistant-data#build",
         "@brainstrike/assistant-service#build",
@@ -67,6 +68,7 @@
       "dependsOn": [
         "$TURBO_EXTENDS$",
         "@brainstrike/agent#build",
+        "@brainstrike/agent-host#build",
         "@brainstrike/assistant-data#build",
         "@brainstrike/assistant-service#build"
       ],

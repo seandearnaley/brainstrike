@@ -8,7 +8,6 @@
     "@assistant-ui/react-markdown": "catalog:",
     "@assistant-ui/styles": "catalog:",
     "@brainstrike/assistant-contract": "workspace:*",
-    "@brainstrike/agent-host": "workspace:*",
     "@brainstrike/assistant-wire": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",

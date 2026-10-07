@@ -1,7 +1,7 @@
-import type { HostThreadSnapshot } from '@brainstrike/agent-host/thread-view';
 import {
   CommittedAssistantLogProjection,
   type CommittedAssistantLogProjectionOptions,
+  type CommittedAssistantLogRow,
   type CommittedAssistantLogView,
 } from './committed-assistant-log-projection';
 import type {
@@ -11,10 +11,13 @@ import type {
 import { type ThreadTokenUsage, useContextUsageStore } from './context-usage-store';
 
 /** Owner view fields pass through; this source has already applied committed gap ordering. */
-export interface CommittedAssistantLogSourceSnapshot extends HostThreadSnapshot {
+export interface CommittedAssistantLogSourceSnapshot {
+  readonly connected: boolean;
+  readonly error: string | undefined;
   readonly extras?: CommittedAssistantSnapshot['extras'];
   readonly isDisabled?: boolean;
   readonly isLoading?: boolean;
+  readonly rows: readonly CommittedAssistantLogRow[];
   readonly state?: CommittedAssistantSnapshot['state'];
 }
 

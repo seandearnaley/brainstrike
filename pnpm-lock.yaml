@@ -1319,6 +1319,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -1678,9 +1681,6 @@ importers:
       '@assistant-ui/styles':
         specifier: 'catalog:'
         version: 0.3.7
-      '@brainstrike/agent-host':
-        specifier: workspace:*
-        version: link:../agent-host
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract

@@ -229,6 +229,12 @@
       ],
       "@brainstrike/sqlite-query": [
         "./packages/sqlite-query/src/index.ts"
+      ],
+      "@brainstrike/agent-host": [
+        "./packages/agent-host/src"
+      ],
+      "@brainstrike/agent-host/*": [
+        "./packages/agent-host/src/*"
       ]
     },
     "types": [

@@ -4,7 +4,16 @@ import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-alias
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  resolve: { alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))] },
+  resolve: {
+    alias: [
+      // Core tests run Node-only provider/tool code directly from source.
+      ...['provider-request', 'provider-runtime', 'tool-runtime'].map((subpath) => ({
+        find: new RegExp(`^@brainstrike/agent/${subpath}$`),
+        replacement: resolve(import.meta.dirname, `../agent/src/${subpath}.ts`),
+      })),
+      ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
+    ],
+  },
   test: {
     environment: 'node',
     exclude: ['node_modules', 'dist'],

@@ -212,7 +212,7 @@ Guard: `scripts/__tests__/run-turbo-command.test.mjs`.
   cannot pin to a git-ignored file fails. Keep it ahead of `dist/`-producing steps.
 - Deliberate crossings carry `// @boundaries-ignore <reason>` at the import.
   `architecture-domain-boundaries.mjs` owns cross-domain direction rules.
-- Native process integration proofs use public package specifiers resolved to emitted indexer/query entries before source aliases. Their uncached tasks declare build edges. The source-alias guard permits only the named integration config and exact native specifiers; ordinary test configs remain source-only.
+- Native process integration proofs use public package specifiers resolved to emitted Core/indexer/query entries before source aliases. Their uncached tasks declare build edges. The source-alias guard permits only the named integration config and exact native specifiers; ordinary test configs remain source-only.
 - Do not upgrade Turbo to >=2.11.3 until vendor walking judges tracked files
   under ignore patterns; recheck the real tracked-source guard before upgrading.
 

@@ -3,14 +3,14 @@
 import { committedRunIdentity } from '@brainstrike/agent-host/committed-identities';
 import { HostLogRowSchema } from '@brainstrike/agent-host/protocol';
 import { CommittedThreadView } from '@brainstrike/agent-host/thread-view';
+import {
+  CommittedAssistantConversation,
+  type CommittedAssistantLogSourceSnapshot,
+  CommittedAssistantLogStore,
+} from '@brainstrike/assistant-ui';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
-import { CommittedAssistantConversation } from '../committed-assistant-conversation';
-import {
-  type CommittedAssistantLogSourceSnapshot,
-  CommittedAssistantLogStore,
-} from '../committed-assistant-log-store';
 // Actual canonical tools, HostCore, authenticated socket, SQLite and public SDK captures.
 import recordedPlan from './fixtures/committed-host-plan.json';
 import recordedQuestion from './fixtures/committed-host-question.json';
