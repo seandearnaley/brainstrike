@@ -67,6 +67,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
     ![
       'host start',
       'host status',
+      'host stop',
       'help',
       'thread start',
       'thread read',
@@ -109,7 +110,7 @@ run "prompt" --model <id> [--thread <id>] [--json] [--non-interactive]
 attach --thread <id> [--run <id>] [--json] [--interactive]
 threads list
 threads show --thread <id> [--from-seq <n>]
-host start | host status
+host start | host status | host stop
 thread start | thread read --thread <id>
 run start --thread <id> --model <id> --prompt <text>
 run stop --thread <id> --run <id>
@@ -129,7 +130,7 @@ Run signals stop and join its execution; attach signals detach.
       attach: attachAgentHost,
       lifetime: command === 'host start' ? 'persistent' : 'cli',
       spawn: (options, signal) => {
-        if (command === 'host status') {
+        if (command === 'host status' || command === 'host stop') {
           throw new Error('No host is running for this root');
         }
         return createAgentHostSpawner(required(values.platform, 'platform'))(options, signal);
