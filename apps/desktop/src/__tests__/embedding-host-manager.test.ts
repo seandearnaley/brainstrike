@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
-import { EmbeddingHostManager } from '../embedding-host-manager';
 import {
   createDarwinManager,
+  createEmbeddingHostManager,
   currentLifecycleStatus,
   type EmbeddingLifecycleStatus,
   lifecycleState,
@@ -64,7 +64,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('never invokes the blocker lifecycle for active, idle, or error states off Darwin', () => {
-    const manager = new EmbeddingHostManager({
+    const manager = createEmbeddingHostManager({
       platform: 'linux',
     }) as unknown as TestableEmbeddingHostManager;
 
@@ -79,13 +79,13 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('defaults the blocker policy to the current process platform', () => {
-    const defaultManager = new EmbeddingHostManager() as unknown as TestableEmbeddingHostManager;
+    const defaultManager = createEmbeddingHostManager() as unknown as TestableEmbeddingHostManager;
     defaultManager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
     const defaultStartCount = powerSaveBlockerStartMock.mock.calls.length;
 
     powerSaveBlockerStartMock.mockClear();
 
-    const explicitManager = new EmbeddingHostManager({
+    const explicitManager = createEmbeddingHostManager({
       platform: process.platform,
     }) as unknown as TestableEmbeddingHostManager;
     explicitManager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
@@ -196,7 +196,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('fails fast if ensureStarted is called after dispose', async () => {
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     await manager.dispose();
 
@@ -206,7 +206,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('exposes platform status with pending query count and disposed state', async () => {
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     expect(manager.getPlatformStatus()).toMatchObject({
       pendingRequestCount: 0,
@@ -227,7 +227,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
 
   it.each([false, true])('drains startup if registered: %s', async (registered) => {
     currentLifecycleStatus.state = 'starting';
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
     if (registered) {
       manager.acceptStatusReport(mockHostWindow.webContents.id, {
         ...currentLifecycleStatus,
@@ -248,7 +248,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       state: 'error' as const,
     };
     lifecycleState.waitForStatus.mockResolvedValueOnce(status);
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     await expect(manager.stop()).rejects.toThrow('Renderer could not stop its worker');
 
@@ -286,7 +286,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
       'next-runtime' as unknown as ReturnType<Crypto['randomUUID']>
     );
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     await expect(manager.reset()).resolves.toMatchObject({
       runtimeId: 'embedding-host:next-runtime',
@@ -327,7 +327,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
       'next-runtime' as unknown as ReturnType<Crypto['randomUUID']>
     );
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     const resetPromise = manager.reset();
 
@@ -374,7 +374,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
         };
       })
     );
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     const restartPromise = manager.destroyAndRestart();
 
@@ -426,7 +426,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       };
     });
 
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     await expect(manager.reset()).resolves.toMatchObject({
       runtimeId: 'embedding-host:next-runtime',
@@ -435,7 +435,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('ignores stale status reports from the superseded runtime after reset assigns a fresh runtime id', () => {
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     lifecycleState.setStatus({
       active: false,
@@ -476,7 +476,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('preserves embedding runtime metadata from status reports', () => {
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     manager.acceptStatusReport(91, {
       active: false,
@@ -527,7 +527,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('destroyAndRestart recreates the host window and waits for a fresh running status', async () => {
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     await expect(manager.destroyAndRestart()).resolves.toMatchObject({
       runtimeId: 'embedding-host-runtime',
@@ -540,7 +540,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('rejects pending query embedding requests after joining destruction and restarting the host', async () => {
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
     const embeddingPromise = manager.queryEmbedding({
       dimensions: 2,
       modelId: 'Xenova/all-MiniLM-L6-v2',
@@ -562,7 +562,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('rejects pending query embedding requests after joining reset of the host runtime', async () => {
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
     const embeddingPromise = manager.queryEmbedding({
       dimensions: 2,
       modelId: 'Xenova/all-MiniLM-L6-v2',
@@ -581,7 +581,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('sends local query embedding requests to the embedding host and resolves responses', async () => {
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     const embeddingPromise = manager.queryEmbedding({
       dimensions: 2,
@@ -643,7 +643,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       }
     });
     onTestFinished(removeLogListener);
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
     const embeddingPromise = manager.queryEmbedding({
       dimensions: 2,
       modelId: 'Xenova/all-MiniLM-L6-v2',
@@ -684,7 +684,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
         throw sendError;
       }
     });
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     const embeddingPromise = manager.queryEmbedding({
       dimensions: 2,
@@ -708,7 +708,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
           typeof globalThis.crypto.randomUUID
         >
     );
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
     const payload = {
       dimensions: 2,
       modelId: 'Xenova/all-MiniLM-L6-v2',
@@ -753,7 +753,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
         >
     );
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
     const payload = {
       dimensions: 2,
       modelId: 'Xenova/all-MiniLM-L6-v2',
@@ -790,7 +790,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('debounces inactive status reports across short embedding idle gaps', () => {
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     currentLifecycleStatus.active = true;
     currentLifecycleStatus.state = 'running';
@@ -825,7 +825,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('applies inactive status after sustained embedding idle', () => {
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     currentLifecycleStatus.active = true;
     currentLifecycleStatus.state = 'running';
@@ -863,7 +863,7 @@ describe('EmbeddingHostManager teardown ownership', () => {
   it('rejects new starts while dispose is still waiting for the renderer stop', async () => {
     const stopped = Promise.withResolvers<EmbeddingLifecycleStatus>();
     lifecycleState.waitForStatus.mockReturnValueOnce(stopped.promise);
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
 
     const disposing = manager.dispose();
     await Promise.resolve();
@@ -896,7 +896,7 @@ describe('EmbeddingHostManager teardown ownership', () => {
     mockHostWindow.isDestroyed.mockReturnValue(false);
     const failure = new Error('Renderer stop deadline exceeded');
     lifecycleState.waitForStatus.mockRejectedValueOnce(failure);
-    const manager = new EmbeddingHostManager();
+    const manager = createEmbeddingHostManager();
     await expect(manager.dispose()).rejects.toBe(failure);
     expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
     expect(lifecycleState.dispose).toHaveBeenCalled();
