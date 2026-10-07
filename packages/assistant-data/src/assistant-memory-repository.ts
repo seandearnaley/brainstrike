@@ -4199,3 +4199,5 @@ export function createAssistantThreadHistoryAdapter({
     },
   };
 }
+
+export { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';

@@ -8,6 +8,14 @@ import type { HostEvent } from './protocol.js';
 import { HostRunSnapshotSchema } from './protocol.js';
 import { createHostSdkTools } from './sdk-tools.js';
 
+export function assertHostRunStartAvailable(runs: Iterable<HostRunState>, threadId: string): void {
+  for (const active of runs) {
+    if (active.threadId === threadId && !active.terminal) {
+      throw new Error('Thread already has an active root run');
+    }
+  }
+}
+
 /** Distinguish rejected selection from a resource owner that failed to join. */
 export class HostRunAdmissionCleanupError extends AggregateError {
   constructor(cause: unknown, cleanup: unknown) {
@@ -167,16 +175,16 @@ export function hostRunTools(run: HostRunState): HostRunAdmission['tools'] {
 }
 
 /** Keep revocation live while taking risk and executor identity from admission. */
-export function hostRunToolDecision(
+export async function hostRunToolDecision(
   platform: HostPlatform,
   run: HostRunState,
   toolId: string
-): 'allow' | 'ask' | 'deny' {
+): Promise<'allow' | 'ask' | 'deny'> {
   const registered = hostRunTools(run)[toolId];
   if (!registered) {
     throw new Error('Tool is not registered');
   }
-  const snapshot = platform.readPermissionPolicy();
+  const snapshot = await platform.readPermissionPolicy(run.threadId);
   const permissionToolId = registered.permissionToolId ?? toolId;
   // ADR-0010: explicit deny outranks a session grant or YOLO.
   if (

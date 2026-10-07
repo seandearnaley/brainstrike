@@ -34,7 +34,7 @@ import type { AgentHostAdapterServices, AgentHostAdapterServicesOptions } from '
 type CanonicalTools = NonNullable<RuntimeData['mastraTools']>;
 type ExecutableMcpBindings = HostMcpToolSelection['bindings'];
 
-function bindMcpTool(options: {
+export function bindMcpTool(options: {
   readonly after: McpHostSnapshot;
   readonly before: McpHostSnapshot;
   readonly canonicalId: string;

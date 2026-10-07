@@ -91,6 +91,8 @@ export interface HostRunAdmission {
 }
 
 export interface HostRunAdmissionRequest {
+  /** Canonical non-secret UI settings/context captured with this input command. */
+  readonly configuration?: HostRunSnapshot['configuration'];
   readonly modelId: string;
   readonly signal: AbortSignal;
   /** Reopen the committed selection, rejecting changed executors rather than substituting. */
@@ -136,7 +138,9 @@ export interface HostPlatform {
   readonly maxSteps?: number | undefined;
   /** Run-scoped construction; cached shared memory must not capture a run signal. */
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
-  readPermissionPolicy(): PermissionToolGateSnapshot;
+  readPermissionPolicy(
+    threadId?: string
+  ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
   resolveModel?(modelId: string): Promise<LanguageModel>;
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
 }

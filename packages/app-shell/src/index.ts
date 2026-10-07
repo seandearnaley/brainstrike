@@ -3,6 +3,12 @@ export * from './agent-workspace-layout';
 export * from './app-config';
 export * from './app-layout';
 export * from './assistant-chat-panel';
+export {
+  buildAgentLoopSettings,
+  buildAssistantMemoryOptions,
+  buildDraftRuntimeForProvider,
+  toRuntimeWorkspaceContext,
+} from './assistant-ui-panel-wrapper-runtime';
 export * from './connected-prompt-manager';
 export * from './connected-prompt-manager-lazy';
 export * from './database-panel';

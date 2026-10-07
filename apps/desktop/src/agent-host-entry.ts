@@ -1,5 +1,6 @@
 import { runAgentHostProcess } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
+import { installParentPlatformPort } from './agent-host-platform/parent-platform-port';
 import { decodeHostLeaseControl, decodeHostLeaseParentMessage } from './host-lease-control';
 
 /** Electron provides a launcher channel; all agent work stays in the Node kernel. */
@@ -15,6 +16,9 @@ async function main(): Promise<void> {
       listen: (cancel) => {
         const receive = (input: unknown): void => {
           try {
+            if (installParentPlatformPort(input)) {
+              return;
+            }
             decodeHostLeaseControl(decodeHostLeaseParentMessage(input).data);
           } catch (cause) {
             controlFailure ??= cause;

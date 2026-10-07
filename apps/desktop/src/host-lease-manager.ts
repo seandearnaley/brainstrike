@@ -11,7 +11,7 @@ import {
 } from '@brainstrike/host-lease';
 import { ForeignLockError, RootLock, RootLockedError } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
-import { utilityProcess } from 'electron';
+import { type MessagePortMain, utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import type { HostLeaseControl } from './host-lease-control';
 
@@ -21,7 +21,10 @@ export interface HostLeaseUtilityProcess {
   on(event: 'message', listener: (message: unknown) => void): unknown;
   once(event: 'exit', listener: (code: number) => void): unknown;
   readonly pid: number | undefined;
-  postMessage(message: HostLeaseControl): void;
+  postMessage(
+    message: HostLeaseControl | { event: 'platform-capabilities' },
+    transfer?: readonly MessagePortMain[]
+  ): void;
 }
 export type HostLeaseFork = (
   entrypoint: string,
@@ -31,6 +34,8 @@ export interface DesktopHostLeaseOptions {
   readonly closeTimeoutMs?: number;
   readonly entryPath?: string;
   readonly fork?: HostLeaseFork;
+  /** Created only when this desktop actually owns a new Root child. */
+  readonly platform?: () => { readonly port: MessagePortMain; close(): Promise<void> };
   /** Trusted Node composition module; the GUI and CLI use the same kernel. */
   readonly platformModule?: string;
   readonly root: string;
@@ -163,6 +168,10 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             options.fork ??
             ((path, args) =>
               utilityProcess.fork(path, [...args], { serviceName: 'Brainstrike Host Lease' }));
+          const platform = options.platform?.();
+          if (platform) {
+            await addFinalizer(scope, () => platform.close());
+          }
           const child = ownChild(
             fork(entrypoint, [
               JSON.stringify(start),
@@ -172,6 +181,9 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           const ready = awaitReady(child, start.root, combined);
           ready.catch(() => undefined);
           await addFinalizer(scope, () => closeChild(child, closeTimeoutMs));
+          if (platform) {
+            child.handle.postMessage({ event: 'platform-capabilities' }, [platform.port]);
+          }
           await ready;
           child.ready = true;
         },

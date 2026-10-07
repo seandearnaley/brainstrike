@@ -62,6 +62,13 @@ let pendingConfigPathSelection: {
 } | null = null;
 let mcpConfigOperationTail: Promise<void> = Promise.resolve();
 let mcpLifecycleBarrier: Promise<void> = Promise.resolve();
+/** Borrow the same catalog barrier used by Settings, Apps and Tasks. */
+export async function readDesktopMcpHostSnapshot(
+  runtime: McpAuthorityRuntime = getDesktopMcpHostRuntime()
+): Promise<McpHostSnapshot> {
+  await mcpLifecycleBarrier;
+  return structuredClone(runtime.host.snapshot());
+}
 let mcpLifecycleEpoch = 0;
 let mcpLifecycleOpen = true;
 let latestAuthorityEpoch = 0;
@@ -729,8 +736,7 @@ export function registerMcpIpcHandlers({
 
   defineMcpHandler(
     'getServerStatusSnapshot',
-    (): Promise<McpHostSnapshot> =>
-      mcpLifecycleBarrier.then(() => structuredClone(runtime.host.snapshot()))
+    (): Promise<McpHostSnapshot> => readDesktopMcpHostSnapshot(runtime)
   );
 
   defineMcpHandler(

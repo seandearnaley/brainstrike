@@ -32,6 +32,8 @@ import type { HostStartupContext } from './runtime.js';
 
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
 export interface ProductionHostRunConfiguration {
+  /** Borrowed platform capabilities remain owned until every run tail joins. */
+  readonly close?: () => Promise<void>;
   readonly configuration: RuntimeData;
   readonly durableConfiguration: HostRunSnapshot['configuration'];
   readonly maxSteps: number;
@@ -45,9 +47,12 @@ export interface ProductionHostRunConfiguration {
 
 export interface ProductionHostPlatformOptions {
   close(): Promise<void>;
-  readonly mcp: HostMcpRuntime;
+  /** Desktop platform selections already include the existing qualified MCP executors. */
+  readonly mcp?: HostMcpRuntime;
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
-  readPermissionPolicy(): PermissionToolGateSnapshot;
+  readPermissionPolicy(
+    threadId?: string
+  ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
   /** Trusted concrete model seam, including scripted qualification with real IPC/tools/storage. */
   resolveModel?: (
     configuration: RuntimeData,
@@ -94,14 +99,13 @@ async function closeMcpAdmission(
 export async function createProductionHostPlatform(
   options: ProductionHostPlatformOptions
 ): Promise<HostPlatform> {
-  const selections = new Set<HostRunAdmission>();
+  const selections = new Set<() => Promise<void>>();
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closing ??= (async () => {
-      const joined = await Promise.allSettled([
-        ...[...selections].map((selection) => selection.close?.()),
-        options.close(),
-      ]);
+      const joined = await Promise.allSettled([...selections].map((release) => release()));
+      // Capability transports remain available until their borrowed selections join.
+      joined.push(...(await Promise.allSettled([options.close()])));
       const failures = joined.filter((result) => result.status === 'rejected');
       if (failures.length > 0) {
         throw new AggregateError(
@@ -115,11 +119,18 @@ export async function createProductionHostPlatform(
   const acquireMcp = async (
     request: HostRunAdmissionRequest,
     selected: ProductionHostRunConfiguration
-  ): Promise<{
-    borrowed: HostMcpToolSelection;
-    mcp: ReturnType<typeof createMcpHostToolAdapter>;
-  }> => {
-    const borrowed = await options.mcp.executableTools({
+  ): Promise<
+    | {
+        borrowed: HostMcpToolSelection;
+        mcp: ReturnType<typeof createMcpHostToolAdapter>;
+      }
+    | undefined
+  > => {
+    const authority = options.mcp;
+    if (!authority) {
+      return undefined;
+    }
+    const borrowed = await authority.executableTools({
       resolvedToolResultBudget: selected.resolvedToolResultBudget,
       toolTimeoutMs: selected.toolTimeoutMs,
     });
@@ -130,7 +141,7 @@ export async function createProductionHostPlatform(
       }
       return {
         borrowed,
-        mcp: createMcpHostToolAdapter({ bindings: borrowed.bindings, host: options.mcp.authority }),
+        mcp: createMcpHostToolAdapter({ bindings: borrowed.bindings, host: authority.authority }),
       };
     } catch (cause) {
       try {
@@ -150,58 +161,79 @@ export async function createProductionHostPlatform(
       }
       request.signal.throwIfAborted();
       const selected = await options.readConfiguration(request);
-      const auth = await options.resolveProviderAuth(selected.configuration.provider ?? '');
-      const model = options.resolveModel
-        ? await options.resolveModel(selected.configuration, auth)
-        : rootModel(selected.configuration, auth);
-      request.signal.throwIfAborted();
-      const { borrowed, mcp } = await acquireMcp(request, selected);
+      let acquired: Awaited<ReturnType<typeof acquireMcp>>;
       let joined: Promise<void> | undefined;
-      const tools = { ...selected.tools };
-      const selection: HostRunAdmission = {
-        close: () => {
-          joined ??= closeMcpAdmission(mcp, borrowed).then(() => {
-            selections.delete(selection);
-          });
-          return joined;
-        },
-        configuration: selected.configuration,
-        model,
-        openRun: (context) =>
-          StateStoreHostMemory.open(context, {
-            ...selected.memory,
-            providerRequestContext: () => selected.providerRequestContext,
-            store: options.startup.store,
-          }),
-        provider: {
-          prepare: async ({ configuration, messages, signal }) => {
-            signal.throwIfAborted();
-            const providerOptions =
-              buildGenerationProviderOptionsOption(configuration).providerOptions;
-            return {
-              ...buildModelSettingsOption(configuration).modelSettings,
-              ...(providerOptions
-                ? {
-                    providerOptions: z
-                      .record(z.string(), z.record(z.string(), z.json()))
-                      .parse(providerOptions),
-                  }
-                : {}),
-              messages: [...messages],
-              model,
-            };
-          },
-        },
-        snapshot: {
-          configuration: selected.durableConfiguration,
-          maxSteps: selected.maxSteps,
-          toolIdentities: {},
-        },
-        tools,
+      const release = (): Promise<void> => {
+        joined ??= (async () => {
+          const failures: unknown[] = [];
+          try {
+            if (acquired) {
+              await closeMcpAdmission(acquired.mcp, acquired.borrowed);
+            }
+          } catch (cause) {
+            failures.push(cause);
+          }
+          try {
+            await selected.close?.();
+          } catch (cause) {
+            failures.push(cause);
+          }
+          if (failures.length > 0) {
+            throw new AggregateError(failures, 'Production admission cleanup failed');
+          }
+          selections.delete(release);
+        })();
+        return joined;
       };
-      selections.add(selection);
+      selections.add(release);
       try {
-        for (const [id, binding] of Object.entries(mcp.tools)) {
+        if (closing) {
+          throw new Error('Production host is closing');
+        }
+        const auth = await options.resolveProviderAuth(selected.configuration.provider ?? '');
+        const model = options.resolveModel
+          ? await options.resolveModel(selected.configuration, auth)
+          : rootModel(selected.configuration, auth);
+        request.signal.throwIfAborted();
+        acquired = await acquireMcp(request, selected);
+        const tools = { ...selected.tools };
+        const selection: HostRunAdmission = {
+          close: release,
+          configuration: selected.configuration,
+          model,
+          openRun: (context) =>
+            StateStoreHostMemory.open(context, {
+              ...selected.memory,
+              providerRequestContext: () => selected.providerRequestContext,
+              store: options.startup.store,
+            }),
+          provider: {
+            prepare: async ({ configuration, messages, signal }) => {
+              signal.throwIfAborted();
+              const providerOptions =
+                buildGenerationProviderOptionsOption(configuration).providerOptions;
+              return {
+                ...buildModelSettingsOption(configuration).modelSettings,
+                ...(providerOptions
+                  ? {
+                      providerOptions: z
+                        .record(z.string(), z.record(z.string(), z.json()))
+                        .parse(providerOptions),
+                    }
+                  : {}),
+                messages: [...messages],
+                model,
+              };
+            },
+          },
+          snapshot: {
+            configuration: selected.durableConfiguration,
+            maxSteps: selected.maxSteps,
+            toolIdentities: {},
+          },
+          tools,
+        };
+        for (const [id, binding] of Object.entries(acquired?.mcp.tools ?? {})) {
           if (Object.hasOwn(tools, id)) {
             throw new Error('Native and MCP catalog identities collide');
           }
@@ -215,7 +247,7 @@ export async function createProductionHostPlatform(
         return selection;
       } catch (cause) {
         try {
-          await selection.close?.();
+          await release();
         } catch (cleanup) {
           throw new AggregateError([cause, cleanup], 'Production admission cleanup failed');
         }

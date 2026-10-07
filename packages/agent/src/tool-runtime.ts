@@ -1,4 +1,6 @@
 /** Node composition borrows the shipped tool pipeline without registering browser inference. */
+
+export { DEFAULT_AGENT_MAX_STEPS } from './agent-loop-defaults';
 export { applyToolModelOutputProjections } from './mastra/tool-model-output';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 export {

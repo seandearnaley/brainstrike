@@ -32,6 +32,7 @@ import type { HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
 import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
 import {
   acquireHostRunAdmission,
+  assertHostRunStartAvailable,
   closeHostRunResources,
   createAdmittedHostSdkTools,
   ensureHostRunAdmission,
@@ -294,11 +295,7 @@ export class HostCore {
       if (!this.threads.has(params.threadId)) {
         throw new Error('Unknown thread');
       }
-      for (const active of this.runs.values()) {
-        if (active.threadId === params.threadId && !active.terminal) {
-          throw new Error('Thread already has an active root run');
-        }
-      }
+      assertHostRunStartAvailable(this.runs.values(), params.threadId);
       if (this.conversationIds.has(params.commandId)) {
         throw new Error('Input command collides with a committed conversation identity');
       }
@@ -308,6 +305,7 @@ export class HostCore {
       let release: (() => void) | undefined;
       try {
         admission = await acquireHostRunAdmission(this.platform, {
+          ...(params.configuration ? { configuration: params.configuration } : {}),
           modelId: params.modelId,
           signal: controller.signal,
           threadId: params.threadId,
@@ -370,9 +368,10 @@ export class HostCore {
     }
     run.permits.delete(action.toolCallId);
     run.controller.signal.throwIfAborted();
-    if (hostRunToolDecision(this.platform, run, action.toolId) === 'deny') {
+    if ((await hostRunToolDecision(this.platform, run, action.toolId)) === 'deny') {
       throw new Error('Tool permission was revoked');
     }
+    run.controller.signal.throwIfAborted();
     await this.append(run.threadId, [action]);
     run.started.add(action.toolCallId);
     run.controller.signal.throwIfAborted();
@@ -412,10 +411,10 @@ export class HostCore {
     return effect;
   }
 
-  private sdkApproval(
+  private async sdkApproval(
     run: Run,
     call: { toolName: string; toolCallId: string; input: unknown }
-  ): 'approved' | 'denied' | 'user-approval' {
+  ): Promise<'approved' | 'denied' | 'user-approval'> {
     run.controller.signal.throwIfAborted();
     const registered = hostRunTools(run)[call.toolName];
     if (!registered) {
@@ -429,7 +428,8 @@ export class HostCore {
       toolIdentity: registered.identity,
       type: 'effect.started',
     };
-    const decision = hostRunToolDecision(this.platform, run, call.toolName);
+    const decision = await hostRunToolDecision(this.platform, run, call.toolName);
+    run.controller.signal.throwIfAborted();
     const prior = [...run.approvals.values()].find(
       (approval) => approval.event.toolCallId === call.toolCallId
     );
@@ -744,7 +744,10 @@ export class HostCore {
     run: Run,
     { event, decision }: PendingInteraction
   ): Promise<ToolContent[number]> {
-    if (decision === 'deny' || hostRunToolDecision(this.platform, run, event.toolId) === 'deny') {
+    if (
+      decision === 'deny' ||
+      (await hostRunToolDecision(this.platform, run, event.toolId)) === 'deny'
+    ) {
       return {
         output: { type: 'execution-denied' },
         toolCallId: event.toolCallId,

@@ -5,6 +5,7 @@ import {
   type CommittedAssistantCommands,
   CommittedAssistantLogStore,
 } from '@brainstrike/assistant-ui';
+import { z } from 'zod';
 
 export interface CommittedHostConversation {
   /** Release this view's subscription; the client/root host belongs to its caller. */
@@ -18,6 +19,7 @@ export function createCommittedHostConversation(options: {
   readonly client: HostClient;
   readonly modelId: string;
   readonly readModelId?: () => string;
+  readonly readConfiguration?: () => Record<string, unknown>;
   readonly threadId: string;
 }): CommittedHostConversation {
   const { client, modelId, threadId } = options;
@@ -53,6 +55,13 @@ export function createCommittedHostConversation(options: {
         .join('\n');
       await client.request('run/start', {
         commandId: crypto.randomUUID(),
+        ...(options.readConfiguration
+          ? {
+              configuration: z
+                .record(z.string(), z.json())
+                .parse(JSON.parse(JSON.stringify(options.readConfiguration()))),
+            }
+          : {}),
         modelId: options.readModelId?.() ?? modelId,
         prompt,
         threadId,

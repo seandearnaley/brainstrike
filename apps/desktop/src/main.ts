@@ -19,8 +19,15 @@ import {
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
+import { z } from 'zod';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { registerAgentHostClientIpc } from './agent-host-client-ipc';
+import { createDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
+import {
+  PlatformPolicySchema,
+  platformPermissionPolicy,
+} from './agent-host-platform/platform-wire';
+import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
@@ -48,6 +55,7 @@ import {
   setActiveBrowserPaneHost,
 } from './browser/browser-pane-registry';
 import { createBrowserIpcHandlers } from './browser-ipc-handlers';
+import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
@@ -986,6 +994,27 @@ function reportNativeIndexActivationError(message: string, error: unknown): void
   reportNativeIndexFailure(message, error, isDesktopShuttingDown(), logger);
 }
 const nativeIndexActivation = createNativeIndexActivation({
+  agentHostPlatform: {
+    platform: () =>
+      createDesktopPlatformPort(
+        productionDesktopCapabilities({ embeddingHostManager, nativeIndexSearch }, async () => {
+          const stored = await storage.getItem('permission-policy.v1');
+          if (!stored) {
+            return;
+          }
+          const envelope = z
+            .object({ state: PlatformPolicySchema.extend({ enforce: z.boolean() }) })
+            .parse(JSON.parse(stored));
+          const { enforce, ...input } = envelope.state;
+          const policy = platformPermissionPolicy(input);
+          return { ...policy, yolo: policy.yolo || !enforce };
+        })
+      ),
+    platformModule: resolveBundledSiblingPath(
+      'Agent host platform',
+      'agent-host-platform-entry.js'
+    ),
+  },
   application: applicationIpcDomain,
   embedding: embeddingHostManager,
   onError: (operation, error) =>

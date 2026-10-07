@@ -47,6 +47,7 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 export const MAIN_PROCESS_ENTRY_POINTS = {
   'agent-host-entry': 'src/agent-host-entry.ts',
+  'agent-host-platform-entry': 'src/agent-host-platform-entry.ts',
   'db-host-entry': 'src/db-host-entry.ts',
   'hidden-preload': 'src/hidden-preload.ts',
   'host-lease-entry': 'src/host-lease-entry.ts',

@@ -616,3 +616,88 @@ for this file-backend-only repair; its actual changed paths were selected above.
 Final normal hooks validate integrated types. Default credential ownership and
 full production/regression acceptance remain held as described above.
 **CI is disabled due to cost; validation must run locally.**
+
+### Ordinary app-owned Root and private platform bridge — 7 October, 03:18 UTC
+
+Parent authorized borrowing the existing encrypted credential owners over a
+private capability port. This resolves the immediate default-startup hold; it
+does not authorize credential migration, keyring replacement or inspection of
+real secrets. The concrete cutover alternatives are recorded in
+[credential cutover options](2026-10-07-m3-credential-cutover-options.md).
+
+Normal Electron main now passes the Node Root a separate MessagePort platform
+capability. The Node host owns the SDK loop, public Memory and SQLite commits;
+main borrows the existing catalog, native executors, provider credential reader
+and generation-qualified MCP authority. The private port preserves canonical
+schema validation and model-output projection, acknowledged committed progress,
+abort propagation and joined selection ownership. It carries credentials only
+in private responses, never in the public client protocol or durable intent.
+New Thread/startup does not wait for index setup or credential initialization.
+
+The renderer captures non-secret intent from the existing provider, native-tool,
+permission, workspace-context, instruction and Memory preference owners. The
+catalog lookup uses its existing `(provider_id,id)` identity and existing model
+definition budgets; no alias or second catalog writer was introduced. The MCP
+selection waits on its existing configuration lifecycle barrier. Core reads the
+live persisted permission owner at each gate and remains the only gate.
+
+Actual local commands and receipts:
+
+- `pnpm exec vitest run src/__tests__/agent-host-platform-port.test.ts` from
+  desktop: **4/4 passed**, 63 ms body / 997 ms lane. The real JSON-RPC and
+  MessageChannel exercise validation transforms, executor/progress/projection,
+  cancellation joins and admission/cleanup failure retention. Receipt
+  `/tmp/brainstrike-m3-private-platform-port-schema-after.log`.
+- `pnpm exec turbo run type-check --filter=@brainstrike/desktop...`:
+  **117/117 tasks passed**, 113 cached, 31.634 s; desktop 728 test files and
+  734 Effect diagnostic files, zero errors. Receipt
+  `/tmp/brainstrike-m3-app-owned-preferences-types-qualified.log`.
+- `pnpm exec turbo run build --filter=@brainstrike/desktop` after catalog and
+  lifecycle changes: **57/57 passed**, 54 cached, 13.347 s. Receipt
+  `/tmp/brainstrike-m3-app-owned-mcp-barrier-build.log`.
+- `pnpm exec vitest run src/__tests__/ordinary-app-owned-host.integration.test.ts`
+  from desktop with the provisioned Electron executable: **1/1 passed**,
+  6.952 s body / 7.96 s lane. Receipt
+  `/tmp/brainstrike-m3-ordinary-app-owned-tools-committed-reopen.log`.
+  Normal built main/renderer starts the first Root without a CLI prestart.
+  Normal New Thread, ordinary folder grant/mount, approval before a real native
+  file write, real configured HTTP MCP call, native context inspection, actual
+  provider output-window settings, committed CLI read, renderer reload and new
+  Electron process reopen are demonstrated. The model is a loopback scripted
+  provider; tools, IPC, DB and views are real. Evidence directory:
+  `/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/brainstrike-m3-app-owned-04FfAH-evidence/`.
+  Cleanup is `errors:[]`, `remaining:[]`, `failure:null`, Root released;
+  no manual kill occurred.
+
+Earlier failures remain retained: catalog selection used a UI composite instead
+of the DB pair; the fixture selected MCP 2026 for a legacy SDK server; a manually
+seeded detached root was correctly disconnected by ordinary reconciliation; the
+test expected temperature from a global builder that projects only output
+tokens; reload legitimately appended canonical workspace events. The corrected
+test preserves the original committed prefix exactly and validates the newly
+appended workspace command/event kinds. No timeout or retry was added. Earlier
+shell wrappers used zsh's read-only `status` variable after pnpm completed;
+their pnpm counts above are valid, but those wrappers exited 1. Subsequent
+commands use `task_result` and the final ordinary lane exits 0.
+
+This batch does not establish full production parity. Thread draft settings and
+model controls, complete prompt/context/skills composition, AWS/subscription
+and hidden local-provider capabilities, canonical Memory vectors, general
+questions/plans/elicitation, default-route denial/Stop/client-loss fault cases,
+rebuilt Mini core and full local regression remain open. Requested semantic
+Memory currently fails admission explicitly instead of silently changing the
+preference. The demonstrated lane explicitly disables OM and leaves semantic
+recall disabled; it cannot qualify either capability. Known regression reds
+remain unquarantined. The ceiling is still 06:54:27 UTC.
+**CI is disabled due to cost; validation must run locally.**
+
+After splitting admission helpers to satisfy the normal complexity/line limits,
+the same four private-port cases passed again in **988 ms**, receipt
+`/tmp/brainstrike-m3-private-platform-port-publication.log`. The changed host
+unit selection passed **119/119**, 2.60 s, and all local host integration files
+passed **78 cases / 7 Windows-only skips**, 37.61 s. Commands were the existing
+agent-host unit Vitest selection and serialized integration config; receipts
+`/tmp/brainstrike-m3-app-owned-host-unit.log` and
+`/tmp/brainstrike-m3-app-owned-host-integration.log`. No other subsystem or full
+regression pass is implied. Normal publication hooks remain the final type and
+staged-secret checks for this batch.

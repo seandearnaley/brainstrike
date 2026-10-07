@@ -88,7 +88,7 @@ export async function startAgentHost(
     get maxSteps(): number | undefined {
       return currentPlatform().maxSteps;
     },
-    readPermissionPolicy: () => currentPlatform().readPermissionPolicy(),
+    readPermissionPolicy: (threadId) => currentPlatform().readPermissionPolicy(threadId),
     resolveModel: (modelId) => {
       const platform = currentPlatform();
       if (!platform.resolveModel) {

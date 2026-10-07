@@ -95,7 +95,10 @@ export function buildAssistantStreamMessageIdOption(runtimeData: RuntimeData | u
  * ceiling. Never substitute a smaller hidden cap: it would end real coding
  * tasks after only a handful of tool calls.
  */
-const DEFAULT_AGENT_MAX_STEPS = 100;
+export { DEFAULT_AGENT_MAX_STEPS } from '../../agent-loop-defaults';
+
+import { DEFAULT_AGENT_MAX_STEPS } from '../../agent-loop-defaults';
+
 const UNSUPPORTED_DIRECT_STREAM_OPTION_KEYS = [
   'activeTools',
   'clientTools',

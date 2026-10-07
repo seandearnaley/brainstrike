@@ -1,7 +1,10 @@
 export {
+  canonicalToolInputJsonSchema,
   canonicalToolInputSchema,
   canonicalToolModelOutput,
   createCanonicalToolContext,
+  platformToolInputSchema,
+  validateCanonicalToolInput,
 } from './adapters/canonical-context.js';
 export { committedMemoryTranscript } from './adapters/committed-memory-transcript.js';
 export {
