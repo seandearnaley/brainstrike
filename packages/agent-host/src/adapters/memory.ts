@@ -75,6 +75,12 @@ export class HostMemory implements HostRunOwner {
       this.recordObserverUsage(receipt)
     );
     let native = capabilities.native;
+    if (native.embedder && typeof native.embedder === 'object') {
+      native = { ...native, embedder: this.providers.embedding(native.embedder) };
+    }
+    if (native.vector) {
+      native = { ...native, vector: this.providers.vector(native.vector) };
+    }
     const observation = native.options?.observationalMemory;
     if (observation && readProperty(observation, 'enabled') !== false) {
       const sharedModel = readModel(observation);
@@ -128,9 +134,10 @@ export class HostMemory implements HostRunOwner {
         this.pending.delete(work);
         if (
           !(
-            providerCancellation &&
-            this.identity.signal.aborted &&
-            cause === this.identity.signal.reason
+            this.providers.ownsCancellation(cause) ||
+            (providerCancellation &&
+              this.identity.signal.aborted &&
+              cause === this.identity.signal.reason)
           )
         ) {
           this.failures.push(cause);
@@ -152,7 +159,11 @@ export class HostMemory implements HostRunOwner {
     } catch (cause) {
       return Promise.reject(cause);
     }
-    return this.track(operation, providerCancellation);
+    return this.track(operation, providerCancellation).catch((cause: unknown) => {
+      // Keep provenance inside the enclosure; the existing Core contract
+      // receives its original run reason for the expected cancellation.
+      throw this.providers.ownsCancellation(cause) ? this.identity.signal.reason : cause;
+    });
   }
 
   private identifiers(): { resourceId: string; threadId: string } {
@@ -213,7 +224,15 @@ export class HostMemory implements HostRunOwner {
       this.messageList.add([...committedMessages], 'response', { merge: false });
       // Preserve the library's semantic indexing and working-memory processing;
       // raw persistMessages is only the public turn's sealed-message projection.
-      await this.memory.saveMessages({ messages: [...committedMessages] });
+      try {
+        await this.memory.saveMessages({ messages: [...committedMessages] });
+      } catch (cause) {
+        // The transcript is already committed. Retiring its cancelled derived
+        // embedding succeeds only after the raw provider has physically joined.
+        if (!this.providers.ownsCancellation(cause)) {
+          throw cause;
+        }
+      }
     });
   }
 

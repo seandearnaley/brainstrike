@@ -91,7 +91,7 @@ function projectThread(
   };
 }
 
-function createWindowThreadCapability(): AssistantThreadHostCapability {
+export function createWindowThreadCapability(): AssistantThreadHostCapability {
   let connecting: Promise<HostClient> | undefined;
   let closing: Promise<void> | undefined;
   let catalogLoaded = false;
@@ -154,6 +154,16 @@ function createWindowThreadCapability(): AssistantThreadHostCapability {
       const { rows } = await host.request('thread/read', { fromSeq: 0, threadId });
       threads.set(threadId, host);
       return projectThread(threadId, resourceId, rows);
+    },
+    deleteThread: async (threadId) => {
+      const host = await client();
+      const catalog = await host.request('thread/list', {});
+      if (!catalog.threads.some((thread) => thread.threadId === threadId)) {
+        return false;
+      }
+      await host.request('thread/delete', { threadId });
+      threads.delete(threadId);
+      return true;
     },
     listThreads,
     renderThread: (threadId) => {

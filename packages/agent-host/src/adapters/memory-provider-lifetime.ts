@@ -1,3 +1,4 @@
+import type { MastraEmbeddingModel, MastraVector } from '@mastra/core/vector';
 import { type LanguageModelUsage, wrapLanguageModel } from 'ai';
 
 export type MemoryLanguageModel = Parameters<typeof wrapLanguageModel>[0]['model'];
@@ -21,6 +22,7 @@ export class MemoryProviderLifetime {
   private readonly calls = new Set<Promise<unknown>>();
   private readonly sources = new Set<Source>();
   private readonly failures: unknown[] = [];
+  private readonly cancellations = new WeakSet<object>();
   private closing: Promise<void> | undefined;
   private observing = false;
   private readonly onAbort = (): void => {
@@ -51,12 +53,117 @@ export class MemoryProviderLifetime {
       () => this.calls.delete(work),
       (cause: unknown) => {
         this.calls.delete(work);
-        if (!(providerAbort && this.signal.aborted && cause === this.signal.reason)) {
+        if (
+          !(
+            this.ownsCancellation(cause) ||
+            (providerAbort && this.signal.aborted && cause === this.signal.reason)
+          )
+        ) {
           this.failures.push(cause);
         }
       }
     );
     return work;
+  }
+
+  /** Only this enclosure can mint an expected embedding cancellation. */
+  ownsCancellation(cause: unknown): boolean {
+    return typeof cause === 'object' && cause !== null && this.cancellations.has(cause);
+  }
+
+  private cancellation(): Error {
+    const failure = new Error('Run-owned memory embedding cancelled', {
+      cause: this.signal.reason,
+    });
+    this.cancellations.add(failure);
+    return failure;
+  }
+
+  private embeddingAdmission(): void {
+    if (this.signal.aborted) {
+      throw this.cancellation();
+    }
+    if (this.closing) {
+      throw new Error('Memory provider admission is closed');
+    }
+  }
+
+  private embeddingCall<Value>(
+    callerSignal: AbortSignal | undefined,
+    call: (signal: AbortSignal) => PromiseLike<Value>
+  ): Promise<Value> {
+    this.observeAbort();
+    const signal = callerSignal ? AbortSignal.any([this.signal, callerSignal]) : this.signal;
+    // Capture the concrete promise, without racing it against abort. A provider
+    // that ignores cancellation must physically retire before join can finish.
+    return this.capture(
+      Promise.resolve().then(async () => {
+        this.embeddingAdmission();
+        signal.throwIfAborted();
+        let result: Value;
+        try {
+          result = await call(signal);
+        } catch (cause) {
+          // A coincident independent AbortError is still an inference failure.
+          if (this.signal.aborted && cause === this.signal.reason) {
+            throw this.cancellation();
+          }
+          throw cause;
+        }
+        if (this.signal.aborted) {
+          throw this.cancellation();
+        }
+        return result;
+      })
+    );
+  }
+
+  private embeddingProxy<Model extends object>(model: Model, doEmbed: unknown): Model {
+    return new Proxy(model, {
+      get: (target, key) => (key === 'doEmbed' ? doEmbed : Reflect.get(target, key, target)),
+    });
+  }
+
+  embedding(model: MastraEmbeddingModel<string>): MastraEmbeddingModel<string> {
+    switch (model.specificationVersion) {
+      case 'v1':
+        return this.embeddingProxy(model, (params: Parameters<typeof model.doEmbed>[0]) =>
+          this.embeddingCall(params.abortSignal, (abortSignal) =>
+            model.doEmbed({ ...params, abortSignal })
+          )
+        );
+      case 'v2':
+        return this.embeddingProxy(model, (params: Parameters<typeof model.doEmbed>[0]) =>
+          this.embeddingCall(params.abortSignal, (abortSignal) =>
+            model.doEmbed({ ...params, abortSignal })
+          )
+        );
+      case 'v3':
+        return this.embeddingProxy(model, (params: Parameters<typeof model.doEmbed>[0]) =>
+          this.embeddingCall(params.abortSignal, (abortSignal) =>
+            model.doEmbed({ ...params, abortSignal })
+          )
+        );
+    }
+  }
+
+  /** Fence native vector dispatch without reclassifying any writer rejection. */
+  vector(vector: MastraVector): MastraVector {
+    return new Proxy(vector, {
+      get: (target, key) => {
+        const member: unknown = Reflect.get(target, key, target);
+        if (
+          typeof member === 'function' &&
+          (key === 'createIndex' || key === 'query' || key === 'upsert')
+        ) {
+          return (...args: unknown[]) => {
+            this.embeddingAdmission();
+            return Reflect.apply(member, target, args);
+          };
+        }
+        return typeof member === 'function' ? member.bind(target) : member;
+      },
+    });
   }
 
   private normalizeProviderAbort(cause: unknown): unknown {

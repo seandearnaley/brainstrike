@@ -1,79 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { StateStore } from '@brainstrike/state-store';
-import {
-  type CreateIndexParams,
-  type DeleteIndexParams,
-  type DeleteVectorParams,
-  type DeleteVectorsParams,
-  type DescribeIndexParams,
-  type IndexStats,
-  type MastraEmbeddingModel,
-  MastraVector,
-  type QueryResult,
-  type QueryVectorParams,
-  type UpdateVectorParams,
-  type UpsertVectorParams,
-} from '@mastra/core/vector';
 import type { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
-import { StateStoreHostMemory } from '../src/adapters/state-store-host-memory.js';
-import { HostCore } from '../src/core.js';
 import { readHostRow } from '../src/event-storage.js';
-import type { HostPlatform } from '../src/ports.js';
-import { scriptedModel } from './fixtures/scripted-model.js';
-
-/** Records vendor calls only. It is not an index or production indexer adapter. */
-class RecordedVectorCalls extends MastraVector {
-  readonly creates: CreateIndexParams[] = [];
-  readonly queries: QueryVectorParams[] = [];
-  readonly upserts: UpsertVectorParams[] = [];
-  results: QueryResult[] = [];
-
-  constructor() {
-    super({ id: 'recorded-memory-vector-calls' });
-  }
-  override async createIndex(params: CreateIndexParams): Promise<void> {
-    this.creates.push(structuredClone(params));
-  }
-  override async query(params: QueryVectorParams): Promise<QueryResult[]> {
-    this.queries.push(structuredClone(params));
-    return structuredClone(this.results);
-  }
-  override async upsert(params: UpsertVectorParams): Promise<string[]> {
-    this.upserts.push(structuredClone(params));
-    return (params.metadata ?? []).map((metadata) => {
-      const id: unknown = metadata['message_id'];
-      if (typeof id !== 'string') {
-        throw new Error('Recorded vector call has no canonical message identity');
-      }
-      return id;
-    });
-  }
-  override async listIndexes(): Promise<string[]> {
-    return [];
-  }
-  override async describeIndex(_params: DescribeIndexParams): Promise<IndexStats> {
-    throw new Error('Index storage is outside this call recording');
-  }
-  override async deleteIndex(_params: DeleteIndexParams): Promise<void> {
-    throw new Error('Index deletion is outside this call recording');
-  }
-  override async updateVector(_params: UpdateVectorParams): Promise<void> {
-    throw new Error('Index mutation is outside this call recording');
-  }
-  override async deleteVector(_params: DeleteVectorParams): Promise<void> {
-    throw new Error('Index deletion is outside this call recording');
-  }
-  override async deleteVectors(_params: DeleteVectorsParams): Promise<void> {
-    throw new Error('Index deletion is outside this call recording');
-  }
-}
+import {
+  deterministicEmbedding,
+  memoryVectorHost as fixture,
+  RecordedVectorCalls,
+} from './fixtures/memory-vector-host.js';
+import {
+  RECORDED_VECTOR_PROFILE,
+  recordedMemoryVectorPort,
+} from './fixtures/recorded-memory-vector-port.js';
 
 const fetch = vi.fn(async () => {
   throw new Error('This packet makes no provider requests');
@@ -87,152 +25,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function deterministicEmbedding(text: string): number[] {
-  return Array.from({ length: 384 }, (_, index) =>
-    index === (text.includes('Paris') ? 0 : 1) ? 1 : 0
-  );
-}
-
 function recordedSystem(model: MockLanguageModelV4 | undefined): string {
   return (
     model?.doStreamCalls[0]?.prompt
       .flatMap((message) => (message.role === 'system' ? [message.content] : []))
       .join('\n') ?? ''
   );
-}
-
-async function fixture(options: {
-  readonly lastMessages?: number;
-  readonly semanticScope?: 'thread' | 'resource';
-  readonly vector?: RecordedVectorCalls;
-  readonly workingScope?: 'thread' | 'resource';
-}) {
-  const root = await mkdtemp(join(tmpdir(), 'bs-memory-recall-'));
-  const resourceId = randomUUID();
-  const writerOptions = {
-    memoryCalculatorModule: fileURLToPath(
-      new URL('../dist/adapters/memory-storage-calculator.js', import.meta.url)
-    ),
-  };
-  let store = await StateStore.open(root, writerOptions);
-  const models: MockLanguageModelV4[] = [];
-  const runResources = new Map<string, string>();
-  const workingReads: { readonly threadId: string; readonly value: string | null }[] = [];
-  let workingSeed: string | undefined;
-  const embeddingCalls: string[][] = [];
-  const embedder: Extract<MastraEmbeddingModel<string>, { specificationVersion: 'v3' }> = {
-    doEmbed: async ({ values }) => {
-      embeddingCalls.push([...values]);
-      return {
-        embeddings: values.map(deterministicEmbedding),
-        usage: { tokens: values.length },
-        warnings: [],
-      };
-    },
-    maxEmbeddingsPerCall: 1,
-    modelId: 'deterministic-fixture-384',
-    provider: 'local-fixture',
-    specificationVersion: 'v3',
-    supportsParallelCalls: false,
-  };
-  const platform: HostPlatform = {
-    close: async () => undefined,
-    maxSteps: 1,
-    openRun: async (context) => {
-      const owner = await StateStoreHostMemory.open(context, {
-        native: {
-          ...(options.vector ? { embedder, vector: options.vector } : {}),
-          options: {
-            lastMessages: options.lastMessages ?? 1,
-            observationalMemory: false,
-            semanticRecall: options.semanticScope
-              ? { messageRange: 0, scope: options.semanticScope, topK: 1 }
-              : false,
-            workingMemory: {
-              enabled: true,
-              scope: options.workingScope ?? 'thread',
-              template: '# Fixture facts',
-            },
-          },
-        },
-        recordPrompt: async () => undefined,
-        resourceId: runResources.get(context.threadId) ?? resourceId,
-        store,
-      });
-      if (workingSeed !== undefined) {
-        await owner.memory.updateWorkingMemory(workingSeed);
-        workingSeed = undefined;
-      }
-      workingReads.push({
-        threadId: context.threadId,
-        value: await owner.memory.getWorkingMemory(),
-      });
-      return owner;
-    },
-    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
-    resolveModel: async () => {
-      const model = scriptedModel();
-      models.push(model);
-      return model;
-    },
-    tools: {},
-  };
-  let core = await HostCore.open(store, platform, () => () => undefined);
-  return {
-    async close(): Promise<void> {
-      await core.close();
-      await store.close();
-      await rm(root, { force: true, recursive: true });
-    },
-    async closeRejectedAdmission(): Promise<void> {
-      // Core retains the failed admission cause. No Memory owner was constructed;
-      // the negative test verifies zero SDK, embedding and working-memory calls.
-      await expect(core.close()).rejects.toBeInstanceOf(AggregateError);
-      await store.close();
-      await rm(root, { force: true, recursive: true });
-    },
-    get core(): HostCore {
-      return core;
-    },
-    embedder,
-    embeddingCalls,
-    models,
-    async reopen(): Promise<void> {
-      await core.close();
-      await store.close();
-      store = await StateStore.open(root, writerOptions);
-      core = await HostCore.open(store, platform, () => () => undefined);
-    },
-    resourceId,
-    async run(threadId: string, prompt: string, selectedResourceId = resourceId): Promise<string> {
-      runResources.set(threadId, selectedResourceId);
-      const { runId } = await core.startRun({
-        commandId: randomUUID(),
-        modelId: 'recorded-sdk-fixture',
-        prompt,
-        threadId,
-      });
-      await expect
-        .poll(async () => {
-          const terminal = (await core.read(threadId, 0)).find(
-            ({ event }) => event.type === 'run.finished' && event.runId === runId
-          )?.event;
-          if (terminal?.type === 'run.finished' && terminal.outcome !== 'completed') {
-            throw new Error(JSON.stringify(terminal));
-          }
-          return terminal;
-        })
-        .toMatchObject({ outcome: 'completed' });
-      return runId;
-    },
-    seedWorkingMemory(value: string): void {
-      workingSeed = value;
-    },
-    get store(): StateStore {
-      return store;
-    },
-    workingReads,
-  };
 }
 
 test.each(['thread', 'resource'] as const)(
@@ -358,6 +156,114 @@ test('missing semantic capability fails admission before embedding or the SDK ca
     await current.closeRejectedAdmission();
   }
 });
+
+test('public vector bridge prepares actual committed SDK sources before save inference', async () => {
+  const recorded = recordedMemoryVectorPort();
+  const current = await fixture({
+    onEmbedding: (values) => {
+      if (values.includes('Host run completed.')) {
+        recorded.events.push('assistant-embedding');
+      }
+    },
+    semanticScope: 'resource',
+    vectorPort: recorded.port,
+  });
+  try {
+    const first = await current.core.startThread({ commandId: randomUUID() });
+    await current.run(first.threadId, 'Paris source for the existing public bridge.');
+    const rows = await current.core.read(first.threadId, 0);
+    const transcript = committedMemoryTranscript(rows, current.resourceId);
+    const source = rows.findLast(
+      (row) => row.event.type === 'model.step' && row.event.messages.length > 0
+    );
+    const assistant = transcript.findLast((message) => message.role === 'assistant');
+    if (!(source && assistant)) {
+      throw new Error('Actual committed SDK step has no source identity');
+    }
+    expect(recorded.events.indexOf('prepare')).toBeLessThan(
+      recorded.events.indexOf('assistant-embedding')
+    );
+    expect(recorded.upserts[0]?.plan).toBe(recorded.plans[0]);
+    expect(recorded.prepares[0]?.messages).toContainEqual({
+      messageId: assistant.id,
+      seq: source.seq,
+    });
+    recorded.setHits([
+      {
+        messageId: assistant.id,
+        score: 1,
+        segmentOrdinal: 0,
+        seq: source.seq,
+        threadId: first.threadId,
+      },
+    ]);
+    const target = await current.core.startThread({ commandId: randomUUID() });
+    await current.run(target.threadId, 'Recall the Paris source through the borrowed port.');
+    expect(JSON.stringify(current.models.at(-1)?.doStreamCalls[0]?.prompt)).toContain(
+      'Paris source for the existing public bridge.'
+    );
+    expect(recorded.queries.at(-1)?.scope).toMatchObject({
+      resourceId: current.resourceId,
+      threadId: target.threadId,
+    });
+    expect(await current.store.check()).toEqual({ gaps: 0, integrity: 'ok' });
+  } finally {
+    await current.close();
+  }
+});
+
+test.each(['thread', 'resource'] as const)(
+  'actual Core/indexer/public Memory recall preserves committed IDs and scores across reopen (%s)',
+  async (scope) => {
+    const current = await fixture({ realIndexer: true, semanticScope: scope });
+    try {
+      const first = await current.core.startThread({ commandId: randomUUID() });
+      const fact = 'Paris actual SQLite vector source.';
+      await current.run(first.threadId, fact);
+      const rows = await current.core.read(first.threadId, 0);
+      const transcript = committedMemoryTranscript(rows, current.resourceId);
+      const query = {
+        limit: 10,
+        profile: RECORDED_VECTOR_PROFILE,
+        scope: {
+          resourceId: current.resourceId,
+          rootId: current.root,
+          threadId: first.threadId,
+        },
+        vector: deterministicEmbedding('Host run completed.'),
+      };
+      if (!current.indexer) {
+        throw new Error('Actual indexer acquisition is missing');
+      }
+      const before = await current.indexer.queryStateMessageVectors(query);
+      expect(before.map((hit) => hit.messageId).sort()).toEqual(
+        transcript.map((message) => message.id).sort()
+      );
+      expect(before[0]?.score).toBeCloseTo(1);
+      expect(before[0]?.messageId).toBe(
+        transcript.find((message) => message.role === 'assistant')?.id
+      );
+      expect(before.every((hit) => rows.some((row) => row.seq === hit.seq))).toBe(true);
+      await current.reopen();
+      expect(await current.core.read(first.threadId, 0)).toEqual(rows);
+      expect(await current.indexer.queryStateMessageVectors(query)).toEqual(before);
+      const target =
+        scope === 'resource' ? await current.core.startThread({ commandId: randomUUID() }) : first;
+      await current.run(
+        target.threadId,
+        'Recall the completed SDK response beyond the one-message history window.'
+      );
+      const prompt = current.models.at(-1)?.doStreamCalls[0]?.prompt;
+      expect(JSON.stringify(prompt)).toContain(fact);
+      expect(
+        prompt?.filter((message) => message.role !== 'system').map((message) => message.role)
+      ).toEqual(['user', 'assistant', 'user']);
+      expect(await current.store.check()).toEqual({ gaps: 0, integrity: 'ok' });
+    } finally {
+      await current.close();
+    }
+  }
+);
 
 test('empty semantic results preserve the bounded history window', async () => {
   const vector = new RecordedVectorCalls();

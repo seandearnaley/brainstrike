@@ -1,0 +1,27 @@
+[
+  {
+    "event": {
+      "commandId": "d814e634-6540-4e95-9be5-c7ad97cede53",
+      "method": "thread/start",
+      "payload": {
+        "commandId": "d814e634-6540-4e95-9be5-c7ad97cede53"
+      },
+      "result": {
+        "threadId": "1a22be2b-7049-4099-bd58-0de848639c72"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 1,
+    "threadId": "1a22be2b-7049-4099-bd58-0de848639c72",
+    "ts": 1791408527495
+  },
+  {
+    "event": {
+      "commandId": "d814e634-6540-4e95-9be5-c7ad97cede53",
+      "type": "thread.started"
+    },
+    "seq": 2,
+    "threadId": "1a22be2b-7049-4099-bd58-0de848639c72",
+    "ts": 1791408527495
+  }
+]

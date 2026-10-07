@@ -27,6 +27,14 @@ and Root in the startup error; discovery is never published for that startup.
 This seam qualifies Core startup ordering; the Main bootstrap borrow and production
 Memory vector/local-inference capability remain separate integration gates.
 
+Authenticated `thread/delete {threadId}` is a Root lifecycle operation. Core
+fences that thread's commands, aborts its pending admission and run signals, and
+joins SDK effects, Memory/provider work and run owners before StateStore's existing
+thread-delete intent erases canonical and derived data. Only a joined deletion
+clears Core's transient conversation, workspace and command payload projections.
+Independent cleanup errors retain the fence and report failure. The operation
+introduces no durable command record or second deletion writer.
+
 The committed M3 conversation uses the public assistant-ui approval command for
 host interaction IDs. Approval-bearing tool cards stay outside the activity
 disclosure, including answered history. Questions and plans submit the canonical

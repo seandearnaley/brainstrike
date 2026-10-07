@@ -13,6 +13,12 @@ import {
   rebuildApprovedRuntimeMessages,
 } from './approval-input.js';
 import {
+  abortHostThreadRuns,
+  finishHostRun,
+  joinHostRunOwner,
+  joinHostThreadDeletion,
+} from './core-run-lifecycle.js';
+import {
   acceptHostWorkspaceSnapshot,
   createHostRunContext,
   createHostRunState,
@@ -54,7 +60,7 @@ type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
 export type HostEventStore = Pick<
   StateStore,
   'append' | 'read' | 'root' | 'syncBoundary' | 'threads'
->;
+> & { readonly deleteThread?: StateStore['deleteThread'] };
 
 /** One writer, one admission queue, and one SDK loop per root run (ADR-0011/12/17). */
 export class HostCore {
@@ -65,7 +71,8 @@ export class HostCore {
   private readonly messages = new Map<string, ModelMessage[]>();
   private readonly conversationIds = new Set<string>();
   private readonly listeners = new Set<(row: HostLogRow) => void>();
-  private readonly pendingAdmissions = new Set<AbortController>();
+  private readonly pendingAdmissions = new Map<AbortController, string>();
+  private readonly deletions = new Map<string, Promise<{ deleted: true }>>();
   private admission: Promise<void> = Promise.resolve();
   private closing = false;
   private closeTask?: Promise<void>;
@@ -132,7 +139,7 @@ export class HostCore {
         this.workspaces.set(row.threadId, event.snapshot);
         break;
       case 'command.accepted':
-        foldHostAcceptedCommand(this.commands, this.runs, event);
+        foldHostAcceptedCommand(this.commands, this.runs, event, row.threadId);
         if (event.method === 'run/start') {
           recordHostConversationId(this.conversationIds, event.commandId);
         }
@@ -250,13 +257,21 @@ export class HostCore {
 
   private command<T extends Json>(
     method: string,
-    params: { commandId: string },
+    params: { commandId: string; threadId?: string },
     perform: () => Promise<T>,
     repeat?: (result: T) => Promise<T>
   ): Promise<T> {
     const result = this.admission.then(async () => {
       if (this.closing) {
         throw new Error('Host is closing');
+      }
+      if (params.threadId) {
+        if (!this.threads.has(params.threadId)) {
+          throw new Error('Unknown thread');
+        }
+        if (this.deletions.has(params.threadId)) {
+          throw new Error('Thread deletion has closed command admission');
+        }
       }
       return this.commands.perform(method, params, perform, repeat);
     });
@@ -287,7 +302,56 @@ export class HostCore {
       method,
       payload: canonical(accepted.payload),
       result,
+      threadId,
     });
+  }
+
+  /** BST-1977: raw StateStore deletion cannot retire active Memory/provider work. */
+  deleteThread(params: { readonly threadId: string }): Promise<{ deleted: true }> {
+    const existing = this.deletions.get(params.threadId);
+    if (existing) {
+      return existing;
+    }
+    if (this.closing) {
+      return Promise.reject(new Error('Host is closing'));
+    }
+    if (!this.threads.has(params.threadId)) {
+      return Promise.reject(new Error('Unknown thread'));
+    }
+    const erase = this.store.deleteThread?.bind(this.store);
+    if (!erase) {
+      return Promise.reject(new Error('The Root owner has no thread deletion capability'));
+    }
+    const deletion = this.admission.then(async (): Promise<{ deleted: true }> => {
+      if (this.closing) {
+        throw new Error('Host is closing');
+      }
+      const runs = [...this.runs.values()].filter((run) => run.threadId === params.threadId);
+      await joinHostThreadDeletion(
+        runs,
+        (run) => this.closeRunOwner(run),
+        (run) => this.finish(run, 'stopped')
+      );
+      await erase(params.threadId);
+      for (const commandId of this.commands.forgetThread(params.threadId)) {
+        this.conversationIds.delete(commandId);
+      }
+      this.threads.delete(params.threadId);
+      this.messages.delete(params.threadId);
+      this.workspaces.delete(params.threadId);
+      for (const run of runs) {
+        this.runs.delete(run.id);
+        this.conversationIds.delete(run.id);
+      }
+      return { deleted: true };
+    });
+    this.deletions.set(params.threadId, deletion);
+    abortHostThreadRuns(params.threadId, this.pendingAdmissions, this.runs.values());
+    this.admission = deletion.then(
+      () => undefined,
+      () => undefined
+    );
+    return deletion;
   }
 
   startThread(params: HostParams<'thread/start'>): Promise<{ threadId: string }> {
@@ -311,7 +375,7 @@ export class HostCore {
         throw new Error('Input command collides with a committed conversation identity');
       }
       const controller = new AbortController();
-      this.pendingAdmissions.add(controller);
+      this.pendingAdmissions.set(controller, params.threadId);
       let admission: HostRunAdmission | undefined;
       let release: (() => void) | undefined;
       try {
@@ -804,21 +868,7 @@ export class HostCore {
       const run = this.run(params.threadId, params.runId);
       run.stopped = true;
       run.controller.abort(new Error('Run stopped by user'));
-      const joined = await Promise.allSettled([
-        run.task ?? Promise.resolve(),
-        this.closeRunOwner(run),
-      ]);
-      const failures = [
-        ...new Set(
-          joined.filter((result) => result.status === 'rejected').map((result) => result.reason)
-        ),
-      ];
-      if (failures.length === 1) {
-        throw failures[0];
-      }
-      if (failures.length > 1) {
-        throw new AggregateError(failures, 'Stop cleanup failed');
-      }
+      await joinHostRunOwner(run, (owned) => this.closeRunOwner(owned));
       await this.finish(run, 'stopped');
     };
     return this.command(
@@ -887,43 +937,14 @@ export class HostCore {
     outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
     detail?: string
   ): Promise<void> {
-    if (run.completion) {
-      return run.completion;
-    }
-    if (run.terminal) {
-      return this.closeRunOwner(run);
-    }
-    run.completion = (async () => {
-      // SDK abort can end its stream before a tool's physical process exits.
-      // Only the host owns terminal admission, so join all dispatched work first.
-      await Promise.allSettled([...run.effects]);
-      await this.closeRunOwner(run);
-      await run.stopAcceptance;
-      const joinedOutcome = run.stopped
-        ? 'stopped'
-        : run.controller.signal.aborted && this.closing
-          ? 'interrupted'
-          : outcome;
-      await this.append(
-        run.threadId,
-        [
-          {
-            outcome: joinedOutcome,
-            runId: run.id,
-            type: 'run.finished',
-            ...(detail === undefined ? {} : { detail }),
-          },
-        ],
-        'full',
-        () => {
-          run.terminal = true;
-          run.outcome = joinedOutcome;
-          run.release?.();
-          run.release = undefined;
-        }
-      );
-    })();
-    return run.completion;
+    return finishHostRun(
+      run,
+      outcome,
+      detail,
+      () => this.closing,
+      (owned) => this.closeRunOwner(owned),
+      (event, commit) => this.append(run.threadId, [event], 'full', commit)
+    );
   }
 
   close(): Promise<void> {
@@ -933,7 +954,7 @@ export class HostCore {
 
   private async closeOwned(): Promise<void> {
     this.closing = true;
-    for (const controller of this.pendingAdmissions) {
+    for (const controller of this.pendingAdmissions.keys()) {
       controller.abort(new Error('Host is closing'));
     }
     for (const run of this.runs.values()) {
