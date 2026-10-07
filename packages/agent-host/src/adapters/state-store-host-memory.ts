@@ -42,14 +42,18 @@ export class StateStoreHostMemory implements HostRunOwner {
     private readonly storage: MastraCompositeStore,
     private readonly readRows: () => Promise<HostLogRow[]>,
     private readonly providerContext: ProviderRequestContext | undefined,
-    private readonly semanticRecall: boolean
+    private readonly semanticRecall: boolean,
+    private readonly resourceRecall: boolean
   ) {}
 
   static async open(
     context: HostRunContext,
     options: StateStoreHostMemoryOptions
   ): Promise<StateStoreHostMemory> {
-    const semanticRecall = Boolean(options.native.options?.semanticRecall);
+    const recall = options.native.options?.semanticRecall;
+    const semanticRecall = Boolean(recall);
+    const resourceRecall =
+      semanticRecall && !(typeof recall === 'object' && recall.scope === 'thread');
     if (
       semanticRecall &&
       (!(options.native.vector && options.native.embedder) ||
@@ -59,8 +63,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     }
     // Snapshot configuration before constructing native run-owned resources.
     const providerContext = await options.providerRequestContext?.();
-    const readRows = async (): Promise<HostLogRow[]> =>
-      Promise.all((await options.store.readAll()).map((row) => readHostRow(options.store, row)));
+    const readRows = (): Promise<HostLogRow[]> => readResourceRows(context, options);
     const readTranscript = async (): Promise<MastraDBMessage[]> =>
       committedMemoryTranscript(await readRows(), options.resourceId);
     const identity = { ...context, resourceId: options.resourceId };
@@ -94,12 +97,17 @@ export class StateStoreHostMemory implements HostRunOwner {
       storage,
       readRows,
       providerContext,
-      semanticRecall
+      semanticRecall,
+      resourceRecall
     );
     try {
       await storage.init();
-      const rows = await readRows();
-      const committed = committedRunIdentity(rows, context.runId);
+      const inputRows = await Promise.all(
+        (await options.store.read(context.threadId, 0)).map((row) =>
+          readHostRow(options.store, row)
+        )
+      );
+      const committed = committedRunIdentity(inputRows, context.runId);
       if (!(await domain.getThreadById({ threadId: context.threadId }))) {
         await domain.saveThread({
           thread: {
@@ -111,6 +119,7 @@ export class StateStoreHostMemory implements HostRunOwner {
           },
         });
       }
+      const rows = await readRows();
       const currentIds = new Set(
         rows.flatMap((row) =>
           'runId' in row.event && row.event.runId === context.runId
@@ -207,7 +216,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     const historical: ModelMessage[] = [];
     for (const started of rows) {
       if (
-        (!this.semanticRecall && started.threadId !== this.identity.threadId) ||
+        (!this.resourceRecall && started.threadId !== this.identity.threadId) ||
         started.event.type !== 'run.started' ||
         started.event.runId === this.identity.runId
       ) {
@@ -320,4 +329,38 @@ export class StateStoreHostMemory implements HostRunOwner {
     })();
     return this.closing;
   }
+}
+
+/** Vendor metadata cannot authorize a Root thread for the acquired resource. */
+async function readResourceRows(
+  context: HostRunContext,
+  options: StateStoreHostMemoryOptions
+): Promise<HostLogRow[]> {
+  const snapshot = await options.store.memory({
+    operation: 'read',
+    ownerThreadId: context.threadId,
+    resourceId: options.resourceId,
+  });
+  const threads = new Set<string>();
+  for (const entity of snapshot.entities) {
+    if (entity.kind !== 'thread') {
+      continue;
+    }
+    if (
+      entity.threadId !== entity.id ||
+      entity.payload['id'] !== entity.id ||
+      entity.payload['resourceId'] !== options.resourceId
+    ) {
+      throw new Error('Durable Memory thread binding crossed its resource owner');
+    }
+    threads.add(entity.id);
+  }
+  if (!threads.has(context.threadId)) {
+    throw new Error('Acquired Memory thread has no durable resource binding');
+  }
+  return Promise.all(
+    (await options.store.readAll())
+      .filter((row) => threads.has(row.threadId))
+      .map((row) => readHostRow(options.store, row))
+  );
 }

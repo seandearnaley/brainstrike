@@ -116,6 +116,7 @@ async function fixture(options: {
   };
   let store = await StateStore.open(root, writerOptions);
   const models: MockLanguageModelV4[] = [];
+  const runResources = new Map<string, string>();
   const workingReads: { readonly threadId: string; readonly value: string | null }[] = [];
   let workingSeed: string | undefined;
   const embeddingCalls: string[][] = [];
@@ -155,7 +156,7 @@ async function fixture(options: {
           },
         },
         recordPrompt: async () => undefined,
-        resourceId,
+        resourceId: runResources.get(context.threadId) ?? resourceId,
         store,
       });
       if (workingSeed !== undefined) {
@@ -203,7 +204,8 @@ async function fixture(options: {
       core = await HostCore.open(store, platform, () => () => undefined);
     },
     resourceId,
-    async run(threadId: string, prompt: string): Promise<string> {
+    async run(threadId: string, prompt: string, selectedResourceId = resourceId): Promise<string> {
+      runResources.set(threadId, selectedResourceId);
       const { runId } = await core.startRun({
         commandId: randomUUID(),
         modelId: 'recorded-sdk-fixture',
@@ -374,3 +376,78 @@ test('empty semantic results preserve the bounded history window', async () => {
     await current.close();
   }
 });
+
+test.each([
+  ['foreign resource', 'resource', true],
+  ['foreign resource', 'thread', true],
+  ['foreign thread', 'thread', false],
+] as const)(
+  '%s vector hit cannot authorize %s recall',
+  async (_boundary, scope, separateResource) => {
+    const vector = new RecordedVectorCalls();
+    const current = await fixture({ semanticScope: scope, vector });
+    try {
+      const foreignResourceId = separateResource ? randomUUID() : current.resourceId;
+      const foreign = await current.core.startThread({ commandId: randomUUID() });
+      const foreignText = 'Foreign-resource committed fact: 5b4fa5cc.';
+      await current.run(foreign.threadId, foreignText, foreignResourceId);
+      const before = await current.core.read(foreign.threadId, 0);
+      const foreignMessage = committedMemoryTranscript(before, foreignResourceId).findLast(
+        (message) => message.role === 'assistant'
+      );
+      if (!foreignMessage) {
+        throw new Error('Foreign recorded SDK step has no committed assistant identity');
+      }
+      await current.reopen();
+      const foreignSnapshot = await current.store.memory({
+        operation: 'read',
+        resourceId: foreignResourceId,
+      });
+      expect(foreignSnapshot.entities).toContainEqual(
+        expect.objectContaining({
+          id: foreign.threadId,
+          kind: 'thread',
+          payload: expect.objectContaining({ resourceId: foreignResourceId }),
+          threadId: foreign.threadId,
+        })
+      );
+      const target = await current.core.startThread({ commandId: randomUUID() });
+      vector.results = [
+        {
+          id: foreignMessage.id,
+          metadata: {
+            message_id: foreignMessage.id,
+            resource_id: current.resourceId,
+            thread_id: foreign.threadId,
+          },
+          score: 1,
+        },
+      ];
+      await current.run(target.threadId, 'Recall only this resource.');
+      const targetSnapshot = await current.store.memory({
+        operation: 'read',
+        resourceId: current.resourceId,
+      });
+      expect(targetSnapshot.entities).toContainEqual(
+        expect.objectContaining({ id: target.threadId, kind: 'thread' })
+      );
+      expect(targetSnapshot.entities.some((entity) => entity.threadId === foreign.threadId)).toBe(
+        !separateResource
+      );
+      const prompt = current.models.at(-1)?.doStreamCalls[0]?.prompt;
+      expect(JSON.stringify(prompt)).not.toContain(foreignText);
+      expect(
+        prompt?.filter((message) => message.role !== 'system').map((message) => message.role)
+      ).toEqual(['user']);
+      expect(vector.queries.at(-1)?.filter).toEqual(
+        scope === 'resource' ? { resource_id: current.resourceId } : { thread_id: target.threadId }
+      );
+      expect((await current.core.read(foreign.threadId, 0)).slice(0, before.length)).toEqual(
+        before
+      );
+      expect(await current.store.check()).toEqual({ gaps: 0, integrity: 'ok' });
+    } finally {
+      await current.close();
+    }
+  }
+);
