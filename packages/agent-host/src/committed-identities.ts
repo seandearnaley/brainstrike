@@ -1,4 +1,4 @@
-import type { HostLogRow } from './protocol.js';
+import type { HostEvent, HostLogRow } from './protocol.js';
 
 export interface CommittedRunIdentity {
   readonly assistantMessageId: string;
@@ -12,17 +12,25 @@ export function committedRowAddress(row: Pick<HostLogRow, 'threadId' | 'seq'>): 
   return JSON.stringify([row.threadId, row.seq]);
 }
 
-/** Projections reuse the accepted input command and root run; no message ID writer. */
-export function committedRunIdentity(
+/** Canonical source rows, independent of a projection's timestamp requirement. */
+export function committedRunSource(
   rows: readonly HostLogRow[],
   runId: string
-): CommittedRunIdentity {
-  const started = rows.find((row) => row.event.type === 'run.started' && row.event.runId === runId);
-  if (started?.event.type !== 'run.started' || started.ts === undefined) {
-    throw new Error('Run identity requires its committed start and SQLite timestamp');
+): {
+  readonly started: HostLogRow & { readonly event: Extract<HostEvent, { type: 'run.started' }> };
+  readonly accepted: HostLogRow & {
+    readonly event: Extract<HostEvent, { type: 'command.accepted' }>;
+  };
+} {
+  const started = rows.find(
+    (row): row is HostLogRow & { event: Extract<HostEvent, { type: 'run.started' }> } =>
+      row.event.type === 'run.started' && row.event.runId === runId
+  );
+  if (!started) {
+    throw new Error('Run identity requires its committed start');
   }
   const accepted = rows.filter(
-    (row) =>
+    (row): row is HostLogRow & { event: Extract<HostEvent, { type: 'command.accepted' }> } =>
       row.threadId === started.threadId &&
       row.seq < started.seq &&
       row.event.type === 'command.accepted' &&
@@ -32,10 +40,11 @@ export function committedRunIdentity(
       !Array.isArray(row.event.result) &&
       row.event.result['runId'] === runId
   );
-  const command = accepted[0]?.event;
-  if (accepted.length !== 1 || command?.type !== 'command.accepted') {
+  const acceptance = accepted[0];
+  if (accepted.length !== 1 || !acceptance) {
     throw new Error('Run identity requires one committed start command');
   }
+  const command = acceptance.event;
   const payload = command.payload;
   if (
     payload === null ||
@@ -47,11 +56,23 @@ export function committedRunIdentity(
   ) {
     throw new Error('Run start does not match its committed command');
   }
+  return { accepted: acceptance, started };
+}
+
+/** Projections reuse the accepted input command and root run; no message ID writer. */
+export function committedRunIdentity(
+  rows: readonly HostLogRow[],
+  runId: string
+): CommittedRunIdentity {
+  const { started, accepted } = committedRunSource(rows, runId);
+  if (started.ts === undefined) {
+    throw new Error('Run identity requires its committed start and SQLite timestamp');
+  }
   return {
     assistantMessageId: runId,
     createdAt: new Date(started.ts),
     parentMessageId: previousCommittedMessage(rows, started),
-    userMessageId: command.commandId,
+    userMessageId: accepted.event.commandId,
   };
 }
 

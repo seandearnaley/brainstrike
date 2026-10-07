@@ -33,6 +33,31 @@ const Spool = z.object({
   type: z.string(),
 });
 
+export function hostEventSpool(
+  stored: Readonly<Record<string, unknown>>
+): z.output<typeof Spool> | undefined {
+  return 'blob' in stored ? Spool.parse(stored) : undefined;
+}
+
+/** Shared producer decoder; the caller owns asynchronous or worker-local blob IO. */
+export function decodeStoredHostEvent(
+  stored: Readonly<Record<string, unknown>>,
+  blob?: Uint8Array
+): HostEvent {
+  const spool = hostEventSpool(stored);
+  if (!spool) {
+    return HostEventSchema.parse(stored);
+  }
+  if (!(blob && blob.byteLength === spool.bytes && sha256Hex(Buffer.from(blob)) === spool.blob)) {
+    throw new Error('Committed host event blob is damaged');
+  }
+  const event = HostEventSchema.parse(JSON.parse(Buffer.from(blob).toString('utf8')));
+  if (event.type !== spool.type || ('runId' in event ? event.runId : undefined) !== spool.runId) {
+    throw new Error('Committed host event blob identity does not match its row');
+  }
+  return event;
+}
+
 /** Keep the existing event kind/run ID; StateStore owns blob durability and reference counting. */
 export function storedHostEvent(threadId: string, input: HostEvent): AppendItem {
   const event = HostEventSchema.parse(input);
@@ -56,20 +81,11 @@ export async function readHostRow(
   row: LogRow
 ): Promise<HostLogRow> {
   const { seq: _storedSeq, ...stored } = row.event;
-  let event: HostEvent;
-  if ('blob' in stored) {
-    const spool = Spool.parse(stored);
-    const bytes = await readFile(join(store.root, BLOBS_DIR, spool.blob));
-    if (bytes.byteLength !== spool.bytes || sha256Hex(bytes) !== spool.blob) {
-      throw new Error('Committed host event blob is damaged');
-    }
-    event = HostEventSchema.parse(JSON.parse(bytes.toString('utf8')));
-    if (event.type !== spool.type || ('runId' in event ? event.runId : undefined) !== spool.runId) {
-      throw new Error('Committed host event blob identity does not match its row');
-    }
-  } else {
-    event = HostEventSchema.parse(stored);
-  }
+  const spool = hostEventSpool(stored);
+  const event = decodeStoredHostEvent(
+    stored,
+    spool ? await readFile(join(store.root, BLOBS_DIR, spool.blob)) : undefined
+  );
   return {
     event,
     seq: row.seq,
