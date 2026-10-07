@@ -3,6 +3,7 @@
     {
       "target_name": "secure_fs_native",
       "sources": ["src/secure_fs.cc"],
+      "conditions": [["OS=='win'", { "libraries": ["Advapi32.lib"] }]],
       "include_dirs": ["<!@(node -p \"require('node-addon-api').include\")"],
       "defines": ["NAPI_CPP_EXCEPTIONS"],
       "cflags_cc": ["-Wall", "-Wextra", "-Werror"],

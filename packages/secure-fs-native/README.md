@@ -1,6 +1,6 @@
 # `@brainstrike/secure-fs-native`
 
-A read-only filesystem *capability* for Electron main-process code. A
+A filesystem *capability* for Electron main-process code. A
 `SecureRoot` pins one directory handle; the contract has three dimensions:
 
 **Identity.** The constructor is the only resolver. It opens the requested
@@ -39,6 +39,29 @@ surface truncation visibly. `readFile(relativePath, maxBytes)` applies its
 byte limit before returning content and distinguishes `not-found`,
 `oversized`, and fail-closed `unreadable`. The async methods preserve the
 same contracts on native workers.
+
+`readPrivateFileAsync(relativePath)` reads a regular file only after validating
+privacy on its opened handle: exact `0600` permissions on POSIX, or current-user
+ownership and a protected Windows DACL containing exactly one explicit owner
+FullControl ACE without inheritance. Missing files return `not-found`; unsafe
+or unreadable files return `unreadable`. Private reads have no additional size
+limit. POSIX opens are nonblocking so a FIFO is rejected without a writer.
+
+`writePrivateFileAsync(relativePath, content)` creates an exclusive temporary
+file beneath the pinned parent with private permissions before writing bytes,
+flushes it and atomically replaces the target in that same directory. Existing
+unsafe targets are refused. Completion joins all native I/O, handle closes and
+owned temporary-file cleanup; failures reject with `ERR_PRIVATE_FILE_OPERATION`
+without credential content. The caller owns serialization. Accepted private
+operations pin the root before queueing, so `close()` revokes later calls while
+accepted calls finish. No additional ownership restriction is imposed on POSIX.
+
+Root-establishment failures carry `ENOENT` only for a genuinely missing path;
+other failures carry `ERR_SECURE_FS_ROOT`. A trusted root may resolve symlinks
+as described above; descendants remain no-follow. Privacy is checked again
+after reads and before replacement, but this is not protection against an
+unrestricted malicious process with the same user identity mutating files or
+ACLs concurrently. No pathname fallback or competing credential queue exists.
 
 There is deliberately no path-based fallback. If the native binding or secure
 traversal is unavailable, callers receive an error/null result and must fail

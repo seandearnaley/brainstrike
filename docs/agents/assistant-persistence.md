@@ -386,7 +386,9 @@ budget, the meter denominator, and the instruction budget note. Never derive a s
   writer and reader must use the same key.
 - Both turn paths report usage: hosted through the data-stream `message-finish`
   tap, local through the llm-host result (guard its optional usage at the IPC
-  boundary).
+  boundary). New Root conversations project the latest committed `model.step`
+  into that same session-lived meter store. Replay restores that existing fact;
+  observer usage and billed cross-step totals never replace chat context usage.
 - Aggregate `inputTokens`/`outputTokens` are the durable billing totals;
   `contextInputTokens`/`contextOutputTokens` carry only the latest provider step
   and feed the meter. Never display a billed cross-step sum as context occupancy.

@@ -970,3 +970,79 @@ local/subscription capabilities, remaining interactions/catalog parity, actual
 new-Root assistant search, loaded p95, packaged qualification and full local
 regression remain open. Main and M2 remain frozen. **CI is disabled due to cost;
 validation must run locally.**
+
+### Protected-file caller and exact context meter — 7 October, 06:00 UTC
+
+The parent's final independent source review cleared all eight files of
+`c199f5eb3cbe0df34c16509142a29dea02931b09`, tree
+`bc18f6a7d354892ebc852e4e9fa2b8b3ffde5f05`. Mini then compiled that exact source
+on arm64/Node26.8.2: native **24 passed / 4 Windows-only skips**, desktop wrapper
+**6/6**, plus a Darwin replacement-failure check preserving previous bytes and
+0600 while cleaning temporary files. Windows leaf evidence is separately
+**24 passed / 4 POSIX skips**, wrapper **4 passed / 2 POSIX skips**. Those leaf
+receipts do not qualify the composed caller or packaged distribution.
+
+The reviewed leaf is composed on `cc58a1b9e` with the existing credential facade
+calling its read/write APIs. Canonical parsing, account keys, selected file
+identity, serialization and completion ownership remain with that facade.
+Adapter fixtures independently inspect Windows ownership/protected DACL/ACEs
+through the OS and exercise three unsafe ACL variants; POSIX cases still verify
+exact modes. Malformed JSON fixtures are privately created so their actual parser
+boundary is reached on both platforms. No negative cases were removed.
+
+The file contract assumes a trusted root and serialized caller. Replacement uses
+the pinned parent and is not compare-and-swap against the previous leaf. POSIX
+0600 adds no owner or extended-ACL audit. There is no directory crash-durability
+or rollback-after-close-failure guarantee. The documented unrestricted same-user
+namespace/ACL mutation limit remains; source and tests do not claim more.
+
+The context meter now reads the latest usable chat provider step from the same
+committed fold and publishes it directly through its source event handler into
+the existing session-lived meter store. It never uses observer usage or summed
+cross-step billing as chat context. Replay/reopen restore the captured fact;
+there is no additional persistent record or fact writer. Unknown/0-0 usage
+retains the existing latest usable value. The recorded rich-log regression first
+failed with no exact meter value; receipt
+`/tmp/brainstrike-m3-committed-context-meter-before-local.log`, **1 failure**,
+**1.71 s**. An earlier sandbox listener startup failure is separately retained.
+The React-effect attempt passed tests but failed the normal formatter rule;
+publication was moved to the real event handler, with no lint suppression.
+
+- From assistant-ui, `pnpm exec vitest run
+  src/__tests__/committed-assistant-log-runtime.test.tsx
+  src/__tests__/committed-assistant-log-projection.test.ts
+  src/__tests__/context-usage-store.test.ts`: **26/26**, **6.14 s**, final
+  event-handler implementation. The actual recorded four steps demonstrate
+  latest-step context **26 tokens**, distinct from the **104-token** sum, and
+  stable replay plus fresh reopen. Receipt
+  `/tmp/brainstrike-m3-committed-context-meter-event-after.log`.
+- `pnpm exec turbo run type-check --filter=@brainstrike/desktop`: **59/59**,
+  **34.131 s**, including native compilation and **731 desktop test files**.
+  Receipt `/tmp/brainstrike-m3-credential-context-composed-types-after.log`.
+  The preceding optional-property declaration error is retained and corrected.
+- From desktop, `pnpm exec vitest run --config vitest.integration.config.mts
+  src/__tests__/agent-host-adapter-services.integration.test.ts
+  -t '^(?!.*persisted MCP approval).*'`: **21 passed / 1 unselected**,
+  **485 ms bodies / 2.88 s lane**. This qualifies the actual composed caller,
+  canonical parser/reset, private file/FIFO and HTTP/MCP adapters on Studio
+  macOS; the gated A-to-B persisted-authority case remains unselected and red.
+  Receipt `/tmp/brainstrike-m3-private-credential-composed-adapter.log`.
+- From desktop, ordinary integration `-t normal`: **2 passed / 1 unselected**,
+  normal **9.783 s**, normal-OM **9.035 s**, **20.10 s lane**. The displayed
+  first completed chat context is exact **7 tokens**, with no estimate label;
+  replay after a new app process restores exact provenance. Normal-OM also
+  retains real observer requests and committed usage. Both cases preserve
+  native/MCP/context approval, denial, reconnect, Stop with physical native
+  exit, reload and reopen. Receipt
+  `/tmp/brainstrike-m3-credential-context-ordinary.log`; evidence
+  `Cmj8Hi-evidence` and `BNj0fj-evidence`, under the previously stated temporary
+  directory. Both cleanup receipts report errors `[]`, remaining `[]`, failure
+  `null`, Root released `true`. The Root utility-loss case remains unselected
+  and red. Studio's actual built arm64 addon SHA256 is
+  `68c59e10cdad0925e4511022514182adf437e24a072fab80336e03b7afbbae8c`.
+
+Changed integrated-source Windows qualification of the original nine adapter
+failures remains pending; do not substitute leaf passes. Final package/native
+provenance is also pending. Root/MCP owner gates, full regression and all other
+milestone frontier items remain open. **CI is disabled due to cost; validation
+must run locally.**

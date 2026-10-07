@@ -451,6 +451,12 @@ setInterval(() => {}, 1000);
           )
         ).toBe(true);
       }
+      await expect
+        .poll(async () => panel.getByTestId('context-usage-trigger').getAttribute('aria-label'))
+        .toBe('Context usage: 0% of input budget');
+      expect(await panel.getByTestId('context-usage-trigger').getAttribute('title')).toContain(
+        'context 7 /'
+      );
       checkpoint('ordinary-default-native-mcp-context-run-completed');
       model.setScript(
         withObserver((request) => {
@@ -705,6 +711,14 @@ setInterval(() => {}, 1000);
           reloadedRows.length
         )
       ).toEqual(reloadedRows);
+      await expect
+        .poll(async () =>
+          reopened
+            .getByTestId(`assistant-thread-panel-${threadId}`)
+            .getByTestId('context-usage-trigger')
+            .getAttribute('aria-label')
+        )
+        .toBe('Context usage: 0% of input budget');
       await writeFile(
         join(evidence, 'verdict.json'),
         JSON.stringify(

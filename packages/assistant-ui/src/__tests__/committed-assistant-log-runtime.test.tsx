@@ -21,6 +21,7 @@ import {
   CommittedAssistantLogStore,
 } from '../committed-assistant-log-store';
 import { selectCommittedAssistantTool } from '../committed-assistant-store';
+import { resetContextUsageStore, useContextUsageStore } from '../context-usage-store';
 import { ToolFallback } from '../tool-fallback';
 import { ToolResultRendererProvider } from '../tool-result-renderer-context';
 import {
@@ -108,12 +109,66 @@ function store(source: OwnerSource): CommittedAssistantLogStore {
 }
 afterEach(() => {
   cleanup();
+  resetContextUsageStore();
   for (const value of stores.splice(0)) {
     value.dispose();
   }
 });
 
 describe('real committed owner fold to production ExternalStore bridge', () => {
+  it('displays only the latest committed provider step as context through replay and reopen', async () => {
+    const firstStep = rows.findIndex(({ event }) => event.type === 'model.step');
+    const source = new OwnerSource();
+    source.fold.accept(rows.slice(0, firstStep));
+    const bridge = store(source);
+    const surface = render(
+      <TooltipProvider>
+        <CommittedAssistantConversation
+          commands={{ onNew: vi.fn() }}
+          contextWindow={1000}
+          effectiveInputBudget={800}
+          label="Recorded host context"
+          store={bridge}
+        />
+      </TooltipProvider>
+    );
+    expect(useContextUsageStore.getState().usageByThread[threadId]).toBeUndefined();
+    await act(async () => {
+      source.fold.accept(rows.slice(firstStep));
+    });
+    // Four recorded model steps each report 1 input / 25 output. The meter
+    // reports the latest step's 26 tokens, not the 104-token billed sum.
+    expect(useContextUsageStore.getState().usageByThread[threadId]).toEqual({
+      inputTokens: 1,
+      outputTokens: 25,
+    });
+    expect(screen.getByRole('button', { name: 'Context usage: 3% of input budget' })).toBeTruthy();
+    const usage = useContextUsageStore.getState().usageByThread[threadId];
+    await act(async () => {
+      source.fold.accept(structuredClone(rows));
+    });
+    expect(useContextUsageStore.getState().usageByThread[threadId]).toBe(usage);
+    surface.unmount();
+    resetContextUsageStore();
+    const reopened = new OwnerSource();
+    reopened.fold.accept(rows);
+    render(
+      <TooltipProvider>
+        <CommittedAssistantConversation
+          commands={{ onNew: vi.fn() }}
+          contextWindow={1000}
+          effectiveInputBudget={800}
+          label="Reopened host context"
+          store={store(reopened)}
+        />
+      </TooltipProvider>
+    );
+    expect(useContextUsageStore.getState().usageByThread[threadId]).toEqual({
+      inputTokens: 1,
+      outputTokens: 25,
+    });
+  });
+
   it('answers a recorded host approval through visible vendor controls and waits for committed resolution', async () => {
     const request = rows.findIndex(({ event }) => event.type === 'interaction.requested');
     const requested = rows[request];

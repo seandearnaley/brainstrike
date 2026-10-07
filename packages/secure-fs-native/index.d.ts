@@ -17,6 +17,10 @@ export type SecureReadResult =
   | { readonly status: 'ok'; readonly content: Buffer }
   | { readonly status: 'not-found' | 'oversized' | 'unreadable' };
 
+export type PrivateReadResult =
+  | { readonly status: 'ok'; readonly content: Buffer }
+  | { readonly status: 'not-found' | 'unreadable' };
+
 export class SecureRoot {
   constructor(canonicalAbsoluteRoot: string);
   /**
@@ -30,4 +34,6 @@ export class SecureRoot {
   listDirAsync(relativePath: string, maxEntries: number): Promise<SecureListResult | null>;
   readFile(relativePath: string, maxBytes: number): SecureReadResult;
   readFileAsync(relativePath: string, maxBytes: number): Promise<SecureReadResult>;
+  readPrivateFileAsync(relativePath: string): Promise<PrivateReadResult>;
+  writePrivateFileAsync(relativePath: string, content: Buffer): Promise<void>;
 }

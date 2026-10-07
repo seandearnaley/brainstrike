@@ -2,17 +2,7 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import {
-  chmod,
-  mkdtemp,
-  open,
-  readdir,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from 'node:fs/promises';
+import { chmod, mkdtemp, open, readdir, readFile, rm, stat, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,6 +42,7 @@ import {
   createFileCredentialBackend,
   isMcpOAuthCredentialAccount,
 } from '../agent-host-platform/adapter-services';
+import { writePrivateCredentialFile } from '../agent-host-platform/private-credential-file';
 import { createProductionAgentHostAdapterServicesFactory } from '../agent-host-platform/production-adapter-services';
 import { mcpBearerCredentialStorageKey } from '../mcp/bearer-credential';
 import { createCredentialMcpOAuthStore } from '../mcp/credential-oauth-store';
@@ -63,6 +54,86 @@ import {
 } from '../mcp/oauth-client-provider';
 
 const roots = new Set<string>();
+
+const WindowsFilePrivacySchema = z.object({
+  current: z.string(),
+  owner: z.string(),
+  protected: z.boolean(),
+  rules: z.array(
+    z.object({
+      inheritance: z.number(),
+      inherited: z.boolean(),
+      propagation: z.number(),
+      rights: z.number(),
+      sid: z.string(),
+      type: z.string(),
+    })
+  ),
+});
+type FilePrivacy =
+  | { readonly kind: 'posix'; readonly mode: number }
+  | ({ readonly kind: 'windows' } & z.output<typeof WindowsFilePrivacySchema>);
+type WindowsPrivacyMutation = 'extra-principal' | 'insufficient-rights' | 'unprotected';
+
+async function filePrivacy(path: string, mutation?: WindowsPrivacyMutation): Promise<FilePrivacy> {
+  if (process.platform !== 'win32') {
+    return { kind: 'posix', mode: (await stat(path)).mode & 0o777 };
+  }
+  // Independent OS inspection of only this disposable fixture, not the native
+  // verifier being tested. Secret bytes and user Keychain state are not read.
+  const command = `
+$ErrorActionPreference = 'Stop'
+$info = [System.IO.FileInfo]::new($env:BS_M3_CREDENTIAL_FILE)
+$sections = [System.Security.AccessControl.AccessControlSections]::Access -bor [System.Security.AccessControl.AccessControlSections]::Owner
+$acl = $info.GetAccessControl($sections)
+$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+switch ($env:BS_M3_CREDENTIAL_MUTATION) {
+ 'extra-principal' { $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new([System.Security.Principal.SecurityIdentifier]::new('S-1-1-0'),[System.Security.AccessControl.FileSystemRights]::Read,[System.Security.AccessControl.AccessControlType]::Allow)) }
+ 'insufficient-rights' { $acl.SetAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($sid,[System.Security.AccessControl.FileSystemRights]::Read,[System.Security.AccessControl.AccessControlType]::Allow)) }
+ 'unprotected' { $acl.SetAccessRuleProtection($false,$true) }
+}
+if ($env:BS_M3_CREDENTIAL_MUTATION) { $info.SetAccessControl($acl); $acl = $info.GetAccessControl($sections) }
+$rules = @($acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]) | ForEach-Object { [ordered]@{ sid=$_.IdentityReference.Value; rights=[int]$_.FileSystemRights; inherited=$_.IsInherited; inheritance=[int]$_.InheritanceFlags; propagation=[int]$_.PropagationFlags; type=$_.AccessControlType.ToString() } })
+[ordered]@{ owner=$acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value; current=$sid.Value; protected=$acl.AreAccessRulesProtected; rules=@($rules) } | ConvertTo-Json -Depth 4 -Compress
+`;
+  const { stdout } = await promisify(execFile)(
+    'powershell.exe',
+    ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command],
+    {
+      env: {
+        ...process.env,
+        BS_M3_CREDENTIAL_FILE: path,
+        BS_M3_CREDENTIAL_MUTATION: mutation ?? '',
+      },
+      windowsHide: true,
+    }
+  );
+  return { kind: 'windows', ...WindowsFilePrivacySchema.parse(JSON.parse(stdout)) };
+}
+
+async function expectPrivateFile(path: string): Promise<void> {
+  const privacy = await filePrivacy(path);
+  if (privacy.kind === 'posix') {
+    expect(privacy.mode).toBe(0o600);
+    return;
+  }
+  expect(privacy).toEqual({
+    current: privacy.current,
+    kind: 'windows',
+    owner: privacy.current,
+    protected: true,
+    rules: [
+      {
+        inheritance: 0,
+        inherited: false,
+        propagation: 0,
+        rights: 2_032_127,
+        sid: privacy.current,
+        type: 'Allow',
+      },
+    ],
+  });
+}
 const memoryCalculatorModule = fileURLToPath(
   new URL('./adapters/memory-storage-calculator.js', import.meta.resolve('@brainstrike/agent-host'))
 );
@@ -775,7 +846,7 @@ describe('explicit private credential file backend', () => {
       secrets.saveKey('openai', 'owned-fixture-key'),
       oauth.write(identity, records),
     ]);
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    await expectPrivateFile(path);
     const saved: unknown = JSON.parse(await readFile(path, 'utf8'));
     expect(saved).toEqual({
       records: { [identityKey(identity)]: JSON.stringify(records) },
@@ -809,13 +880,20 @@ describe('explicit private credential file backend', () => {
     await expect(oauth.read(identity)).resolves.toEqual(records);
   });
 
-  it.each([0o644, 0o400, 0o700])(
-    'refuses existing mode %i without changing contents or permissions',
-    async (mode) => {
+  it.each([
+    { mode: 0o644, mutation: 'extra-principal' },
+    { mode: 0o400, mutation: 'insufficient-rights' },
+    { mode: 0o700, mutation: 'unprotected' },
+  ] as const)(
+    'refuses a nonprivate file ($mode / $mutation) without changing contents or permissions',
+    async ({ mode, mutation }) => {
       const { credentials, path, secrets } = await fixture();
       const raw = JSON.stringify({ records: {}, secrets: {}, version: 1 });
-      await writeFile(path, raw, { mode: 0o600 });
-      await chmod(path, mode);
+      await writePrivateCredentialFile(path, raw);
+      if (process.platform !== 'win32') {
+        await chmod(path, mode);
+      }
+      const before = await filePrivacy(path, mutation);
       await expect(secrets.getCredential('openai')).rejects.toMatchObject({
         code: 'decrypt_failed',
         name: 'SecretReadError',
@@ -824,7 +902,7 @@ describe('explicit private credential file backend', () => {
         code: 'credential_store_unavailable',
       });
       expect(await readFile(path, 'utf8')).toBe(raw);
-      expect((await stat(path)).mode & 0o777).toBe(mode);
+      expect(await filePrivacy(path)).toEqual(before);
     }
   );
 
@@ -838,7 +916,7 @@ describe('explicit private credential file backend', () => {
     'leaves malformed and legacy files untouched instead of migrating or falling back',
     async (raw) => {
       const { credentials, path } = await fixture();
-      await writeFile(path, raw, { mode: 0o600 });
+      await writePrivateCredentialFile(path, raw);
       await expect(credentials.read('openai')).rejects.toMatchObject({
         code: 'credential_store_unavailable',
       });
@@ -892,7 +970,7 @@ describe('explicit private credential file backend', () => {
     const { credentials, path, root } = await fixture();
     const target = join(root, 'owned-target.json');
     const raw = JSON.stringify({ records: {}, secrets: {}, version: 1 });
-    await writeFile(target, raw, { mode: 0o600 });
+    await writePrivateCredentialFile(target, raw);
     await symlink(target, path);
     await expect(credentials.read('openai')).rejects.toMatchObject({
       code: 'credential_store_unavailable',
@@ -910,7 +988,7 @@ describe('explicit private credential file backend', () => {
   it('classifies corrupt JSON without retaining parser exceptions containing credential bytes', async () => {
     const { credentials, path } = await fixture();
     const marker = 'owned-disposable-secret-marker';
-    await writeFile(path, marker, { mode: 0o600 });
+    await writePrivateCredentialFile(path, marker);
     const failure: unknown = await credentials.read('openai').catch((error: unknown) => error);
     expect(failure).toMatchObject({
       cause: { code: 'credential_file_malformed', name: 'CredentialFileFormatError' },

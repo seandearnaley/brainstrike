@@ -8,6 +8,7 @@ import type {
   CommittedAssistantSnapshot,
   CommittedAssistantStore,
 } from './committed-assistant-store';
+import { type ThreadTokenUsage, useContextUsageStore } from './context-usage-store';
 
 /** Owner view fields pass through; this source has already applied committed gap ordering. */
 export interface CommittedAssistantLogSourceSnapshot extends HostThreadSnapshot {
@@ -42,12 +43,18 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
   constructor(options: CommittedAssistantLogStoreOptions) {
     this.threadId = options.threadId;
     this.projection = new CommittedAssistantLogProjection(options);
+    let displayedContext: ThreadTokenUsage | undefined;
     const read = (): CommittedAssistantSnapshot => {
       const source = options.source.getSnapshot();
       const view = this.projection.acceptCommitted(source.rows);
+      if (view.contextUsage && view.contextUsage !== displayedContext) {
+        displayedContext = view.contextUsage;
+        useContextUsageStore.getState().recordUsage(this.threadId, displayedContext);
+      }
       return {
         connection:
           source.error === undefined ? (source.connected ? 'connected' : 'disconnected') : 'failed',
+        contextUsage: view.contextUsage,
         error: source.error,
         extras: source.extras,
         isDisabled: source.isDisabled,
@@ -63,6 +70,7 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
       const previous = this.snapshot;
       if (
         next.repository === previous.repository &&
+        next.contextUsage === previous.contextUsage &&
         next.connection === previous.connection &&
         next.error === previous.error &&
         next.extras === previous.extras &&

@@ -1,7 +1,8 @@
 /**
  * Per-thread exact token usage from provider finish chunks (session-lived,
- * deliberately NOT persisted — after reload the meter falls back to the
- * heuristic estimate until the next turn reports exact usage).
+ * deliberately NOT persisted. Legacy streams fall back to an estimate after
+ * reload; a committed host view restores the latest captured provider step
+ * from its owner's run log without creating another persistent usage record.
  *
  * The stored value is the latest provider step's prompt plus completion. Hosted
  * multi-step runs keep this provider-effective context separate from aggregate

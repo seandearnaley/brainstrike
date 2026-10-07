@@ -5,6 +5,7 @@ import {
   type ThreadMessage,
 } from '@assistant-ui/react';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
+import type { ThreadTokenUsage } from './context-usage-store';
 
 /** Structural consumer boundary for the owner's validated HostLogRow, not a wire schema. */
 export interface CommittedAssistantLogRow {
@@ -38,6 +39,8 @@ export interface CommittedAssistantPendingInteraction {
 
 export interface CommittedAssistantLogView {
   readonly activeRunId: string | undefined;
+  /** Latest chat provider step, never aggregate billing or observer usage. */
+  readonly contextUsage?: ThreadTokenUsage | undefined;
   readonly isRunning: boolean;
   readonly pendingInteractions: readonly CommittedAssistantPendingInteraction[];
   readonly repository: ExportedMessageRepository;
@@ -481,6 +484,24 @@ export class CommittedAssistantLogProjection {
     }
     if (event['type'] === 'stream.chunk') {
       this.stream(run, row);
+    } else if (event['type'] === 'model.step') {
+      const usage = record(event['usage']);
+      const inputTokens = usage?.['inputTokens'];
+      const outputTokens = usage?.['outputTokens'];
+      if (
+        typeof inputTokens === 'number' &&
+        typeof outputTokens === 'number' &&
+        Number.isFinite(inputTokens) &&
+        Number.isFinite(outputTokens) &&
+        inputTokens >= 0 &&
+        outputTokens >= 0 &&
+        inputTokens + outputTokens > 0 &&
+        (this.view.contextUsage?.inputTokens !== inputTokens ||
+          this.view.contextUsage.outputTokens !== outputTokens)
+      ) {
+        this.view = { ...this.view, contextUsage: { inputTokens, outputTokens } };
+      }
+      this.data(run, row, event, 'brainstrike.host-event');
     } else if (event['type'] === 'interaction.requested') {
       const id = this.tool(run, event, true);
       const interactionId = requiredString(event, 'interactionId');

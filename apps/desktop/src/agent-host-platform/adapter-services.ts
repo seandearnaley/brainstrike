@@ -1,7 +1,4 @@
-import { randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
-import { open, rename, unlink } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import { createMcpRuntimeClient, type McpRuntimeClient } from '@brainstrike/agent/mcp-client';
 import {
   guardToolExecution,
@@ -30,6 +27,7 @@ import type { McpElicitationPresenterAuthority } from '../mcp/elicitation-presen
 import { McpHostRuntime, type McpHostRuntimeDependencies } from '../mcp/node-host-runtime';
 import { identityKey, parseRecords } from '../mcp/oauth-client-provider';
 import type { AgentHostAdapterServices, AgentHostAdapterServicesOptions } from './contracts';
+import { readPrivateCredentialFile, writePrivateCredentialFile } from './private-credential-file';
 
 type CanonicalTools = NonNullable<RuntimeData['mastraTools']>;
 type ExecutableMcpBindings = HostMcpToolSelection['bindings'];
@@ -423,10 +421,6 @@ function parseFileCredentialRecords(raw: string): FileCredentialRecords {
   return { records: parsed['records'], secrets: parsed['secrets'], version: 1 };
 }
 
-function isMissingFile(error: unknown): boolean {
-  return isRecord(error) && error['code'] === 'ENOENT';
-}
-
 /** The shipped OAuth identity is a SHA-256 hex key, with no new account prefix. */
 export function isMcpOAuthCredentialAccount(account: string): boolean {
   return /^[a-f0-9]{64}$/u.test(account);
@@ -449,67 +443,14 @@ export function createFileCredentialBackend(path: string): KeyringCredentialBack
   };
 
   const read = async (): Promise<FileCredentialRecords> => {
-    let handle: Awaited<ReturnType<typeof open>>;
-    try {
-      // A FIFO must reach descriptor validation without waiting for a writer.
-      handle = await open(
-        file,
-        constants.O_RDONLY | constants.O_NOFOLLOW | (constants.O_NONBLOCK ?? 0)
-      );
-    } catch (error) {
-      if (isMissingFile(error)) {
-        return { records: {}, secrets: {}, version: 1 };
-      }
-      throw error;
-    }
-    try {
-      const metadata = await handle.stat();
-      if (!metadata.isFile() || (metadata.mode & 0o777) !== 0o600) {
-        throw new Error('The configured credential file requires private file permissions (0600).');
-      }
-      return parseFileCredentialRecords(await handle.readFile('utf8'));
-    } finally {
-      await handle.close();
-    }
+    const content = await readPrivateCredentialFile(file);
+    return content === undefined
+      ? { records: {}, secrets: {}, version: 1 }
+      : parseFileCredentialRecords(content);
   };
 
   const write = async (records: FileCredentialRecords): Promise<void> => {
-    const temporary = join(dirname(file), `.${basename(file)}.${randomUUID()}.tmp`);
-    const handle = await open(
-      temporary,
-      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
-      0o600
-    );
-    let replaced = false;
-    let failed = false;
-    let failure: unknown;
-    try {
-      await handle.chmod(0o600);
-      await handle.writeFile(JSON.stringify(records), 'utf8');
-      await handle.sync();
-      await handle.close();
-      await rename(temporary, file);
-      replaced = true;
-    } catch (error) {
-      failed = true;
-      failure = error;
-    }
-    const cleanup = await Promise.allSettled([
-      handle.close(),
-      ...(replaced ? [] : [unlink(temporary)]),
-    ]);
-    const failures = cleanup.flatMap((result) =>
-      result.status === 'rejected' ? [result.reason] : []
-    );
-    if (failed) {
-      failures.unshift(failure);
-    }
-    if (failures.length === 1) {
-      throw failures[0];
-    }
-    if (failures.length > 1) {
-      throw new AggregateError(failures, 'Credential file cleanup failed.');
-    }
+    await writePrivateCredentialFile(file, JSON.stringify(records));
   };
 
   const section = (account: string): 'records' | 'secrets' =>

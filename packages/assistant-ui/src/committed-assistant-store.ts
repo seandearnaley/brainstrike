@@ -5,10 +5,12 @@ import {
   MessageNotSentError,
   type ThreadMessage,
 } from '@assistant-ui/react';
+import type { ThreadTokenUsage } from './context-usage-store';
 
 /** Published by the host's committed fold. Messages and parts retain the fold's identities. */
 export interface CommittedAssistantSnapshot {
   readonly connection: 'connecting' | 'connected' | 'disconnected' | 'failed';
+  readonly contextUsage?: ThreadTokenUsage | undefined;
   readonly error?: string | undefined;
   /** Child origins, runtime identity and other owner-provided view fields pass through unchanged. */
   readonly extras?: unknown;
