@@ -45,7 +45,7 @@ async function routeRecordedModelMetadata(application: ElectronApplication): Pro
     });
   });
 }
-test.for(['normal', 'normal-om', 'utility-loss'] as const)(
+test.for(['normal', 'normal-om', 'utility-loss', 'human-interactions'] as const)(
   'ordinary desktop owns the first M3 Root, New Thread, CLI attachment and reopen (%s)',
   { timeout: getAdjustedTimeout('e2e') },
   async (fault, context) => {
@@ -397,7 +397,6 @@ setInterval(() => {}, 1000);
         )
         .toBe(true);
       await expect(readFile(join(workspace, 'permitted.txt'), 'utf8')).rejects.toThrow();
-      await page.getByRole('button', { exact: true, name: 'Expand activity' }).first().click();
       await page
         .getByRole('button', { exact: true, name: 'Approve brainstrike_writeWorkspaceFile' })
         .click();
@@ -458,6 +457,88 @@ setInterval(() => {}, 1000);
         'context 7 /'
       );
       checkpoint('ordinary-default-native-mcp-context-run-completed');
+      if (fault === 'human-interactions') {
+        model.setScript((request) => {
+          providerRequests.push(request);
+          return {
+            finalText: 'The selected environments and plan feedback were received.',
+            toolCallStages: [
+              [
+                {
+                  arguments: {
+                    options: [{ label: 'Local' }, { label: 'Preview' }],
+                    question: 'Which environments should we inspect?',
+                    selectionMode: 'multi_select',
+                  },
+                  name: 'brainstrike_askUser',
+                },
+              ],
+              [
+                {
+                  arguments: {
+                    overview: 'Inspect before changing files.',
+                    steps: [{ title: 'Read the selected configuration' }],
+                    title: 'Inspect selected environments',
+                  },
+                  name: 'brainstrike_submitPlan',
+                },
+              ],
+            ],
+          };
+        });
+        await input.fill('Ask which environments to inspect, then submit the inspection plan.');
+        await input.press('Enter');
+        await expect
+          .poll(async () =>
+            (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
+              ({ event }) => event.type === 'interaction.requested' && event.kind === 'question'
+            )
+          )
+          .toBe(true);
+        await page.reload();
+        await ensureAssistantShellVisible(page);
+        const question = panel.getByRole('group', { name: 'Question for you' });
+        await question.getByLabel('Local', { exact: true }).check();
+        await question.getByLabel('Preview', { exact: true }).check();
+        await question.getByRole('button', { exact: true, name: 'Send answer' }).click();
+        const plan = panel.getByRole('group', { name: 'Plan decision' });
+        await plan
+          .getByRole('textbox', { name: 'Plan feedback' })
+          .fill('Read configuration before proposing edits.');
+        await plan.getByRole('button', { exact: true, name: 'Reject plan' }).click();
+        await expect
+          .poll(
+            async () =>
+              (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.filter(
+                ({ event }) => event.type === 'run.finished' && event.outcome === 'completed'
+              ).length
+          )
+          .toBe(2);
+        committed = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
+        expect(
+          committed
+            .filter(({ event }) => event.type === 'interaction.responded' && 'resumeData' in event)
+            .map(({ event }) =>
+              event.type === 'interaction.responded' && 'resumeData' in event
+                ? event.resumeData
+                : null
+            )
+        ).toEqual([
+          { answer: ['Local', 'Preview'] },
+          { action: 'rejected', feedback: 'Read configuration before proposing edits.' },
+        ]);
+        expect(
+          committed
+            .filter(({ event }) => event.type === 'effect.finished')
+            .map(({ event }) => (event.type === 'effect.finished' ? event.output : null))
+        ).toEqual(
+          expect.arrayContaining([
+            { answer: 'Local, Preview' },
+            { feedback: 'Read configuration before proposing edits.', status: 'rejected' },
+          ])
+        );
+        checkpoint('ordinary-canonical-question-plan-answered-after-reload');
+      }
       model.setScript(
         withObserver((request) => {
           providerRequests.push(request);
@@ -483,8 +564,7 @@ setInterval(() => {}, 1000);
               ({ event }) => event.type === 'interaction.requested'
             ).length
         )
-        .toBe(2);
-      await page.getByRole('button', { exact: true, name: 'Expand activity' }).last().click();
+        .toBe(fault === 'human-interactions' ? 4 : 2);
       await page
         .getByRole('button', { exact: true, name: 'Decline brainstrike_writeWorkspaceFile' })
         .click();
@@ -495,7 +575,7 @@ setInterval(() => {}, 1000);
               ({ event }) => event.type === 'run.finished'
             ).length
         )
-        .toBe(2);
+        .toBe(fault === 'human-interactions' ? 3 : 2);
       await expect(stat(join(workspace, 'denied.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
       checkpoint('ordinary-denied-effect-refused');
 
@@ -520,8 +600,7 @@ setInterval(() => {}, 1000);
               ({ event }) => event.type === 'interaction.requested'
             ).length
         )
-        .toBe(3);
-      await page.getByRole('button', { exact: true, name: 'Expand activity' }).last().click();
+        .toBe(fault === 'human-interactions' ? 5 : 3);
       await page
         .getByRole('button', { exact: true, name: 'Approve brainstrike_executeCommand' })
         .click();

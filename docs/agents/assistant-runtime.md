@@ -20,9 +20,11 @@
 ## Native suspension completion
 
 The committed M3 conversation uses the public assistant-ui approval command for
-host interaction IDs. Generic tool cards expose pending decision controls in
-the existing activity disclosure; only a committed response resolves the card.
-This view does not validate, persist or execute an approval.
+host interaction IDs. Approval-bearing tool cards stay outside the activity
+disclosure, including answered history. Questions and plans submit the canonical
+typed payload through `interaction/resume`; Core validates it before committing
+the response and executing the canonical tool. Only that committed response
+resolves the card. The view does not persist or execute an interaction.
 
 - Await Mastra's public `getFullOutput()` on the initial, approval-resume and
   suspended-tool-resume legs before publishing a terminal pause or completion.
@@ -808,7 +810,8 @@ The assistant message renders its parts through `MessagePrimitive.GroupedParts`
 `groupAssistantActivityPart` (`assistant-activity-grouping.ts`) as the grouper.
 The library's legacy `components.ChainOfThought` path is gone and must not return.
 
-- Grouping: `reasoning` / `tool-call` join the activity group;
+- Grouping: `reasoning` / tool calls without public `approval` join the activity group;
+  approval-bearing calls stay standalone at their committed interaction boundary;
   `brainstrike.run-event` is group-transparent EXCEPT `isAlwaysVisibleRunEvent`
   kinds, which stay standalone so a collapsed group can never hide a failed or
   cancelled run, a skipped MCP server, or a pending approval; shell-output,

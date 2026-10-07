@@ -13,15 +13,20 @@ export function createHostSdkTools(options: {
 }): ToolSet {
   const tools: ToolSet = {};
   for (const [id, registered] of Object.entries(options.tools)) {
-    tools[id] = tool({
+    const definition = {
       description: registered.description,
-      execute: (input, context) => options.execute(id, context.toolCallId, input),
       inputSchema: approvalRuntimeSchema(registered.inputSchema, (rawInput) =>
         options.admittedInput(id, rawInput)
       ),
       ...(registered.strict === undefined ? {} : { strict: registered.strict }),
-      ...(registered.toModelOutput ? { toModelOutput: registered.toModelOutput } : {}),
-    });
+    };
+    tools[id] = registered.interaction
+      ? tool(definition)
+      : tool({
+          ...definition,
+          execute: (input, context) => options.execute(id, context.toolCallId, input),
+          ...(registered.toModelOutput ? { toModelOutput: registered.toModelOutput } : {}),
+        });
   }
   return tools;
 }

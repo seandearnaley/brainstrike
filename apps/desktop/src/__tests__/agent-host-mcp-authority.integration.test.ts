@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CEILING_SCALED_TOOL_RESULT_BUDGET } from '@brainstrike/agent';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
@@ -50,9 +50,9 @@ async function compositionRoot(_memory: boolean) {
 }
 
 describe('persisted configured MCP authority', () => {
-  it.skipIf(process.platform === 'win32')(
-    'refuses a changed real stdio command before approval and joins both owned children',
-    async () => {
+  it.skipIf(process.platform === 'win32').each(['absolute-command', 'inherited-path'] as const)(
+    'refuses a changed real stdio authority before approval and joins both children (%s)',
+    async (change) => {
       const { root, startup } = await compositionRoot(true);
       let store = startup.store;
       const script = fileURLToPath(
@@ -61,7 +61,9 @@ describe('persisted configured MCP authority', () => {
       const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
       const commands = await Promise.all(
         ['first', 'replacement'].map(async (label) => {
-          const command = join(root, `${label}-mcp`);
+          const directory = join(root, label);
+          await mkdir(directory);
+          const command = join(directory, 'authority-probe');
           const pidFile = join(root, `${label}.pid`);
           const stateFile = join(root, `${label}.json`);
           await writeFile(
@@ -69,13 +71,14 @@ describe('persisted configured MCP authority', () => {
             `#!/bin/sh\nexport BRAINSTRIKE_STDIO_TEST_PID_FILE=${quote(pidFile)}\nexport BRAINSTRIKE_STDIO_TEST_STATE_FILE=${quote(stateFile)}\nexec ${quote(process.execPath)} ${quote(script)}\n`
           );
           await chmod(command, 0o700);
-          return { command, pidFile };
+          return { command, pidFile, stateFile };
         })
       );
       const [first, replacement] = commands;
       if (!(first && replacement)) {
         throw new Error('Owned stdio commands were not prepared');
       }
+      let proveLiveCommand = change === 'inherited-path';
       const openPlatform = async (command: string) => {
         const services = await createAgentHostAdapterServicesFactory(fixtureCapabilities)({
           appUi: 'text',
@@ -101,6 +104,23 @@ describe('persisted configured MCP authority', () => {
         disposers.add(services.close);
         const selected = await services.mcp.executableTools(fixtureToolRequest);
         const name = Object.keys(selected.bindings)[0];
+        if (proveLiveCommand && name) {
+          proveLiveCommand = false;
+          await selected.bindings[name]!.tool.execute(
+            {},
+            {
+              runId: 'owned-live-command',
+              signal: new AbortController().signal,
+              threadId: 'owned-live-thread',
+              toolCallId: 'owned-live-call',
+            }
+          );
+          expect(
+            z
+              .object({ toolCalls: z.number() })
+              .parse(JSON.parse(await readFile(first.stateFile, 'utf8'))).toolCalls
+          ).toBe(1);
+        }
         await selected.close();
         if (!name) {
           throw new Error('Real stdio fixture did not publish a tool');
@@ -131,9 +151,13 @@ describe('persisted configured MCP authority', () => {
           startup: { ...startup, store },
         });
       };
+      const previousPath = process.env['PATH'];
+      if (change === 'inherited-path') {
+        process.env['PATH'] = `${dirname(first.command)}${delimiter}${previousPath ?? ''}`;
+      }
       let core = await HostCore.open(
         store,
-        await openPlatform(first.command),
+        await openPlatform(change === 'inherited-path' ? 'authority-probe' : first.command),
         () => () => undefined
       );
       try {
@@ -166,24 +190,45 @@ describe('persisted configured MCP authority', () => {
         await store.close();
         store = await StateStore.open(root, { memoryCalculatorModule });
         disposers.add(() => store.close());
+        if (change === 'inherited-path') {
+          process.env['PATH'] = `${dirname(replacement.command)}${delimiter}${previousPath ?? ''}`;
+        }
         core = await HostCore.open(
           store,
-          await openPlatform(replacement.command),
+          await openPlatform(change === 'inherited-path' ? 'authority-probe' : replacement.command),
           () => () => undefined
         );
         const replacementPid = Number(await readFile(replacement.pidFile, 'utf8'));
         expect(process.kill(replacementPid, 0)).toBe(true);
-        await expect(
-          core.respond({
+        let refusal: unknown;
+        try {
+          await core.respond({
             commandId: randomUUID(),
             decision: 'approve',
             interactionId,
             runId,
             threadId,
-          })
-        ).rejects.toMatchObject({
+          });
+        } catch (cause) {
+          refusal = cause;
+        }
+        if (!refusal) {
+          await expect
+            .poll(async () =>
+              (await core.read(threadId, 0)).some(({ event }) => event.type === 'run.finished')
+            )
+            .toBe(true);
+        }
+        const replacementState = z
+          .object({ toolCalls: z.number().default(0) })
+          .parse(JSON.parse(await readFile(replacement.stateFile, 'utf8')));
+        expect(replacementState.toolCalls).toBe(0);
+        expect(refusal).toMatchObject({
           code: 'mcp-authority-reconstruction-refused',
-          reason: 'configuration-changed',
+          reason:
+            change === 'inherited-path'
+              ? 'private-comparison-unavailable'
+              : 'configuration-changed',
         });
         expect(
           (await core.read(threadId, 0)).filter(({ event }) => event.type === 'effect.started')
@@ -191,16 +236,31 @@ describe('persisted configured MCP authority', () => {
         await core.close();
         expect(() => process.kill(replacementPid, 0)).toThrow();
       } finally {
+        if (previousPath === undefined) {
+          delete process.env['PATH'];
+        } else {
+          process.env['PATH'] = previousPath;
+        }
         await core.close();
         await store.close();
       }
     }
   );
-  it.each(['endpoint', 'unchanged', 'credential', 'private-header', 'bearer-unchanged'] as const)(
+  it.each([
+    'endpoint',
+    'unchanged',
+    'credential',
+    'private-header',
+    'bearer-unchanged',
+    'private-path',
+  ] as const)(
     'preserves a persisted MCP approval only with unchanged server authority (%s)',
     async (change) => {
       const { root, startup } = await compositionRoot(true);
-      const first = await startStatefulMcpHostServer();
+      const syntheticCapability = 'owned-disposable-path-capability';
+      const first = await startStatefulMcpHostServer(
+        change === 'private-path' ? { pathname: `/mcp/${syntheticCapability}` } : undefined
+      );
       const replacement = await startStatefulMcpHostServer();
       disposers.add(first.close);
       disposers.add(replacement.close);
@@ -208,6 +268,7 @@ describe('persisted configured MCP authority', () => {
       let admittedServices:
         | Awaited<ReturnType<ReturnType<typeof createAgentHostAdapterServicesFactory>>>
         | undefined;
+      let proveLivePath = change === 'private-path';
       const openPlatform = async (url: string, credentialId?: string) => {
         const services = await createAgentHostAdapterServicesFactory(fixtureCapabilities)({
           appUi: 'text',
@@ -250,6 +311,25 @@ describe('persisted configured MCP authority', () => {
         const name = Object.keys(selected.bindings)[0];
         if (!name) {
           throw new Error('The real fixture MCP catalog is empty');
+        }
+        if (proveLivePath) {
+          proveLivePath = false;
+          await expect(
+            selected.bindings[name]!.tool.execute(
+              {},
+              {
+                runId: 'owned-live-path',
+                signal: new AbortController().signal,
+                threadId: 'owned-live-thread',
+                toolCallId: 'owned-live-call',
+              }
+            )
+          ).resolves.toEqual({ content: [{ text: 'ok', type: 'text' }] });
+          expect(
+            first.requests.filter(
+              ({ body }) => z.object({ method: z.literal('tools/call') }).safeParse(body).success
+            )
+          ).toHaveLength(1);
         }
         await selected.close();
         return createProductionHostPlatform({
@@ -321,6 +401,7 @@ describe('persisted configured MCP authority', () => {
         expect(started.snapshot.mcpAuthorities).toBeDefined();
         expect(JSON.stringify(started.snapshot)).not.toContain('owned-disposable-bearer-value');
         expect(JSON.stringify(started.snapshot)).not.toContain('owned-private-header-value');
+        expect(JSON.stringify(started.snapshot)).not.toContain(syntheticCapability);
         const legacySnapshot = { ...started.snapshot };
         legacySnapshot.mcpAuthorities = undefined;
         await expect(
@@ -371,14 +452,16 @@ describe('persisted configured MCP authority', () => {
         const calls = next.requests.filter(
           ({ body }) => z.object({ method: z.literal('tools/call') }).safeParse(body).success
         );
-        expect(calls).toHaveLength(change === 'unchanged' ? 1 : 0);
+        expect(calls).toHaveLength(change === 'unchanged' || change === 'private-path' ? 1 : 0);
         if (change === 'unchanged') {
           expect(refusal).toBeUndefined();
         } else {
           expect(refusal).toMatchObject({
             code: 'mcp-authority-reconstruction-refused',
             reason:
-              change === 'private-header' || change === 'bearer-unchanged'
+              change === 'private-header' ||
+              change === 'bearer-unchanged' ||
+              change === 'private-path'
                 ? 'private-comparison-unavailable'
                 : 'configuration-changed',
           });

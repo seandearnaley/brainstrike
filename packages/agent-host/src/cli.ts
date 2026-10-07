@@ -6,6 +6,7 @@ import { launchHost } from '@brainstrike/host-lease';
 import { HostCliExitError, runHostCliSession } from './cli-session.js';
 import { attachAgentHost, type HostClient } from './client.js';
 import { createAgentHostSpawner } from './launcher.js';
+import { isProcessEntrypoint } from './process-entrypoint.js';
 
 export interface HostCliOutput {
   write(value: string): void;
@@ -66,6 +67,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
     ![
       'host start',
       'host status',
+      'host stop',
       'help',
       'thread start',
       'thread read',
@@ -108,7 +110,7 @@ run "prompt" --model <id> [--thread <id>] [--json] [--non-interactive]
 attach --thread <id> [--run <id>] [--json] [--interactive]
 threads list
 threads show --thread <id> [--from-seq <n>]
-host start | host status
+host start | host status | host stop
 thread start | thread read --thread <id>
 run start --thread <id> --model <id> --prompt <text>
 run stop --thread <id> --run <id>
@@ -128,7 +130,7 @@ Run signals stop and join its execution; attach signals detach.
       attach: attachAgentHost,
       lifetime: command === 'host start' ? 'persistent' : 'cli',
       spawn: (options, signal) => {
-        if (command === 'host status') {
+        if (command === 'host status' || command === 'host stop') {
           throw new Error('No host is running for this root');
         }
         return createAgentHostSpawner(required(values.platform, 'platform'))(options, signal);
@@ -149,6 +151,14 @@ Run signals stop and join its execution; attach signals detach.
       case 'host status': {
         const { hostVersion, pid, protocolVersion, start } = client.record;
         print({ hostVersion, pid, protocolVersion, start });
+        break;
+      }
+      case 'host stop': {
+        const result = await client.request('host/stop', {});
+        // Protocol 6 acknowledges joined Core/platform/Root cleanup, then joins
+        // the requesting transport. Both must complete before CLI success.
+        await client.closed;
+        print(result);
         break;
       }
       case 'thread start':
@@ -266,7 +276,7 @@ Run signals stop and join its execution; attach signals detach.
       }
       default:
         throw new Error(
-          'Expected host start/status, thread start/read, run start/stop, interaction respond, or log follow'
+          'Expected host start/status/stop, thread start/read, run start/stop, interaction respond, or log follow'
         );
     }
   } finally {
@@ -274,11 +284,16 @@ Run signals stop and join its execution; attach signals detach.
   }
 }
 
-if (isProcessEntrypoint(import.meta.url)) {
-  runHostCli(process.argv.slice(2)).catch((cause: unknown) => {
+/** Both installed executable names and the direct Node entry share exit semantics. */
+export async function runHostCliProcess(args: string[]): Promise<void> {
+  try {
+    await runHostCli(args);
+  } catch (cause: unknown) {
     process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
     process.exitCode = cause instanceof HostCliExitError ? cause.exitCode : 1;
-  });
+  }
 }
 
-import { isProcessEntrypoint } from './process-entrypoint.js';
+if (isProcessEntrypoint(import.meta.url)) {
+  void runHostCliProcess(process.argv.slice(2));
+}

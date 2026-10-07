@@ -11,7 +11,11 @@ import {
   type HostTool,
   type HostToolContext,
 } from '@brainstrike/agent-host';
-import type { PermissionToolGateSnapshot, ToolRiskCategory } from '@brainstrike/assistant-contract';
+import {
+  NATIVE_TOOL_ID,
+  type PermissionToolGateSnapshot,
+  type ToolRiskCategory,
+} from '@brainstrike/assistant-contract';
 
 type CanonicalTools = NonNullable<RuntimeData['mastraTools']>;
 type CanonicalTool = Extract<CanonicalTools[string], { id: string; description: string }>;
@@ -35,6 +39,29 @@ export interface AgentHostToolBindings {
   permissionPolicy(snapshot: PermissionToolGateSnapshot): PermissionToolGateSnapshot;
   readonly toolNameMap: ReadonlyMap<string, string>;
   readonly tools: Readonly<Record<string, HostTool>>;
+}
+
+function canonicalInteraction(
+  source: CanonicalTool,
+  canonicalId: string,
+  risk: ToolRiskCategory
+): HostTool['interaction'] {
+  if (risk !== 'read') {
+    return undefined;
+  }
+  const kind =
+    canonicalId === NATIVE_TOOL_ID.askUser
+      ? 'question'
+      : canonicalId === NATIVE_TOOL_ID.submitPlan
+        ? 'plan'
+        : undefined;
+  if (!kind) {
+    return undefined;
+  }
+  if (!('resumeSchema' in source && source.resumeSchema)) {
+    throw new Error('Canonical human interaction has no resume schema');
+  }
+  return Object.freeze({ kind, resumeSchema: canonicalToolInputSchema(source.resumeSchema) });
 }
 
 /**
@@ -71,12 +98,14 @@ export function createAgentHostToolBindings(options: {
     const execute = source.execute;
     const project = source.toModelOutput;
     const strict = source.strict;
+    const interaction = canonicalInteraction(source, canonicalId, binding.risk);
     tools[name] = {
       description: source.description,
       execute: async (input: unknown, context: HostToolContext): Promise<unknown> =>
         await execute.call(source, input, createCanonicalToolContext(context, canonicalId)),
       identity: binding.identity,
       inputSchema: canonicalToolInputSchema(source.inputSchema),
+      ...(interaction ? { interaction } : {}),
       permissionToolId: canonicalId,
       risk: binding.risk,
       ...(strict === undefined ? {} : { strict }),

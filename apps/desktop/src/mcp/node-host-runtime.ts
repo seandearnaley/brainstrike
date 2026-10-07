@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isAbsolute } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import {
   createMcpElicitationCapability,
@@ -88,7 +89,16 @@ function captureHttpToolAuthority(
   server: Exclude<ResolvedMcpServer, { transport: 'stdio' }>
 ): McpToolAuthority {
   const destination = new URL(server.url);
-  if (destination.username || destination.password || destination.search || destination.hash) {
+  // BST-1977: a real synthetic path-capability endpoint leaked its token into
+  // the run snapshot. The owner can prove only these standard public routes;
+  // arbitrary paths have no non-secret authority declaration to reconstruct.
+  if (
+    destination.username ||
+    destination.password ||
+    destination.search ||
+    destination.hash ||
+    !['/', '/mcp', '/sse'].includes(destination.pathname)
+  ) {
     return unavailableAuthority('private-http-destination');
   }
   if (server.headers && Object.keys(server.headers).length > 0) {
@@ -119,6 +129,11 @@ function captureStdioToolAuthority(
   }
   if (server.env && Object.keys(server.env).length > 0) {
     return unavailableAuthority('private-stdio-environment');
+  }
+  // BST-1977: the same bare name executed B after PATH selected A before restart.
+  // Keep live invocation, but refuse durable authority without an absolute command.
+  if (!isAbsolute(server.command)) {
+    return unavailableAuthority('unresolved-stdio-command');
   }
   return McpToolAuthoritySchema.parse({
     ...authorityBase(server),

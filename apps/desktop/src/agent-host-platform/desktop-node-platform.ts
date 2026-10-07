@@ -139,6 +139,34 @@ export async function createHostPlatform(
           {
             description: descriptor.description,
             identity: descriptor.identity,
+            ...(descriptor.interaction
+              ? {
+                  interaction: {
+                    kind: descriptor.interaction.kind,
+                    resumeSchema: platformToolInputSchema(
+                      descriptor.interaction.resumeSchema,
+                      async (input) =>
+                        z
+                          .discriminatedUnion('success', [
+                            z.strictObject({ success: z.literal(true), value: z.json() }),
+                            z.strictObject({ error: z.string(), success: z.literal(false) }),
+                          ])
+                          .parse(
+                            await request(
+                              'platform/validate',
+                              {
+                                input: z.json().parse(input),
+                                resume: true,
+                                threadId: admission.threadId,
+                                toolId: name,
+                              },
+                              admission.signal
+                            )
+                          )
+                    ),
+                  },
+                }
+              : {}),
             ...(descriptor.mcpAuthority ? { mcpAuthority: descriptor.mcpAuthority } : {}),
             permissionToolId: descriptor.permissionToolId,
             risk: descriptor.risk,
@@ -154,6 +182,9 @@ export async function createHostPlatform(
                   'platform/execute',
                   {
                     input: z.json().parse(input),
+                    ...(context.resumeData === undefined
+                      ? {}
+                      : { resumeData: z.json().parse(context.resumeData) }),
                     runId: context.runId,
                     threadId: context.threadId,
                     toolCallId: context.toolCallId,

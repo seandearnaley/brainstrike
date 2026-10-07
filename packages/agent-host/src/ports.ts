@@ -21,6 +21,8 @@ import type { McpHostToolBinding } from './adapters/mcp.js';
 import type { HostRunSnapshot } from './protocol.js';
 
 export interface HostToolContext {
+  /** Validated committed response to this tool's intrinsic human interaction. */
+  readonly resumeData?: unknown;
   readonly runId: string;
   readonly signal: AbortSignal;
   readonly threadId: string;
@@ -123,6 +125,10 @@ export interface HostTool {
   /** Existing executor/server-generation identity, bound into pending decisions. */
   readonly identity: string;
   readonly inputSchema: FlexibleSchema<unknown>;
+  readonly interaction?: {
+    readonly kind: 'question' | 'plan';
+    readonly resumeSchema: FlexibleSchema<unknown>;
+  };
   readonly mcpAuthority?: import('./protocol.js').McpToolAuthority;
   /** Existing catalog ID used by Settings policy, before provider-name sanitization. */
   readonly permissionToolId?: string;

@@ -1,7 +1,7 @@
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 
-export const AGENT_HOST_PROTOCOL_VERSION = 6;
+export const AGENT_HOST_PROTOCOL_VERSION = 7;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
@@ -42,6 +42,7 @@ export const McpToolAuthoritySchema = z.discriminatedUnion('kind', [
     reason: z.enum([
       'private-stdio-arguments',
       'private-stdio-environment',
+      'unresolved-stdio-command',
       'private-http-headers',
       'private-http-destination',
       'oauth-principal-not-comparable',
@@ -70,6 +71,12 @@ export const HOST_METHOD_SCHEMAS = {
     ...Run,
     decision: z.enum(['approve', 'deny']),
     interactionId: Id,
+  }),
+  'interaction/resume': z.strictObject({
+    ...Command,
+    ...Run,
+    interactionId: Id,
+    resumeData: z.json(),
   }),
   'log/subscribe': z.strictObject({ ...Thread, fromSeq: Seq }),
   'log/unsubscribe': z.strictObject(Thread),
@@ -102,7 +109,7 @@ const Action = {
   toolId: Id,
   toolIdentity: Id,
 };
-export const HostEventSchema = z.discriminatedUnion('type', [
+export const HostEventSchema = z.union([
   z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
   z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
   z.strictObject({
@@ -148,13 +155,19 @@ export const HostEventSchema = z.discriminatedUnion('type', [
     type: z.literal('interaction.requested'),
     ...Action,
     interactionId: Id,
-    kind: z.literal('approval'),
+    kind: z.enum(['approval', 'question', 'plan']),
   }),
   z.strictObject({
     type: z.literal('interaction.responded'),
     ...RunFields,
     decision: z.enum(['approve', 'deny']),
     interactionId: Id,
+  }),
+  z.strictObject({
+    type: z.literal('interaction.responded'),
+    ...RunFields,
+    interactionId: Id,
+    resumeData: z.json(),
   }),
   z.strictObject({ type: z.literal('effect.started'), ...Action }),
   z.strictObject({
@@ -188,6 +201,7 @@ export const HOST_RESULT_SCHEMAS = {
     start: Id,
   }),
   'interaction/respond': z.strictObject({ accepted: z.literal(true) }),
+  'interaction/resume': z.strictObject({ accepted: z.literal(true) }),
   'log/subscribe': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   'log/unsubscribe': z.strictObject({ unsubscribed: z.literal(true) }),
   'run/start': z.strictObject({ runId: Id }),

@@ -15,6 +15,7 @@ export const PlatformRunRequestSchema = z.strictObject({
 });
 export const PlatformToolRequestSchema = z.strictObject({
   input: z.json(),
+  resumeData: z.json().optional(),
   runId: Id,
   threadId: Id,
   toolCallId: Id,
@@ -159,6 +160,12 @@ export const PlatformSelectionSchema = z.strictObject({
       description: z.string(),
       identity: Id,
       inputSchema: z.record(z.string(), z.json()),
+      interaction: z
+        .strictObject({
+          kind: z.enum(['question', 'plan']),
+          resumeSchema: z.record(z.string(), z.json()),
+        })
+        .optional(),
       mcpAuthority: McpToolAuthoritySchema.optional(),
       permissionToolId: Id,
       risk: z.enum(TOOL_RISK_CATEGORIES),

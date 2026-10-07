@@ -22,6 +22,7 @@ export function createCanonicalToolContext(
     abortSignal: context.signal,
     observe: noopObserve,
     requestContext: new RequestContext(),
+    ...(context.resumeData === undefined ? {} : { resumeData: context.resumeData }),
     threadId: context.threadId,
     toolCallId: context.toolCallId,
     ...(context.write

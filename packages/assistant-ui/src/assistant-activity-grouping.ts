@@ -78,12 +78,19 @@ export function groupAssistantActivityPart(part: PartState): readonly ActivityGr
  * message-level questions (`trailingGroupHasActivity`) without a cast.
  */
 interface GroupablePart {
+  readonly approval?: unknown;
   readonly data?: unknown;
   readonly name?: string;
   readonly type: string;
 }
 
 function classifyPart(part: GroupablePart): readonly ActivityGroupKey[] {
+  // BST-1977: the ordinary committed plan rendered inside a hidden activity
+  // body after answering its preceding question. Public approval-bearing tool
+  // parts are pause cards too; keep their history at the same boundary.
+  if (part.type === 'tool-call' && part.approval !== undefined) {
+    return STANDALONE;
+  }
   if (ACTIVITY_PART_TYPES.has(part.type)) {
     return ACTIVITY_GROUP;
   }

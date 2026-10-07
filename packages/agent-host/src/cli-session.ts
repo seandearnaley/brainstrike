@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
+import { z } from 'zod';
 import type { HostCliOutput } from './cli.js';
 import type { HostClient } from './client.js';
 import type { HostLogRow } from './protocol.js';
 import { CommittedThreadView, foldHostRuns, type PendingHostApproval } from './thread-view.js';
+
+function errorText(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
 
 export class HostCliExitError extends Error {
   constructor(
@@ -95,7 +100,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     if (!terminal) {
       finish(
         new HostCliExitError(
-          'Run awaits a committed decision; attach interactively or use interaction respond.',
+          'Run awaits a committed interaction; attach interactively or use interaction respond/resume.',
           2
         )
       );
@@ -104,7 +109,13 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     if (approval.interactionId !== displayedApproval) {
       displayedApproval = approval.interactionId;
       process.stderr.write(
-        `\n${approval.toolId} ${JSON.stringify(approval.input)}\nApprove, deny, or stop? `
+        `\n${approval.toolId} ${JSON.stringify(approval.input)}\n${
+          approval.kind === 'approval'
+            ? 'Approve, deny, or stop? '
+            : approval.kind === 'question'
+              ? 'Answer with JSON {"answer":"text"} or {"answer":["choice"]}, or stop: '
+              : 'Decide with JSON {"action":"approved"|"rejected","feedback":"optional text"}, or stop: '
+        }`
       );
     }
   };
@@ -162,19 +173,43 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
       process.stderr.write('No unanswered decision is selected.\n');
       return;
     }
-    if (decision !== 'approve' && decision !== 'deny') {
-      process.stderr.write('Enter approve, deny, or stop.\n');
-      return;
-    }
-    responding = client
-      .request('interaction/respond', {
+    const interaction = pending;
+    let request: Promise<unknown>;
+    if (interaction.kind !== 'approval') {
+      let resumeData: z.infer<ReturnType<typeof z.json>>;
+      try {
+        resumeData = z.json().parse(JSON.parse(answer));
+      } catch (cause) {
+        process.stderr.write(`Invalid JSON response: ${errorText(cause)}\n`);
+        return;
+      }
+      request = client.request('interaction/resume', {
         commandId: randomUUID(),
-        decision,
-        interactionId: pending.interactionId,
+        interactionId: interaction.interactionId,
+        resumeData,
         runId,
         threadId,
-      })
-      .then(() => undefined, finish)
+      });
+    } else if (decision !== 'approve' && decision !== 'deny') {
+      process.stderr.write('Enter approve, deny, or stop.\n');
+      return;
+    } else {
+      request = client.request('interaction/respond', {
+        commandId: randomUUID(),
+        decision,
+        interactionId: interaction.interactionId,
+        runId,
+        threadId,
+      });
+    }
+    responding = request
+      .then(
+        () => undefined,
+        (cause: unknown) => {
+          process.stderr.write(`Interaction rejected: ${errorText(cause)}\n`);
+          displayedApproval = undefined;
+        }
+      )
       .finally(() => {
         responding = undefined;
         update();

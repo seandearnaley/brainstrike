@@ -91,7 +91,7 @@ export function createAskUserTool() {
   return createTool({
     description: TOOL_DESCRIPTIONS[ASK_USER_TOOL_ID],
     execute: async (input, context) => {
-      const resume = context?.agent?.resumeData;
+      const resume = context?.resumeData ?? context?.agent?.resumeData;
       if (resume !== undefined) {
         return { answer: formatAskUserAnswer(readAskUserResumeAnswer(resume)) };
       }

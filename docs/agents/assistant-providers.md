@@ -1751,6 +1751,10 @@ Tool output budget contract:
   remain visible restart gaps. A credential reference alone cannot establish
   unchanged principal after its secret value changes. No private value or hash
   enters the capture. ADR-0017 records Sean's approved representation.
+  Unresolved stdio commands cannot prove which inherited-PATH executable was
+  admitted. HTTP routes other than `/`, `/mcp` and `/sse` can carry private path
+  capabilities. Both remain supported live, but capture an explicit unavailable
+  reason and refuse durable restart reconstruction with zero replacement effects.
 
 - Budgets are token-denominated at 4 chars/token. The two default budgets resolve
   once per Mastra run from the active model context window; explicit per-tool

@@ -42,6 +42,14 @@ async function describePlatformSelection(
           identity: tool.identity,
           ...(tool.mcpAuthority ? { mcpAuthority: tool.mcpAuthority } : {}),
           inputSchema: await canonicalToolInputJsonSchema(tool.inputSchema),
+          ...(tool.interaction
+            ? {
+                interaction: {
+                  kind: tool.interaction.kind,
+                  resumeSchema: await canonicalToolInputJsonSchema(tool.interaction.resumeSchema),
+                },
+              }
+            : {}),
           permissionToolId: tool.permissionToolId ?? name,
           risk: tool.risk,
           ...(tool.strict === undefined ? {} : { strict: tool.strict }),
@@ -166,13 +174,22 @@ export function serveDesktopPlatform(
     (input: unknown, token: CancellationToken): Promise<unknown> =>
       execute(token, async () => {
         const request = z
-          .strictObject({ input: z.json(), threadId: z.string().min(1), toolId: z.string().min(1) })
+          .strictObject({
+            input: z.json(),
+            resume: z.boolean().optional(),
+            threadId: z.string().min(1),
+            toolId: z.string().min(1),
+          })
           .parse(input);
         const tool = selection(request.threadId).tools[request.toolId];
         if (!tool) {
           throw new Error('Platform validator is not admitted');
         }
-        const result = await validateCanonicalToolInput(tool.inputSchema, request.input);
+        const schema = request.resume ? tool.interaction?.resumeSchema : tool.inputSchema;
+        if (!schema) {
+          throw new Error('Platform tool has no human interaction resume schema');
+        }
+        const result = await validateCanonicalToolInput(schema, request.input);
         return result.success ? { success: true, value: z.json().parse(result.value) } : result;
       })
   );
@@ -196,6 +213,7 @@ export function serveDesktopPlatform(
           throw new Error('Platform executor is not admitted');
         }
         const output = await tool.execute(request.input, {
+          ...(request.resumeData === undefined ? {} : { resumeData: request.resumeData }),
           runId: request.runId,
           signal,
           threadId: request.threadId,

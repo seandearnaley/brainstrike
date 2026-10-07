@@ -31,6 +31,7 @@ export interface CommittedAssistantLogProjectionOptions {
 
 export interface CommittedAssistantPendingInteraction {
   readonly interactionId: string;
+  readonly kind?: 'approval' | 'question' | 'plan';
   readonly runId: string;
   readonly threadId: string;
   readonly toolCallId: string;
@@ -505,13 +506,32 @@ export class CommittedAssistantLogProjection {
     } else if (event['type'] === 'interaction.requested') {
       const id = this.tool(run, event, true);
       const interactionId = requiredString(event, 'interactionId');
-      this.updateTool(run, id, (part) => ({ ...part, approval: { id: interactionId } }));
+      const kind = event['kind'];
+      if (kind !== 'approval' && kind !== 'question' && kind !== 'plan') {
+        throw new Error('Committed interaction has an unsupported kind.');
+      }
+      this.updateTool(run, id, (part) => ({
+        ...part,
+        approval: {
+          id: interactionId,
+          ...(kind === 'approval' ? {} : { allowFreeform: true, display: 'text' as const }),
+        },
+        ...(kind === 'approval'
+          ? {}
+          : {
+              providerMetadata: {
+                ...part.providerMetadata,
+                brainstrike: { ...part.providerMetadata?.['brainstrike'], interactionKind: kind },
+              },
+            }),
+      }));
       this.view = {
         ...this.view,
         pendingInteractions: [
           ...this.view.pendingInteractions,
           {
             interactionId,
+            kind,
             runId: event['runId'],
             threadId: row.threadId,
             toolCallId: id,
@@ -530,7 +550,7 @@ export class CommittedAssistantLogProjection {
         ...part,
         approval: {
           ...part.approval,
-          approved: event['decision'] === 'approve',
+          approved: interaction.kind !== 'approval' || event['decision'] === 'approve',
           id: interaction.interactionId,
         },
       }));

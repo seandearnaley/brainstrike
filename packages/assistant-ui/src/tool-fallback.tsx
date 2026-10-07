@@ -3,6 +3,7 @@ import { Button } from '@brainstrike/ui';
 import { useId, useMemo, useState } from 'react';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
+import { CommittedHumanInteraction } from './committed-human-interaction';
 import { useRememberedToolArguments } from './tool-argument-context';
 import { shouldUseRememberedToolArguments, type ToolArguments } from './tool-arguments';
 import { useToolDurationMs } from './tool-duration-context';
@@ -140,6 +141,7 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
         toolCallId={toolCallId}
         toolName={toolName}
       />
+      <CommittedHumanInteraction tool={props} />
       {props.approval &&
       props.approval.approved === undefined &&
       props.approval.resolution === undefined &&

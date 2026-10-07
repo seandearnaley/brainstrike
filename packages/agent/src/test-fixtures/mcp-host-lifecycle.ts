@@ -81,9 +81,11 @@ function respondWithFixtureFailure(response: ServerResponse, error: unknown): vo
   response.destroy(error instanceof Error ? error : undefined);
 }
 
-export async function startStatefulMcpHostServer(): Promise<RunningMcpHostServer> {
+export async function startStatefulMcpHostServer(options?: {
+  readonly pathname?: string;
+}): Promise<RunningMcpHostServer> {
   const requests: ObservedMcpHostRequest[] = [];
-  const pathname = '/mcp';
+  const pathname = options?.pathname ?? '/mcp';
   const openSession = async () => {
     const mcp = new McpServer({ name: 'desktop-host-lifecycle', version: '1.0.0' });
     mcp.registerTool('host_lifecycle_probe', {}, async () => ({

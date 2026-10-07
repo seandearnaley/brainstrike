@@ -43,7 +43,9 @@ export function createSubmitPlanTool() {
   return createTool({
     description: TOOL_DESCRIPTIONS[SUBMIT_PLAN_TOOL_ID],
     execute: async (input, context) => {
-      const resume = context?.agent?.resumeData as SubmitPlanDecision | undefined;
+      const resume = (context?.resumeData ?? context?.agent?.resumeData) as
+        | SubmitPlanDecision
+        | undefined;
       if (resume !== undefined) {
         return {
           status: resume.action,

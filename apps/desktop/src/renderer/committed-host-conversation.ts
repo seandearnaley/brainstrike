@@ -77,6 +77,19 @@ export function createCommittedHostConversation(options: {
       if (pending.length !== 1 || !interaction) {
         throw new Error('Approval has no unique committed interaction');
       }
+      if (interaction.kind && interaction.kind !== 'approval') {
+        if (response.text === undefined) {
+          throw new Error('Human interaction requires its typed response');
+        }
+        await client.request('interaction/resume', {
+          commandId: crypto.randomUUID(),
+          interactionId: interaction.interactionId,
+          resumeData: z.json().parse(JSON.parse(response.text)),
+          runId: interaction.runId,
+          threadId,
+        });
+        return;
+      }
       await client.request('interaction/respond', {
         commandId: crypto.randomUUID(),
         decision: response.approved ? 'approve' : 'deny',

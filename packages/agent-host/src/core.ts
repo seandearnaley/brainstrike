@@ -11,7 +11,6 @@ import {
 import {
   ApprovalInputReconstructionError,
   rebuildApprovedRuntimeMessages,
-  validateApprovalInput,
 } from './approval-input.js';
 import {
   acceptHostWorkspaceSnapshot,
@@ -20,7 +19,7 @@ import {
   foldHostAcceptedCommand,
   foldHostConversationMessages,
   HostCommandLedger,
-  type PendingInteraction,
+  hasHostInteractionResponse,
   type HostRunState as Run,
   readHostWorkspaceSnapshot,
   recordHostConversationId,
@@ -40,6 +39,13 @@ import {
   hostRunTools,
   prepareHostProviderStep,
 } from './run-admission.js';
+
+import {
+  createHostApprovalResponses,
+  resolveApprovedHostCall,
+  resolveHostApprovalInput,
+  validateHostInteractionResume,
+} from './run-continuation.js';
 
 export { jsonValue } from './json-value.js';
 
@@ -104,7 +110,7 @@ export class HostCore {
         );
       } else if (run.approvals.size > 0) {
         run.release = retainRun();
-        if ([...run.approvals.values()].every((approval) => approval.decision !== undefined)) {
+        if ([...run.approvals.values()].every(hasHostInteractionResponse)) {
           run.task = core.continueRun(run);
           run.task.catch(() => undefined);
         }
@@ -162,7 +168,11 @@ export class HostCore {
       case 'interaction.responded': {
         const approval = this.runs.get(event.runId)?.approvals.get(event.interactionId);
         if (approval) {
-          approval.decision = event.decision;
+          if ('decision' in event) {
+            approval.decision = event.decision;
+          } else {
+            approval.resumeData = event.resumeData;
+          }
         }
         break;
       }
@@ -362,7 +372,12 @@ export class HostCore {
     });
   }
 
-  private async execute(run: Run, action: Action, input: unknown): Promise<unknown> {
+  private async execute(
+    run: Run,
+    action: Action,
+    input: unknown,
+    resumeData?: unknown
+  ): Promise<unknown> {
     const registered = hostRunTools(run)[action.toolId];
     const permitted = run.permits.get(action.toolCallId);
     if (!registered || registered.identity !== action.toolIdentity || permitted !== action) {
@@ -380,6 +395,7 @@ export class HostCore {
     // The public SDK already validated/transformed this exact admitted input.
     // Revalidating a canonical value can transform it a second time.
     const output = await registered.execute(input, {
+      ...(resumeData === undefined ? {} : { resumeData }),
       runId: run.id,
       signal: run.controller.signal,
       threadId: run.threadId,
@@ -403,8 +419,13 @@ export class HostCore {
     return output;
   }
 
-  private dispatch(run: Run, action: Action, input: unknown): Promise<unknown> {
-    const effect = this.execute(run, action, input);
+  private dispatch(
+    run: Run,
+    action: Action,
+    input: unknown,
+    resumeData?: unknown
+  ): Promise<unknown> {
+    const effect = this.execute(run, action, input, resumeData);
     run.effects.add(effect);
     const joined = (): void => {
       run.effects.delete(effect);
@@ -437,6 +458,10 @@ export class HostCore {
     );
     if (decision === 'deny' || prior?.decision === 'deny') {
       return 'denied';
+    }
+    if (registered.interaction) {
+      run.liveInputs.set(call.toolCallId, { value: call.input });
+      return 'user-approval';
     }
     if (
       prior &&
@@ -479,7 +504,7 @@ export class HostCore {
           },
           messageIndexes: run.messageIndexes,
           messages: initialMessages,
-          resolveInput: (event) => this.approvalInput(run, event),
+          resolveInput: (event) => resolveHostApprovalInput(run, event),
         }),
         model: owner?.prepareHostModel?.(model) ?? model,
         onStepFinish: async (step) => {
@@ -509,7 +534,7 @@ export class HostCore {
                 {
                   input: jsonValue(part.toolCall.input),
                   interactionId: part.approvalId,
-                  kind: 'approval',
+                  kind: registered.interaction?.kind ?? 'approval',
                   runId: run.id,
                   toolCallId: part.toolCall.toolCallId,
                   toolId: part.toolCall.toolName,
@@ -634,7 +659,12 @@ export class HostCore {
     return this.command('interaction/respond', params, async () => {
       const run = this.run(params.threadId, params.runId);
       const pending = run.approvals.get(params.interactionId);
-      if (run.terminal || !pending || pending.decision !== undefined) {
+      if (
+        run.terminal ||
+        !pending ||
+        pending.event.kind !== 'approval' ||
+        hasHostInteractionResponse(pending)
+      ) {
         throw new Error('Approval decision is stale or belongs to another run');
       }
       await ensureHostRunAdmission(this.platform, run);
@@ -652,6 +682,37 @@ export class HostCore {
         },
       ]);
       pending.decision = params.decision;
+      const previous = run.task;
+      run.task = (previous ?? Promise.resolve()).then(() => this.continueRun(run));
+      run.task.catch(() => undefined);
+      return result;
+    });
+  }
+
+  resume(params: HostParams<'interaction/resume'>): Promise<{ accepted: true }> {
+    return this.command('interaction/resume', params, async () => {
+      const run = this.run(params.threadId, params.runId);
+      const pending = run.approvals.get(params.interactionId);
+      if (
+        run.terminal ||
+        !pending ||
+        pending.event.kind === 'approval' ||
+        hasHostInteractionResponse(pending)
+      ) {
+        throw new Error('Human interaction is stale or belongs to another run');
+      }
+      await ensureHostRunAdmission(this.platform, run);
+      await validateHostInteractionResume(run, pending, params.resumeData);
+      const result = { accepted: true as const };
+      await this.accept(run.threadId, 'interaction/resume', params, result, [
+        {
+          interactionId: params.interactionId,
+          resumeData: params.resumeData,
+          runId: run.id,
+          type: 'interaction.responded',
+        },
+      ]);
+      pending.resumeData = params.resumeData;
       const previous = run.task;
       run.task = (previous ?? Promise.resolve()).then(() => this.continueRun(run));
       run.task.catch(() => undefined);
@@ -677,102 +738,16 @@ export class HostCore {
     this.fold(row);
   }
 
-  private async modelResult(
-    run: Run,
-    toolCallId: string,
-    toolId: string,
-    input: unknown,
-    output: unknown
-  ): Promise<ToolContent[number]> {
-    const project = hostRunTools(run)[toolId]?.toModelOutput;
-    return {
-      output: project
-        ? await project({ input, output, toolCallId })
-        : typeof output === 'string'
-          ? { type: 'text', value: output }
-          : { type: 'json', value: jsonValue(output) },
-      toolCallId,
-      toolName: toolId,
-      type: 'tool-result',
-    };
-  }
-
-  private async approvalInput(run: Run, event: Interaction): Promise<unknown> {
-    const approval = run.approvals.get(event.interactionId);
-    if (!approval) {
-      throw new Error('Unknown approval occurrence');
-    }
-    const registered = hostRunTools(run)[event.toolId];
-    if (!registered || registered.identity !== event.toolIdentity) {
-      throw new Error('Approval tool identity changed');
-    }
-    approval.runtimeInput ??= {
-      value: await validateApprovalInput(registered, event, run.rawInputs),
-    };
-    return approval.runtimeInput.value;
-  }
-
-  private async approvalResponses(run: Run): Promise<ToolContent> {
-    const responses: ToolContent = [];
-    for (const { event, decision } of run.approvals.values()) {
-      if (!run.responses.has(event.interactionId)) {
-        responses.push({
-          approvalId: event.interactionId,
-          approved: decision === 'approve',
-          type: 'tool-approval-response',
-        });
-      }
-      if (run.outputs.has(event.toolCallId) && !run.checkpointedResults.has(event.toolCallId)) {
-        const output = run.outputs.get(event.toolCallId);
-        responses.push(
-          await this.modelResult(
-            run,
-            event.toolCallId,
-            event.toolId,
-            await this.approvalInput(run, event),
-            output ?? null
-          )
-        );
-      }
-    }
-    return responses;
-  }
-
-  private async finalApprovalResult(
-    run: Run,
-    { event, decision }: PendingInteraction
-  ): Promise<ToolContent[number]> {
-    if (
-      decision === 'deny' ||
-      (await hostRunToolDecision(this.platform, run, event.toolId)) === 'deny'
-    ) {
-      return {
-        output: { type: 'execution-denied' },
-        toolCallId: event.toolCallId,
-        toolName: event.toolId,
-        type: 'tool-result',
-      };
-    }
-    const input = await this.approvalInput(run, event);
-    const action: Action = {
-      input: event.input,
-      runId: run.id,
-      toolCallId: event.toolCallId,
-      toolId: event.toolId,
-      toolIdentity: event.toolIdentity,
-      type: 'effect.started',
-    };
-    run.permits.set(action.toolCallId, action);
-    const output = await this.dispatch(run, action, input);
-    return this.modelResult(run, event.toolCallId, event.toolId, input, output);
-  }
-
   private async finishApprovedCalls(run: Run): Promise<void> {
     // Resolve already-issued calls at the existing step limit without another model request.
     const results: ToolContent = [];
     for (const approval of run.approvals.values()) {
       if (!run.checkpointedResults.has(approval.event.toolCallId)) {
-        results.push(await this.finalApprovalResult(run, approval));
+        results.push(
+          await resolveApprovedHostCall(run, approval, this.platform, (action, input, resumeData) =>
+            this.dispatch(run, action, input, resumeData)
+          )
+        );
       }
     }
     await this.commitMessages(run, results.length > 0 ? [{ content: results, role: 'tool' }] : []);
@@ -787,14 +762,18 @@ export class HostCore {
       await this.finish(run, 'stopped');
       return;
     }
-    if ([...run.approvals.values()].some((approval) => approval.decision === undefined)) {
+    if ([...run.approvals.values()].some((approval) => !hasHostInteractionResponse(approval))) {
       return;
     }
     try {
       const admission = await ensureHostRunAdmission(this.platform, run);
       await this.openRun(run);
       // The SDK collects approvals from one final tool message, preserving parallel calls.
-      const responses = await this.approvalResponses(run);
+      const responses = await createHostApprovalResponses(
+        run,
+        this.platform,
+        (action, input, resumeData) => this.dispatch(run, action, input, resumeData)
+      );
       await this.commitMessages(
         run,
         responses.length > 0 ? [{ content: responses, role: 'tool' }] : []

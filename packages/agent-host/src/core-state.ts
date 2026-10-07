@@ -71,7 +71,14 @@ type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
 export interface PendingInteraction {
   decision?: 'approve' | 'deny';
   readonly event: Interaction;
+  resumeData?: Json;
   runtimeInput?: { readonly value: unknown };
+}
+
+export function hasHostInteractionResponse(pending: PendingInteraction): boolean {
+  return pending.event.kind === 'approval'
+    ? pending.decision !== undefined
+    : Object.hasOwn(pending, 'resumeData');
 }
 export interface HostRunState {
   admission?: HostRunAdmission;
