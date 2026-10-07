@@ -51,6 +51,7 @@ type Fault =
   | 'dispatch-error'
   | 'dispatch-sync-error'
   | 'decoder-dispose-error'
+  | 'concurrent-close'
   | 'dispose-error';
 
 async function encodedFrame(message: Message): Promise<Buffer> {
@@ -87,6 +88,9 @@ test.each([
   'dispose-error',
 ] as const)('preserves response/error and physical cleanup for %s', async (fault) => {
   await exercise(fault);
+});
+test('joins a registered dispatch drain when explicit close discards its queued response', async () => {
+  await exercise('concurrent-close', 'decoder');
 });
 
 async function exercise(fault: Fault, stage?: 'decoder' | 'dispatch'): Promise<void> {
@@ -220,6 +224,20 @@ async function exercise(fault: Fault, stage?: 'decoder' | 'dispatch'): Promise<v
         name: 'application/json',
       },
     });
+    const listen = reader.listen.bind(reader);
+    reader.listen = (callback) =>
+      listen((message: Message): void => {
+        callback(message);
+        if (fault === 'concurrent-close' && Messages.isResponse(message) && message.id === 1) {
+          // Physical close was observed while this complete frame's decoder was
+          // held. Its public callback has now admitted it to the dispatch queue.
+          expect(socket.closed).toBe(true);
+          void closeReceivedConnection(undefined, connection, failures).then(
+            completion.resolve,
+            completion.reject
+          );
+        }
+      });
     const connection = createMessageConnection(reader, new StreamMessageWriter(socket), undefined, {
       messageStrategy: {
         handleMessage: (
@@ -242,6 +260,16 @@ async function exercise(fault: Fault, stage?: 'decoder' | 'dispatch'): Promise<v
         },
       },
     });
+    if (fault === 'concurrent-close') {
+      const drain = connection.drain.bind(connection);
+      connection.drain = (): Promise<void> => {
+        const pending = drain();
+        // Interleave the real client finalizer after queue-drain registration
+        // and before the SDK's queued dispatch, using only its public methods.
+        void client?.close().catch((cause: unknown) => failures.add(cause));
+        return pending;
+      };
+    }
     connection.onError(([cause]) => failures.add(cause));
     if (fault === 'dispose-error' || fault === 'decoder-dispose-error') {
       const dispose = connection.dispose.bind(connection);
@@ -251,10 +279,12 @@ async function exercise(fault: Fault, stage?: 'decoder' | 'dispatch'): Promise<v
       };
     }
     socket.once('close', () => {
-      void closeReceivedConnection(reader, connection, failures).then(
-        completion.resolve,
-        completion.reject
-      );
+      if (fault !== 'concurrent-close') {
+        void closeReceivedConnection(reader, connection, failures).then(
+          completion.resolve,
+          completion.reject
+        );
+      }
     });
     client = await authenticateHostClient(
       connection,
@@ -281,6 +311,10 @@ async function exercise(fault: Fault, stage?: 'decoder' | 'dispatch'): Promise<v
       gate.resolve();
     }
     const [result] = await response;
+    if (fault === 'concurrent-close') {
+      await reader.drain();
+      expect(retired).toBe(true);
+    }
     if (fault === 'complete' || fault === 'multiple' || fault === 'dispose-error') {
       expect(result).toEqual({
         status: 'fulfilled',

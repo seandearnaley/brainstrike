@@ -28,8 +28,9 @@ resolves the card. The view does not persist or execute an interaction.
 
 The Core socket client's `closed` promise joins physical transport closure,
 already-admitted complete-frame decoding, dispatch and disposal. A received
-`host/stop` response must settle before disposal rejects genuinely unanswered
-requests. Retain decoder, dispatch and cleanup failures. The opt-in SDK 9.0.2
+`host/stop` response after peer close must settle before disposal rejects genuinely
+unanswered requests. Explicit client close cancels pending requests and must
+settle registered drain waiters. Retain decoder, dispatch and cleanup failures. The opt-in SDK 9.0.2
 compatibility patch admits no partial or future bytes and leaves ordinary SDK
 disposal immediate. Evidence: `assistant-runtime/core-stop-receive-drain.md`.
 

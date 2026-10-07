@@ -361,7 +361,7 @@ patchedDependencies:
   '@mastra/memory@1.32.1': 9966af06a023baf33b90bfbeb9c0ee9360800a3f15ed074543376cb9a47d9cec
   '@stryker-mutator/vitest-runner@10.0.0': 280dd914a56bb20b5c6eba1032dde29cd355cd21cc707f6aa71d1fc02033669c
   app-builder-lib@26.17.0: 9c23dfc27c5d05a82f442223d5ead8d74bf9f06bd15cf0edd5f5df2392ca155e
-  vscode-jsonrpc@9.0.2: 60016f5b4e52bce4a54f233455ead93d1a18495a69c3c737b0226b4fd2b03a23
+  vscode-jsonrpc@9.0.2: 453ccfecff6e36bb5c12f09db91ef6daab8cd95806008fc65ebf01dd3589ca98
 
 importers:
 
@@ -661,7 +661,7 @@ importers:
         version: 6.0.0
       vscode-jsonrpc:
         specifier: 'catalog:'
-        version: 9.0.2(patch_hash=60016f5b4e52bce4a54f233455ead93d1a18495a69c3c737b0226b4fd2b03a23)
+        version: 9.0.2(patch_hash=453ccfecff6e36bb5c12f09db91ef6daab8cd95806008fc65ebf01dd3589ca98)
       vscode-languageserver-protocol:
         specifier: ^3.18.3
         version: 3.18.3
@@ -1309,7 +1309,7 @@ importers:
         version: 7.0.126(zod@4.6.5)
       vscode-jsonrpc:
         specifier: 'catalog:'
-        version: 9.0.2(patch_hash=60016f5b4e52bce4a54f233455ead93d1a18495a69c3c737b0226b4fd2b03a23)
+        version: 9.0.2(patch_hash=453ccfecff6e36bb5c12f09db91ef6daab8cd95806008fc65ebf01dd3589ca98)
       zod:
         specifier: 'catalog:'
         version: 4.6.5
@@ -26704,11 +26704,11 @@ snapshots:
 
   vscode-jsonrpc@5.0.1: {}
 
-  vscode-jsonrpc@9.0.2(patch_hash=60016f5b4e52bce4a54f233455ead93d1a18495a69c3c737b0226b4fd2b03a23): {}
+  vscode-jsonrpc@9.0.2(patch_hash=453ccfecff6e36bb5c12f09db91ef6daab8cd95806008fc65ebf01dd3589ca98): {}
 
   vscode-languageserver-protocol@3.18.3:
     dependencies:
-      vscode-jsonrpc: 9.0.2(patch_hash=60016f5b4e52bce4a54f233455ead93d1a18495a69c3c737b0226b4fd2b03a23)
+      vscode-jsonrpc: 9.0.2(patch_hash=453ccfecff6e36bb5c12f09db91ef6daab8cd95806008fc65ebf01dd3589ca98)
       vscode-languageserver-types: 3.18.3
 
   vscode-languageserver-types@3.18.3: {}

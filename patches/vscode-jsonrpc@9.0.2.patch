@@ -99,6 +99,14 @@
          hasPendingResponse: () => {
              return responsePromises.size > 0;
          },
+@@ -1233,6 +1267,7 @@
+             requestTokens = new Map();
+             knownCanceledRequests = new Set();
+             messageQueue = new linkedMap_1.LinkedMap();
++            completeDispatchDrains();
+             // Test for backwards compatibility
+             if (Is.func(messageWriter.dispose)) {
+                 messageWriter.dispose();
 --- a/lib/common/connection.d.ts
 +++ b/lib/common/connection.d.ts
 @@ -323,6 +323,8 @@

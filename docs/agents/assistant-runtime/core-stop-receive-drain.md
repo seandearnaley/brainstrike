@@ -21,16 +21,23 @@ accounting. Disposal still rejects unanswered requests. Ordinary SDK disposal
 remains immediate. The exact-version patch links the upstream implementation
 and is removed when a qualified upstream equivalent passes these tests.
 
+Independent review found a concurrent explicit-close interleaving: disposal
+cleared an admitted dispatch queue after a drain waiter registered, leaving that
+waiter pending. A recorded-frame reproduction confirmed the pending drain after
+decoder settlement and physical stream cleanup. Disposal now settles registered
+waiters when the queue is cleared; an already-running dispatch still must join.
+Explicit close retains ordinary pending-request cancellation semantics.
+
 `packages/agent-host/__tests__/client-receive-drain.integration.test.ts` uses
 real local sockets (named pipes on Windows) and the recorded Core response. It
 holds both admitted stages and exercises multiple frames, missing/truncated or
 malformed responses, wrong IDs, typed Stop errors, decoder failures, synchronous
 and asynchronous dispatch failures, independent disposal failures, repeated
-close and refused requests after close. It checks response/error identity and
+close, concurrent queued disposal and refused requests after close. It checks response/error identity and
 joins peer and server closure. Existing `host.integration.test.ts` checks native
 child and Root release before the actual Stop response.
 
-Studio qualification passed all 13 receive-drain cases and 76 combined
+Studio qualification passed all 14 receive-drain cases and 77 combined
 Core/CLI/Memory integration cases using the package's `test:integration` script.
 Windows must requalify the composed committed source; this receipt does not
 explain the earlier renderer reload crash or qualify production crash recovery.
