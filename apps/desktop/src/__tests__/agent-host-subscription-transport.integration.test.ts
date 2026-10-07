@@ -496,3 +496,69 @@ test('allocated fetch helper connection disposal retains an observable physical 
     nodePort.close();
   }
 });
+
+test('allocated fetch helper retains a failed body cancellation through client close and Main release/close', async () => {
+  const channel = new MessageChannel();
+  const mainPort = new UtilityPort(channel.port1);
+  const nodePort = new UtilityPort(channel.port2);
+  const mainConnection = mainPlatformConnection(mainPort);
+  const nodeConnection = mainPlatformConnection(nodePort);
+  const cause = new Error('Recorded body cancellation could not join');
+  const cancel = vi.fn(async () => {
+    throw cause;
+  });
+  const main = serveProviderFetchTransport(mainConnection, {
+    getFetch: () => async () =>
+      new Response(new ReadableStream<Uint8Array>({ cancel }, { highWaterMark: 0 })),
+  });
+  const client = createProviderFetchTransport(nodeConnection, admittedScope);
+  mainConnection.listen();
+  nodeConnection.listen();
+  const containsCause = (value: unknown, original: unknown): boolean =>
+    value === original ||
+    (value instanceof AggregateError &&
+      value.errors.some((nested: unknown) => containsCause(nested, original)));
+  try {
+    const response = await client.fetch('https://offline.invalid/responses');
+    if (!response.body) {
+      throw new Error('Missing body for actual cancellation failure');
+    }
+    const [bodyCancellation] = await Promise.allSettled([response.body.cancel()]);
+    if (bodyCancellation?.status !== 'rejected') {
+      throw new Error('The source body cancellation failure was hidden');
+    }
+    const [clientClose, mainRelease] = await Promise.allSettled([
+      client.close(),
+      main.release(admittedScope.threadId),
+    ]);
+    const [mainClose] = await Promise.allSettled([main.close()]);
+    expect([clientClose?.status, mainRelease?.status, mainClose?.status]).toEqual([
+      'rejected',
+      'rejected',
+      'rejected',
+    ]);
+    if (
+      clientClose?.status !== 'rejected' ||
+      mainRelease?.status !== 'rejected' ||
+      mainClose?.status !== 'rejected'
+    ) {
+      throw new Error('A failed provider body join was forgotten');
+    }
+    expect(containsCause(clientClose.reason, bodyCancellation.reason)).toBe(true);
+    expect(containsCause(mainRelease.reason, cause)).toBe(true);
+    expect(containsCause(mainClose.reason, cause)).toBe(true);
+    // Re-observation reuses the failed joins, without a retry or another fetch.
+    await expect(client.close()).rejects.toBe(clientClose.reason);
+    await expect(main.release(admittedScope.threadId)).rejects.toBe(mainRelease.reason);
+    await expect(main.close()).rejects.toBe(mainClose.reason);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  } finally {
+    // The rejected joins were inspected above; dispose test transports while
+    // preserving those failures instead of claiming successful owner cleanup.
+    await Promise.allSettled([client.close(), main.close()]);
+    mainConnection.dispose();
+    nodeConnection.dispose();
+    mainPort.close();
+    nodePort.close();
+  }
+});

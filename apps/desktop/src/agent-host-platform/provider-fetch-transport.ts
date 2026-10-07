@@ -69,7 +69,11 @@ export function serveProviderFetchTransport(
         ]);
       }
       tail.reader?.releaseLock();
-    })().finally(() => active.delete(token));
+    })().then(() => {
+      // A rejected cancellation does not prove the physical body joined.
+      // Keep its captured owner and cached failure observable to release/close.
+      active.delete(token);
+    });
     return tail.joined;
   };
   const lookup = (input: unknown): [ProgressToken, FetchTail] => {
@@ -175,20 +179,25 @@ export function serveProviderFetchTransport(
   ];
   const close = (): Promise<void> => {
     closing ??= (async () => {
+      await joinAll([...active].map(([token, tail]) => join(token, tail, true)));
+    })();
+    return closing;
+  };
+  // Keep cancellation acknowledgements available while this shared connection
+  // lives, including requests queued before close. Closing rejects new fetches;
+  // successful tail retirement makes a late cancel an idempotent joined reply.
+  // The caller still awaits close() after transport loss; disposal is no join.
+  const lifecycle = [
+    connection.onClose(() => void close().catch(() => undefined)),
+    connection.onDispose(() => {
       for (const handler of handlers) {
         handler.dispose();
       }
       for (const subscription of lifecycle) {
         subscription.dispose();
       }
-      await joinAll([...active].map(([token, tail]) => join(token, tail, true)));
-    })();
-    return closing;
-  };
-  // The caller still awaits close() after transport loss; disposal is no join.
-  const lifecycle = [
-    connection.onClose(() => void close().catch(() => undefined)),
-    connection.onDispose(() => void close().catch(() => undefined)),
+      void close().catch(() => undefined);
+    }),
   ];
   return {
     close,
@@ -199,7 +208,9 @@ export function serveProviderFetchTransport(
           [...active]
             .filter(([, tail]) => tail.scope.threadId === threadId)
             .map(([token, tail]) => join(token, tail, true))
-        ).finally(() => releasing.delete(threadId));
+        ).then(() => {
+          releasing.delete(threadId);
+        });
         releasing.set(threadId, task);
       }
       return task;
@@ -233,19 +244,27 @@ export function createProviderFetchTransport(
     let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
     let cancelled: Promise<void> | undefined;
     let retired = false;
+    const detach = (): void => {
+      listener.dispose();
+      init?.signal?.removeEventListener('abort', abort);
+    };
     const dispose = (): void => {
       if (retired) {
         return;
       }
       retired = true;
-      listener.dispose();
-      init?.signal?.removeEventListener('abort', abort);
+      detach();
       pending.delete(cancel);
     };
     const cancel = (): Promise<void> => {
       cancelled ??= Promise.resolve()
         .then(() => connection.sendRequest<void>(`${method}/cancel`, address))
-        .finally(dispose);
+        .then(dispose, (cause: unknown) => {
+          // Release observers, but retain the failed join in pending so close
+          // cannot turn an observed body cancellation failure into success.
+          detach();
+          throw cause;
+        });
       return cancelled;
     };
     const abort = (): void => {
