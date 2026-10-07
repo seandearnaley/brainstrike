@@ -3,13 +3,19 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { decodeEvent, type EventSchema } from '@brainstrike/state-store';
 import { Predicate, Schema } from 'effect';
-import { decoder, type StateProjectionOptions } from './contracts.js';
+import {
+  decoder,
+  type StateMessageIdentity,
+  type StateProjectionOptions,
+  stateMessageIdentitySchema,
+} from './contracts.js';
 
 const callable = Schema.declare<(...args: readonly unknown[]) => unknown>(
   (input): input is (...args: readonly unknown[]) => unknown => Predicate.isFunction(input)
 );
 const record = Schema.Record(Schema.String, Schema.Unknown);
 const moduleSchema = Schema.Struct({
+  messages: Schema.optional(callable),
   schema: Schema.Struct({
     currentVersion: Schema.Int.check(Schema.isGreaterThan(0)),
     upgraders: Schema.Record(Schema.String, callable),
@@ -28,9 +34,16 @@ export interface StateProjectionRow {
   readonly seq: number;
   readonly text: string | null;
 }
+export interface StateMessageEvent {
+  readonly event: unknown;
+  readonly seq: number;
+  readonly threadId: string;
+}
 export interface StateProjection {
   decode(raw: string): StateProjectionRow;
+  event(raw: string): unknown;
   readonly identity: string;
+  messages?(rows: readonly StateMessageEvent[]): readonly StateMessageIdentity[];
 }
 
 export function validateStateModule(module: string): string {
@@ -62,6 +75,12 @@ export async function loadStateProjection(
     validate: (event, seq) => loaded.schema.validate(event, seq),
   };
   return {
+    ...(loaded.messages
+      ? {
+          messages: (rows: readonly StateMessageEvent[]) =>
+            decoder(Schema.Array(stateMessageIdentitySchema))(loaded.messages?.(rows)),
+        }
+      : {}),
     decode: (raw) => {
       const event = decodeEvent(raw, options.mode, schema);
       const { seq, type } = decoder(eventIdentity)(event);
@@ -73,6 +92,7 @@ export async function loadStateProjection(
       }
       return { gap: null, seq, text: decoder(Schema.String)(loaded.text(event)) };
     },
+    event: (raw) => decodeEvent(raw, options.mode, schema),
     identity: createHash('sha256')
       .update(JSON.stringify([options.module, options.mode, readFileSync(filename, 'utf8')]))
       .digest('hex'),

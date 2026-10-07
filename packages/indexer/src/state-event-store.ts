@@ -3,7 +3,7 @@ import path from 'node:path';
 import { blobsOf, SqliteReader } from '@brainstrike/state-store';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { checkedTruncateCheckpoint } from './checked-checkpoint.js';
+import type { IndexerOptions } from './contracts.js';
 import {
   decoder,
   IndexerError,
@@ -14,6 +14,7 @@ import {
   stateStatsSchema,
   stateThreadsSchema,
 } from './contracts.js';
+import { StateMessageVectors } from './state-message-vectors.js';
 import type { StateProjection } from './state-projection.js';
 
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
@@ -33,10 +34,11 @@ export class StateEventStore {
   static initialize(
     db: Database.Database,
     root: string | undefined,
-    projection: StateProjection | undefined
+    projection: StateProjection | undefined,
+    options: IndexerOptions
   ): void {
     db.exec(`
-      CREATE TABLE state_index_source(singleton INTEGER PRIMARY KEY CHECK(singleton=1),root TEXT,projection_identity TEXT);
+      CREATE TABLE state_index_source(singleton INTEGER PRIMARY KEY CHECK(singleton=1),root TEXT,projection_identity TEXT,resource_grants TEXT NOT NULL);
       CREATE TABLE state_event_rows(pk INTEGER PRIMARY KEY,thread_id TEXT NOT NULL,seq INTEGER NOT NULL CHECK(seq>0),payload TEXT NOT NULL,content TEXT,gap_reason TEXT,UNIQUE(thread_id,seq));
       CREATE TABLE state_event_blob_refs(event_pk INTEGER NOT NULL REFERENCES state_event_rows(pk) ON DELETE CASCADE,hash TEXT NOT NULL,PRIMARY KEY(event_pk,hash)) WITHOUT ROWID;
       CREATE INDEX state_blob_hash ON state_event_blob_refs(hash);
@@ -55,16 +57,19 @@ export class StateEventStore {
       END;
       INSERT INTO state_events_fts(state_events_fts,rank) VALUES('secure-delete',1);
     `);
-    db.prepare('INSERT INTO state_index_source VALUES(1,?,?)').run(
+    StateMessageVectors.initialize(db);
+    db.prepare('INSERT INTO state_index_source VALUES(1,?,?,?)').run(
       root ?? null,
-      projection?.identity ?? null
+      projection?.identity ?? null,
+      JSON.stringify(options.stateResources ?? [])
     );
   }
 
   static validateRoot(
     db: Database.Database,
     root: string | undefined,
-    projection: StateProjection | undefined
+    projection: StateProjection | undefined,
+    options: IndexerOptions
   ): void {
     const stored = decoder(Schema.NullOr(Schema.String))(
       db.prepare('SELECT root FROM state_index_source WHERE singleton=1').pluck().get()
@@ -75,6 +80,15 @@ export class StateEventStore {
         .pluck()
         .get()
     );
+    const grants = decoder(Schema.String)(
+      db.prepare('SELECT resource_grants FROM state_index_source WHERE singleton=1').pluck().get()
+    );
+    if (grants !== JSON.stringify(options.stateResources ?? [])) {
+      throw new IndexerError(
+        'rebuild-required',
+        'State message resource/Root acquisition grants changed.'
+      );
+    }
     if (stored !== (root ?? null) || identity !== (projection?.identity ?? null)) {
       throw new IndexerError(
         'rebuild-required',
@@ -86,27 +100,32 @@ export class StateEventStore {
   static acquire(
     db: Database.Database,
     root: string | undefined,
-    projection: StateProjection | undefined
+    projection: StateProjection | undefined,
+    options: IndexerOptions
   ): StateEventStore | undefined {
-    StateEventStore.validateRoot(db, root, projection);
+    StateEventStore.validateRoot(db, root, projection, options);
     if (root === undefined) {
       return;
     }
     if (!projection) {
       throw new TypeError('State projection requires its acquired producer schema.');
     }
-    return new StateEventStore(db, root, projection);
+    return new StateEventStore(db, root, projection, options);
   }
+
+  readonly messages: StateMessageVectors;
 
   constructor(
     private readonly db: Database.Database,
     root: string,
-    private readonly projection: StateProjection
+    private readonly projection: StateProjection,
+    options: IndexerOptions
   ) {
     if (!path.isAbsolute(root) || realpathSync(root) !== root) {
       throw new TypeError('State projection requires the trusted canonical absolute truth root.');
     }
     this.truth = new SqliteReader(root);
+    this.messages = new StateMessageVectors(db, this.truth, projection, options);
     db.exec("INSERT INTO state_events_fts(state_events_fts,rank) VALUES('integrity-check',1)");
   }
 
@@ -179,19 +198,23 @@ export class StateEventStore {
     if (row?.kind !== 'event' || row.seq !== seq) {
       throw new Error('State reindex requires the exact verified committed truth event');
     }
-    this.db.transaction(() => this.replace(threadId, seq, row.raw))();
-    checkedTruncateCheckpoint(this.db);
+    this.db.transaction(() => {
+      this.messages.invalidate(threadId, seq);
+      this.replace(threadId, seq, row.raw);
+    })();
+    this.messages.finishCleanup();
     return true;
   }
 
   rebuild(input: unknown): boolean {
     const threadId = decoder(Schema.NonEmptyString)(input);
     this.db.transaction(() => {
+      this.messages.invalidate(threadId);
       this.db.prepare('DELETE FROM state_event_rows WHERE thread_id=?').run(threadId);
       this.db.prepare('DELETE FROM state_thread_cursors WHERE thread_id=?').run(threadId);
       this.catchUp([threadId]);
     })();
-    checkedTruncateCheckpoint(this.db);
+    this.messages.finishCleanup();
     return true;
   }
 
@@ -260,10 +283,11 @@ export class StateEventStore {
           'INSERT OR IGNORE INTO state_dropped_blob_refs SELECT ?,r.hash FROM state_event_blob_refs r JOIN state_event_rows e ON e.pk=r.event_pk WHERE e.thread_id=?'
         )
         .run(threadId, threadId);
+      this.messages.invalidate(threadId);
       this.db.prepare('DELETE FROM state_event_rows WHERE thread_id=?').run(threadId);
       this.db.prepare('DELETE FROM state_thread_cursors WHERE thread_id=?').run(threadId);
     })();
-    checkedTruncateCheckpoint(this.db);
+    this.messages.finishCleanup();
     return decoder(Schema.Array(Schema.String))(
       this.db
         .prepare('SELECT hash FROM state_dropped_blob_refs WHERE thread_id=? ORDER BY hash')

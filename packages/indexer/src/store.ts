@@ -190,7 +190,12 @@ export class IndexWriter {
       this.db.pragma('synchronous = NORMAL');
       this.db.pragma('foreign_keys = ON');
       this.db.pragma('secure_delete = ON');
-      this.state = StateEventStore.acquire(this.db, this.options.stateRoot, this.projection);
+      this.state = StateEventStore.acquire(
+        this.db,
+        this.options.stateRoot,
+        this.projection,
+        this.options
+      );
       for (const table of ['file_chunks_fts', 'file_chunks_trigram']) {
         this.db.exec(`INSERT INTO ${table}(${table},rank) VALUES('integrity-check',1)`);
       }
@@ -276,7 +281,7 @@ export class IndexWriter {
         END;
       `);
       ScopedIndex.initialize(this.db);
-      StateEventStore.initialize(this.db, this.options.stateRoot, this.projection);
+      StateEventStore.initialize(this.db, this.options.stateRoot, this.projection, this.options);
       const identity = freshIdentity(this.options);
       const embedding = identity.embedding;
       this.db

@@ -16,6 +16,12 @@ export type ReadItem =
       readonly reason: string;
     };
 
+/** Authoritative Memory binding, checked in a short read-only snapshot. */
+export interface MemoryThreadBinding {
+  readonly resourceId: string;
+  readonly threadId: string;
+}
+
 interface Row {
   readonly crc: number;
   readonly payload: string;
@@ -34,6 +40,9 @@ export class SqliteReader {
   }
 
   private conn(): Db | null {
+    if (this.db && !existsSync(this.path)) {
+      throw new Error('State truth database does not exist');
+    }
     if (!this.db && existsSync(this.path)) {
       this.db = openRo(this.path);
     }
@@ -111,6 +120,51 @@ export class SqliteReader {
     if (corrupt) {
       yield { fromSeq: expected, kind: 'gap', reason: corrupt, toSeq: null };
     }
+  }
+
+  /** No vendor payload field can authorize a different relational owner. */
+  memoryThreads(resourceId: string): readonly MemoryThreadBinding[] {
+    const db = this.conn();
+    if (!db) {
+      throw new Error('State truth database does not exist');
+    }
+    const rows = db
+      .prepare(`
+      SELECT e.id, e.thread_id AS threadId, e.resource_id AS resourceId, e.payload
+      FROM brainstrike_memory_entities e JOIN threads t ON t.id=e.thread_id
+      WHERE e.kind='thread' AND e.resource_id=? ORDER BY e.id
+    `)
+      .all(resourceId) as Array<{
+      id: string;
+      threadId: string;
+      resourceId: string;
+      payload: string;
+    }>;
+    return rows.map((row) => {
+      const payload: unknown = JSON.parse(row.payload);
+      if (
+        typeof payload !== 'object' ||
+        payload === null ||
+        !('id' in payload) ||
+        payload.id !== row.id ||
+        !('resourceId' in payload) ||
+        payload.resourceId !== row.resourceId ||
+        row.id !== row.threadId ||
+        row.resourceId !== resourceId
+      ) {
+        throw new Error('State Memory thread/resource binding is invalid');
+      }
+      return { resourceId: row.resourceId, threadId: row.threadId };
+    });
+  }
+
+  /** Materialize one verified committed snapshot; never retain it across an await. */
+  snapshot<T>(read: () => T): T {
+    const db = this.conn();
+    if (!db) {
+      throw new Error('State truth database does not exist');
+    }
+    return db.transaction(read)();
   }
 
   close(): void {

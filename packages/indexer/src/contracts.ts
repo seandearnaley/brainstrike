@@ -87,6 +87,11 @@ export const optionsSchema = Schema.Struct({
   rootIds: Schema.Array(nonblank),
   scopes: Schema.optional(Schema.Array(scopeSchema)),
   stateProjection: Schema.optional(stateProjectionOptionsSchema),
+  stateResources: Schema.optional(
+    Schema.Array(
+      Schema.Struct({ profile: vectorProfileSchema, resourceId: nonblank, rootId: nonblank })
+    )
+  ),
   stateRoot: Schema.optional(nonblank),
 });
 export type IndexerOptions = typeof optionsSchema.Type;
@@ -326,6 +331,66 @@ export const scopedCommitSchema = Schema.Struct({
   embeddings: Schema.Array(Schema.Struct({ chunkId: hash, vector: flexibleVector })),
   profile: vectorProfileSchema,
 });
+/** Root grants come only from acquisition; thread membership comes from State truth. */
+export const stateMessageScopeSchema = Schema.Struct({
+  resourceId: nonblank,
+  rootId: nonblank,
+  threadId: nonblank,
+});
+export type StateMessageScope = typeof stateMessageScopeSchema.Type;
+export const stateMessageIdentitySchema = Schema.Struct({ messageId: nonblank, seq: positive });
+export type StateMessageIdentity = typeof stateMessageIdentitySchema.Type;
+export const stateMessagePrepareSchema = Schema.Struct({
+  messages: Schema.Array(stateMessageIdentitySchema).check(Schema.isMinLength(1)),
+  profile: vectorProfileSchema,
+  scope: stateMessageScopeSchema,
+});
+export type StateMessagePrepare = typeof stateMessagePrepareSchema.Type;
+export const stateMessagePlanSchema = Schema.Struct({
+  ...stateMessagePrepareSchema.fields,
+  generation: nonnegative,
+  storeId: hash,
+  truthHash: hash,
+});
+export type StateMessagePlan = typeof stateMessagePlanSchema.Type;
+export const stateMessageUpsertSchema = Schema.Struct({
+  embeddings: Schema.Array(
+    Schema.Struct({
+      messageId: nonblank,
+      vectors: Schema.Array(flexibleVector).check(Schema.isMinLength(1)),
+    })
+  ),
+  plan: stateMessagePlanSchema,
+});
+export type StateMessageUpsert = typeof stateMessageUpsertSchema.Type;
+export const stateMessageQuerySchema = Schema.Struct({
+  limit: positive.check(Schema.isLessThanOrEqualTo(100)),
+  profile: vectorProfileSchema,
+  scope: stateMessageScopeSchema,
+  threadIds: Schema.optional(Schema.Array(nonblank)),
+  vector: flexibleVector,
+});
+export type StateMessageQuery = typeof stateMessageQuerySchema.Type;
+export const stateMessageHitSchema = Schema.Struct({
+  ...stateMessageIdentitySchema.fields,
+  score: Schema.Finite,
+  segmentOrdinal: nonnegative,
+  threadId: nonblank,
+});
+export type StateMessageHit = typeof stateMessageHitSchema.Type;
+export const stateMessageUpsertResultSchema = Schema.Array(
+  Schema.Struct({
+    ...stateMessageIdentitySchema.fields,
+    segmentOrdinal: nonnegative,
+  })
+);
+export type StateMessageUpsertResult = typeof stateMessageUpsertResultSchema.Type;
+export const stateMessagePurgeSchema = Schema.Struct({
+  resourceId: nonblank,
+  rootId: nonblank,
+  threadId: Schema.optional(nonblank),
+});
+export type StateMessagePurge = typeof stateMessagePurgeSchema.Type;
 export const scopedRemoveSchema = Schema.Struct({ fileId: nonblank, scope: scopeSchema });
 export const scopedSearchSchema = Schema.Struct({
   fileIds: Schema.optional(Schema.Array(nonblank)),

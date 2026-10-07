@@ -39,6 +39,13 @@ import {
   stateGcSchema,
   stateHealthSchema,
   stateMatchSchema,
+  stateMessageHitSchema,
+  stateMessagePlanSchema,
+  stateMessagePrepareSchema,
+  stateMessagePurgeSchema,
+  stateMessageQuerySchema,
+  stateMessageUpsertResultSchema,
+  stateMessageUpsertSchema,
   stateStatsSchema,
   stateThreadsSchema,
   textCommitSchema,
@@ -49,6 +56,7 @@ import type {
   PurgeIndexerPort,
   ScopedIndexerPort,
   StateIndexerPort,
+  StateMessageVectorPort,
 } from './index.js';
 import { RpcClient } from './rpc-client.js';
 import { validateStateModule } from './state-projection.js';
@@ -104,6 +112,18 @@ export function validateIndexerOptions(input: unknown): typeof optionsSchema.Typ
       throw new TypeError('Derived index cannot use the authoritative state database path.');
     }
   }
+  if (options.stateResources !== undefined) {
+    if (options.stateRoot === undefined) {
+      throw new TypeError('Message resource grants require acquired State truth.');
+    }
+    const resources = new Set<string>();
+    for (const grant of options.stateResources) {
+      if (!options.rootIds.includes(grant.rootId) || resources.has(grant.resourceId)) {
+        throw new TypeError('A Memory resource requires one authorized immutable Root grant.');
+      }
+      resources.add(grant.resourceId);
+    }
+  }
   return options;
 }
 export function validateIndexerDeadlines(input: unknown): IndexerDeadlines {
@@ -114,7 +134,12 @@ export interface IndexerConnection {
   destroy(): Promise<void>;
   readonly exited: boolean;
   readonly ready: Promise<
-    IndexerPort & PurgeIndexerPort & ScopedIndexerPort & StateIndexerPort & CoverageAuthorityPort
+    IndexerPort &
+      PurgeIndexerPort &
+      ScopedIndexerPort &
+      StateIndexerPort &
+      StateMessageVectorPort &
+      CoverageAuthorityPort
   >;
 }
 export function createIndexerConnection(
@@ -277,6 +302,7 @@ export function createIndexerConnection(
     PurgeIndexerPort &
     ScopedIndexerPort &
     StateIndexerPort &
+    StateMessageVectorPort &
     CoverageAuthorityPort = {
     catchUpState: async (threads) => {
       await call('state-catch-up', decoder(stateThreadsSchema)(threads), decoder(Schema.Boolean));
@@ -338,8 +364,26 @@ export function createIndexerConnection(
       call('prepare-file', decoder(snapshotSchema)(snapshot), decoder(planSchema)),
     prepareScopedFile: async (request) =>
       call('prepare-scoped-file', decoder(scopedPrepareSchema)(request), decoder(scopedPlanSchema)),
+    prepareStateMessageVectors: async (request) =>
+      call(
+        'state-message-prepare',
+        decoder(stateMessagePrepareSchema)(request),
+        decoder(stateMessagePlanSchema)
+      ),
     purgeFile: async (identity) =>
       call('purge-file', decoder(identitySchema)(identity), decoder(Schema.Boolean)),
+    purgeStateMessageVectors: async (request) =>
+      call(
+        'state-message-purge',
+        decoder(stateMessagePurgeSchema)(request),
+        decoder(Schema.Boolean)
+      ),
+    queryStateMessageVectors: async (request) =>
+      call(
+        'state-message-query',
+        decoder(stateMessageQuerySchema)(request),
+        decoder(Schema.Array(stateMessageHitSchema))
+      ),
     rebuildState: async (threadId) => {
       await call(
         'state-rebuild',
@@ -382,6 +426,12 @@ export function createIndexerConnection(
     stateHealth: () => call('state-health', null, decoder(stateHealthSchema)),
     stateStats: (threadId) =>
       call('state-stats', decoder(Schema.NonEmptyString)(threadId), decoder(stateStatsSchema)),
+    upsertStateMessageVectors: async (request) =>
+      call(
+        'state-message-upsert',
+        decoder(stateMessageUpsertSchema)(request),
+        decoder(stateMessageUpsertResultSchema)
+      ),
     verifyManifest: async (request) =>
       call(
         'verify-manifest',
