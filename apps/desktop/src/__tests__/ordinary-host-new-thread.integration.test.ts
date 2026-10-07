@@ -23,7 +23,7 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { openIndexer } from '@brainstrike/indexer';
 import { RootLock } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
-import { _electron } from 'playwright';
+import { _electron, type Page } from 'playwright';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { ensureAssistantShellVisible } from '../../e2e/utils/layout-helpers';
@@ -33,6 +33,26 @@ import { McpHostRuntime } from '../mcp/node-host-runtime';
 const execute = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../../../..');
 const desktop = join(repository, 'apps/desktop');
+
+function readDiagnostics(page: Page): Promise<unknown> {
+  return page.evaluate(async () => {
+    const buffer = (
+      window as Window & {
+        __brainstrikeRendererLogBuffer?: { getRecords(): readonly unknown[] };
+      }
+    ).__brainstrikeRendererLogBuffer;
+    if (!(buffer && window.electronAPI?.db)) {
+      throw new Error('Ordinary application diagnostic sources are unavailable');
+    }
+    const [main, durable] = await Promise.all([
+      window.logging.getBufferedLogs(),
+      window.electronAPI.db.query(
+        'SELECT * FROM brainstrike_diagnostic_events ORDER BY occurred_at'
+      ),
+    ]);
+    return { durable: durable.rows, main, renderer: buffer.getRecords() };
+  });
+}
 
 function failureEvidence(cause: unknown): unknown {
   return cause instanceof AggregateError
@@ -95,6 +115,21 @@ test(
     let originalFailure: unknown;
     const cleanupFailures: unknown[] = [];
     const appOutput: string[] = [];
+    const ownedAppPids = new Set<number>();
+    const observeApplication = async (current: NonNullable<typeof application>): Promise<void> => {
+      current.process().stdout?.on('data', (data: Buffer) => appOutput.push(data.toString()));
+      current.process().stderr?.on('data', (data: Buffer) => appOutput.push(data.toString()));
+      const metrics = await current.evaluate(({ app }) =>
+        app.getAppMetrics().map(({ pid, type }) => ({ pid, type }))
+      );
+      for (const { pid } of metrics) {
+        ownedAppPids.add(pid);
+      }
+      await writeFile(
+        join(evidence, 'owned-app-processes.json'),
+        JSON.stringify([...ownedAppPids])
+      );
+    };
     try {
       await authority.replaceResolvedConfig({
         servers: [
@@ -142,6 +177,8 @@ test(
       host = await startAgentHost({ lifetime: 'persistent', root: profile }, (startup) =>
         createProductionHostPlatform({
           close: async () => {
+            // The index writer must physically join before this host releases its root.
+            await indexer.close();
             await runtimeClient?.disconnect();
             const report = await authority.host.close();
             expect(report.failures).toEqual([]);
@@ -153,57 +190,60 @@ test(
               [mcpName]: { configuredServerId, generation, tool: mcpTool },
             }),
           },
-          readConfiguration: async () => ({
-            configuration: { model: 'gpt-5.4', provider: 'openai' },
-            durableConfiguration: { model: 'gpt-5.4', provider: 'openai' },
-            maxSteps: 4,
-            memory: {
-              native: {
-                options: {
-                  observationalMemory: false,
-                  semanticRecall: false,
-                  workingMemory: { enabled: true, scope: 'thread' },
+          readConfiguration: async (request) => {
+            expect(request.modelId).toBe('openai::gpt-5.4');
+            return {
+              configuration: { model: 'gpt-5.4', provider: 'openai' },
+              durableConfiguration: { model: 'gpt-5.4', provider: 'openai' },
+              maxSteps: 4,
+              memory: {
+                native: {
+                  options: {
+                    observationalMemory: false,
+                    semanticRecall: false,
+                    workingMemory: { enabled: true, scope: 'thread' },
+                  },
+                },
+                recordPrompt: async () => undefined,
+                resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+              },
+              providerRequestContext: { inputTokenLimit: 30_000, provider: 'openai' },
+              tools: {
+                search_index: {
+                  description: 'Search the actual SQLite keyword index',
+                  execute: (input) =>
+                    indexer.search({
+                      limit: 10,
+                      mode: 'bm25',
+                      rootIds: ['owned-root'],
+                      text: z.object({ query: z.string() }).parse(input).query,
+                    }),
+                  identity: 'owned-native-index-reader',
+                  inputSchema: z.object({ query: z.string() }),
+                  risk: 'read',
+                },
+                write_file: {
+                  description: 'Write and index the owned file',
+                  execute: async (input) => {
+                    const { text } = z.object({ text: z.string() }).parse(input);
+                    await writeFile(path, text);
+                    const plan = await indexer.prepareFile({
+                      chunkLines: 1,
+                      content: await readFile(path, 'utf8'),
+                      fileId: 'owned-file',
+                      relativePath: 'permitted.txt',
+                      rootId: 'owned-root',
+                    });
+                    await indexer.commitTextFile({ plan });
+                    return { path };
+                  },
+                  identity: 'owned-native-file-action',
+                  inputSchema: z.object({ text: z.string() }),
+                  risk: 'edit',
                 },
               },
-              recordPrompt: async () => undefined,
-              resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-            },
-            providerRequestContext: { inputTokenLimit: 30_000, provider: 'openai' },
-            tools: {
-              search_index: {
-                description: 'Search the actual SQLite keyword index',
-                execute: (input) =>
-                  indexer.search({
-                    limit: 10,
-                    mode: 'bm25',
-                    rootIds: ['owned-root'],
-                    text: z.object({ query: z.string() }).parse(input).query,
-                  }),
-                identity: 'owned-native-index-reader',
-                inputSchema: z.object({ query: z.string() }),
-                risk: 'read',
-              },
-              write_file: {
-                description: 'Write and index the owned file',
-                execute: async (input) => {
-                  const { text } = z.object({ text: z.string() }).parse(input);
-                  await writeFile(path, text);
-                  const plan = await indexer.prepareFile({
-                    chunkLines: 1,
-                    content: await readFile(path, 'utf8'),
-                    fileId: 'owned-file',
-                    relativePath: 'permitted.txt',
-                    rootId: 'owned-root',
-                  });
-                  await indexer.commitTextFile({ plan });
-                  return { path };
-                },
-                identity: 'owned-native-file-action',
-                inputSchema: z.object({ text: z.string() }),
-                risk: 'edit',
-              },
-            },
-          }),
+            };
+          },
           readPermissionPolicy: () => ({
             perToolOverrides: { [mcpName]: 'ask' },
             policies: { ...DEFAULT_PERMISSION_POLICIES },
@@ -216,16 +256,6 @@ test(
       );
       client = await attachAgentHost(host.record);
       checkpoint('plain-node-production-host-ready');
-      // Seed only disposable preference data before the normal app owns this file.
-      await writeFile(
-        join(disposable, 'electron-storage.json'),
-        JSON.stringify({
-          'assistant-preferences.v1': JSON.stringify({
-            state: { selectedModel: 'openai::gpt-5.4' },
-            version: ASSISTANT_PREFERENCES_STORE_VERSION,
-          }),
-        })
-      );
       const env: Record<string, string> = {};
       for (const [key, value] of Object.entries(process.env)) {
         if (key !== 'ELECTRON_RUN_AS_NODE' && value !== undefined) {
@@ -241,7 +271,7 @@ test(
         ELECTRON_IS_E2E_TEST: 'true',
         OPENAI_API_KEY: 'owned-fixture-key',
       });
-      application = await _electron.launch({
+      const launchOptions = {
         args: [
           join(desktop, 'dist/main.js'),
           '--test-mode',
@@ -252,21 +282,45 @@ test(
         executablePath:
           process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
           join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
-      });
+      };
+      application = await _electron.launch(launchOptions);
       const pid = application.process().pid;
-      application.process().stdout?.on('data', (data: Buffer) => appOutput.push(data.toString()));
-      application.process().stderr?.on('data', (data: Buffer) => appOutput.push(data.toString()));
+      await observeApplication(application);
       const page = await application.firstWindow();
       page.on('pageerror', (cause) =>
         process.stderr.write(`ordinary renderer: ${cause.message}\n`)
       );
       checkpoint('ordinary-main-window');
+      await page.waitForLoadState();
       await ensureAssistantShellVisible(page);
-      await page.getByTestId('assistant-new-thread-button').click();
+      // Preferences are owned by browser local storage, not Electron store.
+      // This disposable fixture chooses a model; admission rejects substitution.
+      await page.evaluate(
+        (value) => localStorage.setItem('assistant-preferences.v1', value),
+        JSON.stringify({
+          state: { modelsByProvider: { openai: 'gpt-5.4' }, selectedModel: 'openai::gpt-5.4' },
+          version: ASSISTANT_PREFERENCES_STORE_VERSION,
+        })
+      );
+      await page.reload();
+      await ensureAssistantShellVisible(page);
+      const newThread = page.getByTestId('assistant-new-thread-button');
+      await page.getByRole('textbox', { name: 'Message input' }).waitFor();
+      const existing = new Set(
+        (await client.request('thread/list', {})).threads.map(({ threadId }) => threadId)
+      );
+      await newThread.click();
       await expect
-        .poll(async () => (await client?.request('thread/list', {}))?.threads.length)
+        .poll(
+          async () =>
+            (await client?.request('thread/list', {}))?.threads.filter(
+              ({ threadId }) => !existing.has(threadId)
+            ).length
+        )
         .toBe(1);
-      const { threads } = await client.request('thread/list', {});
+      const threads = (await client.request('thread/list', {})).threads.filter(
+        ({ threadId }) => !existing.has(threadId)
+      );
       const threadId = threads[0]?.threadId;
       if (threads.length !== 1 || !threadId) {
         throw new Error('Ordinary New Thread did not create exactly one committed host thread');
@@ -313,7 +367,23 @@ test(
       expect(await readFile(path, 'utf8')).toBe('ordinary native SQLite retrieval evidence');
       const committed = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
       expect(committed.filter((row) => row.event.type === 'effect.finished')).toHaveLength(3);
-      expect(committed.at(-1)?.event).toMatchObject({ outcome: 'completed', type: 'run.finished' });
+      expect(committed.findLast((row) => row.event.type === 'run.finished')?.event).toMatchObject({
+        outcome: 'completed',
+        type: 'run.finished',
+      });
+      const workspace = await client.request('thread/workspace/read', { threadId });
+      expect(workspace.snapshot).not.toBeNull();
+      expect(committed.some((row) => row.event.type === 'workspace.updated')).toBe(true);
+      await writeFile(
+        join(evidence, 'committed-workspace.json'),
+        JSON.stringify(workspace, null, 2)
+      );
+      const legacyOwners = await page.evaluate(
+        async (id) =>
+          window.electronAPI?.db.query('SELECT id FROM mastra_threads WHERE id = $1', [id]),
+        threadId
+      );
+      expect(legacyOwners?.rows).toEqual([]);
       expect(
         server.requests.some(
           ({ body }) =>
@@ -321,34 +391,100 @@ test(
         )
       ).toBe(true);
       checkpoint('ordinary-ui-and-cli-committed-view');
+      await writeFile(
+        join(evidence, 'ordinary-diagnostics.json'),
+        JSON.stringify(await readDiagnostics(page), null, 2)
+      );
+      await page.reload();
+      await page
+        .getByTestId(`assistant-thread-panel-${threadId}`)
+        .getByText('Host run completed.', { exact: true })
+        .waitFor();
+      expect(
+        (await client.request('thread/read', { fromSeq: 0, threadId })).rows.slice(
+          0,
+          committed.length
+        )
+      ).toEqual(committed);
+      expect(await client.request('thread/workspace/read', { threadId })).toEqual(workspace);
+      checkpoint('ordinary-reload-same-committed-thread');
+      await observeApplication(application);
       await application.close();
       application = undefined;
       if (pid) {
         expect(() => process.kill(pid, 0)).toThrow();
       }
+      application = await _electron.launch(launchOptions);
+      await observeApplication(application);
+      const reopened = await application.firstWindow();
+      await ensureAssistantShellVisible(reopened);
+      await reopened
+        .getByTestId(`assistant-thread-panel-${threadId}`)
+        .getByText('Host run completed.', { exact: true })
+        .waitFor();
+      expect(
+        (await client.request('thread/read', { fromSeq: 0, threadId })).rows.slice(
+          0,
+          committed.length
+        )
+      ).toEqual(committed);
+      expect(await client.request('thread/workspace/read', { threadId })).toEqual(workspace);
+      await writeFile(
+        join(evidence, 'ordinary-reopened-diagnostics.json'),
+        JSON.stringify(await readDiagnostics(reopened), null, 2)
+      );
+      await reopened.screenshot({ path: join(evidence, 'ordinary-reopened.png') });
+      checkpoint('ordinary-app-reopen-same-committed-thread');
     } catch (cause) {
       originalFailure = cause;
+      await writeFile(
+        join(evidence, 'original-failure.json'),
+        JSON.stringify(failureEvidence(cause), null, 2)
+      );
+      const captures: Promise<void>[] = [];
       const page = application?.windows()[0];
       if (page && !page.isClosed()) {
-        await writeFile(join(evidence, 'ordinary-failure.html'), await page.content());
-        await page.screenshot({ path: join(evidence, 'ordinary-failure.png') });
-        await writeFile(
-          join(evidence, 'ordinary-visible-text.txt'),
-          await page.locator('body').innerText()
+        captures.push(
+          readDiagnostics(page).then((logs) =>
+            writeFile(
+              join(evidence, 'ordinary-failure-diagnostics.json'),
+              JSON.stringify(logs, null, 2)
+            )
+          ),
+          page.content().then((html) => writeFile(join(evidence, 'ordinary-failure.html'), html)),
+          page.screenshot({ path: join(evidence, 'ordinary-failure.png') }).then(() => undefined),
+          page
+            .locator('body')
+            .innerText()
+            .then((content) => writeFile(join(evidence, 'ordinary-visible-text.txt'), content))
         );
       }
       if (client) {
-        const threads = await client.request('thread/list', {});
-        const rows = await Promise.all(
-          threads.threads.map(({ threadId }) =>
-            client?.request('thread/read', { fromSeq: 0, threadId })
-          )
-        );
-        await writeFile(
-          join(evidence, 'failure-committed-read.json'),
-          JSON.stringify({ rows, threads }, null, 2)
+        captures.push(
+          client.request('thread/list', {}).then(async (threads) => {
+            const rows = await Promise.all(
+              threads.threads.map(({ threadId }) =>
+                client?.request('thread/read', { fromSeq: 0, threadId })
+              )
+            );
+            await writeFile(
+              join(evidence, 'failure-committed-read.json'),
+              JSON.stringify({ rows, threads }, null, 2)
+            );
+          })
         );
       }
+      const results = await Promise.allSettled(captures);
+      await writeFile(
+        join(evidence, 'diagnostic-capture-failures.json'),
+        JSON.stringify(
+          results
+            .filter((result) => result.status === 'rejected')
+            .map((result) => failureEvidence(result.reason)),
+          null,
+          2
+        )
+      );
     } finally {
       await writeFile(join(evidence, 'ordinary-app.log'), appOutput.join(''));
       const closed = await Promise.allSettled([
@@ -368,18 +504,32 @@ test(
       const failed = closed.filter((result) => result.status === 'rejected');
       await server.close();
       const owner = RootLock.inspect(profile)?.owner;
+      const remainingAppPids = [...ownedAppPids].filter((pid) => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      });
       await writeFile(
         join(evidence, 'cleanup.json'),
         JSON.stringify({
           failures: failed.map((result) => failureEvidence(result.reason)),
+          remainingAppPids,
           rootReleased: owner?.released ?? true,
         })
       );
       checkpoint(`cleanup-evidence:${evidence}`);
-      if (failed.length > 0 || (owner && !owner.released)) {
+      if (failed.length > 0 || remainingAppPids.length > 0 || (owner && !owner.released)) {
         cleanupFailures.push(...failed.map((result) => result.reason));
         if (owner && !owner.released) {
           cleanupFailures.push(new Error('Ordinary qualification retained its root'));
+        }
+        if (remainingAppPids.length > 0) {
+          cleanupFailures.push(
+            new Error('Ordinary qualification retained owned Electron processes')
+          );
         }
       } else {
         await rm(disposable, { force: true, recursive: true });

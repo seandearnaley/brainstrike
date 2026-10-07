@@ -32,7 +32,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
-import { useAssistantThreadHost } from './assistant-thread-host-context';
+import { useAssistantThreadHost, withAssistantThreadHost } from './assistant-thread-host-context';
 import {
   getAssistantThreadColorSurface,
   resolveThreadRowStatusState,
@@ -123,8 +123,11 @@ export function AssistantThreadTabsWorkspace({
   // root path. See assistant-memory-resource.ts.
   const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
   const repository = useMemo(
-    () => (database ? createPgliteAssistantThreadRepository(database) : null),
-    [database]
+    () =>
+      database
+        ? withAssistantThreadHost(createPgliteAssistantThreadRepository(database), host)
+        : null,
+    [database, host]
   );
   const databaseStartupLoading = shouldRenderAssistantThreadDatabaseStartupLoading({
     databaseError,

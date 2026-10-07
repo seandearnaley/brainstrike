@@ -11,6 +11,20 @@ import {
 import { z } from 'zod';
 import { type HostEvent, HostEventSchema, type HostLogRow } from './protocol.js';
 
+export async function readHostThreadHistory(
+  store: Pick<StateStore, 'read' | 'root'>,
+  threads: ReadonlySet<string>,
+  threadId: string,
+  fromSeq: number
+): Promise<HostLogRow[]> {
+  if (!threads.has(threadId)) {
+    throw new Error('Unknown thread');
+  }
+  return Promise.all(
+    (await store.read(threadId, fromSeq + 1)).map((row) => readHostRow(store, row))
+  );
+}
+
 const Spool = z.object({
   blob: z.string().regex(/^[a-f0-9]{64}$/u),
   bytes: z.number().int().positive(),

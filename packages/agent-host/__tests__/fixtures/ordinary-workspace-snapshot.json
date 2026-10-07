@@ -1,0 +1,10 @@
+{
+  "snapshot": {
+    "apps": { "openAppIds": ["context-explorer"], "selection": { "appId": "context-explorer", "kind": "app" } },
+    "editors": {},
+    "explorer": { "byRoot": {} },
+    "fileTabs": { "activeTabId": null, "tabs": [] },
+    "roots": { "focusedRootId": null, "visibleRootIds": null },
+    "version": 1
+  }
+}

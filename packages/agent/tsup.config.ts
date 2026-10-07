@@ -11,6 +11,7 @@ const broadEntries = [
   'src/client.ts',
   'src/provider-request.ts',
   'src/provider-runtime.ts',
+  'src/tool-runtime.ts',
   'src/code-execution.ts',
   'src/fence-executor.ts',
   'src/mcp-client.ts',

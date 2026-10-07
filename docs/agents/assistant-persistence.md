@@ -7,9 +7,13 @@
 
 ## ASSISTANT THREAD PERSISTENCE & RELOAD HYDRATION
 
-**Thread workspace snapshots** live in
-`brainstrike_assistant_thread_workspaces` and hydrate renderer-owned live stores
-through `useThreadWorkspaceCoordinator`; those stores stay the working authority.
+**Thread workspace snapshots** for M3 host-owned threads are committed as
+`workspace.updated` in the existing SQLite event log, through the authenticated
+host dispatcher. Legacy-history threads retain
+`brainstrike_assistant_thread_workspaces`. The actual host catalog selects the
+owner; a host thread never receives a shadow `mastra_threads` row. Both routes
+hydrate renderer-owned live stores through `useThreadWorkspaceCoordinator`;
+those stores stay the working authority.
 
 - While the first snapshot read is pending, never persist unhydrated singleton
   state over the saved row: capture a boot baseline, merge only fields that

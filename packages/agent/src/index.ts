@@ -1,4 +1,9 @@
 // Types — all inline type definitions live in types.ts
+export {
+  type CollectCombinedToolsOptions,
+  type CollectCombinedToolsResult,
+  collectCombinedTools,
+} from './mastra/mcp-tool-loader';
 
 // The broad entrypoint supports in-process browser inference. Server-safe
 // subpaths intentionally omit this registration and its Transformers graph.

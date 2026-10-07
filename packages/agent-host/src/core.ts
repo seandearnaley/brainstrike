@@ -14,15 +14,18 @@ import {
   validateApprovalInput,
 } from './approval-input.js';
 import {
+  acceptHostWorkspaceSnapshot,
   createHostRunContext,
   createHostRunState,
   foldHostAcceptedCommand,
-  foldHostRunMessages,
+  foldHostConversationMessages,
   HostCommandLedger,
   type PendingInteraction,
   type HostRunState as Run,
+  readHostWorkspaceSnapshot,
+  recordHostConversationId,
 } from './core-state.js';
-import { readHostRow, storedHostEvent } from './event-storage.js';
+import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
@@ -49,6 +52,7 @@ export type HostEventStore = Pick<
 export class HostCore {
   private readonly commands = new HostCommandLedger();
   private readonly threads = new Set<string>();
+  private readonly workspaces = new Map<string, HostParams<'thread/workspace/set'>['snapshot']>();
   private readonly runs = new Map<string, Run>();
   private readonly messages = new Map<string, ModelMessage[]>();
   private readonly conversationIds = new Set<string>();
@@ -116,14 +120,17 @@ export class HostCore {
   private fold(row: HostLogRow): void {
     const event = row.event;
     switch (event.type) {
+      case 'workspace.updated':
+        this.workspaces.set(row.threadId, event.snapshot);
+        break;
       case 'command.accepted':
         foldHostAcceptedCommand(this.commands, this.runs, event);
         if (event.method === 'run/start') {
-          this.foldConversationId(event.commandId);
+          recordHostConversationId(this.conversationIds, event.commandId);
         }
         break;
       case 'run.started':
-        this.foldConversationId(event.runId);
+        recordHostConversationId(this.conversationIds, event.runId);
         this.runs.set(
           event.runId,
           createHostRunState(row.threadId, event.runId, event.modelId, event.snapshot)
@@ -135,7 +142,7 @@ export class HostCore {
         break;
       case 'model.step':
       case 'model.messages':
-        this.foldMessages(row.threadId, event);
+        foldHostConversationMessages(this.messages, this.runs, row.threadId, event);
         break;
       case 'interaction.requested': {
         const run = this.runs.get(event.runId);
@@ -176,27 +183,6 @@ export class HostCore {
     }
   }
 
-  private foldConversationId(id: string): void {
-    if (this.conversationIds.has(id)) {
-      throw new Error('Committed conversation identities collide');
-    }
-    this.conversationIds.add(id);
-  }
-
-  private foldMessages(
-    threadId: string,
-    event: Extract<HostEvent, { type: 'model.step' | 'model.messages' }>
-  ): void {
-    const messages = event.messages.map((message) => modelMessageSchema.parse(message));
-    const previous = this.messages.get(threadId) ?? [];
-    this.messages.set(threadId, [...previous, ...messages]);
-    const run = this.runs.get(event.runId);
-    if (!run) {
-      return;
-    }
-    foldHostRunMessages(run, event, messages, previous.length);
-  }
-
   private async append(
     threadId: string,
     events: readonly HostEvent[],
@@ -227,12 +213,26 @@ export class HostCore {
     return [...this.threads].map((threadId) => ({ threadId }));
   }
 
-  async read(threadId: string, fromSeq: number): Promise<HostLogRow[]> {
-    if (!this.threads.has(threadId)) {
-      throw new Error('Unknown thread');
-    }
-    return Promise.all(
-      (await this.store.read(threadId, fromSeq + 1)).map((row) => readHostRow(this.store, row))
+  read(threadId: string, fromSeq: number): Promise<HostLogRow[]> {
+    return readHostThreadHistory(this.store, this.threads, threadId, fromSeq);
+  }
+
+  readWorkspace(threadId: string): ReturnType<typeof readHostWorkspaceSnapshot> {
+    return readHostWorkspaceSnapshot(this.threads, this.workspaces, threadId);
+  }
+
+  setWorkspace(params: HostParams<'thread/workspace/set'>): Promise<{ accepted: true }> {
+    return this.command('thread/workspace/set', params, () =>
+      acceptHostWorkspaceSnapshot(params, this.threads, (event) =>
+        this.accept(
+          params.threadId,
+          'thread/workspace/set',
+          params,
+          { accepted: true },
+          [event],
+          () => this.workspaces.set(params.threadId, event.snapshot)
+        )
+      )
     );
   }
 
@@ -260,7 +260,8 @@ export class HostCore {
     method: string,
     params: { commandId: string },
     result: Json,
-    events: readonly HostEvent[]
+    events: readonly HostEvent[],
+    beforePublish?: () => void
   ): Promise<void> {
     const accepted: HostEvent = {
       commandId: params.commandId,
@@ -269,7 +270,7 @@ export class HostCore {
       result,
       type: 'command.accepted',
     };
-    await this.append(threadId, [accepted, ...events]);
+    await this.append(threadId, [accepted, ...events], 'normal', beforePublish);
     this.commands.commit(params.commandId, {
       method,
       payload: canonical(accepted.payload),
@@ -336,8 +337,8 @@ export class HostCore {
           },
         ]);
         this.runs.set(run.id, run);
-        this.foldConversationId(params.commandId);
-        this.foldConversationId(run.id);
+        recordHostConversationId(this.conversationIds, params.commandId);
+        recordHostConversationId(this.conversationIds, run.id);
         this.messages.set(params.threadId, [
           ...(this.messages.get(params.threadId) ?? []),
           { content: params.prompt, role: 'user' },

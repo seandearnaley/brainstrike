@@ -64,6 +64,8 @@ export function bindHostConnection(
   handle('thread/read', async (params) => ({
     rows: await core.read(params.threadId, params.fromSeq),
   }));
+  handle('thread/workspace/read', (params) => core.readWorkspace(params.threadId));
+  handle('thread/workspace/set', (params) => core.setWorkspace(params));
   handle('run/start', (params) => core.startRun(params));
   handle('run/stop', (params) => core.stop(params));
   handle('interaction/respond', (params) => core.respond(params));

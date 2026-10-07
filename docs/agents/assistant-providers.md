@@ -1485,6 +1485,10 @@ and may therefore observe revision holes. Empty configured-server-id filters are
 rather than registered as silent no-op subscriptions; non-empty filters may name
 a future configured server.
 Actor transitions must exactly match the config-owned generation, protocol policy, and transport.
+Routing fences an actor before physical retirement; its closing/disconnected
+transitions still publish against the existing publisher-owned generation until
+the joined replacement removes it. An actor that was never published or has
+already joined cannot publish through the routing map's absence.
 Lower and higher generations, policy mutation, and transitions from a removed
 server throw typed attributable errors.
 Terminal host close invalidates queued and future watch registrations because the

@@ -1,8 +1,13 @@
-import type { ModelMessage } from 'ai';
+import { type ModelMessage, modelMessageSchema } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
-import { HOST_METHOD_SCHEMAS, type HostEvent, type HostRunSnapshot } from './protocol.js';
+import {
+  HOST_METHOD_SCHEMAS,
+  type HostEvent,
+  type HostParams,
+  type HostRunSnapshot,
+} from './protocol.js';
 
 /** HostCore alone folds and writes accepted command records. */
 export interface AcceptedCommand {
@@ -216,4 +221,54 @@ export function createHostRunContext(
     signal: run.controller.signal,
     threadId: run.threadId,
   };
+}
+
+/** Pure transcript fold; the supplied maps remain owned by HostCore. */
+export function foldHostConversationMessages(
+  messagesByThread: Map<string, ModelMessage[]>,
+  runs: ReadonlyMap<string, HostRunState>,
+  threadId: string,
+  event: Extract<HostEvent, { type: 'model.step' | 'model.messages' }>
+): void {
+  const messages = event.messages.map((message) => modelMessageSchema.parse(message));
+  const previous = messagesByThread.get(threadId) ?? [];
+  messagesByThread.set(threadId, [...previous, ...messages]);
+  const run = runs.get(event.runId);
+  if (!run) {
+    return;
+  }
+  foldHostRunMessages(run, event, messages, previous.length);
+}
+
+/** The workspace read is a clone of the existing host-owned committed projection. */
+export function readHostWorkspaceSnapshot(
+  threads: ReadonlySet<string>,
+  workspaces: ReadonlyMap<string, HostParams<'thread/workspace/set'>['snapshot']>,
+  threadId: string
+): { snapshot: HostParams<'thread/workspace/set'>['snapshot'] | null } {
+  if (!threads.has(threadId)) {
+    throw new Error('Unknown thread');
+  }
+  return { snapshot: structuredClone(workspaces.get(threadId) ?? null) };
+}
+
+/** Prepare validated data; HostCore supplies its sole command acceptance writer. */
+export async function acceptHostWorkspaceSnapshot(
+  params: HostParams<'thread/workspace/set'>,
+  threads: ReadonlySet<string>,
+  accept: (event: Extract<HostEvent, { type: 'workspace.updated' }>) => Promise<void>
+): Promise<{ accepted: true }> {
+  if (!threads.has(params.threadId)) {
+    throw new Error('Unknown thread');
+  }
+  await accept({ snapshot: structuredClone(params.snapshot), type: 'workspace.updated' });
+  return { accepted: true };
+}
+
+/** Existing conversation collision invariant, folded into HostCore's supplied set. */
+export function recordHostConversationId(ids: Set<string>, id: string): void {
+  if (ids.has(id)) {
+    throw new Error('Committed conversation identities collide');
+  }
+  ids.add(id);
 }

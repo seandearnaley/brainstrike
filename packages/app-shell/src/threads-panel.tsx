@@ -65,6 +65,7 @@ import {
 import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
+import { useAssistantThreadHost, withAssistantThreadHost } from './assistant-thread-host-context';
 import {
   ASSISTANT_THREAD_COLOR_PALETTES,
   ASSISTANT_THREAD_COLOR_PRESENTATION,
@@ -1670,6 +1671,7 @@ async function handleRefreshAgentColors(
 }
 
 export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = {}): ReactElement {
+  const host = useAssistantThreadHost();
   const database = usePGliteDatabase();
   const databaseInitializing = useDbInitializing();
   const databaseStatus = useDbInitializationStatus();
@@ -1680,8 +1682,11 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   // See assistant-memory-resource.ts.
   const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
   const repository = useMemo(
-    () => (database ? createPgliteAssistantThreadRepository(database) : null),
-    [database]
+    () =>
+      database
+        ? withAssistantThreadHost(createPgliteAssistantThreadRepository(database), host)
+        : null,
+    [database, host]
   );
   const groupsRepository = useMemo(
     () => (database ? createPgliteAssistantThreadGroupsRepository(database) : null),

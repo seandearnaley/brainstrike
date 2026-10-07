@@ -55,6 +55,11 @@
     "node": ">=22"
   },
   "exports": {
+    "./tool-runtime": {
+      "types": "./dist/tool-runtime.d.ts",
+      "import": "./dist/tool-runtime.mjs",
+      "require": "./dist/tool-runtime.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",

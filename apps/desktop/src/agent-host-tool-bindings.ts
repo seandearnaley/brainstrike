@@ -3,7 +3,7 @@ import {
   createSanitizedToolNameMap,
   type RuntimeData,
   type ScaledToolResultBudget,
-} from '@brainstrike/agent';
+} from '@brainstrike/agent/tool-runtime';
 import {
   canonicalToolInputSchema,
   canonicalToolModelOutput,

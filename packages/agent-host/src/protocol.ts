@@ -1,6 +1,7 @@
+import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 
-export const AGENT_HOST_PROTOCOL_VERSION = 4;
+export const AGENT_HOST_PROTOCOL_VERSION = 5;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
@@ -34,6 +35,12 @@ export const HOST_METHOD_SCHEMAS = {
   'thread/list': z.strictObject({}),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
   'thread/start': z.strictObject(Command),
+  'thread/workspace/read': z.strictObject(Thread),
+  'thread/workspace/set': z.strictObject({
+    ...Command,
+    ...Thread,
+    snapshot: WorkspaceSnapshotSchema,
+  }),
 } as const;
 export type HostMethod = keyof typeof HOST_METHOD_SCHEMAS;
 export type HostParams<M extends HostMethod> = z.infer<(typeof HOST_METHOD_SCHEMAS)[M]>;
@@ -48,6 +55,7 @@ const Action = {
 };
 export const HostEventSchema = z.discriminatedUnion('type', [
   z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
+  z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
   z.strictObject({
     commandId: Id,
     method: Id,
@@ -137,5 +145,7 @@ export const HOST_RESULT_SCHEMAS = {
   'thread/list': z.strictObject({ threads: z.array(z.strictObject(Thread)) }),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   'thread/start': z.strictObject(Thread),
+  'thread/workspace/read': z.strictObject({ snapshot: WorkspaceSnapshotSchema.nullable() }),
+  'thread/workspace/set': z.strictObject({ accepted: z.literal(true) }),
 } as const;
 export type HostResults = { [M in HostMethod]: z.infer<(typeof HOST_RESULT_SCHEMAS)[M]> };

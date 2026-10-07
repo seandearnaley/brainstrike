@@ -11,8 +11,8 @@ test.each(['import', 'require'] as const)(
   async (mode) => {
     const load =
       mode === 'import'
-        ? "const runtime = await import('@brainstrike/agent/provider-runtime');"
-        : "const { createRequire } = await import('node:module'); const runtime = createRequire(import.meta.url)('@brainstrike/agent/provider-runtime');";
+        ? "await import('@brainstrike/agent/tool-runtime'); await import('@brainstrike/agent/mcp-client'); const runtime = await import('@brainstrike/agent/provider-runtime');"
+        : "const { createRequire } = await import('node:module'); const require = createRequire(import.meta.url); require('@brainstrike/agent/tool-runtime'); require('@brainstrike/agent/mcp-client'); const runtime = require('@brainstrike/agent/provider-runtime');";
     const { stdout } = await execute(
       process.execPath,
       [

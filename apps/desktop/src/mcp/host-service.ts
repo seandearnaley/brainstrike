@@ -358,7 +358,13 @@ export class McpHostService implements McpHostPort {
             if (this.closePromise) {
               return;
             }
-            if (!actor || this.actors.get(server.configuredServerId)?.actor !== actor) {
+            // Routing is fenced before physical retirement. The publisher
+            // still owns this generation until its joined config replacement,
+            // so its closing/disconnected transitions remain real events.
+            const published = this.options.publisher
+              .snapshot()
+              .servers.find((entry) => entry.configuredServerId === server.configuredServerId);
+            if (!(actor && this.ownedActors.has(actor)) || published?.generation !== generation) {
               this.reportInternalError('mcp-host-unpublished-actor-transition', snapshot);
               return;
             }

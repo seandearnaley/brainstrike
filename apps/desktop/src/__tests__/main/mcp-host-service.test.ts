@@ -2,6 +2,7 @@ import {
   type McpHostCloseReport,
   type McpHostConfig,
   type McpHostOperationResult,
+  type McpHostServerSnapshot,
   parseConfiguredMcpServerId,
   parseMcpHostConfig,
 } from '@brainstrike/assistant-contract';
@@ -63,7 +64,7 @@ interface ActorRecord {
   invalidated: ReturnType<typeof vi.fn>;
   invoke: ReturnType<typeof vi.fn>;
   publish: McpHostActorFactoryInput['onSnapshotChanged'];
-  snapshot: ReturnType<typeof vi.fn>;
+  snapshot: ReturnType<typeof vi.fn<() => McpHostServerSnapshot>>;
 }
 function setup(
   closeResults: Array<McpHostCloseReport | Promise<McpHostCloseReport>> = [],
@@ -132,6 +133,40 @@ function setup(
   };
 }
 describe('McpHostService', () => {
+  it('publishes the retiring generation until its physical close joins while fencing invocation', async () => {
+    const { diagnostic, host, records } = setup();
+    await host.replaceConfig(config([alpha, 'auto']));
+    const actor = records[0]!;
+    const entered = deferred<void>();
+    const joined = deferred<void>();
+    actor.close.mockImplementation(async () => {
+      actor.publish({ ...actor.snapshot(), state: 'closing' });
+      entered.resolve();
+      await joined.promise;
+      actor.publish({ ...actor.snapshot(), state: 'disconnected' });
+      return CLEAN;
+    });
+    const replacement = host.replaceConfig(config());
+    await entered.promise;
+    expect(host.snapshot().servers[0]?.state).toBe('closing');
+    expect(diagnostic).not.toHaveBeenCalled();
+    const invocation = expect(host.invoke(LIST)).rejects.toMatchObject({
+      code: 'mcp-host-server-unknown',
+    });
+    expect(actor.invoke).not.toHaveBeenCalled();
+    joined.resolve();
+    await replacement;
+    await invocation;
+    expect(host.snapshot().servers).toEqual([]);
+    expect(actor.invoke).not.toHaveBeenCalled();
+    expect(diagnostic).not.toHaveBeenCalled();
+    actor.publish({ ...actor.snapshot(), state: 'connecting' });
+    expect(diagnostic).toHaveBeenCalledWith(
+      'mcp-host-unpublished-actor-transition',
+      expect.objectContaining({ configuredServerId: alpha, state: 'connecting' })
+    );
+    await host.close();
+  });
   it('connects, cancels, disconnects, and reauthorizes one selected OAuth actor', async () => {
     const { host, records } = setup();
     await host.replaceConfig(config([alpha, 'auto', { type: 'oauth-user' }]));
