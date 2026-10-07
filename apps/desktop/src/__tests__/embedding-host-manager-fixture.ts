@@ -94,7 +94,13 @@ vi.mock('../renderer-host-lifecycle', () => ({
 const hostedEmbeddingMock = vi.hoisted(() => vi.fn());
 vi.mock('../hosted-embeddings', () => ({ generateHostedEmbeddings: hostedEmbeddingMock }));
 
-import { EmbeddingHostManager } from '../embedding-host-manager';
+import { EmbeddingHostManager, type EmbeddingHostManagerOptions } from '../embedding-host-manager';
+
+// Load the manager through this fixture so its hoisted Electron/lifecycle mocks
+// are registered before the production module binds those dependencies.
+function createEmbeddingHostManager(options?: EmbeddingHostManagerOptions): EmbeddingHostManager {
+  return new EmbeddingHostManager(options);
+}
 
 // Map public keys without private members so tests can expose syncPowerSaveBlocker.
 type TestableEmbeddingHostManager = Omit<EmbeddingHostManager, never> & {
@@ -106,7 +112,7 @@ type TestableEmbeddingHostManager = Omit<EmbeddingHostManager, never> & {
 };
 
 function createDarwinManager(): TestableEmbeddingHostManager {
-  return new EmbeddingHostManager({
+  return createEmbeddingHostManager({
     platform: 'darwin',
   }) as unknown as TestableEmbeddingHostManager;
 }
@@ -114,6 +120,7 @@ function createDarwinManager(): TestableEmbeddingHostManager {
 export type { TestableEmbeddingHostManager };
 export {
   createDarwinManager,
+  createEmbeddingHostManager,
   currentLifecycleStatus,
   hostedEmbeddingMock,
   lifecycleState,
