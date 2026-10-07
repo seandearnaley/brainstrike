@@ -17,8 +17,13 @@ import {
 import { HostLogRowSchema } from '@brainstrike/agent-host/protocol';
 import { scriptedToolSequence } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { processStartTime } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
+import {
+  observeFixtureChild,
+  recordFixtureEvent,
+} from '../../../../packages/agent-host/__tests__/fixtures/owned-fixture-process';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
 
 const roots: string[] = [];
@@ -30,7 +35,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
 
-test.each(
+test.for(
   [
     {
       id: NATIVE_TOOL_ID.askUser,
@@ -64,7 +69,7 @@ test.each(
   ])
 )(
   'canonical $kind answers once (restart=$restart, steps=$maxSteps, client=$clientType)',
-  async (fixture) => {
+  async (fixture, { signal }) => {
     const root = await mkdtemp(join(tmpdir(), 'bs-m3-human-interaction-'));
     roots.push(root);
     const binding = createAgentHostToolBindings({
@@ -164,6 +169,7 @@ test.each(
       threadId,
     };
     if (fixture.clientType === 'cli') {
+      const started = performance.now();
       const child = spawn(
         process.execPath,
         [
@@ -180,25 +186,31 @@ test.each(
         ],
         { stdio: ['pipe', 'pipe', 'pipe'] }
       );
-      let stderr = '';
-      let stdout = '';
-      child.stderr.on('data', (data: Buffer) => {
-        stderr += data.toString();
-      });
-      child.stdout.on('data', (data: Buffer) => {
-        stdout += data.toString();
-      });
-      const closed = new Promise<number | null>((resolveExit, reject) => {
-        child.once('error', reject);
-        child.once('close', resolveExit);
+      const observed = observeFixtureChild(child, (pid) => {
+        const start = processStartTime(pid);
+        if (!start) {
+          throw new Error('Cannot identify the owned canonical interaction CLI');
+        }
+        return { executable: process.execPath, pid, start };
       });
       try {
-        await expect.poll(() => stderr).toContain('with JSON');
+        // BST-1977: Windows emitted the actual prompt after 1.715s; the
+        // library's 1s poll default is not an accepted product latency gate.
+        // Observe the real output/exit within the unchanged test cancellation.
+        await observed.output.waitFor('stderr', 'with JSON', signal);
+        recordFixtureEvent('canonical-interaction-cli-prompt-readiness', {
+          elapsedMs: performance.now() - started,
+          kind: fixture.kind,
+          root,
+        });
+        expect(observed.output.stderr()).toContain('with JSON');
         child.stdin.write('{"unexpected":true}\n');
-        await expect.poll(() => stderr).toContain('Interaction rejected:');
+        await observed.output.waitFor('stderr', 'Interaction rejected:', signal);
+        expect(observed.output.stderr()).toContain('Interaction rejected:');
         child.stdin.write(`${JSON.stringify(fixture.resumeData)}\n`);
-        expect(await closed).toBe(0);
-        const liveRows = stdout
+        expect((await observed.done).code).toBe(0);
+        const liveRows = observed.output
+          .stdout()
           .trim()
           .split('\n')
           .map((line) => HostLogRowSchema.parse(JSON.parse(line)));
@@ -210,7 +222,7 @@ test.each(
         if (child.exitCode === null && child.signalCode === null) {
           child.kill('SIGTERM');
         }
-        await closed;
+        await observed.done;
       }
     } else {
       await client.request('interaction/resume', response);

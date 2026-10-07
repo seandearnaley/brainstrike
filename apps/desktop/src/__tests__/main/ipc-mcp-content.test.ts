@@ -279,13 +279,13 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
       authority,
       uri: RESOURCE_URI,
     });
-    // The actor retires the errored transport, so the port's authority watch
-    // wins the race; only the fixed public taxonomy crosses IPC either way.
+    // This request was accepted before the actor retired the errored transport.
+    // Only the fixed retirement taxonomy crosses IPC, never the transport cause.
     expect(response).toEqual({
       error: {
-        category: 'not-connected',
-        code: 'mcp_content_server_not_connected',
-        message: 'MCP content server not connected',
+        category: 'generation-retired',
+        code: 'mcp_content_generation_retired',
+        message: 'MCP content generation retired',
       },
       ok: false,
     });

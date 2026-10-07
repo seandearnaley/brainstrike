@@ -48,7 +48,7 @@ describe('provider-api-key', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    process.env = { ...originalEnv };
+    process.env = {};
     vi.clearAllMocks();
   });
 
@@ -341,12 +341,7 @@ describe('provider-api-key AWS auth precedence (BST-1353)', () => {
   }
 
   beforeEach(() => {
-    process.env = { ...originalEnv };
-    for (const name of Object.keys(process.env)) {
-      if (name.startsWith('AWS_')) {
-        delete process.env[name];
-      }
-    }
+    process.env = {};
     vi.clearAllMocks();
     mockIsSupportedProvider.mockReturnValue(true);
     mockListAgentProviders.mockReturnValue(['bedrock']);

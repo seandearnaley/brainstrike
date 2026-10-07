@@ -102,10 +102,10 @@ import { readMainLogWindow } from './diagnostics/main-log-window';
 import { MAIN_WATCHDOG_CHECK_INTERVAL_MS } from './diagnostics/main-watchdog-core';
 import { resolveMainWatchdogWorkerPath } from './diagnostics/main-watchdog-path';
 import {
-  attemptMainWatchdogBootstrap,
   createMainWatchdogAttachmentLifecycle,
   createMainWatchdogRuntime,
   runMainWatchdogPowerTransition,
+  startMainWatchdogBeforeWindow,
 } from './diagnostics/main-watchdog-runtime';
 import {
   PROCESS_COUNTER_RING_CAPACITY,
@@ -2195,7 +2195,7 @@ if (singleInstanceLockAcquired) {
       // If the main thread stops sending heartbeats, the worker writes
       // diagnostics directly to stderr and the log file.
       // ---------------------------------------------------------------
-      attemptMainWatchdogBootstrap(
+      const mainWindow = await startMainWatchdogBeforeWindow(
         () => {
           const workerPath = resolveMainWatchdogWorkerPath(app.getAppPath(), app.isPackaged);
           const watchdog = new Worker(workerPath);
@@ -2247,18 +2247,19 @@ if (singleInstanceLockAcquired) {
             { error: serializeDesktopError(error) },
             'main-thread watchdog failed to start; continuing application startup'
           );
+        },
+        () => {
+          logger.debug('Creating main window...');
+          return createInitialWindowAfterNativeReader(
+            nativeReaderStartup,
+            createMainWindow,
+            (outcome) =>
+              logger.info('Initial native reader startup settled before visible renderer load', {
+                kind: outcome.kind,
+              }),
+            isDesktopShuttingDown
+          );
         }
-      );
-
-      logger.debug('Creating main window...');
-      const mainWindow = await createInitialWindowAfterNativeReader(
-        nativeReaderStartup,
-        createMainWindow,
-        (outcome) =>
-          logger.info('Initial native reader startup settled before visible renderer load', {
-            kind: outcome.kind,
-          }),
-        isDesktopShuttingDown
       );
       if (!mainWindow) {
         return;

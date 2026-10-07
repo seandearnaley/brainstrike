@@ -305,7 +305,9 @@ function authorityError(
     return applicationError('retired');
   }
   if (server.state !== 'connected') {
-    return applicationError('notConnected');
+    // Replacement retires accepted work before the old generation disconnects
+    // and its successor is published (BST-1977, actual Desktop MCP replacement).
+    return applicationError(accepted ? 'retired' : 'notConnected');
   }
   if (server.catalog?.features[descriptor.feature] !== true) {
     return applicationError('unsupported');
