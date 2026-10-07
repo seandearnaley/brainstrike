@@ -1,13 +1,17 @@
 #include <napi.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <climits>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <random>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -16,12 +20,16 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
+#include <aclapi.h>
 #include <winternl.h>
 #ifndef FILE_DIRECTORY_FILE
 #define FILE_DIRECTORY_FILE 0x00000001
 #endif
 #ifndef FILE_OPEN
 #define FILE_OPEN 0x00000001
+#endif
+#ifndef FILE_CREATE
+#define FILE_CREATE 0x00000002
 #endif
 #ifndef FILE_SYNCHRONOUS_IO_NONALERT
 #define FILE_SYNCHRONOUS_IO_NONALERT 0x00000020
@@ -188,7 +196,8 @@ NtCreateFileFn ResolveNtCreateFile() {
 }
 
 NativeHandle OpenRelativeComponent(NativeHandle parent, const std::wstring& name,
-                                   bool directory, bool* not_found = nullptr) {
+                                   bool directory, bool* not_found = nullptr,
+                                   ACCESS_MASK extra_access = 0) {
   if (not_found != nullptr) {
     *not_found = false;
   }
@@ -213,7 +222,7 @@ NativeHandle OpenRelativeComponent(NativeHandle parent, const std::wstring& name
   const ULONG options = FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_REPARSE_POINT |
                         (directory ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE);
   const NTSTATUS status = nt_create_file(
-      &result, access, &attributes, &status_block, nullptr, FILE_ATTRIBUTE_NORMAL,
+      &result, access | extra_access, &attributes, &status_block, nullptr, FILE_ATTRIBUTE_NORMAL,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN, options, nullptr, 0);
   if (status < 0 || result == kInvalidHandle || IsReparsePoint(result)) {
     if (not_found != nullptr) {
@@ -229,7 +238,8 @@ NativeHandle OpenRelativeComponent(NativeHandle parent, const std::wstring& name
   return result;
 }
 
-NativeHandle OpenAbsoluteDirectory(const std::string& utf8_path) {
+NativeHandle OpenAbsoluteDirectory(const std::string& utf8_path, bool* missing) {
+  *missing = false;
   std::wstring path = Utf8ToWide(utf8_path);
   if (path.empty() || path.find(L'\0') != std::wstring::npos) {
     return kInvalidHandle;
@@ -262,6 +272,8 @@ NativeHandle OpenAbsoluteDirectory(const std::string& utf8_path) {
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
       FILE_FLAG_BACKUP_SEMANTICS, nullptr);
   if (handle == kInvalidHandle) {
+    const DWORD error = GetLastError();
+    *missing = error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
     return kInvalidHandle;
   }
   // Without FILE_FLAG_OPEN_REPARSE_POINT the open resolved any reparse points;
@@ -488,14 +500,17 @@ void CloseNativeHandle(NativeHandle handle) {
   }
 }
 
-NativeHandle OpenAbsoluteDirectory(const std::string& path) {
+NativeHandle OpenAbsoluteDirectory(const std::string& path, bool* missing) {
+  *missing = false;
   if (path.empty() || path.front() != '/' || path.find('\0') != std::string::npos) {
     return kInvalidHandle;
   }
   // Root establishment follows symlinks by design: the path comes from the
   // trusted folder picker or persisted store, never from repository content.
   // Descendant resolution below this handle remains strictly no-follow.
-  return open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  const auto handle = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  *missing = handle == kInvalidHandle && errno == ENOENT;
+  return handle;
 }
 
 #ifdef __APPLE__
@@ -672,6 +687,328 @@ ReadStatus ReadRelativeFile(NativeHandle root, const std::vector<std::string>& c
 
 #endif
 
+// Private-file operations keep traversal, permission validation and byte I/O on
+// pinned handles. No pathname ACL command or pathname fallback is involved.
+class PrivateHandle {
+ public:
+  explicit PrivateHandle(NativeHandle value = kInvalidHandle) : value_(value) {}
+  PrivateHandle(const PrivateHandle&) = delete;
+  PrivateHandle& operator=(const PrivateHandle&) = delete;
+  ~PrivateHandle() { CloseNativeHandle(value_); }
+  NativeHandle Get() const { return value_; }
+  bool Close() {
+    const NativeHandle value = std::exchange(value_, kInvalidHandle);
+    if (value == kInvalidHandle) return true;
+#ifdef _WIN32
+    return CloseHandle(value) != 0;
+#else
+    // Never retry close: EINTR may already have released/reused the descriptor.
+    return close(value) == 0;
+#endif
+  }
+
+ private:
+  NativeHandle value_;
+};
+
+NativeHandle OpenPrivateParent(NativeHandle root, const std::vector<std::string>& components,
+                               bool* missing) {
+#ifdef _WIN32
+  return components.empty() ? ReopenDirectory(root)
+                            : OpenRelativeDirectory(root, components, missing);
+#else
+  return OpenRelativeDirectory(root, components, missing);
+#endif
+}
+
+#ifdef _WIN32
+class PrivateSecurity {
+ public:
+  PrivateSecurity() {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return;
+    PrivateHandle owned_token(token);
+    DWORD required = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &required);
+    if (required == 0) return;
+    token_user_.resize(required);
+    if (!GetTokenInformation(token, TokenUser, token_user_.data(), required, &required)) return;
+    sid_ = reinterpret_cast<TOKEN_USER*>(token_user_.data())->User.Sid;
+    const DWORD acl_bytes =
+        sizeof(ACL) + sizeof(ACCESS_ALLOWED_ACE) - sizeof(DWORD) + GetLengthSid(sid_);
+    acl_.resize(acl_bytes);
+    auto* acl = reinterpret_cast<PACL>(acl_.data());
+    ready_ = InitializeAcl(acl, acl_bytes, ACL_REVISION) &&
+             AddAccessAllowedAceEx(acl, ACL_REVISION, 0, FILE_ALL_ACCESS, sid_) &&
+             InitializeSecurityDescriptor(&descriptor_, SECURITY_DESCRIPTOR_REVISION) &&
+             SetSecurityDescriptorOwner(&descriptor_, sid_, FALSE) &&
+             SetSecurityDescriptorDacl(&descriptor_, TRUE, acl, FALSE) &&
+             SetSecurityDescriptorControl(&descriptor_, SE_DACL_PROTECTED, SE_DACL_PROTECTED);
+    if (!owned_token.Close()) ready_ = false;
+  }
+  bool Ready() const { return ready_; }
+  PSECURITY_DESCRIPTOR Descriptor() { return &descriptor_; }
+  bool Verify(NativeHandle file) const {
+    if (!ready_ || GetFileType(file) != FILE_TYPE_DISK || IsReparsePoint(file)) return false;
+    FILE_STANDARD_INFO info{};
+    if (!GetFileInformationByHandleEx(file, FileStandardInfo, &info, sizeof(info)) ||
+        info.Directory)
+      return false;
+    PSID owner = nullptr;
+    PACL acl = nullptr;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    const DWORD result = GetSecurityInfo(file, SE_FILE_OBJECT,
+                                         OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                                         &owner, nullptr, &acl, nullptr, &descriptor);
+    bool valid = false;
+    if (result == ERROR_SUCCESS && owner != nullptr && acl != nullptr && IsValidSid(owner) &&
+        EqualSid(owner, sid_) && IsValidAcl(acl) && acl->AceCount == 1) {
+      SECURITY_DESCRIPTOR_CONTROL control = 0;
+      DWORD revision = 0;
+      void* raw_ace = nullptr;
+      if (GetSecurityDescriptorControl(descriptor, &control, &revision) &&
+          (control & SE_DACL_PROTECTED) != 0 && GetAce(acl, 0, &raw_ace)) {
+        const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(raw_ace);
+        const PSID ace_sid = const_cast<DWORD*>(&ace->SidStart);
+        valid = ace->Header.AceType == ACCESS_ALLOWED_ACE_TYPE && ace->Header.AceFlags == 0 &&
+                ace->Mask == FILE_ALL_ACCESS && IsValidSid(ace_sid) && EqualSid(ace_sid, sid_);
+      }
+    }
+    if (descriptor != nullptr) LocalFree(descriptor);
+    return valid;
+  }
+
+ private:
+  std::vector<uint8_t> token_user_;
+  std::vector<uint8_t> acl_;
+  PSID sid_ = nullptr;
+  SECURITY_DESCRIPTOR descriptor_{};
+  bool ready_ = false;
+};
+
+NativeHandle OpenPrivateLeaf(NativeHandle parent, const std::string& name, bool* missing) {
+  return OpenRelativeComponent(parent, Utf8ToWide(name), false, missing, READ_CONTROL);
+}
+
+NativeHandle CreatePrivateTemporary(NativeHandle parent, const std::string& name,
+                                    PrivateSecurity* security) {
+  const auto create = ResolveNtCreateFile();
+  const auto wide = Utf8ToWide(name);
+  if (create == nullptr || !security->Ready() || wide.empty()) return kInvalidHandle;
+  UNICODE_STRING object_name{};
+  object_name.Buffer = const_cast<PWSTR>(wide.data());
+  object_name.Length = static_cast<USHORT>(wide.size() * sizeof(wchar_t));
+  object_name.MaximumLength = object_name.Length;
+  OBJECT_ATTRIBUTES attributes{};
+  InitializeObjectAttributes(&attributes, &object_name, OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE,
+                             parent, security->Descriptor());
+  IO_STATUS_BLOCK status{};
+  HANDLE result = kInvalidHandle;
+  const NTSTATUS outcome = create(
+      &result, FILE_GENERIC_READ | FILE_GENERIC_WRITE | DELETE | READ_CONTROL | SYNCHRONIZE,
+      &attributes, &status, nullptr, FILE_ATTRIBUTE_NORMAL,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_CREATE,
+      FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT, nullptr, 0);
+  if (outcome < 0) {
+    CloseNativeHandle(result);
+    return kInvalidHandle;
+  }
+  return result;
+}
+
+bool RemovePrivateTemporary(NativeHandle file, NativeHandle, const std::string&) {
+  FILE_DISPOSITION_INFO disposition{};
+  disposition.DeleteFile = TRUE;
+  return SetFileInformationByHandle(file, FileDispositionInfo, &disposition, sizeof(disposition)) !=
+         0;
+}
+
+bool ReplacePrivateTemporary(NativeHandle file, NativeHandle parent, const std::string&,
+                             const std::string& target) {
+  // Use the NT handle-relative primitive, like traversal. The Win32 wrapper
+  // rejects a non-null RootDirectory (ERROR_INVALID_PARAMETER) on SEAN9.
+  // https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntsetinformationfile
+  using SetInformationFn =
+      NTSTATUS(NTAPI*)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
+  static const auto set_information = reinterpret_cast<SetInformationFn>(
+      GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtSetInformationFile"));
+  if (set_information == nullptr) {
+    SetLastError(ERROR_NOT_SUPPORTED);
+    return false;
+  }
+  const auto wide = Utf8ToWide(target);
+  const size_t bytes = offsetof(FILE_RENAME_INFO, FileName) + (wide.size() + 1) * sizeof(wchar_t);
+  std::vector<uint8_t> buffer(bytes);
+  auto* rename = reinterpret_cast<FILE_RENAME_INFO*>(buffer.data());
+  rename->ReplaceIfExists = TRUE;
+  rename->RootDirectory = parent;
+  rename->FileNameLength = static_cast<DWORD>(wide.size() * sizeof(wchar_t));
+  std::memcpy(rename->FileName, wide.data(), rename->FileNameLength);
+  IO_STATUS_BLOCK status{};
+  const NTSTATUS result = set_information(file, &status, rename, static_cast<ULONG>(bytes),
+                                          static_cast<FILE_INFORMATION_CLASS>(10));
+  if (result < 0) {
+    using TranslateStatusFn = ULONG(WINAPI*)(NTSTATUS);
+    const auto translate = reinterpret_cast<TranslateStatusFn>(
+        GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlNtStatusToDosError"));
+    SetLastError(translate != nullptr ? translate(result) : ERROR_GEN_FAILURE);
+  }
+  return result >= 0;
+}
+#else
+class PrivateSecurity {
+ public:
+  bool Ready() const { return true; }
+  bool Verify(NativeHandle file) const {
+    struct stat info{};
+    return fstat(file, &info) == 0 && S_ISREG(info.st_mode) && (info.st_mode & 0777) == 0600;
+  }
+};
+NativeHandle OpenPrivateLeaf(NativeHandle parent, const std::string& name, bool* missing) {
+  const auto file = openat(parent, name.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+  *missing = file == kInvalidHandle && errno == ENOENT;
+  return file;
+}
+NativeHandle CreatePrivateTemporary(NativeHandle parent, const std::string& name,
+                                    PrivateSecurity*) {
+  return openat(parent, name.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+}
+bool RemovePrivateTemporary(NativeHandle, NativeHandle parent, const std::string& name) {
+  return unlinkat(parent, name.c_str(), 0) == 0;
+}
+bool ReplacePrivateTemporary(NativeHandle, NativeHandle parent, const std::string& temporary,
+                             const std::string& target) {
+  return renameat(parent, temporary.c_str(), parent, target.c_str()) == 0;
+}
+#endif
+
+ReadStatus ReadPrivateRelativeFile(NativeHandle root, const std::vector<std::string>& components,
+                                   std::vector<uint8_t>* content) {
+  if (components.empty()) return ReadStatus::kUnreadable;
+  const std::vector<std::string> parents(components.begin(), components.end() - 1);
+  bool missing = false;
+  PrivateHandle parent(OpenPrivateParent(root, parents, &missing));
+  if (parent.Get() == kInvalidHandle)
+    return missing ? ReadStatus::kNotFound : ReadStatus::kUnreadable;
+  PrivateHandle file(OpenPrivateLeaf(parent.Get(), components.back(), &missing));
+  ReadStatus result = missing ? ReadStatus::kNotFound : ReadStatus::kUnreadable;
+  PrivateSecurity security;
+  if (file.Get() != kInvalidHandle && security.Verify(file.Get())) {
+    result = ReadStatus::kOk;
+    uint8_t buffer[64 * 1024];
+    for (;;) {
+#ifdef _WIN32
+      DWORD count = 0;
+      if (!ReadFile(file.Get(), buffer, sizeof(buffer), &count, nullptr)) {
+        result = ReadStatus::kUnreadable;
+        break;
+      }
+#else
+      const ssize_t count = read(file.Get(), buffer, sizeof(buffer));
+      if (count < 0) {
+        if (errno == EINTR) continue;
+        result = ReadStatus::kUnreadable;
+        break;
+      }
+#endif
+      if (count == 0) break;
+      content->insert(content->end(), buffer, buffer + count);
+    }
+    if (!security.Verify(file.Get())) result = ReadStatus::kUnreadable;
+  }
+  const bool file_closed = file.Close();
+  const bool parent_closed = parent.Close();
+  return file_closed && parent_closed ? result : ReadStatus::kUnreadable;
+}
+
+bool PrivateTargetIsSafe(NativeHandle parent, const std::string& name,
+                         const PrivateSecurity& security) {
+  bool missing = false;
+  PrivateHandle target(OpenPrivateLeaf(parent, name, &missing));
+  const bool safe = missing || (target.Get() != kInvalidHandle && security.Verify(target.Get()));
+  return target.Close() && safe;
+}
+
+std::string WritePrivateRelativeFile(NativeHandle root, const std::vector<std::string>& components,
+                                     const std::vector<uint8_t>& content) {
+  if (components.empty()) return "Invalid private file path";
+  const std::vector<std::string> parents(components.begin(), components.end() - 1);
+  bool missing = false;
+  PrivateHandle parent(OpenPrivateParent(root, parents, &missing));
+  if (parent.Get() == kInvalidHandle) return "Private file parent is unavailable";
+  PrivateSecurity security;
+  if (!security.Ready() || !PrivateTargetIsSafe(parent.Get(), components.back(), security)) {
+    const bool closed = parent.Close();
+    return closed ? "Private file target is unsafe or unreadable"
+                  : "Private file parent close failed";
+  }
+  std::random_device random;
+  const std::string temporary = ".brainstrike-private-" + std::to_string(random()) + "-" +
+                                std::to_string(random()) + "-" + std::to_string(random()) + "-" +
+                                std::to_string(random()) + ".tmp";
+  PrivateHandle file(CreatePrivateTemporary(parent.Get(), temporary, &security));
+  if (file.Get() == kInvalidHandle) {
+    const bool closed = parent.Close();
+    return closed ? "Private temporary file creation failed" : "Private file parent close failed";
+  }
+  std::string failure;
+  bool replaced = false;
+  try {
+#ifndef _WIN32
+    // Creation is already private; make exact 0600 independent of a restrictive umask.
+    if (fchmod(file.Get(), 0600) != 0) failure = "Private temporary file permissions failed";
+#endif
+    if (failure.empty() && !security.Verify(file.Get()))
+      failure = "Private temporary file is unsafe";
+    size_t total = 0;
+    while (failure.empty() && total < content.size()) {
+#ifdef _WIN32
+      DWORD written = 0;
+      const DWORD requested =
+          static_cast<DWORD>(std::min<size_t>(content.size() - total, MAXDWORD));
+      if (!WriteFile(file.Get(), content.data() + total, requested, &written, nullptr) ||
+          written == 0)
+        failure = "Private file write failed";
+#else
+      const ssize_t written = write(file.Get(), content.data() + total,
+                                    std::min<size_t>(content.size() - total, SSIZE_MAX));
+      if (written < 0 && errno == EINTR) continue;
+      if (written <= 0) failure = "Private file write failed";
+#endif
+      if (failure.empty()) total += static_cast<size_t>(written);
+    }
+    if (failure.empty()) {
+#ifdef _WIN32
+      if (!FlushFileBuffers(file.Get())) failure = "Private file flush failed";
+#else
+      if (fsync(file.Get()) != 0) failure = "Private file flush failed";
+#endif
+    }
+    if (failure.empty()) {
+      if (!security.Verify(file.Get()) ||
+          !PrivateTargetIsSafe(parent.Get(), components.back(), security)) {
+        failure = "Private file target is unsafe or unreadable";
+      } else if (!ReplacePrivateTemporary(file.Get(), parent.Get(), temporary, components.back())) {
+#ifdef _WIN32
+        failure = "Private file replacement failed (Windows error " +
+                  std::to_string(GetLastError()) + ")";
+#else
+        failure = "Private file replacement failed";
+#endif
+      } else {
+        replaced = true;
+      }
+    }
+  } catch (const std::exception&) {
+    failure = "Private file operation failed";
+  }
+  if (!replaced && !RemovePrivateTemporary(file.Get(), parent.Get(), temporary))
+    failure += "; private temporary file cleanup failed";
+  if (!file.Close()) failure += "; private file close failed";
+  if (!parent.Close()) failure += "; private file parent close failed";
+  return failure;
+}
+
 Napi::Object BuildListResult(Napi::Env env, const std::vector<DirEntry>& entries,
                              size_t inspected, bool truncated) {
   const Napi::Object result = Napi::Object::New(env);
@@ -815,16 +1152,64 @@ class ReadFileWorker final : public Napi::AsyncWorker {
   ReadStatus status_ = ReadStatus::kUnreadable;
 };
 
+class PrivateFileWorker final : public Napi::AsyncWorker {
+ public:
+  PrivateFileWorker(Napi::Env env, Napi::Promise::Deferred deferred,
+                    std::shared_ptr<const RootHandle> root, std::vector<std::string> components,
+                    bool write, std::vector<uint8_t> content = {})
+      : Napi::AsyncWorker(env, "brainstrike:secure-fs:private-file"),
+        deferred_(deferred),
+        root_(std::move(root)),
+        components_(std::move(components)),
+        write_(write),
+        content_(std::move(content)) {}
+  void Execute() override {
+    try {
+      if (write_) {
+        const auto failure = WritePrivateRelativeFile(root_->handle, components_, content_);
+        if (!failure.empty()) SetError(failure);
+      } else {
+        status_ = ReadPrivateRelativeFile(root_->handle, components_, &content_);
+      }
+    } catch (const std::exception&) {
+      SetError("Private file operation failed");
+    }
+    // Release the operation's pinned root before its Promise settles.
+    root_.reset();
+  }
+  void OnOK() override {
+    if (write_)
+      deferred_.Resolve(Env().Undefined());
+    else
+      deferred_.Resolve(BuildReadResult(Env(), status_, content_));
+  }
+  void OnError(const Napi::Error& error) override {
+    error.Value().Set("code", "ERR_PRIVATE_FILE_OPERATION");
+    deferred_.Reject(error.Value());
+  }
+
+ private:
+  Napi::Promise::Deferred deferred_;
+  std::shared_ptr<const RootHandle> root_;
+  std::vector<std::string> components_;
+  bool write_;
+  std::vector<uint8_t> content_;
+  ReadStatus status_ = ReadStatus::kUnreadable;
+};
+
 class SecureRoot : public Napi::ObjectWrap<SecureRoot> {
  public:
   static Napi::Object Init(Napi::Env env, Napi::Object exports) {
-    const Napi::Function constructor = DefineClass(
-        env, "SecureRoot",
-        {InstanceMethod("close", &SecureRoot::Close), InstanceMethod("listDir", &SecureRoot::ListDir),
-         InstanceMethod("listDirAsync", &SecureRoot::ListDirAsync),
-         InstanceMethod("readFile", &SecureRoot::ReadFile),
-         InstanceMethod("readFileAsync", &SecureRoot::ReadFileAsync),
-         InstanceMethod("canonicalPath", &SecureRoot::CanonicalPath)});
+    const Napi::Function constructor =
+        DefineClass(env, "SecureRoot",
+                    {InstanceMethod("close", &SecureRoot::Close),
+                     InstanceMethod("listDir", &SecureRoot::ListDir),
+                     InstanceMethod("listDirAsync", &SecureRoot::ListDirAsync),
+                     InstanceMethod("readFile", &SecureRoot::ReadFile),
+                     InstanceMethod("readFileAsync", &SecureRoot::ReadFileAsync),
+                     InstanceMethod("readPrivateFileAsync", &SecureRoot::ReadPrivateFileAsync),
+                     InstanceMethod("writePrivateFileAsync", &SecureRoot::WritePrivateFileAsync),
+                     InstanceMethod("canonicalPath", &SecureRoot::CanonicalPath)});
     exports.Set("SecureRoot", constructor);
     return exports;
   }
@@ -835,10 +1220,12 @@ class SecureRoot : public Napi::ObjectWrap<SecureRoot> {
           .ThrowAsJavaScriptException();
       return;
     }
-    const NativeHandle root = OpenAbsoluteDirectory(info[0].As<Napi::String>().Utf8Value());
+    bool missing = false;
+    const NativeHandle root = OpenAbsoluteDirectory(info[0].As<Napi::String>().Utf8Value(), &missing);
     if (root == kInvalidHandle) {
-      Napi::Error::New(info.Env(), "Failed to open secure filesystem root")
-          .ThrowAsJavaScriptException();
+      const auto error = Napi::Error::New(info.Env(), "Failed to open secure filesystem root");
+      error.Value().Set("code", missing ? "ENOENT" : "ERR_SECURE_FS_ROOT");
+      error.ThrowAsJavaScriptException();
       return;
     }
     canonical_path_ = DeriveCanonicalPath(root);
@@ -953,6 +1340,40 @@ class SecureRoot : public Napi::ObjectWrap<SecureRoot> {
     }
     (new ReadFileWorker(env, deferred, state_, std::move(components),
                         static_cast<size_t>(requested_max)))
+        ->Queue();
+    return deferred.Promise();
+  }
+
+  Napi::Value ReadPrivateFileAsync(const Napi::CallbackInfo& info) {
+    return PrivateOperation(info, false);
+  }
+
+  Napi::Value WritePrivateFileAsync(const Napi::CallbackInfo& info) {
+    return PrivateOperation(info, true);
+  }
+
+  Napi::Value PrivateOperation(const Napi::CallbackInfo& info, bool write) {
+    const auto env = info.Env();
+    const auto deferred = Napi::Promise::Deferred::New(env);
+    bool valid = false;
+    std::vector<std::string> components;
+    if (info.Length() == (write ? 2u : 1u) && info[0].IsString() &&
+        (!write || info[1].IsBuffer())) {
+      components = SplitRelativePath(info[0].As<Napi::String>().Utf8Value(), &valid);
+    }
+    const auto root = state_ ? state_->Acquire() : nullptr;
+    if (!valid || components.empty() || !root) {
+      const auto error = Napi::Error::New(env, "Private file path or capability is unavailable");
+      error.Value().Set("code", "ERR_PRIVATE_FILE_OPERATION");
+      deferred.Reject(error.Value());
+      return deferred.Promise();
+    }
+    std::vector<uint8_t> content;
+    if (write) {
+      const auto buffer = info[1].As<Napi::Buffer<uint8_t>>();
+      content.assign(buffer.Data(), buffer.Data() + buffer.Length());
+    }
+    (new PrivateFileWorker(env, deferred, root, std::move(components), write, std::move(content)))
         ->Queue();
     return deferred.Promise();
   }

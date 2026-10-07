@@ -42,6 +42,14 @@ class SecureRoot {
   readFileAsync(relativePath, maxBytes) {
     return this.#native.readFileAsync(relativePath, maxBytes);
   }
+
+  readPrivateFileAsync(relativePath) {
+    return this.#native.readPrivateFileAsync(relativePath);
+  }
+
+  writePrivateFileAsync(relativePath, content) {
+    return this.#native.writePrivateFileAsync(relativePath, content);
+  }
 }
 
 exports.SecureRoot = SecureRoot;
