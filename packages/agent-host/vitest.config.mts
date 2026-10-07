@@ -7,6 +7,10 @@ export default defineConfig({
   resolve: {
     alias: [
       // Core tests run Node-only provider/tool code directly from source.
+      {
+        find: /^@brainstrike\/agent$/,
+        replacement: resolve(import.meta.dirname, '../agent/src/index.ts'),
+      },
       ...['provider-request', 'provider-runtime', 'tool-runtime'].map((subpath) => ({
         find: new RegExp(`^@brainstrike/agent/${subpath}$`),
         replacement: resolve(import.meta.dirname, `../agent/src/${subpath}.ts`),

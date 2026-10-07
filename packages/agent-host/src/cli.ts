@@ -7,6 +7,7 @@ import { HostCliExitError, runHostCliSession } from './cli-session.js';
 import { attachAgentHost, type HostClient } from './client.js';
 import { createAgentHostSpawner } from './launcher.js';
 import { isProcessEntrypoint } from './process-entrypoint.js';
+import { HOST_METHOD_SCHEMAS } from './protocol.js';
 
 export interface HostCliOutput {
   write(value: string): void;
@@ -27,6 +28,7 @@ type CliStringOption =
   | 'model'
   | 'platform'
   | 'prompt'
+  | 'resume-data'
   | 'root'
   | 'run'
   | 'thread';
@@ -55,6 +57,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'non-interactive': { type: 'boolean' },
       platform: { type: 'string' },
       prompt: { type: 'string' },
+      'resume-data': { type: 'string' },
       root: { type: 'string' },
       run: { type: 'string' },
       thread: { type: 'string' },
@@ -78,6 +81,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'run start',
       'run stop',
       'interaction respond',
+      'interaction resume',
       'log follow',
     ].includes(command)
   ) {
@@ -115,11 +119,14 @@ thread start | thread read --thread <id>
 run start --thread <id> --model <id> --prompt <text>
 run stop --thread <id> --run <id>
 interaction respond --thread <id> --run <id> --interaction <id> --decision approve|deny
+interaction resume --thread <id> --run <id> --interaction <id> --resume-data <json>
 log follow --thread <id> [--from-seq <n>]
 
+Question answers use {"answer":"text"} or {"answer":["choice 1","choice 2"]}.
+Plan decisions use {"action":"approved"} or {"action":"rejected","feedback":"reason"}.
 Starting a host currently requires its configured --platform module.
 Unanswered noninteractive decisions exit 2 and remain available for attach.
-An interactive terminal accepts approve, deny, or stop. EOF detaches.
+An interactive terminal prompts for approvals, question answers, and plan decisions. EOF detaches.
 Run signals stop and join its execution; attach signals detach.
 `);
     return;
@@ -239,6 +246,18 @@ Run signals stop and join its execution; attach signals detach.
         );
         break;
       }
+      case 'interaction resume': {
+        const resumeData: unknown = JSON.parse(required(values['resume-data'], 'resume-data'));
+        const params = HOST_METHOD_SCHEMAS['interaction/resume'].parse({
+          commandId,
+          interactionId: required(values.interaction, 'interaction'),
+          resumeData,
+          runId: runId(),
+          threadId: threadId(),
+        });
+        print(await client.request('interaction/resume', params));
+        break;
+      }
       case 'log follow': {
         const selected = threadId();
         const rows = new Map<number, unknown>();
@@ -276,7 +295,7 @@ Run signals stop and join its execution; attach signals detach.
       }
       default:
         throw new Error(
-          'Expected host start/status/stop, thread start/read, run start/stop, interaction respond, or log follow'
+          'Expected host start/status/stop, thread start/read, run start/stop, interaction respond/resume, or log follow'
         );
     }
   } finally {
