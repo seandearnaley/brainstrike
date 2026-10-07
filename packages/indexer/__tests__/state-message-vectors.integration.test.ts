@@ -4,10 +4,13 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { crc32 } from 'node:zlib';
 import { createStateStoreIndexer, openIndexer, type StateMessagePlan } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { StateStore, type StateStoreHooks } from '@brainstrike/state-store';
+import { Schema } from 'effect';
 import { expect, it } from 'vitest';
+import { decoder } from '../src/contracts.js';
 
 const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
 const profile = {
@@ -129,7 +132,7 @@ async function write(
 }
 const query = { limit: 10, profile, scope, vector };
 
-async function byteFiles(f: Fixture): Promise<string[]> {
+async function byteFiles(f: Pick<Fixture, 'root'>): Promise<string[]> {
   const emb = Buffer.alloc(vector.length * 4);
   vector.forEach((value, index) => {
     emb.writeFloatLE(value, index * 4);
@@ -184,8 +187,15 @@ it('persists ordered segments under canonical message IDs and reopens with ident
     } finally {
       db.close();
     }
+    const retired = await prepare(f);
     await f.reopen();
     expect(await f.port.queryStateMessageVectors(query)).toEqual(before);
+    await expect(
+      f.port.upsertStateMessageVectors({
+        embeddings: [{ messageId: message('one', 1).messageId, vectors: [vector] }],
+        plan: retired,
+      })
+    ).rejects.toMatchObject({ code: 'stale-message-plan' });
     await write(f, 1, [vector]);
     expect(await f.port.queryStateMessageVectors({ ...query, threadIds: ['one'] })).toHaveLength(1);
   } finally {
@@ -524,10 +534,24 @@ it('surfaces CRC and missing-sequence truth failures and never ranks across them
     db.exec("DELETE FROM run_events WHERE thread_id='one' AND seq=1");
     await expect(f.port.queryStateMessageVectors(query)).rejects.toThrow(/CRC|gap/);
     db.exec('INSERT INTO run_events SELECT * FROM saved_truth');
+    const source = decoder(Schema.String)(
+      db.prepare('SELECT payload FROM saved_truth').pluck().get()
+    );
+    const changed = JSON.stringify({
+      ...decoder(Schema.Record(Schema.String, Schema.Unknown))(JSON.parse(source)),
+      seq: 99,
+    });
+    db.prepare("UPDATE run_events SET payload=?,crc=? WHERE thread_id='one' AND seq=1").run(
+      changed,
+      crc32(Buffer.from(changed))
+    );
+    await expect(f.port.queryStateMessageVectors(query)).rejects.toThrow(/sequence identity gap/);
+    db.exec("DELETE FROM run_events WHERE thread_id='one' AND seq=1");
+    db.exec('INSERT INTO run_events SELECT * FROM saved_truth');
     expect(await f.port.queryStateMessageVectors(query)).toHaveLength(1);
     expect(
       (await f.port.stateHealth()).indexerErrors.filter((error) => /CRC|gap/.test(error))
-    ).toHaveLength(3);
+    ).toHaveLength(4);
   } finally {
     db.close();
     await f.close();
@@ -566,5 +590,117 @@ it('requires the exact acquired selected profile and detects corrupt stored Floa
     ).rejects.toThrow(/finite/);
   } finally {
     await f.close();
+  }
+});
+
+it('decodes real unversioned Core producer payloads across SQLite reopen without mapping versions or rewriting truth', async () => {
+  const root = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'core-message-vectors-')));
+  const captured: unknown = JSON.parse(
+    await readFile(
+      new URL('../../agent-host/__tests__/fixtures/approved-run-log.json', import.meta.url),
+      'utf8'
+    )
+  );
+  const rows = decoder(
+    Schema.Array(
+      Schema.Struct({
+        event: Schema.StructWithRest(Schema.Struct({ type: Schema.String }), [
+          Schema.Record(Schema.String, Schema.Unknown),
+        ]),
+        seq: Schema.Int,
+        threadId: Schema.String,
+      })
+    )
+  )(captured);
+  const threadId = rows[0]?.threadId;
+  const started = rows.find((row) => row.event['type'] === 'run.started');
+  const accepted = rows.find(
+    (row) => row.event['type'] === 'command.accepted' && row.event['method'] === 'run/start'
+  );
+  if (!(threadId && started) || typeof accepted?.event['commandId'] !== 'string') {
+    throw new Error('Recorded Core run is required');
+  }
+  const options = {
+    dbPath: path.join(root, 'index.sqlite'),
+    embedding: { indexMode: 'text-only' },
+    rootIds: ['root'],
+    stateProjection: {
+      mode: 'dev',
+      module: new URL('./fixtures/core-state-projection.mjs', import.meta.url).href,
+    },
+    stateResources: [{ profile, resourceId: 'resource', rootId: 'root' }],
+    stateRoot: root,
+  } as const;
+  let port = await openIndexer(options, deadlines);
+  let store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
+  try {
+    await store.append(
+      rows.map((row) => ({
+        event: row.event,
+        threadId: row.threadId,
+      }))
+    );
+    await store.memory({
+      changes: [
+        {
+          entity: {
+            id: threadId,
+            kind: 'thread',
+            payload: { id: threadId, metadata: {}, resourceId: 'resource' },
+            threadId,
+          },
+          operation: 'put',
+        },
+      ],
+      expectedRevision: 0,
+      operation: 'commit',
+      resourceId: 'resource',
+    });
+    const rawBefore = (await store.read(threadId)).map((row) => row.raw);
+    expect(rawBefore.map((raw) => JSON.parse(raw)['v'])).toEqual(rows.map(() => undefined));
+    await port.catchUpState([threadId]);
+    expect((await port.stateStats(threadId)).cursor).toBe(rows.length);
+    const currentScope = { ...scope, threadId };
+    const plan = await port.prepareStateMessageVectors({
+      messages: [{ messageId: accepted.event['commandId'], seq: started.seq }],
+      profile,
+      scope: currentScope,
+    });
+    await port.upsertStateMessageVectors({
+      embeddings: [{ messageId: accepted.event['commandId'], vectors: [vector] }],
+      plan,
+    });
+    const before = await port.queryStateMessageVectors({ ...query, scope: currentScope });
+    expect(before).toEqual([
+      expect.objectContaining({
+        messageId: accepted.event['commandId'],
+        score: 1,
+        seq: started.seq,
+      }),
+    ]);
+    await store.close();
+    await port.close();
+    port = await openIndexer({ ...options, embedding: { indexMode: 'open-existing' } }, deadlines);
+    store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
+    expect((await store.read(threadId)).map((row) => row.raw)).toEqual(rawBefore);
+    expect(await port.queryStateMessageVectors({ ...query, scope: currentScope })).toEqual(before);
+    await store.purge(threadId, started.seq);
+    const db = openConnection(options.dbPath, { readonly: true });
+    try {
+      expect(db.prepare('SELECT count(*) FROM state_message_vectors').pluck().get()).toBe(0);
+    } finally {
+      db.close();
+    }
+    expect(await byteFiles({ root })).toEqual([]);
+  } finally {
+    try {
+      await store.close();
+    } finally {
+      try {
+        await port.close();
+      } finally {
+        await rm(root, { force: true, recursive: true });
+      }
+    }
   }
 });

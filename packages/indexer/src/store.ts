@@ -232,6 +232,7 @@ export class IndexWriter {
       });
       this.scoped.validateStorage();
       this.scoped.beginOwnerEpoch();
+      this.state?.messages.beginOwnerGeneration();
       this.info = {
         dbPath: this.options.dbPath,
         journalMode: decoder(Schema.String)(this.db.pragma('journal_mode', { simple: true })),

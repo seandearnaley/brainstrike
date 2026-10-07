@@ -75,7 +75,7 @@ export type {
 } from './contracts.js';
 export { IndexerError } from './contracts.js';
 export { vectorProfileHash } from './scope-authority.js';
-export type { StateMessageEvent } from './state-projection.js';
+export type { StateMessageEvent, StateProducerDecoder } from './state-projection.js';
 export type { IndexerDeadlines } from './transport.js';
 export { IndexerLifecycleError } from './transport.js';
 export interface IndexerPort {

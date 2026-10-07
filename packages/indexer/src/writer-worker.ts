@@ -13,7 +13,7 @@ let writer: IndexWriter;
 try {
   const options = validateIndexerOptions(workerData);
   const projection = options.stateProjection
-    ? await loadStateProjection(options.stateProjection)
+    ? await loadStateProjection(options.stateProjection, options.stateRoot)
     : undefined;
   writer = new IndexWriter(options, projection);
   port.postMessage({ kind: 'ready', value: writer.info });

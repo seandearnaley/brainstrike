@@ -185,10 +185,14 @@ export class StateMessageVectors {
         if (row.kind !== 'event' || row.seq !== next) {
           throw new Error('Message truth has a CRC or contiguous-sequence gap');
         }
+        const projected = this.projection.decode(row.raw);
+        if (projected.seq !== row.seq) {
+          throw new Error('Message truth has a committed sequence identity gap');
+        }
         const event = this.projection.event(row.raw);
         rows.push({ event, seq: row.seq, threadId });
         // Purged and prod-unreadable rows can never supply an embedding source.
-        if (this.projection.decode(row.raw).text !== null) {
+        if (projected.text !== null) {
           raws.set(row.seq, row.raw);
         }
         next++;
@@ -227,16 +231,19 @@ export class StateMessageVectors {
       )
       .run(threadId, ...(seq === undefined ? [] : [seq]));
   }
-  private advance(): void {
+  beginOwnerGeneration(): void {
+    this.advance(false);
+  }
+  private advance(cleanup = true): void {
     const generation = this.generation();
     if (generation === Number.MAX_SAFE_INTEGER) {
       throw new IndexerError('rebuild-required', 'Message vector generation exhausted.');
     }
     this.db
       .prepare(
-        'UPDATE state_message_generation SET generation=?,pending_cleanup=1 WHERE singleton=1'
+        'UPDATE state_message_generation SET generation=?,pending_cleanup=CASE WHEN ? THEN 1 ELSE pending_cleanup END WHERE singleton=1'
       )
-      .run(generation + 1);
+      .run(generation + 1, cleanup ? 1 : 0);
   }
   private assertReady(): void {
     if (
