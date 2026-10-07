@@ -224,6 +224,8 @@ export default defineConfig({
       '**/dist/**',
       '**/e2e/**', // Exclude Playwright e2e tests
       '**/scripts/**', // Script helper tests use node:test directly.
+      // Qualification owns node:test and Playwright runners (see its README).
+      '**/qualification/**',
     ],
     globals: true,
     // Desktop integration lanes build real PGlite instances inside beforeEach

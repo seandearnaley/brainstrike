@@ -51,6 +51,12 @@ vi.mock('../../../renderer/create-embedding-queue', () => ({
   registerDesktopEmbeddingRuntimeConfig: registerDesktopEmbeddingRuntimeConfigMock,
 }));
 
+// This layout fixture supplies its own child surfaces; actual host/port binding
+// is exercised by the desktop host-thread integration and projection tests.
+vi.mock('../../../renderer/desktop-host-thread-provider', () => ({
+  DesktopHostThreadProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 // Mock the file-explorer-hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: vi.fn(() => ({
