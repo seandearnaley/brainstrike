@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RootLock } from '@brainstrike/state-store';
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { loadHostPlatform } from '../src/process-entry.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
 import { removeFixtureRoot } from './fixtures/cooperative-host-fixture.js';
@@ -41,7 +41,10 @@ function environment(): NodeJS.ProcessEnv {
       'TMP',
       'XDG_DATA_HOME',
       'XDG_CACHE_HOME',
+      'pnpm_config_enable_global_virtual_store',
+      'PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE',
       'pnpm_config_store_dir',
+      'PNPM_CONFIG_STORE_DIR',
     ]
       .filter((key) => process.env[key] !== undefined)
       .map((key) => [key, process.env[key]])
@@ -85,13 +88,13 @@ function installedCommand(
   }
   return command(
     process.execPath,
-    [pnpm, '--filter', '@brainstrike/assistant-ui', 'exec', name, ...args],
+    [pnpm, '--filter', '@brainstrike/desktop', 'exec', name, ...args],
     cwd
   );
 }
 
 function installedExecutable(name: string, args: string[]): Promise<CommandResult> {
-  const executable = join(workspaceRoot, 'packages/assistant-ui/node_modules/.bin', name);
+  const executable = join(workspaceRoot, 'apps/desktop/node_modules/.bin', name);
   // pnpm's recursive exec wrapper turns every nonzero child exit into 1 and
   // adds its own stdout diagnostics. Invoke the installed shim to observe the
   // CLI's actual stdout and exit 2 contract, including the Windows ps1 shim.
@@ -105,6 +108,7 @@ function installedExecutable(name: string, args: string[]): Promise<CommandResul
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   for (const host of hosts.splice(0)) {
     await host.close();
   }
@@ -210,71 +214,92 @@ test.each(['brainstrike', 'brainstrike-host'])(
   }
 );
 
-test('normal frozen workspace installation exposes both aliases before compilation', async () => {
-  const pnpm = process.env['npm_execpath'];
-  if (!(pnpm && /\.(?:c|m)?js$/.test(pnpm))) {
-    throw new Error('Run CLI executable integration with pnpm run test:integration');
-  }
-  const cwd = await root();
-  const packagedHost = join(cwd, 'host');
-  const manifest: {
-    readonly name: string;
-    readonly version: string;
-    readonly dependencies: Record<string, string>;
-  } = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
-  // PNPM supplies dependency links to the already qualified pinned closure.
-  // The isolated manifest stages Studio's required bin delta without editing it.
-  const dependencies = Object.fromEntries(
-    await Promise.all(
-      Object.keys(manifest.dependencies).map(async (name) => [
-        name,
-        `link:${await realpath(join(packageRoot, 'node_modules', name))}`,
-      ])
-    )
-  );
-  await mkdir(join(packagedHost, 'bin'), { recursive: true });
-  await copyFile(shim, join(packagedHost, 'bin/brainstrike.mjs'));
-  await writeFile(
-    join(packagedHost, 'package.json'),
-    JSON.stringify({
-      bin: { brainstrike: './bin/brainstrike.mjs', 'brainstrike-host': './bin/brainstrike.mjs' },
-      dependencies,
-      name: manifest.name,
-      private: true,
-      type: 'module',
-      version: manifest.version,
-    })
-  );
-  await writeFile(
-    join(cwd, 'package.json'),
-    JSON.stringify({ dependencies: { [manifest.name]: 'workspace:*' }, private: true })
-  );
-  await writeFile(join(cwd, 'pnpm-workspace.yaml'), 'packages:\n  - host\n');
-  expect(
-    await command(process.execPath, [pnpm, 'install', '--lockfile-only', '--offline'], cwd)
-  ).toMatchObject({ code: 0 });
-  expect(
-    await command(process.execPath, [pnpm, 'install', '--frozen-lockfile', '--offline'], cwd)
-  ).toMatchObject({ code: 0 });
-  for (const name of ['brainstrike', 'brainstrike-host']) {
-    const cold = await command(process.execPath, [pnpm, 'exec', name, '--help'], cwd);
-    expect(cold.code).toBe(1);
-    expect(cold.stdout).toBe('');
-    expect(cold.stderr).toContain('Brainstrike CLI is not built.');
-  }
-  await cp(join(packageRoot, 'dist'), join(packagedHost, 'dist'), { recursive: true });
-  const direct = await command(process.execPath, [shim, '--help'], cwd);
-  expect(direct.code).toBe(0);
-  for (const name of ['brainstrike', 'brainstrike-host']) {
-    const installed = await command(process.execPath, [pnpm, 'exec', name, '--help'], cwd);
-    expect(installed).toEqual(direct);
-    const directError = await command(process.execPath, [shim, 'unknown-command'], cwd);
-    const installedError = await command(
+test.each(['pnpm_config_enable_global_virtual_store', 'PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE'])(
+  'normal frozen workspace installation preserves %s and exposes both aliases before compilation',
+  async (setting) => {
+    // Keep an explicit installed closure through both supported env spellings.
+    // The dependency guard must remain strict in every child command.
+    if (process.platform !== 'win32') {
+      vi.stubEnv(
+        setting === 'pnpm_config_enable_global_virtual_store'
+          ? 'PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE'
+          : 'pnpm_config_enable_global_virtual_store',
+        undefined
+      );
+    }
+    vi.stubEnv(setting, 'false');
+    const pnpm = process.env['npm_execpath'];
+    if (!(pnpm && /\.(?:c|m)?js$/.test(pnpm))) {
+      throw new Error('Run CLI executable integration with pnpm run test:integration');
+    }
+    const cwd = await root();
+    const packagedHost = join(cwd, 'host');
+    const manifest: {
+      readonly name: string;
+      readonly version: string;
+      readonly dependencies: Record<string, string>;
+    } = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+    // PNPM supplies dependency links to the already qualified pinned closure.
+    // The isolated manifest stages Studio's required bin delta without editing it.
+    const dependencies = Object.fromEntries(
+      await Promise.all(
+        Object.keys(manifest.dependencies).map(async (name) => [
+          name,
+          `link:${await realpath(join(packageRoot, 'node_modules', name))}`,
+        ])
+      )
+    );
+    await mkdir(join(packagedHost, 'bin'), { recursive: true });
+    await copyFile(shim, join(packagedHost, 'bin/brainstrike.mjs'));
+    await writeFile(
+      join(packagedHost, 'package.json'),
+      JSON.stringify({
+        bin: { brainstrike: './bin/brainstrike.mjs', 'brainstrike-host': './bin/brainstrike.mjs' },
+        dependencies,
+        name: manifest.name,
+        private: true,
+        type: 'module',
+        version: manifest.version,
+      })
+    );
+    await writeFile(
+      join(cwd, 'package.json'),
+      JSON.stringify({ dependencies: { [manifest.name]: 'workspace:*' }, private: true })
+    );
+    await writeFile(join(cwd, 'pnpm-workspace.yaml'), 'packages:\n  - host\n');
+    const selectedClosure = await command(
       process.execPath,
-      [pnpm, 'exec', name, 'unknown-command'],
+      [pnpm, 'config', 'get', 'enable-global-virtual-store'],
       cwd
     );
-    expect(installedError).toEqual(directError);
-    expect(installedError.code).toBe(1);
+    expect(selectedClosure.code).toBe(0);
+    expect(selectedClosure.stdout.trim()).toBe('false');
+    expect(
+      await command(process.execPath, [pnpm, 'install', '--lockfile-only', '--offline'], cwd)
+    ).toMatchObject({ code: 0 });
+    expect(
+      await command(process.execPath, [pnpm, 'install', '--frozen-lockfile', '--offline'], cwd)
+    ).toMatchObject({ code: 0 });
+    for (const name of ['brainstrike', 'brainstrike-host']) {
+      const cold = await command(process.execPath, [pnpm, 'exec', name, '--help'], cwd);
+      expect(cold.code).toBe(1);
+      expect(cold.stdout).toBe('');
+      expect(cold.stderr).toContain('Brainstrike CLI is not built.');
+    }
+    await cp(join(packageRoot, 'dist'), join(packagedHost, 'dist'), { recursive: true });
+    const direct = await command(process.execPath, [shim, '--help'], cwd);
+    expect(direct.code).toBe(0);
+    for (const name of ['brainstrike', 'brainstrike-host']) {
+      const installed = await command(process.execPath, [pnpm, 'exec', name, '--help'], cwd);
+      expect(installed).toEqual(direct);
+      const directError = await command(process.execPath, [shim, 'unknown-command'], cwd);
+      const installedError = await command(
+        process.execPath,
+        [pnpm, 'exec', name, 'unknown-command'],
+        cwd
+      );
+      expect(installedError).toEqual(directError);
+      expect(installedError.code).toBe(1);
+    }
   }
-});
+);
