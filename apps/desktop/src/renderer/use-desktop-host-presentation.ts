@@ -1,5 +1,7 @@
 import {
   buildDraftRuntimeForProvider,
+  buildModelSettings,
+  buildProviderOptionsWhenReady,
   getRuntimeProviderLlmModels,
   type LlmProviderModelDefinition,
   toRuntimeProviderModels,
@@ -11,6 +13,7 @@ import {
   useConfiguredAssistantProviders,
   useEnableModel,
   useFileMentions,
+  useOpenRouterModelMetadata,
 } from '@brainstrike/app-shell';
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
@@ -23,6 +26,7 @@ import {
   mergeAssistantProviderSettings,
 } from '@brainstrike/types';
 import { useCallback, useMemo, useState } from 'react';
+import { readDesktopHostConfiguration } from './desktop-host-configuration';
 
 type Presentation = Pick<
   CommittedAssistantConversationProps,
@@ -43,10 +47,18 @@ type Presentation = Pick<
   | 'fileMentions'
   | 'onFileMentionQueryChange'
   | 'slashCommands'
+  | 'isComposerDisabled'
+  | 'disabledReason'
+  | 'openRouterModelMetadataLookup'
+  | 'effectiveInputBudget'
 >;
 
+interface DesktopHostPresentation extends Presentation {
+  readConfiguration(selectionFolderId: string | null): Record<string, unknown>;
+}
+
 /** Existing picker/settings owners project controls; they own no assistant execution. */
-export function useDesktopHostPresentation(threadId: string): Presentation {
+export function useDesktopHostPresentation(threadId: string): DesktopHostPresentation {
   useEnsureModelRegistry();
   const composerDraft = useComposerDraftChannel(threadId);
   const slashCommands = useAssistantSlashCommands(threadId);
@@ -120,6 +132,50 @@ export function useDesktopHostPresentation(threadId: string): Presentation {
     () => ({ ...providerSettings, ...draft?.providerSettings }),
     [draft?.providerSettings, providerSettings]
   );
+  const settings = selectedProvider ? effective[selectedProvider] : undefined;
+  const selectedDefinition = selectedProvider
+    ? getProviderLlmModels(selectedProvider).find((definition) => definition.id === model)
+    : undefined;
+  const metadata = useOpenRouterModelMetadata({
+    modelId: model,
+    modelSettings: draft?.modelSettings ?? buildModelSettings(settings),
+    providerId: selectedProvider,
+    selectedModelDef: selectedDefinition,
+    settings,
+  });
+  const providerOptions =
+    draft?.providerOptions ??
+    buildProviderOptionsWhenReady(
+      metadata.reason,
+      selectedProvider ?? null,
+      model,
+      settings,
+      metadata.lookup
+    );
+  const disabledReason = metadata.reason ?? providerDraft.reason;
+  const readConfiguration = useCallback(
+    (selectionFolderId: string | null): Record<string, unknown> => {
+      if (disabledReason) {
+        throw new Error(disabledReason);
+      }
+      return readDesktopHostConfiguration(threadId, selectionFolderId, {
+        agentLoop: metadata.agentLoopSettings,
+        model,
+        modelSettings: metadata.modelSettings,
+        provider: selectedProvider,
+        providerOptions,
+      });
+    },
+    [
+      disabledReason,
+      metadata.agentLoopSettings,
+      metadata.modelSettings,
+      model,
+      providerOptions,
+      selectedProvider,
+      threadId,
+    ]
+  );
   const onProviderSettingsChange = useCallback(
     (providerId: string, updates: AssistantProviderSettingsUpdate): void => {
       if (!isSupportedProvider(providerId)) {
@@ -133,22 +189,25 @@ export function useDesktopHostPresentation(threadId: string): Presentation {
       if (!isSupportedProvider(active)) {
         throw new Error('Unsupported thread provider');
       }
+      const {
+        modelSettings: _modelSettings,
+        providerOptions: _providerOptions,
+        ...identity
+      } = current;
       setThreadDraftRuntime(threadId, {
-        ...current,
+        ...identity,
         ...buildDraftRuntimeForProvider({
           model: current.model ?? model,
+          openRouterLookup: metadata.lookup,
           provider: active,
           providerSettingsMap: settings,
         }),
       });
     },
-    [model, providerSettings, selectedProvider, setThreadDraftRuntime, threadId]
+    [metadata.lookup, model, providerSettings, selectedProvider, setThreadDraftRuntime, threadId]
   );
   const onEnableModel = useEnableModel();
-  const contextWindow = selectedProvider
-    ? getProviderLlmModels(selectedProvider).find((definition) => definition.id === model)
-        ?.contextWindow
-    : undefined;
+  const contextWindow = metadata.modelDef?.contextWindow;
   return {
     ...picker,
     composerDraftCommand: composerDraft.command,
@@ -160,11 +219,17 @@ export function useDesktopHostPresentation(threadId: string): Presentation {
     onModelChange: handleModelChange,
     onProviderSettingsChange,
     onProviderSettingsValidationChange: providerDraft.report,
+    openRouterModelMetadataLookup: metadata.lookup,
     providerSettings: effective,
+    readConfiguration,
     recentModels: recentModels.filter((recent) =>
       picker.pickerModels.some((entry) => `${entry.providerId}::${entry.id}` === recent)
     ),
     slashCommands,
+    ...(metadata.agentLoopSettings?.inputTokenLimit
+      ? { effectiveInputBudget: metadata.agentLoopSettings.inputTokenLimit }
+      : {}),
+    ...(disabledReason ? { disabledReason, isComposerDisabled: true } : {}),
     ...(selectedModel ? { selectedModel } : {}),
     ...(selectedProvider ? { selectedProvider } : {}),
     ...(contextWindow ? { contextWindow } : {}),

@@ -7,6 +7,8 @@ export {
   buildAgentLoopSettings,
   buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,
+  buildModelSettings,
+  buildProviderOptionsWhenReady,
   getRuntimeProviderLlmModels,
   type LlmProviderModelDefinition,
   toRuntimeProviderModels,
@@ -22,6 +24,7 @@ export { useAssistantModelChange } from './hooks/use-assistant-model-change';
 export { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 export { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 export { useEnableModel } from './hooks/use-enable-model';
+export { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 export * from './navigation';
 export * from './page-wrapper';
 export * from './provider-verification-client';

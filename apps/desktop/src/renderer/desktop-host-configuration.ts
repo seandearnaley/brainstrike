@@ -13,7 +13,11 @@ import {
   useSkillsPreferencesStore,
 } from '@brainstrike/app-state/stores/skills-preferences-store';
 import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
-import { DESKTOP_NATIVE_TOOL_IDS, isSupportedProvider } from '@brainstrike/assistant-contract';
+import {
+  DESKTOP_NATIVE_TOOL_IDS,
+  isSupportedProvider,
+  type RuntimeData,
+} from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-wire';
@@ -36,9 +40,18 @@ export function readDesktopHostModel(threadId: string): string {
 }
 
 /** Capture intent at Send from the same stores used by the existing assistant. */
+export interface DesktopHostModelProjection {
+  readonly agentLoop: RuntimeData['agentLoop'];
+  readonly model: RuntimeData['model'];
+  readonly modelSettings: RuntimeData['modelSettings'];
+  readonly provider: RuntimeData['provider'];
+  readonly providerOptions: RuntimeData['providerOptions'];
+}
+
 export function readDesktopHostConfiguration(
   threadId: string,
-  selectionFolderId: string | null
+  selectionFolderId: string | null,
+  projection?: DesktopHostModelProjection
 ): Record<string, unknown> {
   const preferences = useAssistantPreferencesStore.getState();
   const composite = readDesktopHostModel(threadId);
@@ -65,7 +78,7 @@ export function readDesktopHostConfiguration(
     selectionFolderId
   );
   return PlatformClientConfigurationSchema.parse({
-    agentLoop: buildAgentLoopSettings(providerSettings[provider]),
+    agentLoop: projection?.agentLoop ?? buildAgentLoopSettings(providerSettings[provider]),
     enabledNativeToolIds: DESKTOP_NATIVE_TOOL_IDS.filter((id) =>
       useNativeToolPreferencesStore.getState().isToolEnabled(id)
     ),
@@ -73,8 +86,13 @@ export function readDesktopHostConfiguration(
     memorySettings: useAssistantMemoryPreferencesStore.getState().getRuntimeMemorySettings(),
     modelConfiguration: {
       ...modelConfiguration,
+      // Keep the projected pair with its options. Existing Main admission
+      // verifies that this complete selection matches the input command.
+      ...(projection ? { model: projection.model, provider: projection.provider } : {}),
       ...(threadDraft?.modelSettings ? { modelSettings: threadDraft.modelSettings } : {}),
       ...(threadDraft?.providerOptions ? { providerOptions: threadDraft.providerOptions } : {}),
+      ...(projection?.modelSettings ? { modelSettings: projection.modelSettings } : {}),
+      ...(projection?.providerOptions ? { providerOptions: projection.providerOptions } : {}),
     },
     permissionPolicy: { ...policy, yolo: policy.yolo || !enforce },
     ...(workspaceContext ? { workspaceContext } : {}),

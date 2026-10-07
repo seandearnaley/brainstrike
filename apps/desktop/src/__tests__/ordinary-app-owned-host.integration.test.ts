@@ -8,22 +8,44 @@ import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stor
 import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   encodeFileMentionId,
+  parseOpenRouterModelMetadata,
   serializeFileMentionDirective,
 } from '@brainstrike/assistant-contract';
 import { decodeHostRecord, type HostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, RootLockedError } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
-import { _electron } from 'playwright';
+import { _electron, type ElectronApplication } from 'playwright';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { ensureAssistantShellVisible } from '../../e2e/utils/layout-helpers';
 import {
   type ModelProviderRequest,
+  type ModelProviderScript,
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
 
 const desktop = resolve(import.meta.dirname, '../..');
-test.for(['normal', 'utility-loss'] as const)(
+// Public Models API response recorded without credentials or inference.
+const recordedModelMetadata = parseOpenRouterModelMetadata(
+  JSON.parse(
+    await readFile(
+      new URL('./fixtures/openrouter-sonnet-4-6-model-metadata.json', import.meta.url),
+      'utf8'
+    )
+  ),
+  'anthropic/claude-sonnet-4.6',
+  Date.parse('2026-10-07T05:07:09.516Z')
+);
+async function routeRecordedModelMetadata(application: ElectronApplication): Promise<void> {
+  // Only metadata HTTP is intercepted; tools/IPC/SQLite/view stay real.
+  await application.context().route('**/assistant/openrouter-model?*', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({ freshness: 'live', metadata: recordedModelMetadata }),
+      contentType: 'application/json',
+    });
+  });
+}
+test.for(['normal', 'normal-om', 'utility-loss'] as const)(
   'ordinary desktop owns the first M3 Root, New Thread, CLI attachment and reopen (%s)',
   { timeout: getAdjustedTimeout('e2e') },
   async (fault, context) => {
@@ -57,34 +79,56 @@ setInterval(() => {}, 1000);
     );
     const fixture = await startStatefulMcpHostServer();
     const providerRequests: ModelProviderRequest[] = [];
-    let workspaceRootId: string | undefined;
-    const model = await startModelProviderShim((request) => {
-      providerRequests.push(request);
-      const mcp = request.toolNames.find((name) => name.endsWith('_host_lifecycle_probe'));
-      if (!mcp) {
-        throw new Error('The default catalog did not include the configured MCP executor');
-      }
-      if (!workspaceRootId) {
-        throw new Error('The ordinary workspace has no authoritative root identity');
-      }
-      return {
-        finalText: 'Owned native and MCP effects completed.',
-        toolCallStages: [
-          [
-            {
-              arguments: {
-                content: 'ordinary app-owned M3 evidence',
-                path: 'permitted.txt',
-                root: workspaceRootId,
-              },
-              name: 'brainstrike_writeWorkspaceFile',
-            },
-          ],
-          [{ arguments: {}, name: mcp }],
-          [{ arguments: {}, name: 'brainstrike_listWorkspaceContext' }],
-        ],
+    const observerRequests: ModelProviderRequest[] = [];
+    const withObserver =
+      (
+        select: (request: ModelProviderRequest) => ModelProviderScript
+      ): ((request: ModelProviderRequest) => ModelProviderScript) =>
+      (request) => {
+        if (
+          // The recorded provider request resolves the saved catalog alias
+          // to this dated model ID before dispatch.
+          z.object({ model: z.literal('qwen/qwen3.8-max-0902') }).safeParse(request.requestBody)
+            .success
+        ) {
+          observerRequests.push(request);
+          return {
+            finalText:
+              '<observations>\n- The user requested an owned workspace operation.\n</observations>',
+          };
+        }
+        return select(request);
       };
-    });
+    let workspaceRootId: string | undefined;
+    const model = await startModelProviderShim(
+      withObserver((request) => {
+        providerRequests.push(request);
+        const mcp = request.toolNames.find((name) => name.endsWith('_host_lifecycle_probe'));
+        if (!mcp) {
+          throw new Error('The default catalog did not include the configured MCP executor');
+        }
+        if (!workspaceRootId) {
+          throw new Error('The ordinary workspace has no authoritative root identity');
+        }
+        return {
+          finalText: 'Owned native and MCP effects completed.',
+          toolCallStages: [
+            [
+              {
+                arguments: {
+                  content: 'ordinary app-owned M3 evidence',
+                  path: 'permitted.txt',
+                  root: workspaceRootId,
+                },
+                name: 'brainstrike_writeWorkspaceFile',
+              },
+            ],
+            [{ arguments: {}, name: mcp }],
+            [{ arguments: {}, name: 'brainstrike_listWorkspaceContext' }],
+          ],
+        };
+      })
+    );
     await mkdir(join(disposable, 'mcp'));
     // This shared recorded-runtime fixture speaks the SDK's legacy protocol;
     // the configured selection must match it, as in the host lifecycle lanes.
@@ -166,6 +210,7 @@ setInterval(() => {}, 1000);
       expect(RootLock.inspect(profile)).toBeNull();
       checkpoint('ordinary-launch-start');
       application = await _electron.launch(options);
+      await routeRecordedModelMetadata(application);
       checkpoint('ordinary-main-launched');
       await capture(application);
       const page = await application.firstWindow();
@@ -205,14 +250,25 @@ setInterval(() => {}, 1000);
             JSON.stringify({
               state: {
                 ...memory,
-                observationalMemory: { ...memory.observationalMemory, enabled: false },
+                observationalMemory: { ...memory.observationalMemory },
               },
               version: 2,
             })
           );
         },
         {
-          memory: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+          memory: {
+            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+            observationalMemory: {
+              ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+              enabled: fault === 'normal-om',
+              messageTokens: 30,
+              modelTarget: 'openrouter/qwen/qwen3.8-max',
+              observationTokens: 50_000,
+              retrievalMode: 'off',
+              scope: 'thread',
+            },
+          },
           version: ASSISTANT_PREFERENCES_STORE_VERSION,
         }
       );
@@ -298,6 +354,26 @@ setInterval(() => {}, 1000);
       await ensureAssistantShellVisible(page);
       const panel = page.getByTestId(`assistant-thread-panel-${threadId}`);
       const input = panel.getByRole('textbox', { name: 'Message input' });
+      if (fault === 'normal') {
+        await input.fill('Keep this draft while correcting the output limit.');
+        await panel.getByRole('button', { name: 'Open assistant controls' }).click();
+        await page.getByText('Output & Limits', { exact: true }).click();
+        const output = page.getByRole('spinbutton', { name: 'Output token limit' });
+        await output.fill('999999999');
+        await output.press('Enter');
+        await expect
+          .poll(() => panel.getByRole('button', { exact: true, name: 'Send' }).isDisabled())
+          .toBe(true);
+        expect(providerRequests).toHaveLength(0);
+        await output.press('Escape');
+        await expect
+          .poll(() => panel.getByRole('button', { exact: true, name: 'Send' }).isEnabled())
+          .toBe(true);
+        expect(await input.inputValue()).toBe('Keep this draft while correcting the output limit.');
+        expect(providerRequests).toHaveLength(0);
+        await input.press('Escape');
+        checkpoint('ordinary-settings-draft-validation');
+      }
       await input.fill('');
       await input.pressSequentially('/skill:m3-owned-skill');
       await page
@@ -367,21 +443,31 @@ setInterval(() => {}, 1000);
       expect(JSON.stringify(system)).toContain('M3 activated skill sentinel 8521.');
       expect(providerRequests[0]?.toolNames).toContain('skill');
       expect(started.snapshot?.configuration['system']).toBeTypeOf('string');
+      if (fault === 'normal-om') {
+        expect(observerRequests.length).toBeGreaterThan(0);
+        expect(
+          committed.some(
+            ({ event }) => event.type === 'memory.usage' && event.kind === 'observation'
+          )
+        ).toBe(true);
+      }
       checkpoint('ordinary-default-native-mcp-context-run-completed');
-      model.setScript((request) => {
-        providerRequests.push(request);
-        return {
-          finalText: 'The denied file was not written.',
-          toolCall: {
-            arguments: {
-              content: 'must not be written',
-              path: 'denied.txt',
-              root: mountedRootId,
+      model.setScript(
+        withObserver((request) => {
+          providerRequests.push(request);
+          return {
+            finalText: 'The denied file was not written.',
+            toolCall: {
+              arguments: {
+                content: 'must not be written',
+                path: 'denied.txt',
+                root: mountedRootId,
+              },
+              name: 'brainstrike_writeWorkspaceFile',
             },
-            name: 'brainstrike_writeWorkspaceFile',
-          },
-        };
-      });
+          };
+        })
+      );
       await input.fill('Deny this owned file write.');
       await input.press('Enter');
       await expect
@@ -407,16 +493,18 @@ setInterval(() => {}, 1000);
       await expect(stat(join(workspace, 'denied.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
       checkpoint('ordinary-denied-effect-refused');
 
-      model.setScript((request) => {
-        providerRequests.push(request);
-        return {
-          finalText: 'The owned command completed.',
-          toolCall: {
-            arguments: { command: 'node owned-command.mjs', root: mountedRootId },
-            name: 'brainstrike_executeCommand',
-          },
-        };
-      });
+      model.setScript(
+        withObserver((request) => {
+          providerRequests.push(request);
+          return {
+            finalText: 'The owned command completed.',
+            toolCall: {
+              arguments: { command: 'node owned-command.mjs', root: mountedRootId },
+              name: 'brainstrike_executeCommand',
+            },
+          };
+        })
+      );
       await input.fill('Start the owned command, then stop it.');
       await input.press('Enter');
       await expect
@@ -587,6 +675,7 @@ setInterval(() => {}, 1000);
       expect(processStartTime(record.pid)).not.toBe(record.start);
       expect(RootLock.inspect(profile)?.owner.released).toBe(true);
       application = await _electron.launch(options);
+      await routeRecordedModelMetadata(application);
       await capture(application);
       const reopened = await application.firstWindow();
       await ensureAssistantShellVisible(reopened);

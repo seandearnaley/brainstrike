@@ -12,13 +12,13 @@ import {
 } from '@brainstrike/assistant-data';
 import { CommittedAssistantConversation } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
-import { type ReactElement, type ReactNode, useEffect, useState } from 'react';
+import { type ReactElement, type ReactNode, useEffect, useRef, useState } from 'react';
 import { connectDesktopAgentHost } from './agent-host-client';
 import {
   type CommittedHostConversation,
   createCommittedHostConversation,
 } from './committed-host-conversation';
-import { readDesktopHostConfiguration, readDesktopHostModel } from './desktop-host-configuration';
+import { readDesktopHostModel } from './desktop-host-configuration';
 import { useDesktopHostPresentation } from './use-desktop-host-presentation';
 
 function HostThread({
@@ -29,7 +29,9 @@ function HostThread({
   readonly threadId: string;
 }): ReactElement {
   const explorer = useFileExplorerStoreContext();
-  const presentation = useDesktopHostPresentation(threadId);
+  const { readConfiguration, ...presentation } = useDesktopHostPresentation(threadId);
+  const configuration = useRef(readConfiguration);
+  configuration.current = readConfiguration;
   const [conversation, setConversation] = useState<CommittedHostConversation>();
   useEffect(() => {
     // Commit-time view ownership survives StrictMode render replay without
@@ -37,8 +39,7 @@ function HostThread({
     const current = createCommittedHostConversation({
       client,
       modelId: '',
-      readConfiguration: () =>
-        readDesktopHostConfiguration(threadId, explorer.getState().currentFolderId),
+      readConfiguration: () => configuration.current(explorer.getState().currentFolderId),
       readModelId: () => readDesktopHostModel(threadId),
       threadId,
     });

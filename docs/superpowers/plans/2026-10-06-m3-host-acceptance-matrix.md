@@ -901,3 +901,72 @@ an alternate refusal design is implemented. Full regression, credential
 migration, standalone production headless startup, vectors, subscription/local
 provider parity and crashed-utility Root reuse remain open.
 **CI is disabled due to cost; validation must run locally.**
+
+### Composed Memory and model controls — 7 October, 05:38 UTC
+
+This batch starts from published `5e0a11596a33f853fa9f44a4c89f26bea2eaa9b7`.
+The parent's source review released Memory leaf
+`76c1aa1a34a1b2b5d5205809d73f8e68f7cbc859`; its two files are composed with the
+Node caller and the ordinary desktop route. The existing provider resolver and
+public materializer now supply the selected hosted observer with its resolved
+credential. Missing vector and hidden local capabilities remain explicit
+admission errors, with the requested preferences preserved.
+
+The committed conversation reuses the existing OpenRouter metadata and model
+settings hook for both controls and generation capture. Invalid numeric drafts
+disable Send; Escape preserves the composer draft. The recorded uncredentialed
+public metadata payload was captured from
+`https://openrouter.ai/api/v1/model/anthropic/claude-sonnet-4.6` at
+05:07:09.516 UTC, SHA256
+`04fc1413e9732e1f3cb1513d56c85a4608bca7d31e3fcb8a77b6dc6b3a2ed358`.
+Only metadata HTTP is intercepted in the disposable desktop fixture; its
+IPC, tools, public Memory, SQLite and committed view remain real.
+
+- `pnpm exec vitest run src/__tests__/memory-model-configuration.test.ts
+  src/__tests__/desktop-memory-provider.test.ts`, from desktop: **50/50**,
+  2.47 s lane. The four additional cases invoke the actual SDK request interface
+  for OpenAI, Anthropic, Google and OpenRouter, verify the selected credential
+  instead of a different ambient value, and receive a controlled non-retryable
+  HTTP failure. No live inference or provider spend. Receipt
+  `/tmp/brainstrike-m3-composed-memory-sdk-final.log`.
+- `pnpm --filter @brainstrike/desktop type-check:test`: all **730** selected
+  desktop test files type-check. Receipt
+  `/tmp/brainstrike-m3-composed-memory-test-types-final.log`. Earlier test-helper
+  import and model-union type failures are retained; no dependency was added.
+- Ordinary selection `-t normal` on the integration config: the normal case
+  passed, **9.438 s** body; the observation variant failed, **6.681 s**, because
+  its saved observer alias resolved to the recorded dated SDK model ID while
+  the scripted provider matched only the alias. Receipt
+  `/tmp/brainstrike-m3-composed-memory-ordinary-normal.log`, evidence
+  `WdU3Y4-evidence` and `kV6RPB-evidence`. The failed run's physical receipt has
+  no remaining observed processes; its app also logged a native-index cleanup
+  failure. Preserve that log; it is not a clean shutdown acceptance result.
+- With the scripted route corrected to the actual request model ID,
+  `pnpm exec vitest run --config vitest.integration.config.mts
+  src/__tests__/ordinary-app-owned-host.integration.test.ts -t normal-om`
+  passes **1 selected / 2 unselected**, **9.122 s** body / **10.26 s** lane.
+  Receipt `/tmp/brainstrike-m3-composed-memory-ordinary-observer-after.log`;
+  evidence `gC3l1T-evidence`. The real observer dispatch and committed
+  `memory.usage` observation event are followed by native/MCP/context completion,
+  denial, authenticated reconnect, Stop with physical native-process exit,
+  reload and app reopen. Cleanup reports errors `[]`, remaining `[]`, failure
+  `null`, and Root released `true`. Deadlines and product behavior were unchanged
+  for this fixture correction.
+
+The ordinary evidence directories are under
+`/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/brainstrike-m3-app-owned-`.
+Earlier renderer-only metadata/control qualification and builds are retained at
+`/tmp/brainstrike-m3-openrouter-settings-expanded-ordinary.log`,
+`/tmp/brainstrike-m3-openrouter-existing-hook-tests.log` and
+`/tmp/brainstrike-m3-openrouter-controls-types.log`: respectively **1 selected /
+1 unselected**, **9.469 s / 10.58 s**; **5/5**, **2.03 s**; **59/59**, **33.35 s**.
+These are component receipts, not a full regression or whole OM acceptance.
+
+Root crash recovery and MCP persisted approval authority remain red, awaiting
+Sean's design decisions. The sole Windows worker still owns its native protected
+file extension and two desktop leaf files; no unreviewed code is composed here.
+Standalone default CLI/metadata and credential migration, vectors, hidden
+local/subscription capabilities, remaining interactions/catalog parity, actual
+new-Root assistant search, loaded p95, packaged qualification and full local
+regression remain open. Main and M2 remain frozen. **CI is disabled due to cost;
+validation must run locally.**
