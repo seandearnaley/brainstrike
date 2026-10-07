@@ -63,6 +63,17 @@ function command(
   return cliCommand(dataRoot, ['--platform', platform, 'host', name]);
 }
 
+function windowsBatchArguments(executable: string, args: readonly string[]): string[] {
+  // Preserve argv through the installed pnpm .cmd and its second CMD parse:
+  // https://github.com/moxystudio/node-cross-spawn/blob/v7.0.6/lib/parse.js
+  const escapeMeta = (value: string) => value.replace(/[()[\]%!^"`<>&|;, *?]/g, '^$&');
+  const quoted = args.map((value) => {
+    const escaped = value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1');
+    return escapeMeta(escapeMeta(`"${escaped}"`));
+  });
+  return ['/d', '/s', '/c', `"${escapeMeta(executable)} ${quoted.join(' ')}"`];
+}
+
 function cliCommand(
   dataRoot: string,
   args: readonly string[],
@@ -72,19 +83,20 @@ function cliCommand(
   const installed = fileURLToPath(
     new URL(`../../../apps/desktop/node_modules/.bin/${alias}`, import.meta.url)
   );
-  const [executable, selected] =
+  const invocation =
     alias === 'tracked'
-      ? [process.execPath, [cli, ...values]]
+      ? { args: [cli, ...values], executable: process.execPath, windowsVerbatimArguments: false }
       : process.platform === 'win32'
-        ? [
-            process.env['M3_WINDOWS_POWERSHELL'] ?? 'pwsh.exe',
-            ['-NoProfile', '-NonInteractive', '-File', `${installed}.ps1`, ...values],
-          ]
-        : [installed, values];
+        ? {
+            args: windowsBatchArguments(`${installed}.cmd`, values),
+            executable: process.env['ComSpec'] ?? 'cmd.exe',
+            windowsVerbatimArguments: true,
+          }
+        : { args: values, executable: installed, windowsVerbatimArguments: false };
   return new Promise((resolve, reject) => {
     execFile(
-      executable,
-      selected,
+      invocation.executable,
+      invocation.args,
       {
         env: {
           BRAINSTRIKE_M3_TEST_TOOL: 'fail',
@@ -102,6 +114,7 @@ function cliCommand(
         },
         timeout: 10_000,
         windowsHide: true,
+        windowsVerbatimArguments: invocation.windowsVerbatimArguments,
       },
       (cause, stdout, stderr) => {
         if (!cause) {
