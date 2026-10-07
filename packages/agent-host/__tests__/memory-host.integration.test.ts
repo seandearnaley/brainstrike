@@ -38,6 +38,8 @@ test.each([
       [];
     const prepared: unknown[] = [];
     const hostPreparedMessages: unknown[] = [];
+    const admissions: { readonly runId: string; readonly startedAt: number; readyAt?: number }[] =
+      [];
     const observer = new MockLanguageModelV4({
       doStream: async () => ({
         stream: simulateReadableStream({
@@ -72,6 +74,11 @@ test.each([
       close: async () => undefined,
       maxSteps: 3,
       openRun: async (context) => {
+        const admission: (typeof admissions)[number] = {
+          runId: context.runId,
+          startedAt: performance.now(),
+        };
+        admissions.push(admission);
         const owner = await StateStoreHostMemory.open(context, {
           native: {
             options: {
@@ -98,6 +105,7 @@ test.each([
           resourceId,
           store,
         });
+        admission.readyAt = performance.now();
         owners.push(owner);
         return owner;
       },
@@ -330,7 +338,36 @@ test.each([
       expect(executions).toBe(1);
       expect((await core.read(threadId, 0)).slice(0, replay.length)).toEqual(replay);
     } catch (cause) {
-      failure = cause;
+      // Preserve the first assertion and inspect committed truth before cleanup
+      // aborts an opening owner. Do not change the poll deadline or wait for green.
+      const [snapshot] = await Promise.allSettled([store.readAll()]);
+      failure = new AggregateError(
+        [
+          cause,
+          new Error(
+            JSON.stringify({
+              admissions: admissions.map(({ readyAt, runId, startedAt }) => ({
+                elapsedMs: (readyAt ?? performance.now()) - startedAt,
+                ready: readyAt !== undefined,
+                runId,
+              })),
+              lastMessages,
+              mode,
+              root,
+              rows:
+                snapshot?.status === 'fulfilled'
+                  ? snapshot.value.map((row) => ({
+                      runId: row.event['runId'],
+                      seq: row.seq,
+                      ts: row.ts,
+                      type: row.event.type,
+                    }))
+                  : undefined,
+            })
+          ),
+        ],
+        'Memory qualification first failure and owner receipt'
+      );
     }
     const cleanup = await Promise.allSettled([core.close()]);
     const writer = await Promise.allSettled([store.close()]);
