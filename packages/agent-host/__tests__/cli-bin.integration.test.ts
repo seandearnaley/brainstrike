@@ -58,12 +58,24 @@ async function root(): Promise<string> {
   return value;
 }
 
-function command(executable: string, args: string[], cwd: string): Promise<CommandResult> {
+function command(
+  executable: string,
+  args: string[],
+  cwd: string,
+  windowsVerbatimArguments = false
+): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     execFile(
       executable,
       args,
-      { cwd, encoding: 'utf8', env: environment(), timeout: 10_000, windowsHide: true },
+      {
+        cwd,
+        encoding: 'utf8',
+        env: environment(),
+        timeout: 10_000,
+        windowsHide: true,
+        windowsVerbatimArguments,
+      },
       (cause, stdout, stderr) => {
         if (!cause) {
           resolve({ code: 0, stderr, stdout });
@@ -93,16 +105,30 @@ function installedCommand(
   );
 }
 
+function windowsBatchArguments(executable: string, args: readonly string[]): string[] {
+  // Node's documented cmd.exe route keeps piped stdin open. pnpm's .cmd
+  // forwards through a second CMD parse, requiring both metachar escapes:
+  // https://github.com/moxystudio/node-cross-spawn/blob/v7.0.6/lib/parse.js
+  const escapeMeta = (value: string) => value.replace(/[()[\]%!^"`<>&|;, *?]/g, '^$&');
+  const quoted = args.map((value) => {
+    const escaped = value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1');
+    return escapeMeta(escapeMeta(`"${escaped}"`));
+  });
+  return ['/d', '/s', '/c', `"${escapeMeta(executable)} ${quoted.join(' ')}"`];
+}
+
 function installedExecutable(name: string, args: string[]): Promise<CommandResult> {
   const executable = join(workspaceRoot, 'apps/desktop/node_modules/.bin', name);
   // pnpm's recursive exec wrapper turns every nonzero child exit into 1 and
   // adds its own stdout diagnostics. Invoke the installed shim to observe the
-  // CLI's actual stdout and exit 2 contract, including the Windows ps1 shim.
+  // CLI's actual stdout and exit 2 contract. The Windows programmatic caller
+  // uses the installed .cmd; PowerShell interactive support is a separate proof.
   return process.platform === 'win32'
     ? command(
-        process.env['M3_WINDOWS_POWERSHELL'] ?? 'pwsh.exe',
-        ['-NoProfile', '-NonInteractive', '-File', `${executable}.ps1`, ...args],
-        workspaceRoot
+        process.env['ComSpec'] ?? 'cmd.exe',
+        windowsBatchArguments(`${executable}.cmd`, args),
+        workspaceRoot,
+        true
       )
     : command(executable, args, workspaceRoot);
 }
