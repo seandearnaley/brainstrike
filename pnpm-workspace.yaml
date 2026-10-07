@@ -388,3 +388,4 @@ patchedDependencies:
   '@mastra/memory@1.32.1': patches/@mastra__memory@1.32.1.patch
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
   app-builder-lib@26.17.0: patches/app-builder-lib@26.17.0.patch
+  vscode-jsonrpc@9.0.2: patches/vscode-jsonrpc@9.0.2.patch

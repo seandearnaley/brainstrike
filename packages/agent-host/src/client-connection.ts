@@ -23,6 +23,26 @@ export async function authenticateHostClient(
   transportClosed: Promise<void>
 ): Promise<HostClient> {
   const listeners = new Set<(row: HostLogRow) => void>();
+  const closeConnection = async (): Promise<void> => {
+    const failures: unknown[] = [];
+    try {
+      connection.dispose();
+    } catch (cause) {
+      failures.push(cause);
+    }
+    listeners.clear();
+    try {
+      await closeTransport();
+    } catch (cause) {
+      failures.push(cause);
+    }
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Host client disposal and transport close failed');
+    }
+  };
   connection.onNotification('log/event', (input: unknown) => {
     const row = HostLogRowSchema.parse(input);
     for (const listener of listeners) {
@@ -47,16 +67,15 @@ export async function authenticateHostClient(
       throw new Error('Host initialize reply does not match its lease record');
     }
   } catch (cause) {
-    connection.dispose();
-    await closeTransport();
+    try {
+      await closeConnection();
+    } catch (cleanupCause) {
+      throw new AggregateError([cause, cleanupCause], 'Host initialize and cleanup failed');
+    }
     throw cause;
   }
   return {
-    close: async () => {
-      connection.dispose();
-      listeners.clear();
-      await closeTransport();
-    },
+    close: closeConnection,
     closed: transportClosed,
     onEvent: (listener) => {
       listeners.add(listener);

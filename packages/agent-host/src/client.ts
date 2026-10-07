@@ -3,10 +3,12 @@ import { runWithTimeout } from '@brainstrike/effect-kit';
 import { decodeHostRecord, HOST_VERSION, type HostRecord } from '@brainstrike/host-lease';
 import {
   createMessageConnection,
+  type MessageConnection,
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
 import { authenticateHostClient, type HostClient } from './client-connection.js';
+import { closeReceivedConnection } from './client-receive-lifetime.js';
 import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.js';
 
 export { authenticateHostClient, type HostClient } from './client-connection.js';
@@ -21,10 +23,19 @@ export async function attachAgentHost(input: HostRecord, timeoutMs = 1500): Prom
     throw new Error('Host has an incompatible protocol or version');
   }
   const socket = new Socket();
+  let reader: StreamMessageReader | undefined;
+  let connection: MessageConnection | undefined;
+  const receivedFailures = new Set<unknown>();
   const completion = Promise.withResolvers<void>();
   completion.promise.catch(() => undefined);
-  socket.once('close', () => completion.resolve());
-  socket.on('error', (error: Error) => completion.reject(error));
+  socket.once('close', () => {
+    // BST-1977: the final Stop frame was decoded but disposed before dispatch.
+    void closeReceivedConnection(reader, connection, receivedFailures).then(
+      completion.resolve,
+      completion.reject
+    );
+  });
+  socket.on('error', (error: Error) => receivedFailures.add(error));
   const close = async (): Promise<void> => {
     socket.destroy();
     await completion.promise;
@@ -43,11 +54,9 @@ export async function attachAgentHost(input: HostRecord, timeoutMs = 1500): Prom
             socket.once('close', () => reject(new Error('Host socket closed before connect')));
             socket.connect(record.endpoint);
           });
-          const connection = createMessageConnection(
-            new StreamMessageReader(socket),
-            new StreamMessageWriter(socket)
-          );
-          socket.once('close', () => connection.dispose());
+          reader = new StreamMessageReader(socket);
+          connection = createMessageConnection(reader, new StreamMessageWriter(socket));
+          connection.onError(([cause]) => receivedFailures.add(cause));
           return await authenticateHostClient(connection, record, close, completion.promise);
         } finally {
           signal.removeEventListener('abort', aborted);
