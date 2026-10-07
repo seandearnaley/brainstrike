@@ -41,13 +41,22 @@ export class StateStoreHostMemory implements HostRunOwner {
     private readonly domain: StateStoreMemoryStorage,
     private readonly storage: MastraCompositeStore,
     private readonly readRows: () => Promise<HostLogRow[]>,
-    private readonly providerContext: ProviderRequestContext | undefined
+    private readonly providerContext: ProviderRequestContext | undefined,
+    private readonly semanticRecall: boolean
   ) {}
 
   static async open(
     context: HostRunContext,
     options: StateStoreHostMemoryOptions
   ): Promise<StateStoreHostMemory> {
+    const semanticRecall = Boolean(options.native.options?.semanticRecall);
+    if (
+      semanticRecall &&
+      (!(options.native.vector && options.native.embedder) ||
+        typeof options.native.embedder === 'string')
+    ) {
+      throw new Error('Semantic recall requires the borrowed vector owner and a concrete embedder');
+    }
     // Snapshot configuration before constructing native run-owned resources.
     const providerContext = await options.providerRequestContext?.();
     const readRows = async (): Promise<HostLogRow[]> =>
@@ -84,7 +93,8 @@ export class StateStoreHostMemory implements HostRunOwner {
       domain,
       storage,
       readRows,
-      providerContext
+      providerContext,
+      semanticRecall
     );
     try {
       await storage.init();
@@ -160,17 +170,44 @@ export class StateStoreHostMemory implements HostRunOwner {
     });
   }
 
+  private async recallMessageIds(query: string): Promise<ReadonlySet<string>> {
+    if (!(this.semanticRecall && query.trim())) {
+      return new Set();
+    }
+    // Public getContext has no semantic query argument. Use the library's
+    // recall primitive; it resolves returned IDs through committed storage.
+    const { messages } = await this.memory.recall({
+      resourceId: this.identity.resourceId,
+      threadConfig: { lastMessages: false },
+      vectorSearchString: query,
+    });
+    return new Set(messages.map((message) => message.id));
+  }
+
   async prepareHostStep(request: {
     readonly messages: readonly ModelMessage[];
     readonly stepNumber: number;
   }): Promise<{ messages: ModelMessage[]; system?: string }> {
+    const currentUser = request.messages.findLastIndex((message) => message.role === 'user');
+    const current = request.messages[currentUser];
+    if (current?.role !== 'user') {
+      throw new Error('Memory preparation has no current committed user input');
+    }
+    const query =
+      typeof current.content === 'string'
+        ? current.content
+        : current.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
     const step = await this.memory.prepareStep(request.stepNumber);
     const selected = new Set(step.messages.map((message) => message.id));
+    const recalled = await this.recallMessageIds(query);
+    for (const id of recalled) {
+      selected.add(id);
+    }
     const rows = await this.readRows();
     const historical: ModelMessage[] = [];
     for (const started of rows) {
       if (
-        started.threadId !== this.identity.threadId ||
+        (!this.semanticRecall && started.threadId !== this.identity.threadId) ||
         started.event.type !== 'run.started' ||
         started.event.runId === this.identity.runId
       ) {
@@ -180,9 +217,17 @@ export class StateStoreHostMemory implements HostRunOwner {
       const previous = committedRunIdentity(rows, previousRunId);
       // BST-1977's ordinary second turn failed when the bounded native history
       // window started inside an older turn. Its
-      // assistant tail cannot be a standalone provider conversation. Keep the
-      // selected window and immutable rows; omit that incomplete runtime turn.
-      if (!selected.has(previous.userMessageId)) {
+      // assistant tail cannot be a standalone provider conversation. A semantic
+      // hit anchors its actual committed turn; an ordinary history tail does not.
+      const recalledSegment =
+        recalled.size > 0 &&
+        rows.some(
+          (row) =>
+            'runId' in row.event &&
+            row.event.runId === previousRunId &&
+            recalled.has(committedRowAddress(row))
+        );
+      if (!(selected.has(previous.userMessageId) || recalledSegment)) {
         continue;
       }
       historical.push({ content: started.event.prompt, role: 'user' });
@@ -198,7 +243,7 @@ export class StateStoreHostMemory implements HostRunOwner {
       }
       const occurrence = rows.flatMap((row) => {
         const event = row.event;
-        return row.threadId === this.identity.threadId &&
+        return row.threadId === started.threadId &&
           (event.type === 'model.step' || event.type === 'model.messages') &&
           event.runId === previousRunId
           ? event.messages.map((message) => modelMessageSchema.parse(message))
@@ -230,10 +275,6 @@ export class StateStoreHostMemory implements HostRunOwner {
     // Active SDK messages retain their actual validated approval/runtime objects.
     // Public Memory selects previous committed turns, never reconstructs an
     // active call or changes the existing host approval occurrence.
-    const currentUser = request.messages.findLastIndex((message) => message.role === 'user');
-    if (currentUser < 0) {
-      throw new Error('Memory preparation has no current committed user input');
-    }
     const system = [step.context.systemMessage, step.context.otherThreadsContext]
       .filter((part) => part !== undefined && part.length > 0)
       .join('\n\n');
