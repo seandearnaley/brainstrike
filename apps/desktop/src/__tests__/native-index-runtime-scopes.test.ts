@@ -73,6 +73,9 @@ function fixture(initial: Authority) {
       return port;
     },
   }));
+  const installQueryTarget = vi.fn(() => {
+    events.push('reader-installed');
+  });
   const dependencies = {
     closeQueries,
     createIndexOwner,
@@ -80,9 +83,7 @@ function fixture(initial: Authority) {
     getAuthority: async () => authority,
     getFileInvalidator: () => vi.fn(),
     getRootIds: async () => authority.rootIds,
-    installQueryTarget: () => {
-      events.push('reader-installed');
-    },
+    installQueryTarget,
   };
   const runtime = createNativeIndexRuntime(dependencies);
   return {
@@ -90,6 +91,7 @@ function fixture(initial: Authority) {
     closeWriter,
     createIndexOwner,
     events,
+    installQueryTarget,
     port,
     removeScopedFile,
     replaceFileBindings,
@@ -224,7 +226,7 @@ it('restores the prior live inventory before reuse after a replacement ACK and a
   await f.runtime.closeIndex();
 });
 
-it('preserves the previous cache and ACK when binding replacement itself fails', async () => {
+it('preserves the previous ACK but revalidates retired reader readiness after failed binding replacement', async () => {
   const initial = { fileBindings: [], rootIds: ['root'], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
@@ -234,12 +236,27 @@ it('preserves the previous cache and ACK when binding replacement itself fails',
   f.setAuthority({ ...initial, fileBindings: [binding] });
   await expect(f.runtime.acquire()).rejects.toBe(failure);
   expect(captured.readAuthority().fileBindings).toEqual([]);
+  expect(f.installQueryTarget).toHaveBeenCalledOnce();
   f.setAuthority(initial);
-  await f.runtime.acquire();
-  expect(f.replaceFileBindings).toHaveBeenCalledOnce();
-  f.setAuthority({ ...initial, fileBindings: [binding] });
+  const restored = Promise.withResolvers<void>();
+  f.replaceFileBindings.mockReturnValueOnce(restored.promise);
+  let admitted = false;
+  const restoring = f.runtime.acquire().then(() => {
+    admitted = true;
+  });
+  await vi.waitFor(() => expect(f.replaceFileBindings).toHaveBeenLastCalledWith([]));
+  expect(admitted).toBe(false);
+  expect(f.installQueryTarget).toHaveBeenCalledOnce();
+  restored.resolve();
+  await restoring;
+  expect(f.replaceFileBindings).toHaveBeenCalledTimes(2);
+  expect(f.installQueryTarget).toHaveBeenCalledTimes(2);
   await f.runtime.acquire();
   expect(f.replaceFileBindings).toHaveBeenCalledTimes(2);
+  f.setAuthority({ ...initial, fileBindings: [binding] });
+  await f.runtime.acquire();
+  expect(f.replaceFileBindings).toHaveBeenCalledTimes(3);
+  expect(f.replaceFileBindings).toHaveBeenLastCalledWith([binding]);
   expect(captured.readAuthority().fileBindings).toEqual([binding]);
   await f.runtime.closeIndex();
 });
@@ -393,15 +410,41 @@ it('keeps failed same-scope reader retirement retryable before replacing binding
   await expect(f.runtime.acquire()).rejects.toBe(failure);
   expect(f.replaceFileBindings).not.toHaveBeenCalled();
   expect(f.events).toEqual([]);
+  await expect(f.runtime.acquire()).rejects.toBe(failure);
+  expect(f.closeQueries).toHaveBeenCalledTimes(2);
+  expect(f.closeWriter).not.toHaveBeenCalled();
+  expect(f.installQueryTarget).toHaveBeenCalledOnce();
+  expect(f.createIndexOwner).toHaveBeenCalledTimes(1);
+  const exit = Promise.withResolvers<void>();
+  f.closeQueries.mockImplementationOnce(async () => {
+    await exit.promise;
+    f.events.push('readers-exited');
+  });
+  const closing = f.runtime.closeIndex();
+  await vi.waitFor(() => expect(f.closeQueries).toHaveBeenCalledTimes(3));
+  await expect(f.runtime.resume()).rejects.toThrow('Previous native ownership');
+  await expect(f.runtime.acquire()).rejects.toThrow('admission is closed');
+  expect(f.closeWriter).not.toHaveBeenCalled();
+  exit.resolve();
+  await closing;
+  expect(f.closeWriter).toHaveBeenCalledOnce();
+  await f.runtime.resume();
   await f.runtime.acquire();
-  expect(f.replaceFileBindings).toHaveBeenCalledExactlyOnceWith([]);
+  expect(f.createIndexOwner).toHaveBeenCalledTimes(2);
+  expect(f.createIndexOwner).toHaveBeenLastCalledWith({
+    fileBindings: [],
+    rootIds: ['root'],
+    scopes: [collection],
+  });
+  expect(f.installQueryTarget).toHaveBeenCalledTimes(2);
   expect(f.events).toEqual([
     'readers-exited',
-    'native-removal-ack',
-    'bindings-ack',
+    'writer-exited',
+    'readers-exited',
+    'writer-ready',
     'reader-installed',
   ]);
-  expect(f.createIndexOwner).toHaveBeenCalledTimes(1);
+  await f.runtime.closeIndex();
 });
 
 it('joins the old query reader and writer before changing collection authority', async () => {
@@ -433,9 +476,29 @@ it('retains the old owner after failed retirement and retries it before replacem
   await expect(f.runtime.acquire()).rejects.toBe(failure);
   expect(f.closeWriter).not.toHaveBeenCalled();
   expect(f.createIndexOwner).toHaveBeenCalledTimes(1);
-  await f.runtime.acquire();
+  await expect(f.runtime.acquire()).rejects.toBe(failure);
+  expect(f.closeQueries).toHaveBeenCalledTimes(2);
+  expect(f.installQueryTarget).toHaveBeenCalledOnce();
+  const exit = Promise.withResolvers<void>();
+  f.closeQueries.mockReturnValueOnce(exit.promise);
+  const closing = f.runtime.closeIndex();
+  await vi.waitFor(() => expect(f.closeQueries).toHaveBeenCalledTimes(3));
+  await expect(f.runtime.resume()).rejects.toThrow('Previous native ownership');
+  expect(f.closeWriter).not.toHaveBeenCalled();
+  expect(f.createIndexOwner).toHaveBeenCalledTimes(1);
+  exit.resolve();
+  await closing;
   expect(f.closeWriter).toHaveBeenCalledTimes(1);
+  await f.runtime.resume();
+  await f.runtime.acquire();
   expect(f.createIndexOwner).toHaveBeenCalledTimes(2);
+  expect(f.createIndexOwner).toHaveBeenLastCalledWith({
+    fileBindings: [],
+    rootIds: ['root'],
+    scopes: [{ embeddingSetId: 'other-collection', kind: 'collection' }],
+  });
+  expect(f.installQueryTarget).toHaveBeenCalledTimes(2);
+  await f.runtime.closeIndex();
 });
 
 it('refuses authority changed during reader retirement before replacing bindings', async () => {

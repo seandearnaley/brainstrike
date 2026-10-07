@@ -12,6 +12,8 @@ import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
+import { NativeIndexBlockedError } from '../native-index-blocked';
+import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 
 const mocks = vi.hoisted(() => ({
@@ -415,7 +417,6 @@ function vectorPauseFixture() {
     modelId: 'Xenova/all-MiniLM-L6-v2',
     provider: 'transformers',
     revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-    tokenCap: 512,
   } as const;
   mocks.database.query.mockImplementation(async (sql: string) => ({
     rows: sql.includes('FROM embedding_sets')
@@ -455,7 +456,11 @@ function vectorPauseFixture() {
 it('opens cold paused VECTOR authority with the exact saved query plan and zero document inference', async () => {
   const { activation, transport, profile } = vectorPauseFixture();
   await activation.acquireRead();
-  expect(await activation.getSearchAuthority()).toMatchObject({
+  const authority = await activation.getSearchAuthority();
+  expect(authority.profile).toEqual(profile);
+  // The saved collection provides no catalog context window; do not invent a token cap.
+  expect(authority.profile).not.toHaveProperty('tokenCap');
+  expect(authority).toMatchObject({
     profile,
     queryPlan: {
       inferencePlan: {
@@ -666,10 +671,23 @@ it('revokes old read authority when new saved execution choices are invalid', as
   const saved = JSON.parse(await storage.getItem()) as { state: Record<string, unknown> };
   saved.state['nativeIndexMode'] = 'VECTOR';
   storage.getItem.mockResolvedValue(JSON.stringify(saved));
-  await expect(activation.reconfigure()).rejects.toThrow(
-    'explicitly selected local execution plan'
+  mocks.database.query.mockImplementation(async (sql: string) => ({
+    rows: sql.includes('FROM embedding_sets')
+      ? [
+          {
+            dimensions: 384,
+            distance: 'cosine',
+            id: 'selected',
+            modelId: 'Xenova/all-MiniLM-L6-v2',
+            modelKey: 'transformers::Xenova/all-MiniLM-L6-v2',
+          },
+        ]
+      : [],
+  }));
+  await expect(activation.reconfigure()).rejects.toThrow(NativeIndexSetupRequiredError);
+  await expect(activation.acquireRead()).rejects.toThrow(
+    'Choose local model execution in Search & Indexing settings.'
   );
-  await expect(activation.acquireRead()).rejects.toThrow();
   expect(mocks.acquire).toHaveBeenCalledOnce();
   await activation.close();
 });
@@ -708,7 +726,11 @@ it('refuses reused read ownership when source retirement left the actual manager
   const cause = new Error('Actual indexer owner is terminally closed.');
   mocks.manager.start.mockRejectedValueOnce(cause);
   await expect(activation.reconfigure()).rejects.toBe(cause);
-  await expect(activation.acquireRead()).rejects.toThrow('Canonical native scan failed');
+  await expect(activation.acquireRead()).rejects.toMatchObject({
+    cause,
+    code: 'native-index-blocked',
+    name: NativeIndexBlockedError.name,
+  });
   await expect(activation.acquire()).rejects.toThrow('Canonical native scan failed');
   await activation.reconfigure();
   await activation.acquireRead();

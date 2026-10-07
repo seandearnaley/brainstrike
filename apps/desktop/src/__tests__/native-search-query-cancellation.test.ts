@@ -193,7 +193,7 @@ describe('actual native search to query IPC physical owner', () => {
       storeId: 'store-a',
       truncated: false,
     };
-    return {
+    const bridge: IndexSearchCapability = {
       coverage: vi.fn(async () => ({
         embedding,
         roots: [{ rootId: 'root-a', ...counts }],
@@ -201,8 +201,16 @@ describe('actual native search to query IPC physical owner', () => {
         totals: counts,
         vectorCoverageComplete: true,
       })),
-      coverageBatch: vi.fn(async () => {
-        throw new Error('Unexpected coverage batch');
+      coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(async (requests) => {
+        const status = await bridge.status();
+        if (status.kind !== 'ready') {
+          return { kind: 'blocked', reason: status.reason };
+        }
+        return {
+          coverage: await Promise.all(requests.map((request) => bridge.coverage(request))),
+          kind: 'current',
+          status,
+        };
       }),
       grep: vi.fn(async () => pool),
       rebuild: vi.fn(async () => {}),
@@ -215,6 +223,7 @@ describe('actual native search to query IPC physical owner', () => {
         storeId: 'store-a',
       })),
     };
+    return bridge;
   }
   it.each(['cancel', 'supersede'] as const)(
     'delivers %s to the exact held manager request and joins before discarding the search',
@@ -232,6 +241,7 @@ describe('actual native search to query IPC physical owner', () => {
         return value;
       });
       await vi.waitFor(() => expect(requests()).toHaveLength(1));
+      expect(bridge.coverageBatch).toHaveBeenCalledWith([{ rootIds: ['root-a'] }]);
       const request = requests()[0];
       expect(request).toBeDefined();
       if (!request) {
