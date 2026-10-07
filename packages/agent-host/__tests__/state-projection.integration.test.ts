@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
 import { BLOBS_DIR, StateStore, UnknownEventError } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
@@ -21,6 +22,61 @@ import { decode, messages, text } from '../src/state-projection.js';
 import approved from './fixtures/approved-run-log.json' with { type: 'json' };
 
 const recordings = { approved, plan, question, rich };
+
+test('native indexer consumes the actual Core producer and preserves committed truth across reopen', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-core-native-projection-')));
+  const options = {
+    dbPath: join(root, 'index.sqlite'),
+    embedding: { indexMode: 'text-only' },
+    rootIds: [root],
+    stateProjection: {
+      mode: 'dev',
+      module: new URL('../dist/state-projection.js', import.meta.url).href,
+    },
+    stateRoot: root,
+  } as const;
+  // Existing native process deadlines; no new readiness or inference budget.
+  const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+  let port: Awaited<ReturnType<typeof openIndexer>> | undefined;
+  let store: StateStore | undefined;
+  try {
+    const captured = z.array(HostLogRowSchema).parse(rich);
+    const threads = [...new Set(captured.map((row) => row.threadId))];
+    port = await openIndexer(options, deadlines);
+    store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
+    await store.append(captured.map((row) => storedHostEvent(row.threadId, row.event)));
+    const raw = await store.readAll();
+    // BST-1977: this previously rejected the first metadata row as "Expected string".
+    await port.catchUpState(threads);
+    for (const threadId of threads) {
+      const original = raw.filter((row) => row.threadId === threadId);
+      expect(await port.stateStats(threadId)).toMatchObject({
+        cursor: original.at(-1)?.seq,
+        gaps: [],
+      });
+      const started = captured.find(
+        (row) => row.threadId === threadId && row.event.type === 'run.started'
+      );
+      if (!started) {
+        throw new Error('Runtime recording has no original input');
+      }
+      expect(await port.matchState(threadId, 'Capture')).toContain(started.seq);
+    }
+    await port.close();
+    port = undefined;
+    await store.close();
+    store = undefined;
+    port = await openIndexer(options, deadlines);
+    store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
+    await port.catchUpState(threads);
+    expect(await store.readAll()).toEqual(raw);
+    expect(await port.stateHealth()).toEqual({ indexerErrors: [] });
+  } finally {
+    await port?.close();
+    await store?.close();
+    await rm(root, { force: true, recursive: true });
+  }
+});
 
 test.each(Object.entries(recordings))(
   'actual %s recording keeps Core bytes and public Memory message identities across SQLite reopen',

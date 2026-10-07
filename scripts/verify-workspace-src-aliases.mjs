@@ -65,6 +65,12 @@ function parseRepoRootArgument(argv) {
  * whole package is. Keep this list short and justified.
  */
 export const WORKSPACE_SRC_ALIAS_ALLOWLIST = Object.freeze({
+  '@brainstrike/agent-host': {
+    configs: ['vitest.integration.config.mts'],
+    reason:
+      'Core producer integration launches the real emitted indexer process and writer worker; the lane declares the indexer dependency build edge (BST-1977).',
+    specifiers: ['@brainstrike/indexer'],
+  },
   '@brainstrike/canonical-ingestion': {
     configs: ['vitest.integration.config.mts'],
     reason:
