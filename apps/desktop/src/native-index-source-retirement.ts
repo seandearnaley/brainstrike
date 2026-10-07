@@ -19,6 +19,18 @@ export interface NativeIndexSources {
   readonly workspaceTriggers: Map<string, () => Promise<void>>;
 }
 
+export async function joinNativeSourceRetirement(
+  source: Promise<void>,
+  pending: Promise<void> | undefined
+): Promise<void> {
+  const outcomes = await Promise.allSettled([source, pending]);
+  // Transition startup failures remain observed by their caller; physical cleanup must still succeed.
+  const result = outcomes[0];
+  if (result?.status === 'rejected') {
+    throw result.reason;
+  }
+}
+
 /** Retain every original source capability until physical retirement succeeds. */
 export function retireNativeIndexSources(
   sources: NativeIndexSources,

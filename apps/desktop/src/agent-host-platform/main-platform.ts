@@ -23,6 +23,8 @@ export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools
   readonly tools: Readonly<Record<string, HostTool>>;
 }
 export interface DesktopPlatformCapabilities {
+  /** Join Main-owned Root borrowers before Core releases its canonical writer. */
+  closeRootCapabilities?(): Promise<void>;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
   readPermissionPolicy(
     threadId?: string
@@ -268,7 +270,10 @@ export function serveDesktopPlatform(
       const results = await Promise.allSettled(
         [...selections.values()].map((value) => value.close())
       );
-      const failures = results.flatMap((result) =>
+      const root = await Promise.allSettled([
+        Promise.resolve().then(() => capabilities.closeRootCapabilities?.()),
+      ]);
+      const failures = [...results, ...root].flatMap((result) =>
         result.status === 'rejected' ? [result.reason] : []
       );
       if (failures.length > 0) {

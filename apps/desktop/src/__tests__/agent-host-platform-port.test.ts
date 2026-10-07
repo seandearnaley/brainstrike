@@ -80,7 +80,8 @@ function selected(
 }
 function harness(
   readConfiguration: DesktopPlatformCapabilities['readConfiguration'],
-  resolveProviderAuth: DesktopPlatformCapabilities['resolveProviderAuth'] = async () => undefined
+  resolveProviderAuth: DesktopPlatformCapabilities['resolveProviderAuth'] = async () => undefined,
+  closeRootCapabilities?: DesktopPlatformCapabilities['closeRootCapabilities']
 ) {
   const channel = new MessageChannel();
   const first = new UtilityPort(channel.port1);
@@ -88,6 +89,7 @@ function harness(
   const server = mainPlatformConnection(first);
   const client = mainPlatformConnection(second);
   const owner = serveDesktopPlatform(server, {
+    ...(closeRootCapabilities ? { closeRootCapabilities } : {}),
     readConfiguration,
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     resolveProviderAuth,
@@ -107,6 +109,49 @@ function harness(
     server,
   };
 }
+
+it.each([false, true])(
+  'private close joins Main Root borrowers and retains their failure (failure=%s)',
+  async (failed) => {
+    const entered = Promise.withResolvers<void>();
+    const retired = Promise.withResolvers<void>();
+    const failure = new Error('Main native owner retirement failed');
+    const closeRoot = vi.fn(async (): Promise<void> => {
+      entered.resolve();
+      await retired.promise;
+      if (failed) {
+        throw failure;
+      }
+    });
+    const f = harness(
+      async () => selected({}),
+      async () => undefined,
+      closeRoot
+    );
+    try {
+      let acknowledged = false;
+      const closing = f.client.sendRequest('platform/close', {}).then(() => {
+        acknowledged = true;
+      });
+      const outcome = Promise.allSettled([closing]);
+      await entered.promise;
+      expect(acknowledged).toBe(false);
+      retired.resolve();
+      const [result] = await outcome;
+      if (failed) {
+        expect(result?.status).toBe('rejected');
+        await expect(f.owner.close()).rejects.toMatchObject({ errors: [failure] });
+      } else {
+        expect(result?.status).toBe('fulfilled');
+        await f.owner.close();
+      }
+      expect(closeRoot).toHaveBeenCalledOnce();
+    } finally {
+      retired.resolve();
+      f.destroy();
+    }
+  }
+);
 
 it('retains the resolved AWS chain across the private port once without a bearer fallback', async () => {
   const identity = {
