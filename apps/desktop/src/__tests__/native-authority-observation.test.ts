@@ -7,6 +7,7 @@ import { registerStoragePreferencesIpcHandlers } from '../ipc-domains/storage-pr
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
 import { createNativeIndexActivation } from '../native-index-activation';
+import { NativeIndexBlockedError } from '../native-index-blocked';
 import { NATIVE_INDEX_SETTINGS_KEY } from '../native-index-settings';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
@@ -186,7 +187,9 @@ it.each(['reconfigure', 'rebuild', 'resume'] as const)(
       rebuild: f.activation.rebuild,
       withRead: f.activation.withRead,
     });
-    await expect(f.activation.acquire()).rejects.toThrow('Choose a native search mode');
+    await expect(f.activation.acquire()).rejects.toThrow(
+      'Choose a search mode in Search & Indexing settings.'
+    );
     expect(mocks.acquire).not.toHaveBeenCalled();
     saved = JSON.stringify({
       state: {
@@ -307,7 +310,9 @@ it('keeps the real persisted TEXT write and IPC status connected through seriali
   );
   const event = { sender: { id: senderId }, senderFrame: createAllowlistedSenderFrame() };
   try {
-    await expect(f.activation.acquire()).rejects.toThrow('Choose a native search mode');
+    await expect(f.activation.acquire()).rejects.toThrow(
+      'Choose a search mode in Search & Indexing settings.'
+    );
     const write = getRegisteredIpcMainHandler('storage:setItem');
     for (const policy of ['balanced', 'full-root']) {
       const incomplete = JSON.stringify({
@@ -322,7 +327,9 @@ it('keeps the real persisted TEXT write and IPC status connected through seriali
         },
       });
       await write(event, NATIVE_INDEX_SETTINGS_KEY, incomplete);
-      await expect(writes.at(-1)).rejects.toThrow('Choose a native search mode');
+      await expect(writes.at(-1)).rejects.toThrow(
+        'Choose a search mode in Search & Indexing settings.'
+      );
     }
     const next = JSON.stringify({
       state: {
@@ -362,7 +369,7 @@ it('keeps the real persisted TEXT write and IPC status connected through seriali
   }
 });
 
-it('joins the previous writer and profile before replacement and reports its held acquisition as unavailable after clean startup', async () => {
+it('joins the previous writer and profile on terminal close and reports held resumed acquisition as unavailable', async () => {
   const f = fixture();
   f.storage.getItem.mockResolvedValue(
     JSON.stringify({
@@ -383,6 +390,7 @@ it('joins the previous writer and profile before replacement and reports its hel
     withRead: f.activation.withRead,
   });
   await f.activation.acquire();
+  await f.activation.close();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   mocks.acquireProfile.mockImplementation(async () => {
@@ -391,7 +399,7 @@ it('joins the previous writer and profile before replacement and reports its hel
     entered.resolve();
     await release.promise;
   });
-  const replacing = f.activation.reconfigure();
+  const replacing = f.activation.resume().then(() => f.activation.acquire());
   try {
     await entered.promise;
     await expect(capability.status()).resolves.toMatchObject({ kind: 'unavailable' });
@@ -408,7 +416,27 @@ it('joins the previous writer and profile before replacement and reports its hel
   }
 });
 
-it('retains an independent profile cleanup failure and admits no replacement until that original owner joins', async () => {
+it.each(['reconfigure', 'rebuild'] as const)(
+  'retains the shared profile lease through %s and retires it only on terminal close',
+  async (operation) => {
+    const f = fixture();
+    const settings = JSON.parse(await f.storage.getItem()) as { state: Record<string, unknown> };
+    settings.state['paused'] = true;
+    f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
+    await f.activation.acquire();
+    try {
+      await f.activation[operation]();
+      expect(mocks.acquire).toHaveBeenCalledTimes(2);
+      expect(mocks.acquireProfile).toHaveBeenCalledOnce();
+      expect(mocks.closeProfile).not.toHaveBeenCalled();
+    } finally {
+      await f.activation.close();
+    }
+    expect(mocks.closeProfile).toHaveBeenCalledOnce();
+  }
+);
+
+it('retains an independent terminal profile cleanup failure and admits no replacement until that original owner joins', async () => {
   const f = fixture();
   f.storage.getItem.mockResolvedValue(
     JSON.stringify({
@@ -427,11 +455,16 @@ it('retains an independent profile cleanup failure and admits no replacement unt
   const cause = new Error('Original profile cleanup has not joined.');
   mocks.closeProfile.mockRejectedValueOnce(cause).mockResolvedValue(undefined);
   try {
-    await expect(f.activation.reconfigure()).rejects.toBe(cause);
+    await expect(f.activation.close()).rejects.toBe(cause);
     expect(mocks.acquire).toHaveBeenCalledOnce();
     expect(mocks.acquireProfile).toHaveBeenCalledOnce();
-    await f.activation.reconfigure();
+    await expect(f.activation.resume()).rejects.toThrow('Previous native ownership');
+    await expect(f.activation.acquireRead()).rejects.toThrow('closed');
+    expect(mocks.acquire).toHaveBeenCalledOnce();
+    await f.activation.close();
     expect(mocks.closeProfile).toHaveBeenCalledTimes(2);
+    await f.activation.resume();
+    await f.activation.acquire();
     expect(mocks.acquire).toHaveBeenCalledTimes(2);
   } finally {
     await f.activation.close();
@@ -453,7 +486,9 @@ it('preserves a new profile acquisition failure during missing-mode recovery wit
       },
     })
   );
-  await expect(f.activation.acquire()).rejects.toThrow('Choose a native search mode');
+  await expect(f.activation.acquire()).rejects.toThrow(
+    'Choose a search mode in Search & Indexing settings.'
+  );
   f.storage.getItem.mockResolvedValue(
     JSON.stringify({
       state: {
@@ -488,22 +523,37 @@ it('preserves a new profile acquisition failure during missing-mode recovery wit
 it.each([
   { expected: SyntaxError, label: 'corrupt JSON', saved: '{' },
   { expected: Error, label: 'invalid preference envelope', saved: '{}' },
-])('preserves $label as a fatal initial status failure', async ({ saved, expected }) => {
-  const f = fixture();
-  f.storage.getItem.mockResolvedValue(saved);
-  const capability = createNativeScopedSearchCapability({
-    openQuery: unused,
-    rebuild: f.activation.rebuild,
-    withRead: f.activation.withRead,
-  });
-  try {
-    await expect(capability.status()).rejects.toBeInstanceOf(expected);
-    expect(mocks.acquire).not.toHaveBeenCalled();
-    expect(mocks.acquireProfile).not.toHaveBeenCalled();
-  } finally {
-    await f.activation.close();
+])(
+  'retains $label in blocked status and preserves its original strict-read failure',
+  async ({ saved, expected }) => {
+    const f = fixture();
+    f.storage.getItem.mockResolvedValue(saved);
+    const capability = createNativeScopedSearchCapability({
+      openQuery: unused,
+      rebuild: f.activation.rebuild,
+      withRead: f.activation.withRead,
+    });
+    try {
+      const observation = await capability.status();
+      const failure = await f.activation.acquireRead().catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(NativeIndexBlockedError);
+      if (!(failure instanceof NativeIndexBlockedError)) {
+        throw new Error('Original settings failure was not retained.');
+      }
+      expect(failure.cause).toBeInstanceOf(expected);
+      expect(observation).toEqual({
+        kind: 'unavailable',
+        phase: 'blocked',
+        reason: failure.message,
+      });
+      await expect(f.activation.acquire()).rejects.toBe(failure.cause);
+      expect(mocks.acquire).not.toHaveBeenCalled();
+      expect(mocks.acquireProfile).not.toHaveBeenCalled();
+    } finally {
+      await f.activation.close();
+    }
   }
-});
+);
 
 it.each([
   { method: 'status', phase: 'authority' },

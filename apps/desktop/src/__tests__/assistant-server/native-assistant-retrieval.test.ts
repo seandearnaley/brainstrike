@@ -120,8 +120,16 @@ function fixture() {
       totals: counts,
       vectorCoverageComplete: true,
     })),
-    coverageBatch: vi.fn(async () => {
-      throw new Error('Unexpected coverage batch');
+    coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(async (requests) => {
+      const observed = await capability.status();
+      if (observed.kind !== 'ready') {
+        return { kind: 'blocked', reason: observed.reason };
+      }
+      return {
+        coverage: await Promise.all(requests.map((request) => capability.coverage(request))),
+        kind: 'current',
+        status: observed,
+      };
     }),
     grep: vi.fn(async () => result),
     rebuild: vi.fn(),
@@ -226,6 +234,9 @@ describe('native assistant retrieval cutover', () => {
         },
         { signal }
       );
+      expect(f.capability.coverageBatch).toHaveBeenCalledWith([
+        { collectionId: 'selected', rootIds: [] },
+      ]);
       expect(f.capability.search).toHaveBeenCalledWith({
         collectionId: 'selected',
         limit: 100,
