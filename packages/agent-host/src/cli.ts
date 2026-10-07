@@ -6,6 +6,7 @@ import { launchHost } from '@brainstrike/host-lease';
 import { HostCliExitError, runHostCliSession } from './cli-session.js';
 import { attachAgentHost, type HostClient } from './client.js';
 import { createAgentHostSpawner } from './launcher.js';
+import { isProcessEntrypoint } from './process-entrypoint.js';
 
 export interface HostCliOutput {
   write(value: string): void;
@@ -274,11 +275,16 @@ Run signals stop and join its execution; attach signals detach.
   }
 }
 
-if (isProcessEntrypoint(import.meta.url)) {
-  runHostCli(process.argv.slice(2)).catch((cause: unknown) => {
+/** Both installed executable names and the direct Node entry share exit semantics. */
+export async function runHostCliProcess(args: string[]): Promise<void> {
+  try {
+    await runHostCli(args);
+  } catch (cause: unknown) {
     process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
     process.exitCode = cause instanceof HostCliExitError ? cause.exitCode : 1;
-  });
+  }
 }
 
-import { isProcessEntrypoint } from './process-entrypoint.js';
+if (isProcessEntrypoint(import.meta.url)) {
+  void runHostCliProcess(process.argv.slice(2));
+}
