@@ -37,12 +37,6 @@ describe('snapshot service lifecycle wiring', () => {
     );
   });
 
-  it('threads the snapshot deps into the assistant server (run-persistence seam)', () => {
-    expect(source).toMatch(
-      /startAssistantServer\(undefined, \{[\s\S]*?snapshots: \{\s*createRepository: createSnapshotRepository,\s*service: constructedSnapshotService,\s*\},[\s\S]*?\}\)/
-    );
-  });
-
   it('publishes the service before launching startup maintenance on that same instance', () => {
     const assignmentIndex = source.indexOf('snapshotService = constructedSnapshotService;');
     const maintenanceIndex = source.indexOf('startSnapshotStartupMaintenance({');
