@@ -23,6 +23,7 @@ import {
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
+import { McpHostRuntime } from '@brainstrike/host-capabilities/mcp/node-host-runtime';
 import { openIndexer } from '@brainstrike/indexer';
 import { RootLock } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
@@ -31,7 +32,6 @@ import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { ensureAssistantShellVisible } from '../../e2e/utils/layout-helpers';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
-import { McpHostRuntime } from '../mcp/node-host-runtime';
 
 const execute = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../../../..');

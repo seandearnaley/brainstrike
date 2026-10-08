@@ -172,8 +172,9 @@ export async function runHostSdkLoop(
     if (ended.checkpointFailure !== undefined) {
       throw ended.checkpointFailure;
     }
+    // A stopped, closing or steered run ends here: a steer asked for no further step.
     const record =
-      ended.maxAttempts === undefined || run.stopped || ports.closing()
+      ended.maxAttempts === undefined || run.stopped || run.steered || ports.closing()
         ? undefined
         : hostRunAttemptEvent(run, ended.outcome, attempt, ended.maxAttempts);
     if (record) {
@@ -294,7 +295,8 @@ async function runHostSdkAttempt(
         });
         return prepareHostProviderStep(provider, memory?.system, owner);
       },
-      stopWhen: stepCountIs(admission.snapshot.maxSteps - run.steps),
+      // A committed run/steer ends the run after the step in flight (BST-588).
+      stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],
       toolApproval: ({ toolCall }) => decideHostSdkApproval(run, ports.platform, toolCall),
       tools: createAdmittedHostSdkTools(run, (action, input) => ports.dispatch(run, action, input)),
     });

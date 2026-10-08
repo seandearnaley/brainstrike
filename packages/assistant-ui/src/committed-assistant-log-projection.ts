@@ -16,6 +16,10 @@ import {
   type RunAttemptNoticeInput,
   readProviderCallWarning,
 } from '@brainstrike/assistant-contract';
+import {
+  type AssistantContextBreakdownState,
+  parseAssistantContextBreakdown,
+} from '@brainstrike/assistant-contract/context-breakdown';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
 import type { ThreadTokenUsage } from './context-usage-store';
 
@@ -54,6 +58,8 @@ export interface CommittedAssistantPendingInteraction {
 
 export interface CommittedAssistantLogView {
   readonly activeRunId: string | undefined;
+  /** Latest prepared provider prompt's composition, for the context popover. */
+  readonly contextBreakdown?: AssistantContextBreakdownState | undefined;
   /** Latest chat provider step, never aggregate billing or observer usage. */
   readonly contextUsage?: ThreadTokenUsage | undefined;
   readonly isRunning: boolean;
@@ -558,6 +564,12 @@ export class CommittedAssistantLogProjection {
     if (event['type'] === 'run.attempt') {
       this.attempt(run, row);
       return;
+    }
+    if (event['type'] === 'provider.request.prepared' && event['breakdown'] !== undefined) {
+      this.view = {
+        ...this.view,
+        contextBreakdown: parseAssistantContextBreakdown(event['breakdown']),
+      };
     }
     if (event['type'] !== 'memory.observation.withheld') {
       this.data(run, row, event, 'brainstrike.host-event');

@@ -1,9 +1,9 @@
 import type { ConfiguredMcpServerId, McpHostServerSnapshot } from '@brainstrike/assistant-contract';
-import { describe, expect, it, vi } from 'vitest';
 import {
   McpHostRevisionPublisher,
   McpHostRevisionPublisherTransitionError,
-} from '../../mcp/host-revision-publisher';
+} from '@brainstrike/host-capabilities/mcp/host-revision-publisher';
+import { describe, expect, it, vi } from 'vitest';
 
 const server = (id: string, generation = 1): McpHostServerSnapshot => ({
   configuredProtocol: 'auto',

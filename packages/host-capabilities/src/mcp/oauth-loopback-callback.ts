@@ -1,10 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
-import { Effect, Exit, Scope } from 'effect';
+import { Data, Effect, Exit, Scope } from 'effect';
 import {
   reportLoopbackListenerFault,
   reportUnavailableLoopbackPort,
-} from './oauth-client-registration';
+} from './oauth-client-registration.js';
 
 export const DEFAULT_CALLBACK_PATH = '/mcp/oauth/callback';
 const MAX_CALLBACK_URL_BYTES = 16 * 1024;
@@ -12,6 +12,12 @@ const AUTHORIZATION_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 const LOOPBACK_HOST = '127.0.0.1';
 const CANCELLED_MESSAGE = 'MCP OAuth authorization was cancelled.';
 const TIMEOUT_MESSAGE = 'MCP OAuth authorization callback timed out.';
+
+/** The callback window elapsed; a failed server close stays its cause. */
+class McpOAuthCallbackTimeoutError extends Data.TaggedError('McpOAuthCallbackTimeoutError')<{
+  readonly cause?: unknown;
+  readonly message: string;
+}> {}
 
 export interface LoopbackCallback {
   arm(expectedState: string): Promise<void>;
@@ -273,12 +279,15 @@ export async function startLoopbackCallback(
             current.outcome = { kind: 'closing-timeout' };
             void closeServer().then(
               (): void => {
-                current.outcome = { error: new Error(TIMEOUT_MESSAGE), kind: 'failure' };
+                current.outcome = {
+                  error: new McpOAuthCallbackTimeoutError({ message: TIMEOUT_MESSAGE }),
+                  kind: 'failure',
+                };
                 deliver(current);
               },
               (cause: unknown): void => {
                 current.outcome = {
-                  error: new Error(TIMEOUT_MESSAGE, { cause }),
+                  error: new McpOAuthCallbackTimeoutError({ cause, message: TIMEOUT_MESSAGE }),
                   kind: 'failure',
                 };
                 deliver(current);

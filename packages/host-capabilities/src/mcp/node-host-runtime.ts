@@ -26,26 +26,29 @@ import {
   parseMcpHostControlRequest,
   parseMcpHostOperation,
 } from '@brainstrike/assistant-contract';
+import type {
+  ResolvedMcpConfig,
+  ResolvedMcpServer,
+} from '@brainstrike/assistant-contract/mcp-config';
 import { applyMcpExtensionPreferences } from '@brainstrike/assistant-contract/mcp-config';
 import type { McpTaskDatabase } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
-import type { ResolvedMcpConfig, ResolvedMcpServer } from '../mcp-loader';
-import type { McpBearerCredentialAuthority } from './bearer-credential';
-import { McpElicitationPresenterAuthority } from './elicitation-presenter';
+import type { McpBearerCredentialAuthority } from './bearer-credential.js';
+import { McpElicitationPresenterAuthority } from './elicitation-presenter.js';
 import {
   connectClient,
   type ExplicitClient,
   reportStdioFailureDiagnostics,
   type TransportActorClient,
-} from './host-connection';
+} from './host-connection.js';
 import {
   createDefaultMcpExtensionRegistry,
   requireTaskConnectionClient,
   resolveMcpServerExtensions,
-} from './host-extensions';
-import { McpHostRevisionPublisher } from './host-revision-publisher';
-import { McpHostService } from './host-service';
-import { McpLifecycleFailure } from './lifecycle-errors';
+} from './host-extensions.js';
+import { McpHostRevisionPublisher } from './host-revision-publisher.js';
+import { McpHostService } from './host-service.js';
+import { McpLifecycleFailure } from './lifecycle-errors.js';
 import {
   createMcpOAuthClientProvider,
   createMcpOAuthStoreIdentity,
@@ -53,23 +56,23 @@ import {
   type McpOAuthClientProviderOptions,
   type McpOAuthStore,
   readMcpOAuthAuthProjection,
-} from './oauth-client-provider';
+} from './oauth-client-provider.js';
 import {
   McpServerActor,
   type McpServerActorClient,
   McpServerActorClientCleanupError,
   type McpServerActorClientFactory,
-} from './server-actor';
-import { McpStdioDiagnosticCollector } from './stdio-diagnostics';
+} from './server-actor.js';
+import { McpStdioDiagnosticCollector } from './stdio-diagnostics.js';
 import {
   MCP_TASKS_EXTENSION_ID,
   McpDesktopTaskHost,
   type McpDesktopTaskHostPort,
   type McpTaskConnection,
   type McpTaskConnectionObserver,
-} from './task-host';
+} from './task-host.js';
 
-export type { ExplicitClient } from './host-connection';
+export type { ExplicitClient } from './host-connection.js';
 
 type ActorContext = Parameters<McpServerActorClientFactory>[0];
 type ConfiguredServer = McpHostConfig['servers'][number];

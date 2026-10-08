@@ -9,7 +9,9 @@ import type {
   LanguageModelV4Middleware,
   LanguageModelV4Prompt,
 } from '@ai-sdk/provider';
+import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { type MastraDBMessage, TripWire } from '@mastra/core/agent';
 import { type ProcessLLMRequestArgs, type Processor, TokenLimiter } from '@mastra/core/processors';
 import { buildBedrockMessageHygieneInputProcessor } from './mastra/bedrock-message-hygiene';
@@ -90,6 +92,47 @@ export interface PreparedProviderRequest {
   readonly params: LanguageModelV4CallOptions;
   /** After projection/filter/compatibility, before contiguous token limiting. */
   readonly projectedPrompt: LanguageModelV4Prompt;
+}
+
+/**
+ * The context popover's prompt breakdown for one prepared request, measured on
+ * the exact prompt the provider receives (after memory recall and projection).
+ * System and message figures use the shared chars/4 heuristic; the tool
+ * definition total is the request's own accounting, `measured` only when the
+ * selected model's tokenizer counted it. A task list note is part of the
+ * composed system prompt here, so it has no separate row.
+ */
+export function preparedPromptBreakdown(
+  prepared: Pick<PreparedProviderRequest, 'accounting' | 'params'>
+): AssistantContextBreakdown {
+  let systemInstructionsTokens = 0;
+  let historyMessagesTokens = 0;
+  let attachmentsCount = 0;
+  for (const message of prepared.params.prompt) {
+    if (message.role === 'system') {
+      systemInstructionsTokens += countTokensHeuristic(message.content);
+      continue;
+    }
+    for (const part of message.content) {
+      if (part.type === 'text') {
+        historyMessagesTokens += countTokensHeuristic(part.text);
+      } else if (part.type === 'file') {
+        attachmentsCount += 1;
+      }
+    }
+  }
+  const { accounting } = prepared;
+  return {
+    attachmentsCount,
+    historyMessagesTokens,
+    provenance: 'heuristic',
+    systemInstructionsTokens,
+    toolDefinitionsProvenance:
+      accounting.measurement.mode === 'exact-selected-model' && !accounting.usedBackstop
+        ? 'measured'
+        : 'heuristic',
+    toolDefinitionsTokens: accounting.toolTokens,
+  };
 }
 
 export class ProviderRequestContextOverflowError extends Error {

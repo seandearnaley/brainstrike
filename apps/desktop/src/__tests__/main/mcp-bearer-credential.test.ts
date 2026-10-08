@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
 import {
   createSecretsMcpBearerCredentialAuthority,
   mcpBearerCredentialStorageKey,
-} from '../../mcp/bearer-credential';
+} from '@brainstrike/host-capabilities/mcp/bearer-credential';
+import { describe, expect, it, vi } from 'vitest';
 
 const REFERENCE = {
   id: '00000000-0000-4000-8000-000000000001',

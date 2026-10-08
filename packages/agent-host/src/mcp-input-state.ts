@@ -23,6 +23,7 @@ type Origin = Extract<HostEvent, { type: 'effect.started' }>;
 type Request = Extract<HostEvent, { type: 'mcp.input.requested' }>;
 type TaskBinding = Extract<HostEvent, { type: 'mcp.task.bound' }>;
 type Intent = Extract<HostEvent, { type: 'mcp.input.intent' }>;
+type Settled = Extract<HostEvent, { type: 'mcp.input.settled' }>;
 type Status = HostResults['mcp/input/read']['status'];
 type Content = HostParams<'mcp/input/stage'>['content'];
 
@@ -520,14 +521,38 @@ export class HostMcpInputState {
               }
             }
           };
-          input.signal.addEventListener('abort', retire, { once: true });
+          // The capability owner withdrew the input before any answer (the server
+          // withdrew it, or its task was cancelled). While the run lives, that final
+          // phase is a committed fact every client folds; a stopped run's own finish
+          // already retires its inputs.
+          const withdraw = (): void => {
+            const pending = this.inputs.get(presentation.id);
+            const withdrawn = pending?.live === live && !pending.intent;
+            retire();
+            if (!withdrawn || run.terminal || run.stopped || run.controller.signal.aborted) {
+              return;
+            }
+            owner.retain(
+              owner.admit(() =>
+                owner.append([
+                  safeEvent<Settled>({
+                    interactionId: presentation.id,
+                    runId: run.id,
+                    status: 'retired',
+                    type: 'mcp.input.settled',
+                  }),
+                ])
+              )
+            );
+          };
+          input.signal.addEventListener('abort', withdraw, { once: true });
           run.controller.signal.addEventListener('abort', retire, { once: true });
           const pending = this.inputs.get(presentation.id);
           if (!pending) {
             throw refused();
           }
           pending.release = (): void => {
-            input.signal.removeEventListener('abort', retire);
+            input.signal.removeEventListener('abort', withdraw);
             run.controller.signal.removeEventListener('abort', retire);
             pending.release = undefined;
           };

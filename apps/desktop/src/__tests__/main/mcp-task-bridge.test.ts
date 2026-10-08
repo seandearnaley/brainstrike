@@ -1,8 +1,8 @@
 import type { McpTaskPresentation } from '@brainstrike/assistant-contract';
+import type { McpDesktopTaskHostPort } from '@brainstrike/host-capabilities/mcp/task-host';
 import type { BrowserWindow } from 'electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { attachMcpTaskBridge } from '../../mcp/task-bridge';
-import type { McpDesktopTaskHostPort } from '../../mcp/task-host';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 import type { DesktopIpcInvokeHandler } from '../../platform/desktop-ipc-registry';
 
