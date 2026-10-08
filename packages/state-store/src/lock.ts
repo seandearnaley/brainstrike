@@ -11,7 +11,7 @@
 //
 // Owner identity = { pid, start, host, root, token }. `start` is the OS-reported start time of `pid`, read the SAME way
 // for the owner (at acquisition) and for a checker, so the comparison is exact and defeats pid reuse:
-//   darwin/linux: `ps -o lstart= -p <pid>` with LC_ALL=C TZ=UTC (1 s resolution);
+//   darwin/linux: `ps` lstart with LC_ALL=C TZ=UTC (1 s resolution); Linux also checks process state;
 //   win32: the creation time from GetProcessTimes, read through PowerShell's .NET Process.StartTime (100 ns FILETIME).
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -88,6 +88,9 @@ function psEnv(): NodeJS.ProcessEnv {
 }
 
 function posixStartTime(pid: number): string | null {
+  if (process.platform === 'linux') {
+    return linuxStartTime(pid);
+  }
   try {
     const out = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
       encoding: 'utf8',
@@ -101,6 +104,47 @@ function posixStartTime(pid: number): string | null {
     }
     throw e; // an unavailable OS identity source never implies a stale owner
   }
+}
+
+/** Linux keeps an exited process's PID/start time until its parent reaps it. */
+function linuxStartTime(pid: number): string | null {
+  let out: string;
+  try {
+    out = execFileSync('ps', ['-o', 'stat=', '-o', 'lstart=', '-p', String(pid)], {
+      encoding: 'utf8',
+      env: psEnv(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+  } catch (cause) {
+    if (
+      cause !== null &&
+      typeof cause === 'object' &&
+      'status' in cause &&
+      cause.status === 1 &&
+      'stdout' in cause &&
+      cause.stdout === '' &&
+      'stderr' in cause &&
+      cause.stderr === '' &&
+      !pidExists(pid)
+    ) {
+      return null;
+    }
+    // An empty selection can also hide a live PID. Only ESRCH proves it gone;
+    // a live/EPERM probe preserves the original identity-source failure.
+    throw cause;
+  }
+  // Read state and creation time in one OS observation. Empty, malformed or
+  // unknown output must not turn an unverified live owner into a stale one.
+  const match =
+    /^([RSDTtIWZ][<NLsl+]*)\s+((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) +\d{1,2} \d{2}:\d{2}:\d{2} \d{4})$/.exec(
+      out
+    );
+  if (!(match?.[1] && match[2])) {
+    throw new Error(
+      `lock: unexpected Linux process identity for pid ${pid}: ${JSON.stringify(out)}`
+    );
+  }
+  return match[1].startsWith('Z') ? null : match[2];
 }
 
 /**
@@ -239,9 +283,11 @@ async function judgeHeld(
   }
   if (pidExists(cur.pid)) {
     const observed = processStartTime(cur.pid);
-    if (observed === null) {
+    if (observed === null && process.platform !== 'linux') {
       throw new Error(`lock: cannot verify process start time for live pid ${cur.pid}`);
     }
+    // Linux null is a verified absent/zombie process, even when kill(pid, 0)
+    // succeeds. Unavailable or ambiguous identity sources throw above.
     if (observed === cur.start) {
       throw new RootLockedError(cur);
     }

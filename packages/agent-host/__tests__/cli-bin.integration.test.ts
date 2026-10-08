@@ -259,6 +259,9 @@ test.each(['pnpm_config_enable_global_virtual_store', 'PNPM_CONFIG_ENABLE_GLOBAL
       throw new Error('Run CLI executable integration with pnpm run test:integration');
     }
     const cwd = await root();
+    // Keep caller-provided writable data/store settings. Without them, pnpm
+    // must stay inside this disposable fixture instead of the user's home.
+    vi.stubEnv('XDG_DATA_HOME', process.env['XDG_DATA_HOME'] ?? join(cwd, 'pnpm-data'));
     const packagedHost = join(cwd, 'host');
     const manifest: {
       readonly name: string;

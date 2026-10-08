@@ -66,3 +66,49 @@ test.skipIf(process.platform === 'win32')(
     }
   }
 );
+
+test
+  .skipIf(process.platform !== 'linux')
+  .each([
+    '',
+    '? Wed Oct  7 23:59:00 2026',
+    'S unknown',
+    'Z',
+    'S Wed Oct  7 23:59:00 2026\nS Wed Oct  7 23:59:00 2026',
+  ])(
+  'L-unknown: ambiguous Linux identity output %j throws instead of claiming a dead pid',
+  (output) => {
+    const cp = createRequire(import.meta.url)(
+      'node:child_process'
+    ) as typeof import('node:child_process');
+    const original = cp.execFileSync;
+    (cp as { execFileSync: unknown }).execFileSync = () => output;
+    syncBuiltinESMExports();
+    try {
+      expect(() => processStartTime(99_999_999)).toThrow(/process identity/);
+    } finally {
+      (cp as { execFileSync: unknown }).execFileSync = original;
+      syncBuiltinESMExports();
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'linux').each([
+  { stderr: 'ps does not support this identity query', stdout: '' },
+  { stderr: '', stdout: 'unexpected identity output' },
+])('L-error: ps exit 1 with diagnostics %j is not proof of a dead pid', (diagnostics) => {
+  const cp = createRequire(import.meta.url)(
+    'node:child_process'
+  ) as typeof import('node:child_process');
+  const original = cp.execFileSync;
+  (cp as { execFileSync: unknown }).execFileSync = () => {
+    throw Object.assign(new Error('ps identity query failed'), { ...diagnostics, status: 1 });
+  };
+  syncBuiltinESMExports();
+  try {
+    expect(() => processStartTime(99_999_999)).toThrow(/ps identity query failed/);
+  } finally {
+    (cp as { execFileSync: unknown }).execFileSync = original;
+    syncBuiltinESMExports();
+  }
+});

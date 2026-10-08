@@ -2,7 +2,7 @@
 // a SIGKILLed owner's stale lock is recovered (pid + start time); a reused pid is stale; a foreign host's lock is never
 // taken over (live host-discovery contract supersedes historical spike confirmation policy); N racing processes ->
 // exactly one winner. On Windows the start time comes from GetProcessTimes (BST-1941).
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
@@ -128,6 +128,126 @@ describe('D5: data-root lock', () => {
     expect(err).toBeInstanceOf(RootLockedError);
     expect((err as RootLockedError).owner.token).toBe('live');
   });
+
+  test.skipIf(process.platform !== 'linux')(
+    'an unreaped exited owner is stale while its live identity still refuses Root takeover',
+    async () => {
+      const root = newRoot();
+      // Stop only our direct parent before the owned holder exits, so Linux
+      // retains a real zombie until this test resumes and joins its parent.
+      const parent = run([
+        '-e',
+        `const {spawn}=require('node:child_process');
+const child=spawn(process.execPath,['--import','tsx',process.argv[1],process.argv[2]],{stdio:['pipe','pipe','pipe']});
+child.stdout.pipe(process.stdout);child.stderr.pipe(process.stderr);
+child.once('error',error=>{throw error});
+child.once('close',()=>process.exit(0));
+process.stdin.on('data',()=>child.kill('SIGKILL'));`,
+        HOLDER,
+        root,
+      ]);
+      const parentClosed = new Promise<number | null>((resolve, reject) => {
+        parent.p.once('close', resolve);
+        parent.p.once('error', reject);
+      });
+      let recovered: StateStore | undefined;
+      const state = (pid: number): string[] => {
+        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+        return stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      };
+      try {
+        const pid = Number((await parent.line('READY')).split('pid=')[1]);
+        const owner = lockOf(root) as LockOwner;
+        expect(processStartTime(pid)).toBe(owner.start);
+        await expect(RootLock.acquire(root)).rejects.toBeInstanceOf(RootLockedError);
+        expect(lockOf(root)).toEqual(owner);
+
+        parent.p.kill('SIGSTOP');
+        await expect.poll(() => state(parent.p.pid as number)[0]).toBe('T');
+        process.kill(pid, 'SIGKILL');
+        await expect.poll(() => state(pid)[0]).toBe('Z');
+        expect(Number(state(pid)[1])).toBe(parent.p.pid);
+        expect(() => process.kill(pid, 0)).not.toThrow();
+        expect(lockOf(root)).toEqual(owner);
+
+        const broken: LockOwner[] = [];
+        recovered = await StateStore.open(root, { onStaleBroken: (value) => broken.push(value) });
+        expect(broken).toEqual([owner]);
+        expect(processStartTime(pid)).toBeNull();
+        expect(lockOf(root)?.pid).toBe(process.pid);
+        const rows = await recovered.read('held');
+        expect(rows[0]?.raw).toContain(`written by ${pid}`);
+      } finally {
+        try {
+          await recovered?.close();
+        } finally {
+          parent.p.kill('SIGCONT');
+          parent.p.stdin?.end('KILL\n');
+          await parentClosed;
+        }
+      }
+    }
+  );
+
+  test
+    .skipIf(process.platform !== 'linux')
+    .each(['unknown state', 'unavailable ps', 'invisible live pid', 'permission denied live pid'])(
+    'a live Linux owner is retained when identity has %s',
+    async (failure) => {
+      const root = newRoot();
+      const sleeper = run(['-e', 'console.log("UP"); setInterval(() => {}, 1000)']);
+      const cp = createRequire(import.meta.url)(
+        'node:child_process'
+      ) as typeof import('node:child_process');
+      const original = cp.execFileSync;
+      const originalKill = process.kill;
+      const psFailure = Object.assign(
+        new Error(failure === 'unavailable ps' ? 'ps unavailable' : 'ps cannot observe owner'),
+        failure === 'unavailable ps' ? { code: 'ENOENT' } : { status: 1, stderr: '', stdout: '' }
+      );
+      try {
+        await sleeper.line('UP');
+        const pid = sleeper.p.pid as number;
+        const start = processStartTime(pid) as string;
+        plant(root, { host: hostname(), pid, start, token: 'unverified' });
+        const owner = lockOf(root);
+        (cp as { execFileSync: unknown }).execFileSync = (
+          executable: string,
+          args: readonly string[],
+          options: unknown
+        ) => {
+          if (executable === 'ps' && args.at(-1) === String(pid)) {
+            if (failure !== 'unknown state') {
+              throw psFailure;
+            }
+            return `? ${start}`;
+          }
+          return Reflect.apply(original, cp, [executable, args, options]);
+        };
+        if (failure === 'permission denied live pid') {
+          process.kill = (target, signal) => {
+            if (target === pid && signal === 0) {
+              throw Object.assign(new Error('Live owner cannot be signalled'), { code: 'EPERM' });
+            }
+            return originalKill.call(process, target, signal);
+          };
+        }
+        syncBuiltinESMExports();
+        if (failure === 'unknown state') {
+          await expect(RootLock.acquire(root)).rejects.toThrow(/process identity/);
+        } else {
+          await expect(RootLock.acquire(root)).rejects.toBe(psFailure);
+        }
+        expect(lockOf(root)).toEqual(owner);
+      } finally {
+        (cp as { execFileSync: unknown }).execFileSync = original;
+        process.kill = originalKill;
+        syncBuiltinESMExports();
+        sleeper.p.kill('SIGTERM');
+        await sleeper.exit();
+      }
+    }
+  );
 
   test('an unexpected process probe failure leaves the owner lock intact', async () => {
     const root = newRoot();
