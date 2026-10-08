@@ -1,9 +1,17 @@
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { setImmediate } from 'node:timers/promises';
 import { RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
+import type { MastraDBMessage } from '@mastra/core/agent';
+import { InMemoryStore } from '@mastra/core/storage';
+import { Memory } from '@mastra/memory';
+import { ObservationalMemory, TokenCounter } from '@mastra/memory/processors';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { deterministicEmbedding } from './fixtures/memory-vector-host.js';
-import { observationHostLifecycle } from './fixtures/observation-host-lifecycle.js';
+import {
+  observationHostLifecycle,
+  recordedObservationModel,
+} from './fixtures/observation-host-lifecycle.js';
 import { RECORDED_VECTOR_PROFILE } from './fixtures/recorded-memory-vector-port.js';
 
 const fetch = vi.fn(async () => {
@@ -14,6 +22,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetch);
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   expect(fetch).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
 });
@@ -33,6 +42,191 @@ function watched<Value>(promise: Promise<Value>) {
   return { result, settled: () => settled };
 }
 
+test('resource observer attribution invariant preserves each selected bucket thread', async () => {
+  const identities = (messages: readonly MastraDBMessage[]) =>
+    messages.map(({ id, threadId, role }) => ({ id, role, threadId }));
+  const contexts: unknown[] = [];
+  const observations: {
+    owner: string;
+    messages: ReturnType<typeof identities>;
+    live: ReturnType<typeof identities>;
+  }[] = [];
+  const buckets: {
+    messages: ReturnType<typeof identities>;
+    tokens: number;
+    ownerOnlyTokens: number;
+  }[] = [];
+  const selected: { threadId: string | undefined; messages: ReturnType<typeof identities> }[] = [];
+  let active = false;
+  const getContext = Memory.prototype.getContext;
+  const observe = ObservationalMemory.prototype.observe;
+  const count = TokenCounter.prototype.countMessagesAsync;
+  const contextSpy = vi.spyOn(Memory.prototype, 'getContext').mockImplementation(async function (
+    this: Memory,
+    options
+  ) {
+    const context = await getContext.call(this, options);
+    if (active) {
+      contexts.push({ messages: identities(context.messages), owner: options.threadId });
+    }
+    return context;
+  });
+  const observationSpy = vi
+    .spyOn(ObservationalMemory.prototype, 'observe')
+    .mockImplementation(function (this: ObservationalMemory, options) {
+      if (active) {
+        observations.push({
+          live: identities(options.messageList?.get.all.db() ?? []),
+          messages: identities(options.messages ?? []),
+          owner: options.threadId,
+        });
+      }
+      return observe.call(this, options);
+    });
+  const countSpy = vi
+    .spyOn(TokenCounter.prototype, 'countMessagesAsync')
+    .mockImplementation(async function (this: TokenCounter, messages) {
+      const strategy =
+        active &&
+        new Error('Native resource prepare trace').stack?.includes(
+          'ResourceScopedObservationStrategy.prepare'
+        );
+      const tokens = await count.call(this, messages);
+      if (strategy) {
+        const owner = observations.at(-1)?.owner;
+        const ownerOnlyTokens = await count.call(
+          this,
+          messages.filter((message) => message.threadId === owner)
+        );
+        buckets.push({ messages: identities(messages), ownerOnlyTokens, tokens });
+      }
+      return tokens;
+    });
+  const f = await observationHostLifecycle('both', ({ messages, threadId }) => {
+    if (active) {
+      selected.push({ messages: identities(messages), threadId });
+    }
+  });
+  try {
+    active = true;
+    await f.start();
+    await f.enteredInference.promise;
+    const snapshot = await f.store?.memory({ operation: 'read', resourceId: f.resourceId });
+    const receipt = {
+      getContext: contexts,
+      nativePrepareTokenCounts: buckets,
+      observeOptionsAndLiveList: observations,
+      persisted: snapshot?.entities
+        .filter(({ kind }) => kind === 'observation')
+        .map(({ id, threadId, payload }) => ({
+          activeObservations: payload['activeObservations'],
+          id,
+          threadId,
+        })),
+      profile: RECORDED_VECTOR_PROFILE,
+      resourceId: f.resourceId,
+      selectedObserverBuckets: selected,
+      threads: f.threads,
+      threshold: f.observationThreshold(),
+    };
+    console.error('Resource observer attribution trace:', JSON.stringify(receipt));
+    expect(contexts.length).toBeGreaterThan(0);
+    expect(observations.length).toBeGreaterThan(0);
+    expect(buckets).toHaveLength(2);
+    expect(new Set(selected.map(({ threadId }) => threadId))).toEqual(new Set(f.threads));
+    for (const bucket of selected) {
+      expect(bucket.messages.every((message) => message.threadId === bucket.threadId)).toBe(true);
+    }
+  } finally {
+    await f.close();
+    contextSpy.mockRestore();
+    observationSpy.mockRestore();
+    countSpy.mockRestore();
+  }
+});
+
+const require = createRequire(import.meta.url);
+const common = require('@mastra/memory/processors') as typeof import('@mastra/memory/processors');
+test.each([
+  { Engine: ObservationalMemory, label: 'ESM' },
+  { Engine: common.ObservationalMemory, label: 'CJS' },
+])(
+  '$label public native resource overlay preserves sibling affinity and unthreaded current input',
+  async ({ Engine }) => {
+    const storage = new InMemoryStore({ id: randomUUID() });
+    await storage.init();
+    const domain = await storage.getStore('memory');
+    if (!domain) {
+      throw new Error('Public native memory domain is absent');
+    }
+    const resourceId = randomUUID();
+    const owner = randomUUID();
+    const sibling = randomUUID();
+    const createdAt = new Date('2026-10-06T00:00:00Z');
+    const messages: MastraDBMessage[] = [owner, sibling].map((threadId) => ({
+      content: { format: 2, parts: [{ text: 'Paris weather. '.repeat(60), type: 'text' }] },
+      createdAt,
+      id: randomUUID(),
+      resourceId,
+      role: 'user',
+      threadId,
+    }));
+    const unthreaded: MastraDBMessage = {
+      content: { format: 2, parts: [{ text: 'Continue Paris.', type: 'text' }] },
+      createdAt: new Date(createdAt.getTime() + 1),
+      id: randomUUID(),
+      resourceId,
+      role: 'user',
+    };
+    const counter = new TokenCounter();
+    const threshold =
+      Math.max(
+        ...(await Promise.all(messages.map((message) => counter.countMessagesAsync([message]))))
+      ) + 100;
+    const selected = new Map<string, readonly MastraDBMessage[]>();
+    const engine = new Engine({
+      hooks: {
+        beforeObservation: ({ messages: input, threadId }) => {
+          if (!threadId) {
+            throw new Error('Native resource observer did not identify its selected bucket');
+          }
+          selected.set(threadId, structuredClone(input));
+        },
+      },
+      model: recordedObservationModel([owner, sibling]),
+      observation: { bufferOnIdle: false, bufferTokens: false, messageTokens: threshold },
+      reflection: { observationTokens: 50_000 },
+      scope: 'resource',
+      storage: domain,
+    });
+    try {
+      for (const id of [owner, sibling]) {
+        await domain.saveThread({
+          thread: { createdAt, id, metadata: {}, resourceId, updatedAt: createdAt },
+        });
+      }
+      await domain.saveMessages({ messages });
+      const result = await engine.observe({
+        messages: [...messages, unthreaded],
+        resourceId,
+        threadId: owner,
+      });
+      expect(result.observed).toBe(true);
+      expect(selected.get(owner)?.map(({ id }) => id)).toEqual([messages[0]?.id, unthreaded.id]);
+      expect(selected.get(sibling)?.map(({ id }) => id)).toEqual([messages[1]?.id]);
+      expect(selected.get(owner)?.find(({ id }) => id === unthreaded.id)?.threadId).toBeUndefined();
+      expect(
+        (await domain.listMessages({ perPage: false, threadId: sibling })).messages.map(
+          ({ id }) => id
+        )
+      ).toEqual([messages[1]?.id]);
+    } finally {
+      await engine.settled();
+      await storage.close();
+    }
+  }
+);
+
 test.each([
   { boundary: 'inference', operation: 'Stop' },
   { boundary: 'vector', operation: 'Stop' },
@@ -48,9 +242,11 @@ test.each([
     try {
       const ids = await f.start();
       await (boundary === 'inference' ? f.enteredInference.promise : f.enteredVector.promise);
+      await f.unheldCompleted.promise;
       const signal = f.contexts.at(-1)?.signal;
       expect(signal).toBeDefined();
-      expect(f.embeddingSignals).toEqual([signal]);
+      expect(f.embeddingSignals).toEqual([signal, signal]);
+      expect(f.prepares).toHaveLength(2);
       retirement = watched<unknown>(
         operation === 'Stop'
           ? f.client.request('run/stop', { commandId: randomUUID(), ...ids })
@@ -66,15 +262,17 @@ test.each([
       f.vectorRelease.resolve();
       const outcome = await retirement.result;
       console.error(
-        'Single actual observation tail receipt:',
+        'Actual observation boundary tails receipt:',
         JSON.stringify({ boundary, operation, outcome, writes: f.writes })
       );
       expect(outcome.status).toBe('fulfilled');
       expect(boundary === 'inference' ? f.inferenceRetired() : f.vectorRetired()).toBe(true);
-      expect(f.writes).toHaveLength(boundary === 'vector' ? 1 : 0);
-      if (boundary === 'vector') {
-        expect(f.writes[0]?.afterAbort).toBe(true);
-        expect(f.writes[0]?.ids.length).toBeGreaterThan(0);
+      expect(f.writes).toHaveLength(boundary === 'vector' ? 2 : 1);
+      expect(f.writes.filter(({ afterAbort }) => !afterAbort)).toHaveLength(1);
+      const lateWrites = f.writes.filter(({ afterAbort }) => afterAbort);
+      expect(lateWrites).toHaveLength(boundary === 'vector' ? 1 : 0);
+      for (const write of lateWrites) {
+        expect(write.ids.length).toBeGreaterThan(0);
       }
       if (operation === 'deletion') {
         expect(await f.store?.threads()).not.toContain(ids.threadId);
@@ -173,17 +371,31 @@ test.each(['Stop', 'deletion', 'Root close'] as const)(
         expect(outcome).toEqual({ status: 'fulfilled', value: { outcome: 'stopped' } });
       }
       if (operation !== 'Root close') {
+        const survivingThread = f.threads[1];
+        if (!survivingThread) {
+          throw new Error('Committed sibling thread is absent');
+        }
         const query = {
           limit: 10,
           profile: RECORDED_VECTOR_PROFILE,
           scope: { resourceId: f.resourceId, rootId: f.root, threadId: ids.threadId },
           vector: deterministicEmbedding('Paris held vector observation.'),
         };
+        if (operation === 'deletion') {
+          await expect(indexer.queryStateObservationVectors(query)).rejects.toMatchObject({
+            code: 'thread-not-authorized',
+          });
+          query.scope.threadId = survivingThread;
+        }
         const before = await indexer.queryStateObservationVectors(query);
         await setImmediate();
         expect(await indexer.queryStateObservationVectors(query)).toEqual(before);
         if (operation === 'deletion') {
           expect(await f.store?.threads()).not.toContain(ids.threadId);
+          expect(await f.store?.threads()).toContain(survivingThread);
+        }
+        if (operation === 'deletion') {
+          expect(before).toEqual([]);
         } else {
           expect(before.map(({ id }) => id)).toEqual(f.writes[0]?.ids);
         }

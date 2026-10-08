@@ -12,6 +12,7 @@ import {
   type StateObservationVectorPort,
 } from '@brainstrike/indexer';
 import type { StateStore } from '@brainstrike/state-store';
+import type { MastraDBMessage } from '@mastra/core/agent';
 import { TokenCounter } from '@mastra/memory/processors';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { onTestFinished } from 'vitest';
@@ -34,7 +35,13 @@ function checkpoint<Value>() {
  * independently held concrete capability tails are controlled by the test.
  * The indexer loads Studio's public production producer, never a fixture module.
  */
-export async function observationHostLifecycle(boundary: 'both' | 'inference' | 'vector' = 'both') {
+export async function observationHostLifecycle(
+  boundary: 'both' | 'inference' | 'vector' = 'both',
+  traceSelection?: (bucket: {
+    messages: readonly MastraDBMessage[];
+    threadId: string | undefined;
+  }) => void
+) {
   const require = createRequire(import.meta.url);
   const { startAgentHost, StateStoreHostMemory }: typeof import('../../src/index.js') =
     await import(pathToFileURL(require.resolve('@brainstrike/agent-host')).href);
@@ -59,6 +66,7 @@ export async function observationHostLifecycle(boundary: 'both' | 'inference' | 
   const enteredVector = checkpoint<void>();
   const vectorRelease = checkpoint<void>();
   const vectorCompleted = checkpoint<void>();
+  const unheldCompleted = checkpoint<void>();
   const aborted = checkpoint<AbortSignal>();
   const contexts: HostRunContext[] = [];
   const owners: StateStoreHostMemory[] = [];
@@ -70,6 +78,7 @@ export async function observationHostLifecycle(boundary: 'both' | 'inference' | 
     enteredInference.reject,
     enteredVector.reject,
     vectorCompleted.reject,
+    unheldCompleted.reject,
     aborted.reject,
   ]);
   const threads: string[] = [];
@@ -83,37 +92,7 @@ export async function observationHostLifecycle(boundary: 'both' | 'inference' | 
   let client: HostClient | undefined;
   let store: StateStore | undefined;
   let closing: Promise<void> | undefined;
-  const observer = new MockLanguageModelV4({
-    doStream: async () => ({
-      stream: simulateReadableStream({
-        chunkDelayInMs: null,
-        chunks: [
-          { type: 'stream-start', warnings: [] },
-          { id: 'observations', type: 'text-start' },
-          {
-            delta: `<observations>\n${threads
-              .map(
-                (threadId, ordinal) =>
-                  `<thread id="${threadId}">\n- Paris ${boundary === 'vector' || ordinal > 0 ? 'held vector' : 'held inference'} observation.\n</thread>`
-              )
-              .join('\n')}\n</observations>`,
-            id: 'observations',
-            type: 'text-delta',
-          },
-          { id: 'observations', type: 'text-end' },
-          {
-            finishReason: { raw: 'stop', unified: 'stop' },
-            type: 'finish',
-            usage: {
-              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 42, total: 42 },
-              outputTokens: { reasoning: 0, text: 9, total: 9 },
-            },
-          },
-        ],
-        initialDelayInMs: null,
-      }),
-    }),
-  });
+  const observer = recordedObservationModel(threads, boundary);
   const close = (): Promise<void> =>
     (closing ??= (async () => {
       inferenceRelease.resolve();
@@ -175,6 +154,9 @@ export async function observationHostLifecycle(boundary: 'both' | 'inference' | 
             });
             vectorRetired = true;
             vectorCompleted.resolve();
+            if (input.plan.observation.text.includes('completed sibling')) {
+              unheldCompleted.resolve();
+            }
             return ids;
           })();
           pending.add(tail);
@@ -239,6 +221,15 @@ export async function observationHostLifecycle(boundary: 'both' | 'inference' | 
                   generateTitle: false,
                   lastMessages: false,
                   observationalMemory: {
+                    ...(traceSelection
+                      ? {
+                          hooks: {
+                            beforeObservation: ({ messages, threadId }) => {
+                              traceSelection({ messages, threadId });
+                            },
+                          },
+                        }
+                      : {}),
                     model: observer,
                     observation: {
                       bufferOnIdle: false,
@@ -335,6 +326,7 @@ export async function observationHostLifecycle(boundary: 'both' | 'inference' | 
       indexer,
       inferenceRelease,
       inferenceRetired: () => inferenceRetired,
+      observationThreshold: () => threshold,
       owners,
       prepares,
       resourceId,
@@ -348,6 +340,7 @@ export async function observationHostLifecycle(boundary: 'both' | 'inference' | 
       },
       store,
       threads,
+      unheldCompleted,
       vectorCompleted,
       vectorRelease,
       vectorRetired: () => vectorRetired,
@@ -361,4 +354,41 @@ export async function observationHostLifecycle(boundary: 'both' | 'inference' | 
     }
     throw cause;
   }
+}
+
+export function recordedObservationModel(
+  threads: readonly string[],
+  boundary: 'both' | 'inference' | 'vector' = 'both'
+): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    doStream: async () => ({
+      stream: simulateReadableStream({
+        chunkDelayInMs: null,
+        chunks: [
+          { type: 'stream-start', warnings: [] },
+          { id: 'observations', type: 'text-start' },
+          {
+            delta: `<observations>\n${threads
+              .map(
+                (threadId, ordinal) =>
+                  `<thread id="${threadId}">\n- Paris ${boundary !== 'both' && ordinal > 0 ? 'completed sibling' : boundary === 'vector' || ordinal > 0 ? 'held vector' : 'held inference'} observation.\n</thread>`
+              )
+              .join('\n')}\n</observations>`,
+            id: 'observations',
+            type: 'text-delta',
+          },
+          { id: 'observations', type: 'text-end' },
+          {
+            finishReason: { raw: 'stop', unified: 'stop' },
+            type: 'finish',
+            usage: {
+              inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 42, total: 42 },
+              outputTokens: { reasoning: 0, text: 9, total: 9 },
+            },
+          },
+        ],
+        initialDelayInMs: null,
+      }),
+    }),
+  });
 }
