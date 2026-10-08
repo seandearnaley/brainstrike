@@ -6,7 +6,6 @@ import {
   modelMessageSchema,
   stepCountIs,
   streamText,
-  type ToolContent,
 } from 'ai';
 import {
   ApprovalInputReconstructionError,
@@ -24,7 +23,6 @@ import {
   retainHostRunWork,
 } from './core-run-lifecycle.js';
 import {
-  acceptHostWorkspaceSnapshot,
   createHostRunContext,
   createHostRunState,
   foldHostAcceptedCommand,
@@ -32,7 +30,6 @@ import {
   HostCommandLedger,
   hasHostInteractionResponse,
   type HostRunState as Run,
-  readHostWorkspaceSnapshot,
   recordHostConversationId,
 } from './core-state.js';
 import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
@@ -62,10 +59,12 @@ import {
 
 import {
   commitHostInteractionResponse,
+  commitHostModelMessages,
   createHostApprovalResponses,
-  resolveApprovedHostCall,
+  finishApprovedHostResults,
   resolveHostApprovalInput,
 } from './run-continuation.js';
+import { HostThreadWorkspaceState } from './workspace-state.js';
 
 export { jsonValue } from './json-value.js';
 
@@ -81,7 +80,17 @@ export class HostCore {
   private readonly commands = new HostCommandLedger();
   private readonly mcpInputs = new HostMcpInputState();
   private readonly threads = new Set<string>();
-  private readonly workspaces = new Map<string, HostParams<'thread/workspace/set'>['snapshot']>();
+  private readonly workspaces = new HostThreadWorkspaceState((method, params, event, durability) =>
+    this.accept(
+      params.threadId,
+      method,
+      params,
+      { accepted: true },
+      [event],
+      this.foldRows,
+      durability
+    )
+  );
   private readonly runs = new Map<string, Run>();
   private readonly messages = new Map<string, ModelMessage[]>();
   private readonly conversationIds = new Set<string>();
@@ -150,11 +159,9 @@ export class HostCore {
 
   private fold(row: HostLogRow): void {
     this.mcpInputs.fold(row);
+    this.workspaces.fold(row);
     const event = row.event;
     switch (event.type) {
-      case 'workspace.updated':
-        this.workspaces.set(row.threadId, event.snapshot);
-        break;
       case 'command.accepted':
         foldHostAcceptedCommand(this.commands, this.runs, event, row.threadId);
         if (event.method === 'run/start') {
@@ -253,22 +260,25 @@ export class HostCore {
     return readHostThreadHistory(this.store, this.threads, threadId, fromSeq);
   }
 
-  readWorkspace(threadId: string): ReturnType<typeof readHostWorkspaceSnapshot> {
-    return readHostWorkspaceSnapshot(this.threads, this.workspaces, threadId);
+  readWorkspace(threadId: string): ReturnType<HostThreadWorkspaceState['readSnapshot']> {
+    return this.workspaces.readSnapshot(this.threads, threadId);
   }
 
   setWorkspace(params: HostParams<'thread/workspace/set'>): Promise<{ accepted: true }> {
     return this.command('thread/workspace/set', params, () =>
-      acceptHostWorkspaceSnapshot(params, this.threads, (event) =>
-        this.accept(
-          params.threadId,
-          'thread/workspace/set',
-          params,
-          { accepted: true },
-          [event],
-          () => this.workspaces.set(params.threadId, event.snapshot)
-        )
-      )
+      this.workspaces.setSnapshot(params, this.threads)
+    );
+  }
+
+  readWorkspaceBinding(threadId: string): ReturnType<HostThreadWorkspaceState['readBinding']> {
+    return this.workspaces.readBinding(this.threads, threadId);
+  }
+
+  updateWorkspaceBinding(
+    params: HostParams<'thread/workspace/binding/update'>
+  ): Promise<{ accepted: true }> {
+    return this.command('thread/workspace/binding/update', params, () =>
+      this.workspaces.setBinding(params, this.platform, this.pendingAdmissions)
     );
   }
 
@@ -375,7 +385,7 @@ export class HostCore {
       }
       this.threads.delete(params.threadId);
       this.messages.delete(params.threadId);
-      this.workspaces.delete(params.threadId);
+      this.workspaces.forget(params.threadId);
       this.mcpInputs.forgetThread(params.threadId);
       for (const run of runs) {
         this.runs.delete(run.id);
@@ -423,6 +433,7 @@ export class HostCore {
           prompt: params.prompt,
           signal: controller.signal,
           threadId: params.threadId,
+          ...this.workspaces.admissionBinding(params.threadId),
         });
         controller.signal.throwIfAborted();
         release = this.retainRun();
@@ -781,37 +792,23 @@ export class HostCore {
     );
   }
 
-  private async commitMessages(run: Run, messages: readonly ModelMessage[]): Promise<void> {
-    if (messages.length === 0) {
-      return;
-    }
-    const [row] = await this.append(run.threadId, [
-      {
-        messages: messages.map((message) => jsonValue(modelMessageSchema.parse(message))),
-        runId: run.id,
-        type: 'model.messages',
-      },
-    ]);
-    if (!row) {
-      throw new Error('Model context was not committed');
-    }
-    await this.store.syncBoundary(run.threadId);
-    this.fold(row);
+  private commitMessages(run: Run, messages: readonly ModelMessage[]): Promise<void> {
+    return commitHostModelMessages(
+      run,
+      messages,
+      (event) => this.append(run.threadId, [event]).then((rows) => rows[0]),
+      () => this.store.syncBoundary(run.threadId),
+      (row) => this.fold(row)
+    );
   }
 
   private async finishApprovedCalls(run: Run): Promise<void> {
-    // Resolve already-issued calls at the existing step limit without another model request.
-    const results: ToolContent = [];
-    for (const approval of run.approvals.values()) {
-      if (!run.checkpointedResults.has(approval.event.toolCallId)) {
-        results.push(
-          await resolveApprovedHostCall(run, approval, this.platform, (action, input, resumeData) =>
-            this.dispatch(run, action, input, resumeData)
-          )
-        );
-      }
-    }
-    await this.commitMessages(run, results.length > 0 ? [{ content: results, role: 'tool' }] : []);
+    await this.commitMessages(
+      run,
+      await finishApprovedHostResults(run, this.platform, (action, input, resumeData) =>
+        this.dispatch(run, action, input, resumeData)
+      )
+    );
     await this.finish(run, 'completed');
   }
 

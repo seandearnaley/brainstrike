@@ -1,4 +1,4 @@
-import { asSchema, type ToolContent } from 'ai';
+import { asSchema, type ModelMessage, modelMessageSchema, type ToolContent } from 'ai';
 import { validateApprovalInput } from './approval-input.js';
 import {
   hasHostInteractionResponse,
@@ -8,12 +8,35 @@ import {
 import { executableInputSchema } from './executable-input-schema.js';
 import { jsonValue } from './json-value.js';
 import type { HostPlatform } from './ports.js';
-import type { HostEvent, HostParams } from './protocol.js';
+import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
 import { ensureHostRunAdmission, hostRunToolDecision, hostRunTools } from './run-admission.js';
 
 type Action = Extract<HostEvent, { type: 'effect.started' }>;
 type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
 type Dispatch = (action: Action, input: unknown, resumeData?: unknown) => Promise<unknown>;
+
+/** Core supplies the original append, boundary sync and fold, in that order. */
+export async function commitHostModelMessages(
+  run: Run,
+  messages: readonly ModelMessage[],
+  append: (event: HostEvent) => Promise<HostLogRow | undefined>,
+  sync: () => Promise<void>,
+  fold: (row: HostLogRow) => void
+): Promise<void> {
+  if (messages.length === 0) {
+    return;
+  }
+  const row = await append({
+    messages: messages.map((message) => jsonValue(modelMessageSchema.parse(message))),
+    runId: run.id,
+    type: 'model.messages',
+  });
+  if (!row) {
+    throw new Error('Model context was not committed');
+  }
+  await sync();
+  fold(row);
+}
 
 /** Core supplies its sole acceptance writer and continuation owner. */
 export async function commitHostInteractionResponse(
@@ -158,6 +181,21 @@ export async function resolveApprovedHostCall(
     ? run.outputs.get(event.toolCallId)
     : await dispatch(action, input, resumeData);
   return modelResult(run, event.toolCallId, event.toolId, input, output);
+}
+
+/** Resolve already-issued calls at the existing step limit without another model request. */
+export async function finishApprovedHostResults(
+  run: Run,
+  platform: HostPlatform,
+  dispatch: Dispatch
+): Promise<ModelMessage[]> {
+  const results: ToolContent = [];
+  for (const approval of run.approvals.values()) {
+    if (!run.checkpointedResults.has(approval.event.toolCallId)) {
+      results.push(await resolveApprovedHostCall(run, approval, platform, dispatch));
+    }
+  }
+  return results.length > 0 ? [{ content: results, role: 'tool' }] : [];
 }
 
 export async function createHostApprovalResponses(

@@ -10,6 +10,7 @@ import type {
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
 import type { McpTaskHandle } from '@brainstrike/assistant-contract/mcp-task-presentation';
+import type { ThreadWorkspaceBinding } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import type {
   FlexibleSchema,
@@ -125,6 +126,8 @@ export interface HostRunAdmissionRequest {
   /** Reopen the committed selection, rejecting changed executors rather than substituting. */
   readonly snapshot?: HostRunSnapshot;
   readonly threadId: string;
+  /** Core-owned immutable thread binding; the adapter must resolve its live IDs. */
+  readonly workspaceBinding?: ThreadWorkspaceBinding;
 }
 
 /** The existing configured authority and its generation-qualified executors. */
@@ -180,5 +183,10 @@ export interface HostPlatform {
   /** Borrowed existing native writer; startup acquires it before interrupted purge replay. */
   readonly stateIndexer?: StateStoreIndexerPort;
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
+  validateWorkspaceBinding?(request: {
+    readonly binding: ThreadWorkspaceBinding;
+    readonly signal: AbortSignal;
+    readonly threadId: string;
+  }): Promise<void>;
 }
 export type HostSdkTools = ToolSet;

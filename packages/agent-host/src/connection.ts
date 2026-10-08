@@ -84,6 +84,8 @@ export function bindHostConnection(
   }));
   handle('thread/workspace/read', (params) => core.readWorkspace(params.threadId));
   handle('thread/workspace/set', (params) => core.setWorkspace(params));
+  handle('thread/workspace/binding/read', (params) => core.readWorkspaceBinding(params.threadId));
+  handle('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
   handle('run/start', (params) => core.startRun(params));
   handle('run/stop', (params) => core.stop(params));
   handle('interaction/respond', (params) => core.respond(params));

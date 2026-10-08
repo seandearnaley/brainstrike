@@ -24,9 +24,11 @@ those stores stay the working authority.
 - Ordinary thread switches flush the outgoing snapshot synchronously, then
   hydrate the incoming one under an intent guard — never the boot merge.
 
-**Operating-root binding** lives in `mastra_threads.metadata` (no migration):
-`operatingRootId` is the durable `roots.id`; display name and path are
-display-only.
+**Operating-root binding** for host-owned threads is committed as
+`workspace.binding.updated` in the existing Core thread log. Legacy-history
+threads retain `mastra_threads.metadata` (no migration). Both routes use the
+same eleven operating-root, checkout, secondary-root and Forge metadata keys.
+`operatingRootId` is the durable `roots.id`; display name and path are display-only.
 
 - Resolve the adapter root's path to exactly one live `roots` row and write the
   binding before the first run. An adapter root id is never execution authority.
@@ -36,6 +38,13 @@ display-only.
   deletion projection; bulk metadata updates reject every `checkout*` key.
 - Native tools validate the id against the live root inventory; the stored path
   is never an authority or a fallback.
+- Host scope updates require the existing platform's live validation before
+  the full commit; missing capability refuses. Watch-only updates remain
+  preferences. The Core run snapshot captures the binding at admission, and
+  recovery validates that capture rather than the thread's later binding.
+- The host adapter must retain the captured operating root in its admitted
+  runtime. A changed, revoked or discarded root refuses before a decision or
+  run is committed; a view snapshot cannot supply a replacement.
 
 Evidence: `assistant-persistence/thread-workspace-and-root-binding.md`.
 Guard: `packages/app-shell/src/thread-workspace/__tests__/use-thread-workspace-coordinator.test.tsx`.
