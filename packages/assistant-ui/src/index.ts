@@ -152,6 +152,7 @@ export {
   SubagentInvocationResolverContext,
   SubagentLiveInvocationContext,
 } from './subagent-conversation-navigation';
+export { personaLabelForToolName } from './subagent-persona-label';
 export {
   type ThreadMessageNavigation,
   ThreadMessageNavigationContext,

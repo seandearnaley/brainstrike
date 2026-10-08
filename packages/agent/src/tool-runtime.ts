@@ -8,6 +8,7 @@ export {
   buildCurrentDateNote,
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
+  type DelegationPersonaSummary,
 } from './mastra/default-instructions';
 export { filterToolsForPlanMode } from './mastra/plan-mode-tool-gate';
 export { applyToolModelOutputProjections } from './mastra/tool-model-output';

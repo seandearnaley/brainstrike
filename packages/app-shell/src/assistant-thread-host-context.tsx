@@ -61,8 +61,26 @@ export interface AssistantThreadHostCanvasVersion {
   readonly version: number;
 }
 
+/** BST-1932: one child thread a host delegation started, as its origin committed it. */
+export interface AssistantThreadHostChild {
+  /** The child's call sign, as the host derives it ("Cedar-1a2b3c"). */
+  readonly callSign: string;
+  /** The child's family colour, as the host derives it from the tree. */
+  readonly color: string;
+  /** The parent run whose tool call started this child. */
+  readonly parentRunId: string;
+  readonly persona: string;
+  readonly threadId: string;
+  readonly toolCallId: string;
+}
+
 /** A host app supplies committed thread identity and its connected presentation. */
 export interface AssistantThreadHostCapability {
+  /**
+   * A thread's direct child threads, in delegation order. Child threads are
+   * never listed as threads; a host without delegation omits this.
+   */
+  childThreads?(threadId: string): Promise<readonly AssistantThreadHostChild[]>;
   createThread(resourceId: string): Promise<AssistantMemoryThread>;
   /** True only for an identity owned and physically deleted by this host. */
   deleteThread(threadId: string): Promise<boolean>;
@@ -91,6 +109,12 @@ export interface AssistantThreadHostCapability {
     isVisible: boolean,
     onRunningChange?: (threadId: string, running: boolean) => void
   ): ReactNode | undefined;
+  /**
+   * BST-1932: a child thread as its committed origin names it, so a restored
+   * tab address is authorized by the host before it mounts. Rejects for any
+   * thread that is not a host child.
+   */
+  resolveChildThread?(threadId: string): Promise<AssistantThreadHostChild>;
   /** Omitted by a host that reports no run state; its threads then show none. */
   readonly runs?: AssistantThreadHostRuns;
   /** Called when a host thread's committed title changes; a host without live titles omits it. */
