@@ -15,10 +15,13 @@ import {
 import {
   abortHostThreadRuns,
   assertHostAdmissionCleanup,
+  finishHostSdkLoop,
   joinHostClosingRun,
   joinHostRunOwner,
   joinHostThreadDeletion,
+  queueHostAdmission,
   rejectHostRunAdmission,
+  retainHostRunWork,
 } from './core-run-lifecycle.js';
 import {
   acceptHostWorkspaceSnapshot,
@@ -35,14 +38,22 @@ import {
 import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
+import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
-import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
+import {
+  type HostEvent,
+  type HostLogRow,
+  type HostParams,
+  type HostResults,
+  parseHostParams,
+} from './protocol.js';
 import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.js';
 import {
   acquireHostRunAdmission,
   assertHostRunStartAvailable,
   closeHostRunResources,
   createAdmittedHostSdkTools,
+  decideHostSdkApproval,
   ensureHostRunAdmission,
   hostRunToolDecision,
   hostRunTools,
@@ -50,10 +61,10 @@ import {
 } from './run-admission.js';
 
 import {
+  commitHostInteractionResponse,
   createHostApprovalResponses,
   resolveApprovedHostCall,
   resolveHostApprovalInput,
-  validateHostInteractionResume,
 } from './run-continuation.js';
 
 export { jsonValue } from './json-value.js';
@@ -68,6 +79,7 @@ export type HostEventStore = Pick<
 /** One writer, one admission queue, and one SDK loop per root run (ADR-0011/12/17). */
 export class HostCore {
   private readonly commands = new HostCommandLedger();
+  private readonly mcpInputs = new HostMcpInputState();
   private readonly threads = new Set<string>();
   private readonly workspaces = new Map<string, HostParams<'thread/workspace/set'>['snapshot']>();
   private readonly runs = new Map<string, Run>();
@@ -137,6 +149,7 @@ export class HostCore {
   }
 
   private fold(row: HostLogRow): void {
+    this.mcpInputs.fold(row);
     const event = row.event;
     switch (event.type) {
       case 'workspace.updated':
@@ -265,27 +278,44 @@ export class HostCore {
     perform: () => Promise<T>,
     repeat?: (result: T) => Promise<T>
   ): Promise<T> {
-    const result = this.admission.then(async () => {
-      if (this.closing) {
-        throw new Error('Host is closing');
-      }
-      if (params.threadId) {
-        if (!this.threads.has(params.threadId)) {
-          throw new Error('Unknown thread');
-        }
-        if (this.deletions.has(params.threadId)) {
-          throw new Error('Thread deletion has closed command admission');
-        }
-        assertHostAdmissionCleanup(this.failedAdmissions, params.threadId);
-      }
-      return this.commands.perform(method, params, perform, repeat);
-    });
-    this.admission = result.then(
-      () => undefined,
-      () => undefined
+    return this.admit(params.threadId, () =>
+      this.commands.perform(method, params, perform, repeat)
     );
-    return result;
   }
+
+  private admit<T>(
+    threadId: string | undefined,
+    perform: () => Promise<T>,
+    signal?: AbortSignal
+  ): Promise<T> {
+    const queued = queueHostAdmission(
+      this.admission,
+      () => {
+        if (this.closing) {
+          throw new Error('Host is closing');
+        }
+        if (threadId) {
+          if (!this.threads.has(threadId)) {
+            throw new Error('Unknown thread');
+          }
+          if (this.deletions.has(threadId)) {
+            throw new Error('Thread deletion has closed command admission');
+          }
+          assertHostAdmissionCleanup(this.failedAdmissions, threadId);
+        }
+        return perform();
+      },
+      signal
+    );
+    this.admission = queued.tail;
+    return queued.result;
+  }
+
+  private readonly foldRows = (rows: readonly HostLogRow[]): void => {
+    for (const row of rows) {
+      this.fold(row);
+    }
+  };
 
   private async accept(
     threadId: string,
@@ -293,7 +323,8 @@ export class HostCore {
     params: { commandId: string },
     result: Json,
     events: readonly HostEvent[],
-    beforePublish?: () => void
+    beforePublish?: (rows: readonly HostLogRow[]) => void,
+    durability: 'normal' | 'full' = 'normal'
   ): Promise<void> {
     const accepted: HostEvent = {
       commandId: params.commandId,
@@ -302,7 +333,7 @@ export class HostCore {
       result,
       type: 'command.accepted',
     };
-    await this.append(threadId, [accepted, ...events], 'normal', beforePublish);
+    await this.append(threadId, [accepted, ...events], durability, beforePublish);
     this.commands.commit(params.commandId, {
       method,
       payload: canonical(accepted.payload),
@@ -345,6 +376,7 @@ export class HostCore {
       this.threads.delete(params.threadId);
       this.messages.delete(params.threadId);
       this.workspaces.delete(params.threadId);
+      this.mcpInputs.forgetThread(params.threadId);
       for (const run of runs) {
         this.runs.delete(run.id);
         this.conversationIds.delete(run.id);
@@ -466,6 +498,26 @@ export class HostCore {
     // Revalidating a canonical value can transform it a second time.
     const output = await registered.execute(input, {
       ...(resumeData === undefined ? {} : { resumeData }),
+      mcp: this.mcpInputs.execution(run, action, registered, {
+        admit: (perform) => this.admit(run.threadId, perform, run.controller.signal),
+        append: (events, beforePublish) =>
+          this.append(run.threadId, events, 'full', (rows) => {
+            for (const row of rows) {
+              this.fold(row);
+            }
+            beforePublish?.();
+          }),
+        assertCurrent: () => {
+          if (
+            this.closing ||
+            this.deletions.has(run.threadId) ||
+            hostRunTools(run)[action.toolId] !== registered
+          ) {
+            throw new Error('MCP execution authority retired');
+          }
+        },
+        retain: (work) => retainHostRunWork(run, work),
+      }),
       runId: run.id,
       signal: run.controller.signal,
       threadId: run.threadId,
@@ -502,50 +554,6 @@ export class HostCore {
     };
     effect.then(joined, joined);
     return effect;
-  }
-
-  private async sdkApproval(
-    run: Run,
-    call: { toolName: string; toolCallId: string; input: unknown }
-  ): Promise<'approved' | 'denied' | 'user-approval'> {
-    run.controller.signal.throwIfAborted();
-    const registered = hostRunTools(run)[call.toolName];
-    if (!registered) {
-      throw new Error('Unknown tool');
-    }
-    const action: Action = {
-      input: jsonValue(call.input),
-      runId: run.id,
-      toolCallId: call.toolCallId,
-      toolId: call.toolName,
-      toolIdentity: registered.identity,
-      type: 'effect.started',
-    };
-    const decision = await hostRunToolDecision(this.platform, run, call.toolName);
-    run.controller.signal.throwIfAborted();
-    const prior = [...run.approvals.values()].find(
-      (approval) => approval.event.toolCallId === call.toolCallId
-    );
-    if (decision === 'deny' || prior?.decision === 'deny') {
-      return 'denied';
-    }
-    if (registered.interaction) {
-      run.liveInputs.set(call.toolCallId, { value: call.input });
-      return 'user-approval';
-    }
-    if (
-      prior &&
-      (prior.event.toolIdentity !== registered.identity ||
-        canonical(prior.event.input) !== canonical(action.input))
-    ) {
-      throw new Error('Committed approval action identity changed');
-    }
-    if (decision === 'ask' && prior?.decision !== 'approve') {
-      run.liveInputs.set(call.toolCallId, { value: call.input });
-      return 'user-approval';
-    }
-    run.permits.set(call.toolCallId, action);
-    return 'approved';
   }
 
   private async loop(run: Run, model: LanguageModel): Promise<void> {
@@ -666,7 +674,7 @@ export class HostCore {
           return prepareHostProviderStep(provider, memory?.system, owner);
         },
         stopWhen: stepCountIs(admission.snapshot.maxSteps - run.steps),
-        toolApproval: ({ toolCall }) => this.sdkApproval(run, toolCall),
+        toolApproval: ({ toolCall }) => decideHostSdkApproval(run, this.platform, toolCall),
         tools: createAdmittedHostSdkTools(run, (action, input) =>
           this.dispatch(run, action, input)
         ),
@@ -689,32 +697,9 @@ export class HostCore {
     if (checkpointFailure !== undefined) {
       throw checkpointFailure;
     }
-    await this.finishLoop(run, failed, interrupted);
-  }
-
-  private async finishLoop(
-    run: Run,
-    failed: string | undefined,
-    interrupted = false
-  ): Promise<void> {
-    if (
-      !run.stopped &&
-      ((run.paused && failed === undefined && !run.controller.signal.aborted) ||
-        (this.closing && run.approvals.size > 0))
-    ) {
-      await Promise.allSettled([...run.effects]);
-      return;
-    }
-    const outcome = run.controller.signal.aborted
-      ? this.closing
-        ? 'interrupted'
-        : 'stopped'
-      : interrupted
-        ? 'interrupted'
-        : failed === undefined
-          ? 'completed'
-          : 'failed';
-    await this.finish(run, outcome, failed);
+    await finishHostSdkLoop(run, this.closing, failed, interrupted, (outcome, detail) =>
+      this.finish(run, outcome, detail)
+    );
   }
 
   private run(threadId: string, runId: string): Run {
@@ -725,69 +710,75 @@ export class HostCore {
     return run;
   }
 
+  readMcpInput(input: HostParams<'mcp/input/read'>): Promise<HostResults['mcp/input/read']> {
+    return this.mcpInputs.read(parseHostParams('mcp/input/read', input));
+  }
+
+  stageMcpInput(
+    input: HostParams<'mcp/input/stage'>,
+    client: HostMcpInputClient
+  ): Promise<{ staged: true }> {
+    const params = parseHostParams('mcp/input/stage', input);
+    return this.admit(params.threadId, () => this.mcpInputs.stage(params, client));
+  }
+
+  settleMcpInput(
+    input: HostParams<'mcp/input/settle'>,
+    client: HostMcpInputClient
+  ): Promise<HostResults['mcp/input/settle']> {
+    const params = parseHostParams('mcp/input/settle', input);
+    return this.admit(params.threadId, () => {
+      this.mcpInputs.assertSender(params, client);
+      return this.commands.perform('mcp/input/settle', params, () => {
+        const run = this.run(params.threadId, params.runId);
+        return this.mcpInputs.prepareSettlement(
+          params,
+          client,
+          (event) =>
+            this.accept(
+              run.threadId,
+              'mcp/input/settle',
+              params,
+              { accepted: true, status: 'accepted' },
+              [event],
+              this.foldRows,
+              'full'
+            ),
+          (event) => this.append(run.threadId, [event], 'full', this.foldRows),
+          (work) => retainHostRunWork(run, work)
+        );
+      });
+    }).then(() => this.mcpInputs.result(params));
+  }
+
+  releaseMcpInputClient(client: HostMcpInputClient): void {
+    this.mcpInputs.releaseClient(client);
+  }
+
   respond(params: HostParams<'interaction/respond'>): Promise<{ accepted: true }> {
-    return this.command('interaction/respond', params, async () => {
-      const run = this.run(params.threadId, params.runId);
-      const pending = run.approvals.get(params.interactionId);
-      if (
-        run.terminal ||
-        !pending ||
-        pending.event.kind !== 'approval' ||
-        hasHostInteractionResponse(pending)
-      ) {
-        throw new Error('Approval decision is stale or belongs to another run');
-      }
-      await ensureHostRunAdmission(this.platform, run);
-      const registered = hostRunTools(run)[pending.event.toolId];
-      if (!registered || registered.identity !== pending.event.toolIdentity) {
-        throw new Error('Approval tool identity changed');
-      }
-      const result = { accepted: true as const };
-      await this.accept(run.threadId, 'interaction/respond', params, result, [
-        {
-          decision: params.decision,
-          interactionId: params.interactionId,
-          runId: run.id,
-          type: 'interaction.responded',
-        },
-      ]);
-      pending.decision = params.decision;
-      const previous = run.task;
-      run.task = (previous ?? Promise.resolve()).then(() => this.continueRun(run));
-      run.task.catch(() => undefined);
-      return result;
-    });
+    return this.command('interaction/respond', params, () =>
+      commitHostInteractionResponse(
+        this.run(params.threadId, params.runId),
+        this.platform,
+        params,
+        (event) =>
+          this.accept(params.threadId, 'interaction/respond', params, { accepted: true }, [event]),
+        () => this.continueRun(this.run(params.threadId, params.runId))
+      )
+    );
   }
 
   resume(params: HostParams<'interaction/resume'>): Promise<{ accepted: true }> {
-    return this.command('interaction/resume', params, async () => {
-      const run = this.run(params.threadId, params.runId);
-      const pending = run.approvals.get(params.interactionId);
-      if (
-        run.terminal ||
-        !pending ||
-        pending.event.kind === 'approval' ||
-        hasHostInteractionResponse(pending)
-      ) {
-        throw new Error('Human interaction is stale or belongs to another run');
-      }
-      await ensureHostRunAdmission(this.platform, run);
-      await validateHostInteractionResume(run, pending, params.resumeData);
-      const result = { accepted: true as const };
-      await this.accept(run.threadId, 'interaction/resume', params, result, [
-        {
-          interactionId: params.interactionId,
-          resumeData: params.resumeData,
-          runId: run.id,
-          type: 'interaction.responded',
-        },
-      ]);
-      pending.resumeData = params.resumeData;
-      const previous = run.task;
-      run.task = (previous ?? Promise.resolve()).then(() => this.continueRun(run));
-      run.task.catch(() => undefined);
-      return result;
-    });
+    return this.command('interaction/resume', params, () =>
+      commitHostInteractionResponse(
+        this.run(params.threadId, params.runId),
+        this.platform,
+        params,
+        (event) =>
+          this.accept(params.threadId, 'interaction/resume', params, { accepted: true }, [event]),
+        () => this.continueRun(this.run(params.threadId, params.runId))
+      )
+    );
   }
 
   private async commitMessages(run: Run, messages: readonly ModelMessage[]): Promise<void> {
@@ -950,7 +941,13 @@ export class HostCore {
       () => this.closing,
       (owned) => this.closeRunOwner(owned),
       () => this.read(run.threadId, 0),
-      (event, commit) => this.append(run.threadId, [event], 'full', commit)
+      (event, commit) =>
+        this.append(run.threadId, [event], 'full', (rows) => {
+          commit();
+          for (const row of rows) {
+            this.fold(row);
+          }
+        })
     );
   }
 

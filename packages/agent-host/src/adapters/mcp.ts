@@ -162,6 +162,10 @@ export function createMcpHostToolAdapter(options: McpHostToolAdapterOptions): Mc
             }
             const tool: HostTool = Object.freeze({
               description,
+              mcpBinding: Object.freeze({
+                configuredServerId: binding.configuredServerId,
+                generation: binding.generation,
+              }),
               ...(mcpAuthority ? { mcpAuthority } : {}),
               execute(input: unknown, context: HostToolContext): Promise<unknown> {
                 const signal = AbortSignal.any([

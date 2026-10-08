@@ -2,13 +2,13 @@ import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
-  HOST_METHOD_SCHEMAS,
   HOST_RESULT_SCHEMAS,
   type HostLogRow,
   HostLogRowSchema,
   type HostMethod,
   type HostParams,
   type HostResults,
+  parseHostParams,
 } from './protocol.js';
 
 export interface HostClient extends HostAttachment {
@@ -87,7 +87,7 @@ export async function authenticateHostClient(
       params: HostParams<M>
     ): Promise<HostResults[M]> =>
       HOST_RESULT_SCHEMAS[method].parse(
-        await connection.sendRequest(method, HOST_METHOD_SCHEMAS[method].parse(params))
+        await connection.sendRequest(method, parseHostParams(method, params))
       ) as HostResults[M],
   };
 }

@@ -1,15 +1,69 @@
 import { asSchema, type ToolContent } from 'ai';
 import { validateApprovalInput } from './approval-input.js';
-import type { PendingInteraction, HostRunState as Run } from './core-state.js';
+import {
+  hasHostInteractionResponse,
+  type PendingInteraction,
+  type HostRunState as Run,
+} from './core-state.js';
 import { executableInputSchema } from './executable-input-schema.js';
 import { jsonValue } from './json-value.js';
 import type { HostPlatform } from './ports.js';
-import type { HostEvent } from './protocol.js';
-import { hostRunToolDecision, hostRunTools } from './run-admission.js';
+import type { HostEvent, HostParams } from './protocol.js';
+import { ensureHostRunAdmission, hostRunToolDecision, hostRunTools } from './run-admission.js';
 
 type Action = Extract<HostEvent, { type: 'effect.started' }>;
 type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
 type Dispatch = (action: Action, input: unknown, resumeData?: unknown) => Promise<unknown>;
+
+/** Core supplies its sole acceptance writer and continuation owner. */
+export async function commitHostInteractionResponse(
+  run: Run,
+  platform: HostPlatform,
+  params: HostParams<'interaction/respond'> | HostParams<'interaction/resume'>,
+  accept: (event: HostEvent) => Promise<void>,
+  continueRun: () => Promise<void>
+): Promise<{ accepted: true }> {
+  const pending = run.approvals.get(params.interactionId);
+  const approval = 'decision' in params;
+  if (
+    run.terminal ||
+    !pending ||
+    (pending.event.kind === 'approval') !== approval ||
+    hasHostInteractionResponse(pending)
+  ) {
+    throw new Error(
+      approval
+        ? 'Approval decision is stale or belongs to another run'
+        : 'Human interaction is stale or belongs to another run'
+    );
+  }
+  await ensureHostRunAdmission(platform, run);
+  if (approval) {
+    const registered = hostRunTools(run)[pending.event.toolId];
+    if (!registered || registered.identity !== pending.event.toolIdentity) {
+      throw new Error('Approval tool identity changed');
+    }
+    await accept({
+      decision: params.decision,
+      interactionId: params.interactionId,
+      runId: run.id,
+      type: 'interaction.responded',
+    });
+    pending.decision = params.decision;
+  } else {
+    await validateHostInteractionResume(run, pending, params.resumeData);
+    await accept({
+      interactionId: params.interactionId,
+      resumeData: params.resumeData,
+      runId: run.id,
+      type: 'interaction.responded',
+    });
+    pending.resumeData = params.resumeData;
+  }
+  run.task = (run.task ?? Promise.resolve()).then(continueRun);
+  run.task.catch(() => undefined);
+  return { accepted: true };
+}
 
 // Continuation calculations reuse Core's owned run and dispatch; no log writer lives here.
 export async function validateHostInteractionResume(

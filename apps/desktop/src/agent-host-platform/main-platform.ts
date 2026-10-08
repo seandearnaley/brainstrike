@@ -9,6 +9,7 @@ import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
+import { serveMainMcpPlatformTransport } from './mcp-platform-transport';
 import { encodePlatformAuth } from './platform-auth';
 import {
   PlatformPolicySchema,
@@ -45,6 +46,7 @@ async function describePlatformSelection(
           description: tool.description,
           identity: tool.identity,
           ...(tool.mcpAuthority ? { mcpAuthority: tool.mcpAuthority } : {}),
+          ...(tool.mcpBinding ? { mcpBinding: tool.mcpBinding } : {}),
           inputSchema: await canonicalToolInputJsonSchema(tool.inputSchema),
           ...(tool.interaction
             ? {
@@ -128,6 +130,13 @@ export function serveDesktopPlatform(
   const admissions = new Set<string>();
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
+  const mcp = serveMainMcpPlatformTransport(connection, (work) => {
+    pending.add(work);
+    const done = (): void => {
+      pending.delete(work);
+    };
+    work.then(done, done);
+  });
   let closing: Promise<void> | undefined;
   const execute = <T>(
     token: CancellationToken,
@@ -316,25 +325,30 @@ export function serveDesktopPlatform(
         if (!tool) {
           throw new Error('Platform executor is not admitted');
         }
-        const output = await tool.execute(request.input, {
-          ...(request.resumeData === undefined ? {} : { resumeData: request.resumeData }),
-          runId: request.runId,
-          signal,
-          threadId: request.threadId,
-          toolCallId: request.toolCallId,
-          write: async (chunk) => {
-            await connection.sendRequest(
-              'platform/progress',
-              PlatformProgressSchema.parse({
-                chunk,
-                runId: request.runId,
-                threadId: request.threadId,
-                toolCallId: request.toolCallId,
-              })
-            );
-          },
-        });
-        return z.json().parse(output);
+        try {
+          const output = await tool.execute(request.input, {
+            ...(request.resumeData === undefined ? {} : { resumeData: request.resumeData }),
+            runId: request.runId,
+            signal,
+            threadId: request.threadId,
+            toolCallId: request.toolCallId,
+            ...(tool.mcpBinding ? { mcp: mcp.execution(request, signal) } : {}),
+            write: async (chunk) => {
+              await connection.sendRequest(
+                'platform/progress',
+                PlatformProgressSchema.parse({
+                  chunk,
+                  runId: request.runId,
+                  threadId: request.threadId,
+                  toolCallId: request.toolCallId,
+                })
+              );
+            },
+          });
+          return z.json().parse(output);
+        } finally {
+          mcp.release(request);
+        }
       })
   );
   connection.onRequest('platform/project', (input: unknown, token: CancellationToken) =>
@@ -369,6 +383,7 @@ export function serveDesktopPlatform(
       while (pending.size > 0) {
         await Promise.allSettled([...pending]);
       }
+      mcp.close();
       const results = await Promise.allSettled(
         [...selections.values()].map((value) => value.selection.close())
       );

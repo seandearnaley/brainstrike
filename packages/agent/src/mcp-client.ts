@@ -1,4 +1,8 @@
 export {
+  ElicitRequestFormParamsSchema,
+  ElicitRequestURLParamsSchema,
+} from '@modelcontextprotocol/core';
+export {
   type CreateMcpRuntimeClientOptions,
   createMcpRuntimeClient,
   type McpRuntimeClient,

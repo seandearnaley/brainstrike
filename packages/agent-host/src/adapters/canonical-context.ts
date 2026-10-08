@@ -17,11 +17,17 @@ import type { HostToolContext } from '../ports.js';
 export function createCanonicalToolContext(
   context: HostToolContext,
   toolName: string
-): ToolExecutionContext & { readonly threadId: string; readonly toolCallId: string } {
+): ToolExecutionContext &
+  Pick<HostToolContext, 'runId' | 'threadId' | 'toolCallId'> & {
+    readonly brainstrikeMcp?: HostToolContext['mcp'];
+  } {
   return {
     abortSignal: context.signal,
     observe: noopObserve,
     requestContext: new RequestContext(),
+    runId: context.runId,
+    // Mastra already owns `mcp`; preserve its native execution context unchanged.
+    ...(context.mcp ? { brainstrikeMcp: context.mcp } : {}),
     ...(context.resumeData === undefined ? {} : { resumeData: context.resumeData }),
     threadId: context.threadId,
     toolCallId: context.toolCallId,

@@ -1,13 +1,27 @@
+import { McpTaskHandleSchema } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 
-export const AGENT_HOST_PROTOCOL_VERSION = 8;
+export const AGENT_HOST_PROTOCOL_VERSION = 9;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
 const Command = { commandId: Id };
 const Thread = { threadId: Id };
 const Run = { ...Thread, runId: Id };
+const McpInput = { ...Run, interactionId: Id };
+export const HostMcpInputStatusSchema = z.enum([
+  'requested',
+  'accepted',
+  'local-finalized',
+  'remote-acknowledged',
+  'unknown',
+  'retired',
+]);
+const McpContent = z.record(
+  z.string(),
+  z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
+);
 const Seq = z.number().int().nonnegative();
 const McpAuthorityBase = {
   extensions: z.strictObject({ apps: z.boolean(), tasks: z.boolean() }),
@@ -80,6 +94,14 @@ export const HOST_METHOD_SCHEMAS = {
   }),
   'log/subscribe': z.strictObject({ ...Thread, fromSeq: Seq }),
   'log/unsubscribe': z.strictObject(Thread),
+  'mcp/input/read': z.strictObject(McpInput),
+  'mcp/input/settle': z.strictObject({
+    ...Command,
+    ...McpInput,
+    action: z.enum(['accept', 'decline', 'cancel']),
+  }),
+  // Values are process-local and never enter HostCommandLedger.
+  'mcp/input/stage': z.strictObject({ ...McpInput, content: McpContent.optional() }),
   'run/start': z.strictObject({
     ...Command,
     ...Thread,
@@ -102,6 +124,17 @@ export const HOST_METHOD_SCHEMAS = {
 } as const;
 export type HostMethod = keyof typeof HOST_METHOD_SCHEMAS;
 export type HostParams<M extends HostMethod> = z.infer<(typeof HOST_METHOD_SCHEMAS)[M]>;
+/** Private input diagnostics must not quote schema paths or unknown secret-bearing keys. */
+export function parseHostParams<M extends HostMethod>(method: M, input: unknown): HostParams<M> {
+  if (!method.startsWith('mcp/')) {
+    return HOST_METHOD_SCHEMAS[method].parse(input) as HostParams<M>;
+  }
+  const parsed = HOST_METHOD_SCHEMAS[method].safeParse(input);
+  if (!parsed.success) {
+    throw new Error('Invalid MCP host request');
+  }
+  return parsed.data as HostParams<M>;
+}
 
 const RunFields = { runId: Id };
 const Action = {
@@ -111,7 +144,39 @@ const Action = {
   toolId: Id,
   toolIdentity: Id,
 };
+const McpOrigin = {
+  ...RunFields,
+  configuredServerId: Id,
+  generation: z.number().int().positive().safe(),
+  toolCallId: Id,
+  toolId: Id,
+  toolIdentity: Id,
+};
+export const HostMcpInputRequestSchema = z.strictObject({
+  ...McpOrigin,
+  interactionId: Id,
+  invocationId: Id,
+  mode: z.enum(['form', 'url']),
+  requestId: z.union([Id, z.number().int().safe()]),
+  taskId: Id.optional(),
+  type: z.literal('mcp.input.requested'),
+});
 export const HostEventSchema = z.union([
+  z.strictObject({ ...McpOrigin, handle: McpTaskHandleSchema, type: z.literal('mcp.task.bound') }),
+  HostMcpInputRequestSchema,
+  z.strictObject({
+    ...RunFields,
+    action: z.enum(['accept', 'decline', 'cancel']),
+    commandId: Id,
+    interactionId: Id,
+    type: z.literal('mcp.input.intent'),
+  }),
+  z.strictObject({
+    ...RunFields,
+    interactionId: Id,
+    status: z.enum(['local-finalized', 'remote-acknowledged', 'unknown', 'retired']),
+    type: z.literal('mcp.input.settled'),
+  }),
   z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
   z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
   z.strictObject({
@@ -206,6 +271,17 @@ export const HOST_RESULT_SCHEMAS = {
   'interaction/resume': z.strictObject({ accepted: z.literal(true) }),
   'log/subscribe': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   'log/unsubscribe': z.strictObject({ unsubscribed: z.literal(true) }),
+  'mcp/input/read': z.strictObject({
+    // Only a current private capability can supply this ephemeral presentation.
+    presentation: z.json().optional(),
+    request: HostMcpInputRequestSchema,
+    status: HostMcpInputStatusSchema,
+  }),
+  'mcp/input/settle': z.strictObject({
+    accepted: z.literal(true),
+    status: HostMcpInputStatusSchema,
+  }),
+  'mcp/input/stage': z.strictObject({ staged: z.literal(true) }),
   'run/start': z.strictObject({ runId: Id }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),

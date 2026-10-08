@@ -270,3 +270,49 @@ export function createAdmittedHostSdkTools(
     tools: hostRunTools(run),
   });
 }
+
+/** Uses the existing Core-owned run; permission calculation has no log writer. */
+export async function decideHostSdkApproval(
+  run: HostRunState,
+  platform: HostPlatform,
+  call: { toolName: string; toolCallId: string; input: unknown }
+): Promise<'approved' | 'denied' | 'user-approval'> {
+  run.controller.signal.throwIfAborted();
+  const registered = hostRunTools(run)[call.toolName];
+  if (!registered) {
+    throw new Error('Unknown tool');
+  }
+  const action: Extract<HostEvent, { type: 'effect.started' }> = {
+    input: jsonValue(call.input),
+    runId: run.id,
+    toolCallId: call.toolCallId,
+    toolId: call.toolName,
+    toolIdentity: registered.identity,
+    type: 'effect.started',
+  };
+  const decision = await hostRunToolDecision(platform, run, call.toolName);
+  run.controller.signal.throwIfAborted();
+  const prior = [...run.approvals.values()].find(
+    (approval) => approval.event.toolCallId === call.toolCallId
+  );
+  if (decision === 'deny' || prior?.decision === 'deny') {
+    return 'denied';
+  }
+  if (registered.interaction) {
+    run.liveInputs.set(call.toolCallId, { value: call.input });
+    return 'user-approval';
+  }
+  if (
+    prior &&
+    (prior.event.toolIdentity !== registered.identity ||
+      canonical(prior.event.input) !== canonical(action.input))
+  ) {
+    throw new Error('Committed approval action identity changed');
+  }
+  if (decision === 'ask' && prior?.decision !== 'approve') {
+    run.liveInputs.set(call.toolCallId, { value: call.input });
+    return 'user-approval';
+  }
+  run.permits.set(call.toolCallId, action);
+  return 'approved';
+}

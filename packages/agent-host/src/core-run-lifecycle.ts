@@ -3,6 +3,51 @@ import type { HostRunAdmission } from './ports.js';
 import type { HostEvent } from './protocol.js';
 import { HostRunAdmissionCleanupError } from './run-admission.js';
 
+/** Calculations over Core's one admission tail; queued cancellation starts no work. */
+export function queueHostAdmission<T>(
+  previous: Promise<void>,
+  perform: () => Promise<T>,
+  signal?: AbortSignal
+): { readonly result: Promise<T>; readonly tail: Promise<void> } {
+  let started = false;
+  const admitted = previous.then(() => {
+    signal?.throwIfAborted();
+    started = true;
+    return perform();
+  });
+  const tail = admitted.then(
+    () => undefined,
+    () => undefined
+  );
+  if (!signal) {
+    return { result: admitted, tail };
+  }
+  const waiting = Promise.withResolvers<T>();
+  // Stop may be joining a native callback queued behind itself. Withdraw only
+  // before admission; started commits and native work keep their original join.
+  const abort = (): void => {
+    if (!started) {
+      waiting.reject(signal.reason);
+    }
+  };
+  signal.addEventListener('abort', abort, { once: true });
+  admitted
+    .then(waiting.resolve, waiting.reject)
+    .finally(() => signal.removeEventListener('abort', abort));
+  if (signal.aborted) {
+    abort();
+  }
+  return { result: waiting.promise, tail };
+}
+
+export function retainHostRunWork(run: HostRunState, work: Promise<unknown>): void {
+  run.effects.add(work);
+  const done = (): void => {
+    run.effects.delete(work);
+  };
+  work.then(done, done);
+}
+
 export function assertHostAdmissionCleanup(
   failures: ReadonlyMap<string, unknown>,
   threadId: string
@@ -156,4 +201,35 @@ export function finishHostRun(
     );
   })();
   return run.completion;
+}
+
+/** Core supplies the existing completion writer after the SDK stream joins. */
+export async function finishHostSdkLoop(
+  run: HostRunState,
+  closing: boolean,
+  failed: string | undefined,
+  interrupted: boolean,
+  finish: (
+    outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
+    detail?: string
+  ) => Promise<void>
+): Promise<void> {
+  if (
+    !run.stopped &&
+    ((run.paused && failed === undefined && !run.controller.signal.aborted) ||
+      (closing && run.approvals.size > 0))
+  ) {
+    await Promise.allSettled([...run.effects]);
+    return;
+  }
+  const outcome = run.controller.signal.aborted
+    ? closing
+      ? 'interrupted'
+      : 'stopped'
+    : interrupted
+      ? 'interrupted'
+      : failed === undefined
+        ? 'completed'
+        : 'failed';
+  await finish(outcome, failed);
 }

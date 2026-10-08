@@ -167,6 +167,9 @@ export const PlatformSelectionSchema = z.strictObject({
         })
         .optional(),
       mcpAuthority: McpToolAuthoritySchema.optional(),
+      mcpBinding: z
+        .strictObject({ configuredServerId: Id, generation: z.number().int().positive().safe() })
+        .optional(),
       permissionToolId: Id,
       risk: z.enum(TOOL_RISK_CATEGORIES),
       strict: z.boolean().optional(),

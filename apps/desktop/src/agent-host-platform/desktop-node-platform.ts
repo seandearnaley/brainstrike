@@ -16,6 +16,7 @@ import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
 import { mainPlatformConnection } from './connection';
+import { bindNodeMcpPlatformTransport } from './mcp-platform-transport';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import { decodePlatformAuth } from './platform-auth';
@@ -69,7 +70,13 @@ export async function createHostPlatform(
 ): Promise<HostPlatform> {
   const port = await parentPlatformPort();
   const connection = mainPlatformConnection(port);
-  const executions = new Map<string, HostToolContext>();
+  const executions = new Map<string, HostToolContext & { readonly toolId: string }>();
+  const mcp = bindNodeMcpPlatformTransport(connection, (origin) => {
+    const execution = executions.get(JSON.stringify([origin.runId, origin.toolCallId]));
+    return execution?.threadId === origin.threadId && execution.toolId === origin.toolId
+      ? execution
+      : undefined;
+  });
   const request = async (
     method: string,
     input: unknown,
@@ -97,6 +104,7 @@ export async function createHostPlatform(
   connection.listen();
   connection.onClose(() => connection.dispose());
   await startup.register(async () => {
+    mcp.close();
     connection.dispose();
     port.close();
   });
@@ -213,6 +221,7 @@ export async function createHostPlatform(
                 }
               : {}),
             ...(descriptor.mcpAuthority ? { mcpAuthority: descriptor.mcpAuthority } : {}),
+            ...(descriptor.mcpBinding ? { mcpBinding: descriptor.mcpBinding } : {}),
             permissionToolId: descriptor.permissionToolId,
             risk: descriptor.risk,
             ...(descriptor.strict === undefined ? {} : { strict: descriptor.strict }),
@@ -221,7 +230,7 @@ export async function createHostPlatform(
               if (executions.has(address)) {
                 throw new Error('Platform tool call is already executing');
               }
-              executions.set(address, context);
+              executions.set(address, { ...context, toolId: name });
               try {
                 return await request(
                   'platform/execute',
@@ -238,6 +247,12 @@ export async function createHostPlatform(
                   context.signal
                 );
               } finally {
+                mcp.release({
+                  runId: context.runId,
+                  threadId: context.threadId,
+                  toolCallId: context.toolCallId,
+                  toolId: name,
+                });
                 executions.delete(address);
               }
             },

@@ -2,11 +2,14 @@ import type { ProviderRequestAccounting } from '@brainstrike/agent/provider-requ
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type {
+  McpElicitationPresentationWire,
+  McpElicitationSettlement,
   McpHostCloseReport,
   McpHostPort,
   PermissionToolGateSnapshot,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
+import type { McpTaskHandle } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import type {
   FlexibleSchema,
@@ -21,7 +24,27 @@ import type {
 import type { McpHostToolBinding } from './adapters/mcp.js';
 import type { HostRunSnapshot } from './protocol.js';
 
+/** Private native authority. Validation never resolves or sends an answer. */
+export interface HostMcpInputCapability {
+  assertCurrent(): Promise<void>;
+  readonly presentation: McpElicitationPresentationWire;
+  settle(answer: McpElicitationSettlement): Promise<'local-finalized' | 'remote-acknowledged'>;
+  readonly signal: AbortSignal;
+  validate(answer: McpElicitationSettlement): Promise<void>;
+}
+export interface HostMcpTaskCapability {
+  assertCurrent(): Promise<void>;
+  readonly handle: McpTaskHandle;
+}
+export interface HostMcpExecution {
+  /** Joins the Core binding commit before native polling/presentation starts. */
+  bindTask(task: HostMcpTaskCapability): Promise<void>;
+  /** Joins the safe request commit before any client is notified. */
+  requestInput(input: HostMcpInputCapability): Promise<void>;
+}
+
 export interface HostToolContext {
+  readonly mcp?: HostMcpExecution | undefined;
   /** Validated committed response to this tool's intrinsic human interaction. */
   readonly resumeData?: unknown;
   readonly runId: string;
@@ -131,6 +154,8 @@ export interface HostTool {
     readonly resumeSchema: FlexibleSchema<unknown>;
   };
   readonly mcpAuthority?: import('./protocol.js').McpToolAuthority;
+  /** Existing configured owner, supplied directly rather than parsed from a tool name. */
+  readonly mcpBinding?: { readonly configuredServerId: string; readonly generation: number };
   /** Existing catalog ID used by Settings policy, before provider-name sanitization. */
   readonly permissionToolId?: string;
   /** Tool-owned recovery of runtime meaning that JSON cannot retain. */

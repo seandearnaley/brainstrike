@@ -2,12 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { HostRecord } from '@brainstrike/host-lease';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostCore } from './core.js';
-import {
-  HOST_METHOD_SCHEMAS,
-  type HostLogRow,
-  type HostMethod,
-  type HostParams,
-} from './protocol.js';
+import { type HostLogRow, type HostMethod, type HostParams, parseHostParams } from './protocol.js';
 
 export interface HostConnectionLifecycle {
   readonly closing: boolean;
@@ -25,6 +20,11 @@ export function bindHostConnection(
 ): () => void {
   let initialized = false;
   let disposed = false;
+  const mcpClient = {
+    get closed(): boolean {
+      return disposed;
+    },
+  };
   const subscriptions = new Map<string, number>();
   const disposables: Array<{ dispose(): void }> = [];
   const release = core.onCommitted((row: HostLogRow) => {
@@ -45,7 +45,7 @@ export function bindHostConnection(
         if (lifecycle?.closing) {
           throw new Error('Host is closing');
         }
-        return request(HOST_METHOD_SCHEMAS[method].parse(input) as HostParams<M>);
+        return request(parseHostParams(method, input));
       })
     );
   };
@@ -88,6 +88,9 @@ export function bindHostConnection(
   handle('run/stop', (params) => core.stop(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));
+  handle('mcp/input/read', (params) => core.readMcpInput(params));
+  handle('mcp/input/stage', (params) => core.stageMcpInput(params, mcpClient));
+  handle('mcp/input/settle', (params) => core.settleMcpInput(params, mcpClient));
   handle('log/subscribe', async (params) => {
     subscriptions.set(params.threadId, params.fromSeq);
     try {
@@ -106,6 +109,7 @@ export function bindHostConnection(
       return;
     }
     disposed = true;
+    core.releaseMcpInputClient(mcpClient);
     release();
     subscriptions.clear();
     for (const disposable of disposables) {
