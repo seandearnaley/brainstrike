@@ -15,6 +15,7 @@ import type {
 import type { HostEvent } from './protocol.js';
 import { HostRunSnapshotSchema } from './protocol.js';
 import { createHostSdkTools } from './sdk-tools.js';
+import { settleHostToolOutputs } from './tool-artifacts.js';
 import { bindHostRunWorkspace, validateHostRunWorkspaceBinding } from './workspace-state.js';
 
 /** Provider instructions and public Memory context share the same SDK system input. */
@@ -271,6 +272,19 @@ export async function closeHostRunResources(run: HostRunState): Promise<void> {
   }
 }
 
+/**
+ * The run's admission as Core uses it: oversized tool outputs reach the model
+ * as durable artifact pages over the committed output (legacy settlement).
+ */
+export function bindHostRunAdmission(
+  run: HostRunState,
+  acquired: HostRunAdmission
+): HostRunAdmission {
+  const admission = { ...acquired, tools: settleHostToolOutputs(run, acquired.tools) };
+  run.admission = admission;
+  return admission;
+}
+
 export async function ensureHostRunAdmission(
   platform: HostPlatform,
   run: HostRunState
@@ -287,10 +301,9 @@ export async function ensureHostRunAdmission(
     await validateHostRunWorkspaceBinding(platform, request);
     return run.admission;
   }
-  run.admissionTask ??= acquireHostRunAdmission(platform, request).then((admission) => {
-    run.admission = admission;
-    return admission;
-  });
+  run.admissionTask ??= acquireHostRunAdmission(platform, request).then((acquired) =>
+    bindHostRunAdmission(run, acquired)
+  );
   return run.admissionTask;
 }
 
