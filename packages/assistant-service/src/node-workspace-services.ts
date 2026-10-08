@@ -9,7 +9,11 @@ export interface NodeWorkspaceServicesStartup {
   register(close: () => Promise<void>): Promise<void>;
   readonly signal: AbortSignal;
   readonly store: {
-    readonly lock: { readonly isReleased: boolean };
+    readonly lock: {
+      readonly isReleased: boolean;
+      /** Acquisition-time identity; the store's presentation path may be retargeted. */
+      readonly owner: { readonly root: string };
+    };
     readonly root: string;
   };
 }
@@ -92,7 +96,7 @@ class NodeWorkspaceBorrower<TDatabase> implements NodeWorkspaceServices<TDatabas
       const expected = await realpath(
         joinProfileDirectory(owner.location.rootPath, owner.location.profile)
       );
-      const acquiredRoot = await realpath(this.startup.store.root);
+      const acquiredRoot = this.startup.store.lock.owner.root;
       if (directory !== expected || directory !== acquiredRoot) {
         throw new Error('Selected profile does not belong to the acquired canonical Root.');
       }

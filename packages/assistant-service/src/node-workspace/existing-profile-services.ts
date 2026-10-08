@@ -40,7 +40,7 @@ export function openExistingNodeWorkspaceServices(
     const profileDirectory = await realpath(
       joinProfileDirectory(location.rootPath, location.profile)
     );
-    const acquiredRoot = await realpath(ownedStartup.store.root);
+    const acquiredRoot = ownedStartup.store.lock.owner.root;
     ownedStartup.signal.throwIfAborted();
     if (ownedStartup.store.lock.isReleased || profileDirectory !== acquiredRoot) {
       throw new Error('Selected profile does not belong to the acquired canonical Root.');

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
@@ -235,6 +235,43 @@ test('a different selected profile fails before catalog use and joins acquisitio
   await expect(f.open()).rejects.toThrow();
   expect(f.owner.readRoots).not.toHaveBeenCalled();
   expect(f.owner.close).toHaveBeenCalledTimes(1);
+});
+
+test('accepts a presentation alias of the captured Root identity', async () => {
+  const f = await prepare();
+  const alias = path.join(f.owner.location.rootPath, 'profile-alias');
+  await symlink(f.owner.profileDirectory, alias, 'dir');
+  const startup = { ...f.startup, store: { lock: f.lock, root: alias } };
+  const service = await openNodeWorkspaceServices(startup, async () => f.owner);
+  expect(await realpath(service.profileDirectory)).toBe(f.lock.owner.root);
+  expect(startup.store.root).not.toBe(f.lock.owner.root);
+  expect(await service.withCatalog(async (database) => database)).toBe(f.database);
+  await service.close();
+  expect(f.lock.isReleased).toBe(false);
+});
+
+test('rejects a retargeted presentation alias and joins the mismatched acquired profile', async () => {
+  const f = await prepare();
+  const alias = path.join(f.owner.location.rootPath, 'profile-alias');
+  const otherProfile = path.join(f.owner.location.rootPath, 'profiles', 'other');
+  await mkdir(otherProfile);
+  await symlink(f.owner.profileDirectory, alias, 'dir');
+  const startup = { ...f.startup, store: { lock: f.lock, root: alias } };
+  await unlink(alias);
+  await symlink(otherProfile, alias, 'dir');
+  const owner = {
+    ...f.owner,
+    location: { ...f.owner.location, profile: 'other' },
+    profileDirectory: otherProfile,
+  };
+  expect(await realpath(alias)).toBe(await realpath(otherProfile));
+  expect(f.lock.owner.root).toBe(await realpath(f.owner.profileDirectory));
+  await expect(openNodeWorkspaceServices(startup, async () => owner)).rejects.toThrow(
+    'acquired canonical Root'
+  );
+  expect(owner.close).toHaveBeenCalledTimes(1);
+  expect(owner.readRoots).not.toHaveBeenCalled();
+  expect(f.lock.isReleased).toBe(false);
 });
 
 test('Root revocation refuses fresh catalog use without releasing another owner', async () => {
