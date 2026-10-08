@@ -1663,13 +1663,58 @@ importers:
       '@brainstrike/assistant-wire':
         specifier: workspace:*
         version: link:../assistant-wire
+      '@brainstrike/canonical-ingestion':
+        specifier: workspace:*
+        version: link:../canonical-ingestion
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../db
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../effect-kit
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
+      '@brainstrike/host-lease':
+        specifier: workspace:*
+        version: link:../host-lease
+      '@brainstrike/indexer':
+        specifier: workspace:*
+        version: link:../indexer
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
+      '@brainstrike/secure-fs-native':
+        specifier: workspace:*
+        version: link:../secure-fs-native
+      '@brainstrike/sqlite-query':
+        specifier: workspace:*
+        version: link:../sqlite-query
+      '@brainstrike/state-store':
+        specifier: workspace:*
+        version: link:../state-store
+      '@brainstrike/storage':
+        specifier: workspace:*
+        version: link:../storage
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.118
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.45.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3

@@ -2,14 +2,9 @@ import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { MountedWorkspaceRoot } from './ipc-domains/workspace-root-types';
 import type { NativeIndexAuthority } from './native-index-runtime';
 
-export interface RootDataDeletionReservation {
-  assertCurrent(): void;
-  disconnect(): Promise<void>;
-  readonly mounted: MountedWorkspaceRoot;
-  release(): void;
-  retireSources(): Promise<void>;
-  run(operation: () => Promise<void>): Promise<void>;
-}
+export type { RootDataDeletionReservation } from '@brainstrike/assistant-service/node-workspace-services';
+
+import type { RootDataDeletionReservation } from '@brainstrike/assistant-service/node-workspace-services';
 
 export interface NativeCleanupOwner {
   readonly generation: number;
