@@ -34,7 +34,28 @@
       "path": "../assistant-wire"
     },
     {
+      "path": "../canonical-ingestion"
+    },
+    {
+      "path": "../db"
+    },
+    {
+      "path": "../file-system"
+    },
+    {
+      "path": "../host-lease"
+    },
+    {
       "path": "../logging"
+    },
+    {
+      "path": "../state-store"
+    },
+    {
+      "path": "../storage"
+    },
+    {
+      "path": "../types"
     },
     {
       "path": "../utils"
