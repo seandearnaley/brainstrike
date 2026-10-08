@@ -22,6 +22,9 @@
  *   the verdict.
  * - `source` prints the worktree identity only.
  * - `guard` only evaluates the contention guard; nothing is built or measured.
+ * - `sampler-control` is the sampler's positive control. It keeps a blank
+ *   page's renderer (never the measured page) busy for 3 s; the sampler must
+ *   see that renderer's CPU time advance by at least 1 s.
  *
  * `qualification` (and `guard`) refuse to start, before building, when other
  * build, lint or test work is observed. The control modes measure no gate:
@@ -116,8 +119,23 @@ export default defineConfig({
 
 // ---- Runner (only when this file is executed directly) ----
 
-type Mode = 'controls' | 'guard' | 'negative-control' | 'qualification' | 'source';
-const MODES: readonly Mode[] = ['controls', 'guard', 'negative-control', 'qualification', 'source'];
+type Mode =
+  | 'controls'
+  | 'guard'
+  | 'negative-control'
+  | 'qualification'
+  | 'sampler-control'
+  | 'source';
+const MODES: readonly Mode[] = [
+  'controls',
+  'guard',
+  'negative-control',
+  'qualification',
+  'sampler-control',
+  'source',
+];
+/** The sampler positive control keeps a blank page's renderer busy this long. */
+const SAMPLER_CONTROL_BUSY_MS = 3000;
 /** Must match the page's injected error (committed-assistant-production-benchmark.tsx). */
 const NEGATIVE_CONTROL_ERROR = 'BST-1929 negative control: injected execution error';
 const MIDRUN_CONTROL_ARGV = ['biome', 'check', '--bst1929-midrun-contention-control'];
@@ -516,6 +534,31 @@ async function buildAndMeasure(args: Args) {
   }
 }
 
+/**
+ * Sampler positive control: the same Playwright Chromium, a blank page (never
+ * the measured page) whose renderer is kept busy, so its CPU time must advance.
+ */
+async function busyRendererControl() {
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext({ viewport: VIEWPORT });
+    const page = await context.newPage();
+    await page.goto('about:blank');
+    const busyMs = await page.evaluate((duration) => {
+      const start = performance.now();
+      while (performance.now() - start < duration) {
+        // Busy on purpose: the renderer's CPU time must advance.
+      }
+      return performance.now() - start;
+    }, SAMPLER_CONTROL_BUSY_MS);
+    await context.close();
+    return { browserVersion: browser.version(), busyMs };
+  } finally {
+    await browser.close();
+  }
+}
+
 /** The sampler runs from before the build until after the browser closes, then is joined. */
 async function sampledRun(args: Args) {
   await mkdir(args.out, { recursive: true });
@@ -523,10 +566,15 @@ async function sampledRun(args: Args) {
   const sampler = await startSampler(samplesFile);
   let dummy: number | undefined;
   let outcome: Awaited<ReturnType<typeof buildAndMeasure>> | undefined;
+  let busy: Awaited<ReturnType<typeof busyRendererControl>> | undefined;
   let failure: unknown;
   try {
     dummy = args.injectContention ? startContentionDummy() : undefined;
-    outcome = await buildAndMeasure(args);
+    if (args.mode === 'sampler-control') {
+      busy = await busyRendererControl();
+    } else {
+      outcome = await buildAndMeasure(args);
+    }
   } catch (error) {
     failure = error;
   } finally {
@@ -539,7 +587,7 @@ async function sampledRun(args: Args) {
     .split('\n')
     .filter(Boolean)
     .map((line) => JSON.parse(line) as Snapshot);
-  return { dummy, failure, joined, outcome, sampler, samplesFile, snapshots };
+  return { busy, dummy, failure, joined, outcome, sampler, samplesFile, snapshots };
 }
 
 type SampledRun = Awaited<ReturnType<typeof sampledRun>>;
@@ -552,6 +600,9 @@ function exitCodeFor(
   samplerOk: boolean,
   contended: boolean
 ): number {
+  if (args.mode === 'sampler-control') {
+    return run.failure === undefined && samplerOk ? 0 : 2;
+  }
   const measured = run.outcome?.measured;
   const measuredCode =
     run.failure === undefined && measured ? exitCodeOf(args.mode, measured.results, judgements) : 2;
@@ -559,6 +610,24 @@ function exitCodeFor(
     return 2;
   }
   return contended ? 4 : measuredCode;
+}
+
+/**
+ * The sampler must always be joined. Where a renderer runs long enough to be
+ * sampled it must also be seen advancing; the short control pages only have
+ * to be joined.
+ */
+function samplerOkFor(
+  mode: Mode,
+  run: SampledRun,
+  renderers: readonly { readonly cpuSecondsAdvanced: number }[]
+): boolean {
+  const minimumAdvance = mode === 'sampler-control' ? 1 : mode === 'qualification' ? 0.01 : 0;
+  return (
+    !run.joined.stillRunning &&
+    (minimumAdvance === 0 ||
+      renderers.some((renderer) => renderer.cpuSecondsAdvanced >= minimumAdvance))
+  );
 }
 
 async function runBenchmark(): Promise<number> {
@@ -579,8 +648,7 @@ async function runBenchmark(): Promise<number> {
   const measured = run.outcome?.measured;
   const contention = contentionSummary(run.snapshots, guard.matches);
   const renderers = rendererCpu(run.snapshots);
-  const samplerOk =
-    !run.joined.stillRunning && renderers.some((renderer) => renderer.cpuSecondsAdvanced > 0);
+  const samplerOk = samplerOkFor(args.mode, run, renderers);
   const judgements = measured?.results.map(verdictOf) ?? [];
   const qualified = args.mode !== 'qualification' || source.exact;
   const code = exitCodeFor(args, run, judgements, qualified, samplerOk, contention.contended);
@@ -589,6 +657,7 @@ async function runBenchmark(): Promise<number> {
     build: run.outcome
       ? { ...run.outcome.bundle, mode: 'production', vite: viteVersion }
       : undefined,
+    busyControl: run.busy,
     exitCode: code,
     failure: run.failure === undefined ? undefined : String(run.failure),
     gate: { metric: 'unwrapped text-delta reactMs p95', thresholdMs: GATE_MS },
@@ -597,7 +666,7 @@ async function runBenchmark(): Promise<number> {
     mode: args.mode,
     runs: measured?.results ?? [],
     runtime: {
-      browser: measured?.browserVersion,
+      browser: measured?.browserVersion ?? run.busy?.browserVersion,
       cpu: cpus()[0]?.model,
       cpus: cpus().length,
       node: process.versions.node,
@@ -631,7 +700,8 @@ async function runBenchmark(): Promise<number> {
       ),
       `sampler pid ${run.sampler.pid} priority ${run.sampler.priority} snapshots ${run.snapshots.length} joined code=${run.joined.code} signal=${run.joined.signal} stillRunning=${run.joined.stillRunning}`,
       `renderers ${JSON.stringify(renderers)}`,
-      `contention ${contention.contended ? `${contention.contendedSnapshots} snapshots: ${contention.matches.map((match) => `pid ${match.pid} ${match.pattern} ${match.args}`).join(' | ')}` : 'none'}`,
+      `busy control ${run.busy ? `${run.busy.busyMs.toFixed(0)} ms` : 'not run'}`,
+      `contention atStart ${guard.matches.length}, seen in ${contention.contendedSnapshots}/${run.snapshots.length} snapshots, midRun ${contention.midRun.length}${contention.midRun.map((match) => `\n  midRun pid ${match.pid} ${match.pattern} ${match.args.slice(0, 120)}`).join('')}`,
       `bundle ${run.outcome?.bundle.digest}`,
       `source ${source.commit} tree ${source.tree} exact=${source.exact} dirty ${source.dirtyPaths.length}`,
       `raw ${file}`,
