@@ -29,7 +29,6 @@ import {
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import {
-  createPgliteAssistantThreadRepository,
   hasDurableAssistantUsageCapability,
   useAssistantThreadStore,
 } from '@brainstrike/assistant-data';
@@ -75,7 +74,6 @@ import {
   normalizeWriteBackFilePaths,
   resolveWriteBackFolderId,
 } from './assistant-selection-write-back';
-import { useAssistantThreadHost, withAssistantThreadHost } from './assistant-thread-host-context';
 import {
   buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,
@@ -111,6 +109,7 @@ import { useAssistantModelChange } from './hooks/use-assistant-model-change';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantProviderDisabledReason } from './hooks/use-assistant-provider-disabled-reason';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
+import { useAssistantThreadRepositories } from './hooks/use-assistant-thread-repositories';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useAssistantThreadRootBinding } from './hooks/use-assistant-thread-root-binding';
 import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
@@ -679,21 +678,7 @@ export function AssistantUiPanelWrapper({
       workspaceIndexingPaused,
     ]
   );
-  const assistantThreadRepository = useMemo(
-    () => (db ? createPgliteAssistantThreadRepository(db) : null),
-    [db]
-  );
-  // Forge observations walk every thread in the resource, host threads
-  // included, so only this writer routes through the host: a host thread's
-  // forgePrUrl is part of its committed binding, never a history row.
-  const threadHost = useAssistantThreadHost();
-  const forgeThreadRepository = useMemo(
-    () =>
-      assistantThreadRepository
-        ? withAssistantThreadHost(assistantThreadRepository, threadHost)
-        : null,
-    [assistantThreadRepository, threadHost]
-  );
+  const { assistantThreadRepository, forgeThreadRepository } = useAssistantThreadRepositories(db);
   const {
     desktopAssistantBackendAvailable,
     localChatTransport,
