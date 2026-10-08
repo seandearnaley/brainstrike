@@ -1,0 +1,119 @@
+import type { ToolApprovalOption, ToolCallMessagePartComponent } from '@assistant-ui/react';
+import { isCodeExecutionApprovalContext } from '@brainstrike/assistant-contract/tool-approval';
+import { Button } from '@brainstrike/ui';
+import { type ComponentProps, type ReactElement, type Ref, useState } from 'react';
+import { ApprovalPreview } from './approval-preview';
+import {
+  type ApprovalPreviewSubject,
+  resolveApprovalPreviewPolicy,
+} from './approval-preview-policy';
+
+type ToolProps = ComponentProps<ToolCallMessagePartComponent>;
+type ApprovalOptions = readonly ToolApprovalOption[] | undefined;
+
+/** The grant options: kept only when the preview can describe the call it would grant. */
+const GRANT_OPTION_KINDS = new Set(['allow-always', '_allow-session']);
+
+/**
+ * A decision's buttons: the request's own options when it carries them (the
+ * host's grants), else the plain Approve / Decline pair.
+ */
+function approvalDecisions(options: ApprovalOptions): readonly {
+  readonly approved: boolean;
+  readonly label: string;
+  readonly optionId?: string;
+}[] {
+  if (!options?.length) {
+    return [
+      { approved: true, label: 'Approve' },
+      { approved: false, label: 'Decline' },
+    ];
+  }
+  return options.map((option) => ({
+    approved: !option.kind.startsWith('reject'),
+    label: option.label ?? option.id,
+    optionId: option.id,
+  }));
+}
+
+/** The committed approval's preview subject, with its host facts when they are valid. */
+function previewSubject(tool: ToolProps): ApprovalPreviewSubject {
+  const context: unknown = tool.providerMetadata?.['brainstrike']?.['executionContext'];
+  return {
+    args: tool.args,
+    toolName: tool.toolName,
+    ...(isCodeExecutionApprovalContext(context) ? { executionContext: context } : {}),
+  };
+}
+
+/**
+ * A pending approval decision: what the call will do (the shared approval
+ * preview, as the legacy card shows it), then its answers. A code-execution
+ * call the preview cannot describe offers no grant, only Approve / Decline.
+ */
+export function ToolApprovalDecision({
+  decisionRef,
+  tool,
+}: {
+  readonly decisionRef: Ref<HTMLFieldSetElement>;
+  readonly tool: ToolProps;
+}): ReactElement | null {
+  const [responding, setResponding] = useState(false);
+  const [approvalError, setApprovalError] = useState<string>();
+  const approval = tool.approval;
+  if (
+    !approval ||
+    approval.approved !== undefined ||
+    approval.resolution !== undefined ||
+    (approval.display ?? 'decision') !== 'decision' ||
+    approval.allowFreeform
+  ) {
+    return null;
+  }
+  const subject = previewSubject(tool);
+  const suppressGrants = resolveApprovalPreviewPolicy(subject)?.suppressGrants === true;
+  const options = suppressGrants
+    ? approval.options?.filter((option) => !GRANT_OPTION_KINDS.has(option.kind))
+    : approval.options;
+  return (
+    <fieldset
+      aria-label={`Tool approval ${tool.toolName}`}
+      className="flex flex-col gap-2 px-3 pb-3"
+      ref={decisionRef}
+    >
+      <ApprovalPreview approval={subject} />
+      <div className="flex flex-wrap gap-2">
+        {approvalDecisions(options).map(({ approved, label, optionId }) => (
+          <Button
+            aria-disabled={responding || undefined}
+            aria-label={`${label} ${tool.toolName}`}
+            className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+            key={optionId ?? String(approved)}
+            // aria-disabled, not `disabled`: a disabled button drops the
+            // keyboard focus it holds. While the decision is pending the
+            // pressed control keeps focus and the guard refuses a repeat.
+            onClick={() => {
+              if (responding) {
+                return;
+              }
+              setResponding(true);
+              setApprovalError(undefined);
+              // The public runtime routes the exact committed interaction.
+              // Only the host's publication resolves or removes this card.
+              void tool
+                .respondToApproval(optionId === undefined ? { approved } : { approved, optionId })
+                .catch((cause: unknown) => {
+                  setApprovalError(cause instanceof Error ? cause.message : String(cause));
+                  setResponding(false);
+                });
+            }}
+            variant={optionId === undefined && approved ? 'default' : 'outline'}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      {approvalError === undefined ? null : <p role="alert">{approvalError}</p>}
+    </fieldset>
+  );
+}

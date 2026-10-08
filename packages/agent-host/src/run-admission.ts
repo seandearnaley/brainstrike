@@ -1,4 +1,10 @@
-import { resolvePermissionDecision } from '@brainstrike/assistant-contract';
+import { resolveRunPythonExecutionContext } from '@brainstrike/agent/tool-runtime';
+import {
+  isPermissionDenied,
+  NATIVE_TOOL_ID,
+  type PermissionToolGateSnapshot,
+  resolvePermissionDecision,
+} from '@brainstrike/assistant-contract';
 import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import type { HostRunState } from './core-state.js';
@@ -190,7 +196,11 @@ export async function acquireHostRunAdmission(
   }
   try {
     await validateHostRunWorkspaceBinding(platform, request);
-    const admission = captureHostRunAdmission(bindHostRunWorkspace(selected, request));
+    const offered = omitDeniedHostTools(
+      selected,
+      await platform.readPermissionPolicy(request.threadId)
+    );
+    const admission = captureHostRunAdmission(bindHostRunWorkspace(offered, request));
     const { snapshot, tools } = admission;
     if (
       request.snapshot &&
@@ -223,6 +233,33 @@ export async function acquireHostRunAdmission(
     }
     throw cause;
   }
+}
+
+/**
+ * A tool the saved policy explicitly denies is not offered to the model or
+ * admitted to the run. Recovery compares the result with the committed
+ * selection, so a policy changed since admission interrupts rather than
+ * substitutes.
+ */
+function omitDeniedHostTools(
+  selected: HostRunAdmission,
+  policy: PermissionToolGateSnapshot
+): HostRunAdmission {
+  const denied = new Set(
+    Object.entries(selected.tools).flatMap(([id, tool]) =>
+      isPermissionDenied(policy, tool.risk, tool.permissionToolId ?? id) ? [id] : []
+    )
+  );
+  if (denied.size === 0) {
+    return selected;
+  }
+  const kept = <T>(entries: Readonly<Record<string, T>>): Record<string, T> =>
+    Object.fromEntries(Object.entries(entries).filter(([id]) => !denied.has(id)));
+  return {
+    ...selected,
+    snapshot: { ...selected.snapshot, toolIdentities: kept(selected.snapshot.toolIdentities) },
+    tools: kept(selected.tools),
+  };
 }
 
 /** The Core retains this promise; both owners are attempted even when one join fails. */
@@ -327,8 +364,14 @@ export function hostStepInteractions(
     if (!registered) {
       throw new Error('Approval references an unknown tool');
     }
+    // As the legacy approval chunk did: run_python's card shows host facts.
+    const executionContext =
+      registered.permissionToolId === NATIVE_TOOL_ID.runPython
+        ? resolveRunPythonExecutionContext(part.toolCall.input)
+        : undefined;
     return [
       {
+        ...(executionContext ? { executionContext: jsonValue(executionContext) } : {}),
         input: jsonValue(part.toolCall.input),
         interactionId: part.approvalId,
         kind: registered.interaction?.kind ?? 'approval',
@@ -356,11 +399,7 @@ export async function hostRunToolDecision(
   }
   const snapshot = await platform.readPermissionPolicy(run.threadId);
   const permissionToolId = registered.permissionToolId ?? toolId;
-  // ADR-0010: explicit deny outranks a session grant or YOLO.
-  if (
-    snapshot.perToolOverrides?.[permissionToolId] === 'deny' ||
-    snapshot.policies[registered.risk] === 'deny'
-  ) {
+  if (isPermissionDenied(snapshot, registered.risk, permissionToolId)) {
     return 'deny';
   }
   // The run's own committed grants add to the saved policy; deny already won.

@@ -35,5 +35,6 @@ export {
 } from './stream/tool-output-limits';
 export { createAskUserTool } from './tools/ask-user-tool';
 export { guardToolExecution } from './tools/guard-tool-execution';
+export { resolveRunPythonExecutionContext } from './tools/run-python-approval-context';
 export { createSubmitPlanTool } from './tools/submit-plan-tool';
 export type { RuntimeData } from './types';
