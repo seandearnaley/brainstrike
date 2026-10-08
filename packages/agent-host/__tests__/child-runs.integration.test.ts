@@ -104,6 +104,7 @@ test('a foreground persona child runs in its own thread with narrowed tools and 
   // The parent advertises the persona's delegation tool beside its own catalog.
   expect(toolNames(parentFirst as CallOptions)).toEqual([
     'agent-explore',
+    'ask_user',
     'read_file',
     'write_file',
   ]);

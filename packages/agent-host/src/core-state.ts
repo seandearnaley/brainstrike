@@ -1,3 +1,4 @@
+import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import type { ModelMessage } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
@@ -174,6 +175,8 @@ export interface HostRunBranch {
 export interface HostRunState {
   admission?: HostRunAdmission;
   admissionTask?: Promise<HostRunAdmission>;
+  /** A child's root permission policy at admission; only its denies stay frozen (ADR-0010). */
+  admittedPolicy?: PermissionToolGateSnapshot;
   readonly approvals: Map<string, PendingInteraction>;
   readonly branch: HostRunBranch;
   readonly checkpointedResults: Set<string>;
@@ -202,6 +205,8 @@ export interface HostRunState {
   ownerClose?: Promise<void>;
   paused: boolean;
   readonly permits: Map<string, Action>;
+  /** A child's root thread, whose live permission policy governs its decisions. */
+  policyThreadId?: string;
   readonly rawInputs: Map<string, Json>;
   release?: (() => void) | undefined;
   readonly responses: Set<string>;

@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import {
+  intersectChildPermissionCeilings,
+  type PermissionToolGateSnapshot,
+} from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import type { LanguageModel } from 'ai';
@@ -35,9 +39,9 @@ export interface HostChildRunPort {
   commit(prepared: HostPreparedChild): Promise<void>;
   /** Commit only the parent's effect: a refused delegation starts no child. */
   commitEffect(): Promise<void>;
-  /** End a child's execution as failed with `detail` (its deadline expired). */
-  expire(child: HostRunState, detail: string): void;
   loop(child: HostRunState, model: LanguageModel): Promise<void>;
+  /** The live root permission policy a descendant's decisions follow. */
+  policy(threadId: string): Promise<PermissionToolGateSnapshot>;
   retainRun(): () => void;
   stop(child: HostRunState, reason: unknown): void;
   /** Whether an ID is already a committed thread or conversation identity. */
@@ -143,6 +147,8 @@ export class HostChildRuns {
   /** Child runs whose outcome reached the parent's model (the durable watermark). */
   private readonly delivered = new Set<string>();
   private readonly settlements = new Map<string, PromiseWithResolvers<void>>();
+  /** Each child run's `maxChildRuntimeMs`, captured from its delegation's settings. */
+  private readonly runtimeLimits = new Map<string, number | null>();
   /** C4: one work queue per root turn, shared by every descendant. */
   private readonly queues = new Map<string, HostChildWorkQueue>();
 
@@ -249,6 +255,9 @@ export class HostChildRuns {
     const release = port.retainRun();
     prepared.child.release = release;
     try {
+      const policy = await port.policy(prepared.child.policyThreadId ?? request.run.threadId);
+      prepared.child.admittedPolicy =
+        intersectChildPermissionCeilings(request.run.admittedPolicy, policy) ?? policy;
       await port.commit(prepared);
     } catch (cause) {
       this.settlements.delete(prepared.child.id);
@@ -258,7 +267,7 @@ export class HostChildRuns {
     }
     request.run.started.add(request.action.toolCallId);
     this.invocations.set(prepared.threadId, prepared.child.id);
-    const start = (): Promise<void> => this.execute(prepared, port);
+    const start = (): Promise<void> => port.loop(prepared.child, prepared.model);
     if (prepared.origin.background) {
       this.settlements.delete(prepared.child.id);
       prepared.child.task = start();
@@ -270,18 +279,21 @@ export class HostChildRuns {
     );
   }
 
-  /** One child execution, bounded by the user's `maxChildRuntimeMs` deadline when set. */
-  private async execute(prepared: HostPreparedChild, port: HostChildRunPort): Promise<void> {
-    const limit = prepared.settings.maxChildRuntimeMs;
-    const timer =
-      limit === null
-        ? undefined
-        : setTimeout(() => port.expire(prepared.child, `Task timed out after ${limit}ms`), limit);
-    try {
-      await port.loop(prepared.child, prepared.model);
-    } finally {
-      clearTimeout(timer);
+  /**
+   * Arms one child execution leg's `maxChildRuntimeMs` deadline: the initial
+   * leg and every approval or answer resume (G19). Expiry fails that child
+   * alone, never as a user stop; the caller clears it when the leg ends.
+   */
+  armDeadline(run: HostRunState): ReturnType<typeof setTimeout> | undefined {
+    const limit = this.runtimeLimits.get(run.id);
+    if (limit === undefined || limit === null) {
+      return;
     }
+    return setTimeout(() => {
+      const detail = `Task timed out after ${limit}ms`;
+      run.deadline = detail;
+      run.controller.abort(new Error(detail));
+    }, limit);
   }
 
   /**
@@ -394,7 +406,13 @@ export class HostChildRuns {
       queue = new HostChildWorkQueue(delegation.settings.maxConcurrentWork);
       this.queues.set(turnId, queue);
     }
-    const childAdmission = deriveHostChildAdmission(admission, persona, delegation.settings, queue);
+    const childAdmission = deriveHostChildAdmission(
+      admission,
+      persona,
+      delegation,
+      queue,
+      origin.depth
+    );
     const threadId = randomUUID();
     const started: Started = {
       modelId: run.modelId,
@@ -417,6 +435,9 @@ export class HostChildRuns {
     child.origin = origin;
     // A child runs under its parent's admitting client transport (desktop-ui or public-socket).
     child.clientOrigin = run.clientOrigin;
+    // Root policy governs every descendant (ADR-0010); only admitted denies are frozen.
+    child.policyThreadId = run.policyThreadId ?? run.threadId;
+    this.runtimeLimits.set(child.id, delegation.settings.maxChildRuntimeMs);
     child.admission = childAdmission;
     const settled = Promise.withResolvers<void>();
     this.settlements.set(child.id, settled);

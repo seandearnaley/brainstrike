@@ -580,11 +580,8 @@ export class HostCore {
         recordHostConversationId(this.conversationIds, child.id);
       },
       commitEffect: () => this.append(run.threadId, [action]).then(() => undefined),
-      expire: (child, detail) => {
-        child.deadline = detail;
-        child.controller.abort(new Error(detail));
-      },
       loop: (child, model) => this.loop(child, model),
+      policy: async (threadId) => await this.platform.readPermissionPolicy(threadId),
       retainRun: this.retainRun,
       stop: (child, reason) => {
         if (!this.closing) {
@@ -627,6 +624,7 @@ export class HostCore {
     const ancestors = hostRunAncestors(this.runs, run);
     let recordedInputLength = initialMessages.length;
     let historyPrepared = false;
+    const deadline = this.children.armDeadline(run);
     try {
       const owner = await this.openRun(run);
       const admission = await ensureHostRunAdmission(this.platform, run);
@@ -715,6 +713,7 @@ export class HostCore {
       interrupted = cause instanceof ApprovalInputReconstructionError;
       failed = cause instanceof Error ? cause.message : String(cause);
     }
+    clearTimeout(deadline);
     if (checkpointFailure !== undefined) {
       throw checkpointFailure;
     }

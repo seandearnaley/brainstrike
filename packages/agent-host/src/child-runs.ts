@@ -5,6 +5,7 @@
  * admission, and the result the parent's model reads.
  */
 import { createHash } from 'node:crypto';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import {
   type AssistantPersonaDefinition,
   delegationDescriptionForPersona,
@@ -129,24 +130,28 @@ export function withHostDelegationTools(
 
 /**
  * The child's authority: the parent's admitted executors narrowed by the
- * persona. A read-only persona keeps only its declared read-risk tools and
- * never delegates or asks the user (BST-1932 S1; workers arrive in S3).
+ * persona (the shipped selectCandidateTools rule). A read-only persona keeps
+ * only its declared read-risk tools; a worker keeps its declared tools, or with
+ * a sole `*` every parent tool. Task-list state stays the parent's, and
+ * delegation tools are granted by depth, never inherited.
  */
 export function narrowHostChildTools(
   parent: Readonly<Record<string, HostTool>>,
   persona: AssistantPersonaDefinition
 ): Record<string, HostTool> {
-  if (personaMode(persona) !== 'read-only') {
-    throw new Error(`Persona "${persona.id}" is not a read-only persona`);
-  }
+  const worker = personaMode(persona) === 'worker';
+  const wildcard = worker && persona.allowedToolIds[0] === '*';
   const allowed = new Set(persona.allowedToolIds);
   return Object.fromEntries(
-    Object.entries(parent).filter(
-      ([id, tool]) =>
-        !(tool.delegation || tool.interaction) &&
-        tool.risk === 'read' &&
-        allowed.has(tool.permissionToolId ?? id)
-    )
+    Object.entries(parent).filter(([id, tool]) => {
+      const canonical = tool.permissionToolId ?? id;
+      if (tool.delegation || canonical === NATIVE_TOOL_ID.manageTaskList) {
+        return false;
+      }
+      return worker
+        ? wildcard || allowed.has(canonical)
+        : tool.risk === 'read' && allowed.has(canonical);
+    })
   );
 }
 
@@ -193,16 +198,32 @@ function queuedHostTools(
 export function deriveHostChildAdmission(
   parent: HostRunAdmission,
   persona: AssistantPersonaDefinition,
-  settings: RuntimeSubagentSettings,
-  queue: HostChildWorkQueue
+  delegation: HostDelegation,
+  queue: HostChildWorkQueue,
+  depth: number
 ): HostRunAdmission {
-  const tools = narrowHostChildTools(parent.tools, persona);
+  const { settings } = delegation;
+  const narrowed = narrowHostChildTools(parent.tools, persona);
+  // AT-21: only workers delegate onward, and only while above the depth limit.
+  const delegates = personaMode(persona) === 'worker' && depth < settings.maxDepth;
+  const tools = {
+    ...queuedHostTools(narrowed, queue),
+    ...(delegates ? createHostDelegationTools(delegation) : {}),
+  };
   const maxSteps = effectiveChildStepBudget(persona, settings);
+  // The shipped child instructions: a read-only persona also names its tools.
+  const instructions =
+    personaMode(persona) === 'worker' || Object.keys(narrowed).length === 0
+      ? persona.instructions
+      : `${persona.instructions}\n\nAvailable tools: ${Object.entries(narrowed)
+          .map(([id, tool]) => tool.permissionToolId ?? id)
+          .join(', ')}.`;
   const system = (provided: string | undefined): string =>
-    [persona.instructions, provided].filter(Boolean).join('\n\n');
+    [instructions, provided].filter(Boolean).join('\n\n');
   const provider = parent.provider;
   return {
     configuration: parent.configuration,
+    ...(delegates ? { delegation } : {}),
     model: parent.model,
     provider: {
       prepare: async (request) => {
@@ -242,7 +263,7 @@ export function deriveHostChildAdmission(
         ? { workspaceBinding: parent.snapshot.workspaceBinding }
         : {}),
     },
-    tools: queuedHostTools(tools, queue),
+    tools,
   };
 }
 
