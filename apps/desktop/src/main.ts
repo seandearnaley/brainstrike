@@ -9,6 +9,7 @@ import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract
 import { createMainLlmHostClient } from '@brainstrike/assistant-service/ports';
 import { recoverInterruptedDimensionIndexMaintenanceAtStartup } from '@brainstrike/db';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import { purgeMcpOAuthRuntimeState } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import type { ProfileResetLease } from '@brainstrike/host-lease';
 import {
@@ -193,7 +194,6 @@ import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-shell-protocol';
 import { createDesktopMcpPlatformCapabilities } from './mcp/desktop-host-platform';
 import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
-import { purgeMcpOAuthRuntimeState } from './mcp/oauth-client-provider';
 import { createNativeCallerRead } from './native-caller-query';
 import { createNativeIndexActivation } from './native-index-activation';
 import { reportNativeIndexActivationError as reportNativeIndexFailure } from './native-index-activation-error';

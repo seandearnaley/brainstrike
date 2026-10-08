@@ -2,11 +2,11 @@ import {
   type CollectCombinedToolsResult,
   collectCombinedTools,
 } from '@brainstrike/agent/mcp-client';
-import { createProviderCredentialReader } from '@brainstrike/host-capabilities/provider-credentials';
 import {
   type AgentHostAdapterCapabilities,
   createAgentHostAdapterServicesFactory,
-} from './adapter-services';
+} from '@brainstrike/host-capabilities/mcp/adapter-services';
+import { createProviderCredentialReader } from '@brainstrike/host-capabilities/provider-credentials';
 
 /** Bind the existing collector and credential policy once for the root composition. */
 export function createProductionAgentHostAdapterServicesFactory(

@@ -1,10 +1,13 @@
-import type { McpBearerCredentialAuthority } from './bearer-credential';
+import type { McpBearerCredentialAuthority } from '@brainstrike/host-capabilities/mcp/bearer-credential';
+import {
+  McpHostRuntime,
+  type McpHostRuntimeDependencies,
+} from '@brainstrike/host-capabilities/mcp/node-host-runtime';
+import type { McpOAuthStore } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import { createDesktopMcpHostPlatform } from './desktop-host-platform';
-import { McpHostRuntime, type McpHostRuntimeDependencies } from './node-host-runtime';
-import type { McpOAuthStore } from './oauth-client-provider';
 import { RemoteMcpRuntime } from './remote-runtime';
 
-export type { ExplicitClient } from './host-connection';
+export type { ExplicitClient } from '@brainstrike/host-capabilities/mcp/host-connection';
 
 /** Compatibility composition root for the existing desktop singleton and test seams. */
 export interface DesktopMcpHostRuntimeDependencies extends McpHostRuntimeDependencies {

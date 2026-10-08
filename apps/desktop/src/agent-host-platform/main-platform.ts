@@ -52,7 +52,6 @@ export interface DesktopPlatformCapabilities {
   readonly localEmbedding?: Pick<EmbeddingHostManager, 'queryEmbedding'>;
   /** ADR-0007: Main's hidden llm-host, borrowed by a thread's admitted local observer. */
   readonly localLlm?: LocalLlmHostClient;
-  /** The Node host's MCP runtime reaches Main's remaining MCP stores through these. */
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;

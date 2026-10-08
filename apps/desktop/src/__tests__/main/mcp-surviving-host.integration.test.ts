@@ -7,11 +7,11 @@ import {
   startStatefulMcpHostServer,
 } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
-import { describe, expect, test } from 'vitest';
 import {
   createSecretsMcpBearerCredentialAuthority,
   mcpBearerCredentialStorageKey,
-} from '../../mcp/bearer-credential';
+} from '@brainstrike/host-capabilities/mcp/bearer-credential';
+import { describe, expect, test } from 'vitest';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { runProductionMcpConformanceClient } from '../../mcp/official-conformance-client';
 

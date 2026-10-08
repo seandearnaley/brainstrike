@@ -12,11 +12,11 @@ import {
   DEFAULT_PERMISSION_POLICIES,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
+import { createAgentHostAdapterServicesFactory } from '@brainstrike/host-capabilities/mcp/adapter-services';
+import { mcpBearerCredentialStorageKey } from '@brainstrike/host-capabilities/mcp/bearer-credential';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { createAgentHostAdapterServicesFactory } from '../agent-host-platform/adapter-services';
-import { mcpBearerCredentialStorageKey } from '../mcp/bearer-credential';
 import { fixtureCapabilities, fixtureToolRequest } from './fixtures/agent-host-adapter-fixture';
 
 const roots = new Set<string>();

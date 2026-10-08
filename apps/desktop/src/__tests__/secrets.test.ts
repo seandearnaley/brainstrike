@@ -27,7 +27,7 @@ import {
 import {
   createSecretsMcpBearerCredentialAuthority,
   mcpBearerCredentialStorageKey,
-} from '../mcp/bearer-credential';
+} from '@brainstrike/host-capabilities/mcp/bearer-credential';
 import {
   createSafeStorageLegacySecretSource,
   desktopCredentialStoreSelection,

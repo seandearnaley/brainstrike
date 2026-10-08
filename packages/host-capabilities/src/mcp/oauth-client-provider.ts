@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { addAbortListener } from 'node:events';
+import type { OAuthClientProvider } from '@brainstrike/agent/mcp-client';
 import {
   joinCredentialCleanup,
   observeCredentialCancellation,
@@ -10,24 +11,23 @@ import {
   type FetchLike,
   type OAuthClientInformationContext,
   type OAuthClientMetadata,
-  type OAuthClientProvider,
   type OAuthDiscoveryState,
   resourceUrlFromServerUrl,
   type StoredOAuthClientInformation,
   type StoredOAuthTokens,
   validateClientMetadataUrl,
 } from '@modelcontextprotocol/client';
-import { McpLifecycleFailure } from './lifecycle-errors';
+import { McpLifecycleFailure } from './lifecycle-errors.js';
 import {
   persistedClientSupportsRedirect,
   reportLoopbackListenerBound,
   reportStaleDynamicClientRegistration,
-} from './oauth-client-registration';
+} from './oauth-client-registration.js';
 import {
   DEFAULT_CALLBACK_PATH,
   type LoopbackCallback,
   startLoopbackCallback,
-} from './oauth-loopback-callback';
+} from './oauth-loopback-callback.js';
 
 const MAX_DATE_EPOCH_MS = 8_640_000_000_000_000;
 const MIN_LOOPBACK_PORT = 1;
