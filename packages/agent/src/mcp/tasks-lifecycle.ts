@@ -2,8 +2,8 @@ import type {
   McpTaskAuthorityLease,
   McpTaskIdentity,
   McpTaskRecord,
-  McpTaskRepository,
   McpTaskScope,
+  McpTaskStore,
 } from '@brainstrike/db';
 import { McpTaskMetadataTooLargeError } from '@brainstrike/db';
 import type { CreateTaskResult, GetTaskResult } from '@brainstrike/mcp-tasks-extension';
@@ -86,7 +86,7 @@ export interface McpTaskLifecycleOptions {
   readonly limits?: McpTaskLifecycleLimits;
   readonly observationPort?: McpTaskObservationPort;
   readonly onUpdate: (record: McpTaskRecord) => Promise<void> | void;
-  readonly repository: McpTaskRepository;
+  readonly repository: McpTaskStore;
 }
 
 interface ActiveTask {
@@ -193,7 +193,7 @@ export class McpTaskLifecycle {
   private readonly pendingCreates = new Set<Promise<McpTrackedTask>>();
   private readonly observationPort: McpTaskObservationPort | undefined;
   private readonly pollWaiters: PollWaiter[] = [];
-  private readonly repository: McpTaskRepository;
+  private readonly repository: McpTaskStore;
   private readonly scope: McpTaskScope;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private readonly releaseObservationAuthority: (() => void) | undefined;
@@ -219,8 +219,11 @@ export class McpTaskLifecycle {
     });
   }
 
-  /** Every failure, including a stopped lifecycle or an aborted caller signal, is a rejection. */
-  track(task: CreateTaskResult, signal?: AbortSignal): Promise<McpTrackedTask> {
+  /**
+   * Every failure, including a stopped lifecycle or an aborted caller signal, is a rejection.
+   * `threadId` is the host thread whose run created the task, when one did.
+   */
+  track(task: CreateTaskResult, signal?: AbortSignal, threadId?: string): Promise<McpTrackedTask> {
     let operation: Promise<McpTrackedTask>;
     try {
       this.requireOpen(signal);
@@ -229,7 +232,7 @@ export class McpTaskLifecycle {
       if (this.active.has(task.taskId)) {
         throw new Error(`MCP task "${task.taskId}" is already tracked by this lifecycle.`);
       }
-      operation = this.persistAndStart(task, signal);
+      operation = this.persistAndStart(task, signal, threadId);
     } catch (cause) {
       return Promise.reject(cause);
     }
@@ -240,11 +243,15 @@ export class McpTaskLifecycle {
 
   private async persistAndStart(
     task: CreateTaskResult,
-    signal: AbortSignal | undefined
+    signal: AbortSignal | undefined,
+    threadId: string | undefined
   ): Promise<McpTrackedTask> {
     const timing = readMcpTaskTiming(task);
     const identity = this.identity(task.taskId);
-    const record = await this.createRecord(identity, task);
+    const record = await this.createRecord(
+      threadId === undefined ? identity : { ...identity, threadId },
+      task
+    );
     this.requireOpen(signal);
     return this.start(record, timing, signal);
   }
@@ -600,7 +607,7 @@ export class McpTaskLifecycle {
   }
 
   private async createRecord(
-    identity: McpTaskIdentity,
+    identity: McpTaskIdentity & { readonly threadId?: string },
     task: CreateTaskResult
   ): Promise<McpTaskRecord> {
     try {

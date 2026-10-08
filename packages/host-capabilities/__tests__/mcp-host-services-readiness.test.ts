@@ -57,7 +57,7 @@ it('composes the MCP runtime before a configured server inspects its credential'
     mcpConfiguration: config,
     oauthStore,
     openExternal: async () => undefined,
-    openTaskDatabase: async () => {
+    openTaskStorage: async () => {
       throw new Error('No Tasks database is opened in this test.');
     },
     startup: { signal: new AbortController().signal },

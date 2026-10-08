@@ -30,7 +30,7 @@ function platform(appUi: McpHostRuntimePlatform['appUi']): McpHostRuntimePlatfor
     openExternal: vi.fn(async () => {
       throw new Error('No browser authorization in this local fixture');
     }),
-    openTaskDatabase: vi.fn(async () => {
+    openTaskStorage: vi.fn(async () => {
       throw new Error('This core fixture advertises no Tasks');
     }),
   };
@@ -101,7 +101,7 @@ describe('configured-server MCP authority with injected Node platform', () => {
         });
         // A host run's execution capability reaches the presenter's operation authority.
         const runWithOperation = vi.spyOn(runtime.elicitationPresenter, 'runWithOperation');
-        const execution = { bindTask: vi.fn(), requestInput: vi.fn() };
+        const execution = { bindTask: vi.fn(), requestInput: vi.fn(), threadId: 'thread-1' };
         await expect(
           runtime.host.invoke(
             {
@@ -137,7 +137,7 @@ describe('configured-server MCP authority with injected Node platform', () => {
         await runtime.setMcpExtensionPreferences({ apps: true, tasks: true });
         expect(runtime.host.snapshot().servers[0]?.generation).toBe(1);
         expect(injected.openExternal).not.toHaveBeenCalled();
-        expect(injected.openTaskDatabase).not.toHaveBeenCalled();
+        expect(injected.openTaskStorage).not.toHaveBeenCalled();
         expect(await runtime.host.close()).toMatchObject({ clientsClosed: 1, failures: [] });
       } finally {
         await runtime.host.close();

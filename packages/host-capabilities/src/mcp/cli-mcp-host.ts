@@ -15,6 +15,7 @@ import {
   identityKey,
   parseRecords,
 } from './oauth-client-provider.js';
+import { stateStoreMcpTaskStorage } from './state-store-task-storage.js';
 
 export class CliMcpCapabilityUnavailableError extends Error {
   readonly code = 'mcp-cli-capability-unavailable';
@@ -49,7 +50,7 @@ function refuseEncryptedValues(config: ResolvedMcpConfig): void {
 export async function createCliMcpHost(options: {
   readonly configPath: string;
   readonly credentials: HostCredentials;
-  readonly startup: Pick<HostStartupContext, 'signal'>;
+  readonly startup: Pick<HostStartupContext, 'signal' | 'store'>;
 }): Promise<McpHostServices> {
   const { config } = parseMcpConfigValue(JSON.parse(await readFile(options.configPath, 'utf8')));
   refuseEncryptedValues(config);
@@ -78,11 +79,7 @@ export async function createCliMcpHost(options: {
         'Browser authorization is unavailable on a standalone host'
       );
     },
-    openTaskDatabase: async () => {
-      throw new CliMcpCapabilityUnavailableError(
-        'MCP Tasks are unavailable on a standalone host until host-owned Tasks storage lands'
-      );
-    },
+    openTaskStorage: async () => stateStoreMcpTaskStorage(options.startup.store),
     startup: options.startup,
   });
 }

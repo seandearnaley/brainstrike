@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { attachAgentHost, type HostClient } from '@brainstrike/agent-host/client';
 import { foldHostRuns, type HostRunView } from '@brainstrike/agent-host/thread-view';
 import { decodeHostRecord } from '@brainstrike/host-lease';
@@ -21,16 +22,49 @@ export interface AgentHostLogSummary {
  * Reads the running app's committed agent-host log through its public client,
  * found by the host record the app publishes under its user-data directory.
  */
-async function attachAppHost(userDataDir: string): Promise<HostClient> {
+async function hostRecordPath(userDataDir: string): Promise<string> {
   const entries = await readdir(userDataDir, { recursive: true });
   const match = entries.find((entry) => path.basename(String(entry)) === 'host.json');
   if (!match) {
     throw new Error(`No host.json under ${userDataDir}`);
   }
+  return path.join(userDataDir, String(match));
+}
+
+async function attachAppHost(userDataDir: string): Promise<HostClient> {
   const record = decodeHostRecord(
-    JSON.parse(await readFile(path.join(userDataDir, String(match)), 'utf8'))
+    JSON.parse(await readFile(await hostRecordPath(userDataDir), 'utf8'))
   );
   return attachAgentHost(record);
+}
+
+/** One committed MCP Tasks row in the host Root's StateStore. */
+export interface CommittedMcpTask {
+  readonly status: string;
+  readonly taskId: string;
+  readonly threadId: string | null;
+}
+
+/** The host Root's committed MCP Tasks rows, read-only beside its record. */
+export async function readCommittedMcpTasks(
+  userDataDir: string
+): Promise<readonly CommittedMcpTask[]> {
+  const root = path.dirname(await hostRecordPath(userDataDir));
+  const db = new DatabaseSync(path.join(root, 'state.db'), { readOnly: true });
+  try {
+    return db
+      .prepare(
+        'SELECT task_id, thread_id, status FROM brainstrike_mcp_tasks ORDER BY created_at, task_id'
+      )
+      .all()
+      .map((row) => ({
+        status: String(row['status']),
+        taskId: String(row['task_id']),
+        threadId: row['thread_id'] === null ? null : String(row['thread_id']),
+      }));
+  } finally {
+    db.close();
+  }
 }
 
 /** A thread's committed runs, oldest first, folded from its host log. */
