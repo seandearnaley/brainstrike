@@ -10,7 +10,7 @@ import {
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import questionRecording from '@brainstrike/test-utils/fixtures/committed-host-question.json';
 import { afterEach, expect, test, vi } from 'vitest';
-import { createWindowThreadCapability } from '../renderer/desktop-host-thread-provider';
+import { createWindowThreadCapability } from '../renderer/desktop-host-thread-capability';
 // Original thread creation rows from the ordinary app-owned SQLite GUI receipt.
 import richRecording from './fixtures/committed-app-owned-host-thread.json';
 
@@ -46,7 +46,10 @@ function fixture() {
       HOST_RESULT_SCHEMAS[method].parse(await request(method, params)) as HostResults[Method],
   };
   connect.mockResolvedValue(client);
-  return { capability: createWindowThreadCapability(), request };
+  return {
+    capability: createWindowThreadCapability((host, threadId) => (host ? threadId : undefined)),
+    request,
+  };
 }
 
 afterEach(async () => {
