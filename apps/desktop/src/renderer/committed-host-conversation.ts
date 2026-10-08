@@ -5,7 +5,10 @@ import {
   type CommittedAssistantCommands,
   CommittedAssistantLogStore,
 } from '@brainstrike/assistant-ui';
+import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
+
+const logger = createLogger('CommittedHostConversation');
 
 export interface CommittedHostConversation {
   /** Release this view's subscription; the client/root host belongs to its caller. */
@@ -102,7 +105,11 @@ export function createCommittedHostConversation(options: {
   const disconnect = source.connect();
   return {
     close: () => {
-      disconnect();
+      // The client outlives this view, so the unsubscribe is not joined here;
+      // its refusal is reported, never swallowed.
+      disconnect().catch((error: unknown) => {
+        logger.error('Committed conversation unsubscribe failed', { error, threadId });
+      });
       store.dispose();
     },
     commands,
