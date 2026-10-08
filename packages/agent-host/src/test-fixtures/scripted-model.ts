@@ -17,10 +17,13 @@ export function scriptedModel(toolId?: string): MockLanguageModelV4 {
 }
 
 export function scriptedToolSequence(
-  calls: readonly { readonly toolId: string; readonly input: unknown }[]
+  calls: readonly { readonly toolId: string; readonly input: unknown }[],
+  /** Every request, as the provider received it, when the test reads them. */
+  prompts?: Parameters<MockLanguageModelV4['doStream']>[0]['prompt'][]
 ): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     doStream: async (options) => {
+      prompts?.push(options.prompt);
       const latestUser = options.prompt.findLastIndex((message) => message.role === 'user');
       const completed = new Set(
         options.prompt
