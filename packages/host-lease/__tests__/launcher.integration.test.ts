@@ -139,3 +139,44 @@ test('the shared startup deadline bounds an injected starter and supplies its ab
     await observed;
   }
 });
+
+test('waits for an exiting owner to release the root, then starts a host instead of failing', async () => {
+  const root = await freshRoot();
+  // An exiting host has removed its record and still holds the root while its store closes.
+  const exiting = await RootLock.acquire(root);
+  let started = 0;
+  const launching = launchHost(root, {
+    lifetime: 'cli',
+    spawn: async (options) => {
+      hosts.push(await startHost(options));
+      started += 1;
+    },
+  });
+  await new Promise<void>((resolve) => setTimeout(resolve, 100));
+  expect(started).toBe(0);
+  exiting.release();
+  const attachment = await launching;
+  clients.push(attachment);
+  expect(started).toBe(1);
+  expect(attachment.record.pid).toBe(process.pid);
+});
+
+test('a root that stays held past the startup deadline is still refused, bounded', async () => {
+  const root = await freshRoot();
+  const held = await RootLock.acquire(root);
+  try {
+    let started = false;
+    await expect(
+      launchHost(root, {
+        lifetime: 'cli',
+        spawn: async () => {
+          started = true;
+        },
+        startupTimeoutMs: 100,
+      })
+    ).rejects.toBeInstanceOf(LiveHostUnavailableError);
+    expect(started).toBe(false);
+  } finally {
+    held.release();
+  }
+});
