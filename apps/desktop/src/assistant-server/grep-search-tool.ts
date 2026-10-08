@@ -9,9 +9,6 @@ import {
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { GrepMatch, GrepSearchResult, LineMatcher } from '@brainstrike/db';
 import { createGrepLineMatcher, FileChunkRepository, GrepSearchService } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/logging';
-import { getDatabase } from '../db-main';
-import { resolveGrepFilePaths } from './grep-file-paths';
 import {
   type GrepContentToolResult,
   type GrepFileSummary,
@@ -21,7 +18,10 @@ import {
   type LabeledGrepMatch,
   type ModelFacingGrepMatch,
   parseGrepToolResult,
-} from './grep-search-result-contract';
+} from '@brainstrike/host-capabilities/native-tools';
+import { createLogger } from '@brainstrike/logging';
+import { getDatabase } from '../db-main';
+import { resolveGrepFilePaths } from './grep-file-paths';
 import { resolveZeroMatchProbeNote, type ZeroMatchProbeCount } from './grep-zero-match-probes';
 import { type LiveGrepResult, probeExcludedPathMatches, runLiveGrep } from './live-grep';
 import {

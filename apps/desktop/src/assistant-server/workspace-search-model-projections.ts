@@ -14,21 +14,19 @@ import {
   clipProjectionEnd as clipEnd,
   decodedWorkspaceTextModelOutputChars as decodedChars,
   escapeProjectionPathLineBreaks,
-  isNonNegativeInteger,
-  isPositiveInteger,
-  isRecord,
-  makeWorkspaceTextModelOutput as makeTextModelOutput,
-  projectionSingleLine as singleLine,
-  type WorkspaceTextModelOutput,
-} from '@brainstrike/host-capabilities/native-tools';
-import {
   type GrepFileSummary,
   type GrepMatchSource,
   type GrepToolResult,
   grepProjectionHeaderPrefix,
+  isNonNegativeInteger,
+  isPositiveInteger,
+  isRecord,
   type ModelFacingGrepMatch,
+  makeWorkspaceTextModelOutput as makeTextModelOutput,
   parseGrepToolResult,
-} from './grep-search-result-contract';
+  projectionSingleLine as singleLine,
+  type WorkspaceTextModelOutput,
+} from '@brainstrike/host-capabilities/native-tools';
 
 export type WorkspaceSearchTextModelOutput = WorkspaceTextModelOutput;
 

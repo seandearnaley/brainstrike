@@ -10,6 +10,9 @@ import {
   decodedPersistedModelOutputChars,
   decodedWorkspaceTextModelOutputChars,
   escapeProjectionPathLineBreaks,
+  type GrepToolResult,
+  grepProjectionHeaderPrefix,
+  parseGrepToolResult,
   projectReadWorkspaceFileModelOutput,
   type RecencyPruneInvocation,
   readProjectionHeaderPrefix,
@@ -24,11 +27,6 @@ import {
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import { getDatabase } from '../db-main';
-import {
-  type GrepToolResult,
-  grepProjectionHeaderPrefix,
-  parseGrepToolResult,
-} from './grep-search-result-contract';
 import {
   commitProjectionRewriteCandidates,
   listPriorInvocations,

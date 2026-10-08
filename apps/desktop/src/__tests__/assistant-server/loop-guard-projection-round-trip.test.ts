@@ -4,16 +4,13 @@ import {
   resolveScaledToolResultBudget,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
+import type { GrepFileSummary, GrepToolResult } from '@brainstrike/host-capabilities/native-tools';
 import {
   buildRepeatedCallRefusalResult,
   resetToolCallLoopGuards,
   withRepeatedCallGuard,
 } from '@brainstrike/host-capabilities/native-tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  GrepFileSummary,
-  GrepToolResult,
-} from '../../assistant-server/grep-search-result-contract';
 import {
   projectGlobWorkspaceModelOutput,
   projectGrepSearchModelOutput,

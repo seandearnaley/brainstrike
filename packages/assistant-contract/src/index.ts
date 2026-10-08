@@ -26,6 +26,7 @@ export {
 } from './delegation-limits.js';
 export * from './edit-checkpoints.js';
 export * from './file-mention-directive.js';
+export * from './grep-match.js';
 export * from './guarded-tool-error.js';
 export * from './hook-trust-request.js';
 export * from './lenses.js';
