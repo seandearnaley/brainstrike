@@ -111,13 +111,7 @@ const openQuery = () => {
   const pending = SqliteQueryClient.open({
     databasePath: dbPath,
     deadlineMs: 5000,
-    spawn: () =>
-      spawnQueryProcess({
-        executable: process.env.SQLITE_QUERY_TEST_EXEC_PATH ?? process.execPath,
-        ...(process.env.SQLITE_QUERY_TEST_EXEC_PATH
-          ? { environment: { ELECTRON_RUN_AS_NODE: '1' } }
-          : {}),
-      }),
+    spawn: () => spawnQueryProcess({ executable: process.execPath }),
     startupDeadlineMs: 5000,
   })
     .then((client) => {
