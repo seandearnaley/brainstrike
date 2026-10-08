@@ -110,6 +110,8 @@ function bindingPatch(metadata: AssistantThreadMetadata): ThreadWorkspaceBinding
 export function createWindowThreadCapability(
   renderThread: (view: {
     readonly catalogLoaded: boolean;
+    /** BST-1932: a child thread's call sign; absent for a top-level thread. */
+    readonly childCallSign: string | undefined;
     readonly host: HostClient | undefined;
     readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
     readonly onTitleCommitted: () => void;
@@ -133,6 +135,7 @@ export function createWindowThreadCapability(
   let closing: Promise<void> | undefined;
   let catalogLoaded = false;
   const threads = new Map<string, HostClient>();
+  const childCallSigns = new Map<string, string>();
   const close = (): Promise<void> => {
     const admitted = connecting;
     closing ??= (async () => {
@@ -201,6 +204,27 @@ export function createWindowThreadCapability(
     return host;
   };
   return {
+    // BST-1932: a listed child is driven through its parent's host client.
+    childThreads: async (threadId) => {
+      const host = await threadClient(threadId);
+      if (!host) {
+        throw new Error('This thread is not owned by the agent host');
+      }
+      return (await host.request('thread/children', { threadId })).children.map(
+        ({ callSign, color, origin, threadId: child }) => {
+          threads.set(child, host);
+          childCallSigns.set(child, callSign);
+          return {
+            callSign,
+            color,
+            parentRunId: origin.parentRunId,
+            persona: origin.persona,
+            threadId: child,
+            toolCallId: origin.toolCallId,
+          };
+        }
+      );
+    },
     createThread: async (resourceId) => {
       const host = await client();
       const { threadId } = await host.request('thread/start', { commandId: crypto.randomUUID() });
@@ -248,6 +272,7 @@ export function createWindowThreadCapability(
     renderThread: (threadId, _isVisible, onRunningChange) =>
       renderThread({
         catalogLoaded,
+        childCallSign: childCallSigns.get(threadId),
         host: threads.get(threadId),
         ledger,
         onRunningChange,
@@ -255,6 +280,33 @@ export function createWindowThreadCapability(
         runs,
         threadId,
       }),
+    // The child's own committed origin authorizes a restored tab address; its
+    // parent's listing presents it.
+    resolveChildThread: async (threadId) => {
+      const host = await client();
+      const { rows } = await host.request('thread/read', { fromSeq: 0, threadId });
+      const started = rows.find((row) => row.event.type === 'thread.started')?.event;
+      if (!(started?.type === 'thread.started' && 'origin' in started)) {
+        throw new Error('The child conversation is missing or does not belong to this workspace.');
+      }
+      const { children } = await host.request('thread/children', {
+        threadId: started.origin.parentThreadId,
+      });
+      const child = children.find((candidate) => candidate.threadId === threadId);
+      if (!child) {
+        throw new Error('The child conversation is missing or does not belong to this workspace.');
+      }
+      threads.set(threadId, host);
+      childCallSigns.set(threadId, child.callSign);
+      return {
+        callSign: child.callSign,
+        color: child.color,
+        parentRunId: child.origin.parentRunId,
+        persona: child.origin.persona,
+        threadId,
+        toolCallId: child.origin.toolCallId,
+      };
+    },
     runs,
     subscribeTitleChanges: (listener) => {
       titleListeners.add(listener);

@@ -4,13 +4,16 @@ import { committedRunIdentity } from '@brainstrike/agent-host/committed-identiti
 import {
   type HostImageAttachment,
   HostImageAttachmentSchema,
+  type HostLogRow,
 } from '@brainstrike/agent-host/protocol';
 import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
 import { usePermissionPolicyStore } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
   type CommittedApprovalGrant,
   type CommittedAssistantCommands,
+  type CommittedAssistantLogRow,
   CommittedAssistantLogStore,
+  type CommittedAssistantRunIdentity,
   committedApprovalGrant,
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
@@ -19,6 +22,12 @@ import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
 
 const logger = createLogger('CommittedHostConversation');
+
+/** A committed run.started the host admitted to deliver child results (a wake). */
+const HostWakeStartSchema = z.object({
+  delivery: z.object({ via: z.literal('wake') }),
+  type: z.literal('run.started'),
+});
 
 /** A composer image as the host's user-message attachment; anything else is refused. */
 function hostImageAttachment(
@@ -45,6 +54,29 @@ function keepToolOverride(grant: CommittedApprovalGrant): void {
   if (grant.scope === 'tool') {
     usePermissionPolicyStore.getState().setToolOverride(grant.toolId, 'allow');
   }
+}
+
+/** The desktop's message identities for a committed run, from its host's own identities. */
+export function committedConversationIdentity(
+  rows: readonly HostLogRow[],
+  row: CommittedAssistantLogRow
+): CommittedAssistantRunIdentity {
+  const runId = row.event['runId'];
+  if (typeof runId !== 'string') {
+    throw new Error('Committed conversation has no run identity');
+  }
+  // The message names the host run it answers, for its delegation cards.
+  const identity = {
+    ...committedRunIdentity(rows, runId),
+    metadata: { custom: { hostRunId: runId } },
+  };
+  // BST-1932: a wake answers the host's child delivery, not a person; its
+  // ledger is model input, so the answer follows the run it woke behind.
+  if (HostWakeStartSchema.safeParse(row.event).success) {
+    const { userMessageId: _ledger, ...wake } = identity;
+    return wake;
+  }
+  return identity;
 }
 
 export interface CommittedHostConversation {
@@ -80,13 +112,7 @@ export function createCommittedHostConversation(options: {
   const source = new CommittedThreadSession(client, threadId);
   const mcpInput = new CommittedHostMcpInput(client, source, threadId);
   const store = new CommittedAssistantLogStore({
-    identifyRun: (row) => {
-      const runId = row.event['runId'];
-      if (typeof runId !== 'string') {
-        throw new Error('Committed conversation has no run identity');
-      }
-      return committedRunIdentity(source.getSnapshot().rows, runId);
-    },
+    identifyRun: (row) => committedConversationIdentity(source.getSnapshot().rows, row),
     source,
     threadId,
   });

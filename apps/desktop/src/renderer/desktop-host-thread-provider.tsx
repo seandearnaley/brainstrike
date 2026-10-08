@@ -1,5 +1,9 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
-import { useAssistantRunNotifications, useBudgetGuardrailBinding } from '@brainstrike/app-shell';
+import {
+  HostChildConversations,
+  useAssistantRunNotifications,
+  useBudgetGuardrailBinding,
+} from '@brainstrike/app-shell';
 import { AssistantThreadHostContext } from '@brainstrike/app-shell/assistant-thread-host-context';
 import {
   BudgetGuardrailProvider,
@@ -46,8 +50,22 @@ function CommittedCheckpoints({
   return <EditCheckpointProvider value={value}>{children}</EditCheckpointProvider>;
 }
 
+/** Committed effects are where a delegation starts or settles a child thread. */
+function useCommittedEffectCount(conversation: CommittedHostConversation | undefined): number {
+  const source = conversation?.source;
+  const read = (): number =>
+    source
+      ?.getSnapshot()
+      .rows.filter(
+        ({ event }) => event.type === 'effect.started' || event.type === 'effect.finished'
+      ).length ?? 0;
+  return useSyncExternalStore(source?.subscribe ?? NO_SUBSCRIPTION, read, read);
+}
+const NO_SUBSCRIPTION = (): (() => void) => () => undefined;
+
 function HostThread({
   client,
+  label,
   ledger,
   onRunningChange,
   onTitleCommitted,
@@ -55,6 +73,7 @@ function HostThread({
   threadId,
 }: {
   readonly client: HostClient;
+  readonly label: string;
   readonly ledger: HostThreadLedger;
   readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
   readonly onTitleCommitted: () => void;
@@ -87,6 +106,7 @@ function HostThread({
   }, [client, explorer, onTitleCommitted, threadId]);
   // Badges and OS notifications read this view's committed run state.
   const { onRunNotification } = useAssistantRunNotifications();
+  const effects = useCommittedEffectCount(conversation);
   useEffect(
     () =>
       conversation ? runs.observe(threadId, conversation.source, onRunNotification) : undefined,
@@ -112,15 +132,17 @@ function HostThread({
       <div className="min-h-0 flex-1">
         <CommittedCheckpoints checkpoints={conversation.checkpoints}>
           <BudgetGuardrailProvider value={budgetGuardrail}>
-            <CommittedAssistantConversation
-              {...presentation}
-              commands={conversation.commands}
-              label="Assistant"
-              onRunningChange={onRunningChange}
-              onSteerActiveRun={steer}
-              store={conversation.store}
-              workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
-            />
+            <HostChildConversations revision={effects} threadId={threadId}>
+              <CommittedAssistantConversation
+                {...presentation}
+                commands={conversation.commands}
+                label={label}
+                onRunningChange={onRunningChange}
+                onSteerActiveRun={steer}
+                store={conversation.store}
+                workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
+              />
+            </HostChildConversations>
           </BudgetGuardrailProvider>
         </CommittedCheckpoints>
       </div>
@@ -154,7 +176,16 @@ function SteeringStatus({
 
 // One lazy client capability per actual renderer frame, independent of React replay.
 const windowThreadCapability = createWindowThreadCapability(
-  ({ catalogLoaded, host, ledger, onRunningChange, onTitleCommitted, runs, threadId }) => {
+  ({
+    catalogLoaded,
+    childCallSign,
+    host,
+    ledger,
+    onRunningChange,
+    onTitleCommitted,
+    runs,
+    threadId,
+  }) => {
     // Persisted tabs render before catalog hydration. The observed legacy
     // Mastra initialization for these SQLite-owned IDs must not claim them.
     if (!(host || catalogLoaded)) {
@@ -163,6 +194,8 @@ const windowThreadCapability = createWindowThreadCapability(
     return host ? (
       <HostThread
         client={host}
+        // A child's region is named by its call sign, like its workspace tab.
+        label={childCallSign ?? 'Assistant'}
         ledger={ledger}
         onRunningChange={onRunningChange}
         onTitleCommitted={onTitleCommitted}
