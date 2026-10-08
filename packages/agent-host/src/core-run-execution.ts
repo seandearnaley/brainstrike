@@ -139,6 +139,7 @@ export async function runHostSdkLoop(
   let failed: string | undefined;
   let interrupted = false;
   let checkpointFailure: unknown;
+  let ownerStepFailure: unknown;
   run.paused = false;
   const initialMessages = hostRunContext(ports.runs, run);
   const ancestors = hostRunAncestors(ports.runs, run);
@@ -188,9 +189,17 @@ export async function runHostSdkLoop(
             throw new Error('Model step was not committed');
           }
           recordedInputLength += step.response.messages.length;
-          await owner?.commitHostStep?.();
         } catch (cause) {
           checkpointFailure = cause;
+          run.controller.abort(cause);
+          return;
+        }
+        try {
+          await owner?.commitHostStep?.();
+        } catch (cause) {
+          // The step is committed; its owner (Memory) failed to take it. That
+          // ends the run as failed with the owner's detail, not a lost checkpoint.
+          ownerStepFailure = cause;
           run.controller.abort(cause);
         }
       },
@@ -244,6 +253,10 @@ export async function runHostSdkLoop(
   }
   if (checkpointFailure !== undefined) {
     throw checkpointFailure;
+  }
+  if (ownerStepFailure !== undefined) {
+    failed =
+      ownerStepFailure instanceof Error ? ownerStepFailure.message : String(ownerStepFailure);
   }
   await finishHostSdkLoop(run, ports.closing(), failed, interrupted, (outcome, detail) =>
     ports.finish(run, outcome, detail)

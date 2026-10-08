@@ -27,7 +27,13 @@ import type { HostRunContext, HostRunOwner } from '../ports.js';
 import type { HostLogRow } from '../protocol.js';
 import { HostRunOwnerCleanupError } from '../run-admission.js';
 import { committedMemoryTranscript } from './committed-memory-transcript.js';
-import { HostMemory, type HostMemoryCapabilities, type HostMemoryIdentity } from './memory.js';
+import {
+  HostMemory,
+  type HostMemoryCapabilities,
+  type HostMemoryIdentity,
+  HostMemoryStepError,
+  type HostMemoryStepName,
+} from './memory.js';
 import { StateStoreMemoryStorage } from './memory-storage.js';
 import {
   StateStoreMemoryVector,
@@ -129,6 +135,17 @@ export class StateStoreHostMemory implements HostRunOwner {
   }
 
   static async open(
+    context: HostRunContext,
+    options: StateStoreHostMemoryOptions
+  ): Promise<StateStoreHostMemory> {
+    try {
+      return await StateStoreHostMemory.openOwner(context, options);
+    } catch (cause) {
+      throw memoryStepFailure(context.signal, 'open', cause);
+    }
+  }
+
+  private static async openOwner(
     context: HostRunContext,
     options: StateStoreHostMemoryOptions
   ): Promise<StateStoreHostMemory> {
@@ -237,12 +254,7 @@ export class StateStoreHostMemory implements HostRunOwner {
       await memory.beginTurn(current);
       return owner;
     } catch (cause) {
-      try {
-        await owner.close();
-      } catch (cleanup) {
-        throw new HostRunOwnerCleanupError(cause, cleanup, 'Memory construction cleanup failed');
-      }
-      throw cause;
+      throw await retireFailedOpen(owner, cause);
     }
   }
 
@@ -302,6 +314,21 @@ export class StateStoreHostMemory implements HostRunOwner {
   }
 
   async prepareHostStep(request: {
+    readonly messages: readonly ModelMessage[];
+    readonly stepNumber: number;
+  }): Promise<{ messages: ModelMessage[]; system?: string }> {
+    try {
+      return await this.selectStep(request);
+    } catch (cause) {
+      throw memoryStepFailure(
+        this.identity.signal,
+        this.memory.failedStep(cause) ?? 'context',
+        cause
+      );
+    }
+  }
+
+  private async selectStep(request: {
     readonly messages: readonly ModelMessage[];
     readonly stepNumber: number;
   }): Promise<{ messages: ModelMessage[]; system?: string }> {
@@ -453,6 +480,14 @@ export class StateStoreHostMemory implements HostRunOwner {
   }
 
   async commitHostStep(): Promise<void> {
+    try {
+      await this.commitStep();
+    } catch (cause) {
+      throw memoryStepFailure(this.identity.signal, this.memory.failedStep(cause) ?? 'save', cause);
+    }
+  }
+
+  private async commitStep(): Promise<void> {
     const rows = await this.readRows();
     const committed = committedRunIdentity(rows, this.identity.runId);
     const currentIds = new Set(
@@ -478,12 +513,57 @@ export class StateStoreHostMemory implements HostRunOwner {
 
   close(): Promise<void> {
     this.closing ??= (async () => {
-      await this.memory.close();
-      await this.domain.close();
-      await this.storage.close();
+      let failure: unknown;
+      try {
+        await this.memory.close();
+      } catch (cause) {
+        // Still-owned native work may yet write its flags: storage stays open
+        // and the run stays owned.
+        if (cause instanceof HostRunOwnerCleanupError) {
+          throw cause;
+        }
+        failure = cause;
+      }
+      try {
+        await this.domain.close();
+        await this.storage.close();
+      } catch (cleanup) {
+        throw new HostRunOwnerCleanupError(
+          failure ?? cleanup,
+          cleanup,
+          'Memory storage cleanup failed'
+        );
+      }
+      // Every memory tail joined and storage closed: a failure is the run's outcome.
+      if (failure !== undefined) {
+        throw failure;
+      }
     })();
     return this.closing;
   }
+}
+
+/**
+ * A failed open closes its owner. A joined memory failure belongs to the open's
+ * failure; only work the owner could not join is a cleanup failure that
+ * retains the run.
+ */
+async function retireFailedOpen(owner: StateStoreHostMemory, cause: unknown): Promise<unknown> {
+  try {
+    await owner.close();
+  } catch (cleanup) {
+    if (cleanup instanceof HostRunOwnerCleanupError) {
+      return new HostRunOwnerCleanupError(cause, cleanup, 'Memory construction cleanup failed');
+    }
+  }
+  return cause;
+}
+
+/** Name the memory step; cancellation and unjoined cleanup keep their identity. */
+function memoryStepFailure(signal: AbortSignal, step: HostMemoryStepName, cause: unknown): unknown {
+  return cause instanceof HostRunOwnerCleanupError || (signal.aborted && cause === signal.reason)
+    ? cause
+    : HostMemoryStepError.wrap(step, cause);
 }
 
 function retrievesObservationVectors(native: StateStoreHostMemoryOptions['native']): boolean {

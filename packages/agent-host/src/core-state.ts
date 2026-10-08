@@ -170,6 +170,8 @@ export interface HostRunState {
   readonly outputs: Map<string, Json>;
   owner?: Promise<HostRunOwner | undefined>;
   ownerClose?: Promise<void>;
+  /** The owner joined all of its work, but some failed: this run's failed outcome. */
+  ownerFailure?: unknown;
   paused: boolean;
   readonly permits: Map<string, Action>;
   readonly rawInputs: Map<string, Json>;

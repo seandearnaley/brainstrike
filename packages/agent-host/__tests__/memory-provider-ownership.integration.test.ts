@@ -209,7 +209,7 @@ test('a stopped approval allows the next same-thread provider call with committe
   }
 });
 
-test('source cancellation failure survives Stop replay and retains root and run ownership', async () => {
+test('a joined source cancellation failure is the stopped run’s visible detail and releases ownership', async () => {
   const failure = new Error('Original observer source cancellation failed');
   const host = await setup(failure);
   try {
@@ -226,14 +226,18 @@ test('source cancellation failure survives Stop replay and retains root and run 
     fixture.releaseProvider.resolve();
     await fixture.cancelEntered.promise;
     fixture.releaseCancel.resolve();
-    await expect(stopped).rejects.toMatchObject({ errors: [failure] });
-    await expect(host.core.stop(params)).rejects.toMatchObject({ errors: [failure] });
-    expect(host.retained()).toBe(1);
-    expect(RootLock.inspect(host.root)).toBeDefined();
-    await expect(StateStore.open(host.root)).rejects.toBeInstanceOf(RootLockedError);
-    expect(
-      (await events(host.core, ids.threadId)).some((event) => event.type === 'run.finished')
-    ).toBe(false);
+    // The raw source physically joined; its failed cancellation is the run's
+    // visible outcome, and Stop replays the same acknowledged result.
+    await expect(stopped).resolves.toEqual({ outcome: 'stopped' });
+    await expect(host.core.stop(params)).resolves.toEqual({ outcome: 'stopped' });
+    expect(host.retained()).toBe(0);
+    const finished = (await events(host.core, ids.threadId)).find(
+      (event) => event.type === 'run.finished'
+    );
+    expect(finished).toMatchObject({
+      detail: expect.stringContaining(failure.message),
+      outcome: 'stopped',
+    });
   } finally {
     await host.teardown();
   }
