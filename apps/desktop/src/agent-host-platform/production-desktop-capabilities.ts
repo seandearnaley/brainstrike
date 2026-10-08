@@ -27,6 +27,7 @@ import {
   DESKTOP_NATIVE_TOOLS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
+  isPermissionDenied,
   NATIVE_TOOL_ID,
   resolveAutoObservationalMemoryModelTarget,
   resolveToolRiskCategory,
@@ -602,6 +603,16 @@ export function productionDesktopCapabilities(
   readLocalEmbeddingSelection?: () => Promise<SelectedEmbeddingRequestPlan | undefined>
 ): Omit<DesktopPlatformCapabilities, 'mcp'> {
   const policies = new Map<string, PermissionToolGateSnapshot>();
+  // A host thread's session grants are the host's own (permission.granted);
+  // no renderer store reaches its decisions.
+  const readHostPermissionPolicy = async (threadId?: string) => {
+    const captured = threadId ? policies.get(threadId) : undefined;
+    const persisted = await readPersistedPolicy?.();
+    const { sessionGrants: _sessionGrants, ...policy } = platformPermissionPolicy(
+      persisted ?? captured ?? { policies: DEFAULT_PERMISSION_POLICIES, yolo: false }
+    );
+    return policy;
+  };
   const readConfiguration = async (
     request: HostRunAdmissionRequest,
     workspace?: DesktopWorkspaceBindingBorrow
@@ -652,6 +663,8 @@ export function productionDesktopCapabilities(
     };
     try {
       policies.set(request.threadId, permissionPolicy);
+      // The host never offers what the saved policy denies; the instructions never name it.
+      const policy = await readHostPermissionPolicy(request.threadId);
       const system = await readDesktopHostSystemContext({
         inputTokenLimit,
         ...desktopContextReaderFields(
@@ -661,7 +674,11 @@ export function productionDesktopCapabilities(
         planMode: request.planMode === true,
         request,
         runtime: native.runtime,
-        tools,
+        tools: Object.fromEntries(
+          Object.entries(tools).filter(
+            ([name, tool]) => !isPermissionDenied(policy, tool.risk, tool.permissionToolId ?? name)
+          )
+        ),
         ...(native.workspaceSkills ? { workspaceSkills: native.workspaceSkills } : {}),
       });
       await native.revalidateWorkspace();
@@ -770,16 +787,7 @@ export function productionDesktopCapabilities(
         throw cause;
       }
     },
-    readPermissionPolicy: async (threadId) => {
-      const captured = threadId ? policies.get(threadId) : undefined;
-      const persisted = await readPersistedPolicy?.();
-      // A host thread's session grants are the host's own (permission.granted);
-      // no renderer store reaches its decisions.
-      const { sessionGrants: _sessionGrants, ...policy } = platformPermissionPolicy(
-        persisted ?? captured ?? { policies: DEFAULT_PERMISSION_POLICIES, yolo: false }
-      );
-      return policy;
-    },
+    readPermissionPolicy: readHostPermissionPolicy,
     ...(dependencies.embeddingHostManager
       ? { localEmbedding: dependencies.embeddingHostManager }
       : {}),
