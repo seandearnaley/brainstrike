@@ -179,6 +179,20 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
       expect(emptyScope.identity).toEqual(literal.identity);
       const metadataWriter = new DatabaseSync(grepPath);
       try {
+        // Common reads retain identity across supported historical/current schemas.
+        for (const version of [9, 10]) {
+          metadataWriter.prepare('UPDATE index_metadata SET schema_version=?').run(version);
+          expect(
+            await grepClient.grep({
+              caseSensitive: false,
+              isRegex: false,
+              maxRows: 100,
+              pattern: 'café',
+              rootIds: ['root-a'],
+            })
+          ).toEqual(literal);
+        }
+        // Malformed metadata remains a fatal refusal, separate from compatibility.
         metadataWriter.exec('UPDATE index_metadata SET schema_version=3');
         await expect(
           grepClient.grep({
@@ -188,8 +202,17 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
             pattern: 'alpha',
             rootIds: ['root-a'],
           })
-        ).rejects.toThrow('Derived schema changed');
+        ).rejects.toThrow('Existing index metadata is invalid:');
         metadataWriter.exec('UPDATE index_metadata SET schema_version=8');
+        expect(
+          await grepClient.grep({
+            caseSensitive: false,
+            isRegex: false,
+            maxRows: 100,
+            pattern: 'café',
+            rootIds: ['root-a'],
+          })
+        ).toEqual(literal);
       } finally {
         metadataWriter.close();
       }
