@@ -398,14 +398,15 @@ describe('McpTaskInteraction', () => {
     await interaction.close();
   });
 
-  it('resends the same answer after a definite server rejection without asking again', async () => {
+  it('fences an applied tasks/update that drew a JSON-RPC internal error instead of resending it', async () => {
     const fake = createClient();
-    const received: unknown[] = [];
+    const applied: unknown[] = [];
     fake.requestExtension.mockImplementation(async (_contract: unknown, params: unknown) => {
-      received.push(params);
-      if (received.length === 1) {
-        // A JSON-RPC error response: the server answered, and not with the ack (L377).
-        throw new ProtocolError(ProtocolErrorCode.InternalError, 'Unexpected input response');
+      applied.push(params);
+      if (applied.length === 1) {
+        // Applied, then the error response (tasks.md L791-801 permits -32603). A JSON-RPC error
+        // proves no ack, not that nothing was applied (JSON-RPC 2.0 §5).
+        throw new ProtocolError(ProtocolErrorCode.InternalError, 'Internal error');
       }
       return { resultType: 'complete' };
     });
@@ -417,12 +418,29 @@ describe('McpTaskInteraction', () => {
     await interaction.start(['task-1']);
     await observationPort.publish(inputRequiredTask('task-1'));
     await observationPort.publish(inputRequiredTask('task-1'));
-    // The ack is positive; a poll that still lists the key (L377) sends nothing more.
-    await observationPort.publish(inputRequiredTask('task-1'));
-    const update = { inputResponses: { approval: approved }, taskId: 'task-1' };
-    expect(received).toEqual([update, update]);
+    expect(applied).toHaveLength(1);
     expect(handle).toHaveBeenCalledOnce();
-    expect(consumerErrors).toEqual([expect.objectContaining({ name: 'ProtocolError' })]);
+    expect(consumerErrors).toEqual([
+      expect.objectContaining({ code: ProtocolErrorCode.InternalError, name: 'ProtocolError' }),
+      expect.objectContaining({ name: 'McpTaskInputDeliveryUnknownError' }),
+    ]);
+    await interaction.close();
+  });
+
+  it('keeps a positive acknowledgement final while a later poll still lists the key', async () => {
+    const fake = createClient();
+    const handle = vi.fn(async (): Promise<ElicitResult> => approved);
+    const { consumerErrors, interaction, observationPort } = createRecordedInteraction(
+      fake,
+      handle
+    );
+    await interaction.start(['task-1']);
+    await observationPort.publish(inputRequiredTask('task-1'));
+    // The ack is eventually consistent (L377): this poll still lists the answered key.
+    await observationPort.publish(inputRequiredTask('task-1'));
+    expect(fake.requestExtension).toHaveBeenCalledOnce();
+    expect(handle).toHaveBeenCalledOnce();
+    expect(consumerErrors).toEqual([]);
     await interaction.close();
   });
 

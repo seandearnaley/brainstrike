@@ -4,12 +4,7 @@ import {
   parseMcpUpdateTaskParams,
   type TaskStatus,
 } from '@brainstrike/mcp-tasks-extension';
-import {
-  type ElicitRequest,
-  type ElicitResult,
-  type JSONObject,
-  ProtocolError,
-} from '@modelcontextprotocol/client';
+import type { ElicitRequest, ElicitResult, JSONObject } from '@modelcontextprotocol/client';
 import {
   fulfillMcpElicitationRequest,
   type McpClientHandlerContext,
@@ -82,11 +77,13 @@ class McpTaskInputWithdrawnError extends Error {
 }
 
 /**
- * A dispatched `tasks/update` for this input ended with neither the server's
- * acknowledgement nor its error response, so the server may have applied it.
- * The answer is never sent again automatically (pinned ext-tasks 2026-07-28,
- * tasks.md L377: the ack is eventually consistent, so a poll that still lists
- * the key proves nothing; L379: ignoring an answered key is only a SHOULD).
+ * A dispatched `tasks/update` for this input ended without the server's
+ * acknowledgement, so the server may have applied it. That includes a JSON-RPC
+ * error response, which proves no ack but not that nothing was applied (pinned
+ * ext-tasks 2026-07-28 tasks.md L791-801 permits internal errors; JSON-RPC 2.0
+ * §5 gives no no-effect guarantee). The answer is never sent again
+ * automatically (L377: the ack is eventually consistent, so a poll that still
+ * lists the key proves nothing; L379: ignoring an answered key is only a SHOULD).
  */
 export class McpTaskInputDeliveryUnknownError extends Error {
   constructor(
@@ -101,11 +98,11 @@ export class McpTaskInputDeliveryUnknownError extends Error {
 }
 
 /**
- * - `pending`: no acknowledgement yet. Nothing was sent, or every send drew a
- *   JSON-RPC error response, so a later observation may send the same answer.
+ * - `pending`: nothing was sent yet.
  * - `acknowledged`: the server returned the empty-result ack (L377). Only that
  *   positive response sets it, never a later task status.
- * - `unknown`: a send ended without either response. It is terminal for the key.
+ * - `unknown`: a send ended without the ack, whatever the error. It is terminal
+ *   for the key.
  */
 type InputDelivery = 'acknowledged' | 'pending' | 'unknown';
 
@@ -509,14 +506,11 @@ export class McpTaskInteraction {
         signal
       );
     } catch (error) {
-      // On an outbound request the SDK raises ProtocolError only for the
-      // server's JSON-RPC error response: a definite answer that is not the
-      // ack. The key stays pending, so a later observation may resend the same
-      // answer, as before. A lost response, transport failure, timeout or abort
-      // after the send may have been applied, so the key is fenced as unknown.
-      if (!ProtocolError.isInstance(error)) {
-        operation.outcome = 'unknown';
-      }
+      // Once dispatched, only the ack proves the outcome. An error response, a
+      // lost response, a transport failure, a timeout or an abort may all follow
+      // an application, and the pinned spec guarantees no-application for none
+      // of them, so the key is fenced as unknown and the original error rethrown.
+      operation.outcome = 'unknown';
       throw error;
     }
     operation.outcome = 'acknowledged';
