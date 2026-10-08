@@ -8,21 +8,16 @@ import {
   type BrowserGetPageTextInput,
   type BrowserNavigateInput,
   type BrowserReadPageInput,
-  type HybridSearchInput,
-  type ListEmbeddingSetsInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
-  type QueryEmbeddingSpaceInput,
-  resolveGuardedToolSignal,
   type WebExtractInput,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
   logToolFailure,
+  type NativeToolExecutor,
   parseToolExecuteInput,
-  type ToolExecuteContext,
   type ToolExecuteInput,
 } from '@brainstrike/host-capabilities/native-tools';
-import type { z } from 'zod';
 import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
 import {
   runBrowserGetPageText,
@@ -30,23 +25,27 @@ import {
   runBrowserReadPage,
 } from './browser-agent-tools';
 import { pgliteGrepIndex } from './grep-search-tool';
-import { runHybridSearch } from './hybrid-search-tool';
-import { runListEmbeddingSpaces } from './list-embedding-spaces-tool';
-import {
-  NATIVE_HYBRID_RETRIEVAL_DESCRIPTION,
-  NATIVE_SEMANTIC_RETRIEVAL_DESCRIPTION,
-  NativeHybridSearchInputSchema,
-  NativeQueryEmbeddingSpaceInputSchema,
-} from './native-retrieval-schemas';
-import { executorGroup } from './native-tool-executor-context';
+import { type DesktopToolBuildContext, executorGroup } from './native-tool-executor-context';
 import { grepSearchExecutor } from './native-tool-executors-grep';
-import { runQueryEmbeddingSpace } from './retrieval-tool';
+import { retrievalToolExecutors } from './native-tool-executors-retrieval';
+import { pgliteRetrievalStore } from './retrieval-store-pglite';
 import { projectWebExtractModelOutput } from './web-extract-model-projection';
 import { runWebExtract } from './web-extract-tool';
-import {
-  projectHybridSearchModelOutput,
-  projectQueryEmbeddingSpaceModelOutput,
-} from './workspace-retrieval-model-projections';
+
+/** Main's retrieval reads its own PGlite catalog beside its native index capability. */
+function mainRetrieval(
+  id: keyof ReturnType<typeof retrievalToolExecutors>
+): (context: DesktopToolBuildContext) => ReturnType<NativeToolExecutor> {
+  return (context) =>
+    retrievalToolExecutors(() => ({
+      dependencies: {
+        admittedWorkspaceRootIds: context.dependencies.admittedWorkspaceRootIds,
+        embeddingHostManager: context.dependencies.embeddingHostManager,
+        nativeIndexSearch: context.dependencies.nativeIndexSearch,
+      },
+      store: pgliteRetrievalStore(),
+    }))[id](context);
+}
 
 export const SEARCH_TOOL_EXECUTORS = executorGroup({
   // Main's grep reads its own PGlite file-chunk index.
@@ -72,98 +71,9 @@ export const SEARCH_TOOL_EXECUTORS = executorGroup({
     toModelOutput: (output: unknown) =>
       projectWebExtractModelOutput(output, resolveActiveDomainCharBudget()),
   }),
-  [NATIVE_TOOL_ID.queryEmbeddingSpace]: ({
-    dependencies,
-    resolveActiveDomainCharBudget,
-    runtimeData,
-  }) => {
-    const inputSchema: z.ZodType<QueryEmbeddingSpaceInput> = dependencies.nativeIndexSearch
-      ? NativeQueryEmbeddingSpaceInputSchema
-      : NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryEmbeddingSpace];
-    return {
-      description: dependencies.nativeIndexSearch
-        ? NATIVE_SEMANTIC_RETRIEVAL_DESCRIPTION
-        : TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.queryEmbeddingSpace],
-      execute: async (
-        input: ToolExecuteInput<QueryEmbeddingSpaceInput>,
-        context?: ToolExecuteContext
-      ) => {
-        const resolvedInput = parseToolExecuteInput(inputSchema, input);
-        try {
-          return await runQueryEmbeddingSpace(
-            resolvedInput,
-            runtimeData,
-            {
-              admittedWorkspaceRootIds: dependencies.admittedWorkspaceRootIds,
-              embeddingHostManager: dependencies.embeddingHostManager,
-              nativeIndexSearch: dependencies.nativeIndexSearch,
-            },
-            resolveGuardedToolSignal(context)
-          );
-        } catch (error) {
-          logToolFailure('queryEmbeddingSpace failed', error, resolvedInput);
-          throw error;
-        }
-      },
-      id: NATIVE_TOOL_ID.queryEmbeddingSpace,
-      inputSchema,
-      toModelOutput: (output: unknown) =>
-        projectQueryEmbeddingSpaceModelOutput(output, resolveActiveDomainCharBudget()),
-    };
-  },
-  [NATIVE_TOOL_ID.hybridSearch]: ({ dependencies, resolveActiveDomainCharBudget, runtimeData }) => {
-    const inputSchema: z.ZodType<HybridSearchInput> = dependencies.nativeIndexSearch
-      ? NativeHybridSearchInputSchema
-      : NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.hybridSearch];
-    return {
-      description: dependencies.nativeIndexSearch
-        ? NATIVE_HYBRID_RETRIEVAL_DESCRIPTION
-        : TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.hybridSearch],
-      execute: async (input: ToolExecuteInput<HybridSearchInput>, context?: ToolExecuteContext) => {
-        const resolvedInput = parseToolExecuteInput(inputSchema, input);
-        try {
-          return await runHybridSearch(
-            resolvedInput,
-            runtimeData,
-            {
-              admittedWorkspaceRootIds: dependencies.admittedWorkspaceRootIds,
-              embeddingHostManager: dependencies.embeddingHostManager,
-              nativeIndexSearch: dependencies.nativeIndexSearch,
-            },
-            resolveGuardedToolSignal(context)
-          );
-        } catch (error) {
-          logToolFailure('hybridSearch failed', error, resolvedInput);
-          throw error;
-        }
-      },
-      id: NATIVE_TOOL_ID.hybridSearch,
-      inputSchema,
-      toModelOutput: (output: unknown) =>
-        projectHybridSearchModelOutput(output, resolveActiveDomainCharBudget()),
-    };
-  },
-  [NATIVE_TOOL_ID.listEmbeddingSpaces]: ({ dependencies, runtimeData }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.listEmbeddingSpaces],
-    execute: async (input: ToolExecuteInput<ListEmbeddingSetsInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listEmbeddingSpaces],
-        input
-      );
-      try {
-        return await runListEmbeddingSpaces(
-          resolvedInput,
-          runtimeData,
-          dependencies.nativeIndexSearch
-        );
-      } catch (error) {
-        logToolFailure('listEmbeddingSpaces failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.listEmbeddingSpaces,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listEmbeddingSpaces],
-  }),
+  [NATIVE_TOOL_ID.queryEmbeddingSpace]: mainRetrieval(NATIVE_TOOL_ID.queryEmbeddingSpace),
+  [NATIVE_TOOL_ID.hybridSearch]: mainRetrieval(NATIVE_TOOL_ID.hybridSearch),
+  [NATIVE_TOOL_ID.listEmbeddingSpaces]: mainRetrieval(NATIVE_TOOL_ID.listEmbeddingSpaces),
   // Browser pane read tools (BST-1176 PR2). The active pane host is resolved
   // PER CALL from the registry — a window opened after the stream started
   // still serves, and a closed window returns the structured
