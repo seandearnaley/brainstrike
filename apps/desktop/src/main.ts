@@ -29,6 +29,7 @@ import {
   platformPermissionPolicy,
 } from './agent-host-platform/platform-wire';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
+import { createAgentHostPrivateClients } from './agent-host-private-clients';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
@@ -1000,8 +1001,10 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
 function reportNativeIndexActivationError(message: string, error: unknown): void {
   reportNativeIndexFailure(message, error, isDesktopShuttingDown(), logger);
 }
+const agentHostPrivateClients = createAgentHostPrivateClients();
 const nativeIndexActivation = createNativeIndexActivation({
   agentHostPlatform: {
+    onChildReady: agentHostPrivateClients.attach,
     platform: () => {
       const ledger = createWorktreeLedger(getDatabase);
       const workspace = new DesktopWorkspaceBindingAuthority({
@@ -1072,7 +1075,10 @@ const nativeIndexActivation = createNativeIndexActivation({
   storage,
 });
 installIndexCallerRead(createNativeCallerRead(nativeIndexActivation.withRead));
-const agentHostClientIpc = registerAgentHostClientIpc(nativeIndexActivation.acquireProfile);
+const agentHostClientIpc = registerAgentHostClientIpc(
+  nativeIndexActivation.acquireProfile,
+  agentHostPrivateClients.open
+);
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
 const nativeRootDataDeletion = createNativeRootDataDeletion({
   acquire: () => nativeIndexActivation.acquire(),

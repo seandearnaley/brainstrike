@@ -36,7 +36,7 @@ import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-sto
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
-import type { HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
+import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
 import {
   type HostEvent,
   type HostLogRow,
@@ -51,6 +51,7 @@ import {
   createAdmittedHostSdkTools,
   decideHostSdkApproval,
   ensureHostRunAdmission,
+  hostRunCommandRequest,
   hostRunToolDecision,
   hostRunTools,
   hostStepInteractions,
@@ -419,16 +420,21 @@ export class HostCore {
     });
   }
 
-  startRun(params: HostParams<'run/start'>): Promise<{ runId: string }> {
+  startRun(params: HostParams<'run/start'>, origin?: HostClientOrigin): Promise<{ runId: string }> {
     return this.command('run/start', params, () =>
-      this.admitRun('run/start', params, () => hostStartPosition(this.runs.values(), params))
+      this.admitRun('run/start', params, origin, () =>
+        hostStartPosition(this.runs.values(), params)
+      )
     );
   }
 
   /** A new answer to an existing committed user message, on a sibling branch. */
-  regenerateRun(params: HostParams<'run/regenerate'>): Promise<{ runId: string }> {
+  regenerateRun(
+    params: HostParams<'run/regenerate'>,
+    origin?: HostClientOrigin
+  ): Promise<{ runId: string }> {
     return this.command('run/regenerate', params, () =>
-      this.admitRun('run/regenerate', params, () =>
+      this.admitRun('run/regenerate', params, origin, () =>
         hostRegeneratePosition(this.runs.values(), params)
       )
     );
@@ -438,6 +444,7 @@ export class HostCore {
   private async admitRun(
     method: 'run/start' | 'run/regenerate',
     params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
+    origin: HostClientOrigin | undefined,
     position: () => HostRunPosition
   ): Promise<{ runId: string }> {
     assertHostRunAdmissible(this.threads, this.runs.values(), this.conversationIds, params);
@@ -448,11 +455,7 @@ export class HostCore {
     let release: (() => void) | undefined;
     try {
       admission = await acquireHostRunAdmission(this.platform, {
-        ...(params.configuration ? { configuration: params.configuration } : {}),
-        modelId: params.modelId,
-        prompt: selected.prompt,
-        signal: controller.signal,
-        threadId: params.threadId,
+        ...hostRunCommandRequest(params, origin, selected.prompt, controller.signal),
         ...this.workspaces.admissionBinding(params.threadId),
       });
       controller.signal.throwIfAborted();

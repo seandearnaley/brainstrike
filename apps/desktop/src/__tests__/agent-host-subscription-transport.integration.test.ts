@@ -158,12 +158,16 @@ test('production Node host retains the existing subscription fetch over its priv
     const { threadId } = await core.startThread({ commandId: randomUUID() });
     // Success here means actual admission, not socket closure or PID liveness.
     await expect(
-      core.startRun({
-        commandId: randomUUID(),
-        modelId: 'openai-codex::codex/gpt-6-sol',
-        prompt: 'Read README.md',
-        threadId,
-      })
+      // Admitted by a visible desktop client's private port, the only subscription origin.
+      core.startRun(
+        {
+          commandId: randomUUID(),
+          modelId: 'openai-codex::codex/gpt-6-sol',
+          prompt: 'Read README.md',
+          threadId,
+        },
+        'desktop-ui'
+      )
     ).resolves.toMatchObject({ runId: expect.any(String) });
     await expect.poll(() => requests.length).toBe(1);
     expect(auth).toHaveBeenCalledTimes(1);

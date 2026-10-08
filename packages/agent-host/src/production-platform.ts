@@ -65,6 +65,7 @@ export interface ProductionHostPlatformOptions {
   ) => Promise<Exclude<LanguageModel, string>>;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   readonly startup: HostStartupContext;
+  readonly storeProviderCredential?: HostPlatform['storeProviderCredential'];
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
@@ -293,5 +294,8 @@ export async function createProductionHostPlatform(
     close,
     readPermissionPolicy: options.readPermissionPolicy,
     stateIndexer: indexer,
+    ...(options.storeProviderCredential
+      ? { storeProviderCredential: options.storeProviderCredential }
+      : {}),
   };
 }

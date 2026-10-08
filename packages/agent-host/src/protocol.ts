@@ -1,3 +1,4 @@
+import { isProviderCredential, type ProviderCredential } from '@brainstrike/assistant-contract';
 import { McpTaskHandleSchema } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
@@ -88,7 +89,15 @@ export const HostRunSnapshotSchema = z.strictObject({
   workspaceBinding: ThreadWorkspaceBindingSchema.optional(),
 });
 export type HostRunSnapshot = z.infer<typeof HostRunSnapshotSchema>;
+/** A key a user supplies directly. Subscription OAuth is never a login payload. */
+export type HostLoginCredential = Exclude<ProviderCredential, { readonly type: 'oauth' }>;
+const LoginCredential = z.custom<HostLoginCredential>(
+  (value) => isProviderCredential(value) && value.type !== 'oauth'
+);
+
 export const HOST_METHOD_SCHEMAS = {
+  // Secret-bearing: process-local, never in HostCommandLedger, the log or diagnostics.
+  'auth/login': z.strictObject({ credential: LoginCredential, provider: Id }),
   'host/stop': z.strictObject({}),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -160,7 +169,7 @@ export type HostMethod = keyof typeof HOST_METHOD_SCHEMAS;
 export type HostParams<M extends HostMethod> = z.infer<(typeof HOST_METHOD_SCHEMAS)[M]>;
 /** Private input diagnostics must not quote schema paths or unknown secret-bearing keys. */
 export function parseHostParams<M extends HostMethod>(method: M, input: unknown): HostParams<M> {
-  if (!method.startsWith('mcp/')) {
+  if (!(method.startsWith('mcp/') || method.startsWith('auth/'))) {
     return HOST_METHOD_SCHEMAS[method].parse(input) as HostParams<M>;
   }
   const parsed = HOST_METHOD_SCHEMAS[method].safeParse(input);
@@ -315,6 +324,7 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  'auth/login': z.strictObject({ stored: z.literal(true) }),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
     hostVersion: Id,

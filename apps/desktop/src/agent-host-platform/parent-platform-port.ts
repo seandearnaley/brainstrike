@@ -34,6 +34,14 @@ export function installParentPlatformPort(input: unknown): boolean {
   deferred().resolve(port);
   return true;
 }
+/** Each platform consumes the one port installed for it; a later install starts a new slot. */
 export function parentPlatformPort(): Promise<PlatformMessagePort> {
-  return deferred().promise;
+  const owner: PlatformProcess = process;
+  const slot = deferred();
+  return slot.promise.then((port) => {
+    if (owner[key] === slot) {
+      delete owner[key];
+    }
+    return port;
+  });
 }
