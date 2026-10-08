@@ -3,8 +3,12 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { HostRunAdmissionRequest } from '@brainstrike/agent-host';
-import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import type { HostRunAdmissionRequest, HostTool, HostToolContext } from '@brainstrike/agent-host';
+import {
+  DEFAULT_PERMISSION_POLICIES,
+  NATIVE_TOOL_ID,
+  ToolInputError,
+} from '@brainstrike/assistant-contract';
 import type {
   IndexerSearchResult,
   IndexerStatus,
@@ -24,7 +28,9 @@ const owner = vi.hoisted(() => ({
     throw new Error('Unexpected HTTP in workspace boundary control');
   }),
   files: vi.fn(),
+  hybrid: vi.fn(),
   query: vi.fn(),
+  semantic: vi.fn(),
 }));
 vi.mock('../db-main', () => ({ getDatabase: async () => ({ query: owner.query }) }));
 vi.mock('../provider-api-key', () => ({
@@ -36,8 +42,14 @@ vi.mock('../ipc-mcp', () => ({
 }));
 vi.mock('@brainstrike/db', async (original) => ({
   ...(await original<typeof import('@brainstrike/db')>()),
+  FileChunkRepository: class {
+    searchSimilar = owner.semantic;
+  },
   FileRecordRepository: class {
     findByIds = owner.files;
+  },
+  HybridSearchService: class {
+    search = owner.hybrid;
   },
 }));
 
@@ -46,6 +58,7 @@ import { productionDesktopCapabilities } from '../agent-host-platform/production
 
 const directories: string[] = [];
 let roots: { id: string; displayName: string; path: string }[] = [];
+let fileOwners: { id: string; rootId: string; rootName: string }[] = [];
 const profile = {
   dimensions: 384,
   dtype: 'q8',
@@ -82,9 +95,15 @@ const embedding = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('fetch', owner.fetch);
+  fileOwners = [{ id: 'file-b', rootId: 'root-b', rootName: 'B' }];
   owner.files.mockResolvedValue([
     { id: 'file-b', name: 'b.txt', path: 'b.txt', rootId: 'root-b', tokenCount: 3 },
   ]);
+  owner.semantic.mockResolvedValue([]);
+  owner.hybrid.mockResolvedValue({
+    metadata: { ftsResultCount: 0, fusedResultCount: 0, totalMs: 0, vectorResultCount: 0 },
+    results: [],
+  });
   owner.query.mockImplementation(async (sql: string) => {
     if (sql.includes('FROM models')) {
       return { rows: [{ isEnabled: true, providerId: 'openai' }] };
@@ -105,7 +124,7 @@ beforeEach(() => {
       };
     }
     if (sql.includes('file_records')) {
-      return { rows: [{ id: 'file-b', rootId: 'root-b', rootName: 'B' }] };
+      return { rows: fileOwners };
     }
     throw new Error('Unexpected owner query in workspace boundary control');
   });
@@ -198,6 +217,22 @@ function request(configuration: unknown): HostRunAdmissionRequest {
     modelId: 'openai::gpt-6-sol',
     signal: new AbortController().signal,
     threadId: 'owner-thread',
+  };
+}
+
+function admittedRetrieval(tools: Record<string, HostTool>, toolId: string): HostTool {
+  const tool = Object.values(tools).find((candidate) => candidate.permissionToolId === toolId);
+  if (!tool) {
+    throw new Error('Canonical retrieval tool was not admitted');
+  }
+  return tool;
+}
+function execution(): HostToolContext {
+  return {
+    runId: 'scope-run',
+    signal: new AbortController().signal,
+    threadId: 'owner-thread',
+    toolCallId: 'scope-call',
   };
 }
 
@@ -319,34 +354,53 @@ function native() {
     storeId: 'a'.repeat(64),
     truncated: false,
   };
-  const coverage: IndexSearchCapability['coverage'] = async () => ({
-    collections: [{ ...counts, embeddingSetId: 'selected' }],
+  const coverage: IndexSearchCapability['coverage'] = async (scope) => ({
+    ...(scope.collectionId === undefined
+      ? {}
+      : { collections: [{ ...counts, embeddingSetId: scope.collectionId }] }),
     embedding,
-    roots: ['root-a', 'root-b'].map((rootId) => ({ ...counts, rootId })),
+    roots: scope.rootIds.map((rootId) => ({ ...counts, rootId })),
     storeId: result.storeId,
-    totals: counts,
+    totals:
+      scope.collectionId === undefined
+        ? {
+            chunks: scope.rootIds.length,
+            indexedFiles: scope.rootIds.length,
+            missingVectors: 0,
+            vectors: scope.rootIds.length,
+          }
+        : counts,
     vectorCoverageComplete: true,
   });
   const search = vi.fn<IndexSearchCapability['search']>(async (scope) => ({
     ...result,
     hits: scope.rootIds.length > 0 && !scope.rootIds.includes('root-b') ? [] : result.hits,
   }));
+  const grep = vi.fn<IndexSearchCapability['grep']>(async (scope) => ({
+    ...result,
+    hits: scope.rootIds.length > 0 && !scope.rootIds.includes('root-b') ? [] : result.hits,
+  }));
+  const coverageBatch = vi.fn<IndexSearchCapability['coverageBatch']>(async (requests) => ({
+    coverage: await Promise.all(requests.map(coverage)),
+    kind: 'current',
+    status,
+  }));
   const capability: IndexSearchCapability = {
     coverage,
-    coverageBatch: async (requests) => ({
-      coverage: await Promise.all(requests.map(coverage)),
-      kind: 'current',
-      status,
-    }),
-    grep: async (scope) => ({
-      ...result,
-      hits: scope.rootIds.length > 0 && !scope.rootIds.includes('root-b') ? [] : result.hits,
-    }),
+    coverageBatch,
+    grep,
     rebuild: async () => undefined,
     search,
     status: async () => status,
   };
-  return { capability, queryEmbedding: async () => Array.from({ length: 384 }, () => 0.1), search };
+  return {
+    capability,
+    coverageBatch,
+    grep,
+    queryEmbedding: vi.fn(async () => Array.from({ length: 384 }, () => 0.1)),
+    result,
+    search,
+  };
 }
 test.each([
   { mode: 'semantic', selected: ['root-a'], toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
@@ -371,21 +425,18 @@ test.each([
       })
     );
     try {
-      const tool = Object.values(captured.tools).find(
-        (candidate) => candidate.permissionToolId === toolId
-      );
-      if (!tool) {
-        throw new Error('Canonical retrieval tool was not admitted');
+      const tool = admittedRetrieval(captured.tools, toolId);
+      const result = tool.execute({ embeddingSetId: 'selected', query: 'marker' }, execution());
+      if (selected.length === 0) {
+        await expect(result).rejects.toThrow('ERR_CLI_WORKSPACE_RETRIEVAL_UNAVAILABLE');
+        expect(fixture.search).not.toHaveBeenCalled();
+        expect(fixture.grep).not.toHaveBeenCalled();
+        expect(fixture.coverageBatch).not.toHaveBeenCalled();
+        expect(fixture.queryEmbedding).not.toHaveBeenCalled();
+        return;
       }
-      const result = await tool.execute(
-        { embeddingSetId: 'selected', query: 'marker' },
-        {
-          runId: 'scope-run',
-          signal: new AbortController().signal,
-          threadId: 'owner-thread',
-          toolCallId: 'scope-call',
-        }
-      );
+      const output = await result;
+      expect(fixture.search).toHaveBeenCalled();
       expect
         .soft(
           fixture.search.mock.calls.every(
@@ -394,7 +445,286 @@ test.each([
           )
         )
         .toBe(true);
-      expect.soft(JSON.stringify(result)).not.toContain('Unselected B marker');
+      expect(fixture.search.mock.calls.every(([scope]) => scope.collectionId === undefined)).toBe(
+        true
+      );
+      expect.soft(JSON.stringify(output)).not.toContain('Unselected B marker');
+    } finally {
+      await captured.close();
+    }
+  }
+);
+
+test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
+  'actual %s adapter rejects unselected content returned by its query capability',
+  async (toolId) => {
+    await workspace();
+    const fixture = native();
+    fixture.search.mockResolvedValue(fixture.result);
+    const capabilities = productionDesktopCapabilities({
+      embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
+      nativeIndexSearch: fixture.capability,
+    });
+    const captured = await capabilities.readConfiguration(
+      request({
+        ...intent(),
+        cliWorkspace: { instructions: 'off', rootIds: ['root-a'], skills: 'off' },
+        enabledNativeToolIds: [toolId],
+        workspaceContext: { ...intent().workspaceContext!, files: [] },
+      })
+    );
+    try {
+      await expect(
+        admittedRetrieval(captured.tools, toolId).execute(
+          { embeddingSetId: 'selected', query: 'marker' },
+          execution()
+        )
+      ).rejects.toBeInstanceOf(ToolInputError);
+      expect(fixture.search).toHaveBeenCalledWith(expect.objectContaining({ rootIds: ['root-a'] }));
+    } finally {
+      await captured.close();
+    }
+  }
+);
+
+test.each([
+  { selected: ['root-a'], toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
+  { selected: ['root-a'], toolId: NATIVE_TOOL_ID.hybridSearch },
+  { selected: [], toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
+  { selected: [], toolId: NATIVE_TOOL_ID.hybridSearch },
+])(
+  'actual $toolId retained PG adapter restricts omitted-root retrieval to $selected',
+  async ({ selected, toolId }) => {
+    await workspace();
+    const fixture = native();
+    const captured = await productionDesktopCapabilities({
+      embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
+    }).readConfiguration(
+      request({
+        ...intent(),
+        cliWorkspace: { instructions: 'off', rootIds: selected, skills: 'off' },
+        enabledNativeToolIds: [toolId],
+        workspaceContext: { ...intent().workspaceContext!, files: [] },
+      })
+    );
+    try {
+      const result = admittedRetrieval(captured.tools, toolId).execute(
+        { embeddingSetId: 'selected', query: 'marker' },
+        execution()
+      );
+      if (selected.length === 0) {
+        await expect(result).rejects.toThrow('ERR_CLI_WORKSPACE_RETRIEVAL_UNAVAILABLE');
+        expect(owner.query.mock.calls.some(([sql]) => String(sql).includes('embedding_sets'))).toBe(
+          false
+        );
+        expect(owner.hybrid).not.toHaveBeenCalled();
+        expect(owner.semantic).not.toHaveBeenCalled();
+        expect(fixture.queryEmbedding).not.toHaveBeenCalled();
+        return;
+      }
+      const output = await result;
+      if (toolId === NATIVE_TOOL_ID.queryEmbeddingSpace) {
+        expect(owner.semantic).toHaveBeenCalledWith(
+          expect.any(Array),
+          expect.objectContaining({ embeddingSetId: 'selected', rootIds: selected })
+        );
+      } else {
+        expect(owner.hybrid).toHaveBeenCalledWith(
+          'marker',
+          expect.any(Array),
+          expect.objectContaining({ embeddingSetId: 'selected', rootIds: selected })
+        );
+      }
+      expect(JSON.stringify(output)).not.toContain('Unselected B marker');
+    } finally {
+      await captured.close();
+    }
+  }
+);
+
+test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
+  'actual %s retained PG adapter rejects a returned file from an unselected root',
+  async (toolId) => {
+    await workspace();
+    const fixture = native();
+    const chunk = {
+      chunkIndex: 0,
+      content: 'Unselected B marker',
+      embeddingSetId: 'selected',
+      endLine: 1,
+      endOffset: 'Unselected B marker'.length,
+      fileRecordId: 'file-b',
+      id: 'chunk-b',
+      startLine: 1,
+      startOffset: 0,
+      tokenCount: 3,
+    };
+    owner.semantic.mockResolvedValue([{ chunk, rank: 1, similarity: 0.9 }]);
+    owner.hybrid.mockResolvedValue({
+      metadata: { ftsResultCount: 1, fusedResultCount: 1, totalMs: 0, vectorResultCount: 1 },
+      results: [{ chunk, position: 1, rrfScore: 0.1, sourceCount: 2 }],
+    });
+    const captured = await productionDesktopCapabilities({
+      embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
+    }).readConfiguration(
+      request({
+        ...intent(),
+        cliWorkspace: { instructions: 'off', rootIds: ['root-a'], skills: 'off' },
+        enabledNativeToolIds: [toolId],
+        workspaceContext: { ...intent().workspaceContext!, files: [] },
+      })
+    );
+    try {
+      await expect(
+        admittedRetrieval(captured.tools, toolId).execute(
+          { embeddingSetId: 'selected', query: 'marker' },
+          execution()
+        )
+      ).rejects.toBeInstanceOf(ToolInputError);
+    } finally {
+      await captured.close();
+    }
+  }
+);
+
+test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
+  'actual %s ordinary Desktop adapter retains its original collection query',
+  async (toolId) => {
+    await workspace();
+    const fixture = native();
+    const captured = await productionDesktopCapabilities({
+      embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
+      nativeIndexSearch: fixture.capability,
+    }).readConfiguration(
+      request({
+        ...intent(),
+        enabledNativeToolIds: [toolId],
+        workspaceContext: { ...intent().workspaceContext!, files: [] },
+      })
+    );
+    try {
+      await admittedRetrieval(captured.tools, toolId).execute(
+        { embeddingSetId: 'selected', query: 'marker' },
+        execution()
+      );
+      expect(fixture.search).toHaveBeenCalledWith(
+        expect.objectContaining({ collectionId: 'selected', rootIds: [] })
+      );
+    } finally {
+      await captured.close();
+    }
+  }
+);
+
+test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
+  'actual %s native adapter rejects a hit whose catalog file belongs to an unselected root',
+  async (toolId) => {
+    const paths = await workspace();
+    const fixture = native();
+    const result = {
+      ...fixture.result,
+      hits: [
+        {
+          ...fixture.result.hits[0]!,
+          rootId: 'root-a',
+          sourcePath: join(paths.a, 'b.txt'),
+        },
+      ],
+    };
+    fixture.search.mockResolvedValue(result);
+    fixture.grep.mockResolvedValue(result);
+    const captured = await productionDesktopCapabilities({
+      embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
+      nativeIndexSearch: fixture.capability,
+    }).readConfiguration(
+      request({
+        ...intent(),
+        cliWorkspace: { instructions: 'off', rootIds: ['root-a'], skills: 'off' },
+        enabledNativeToolIds: [toolId],
+        workspaceContext: { ...intent().workspaceContext!, files: [] },
+      })
+    );
+    try {
+      await expect(
+        admittedRetrieval(captured.tools, toolId).execute(
+          { embeddingSetId: 'selected', query: 'marker' },
+          execution()
+        )
+      ).rejects.toBeInstanceOf(ToolInputError);
+      expect(fixture.search).toHaveBeenCalled();
+    } finally {
+      await captured.close();
+    }
+  }
+);
+
+test.each([
+  { backend: 'native', toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
+  { backend: 'native', toolId: NATIVE_TOOL_ID.hybridSearch },
+  { backend: 'pg', toolId: NATIVE_TOOL_ID.queryEmbeddingSpace },
+  { backend: 'pg', toolId: NATIVE_TOOL_ID.hybridSearch },
+])(
+  'actual $backend $toolId adapter returns valid selected-root content',
+  async ({ backend, toolId }) => {
+    const paths = await workspace();
+    const fixture = native();
+    const content = 'Selected A marker';
+    const result = {
+      ...fixture.result,
+      hits: [
+        {
+          ...fixture.result.hits[0]!,
+          content,
+          contentHash: createHash('sha256').update(content).digest('hex'),
+          endOffset: content.length,
+          fileId: 'file-a',
+          relativePath: 'a.txt',
+          rootId: 'root-a',
+          sourcePath: join(paths.a, 'a.txt'),
+        },
+      ],
+    };
+    fixture.search.mockResolvedValue(result);
+    fixture.grep.mockResolvedValue(result);
+    fileOwners = [{ id: 'file-a', rootId: 'root-a', rootName: 'A' }];
+    owner.files.mockResolvedValue([
+      { id: 'file-a', name: 'a.txt', path: 'a.txt', rootId: 'root-a', tokenCount: 3 },
+    ]);
+    const chunk = {
+      chunkIndex: 0,
+      content,
+      embeddingSetId: 'selected',
+      endLine: 1,
+      endOffset: content.length,
+      fileRecordId: 'file-a',
+      id: 'chunk-a',
+      startLine: 1,
+      startOffset: 0,
+      tokenCount: 3,
+    };
+    owner.semantic.mockResolvedValue([{ chunk, rank: 1, similarity: 0.9 }]);
+    owner.hybrid.mockResolvedValue({
+      metadata: { ftsResultCount: 1, fusedResultCount: 1, totalMs: 0, vectorResultCount: 1 },
+      results: [{ chunk, position: 1, rrfScore: 0.1, sourceCount: 2 }],
+    });
+    const captured = await productionDesktopCapabilities({
+      embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
+      ...(backend === 'native' ? { nativeIndexSearch: fixture.capability } : {}),
+    }).readConfiguration(
+      request({
+        ...intent(),
+        cliWorkspace: { instructions: 'off', rootIds: ['root-a'], skills: 'off' },
+        enabledNativeToolIds: [toolId],
+        workspaceContext: { ...intent().workspaceContext!, files: [] },
+      })
+    );
+    try {
+      const output = await admittedRetrieval(captured.tools, toolId).execute(
+        { embeddingSetId: 'selected', query: 'marker' },
+        execution()
+      );
+      expect(JSON.stringify(output)).toContain(content);
+      expect(JSON.stringify(output)).not.toContain('Unselected B marker');
     } finally {
       await captured.close();
     }

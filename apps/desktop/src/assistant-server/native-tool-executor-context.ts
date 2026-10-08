@@ -25,6 +25,8 @@ export type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 export type MastraTool = MastraTools[string];
 
 export interface DesktopAssistantToolDependencies {
+  /** Main's admitted CLI subset; undefined retains ordinary Desktop collection scope. */
+  admittedWorkspaceRootIds?: readonly string[] | undefined;
   commandSessionManager?: CommandSessionManager | undefined;
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   nativeIndexSearch?: IndexSearchCapability | undefined;

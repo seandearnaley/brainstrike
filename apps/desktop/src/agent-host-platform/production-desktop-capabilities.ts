@@ -78,6 +78,13 @@ function desktopContextReaderFields(
   return restricted ? { readWorkspaceFile } : {};
 }
 
+function desktopRetrievalScopeFields(
+  restricted: boolean,
+  roots: NonNullable<RuntimeData['workspaceRoots']>
+): Pick<DesktopAssistantToolDependencies, 'admittedWorkspaceRootIds'> {
+  return restricted ? { admittedWorkspaceRootIds: roots.map((root) => root.rootId) } : {};
+}
+
 function desktopDurableConfiguration(
   intent: z.output<typeof PlatformClientConfigurationSchema>,
   observerTarget: string | null,
@@ -352,6 +359,7 @@ async function createDesktopNativeTools(
           },
           {
             ...dependencies,
+            ...desktopRetrievalScopeFields(selection !== undefined, currentRoots),
             ...(workspaceSkills ? { skillScriptResolver: workspaceSkills } : {}),
             resolvedToolResultBudget: budget,
           }
