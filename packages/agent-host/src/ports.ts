@@ -1,6 +1,9 @@
 import type { ProviderRequestAccounting } from '@brainstrike/agent/provider-request';
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
-import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
+import type {
+  ScaledToolResultBudget,
+  ScopedToolOutputArtifactReader,
+} from '@brainstrike/agent/tool-runtime';
 import type {
   McpElicitationPresentationWire,
   McpElicitationSettlement,
@@ -31,10 +34,33 @@ import type { McpHostToolBinding } from './adapters/mcp.js';
 import type { HostAuthVerdict } from './auth-wire.js';
 import type {
   HostEditOp,
+  HostEvent,
   HostLegacyImport,
   HostLoginCredential,
   HostRunSnapshot,
 } from './protocol.js';
+
+/** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
+export type HostProjectionRewrite = Extract<
+  HostEvent,
+  { type: 'tool.projection.rewritten' }
+>['rewrites'][number];
+
+/** One committed tool call on a request's branch, with its committed model-facing result. */
+export interface HostToolInvocation {
+  readonly args: unknown;
+  readonly modelOutput: unknown;
+  /** The raw committed `effect.finished` output; absent when no effect committed one. */
+  readonly output: unknown;
+  readonly toolCallId: string;
+  readonly toolName: string;
+}
+
+export interface HostProjectionRewriteRequest {
+  readonly currentTurnToolCallIds: ReadonlySet<string>;
+  /** Branch order, oldest first; calls that already have a committed rewrite are left out. */
+  readonly invocations: readonly HostToolInvocation[];
+}
 
 /** Private native authority. Validation never resolves or sends an answer. */
 export interface HostMcpInputCapability {
@@ -84,6 +110,8 @@ export interface HostToolState {
 }
 
 export interface HostToolContext {
+  /** The thread's committed-output artifact reader, supplied by Core. */
+  readonly artifacts?: ScopedToolOutputArtifactReader | undefined;
   /** Present for every Core-dispatched execution; file tools must refuse without it. */
   readonly edits?: HostWorkspaceEditTracker | undefined;
   readonly mcp?: HostMcpExecution | undefined;
@@ -175,6 +203,8 @@ export interface HostRunAdmission {
   readonly generatesThreadTitle?: boolean;
   /** Present only when the composition loaded at least one hook for this run. */
   readonly hooks?: HostRunHooks | undefined;
+  /** The selected provider input budget; host compaction keeps requests inside it. */
+  readonly inputTokenLimit?: number | undefined;
   readonly model: LanguageModel;
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   readonly provider?: HostProviderPort;
@@ -261,6 +291,11 @@ export interface HostMcpRuntime {
   executableTools(request: HostMcpToolRequest): Promise<HostMcpToolSelection>;
 }
 export interface HostTool {
+  /**
+   * A system note this tool contributes before each step, from its thread's
+   * committed tool state (the legacy `<current-task-list>` re-injection).
+   */
+  readonly contextNote?: (state: Pick<HostToolState, 'entries' | 'read'>) => string | undefined;
   readonly description: string;
   execute(input: unknown, context: HostToolContext): Promise<unknown>;
   /** Existing executor/server-generation identity, bound into pending decisions. */
@@ -322,6 +357,10 @@ export interface HostPlatform {
     readonly rootId: string;
     readonly signal: AbortSignal;
   }): Promise<string>;
+  /** The native-tool output rewrite policy; Core commits what it selects. */
+  selectProjectionRewrites?(
+    request: HostProjectionRewriteRequest
+  ): readonly HostProjectionRewrite[];
   /** Borrowed existing native writer; startup acquires it before interrupted purge replay. */
   readonly stateIndexer?: StateStoreIndexerPort;
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;

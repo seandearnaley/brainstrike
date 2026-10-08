@@ -42,7 +42,9 @@ export function buildDesktopAssistantTools(
   const context: DesktopToolBuildContext = {
     dependencies,
     isLocalProvider: isLocalProviderRuntime(runtimeData),
-    ports: dependencies.nativeToolPorts ?? legacyNativeToolPorts(runtimeData),
+    ports:
+      dependencies.nativeToolPorts ??
+      legacyNativeToolPorts(runtimeData, dependencies.toolOutputArtifactReader),
     readFileCursorRegistry:
       dependencies.readWorkspaceFileCursorRegistry ?? readWorkspaceFileCursorRegistry,
     resolveActiveDomainCharBudget: () =>

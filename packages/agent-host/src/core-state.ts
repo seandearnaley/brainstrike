@@ -184,6 +184,8 @@ export interface HostRunState {
   completion?: Promise<void>;
   readonly controller: AbortController;
   readonly effects: Set<Promise<unknown>>;
+  /** The tool each committed effect ran, by call: catalog id, else provider name. */
+  readonly effectTools: Map<string, string>;
   /** Its thread's grants for this host process, shared with the thread's other runs. */
   readonly grants: HostThreadGrants;
   readonly id: string;
@@ -200,6 +202,8 @@ export interface HostRunState {
   readonly messages: ModelMessage[];
   readonly modelId: string;
   outcome?: Extract<HostEvent, { type: 'run.finished' }>['outcome'];
+  /** When each output committed (its row time), for artifact retention. */
+  readonly outputCommittedAt: Map<string, number>;
   readonly outputs: Map<string, Json>;
   owner?: Promise<HostRunOwner | undefined>;
   ownerClose?: Promise<void>;
@@ -246,6 +250,8 @@ export function createHostRunState(
     messages: [],
     modelId,
     ...(snapshot ? { snapshot } : {}),
+    effectTools: new Map(),
+    outputCommittedAt: new Map(),
     outputs: new Map(),
     paused: false,
     permits: new Map(),

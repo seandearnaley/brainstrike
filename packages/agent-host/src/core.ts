@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { BlobContent, StateStore } from '@brainstrike/state-store';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { ApprovalInputReconstructionError } from './approval-input.js';
+import { HostContextCompactions } from './context-compaction.js';
 import { hostRunClosingOutcomes, reportRetiredHostOutcomes } from './core-retirement.js';
 import {
   type HostRunAction as Action,
@@ -34,6 +35,7 @@ import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-sto
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
+import { HostProjectionRewrites } from './projection-rewrites.js';
 import {
   type HostEvent,
   type HostLogRow,
@@ -44,6 +46,7 @@ import {
 import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.js';
 import {
   acquireHostRunAdmission,
+  bindHostRunAdmission,
   closeHostRunResources,
   ensureHostRunAdmission,
   hostMcpUnavailableEvents,
@@ -87,6 +90,8 @@ export class HostCore {
   private readonly commands = new HostCommandLedger();
   private readonly mcpInputs = new HostMcpInputState();
   private readonly records = new HostToolRecords();
+  private readonly compactions = new HostContextCompactions();
+  private readonly rewrites = new HostProjectionRewrites();
   private readonly threads = new Set<string>();
   private readonly presentations = new HostThreadPresentationState({
     admit: (threadId, perform) => this.admit(threadId, perform),
@@ -185,6 +190,8 @@ export class HostCore {
   private fold(row: HostLogRow): void {
     this.mcpInputs.fold(row);
     this.records.fold(row);
+    this.compactions.fold(row);
+    this.rewrites.fold(row);
     this.presentations.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
@@ -211,12 +218,20 @@ export class HostCore {
       case 'interaction.responded':
         foldHostInteraction(this.runs, event);
         break;
-      case 'effect.started':
-        this.runs.get(event.runId)?.started.add(event.toolCallId);
+      case 'effect.started': {
+        const run = this.runs.get(event.runId);
+        run?.started.add(event.toolCallId);
+        run?.effectTools.set(event.toolCallId, event.toolCatalogId ?? event.toolId);
         break;
-      case 'effect.finished':
-        this.runs.get(event.runId)?.outputs.set(event.toolCallId, event.output);
+      }
+      case 'effect.finished': {
+        const run = this.runs.get(event.runId);
+        run?.outputs.set(event.toolCallId, event.output);
+        if (row.ts !== undefined) {
+          run?.outputCommittedAt.set(event.toolCallId, row.ts);
+        }
         break;
+      }
       case 'run.finished': {
         const run = this.runs.get(event.runId);
         if (run) {
@@ -401,6 +416,8 @@ export class HostCore {
       this.workspaces.forget(params.threadId);
       this.mcpInputs.forgetThread(params.threadId);
       this.records.forgetThread(params.threadId, this.platform);
+      this.compactions.forgetThread(params.threadId);
+      this.rewrites.forgetThread(params.threadId);
       this.grants.delete(params.threadId);
       for (const run of runs) {
         this.runs.delete(run.id);
@@ -490,7 +507,7 @@ export class HostCore {
         admission.snapshot,
         controller
       );
-      run.admission = admission;
+      bindHostRunAdmission(run, admission);
       if (this.conversationIds.has(run.id) || run.id === params.commandId) {
         throw new Error('Generated run collides with a committed conversation identity');
       }
@@ -527,6 +544,7 @@ export class HostCore {
         this.append(threadId, events, durability, beforePublish, referenced),
       closing: () => this.closing,
       commitMessages: (run, messages) => this.commitMessages(run, messages),
+      compactions: this.compactions,
       dispatch: (run, action, input) => this.dispatch(run, action, input),
       finish: (run, outcome, detail) => this.finish(run, outcome, detail),
       fold: (row) => this.fold(row),
@@ -536,6 +554,7 @@ export class HostCore {
       platform: this.platform,
       records: this.records,
       retired: (threadId) => this.closing || this.deletions.has(threadId),
+      rewrites: this.rewrites,
       runs: this.runs,
       syncBoundary: (threadId) => this.store.syncBoundary(threadId),
     };

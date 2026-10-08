@@ -5,6 +5,7 @@ import {
   isSupportedProvider,
   type RuntimeData,
   resolveAssistantResilienceConfig,
+  type ScopedToolOutputArtifactReader,
 } from '@brainstrike/agent';
 import {
   DEFAULT_AGENT_MAX_STEPS,
@@ -462,6 +463,8 @@ async function createDesktopNativeTools(
             ),
             ...(workspaceSkills ? { skillScriptResolver: workspaceSkills } : {}),
             resolvedToolResultBudget: budget,
+            // The host owns committed outputs: it executes the artifact reader.
+            toolOutputArtifactReader: HOST_EXECUTED_ARTIFACT_READER,
           }
         ),
         ...skillTools,
@@ -520,6 +523,13 @@ function advertisedNativeTools(
   }
   return entries.filter(([, tool]) => !WORKTREE_TOOL_IDS.has(tool.permissionToolId ?? ''));
 }
+
+/** Main only describes the host's artifact reader; the host executes it over its own log. */
+const HOST_EXECUTED_ARTIFACT_READER: ScopedToolOutputArtifactReader = {
+  readRange: () => {
+    throw new Error('The tool output artifact reader executes in the agent host');
+  },
+};
 
 /** What the host's shared native tools need from this admission; roots come back per call. */
 function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['nativeRuntime'] {

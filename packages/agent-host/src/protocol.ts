@@ -514,7 +514,7 @@ export const HostEventSchema = z.union([
     attempt: z.number().int().positive(),
     detail: z.string().min(1),
     maxAttempts: z.number().int().positive(),
-    reason: z.enum(['stalled', 'provider-error', 'empty-response']),
+    reason: z.enum(['stalled', 'provider-error', 'empty-response', 'context-overflow']),
     recovered: z.boolean(),
     refusal: z.enum(['budget-exhausted', 'tool-parts', 'committed-output']).optional(),
     /** A stall's breadcrumb: which silence fired and how far the stream got. */
@@ -525,6 +525,48 @@ export const HostEventSchema = z.union([
         phase: z.enum(['awaiting-output', 'reasoning', 'streaming', 'tool-executing']),
       })
       .optional(),
+  }),
+  /**
+   * Host-committed tool-output overlay (the legacy ToolProjectionRewriteEntry):
+   * a later request replaces each call's result with its marker. A supersession
+   * applies only while its superseding call is in the same request.
+   */
+  z.strictObject({
+    type: z.literal('tool.projection.rewritten'),
+    ...RunFields,
+    rewrites: z
+      .array(
+        z.union([
+          z.strictObject({
+            kind: z.literal('prune'),
+            markerText: z.string().regex(/\S/),
+            supersededByToolCallId: z.null(),
+            toolCallId: Id,
+          }),
+          z.strictObject({
+            kind: z.literal('supersession'),
+            markerText: z.string().regex(/\S/),
+            supersededByToolCallId: Id,
+            toolCallId: Id,
+          }),
+        ])
+      )
+      .min(1),
+  }),
+  /**
+   * Host-committed overlay from the run that made it: later requests replace
+   * these turns with `summary`. When a summarizer model ran, `modelId` and
+   * `usage` are its side-call receipt, in `memory.usage`'s shape.
+   */
+  z.strictObject({
+    type: z.literal('context.compacted'),
+    ...RunFields,
+    compactedRunIds: z.array(Id).min(1),
+    kind: z.enum(['agentic', 'deterministic']),
+    modelId: Id.optional(),
+    reason: z.enum(['pre-request', 'context-overflow']),
+    summary: z.string().min(1),
+    usage: z.json().optional(),
   }),
   z.strictObject({
     type: z.literal('workspace.edit.recorded'),

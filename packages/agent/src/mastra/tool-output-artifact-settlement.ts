@@ -100,7 +100,7 @@ interface ExecutableTool {
   transform?: ToolPayloadTransform;
 }
 
-interface SerializedToolOutput {
+export interface SerializedToolOutput {
   readonly byteLength: number;
   readonly content: string;
   readonly format: ToolOutputArtifactFormat;
@@ -345,25 +345,41 @@ function createSettlementPayloadTransform(
   ) as ToolPayloadTransform;
 }
 
-async function settleOutput(
+/** One complete tool result that must settle as a durable artifact. */
+export interface ToolOutputArtifactCandidate {
+  /** The display-facing result (a hook envelope's inner result). */
+  readonly displaySource: unknown;
+  /** Present when an MCP app result must keep its renderer-owned marker. */
+  readonly isAppResult: boolean;
+  readonly serialized: SerializedToolOutput;
+}
+
+/**
+ * The settlement decision for one complete result: undefined when it stays
+ * inline (guarded errors, envelopes, multimodal output, or within every
+ * inline ceiling); otherwise its exact serialized artifact content.
+ */
+export function toolOutputArtifactCandidate(
   output: unknown,
-  args: readonly unknown[],
   toolName: string,
-  options: ApplyToolOutputArtifactSettlementOptions
-): Promise<unknown> {
+  options: Pick<
+    ApplyToolOutputArtifactSettlementOptions,
+    'inlineMaxSerializedCharsByToolName' | 'wouldTruncateModelOutput'
+  >
+): ToolOutputArtifactCandidate | undefined {
   if (isGuardedToolError(output) || isToolOutputArtifactEnvelope(output)) {
-    return output;
+    return;
   }
   const hookEnvelope = readHookResultEnvelope(output);
   const displaySource = hookEnvelope ? hookEnvelope.result : output;
   const appResult = readMcpAppToolInvocationResult(displaySource);
   const domainOutput = appResult ? appResult.result : displaySource;
   if (readMcpMultimodalOutput(domainOutput)) {
-    return output;
+    return;
   }
   const serialized = serializeToolOutput(domainOutput, toolName);
   if (!serialized) {
-    return output;
+    return;
   }
   const inlineMaxSerializedChars = options.inlineMaxSerializedCharsByToolName?.get(toolName);
   const exceedsToolCharacterLimit =
@@ -375,11 +391,43 @@ async function settleOutput(
       options.wouldTruncateModelOutput?.(toolName, output)
     )
   ) {
-    return output;
+    return;
   }
   if (serialized.byteLength > TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES) {
     throw new ToolOutputArtifactSettlementError('output_too_large', toolName);
   }
+  return { displaySource, isAppResult: appResult !== undefined, serialized };
+}
+
+/** The bounded first page the model receives for a settled artifact. */
+export function toolOutputArtifactModelOutput(input: {
+  readonly content: string;
+  readonly delegationToolNames?: readonly string[];
+  readonly readerToolName: string;
+  readonly reference: ToolOutputArtifactReference;
+  readonly toolName: string;
+}): ReturnType<typeof projectToolOutputArtifactPage> {
+  return createArtifactOutputs(
+    input.toolName,
+    input.reference,
+    input.content,
+    undefined,
+    input.delegationToolNames ? () => input.delegationToolNames ?? [] : undefined,
+    input.readerToolName
+  ).modelOutput;
+}
+
+async function settleOutput(
+  output: unknown,
+  args: readonly unknown[],
+  toolName: string,
+  options: ApplyToolOutputArtifactSettlementOptions
+): Promise<unknown> {
+  const candidate = toolOutputArtifactCandidate(output, toolName, options);
+  if (!candidate) {
+    return output;
+  }
+  const { displaySource, serialized } = candidate;
   const toolCallId = readToolCallId(args);
   if (!toolCallId) {
     throw new ToolOutputArtifactSettlementError('missing_tool_call_id', toolName);
@@ -427,7 +475,7 @@ async function settleOutput(
     ...artifactOutputs,
     // Apps need their origin and complete result to mount and hydrate the sandbox.
     // The model pages only the ordinary result, never this renderer-owned marker.
-    displayOutput: appResult ? displaySource : artifactOutputs.displayOutput,
+    displayOutput: candidate.isAppResult ? displaySource : artifactOutputs.displayOutput,
     projectionSource: output,
   });
 }

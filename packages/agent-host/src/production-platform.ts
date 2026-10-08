@@ -90,6 +90,8 @@ export interface ProductionHostPlatformOptions {
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   /** The live root owner checkpoint revert revalidates against. */
   readonly resolveWorkspaceRoot?: HostPlatform['resolveWorkspaceRoot'];
+  /** The native-tool output rewrite policy (host-capabilities). */
+  readonly selectProjectionRewrites?: HostPlatform['selectProjectionRewrites'];
   readonly startup: HostStartupContext;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
@@ -323,6 +325,7 @@ export async function createProductionHostPlatform(
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
           hooks: selected.hooks,
+          inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
           model,
           openRun: (context) => {
             const bridge = runVectorBridge(selected, context.threadId, context.signal);
@@ -382,6 +385,9 @@ export async function createProductionHostPlatform(
     readPermissionPolicy: options.readPermissionPolicy,
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
+    ...(options.selectProjectionRewrites
+      ? { selectProjectionRewrites: options.selectProjectionRewrites }
+      : {}),
     stateIndexer: index.indexer,
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.providers ? { providers: options.providers } : {}),
