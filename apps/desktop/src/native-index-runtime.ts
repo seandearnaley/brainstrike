@@ -1,22 +1,17 @@
+import {
+  NativeAuthorityTransitionError,
+  NativeReadAuthorityRetiredError,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import type {
   IndexerPort,
   IndexFileBinding,
   IndexScope,
   ScopedIndexerPort,
 } from '@brainstrike/indexer';
-import { NativeAuthorityTransitionError } from './native-authority-transition';
+
+export { NativeReadAuthorityRetiredError } from '@brainstrike/assistant-service/node-native-text-services';
 
 type NativePort = IndexerPort & ScopedIndexerPort;
-
-/** Only an already-admitted borrow can prove that its own runtime retired its authority. */
-export class NativeReadAuthorityRetiredError extends Error {
-  readonly code = 'native-read-authority-retired';
-
-  constructor() {
-    super('Native read admission is closed.');
-    this.name = 'NativeReadAuthorityRetiredError';
-  }
-}
 
 export interface NativeIndexAuthority {
   readonly fileBindings: readonly IndexFileBinding[];

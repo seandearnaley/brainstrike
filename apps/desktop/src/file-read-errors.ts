@@ -46,14 +46,4 @@ export function isFileReadErrorPayload(value: unknown): value is FileReadErrorPa
  * starts with "Failed to read file: ENOENT: ...", but we also handle raw
  * NodeJS errno objects defensively.
  */
-export function isFileNotFoundError(error: unknown): boolean {
-  if (error === null || typeof error !== 'object') {
-    return false;
-  }
-  const codeCandidate = (error as { code?: unknown }).code;
-  if (codeCandidate === 'ENOENT') {
-    return true;
-  }
-  const messageCandidate = (error as { message?: unknown }).message;
-  return typeof messageCandidate === 'string' && messageCandidate.includes('ENOENT');
-}
+export { isFileNotFoundError } from '@brainstrike/assistant-service/node-workspace-services';

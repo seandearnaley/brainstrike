@@ -1,3 +1,6 @@
-export const DB_PROFILE_ENV = 'BRAINSTRIKE_DB_PROFILE' as const;
-export const DB_ROOT_PATH_ENV = 'BRAINSTRIKE_DB_ROOT_PATH' as const;
-export const SERIALIZE_PGLITE_INIT_ENV = 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT' as const;
+// The Node implementation is shared; Desktop retains its existing public surface.
+export {
+  DB_PROFILE_ENV,
+  DB_ROOT_PATH_ENV,
+  SERIALIZE_PGLITE_INIT_ENV,
+} from '@brainstrike/assistant-service/node-workspace-services';
