@@ -14,10 +14,12 @@ import {
   validateImageAttachmentPart,
 } from '@brainstrike/assistant-contract/assistant-attachments';
 import { type ModelMessage, modelMessageSchema } from 'ai';
+import { z } from 'zod';
 import {
   createHostRunState,
   foldHostRunMessages,
   type HostRunBranch,
+  type HostRunInput,
   type HostRunState,
   type HostThreadGrants,
   recordHostConversationId,
@@ -31,11 +33,18 @@ import {
 } from './protocol.js';
 import { assertHostRunStartAvailable } from './run-admission.js';
 
+/** The configuration a committed run command carried; its other fields have their own readers. */
+const CommittedRunInputSchema = z.looseObject({
+  configuration: z.record(z.string(), z.json()).optional(),
+});
+
 type Started = Extract<HostEvent, { type: 'run.started' }>;
 
 /** The run/start or run/regenerate command whose acceptance admitted a run. */
 export interface HostRunAdmissionCommand {
   readonly commandId: string;
+  /** What an approved plan's follow-up run starts with again. */
+  readonly input?: HostRunInput;
   readonly method: string;
 }
 
@@ -188,7 +197,7 @@ export function startedHostRun(
   snapshot?: HostRunSnapshot,
   controller?: AbortController
 ): HostRunState {
-  return createHostRunState(
+  const run = createHostRunState(
     threadId,
     started.runId,
     started.modelId,
@@ -197,6 +206,13 @@ export function startedHostRun(
     snapshot,
     controller
   );
+  if (started.planMode) {
+    run.planMode = true;
+  }
+  if (admission.input) {
+    run.input = admission.input;
+  }
+  return run;
 }
 
 /** Pure transcript fold into the run that committed it; HostCore owns the runs. */
@@ -256,6 +272,7 @@ export function admittedHostRun(
   runs: Iterable<HostRunState>,
   admission: HostRunAdmissionCommand & {
     readonly modelId: string;
+    readonly planMode?: true | undefined;
     readonly runId: string;
     readonly threadId: string;
   },
@@ -267,6 +284,7 @@ export function admittedHostRun(
   const started: Started = {
     ...position,
     modelId: admission.modelId,
+    ...(admission.planMode ? { planMode: true } : {}),
     runId: admission.runId,
     snapshot,
     type: 'run.started',
@@ -294,7 +312,13 @@ export function foldHostRunAdmission(
   }
   recordHostConversationId(conversationIds, event.commandId);
   const { runId } = HOST_RESULT_SCHEMAS[event.method].parse(event.result);
-  admitted.set(runId, { commandId: event.commandId, method: event.method });
+  // Only a live client supplies an origin; a replayed command keeps its configuration.
+  const { configuration } = CommittedRunInputSchema.parse(event.payload);
+  admitted.set(runId, {
+    commandId: event.commandId,
+    ...(configuration ? { input: { configuration } } : {}),
+    method: event.method,
+  });
 }
 
 /** Folds a committed run.started into `runs`, consuming its admission command. */

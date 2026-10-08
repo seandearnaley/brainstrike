@@ -1,5 +1,6 @@
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
 import { asSchema, type ModelMessage, modelMessageSchema, type ToolContent } from 'ai';
+import { z } from 'zod';
 import { validateApprovalInput } from './approval-input.js';
 import {
   applyHostPermissionGrant,
@@ -103,6 +104,29 @@ export async function commitHostInteractionResponse(
   run.task = (run.task ?? Promise.resolve()).then(continueRun);
   run.task.catch(() => undefined);
   return { accepted: true };
+}
+
+/** A plan interaction's committed answer: the submitPlan resume shape. */
+const PlanDecisionSchema = z.looseObject({
+  action: z.enum(['approved', 'rejected']),
+  feedback: z.string().optional(),
+});
+
+/** A plan-mode run's approved plan, once its plan interaction was answered with approval. */
+export function approvedHostPlan(run: Run): { readonly feedback?: string } | undefined {
+  if (!run.planMode) {
+    return;
+  }
+  for (const pending of run.approvals.values()) {
+    if (pending.event.kind !== 'plan' || !Object.hasOwn(pending, 'resumeData')) {
+      continue;
+    }
+    const { action, feedback } = PlanDecisionSchema.parse(pending.resumeData);
+    if (action === 'approved') {
+      return feedback ? { feedback } : {};
+    }
+  }
+  return;
 }
 
 /** A grant names exactly the approved call's own risk category or tool, never another. */

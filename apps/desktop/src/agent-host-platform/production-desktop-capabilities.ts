@@ -46,7 +46,7 @@ import { prepareRequestSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
 import { getDatabase } from '../db-main';
-import { readDesktopHostSystemContext } from './desktop-host-context';
+import { desktopPlanModeTools, readDesktopHostSystemContext } from './desktop-host-context';
 import type {
   DesktopWorkspaceBindingAuthority,
   DesktopWorkspaceBindingBorrow,
@@ -522,7 +522,10 @@ export function productionDesktopCapabilities(
       request,
       workspace
     );
-    const { tools } = native;
+    if (request.planMode && configuration.provider === 'local') {
+      throw new Error('Plan mode is unavailable for the built-in local provider');
+    }
+    const tools = request.planMode ? desktopPlanModeTools(native.tools) : native.tools;
     const resilience = resolveAssistantResilienceConfig();
     // MCP tools are composed and executed by the Node host's own MCP runtime.
     const close = (): Promise<void> => {
@@ -539,6 +542,7 @@ export function productionDesktopCapabilities(
           intent.cliWorkspace !== undefined || workspace !== undefined,
           native.readWorkspaceFile
         ),
+        planMode: request.planMode === true,
         request,
         runtime: native.runtime,
         tools,

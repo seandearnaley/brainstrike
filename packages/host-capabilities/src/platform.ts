@@ -70,6 +70,15 @@ const standaloneCapabilities = {
   workspaceInstructions: 'unavailable',
 };
 
+/** The standalone host has no plan mode; it refuses one rather than run unplanned. */
+function refuseStandalonePlanMode(request: { readonly planMode?: true }): void {
+  if (request.planMode) {
+    throw new Error(
+      'Plan mode is unavailable on the standalone host. Use the desktop host for plan mode.'
+    );
+  }
+}
+
 function selection(modelId: string) {
   const separator = modelId.indexOf('::');
   const provider = modelId.slice(0, separator);
@@ -204,6 +213,7 @@ export async function createHostPlatform(
         permissionPolicy: { policies: DEFAULT_PERMISSION_POLICIES, yolo: false },
         workspaceInstructionsPreference: { masterEnabled: false, oversizedOptInByRootId: {} },
       });
+      refuseStandalonePlanMode(request);
       const captured = request.configuration ?? request.snapshot?.configuration['intent'];
       if (
         request.snapshot &&

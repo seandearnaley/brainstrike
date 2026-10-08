@@ -63,6 +63,7 @@ import {
 } from './run-branch.js';
 
 import {
+  approvedHostPlan,
   commitHostInteractionResponse,
   commitHostModelMessages,
   createHostApprovalResponses,
@@ -475,7 +476,15 @@ export class HostCore {
       release = this.retainRun();
       const { run, started } = admittedHostRun(
         this.runs.values(),
-        { ...params, method, runId: randomUUID() },
+        {
+          ...params,
+          input: {
+            ...(params.configuration ? { configuration: params.configuration } : {}),
+            ...(origin ? { origin } : {}),
+          },
+          method,
+          runId: randomUUID(),
+        },
         selected,
         this.threadGrants(params.threadId),
         admission.snapshot,
@@ -699,6 +708,12 @@ export class HostCore {
         run,
         responses.length > 0 ? [{ content: responses, role: 'tool' }] : []
       );
+      const plan = approvedHostPlan(run);
+      if (plan) {
+        await this.finish(run, 'completed');
+        await this.startApprovedPlanRun(run, plan);
+        return;
+      }
       if (run.steps >= admission.snapshot.maxSteps) {
         await this.finishApprovedCalls(run);
         return;
@@ -803,6 +818,51 @@ export class HostCore {
   private closeRunOwner(run: Run): Promise<void> {
     run.ownerClose ??= closeHostRunResources(run);
     return run.ownerClose;
+  }
+
+  /**
+   * An approved plan ends its plan-mode run; the thread's next run carries it
+   * out without plan mode. A next run that cannot start is committed as failed,
+   * with its cause, so an approval never ends silently.
+   */
+  private async startApprovedPlanRun(
+    run: Run,
+    plan: { readonly feedback?: string }
+  ): Promise<void> {
+    const params: HostParams<'run/start'> = {
+      commandId: randomUUID(),
+      ...(run.input?.configuration ? { configuration: run.input.configuration } : {}),
+      modelId: run.modelId,
+      parentMessageId: run.id,
+      prompt: plan.feedback ? `Approved the plan.\n\n${plan.feedback}` : 'Approved the plan.',
+      threadId: run.threadId,
+    };
+    try {
+      await this.startRun(params, run.input?.origin);
+    } catch (cause) {
+      const runId = randomUUID();
+      await this.accept(
+        params.threadId,
+        'run/start',
+        params,
+        { runId },
+        [
+          {
+            ...hostStartPosition(this.runs.values(), params),
+            modelId: params.modelId,
+            runId,
+            type: 'run.started',
+          },
+          {
+            detail: cause instanceof Error ? cause.message : String(cause),
+            outcome: 'failed',
+            runId,
+            type: 'run.finished',
+          },
+        ],
+        this.foldRows
+      );
+    }
   }
 
   private finish(

@@ -221,6 +221,8 @@ export interface HostRunAdmissionRequest {
   readonly modelId: string;
   /** The admitting client's transport; capabilities bound to an origin refuse others. */
   readonly origin?: HostClientOrigin;
+  /** Plan mode: admit only what reads and proposes a plan, and say so to the model. */
+  readonly planMode?: true;
   readonly prompt?: string;
   readonly signal: AbortSignal;
   /** Reopen the committed selection, rejecting changed executors rather than substituting. */

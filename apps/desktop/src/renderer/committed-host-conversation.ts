@@ -72,6 +72,8 @@ export function createCommittedHostConversation(options: {
   readonly onTitleCommitted?: () => void;
   readonly readModelId?: () => string;
   readonly readConfiguration?: () => Record<string, unknown>;
+  /** Plan mode for the next run this view starts; absent is off. */
+  readonly readPlanMode?: () => boolean;
   readonly threadId: string;
 }): CommittedHostConversation {
   const { client, modelId, threadId } = options;
@@ -97,6 +99,7 @@ export function createCommittedHostConversation(options: {
         }
       : {}),
     modelId: options.readModelId?.() ?? modelId,
+    ...(options.readPlanMode?.() ? { planMode: true as const } : {}),
   });
   // A send, a send from a selected branch, and an edit all start a new user
   // message after the vendor's explicit parent (null: the thread root).

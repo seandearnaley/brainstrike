@@ -111,6 +111,7 @@ function desktopAdmissionRequest(
     ...(request.snapshot ? { snapshot: request.snapshot } : {}),
     ...(request.workspaceBinding ? { workspaceBinding: request.workspaceBinding } : {}),
     modelId: request.modelId,
+    ...(request.planMode ? { planMode: true } : {}),
     ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
     signal,
     threadId: request.threadId,

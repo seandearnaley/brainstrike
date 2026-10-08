@@ -142,6 +142,7 @@ export function hostRunCommandRequest(
   params: {
     readonly configuration?: HostRunAdmissionRequest['configuration'] | undefined;
     readonly modelId: string;
+    readonly planMode?: true | undefined;
     readonly threadId: string;
   },
   origin: HostClientOrigin | undefined,
@@ -152,6 +153,7 @@ export function hostRunCommandRequest(
     ...(params.configuration ? { configuration: params.configuration } : {}),
     modelId: params.modelId,
     ...(origin ? { origin } : {}),
+    ...(params.planMode ? { planMode: true } : {}),
     prompt,
     signal,
     threadId: params.threadId,
@@ -264,6 +266,7 @@ export async function ensureHostRunAdmission(
 ): Promise<HostRunAdmission> {
   const request: HostRunAdmissionRequest = {
     modelId: run.modelId,
+    ...(run.planMode ? { planMode: true } : {}),
     signal: run.controller.signal,
     ...(run.snapshot ? { snapshot: run.snapshot } : {}),
     ...(run.snapshot?.workspaceBinding ? { workspaceBinding: run.snapshot.workspaceBinding } : {}),

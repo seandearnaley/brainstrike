@@ -14,6 +14,7 @@ const Decision = z.enum(PERMISSION_DECISIONS);
 export const PlatformRunRequestSchema = z.strictObject({
   configuration: z.record(z.string(), z.json()).optional(),
   modelId: Id,
+  planMode: z.literal(true).optional(),
   prompt: z.string().optional(),
   snapshot: HostRunSnapshotSchema.optional(),
   threadId: Id,

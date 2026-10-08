@@ -22,9 +22,10 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // `checkpoint/revert`, per-thread tool state, the prompt breakdown on
 // `provider.request.prepared`, `run/steer` (end the active run at its next
 // step boundary), `mcp.tools.unavailable`, committed with `run.started` for
-// each configured MCP server whose tools the run proceeds without, and
-// permission grants answered with an approval (`interaction/respond` grant,
-// `permission.granted`, the request's risk).
+// each configured MCP server whose tools the run proceeds without, permission
+// grants answered with an approval (`interaction/respond` grant,
+// `permission.granted`, the request's risk), and plan mode (`run/start`,
+// `run/regenerate` and `run.started` planMode).
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -40,6 +41,11 @@ const ThreadPresentation = {
   title: ThreadTitle.optional(),
 };
 const Run = { ...Thread, runId: Id };
+/**
+ * Plan mode: the run may only read and propose a plan. Approving its plan ends
+ * it and starts the thread's next run without plan mode.
+ */
+const PlanMode = { planMode: z.literal(true).optional() };
 const RiskCategory = z.enum(TOOL_RISK_CATEGORIES);
 /**
  * A grant answered with an approval: the rest of that run allows the call's
@@ -264,6 +270,7 @@ export const HOST_METHOD_SCHEMAS = {
     ...Thread,
     configuration: z.record(z.string(), z.json()).optional(),
     modelId: Id,
+    ...PlanMode,
     /** The original committed user message: its run/start command ID. */
     userMessageId: Id,
   }),
@@ -276,6 +283,7 @@ export const HOST_METHOD_SCHEMAS = {
     modelId: Id,
     /** A committed run ID to follow, null for the thread root; omitted is the current tip. */
     parentMessageId: Id.nullable().optional(),
+    ...PlanMode,
     prompt: Id,
   }),
   /**
@@ -413,6 +421,7 @@ export const HostEventSchema = z.union([
      */
     parentMessageId: Id.nullable().optional(),
     parentRunId: Id.optional(),
+    ...PlanMode,
     prompt: Id,
     snapshot: HostRunSnapshotSchema.optional(),
     /** Regenerate only: the existing committed user message this run answers again. */

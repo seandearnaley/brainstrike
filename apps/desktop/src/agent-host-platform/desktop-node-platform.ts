@@ -151,6 +151,7 @@ export async function createHostPlatform(
           ...(admission.snapshot ? { snapshot: admission.snapshot } : {}),
           ...(admission.workspaceBinding ? { workspaceBinding: admission.workspaceBinding } : {}),
           modelId: admission.modelId,
+          ...(admission.planMode ? { planMode: true } : {}),
           ...(admission.prompt === undefined ? {} : { prompt: admission.prompt }),
           threadId: admission.threadId,
         },
