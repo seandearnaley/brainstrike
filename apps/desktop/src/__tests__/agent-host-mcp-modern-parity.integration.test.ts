@@ -44,8 +44,8 @@ import type {
 import { fixtureCapabilities, fixtureToolRequest } from './fixtures/agent-host-adapter-fixture';
 
 // BST-1930/BST-1931: the lab in a forked plain-Node child over loopback HTTP (2026-07-28), the
-// shipped collector and MCP runtime, the production platform and Core behind the public
-// host/client protocol, and disposable Root SQLite plus PGlite Tasks storage. Only the model is scripted.
+// shipped collector, MCP runtime, production platform and Core behind the public host/client
+// protocol, and disposable Root SQLite plus PGlite Tasks storage. Only the model is scripted.
 
 const LAB_FIXTURE = fileURLToPath(
   new URL('./fixtures/agent-host-mcp-modern-lab.mjs', import.meta.url)
@@ -89,11 +89,9 @@ const owned: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   const failures: unknown[] = [];
   for (const release of owned.splice(0).reverse()) {
-    try {
-      await release();
-    } catch (cause) {
-      failures.push(cause);
-    }
+    await Promise.resolve()
+      .then(release)
+      .catch((cause: unknown) => failures.push(cause));
   }
   if (failures.length > 0) {
     throw new AggregateError(failures, 'Modern MCP parity cleanup failed');
@@ -101,24 +99,29 @@ afterEach(async () => {
 });
 
 /** Fork the lab owner with an empty environment and record its OS start identity. */
-async function startLab(scenario: LabScenario, testSignal: AbortSignal) {
+async function startLab(scenario: LabScenario, testSignal: AbortSignal, retainAfterClose = false) {
   const child = fork(LAB_FIXTURE, [], {
     env: {},
     execArgv: [],
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   const exit = Promise.withResolvers<LabExit>();
-  child.once('exit', (code, signal) => exit.resolve({ code, signal }));
-  // A broken fixture is still physically joined (kill is a no-op after exit); the failure is kept.
+  // 'close' follows exit once stdio drains. A broken fixture is still physically joined (kill is
+  // a no-op after exit) with its original failure, which a test cancellation reports as the cause.
+  child.once('close', (code, signal) => exit.resolve({ code, signal }));
+  let output = '';
+  let read = 0;
   const abandon = async (cause: unknown): Promise<never> => {
     child.kill('SIGKILL');
     await exit.promise;
-    throw cause;
+    if (!testSignal.aborted || cause !== testSignal.reason) {
+      throw cause;
+    }
+    throw new Error(`MCP lab cancelled after ${read} replies: ${output}`, { cause });
   };
   // Owned from the fork, and the test's signal cancels every wait, so a timeout leaves no child.
   let close = (): Promise<unknown> => abandon(undefined).catch(() => undefined);
   owned.push(() => close());
-  let output = '';
   const capture = (chunk: Buffer): void => {
     output = `${output}${chunk.toString('utf8')}`.slice(-4096);
   };
@@ -129,7 +132,6 @@ async function startLab(scenario: LabScenario, testSignal: AbortSignal) {
   const cancelled = Promise.withResolvers<never>();
   cancelled.promise.catch(() => undefined);
   testSignal.addEventListener('abort', () => cancelled.reject(testSignal.reason), { once: true });
-  let read = 0;
   const next = async () => {
     const message = await Promise.race([
       inbox.until((items) => (items.length > read ? { value: items[read] } : undefined)),
@@ -143,7 +145,7 @@ async function startLab(scenario: LabScenario, testSignal: AbortSignal) {
     read += 1;
     return LabMessageSchema.parse(message.value);
   };
-  child.send({ scenario, type: 'start' });
+  child.send({ retainAfterClose, scenario, type: 'start' });
   const ready = await next().catch(abandon);
   const start = ready.type === 'ready' ? processStartTime(ready.pid) : null;
   if (ready.type !== 'ready' || ready.pid !== child.pid || ready.scenario !== scenario || !start) {
@@ -156,7 +158,7 @@ async function startLab(scenario: LabScenario, testSignal: AbortSignal) {
       throw new Error(`MCP lab cleanup failed: ${JSON.stringify(closed)} ${output}`);
     }
     const receipt = {
-      exit: await exit.promise,
+      exit: await Promise.race([exit.promise, cancelled.promise]).catch(abandon),
       pid: ready.pid,
       report: closed.report,
       scenario,
@@ -235,11 +237,8 @@ interface ModernHostOptions {
 
 type ModernHost = Awaited<ReturnType<typeof openModernHost>>;
 
-/**
- * The CLI-first composition: Root startup hands its context to the adapter
- * services (credential file, MCP authority, borrowed Tasks writer) and to the
- * production platform, which Core admits behind the authenticated socket.
- */
+/** The CLI-first composition: Root startup hands its context to the adapter services (credential
+ * file, MCP authority, borrowed Tasks writer) and the production platform behind Core's socket. */
 async function openModernHost(options: ModernHostOptions) {
   const storage = options.storage ?? (await createStorage(options.serverId === TASKS_SERVER));
   const { db, root } = storage;
@@ -363,9 +362,8 @@ function eventOf<T extends HostEvent['type']>(
   type: T,
   predicate: (event: EventOf<T>) => boolean = () => true
 ): EventOf<T> | undefined {
-  return rows.find(({ event }) => event.type === type && predicate(event as EventOf<T>))?.event as
-    | EventOf<T>
-    | undefined;
+  const row = rows.find(({ event }) => event.type === type && predicate(event as EventOf<T>));
+  return row?.event as EventOf<T> | undefined;
 }
 
 /** Public `log/subscribe` replay plus live `log/event` rows, deduplicated by sequence. */
@@ -378,9 +376,7 @@ async function startThreadRun(client: HostClient, prompt: string) {
     }
   };
   const release = client.onEvent(accept);
-  owned.push(async () => {
-    release();
-  });
+  owned.push(async () => release());
   for (const row of (await client.request('log/subscribe', { fromSeq: 0, threadId })).rows) {
     accept(row);
   }
@@ -466,11 +462,8 @@ const LEASE_UNAVAILABLE: [string, string] = [
   'MCP Tasks notification acknowledgement rejected task ids: reference-task-1',
 ];
 
-/**
- * One canonical task identity and projection across the committed effect
- * output, the durable Tasks row, the task authority's list and the
- * provider-visible tool result (which carries no control handle).
- */
+/** One canonical task identity and projection across the committed effect output, the durable
+ * Tasks row, the task authority's list and the provider-visible result (with no control handle). */
 async function expectCanonicalTask(
   modern: ModernHost,
   rows: readonly HostLogRow[],
@@ -686,9 +679,8 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     const presentation = await modern.presentations.until((items) => items[0]);
     const handle = requireTaskHandle(presentation);
     modern.settle(answerFor(presentation, 'decline'));
-    // The lab's tasks/update accepts only its profiled approval. Two server
-    // rejections prove the refusal crossed the wire and a later poll observed
-    // the same pending input without presenting it again.
+    // The lab's tasks/update accepts only its profiled approval. Two server rejections prove the
+    // refusal crossed the wire and a later poll observed the same input without presenting it again.
     const rejected = await modern.internalErrors.until((items) => {
       const failures = items.filter(({ code }) => code === 'mcp-task-consumer-failed');
       return failures.length >= 2 ? failures : undefined;
@@ -743,9 +735,8 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
         state: 'connected',
       });
       const { toolCallId } = await log.effect();
-      // The existing domain marker and ordinary result are committed in both
-      // compositions (BST-1604 gates mounting on the snapshot, not the log);
-      // the provider sees exactly the ordinary result and no UI metadata.
+      // The domain marker and ordinary result are committed in both compositions (BST-1604 gates
+      // mounting on the snapshot, not the log); the provider sees only the result, no UI metadata.
       const marker = readMcpAppToolInvocationResult(
         eventOf(log.rows(), 'effect.finished', (event) => event.toolCallId === toolCallId)?.output
       );
@@ -763,8 +754,7 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
         type: 'text',
         value: JSON.stringify(marker?.result),
       });
-      // Advertisement is proven on the wire: the lab serves the App document
-      // only to a client whose initialize advertised the MCP Apps extension.
+      // Proven on the wire: the lab serves the App document only to an Apps-advertising client.
       const read = modern.services.mcp.authority.invoke({
         configuredServerId: parseConfiguredMcpServerId(APPS_SERVER),
         type: 'resources/read',
@@ -815,8 +805,7 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       rootReleased: true,
     });
     await first.host.closed;
-    // Root shutdown already consumed this memoized physical receipt: one
-    // client, its callback and both admitted requests (tools/list, tools/call).
+    // Root shutdown consumed this memoized receipt: one client and callback, tools/list and call.
     expect(await first.services.mcp.close()).toEqual({
       callbacksClosed: 1,
       childProcessesClosed: 0,
@@ -827,8 +816,7 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       requestsSettled: 2,
       subscriptionsClosed: 0,
     });
-    // Root shutdown stops the admitting run before the presenter closes, so the
-    // input is withdrawn with its task tracking (BST-1930 fence), not by close.
+    // Root shutdown stops the run before the presenter closes: the BST-1930 fence withdraws input.
     expect(first.finalized.items).toEqual([
       { code: 'mcp-elicitation-caller-aborted', id: presentation.id },
     ]);
@@ -893,10 +881,8 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       startAfterJoin: null,
     });
     expect(fenced()).toEqual(atShutdown);
-    // Diagnostics of the joined cancellation, not cleanup failures (the
-    // physical receipt above reports none): Core's close reason ends the
-    // tracked task wait, which withdraws its pending input, so closing the
-    // interaction later finds no input to fail.
+    // Diagnostics of the joined cancellation, not cleanup failures (the receipt reports none):
+    // Core's close reason ends the task wait, which withdraws its input before interaction close.
     expect(diagnostics(first)).toEqual([
       LEASE_UNAVAILABLE,
       ['mcp-task-settlement-failed', 'Host is closing'],
@@ -938,9 +924,7 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       .toEqual(expect.arrayContaining([expect.objectContaining({ runId, toolCallId })]));
   });
 
-  // RED (PR #3543 correction): run/stop aborts the task poller (it borrows the tool call's
-  // signal) and releases the binding, but the presented input stays pending. A late answer is
-  // accepted and delivered; the server completes a task this host no longer observes.
+  // Green since #3543 fix 2: run/stop withdraws task-bound input and refuses a late answer.
   it('fences task-bound server input when the run that admitted it stops', async (context) => {
     const lab = await startLab('tasks-reference', context.signal);
     const first = await openTasksHost(lab);
@@ -971,8 +955,7 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     expect(recovered.provenance.taskHandle).toEqual(handle);
   });
 
-  // RED (PR #3543 correction): the lifecycle persists `input_required`, then awaits the parked
-  // interaction consumer before publishing, so the task authority projects a stale `working`.
+  // Green since #3543 fix 1: the persisted `input_required` is published before input parks.
   it('projects pending server input through the task authority while the server waits for it', async (context) => {
     const lab = await startLab('tasks-reference', context.signal);
     const modern = await openTasksHost(lab);
@@ -1000,5 +983,19 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       modern.settle(answerFor(presentation, 'accept'));
       await log.finished();
     }
+  });
+
+  // By design only the unchanged test watchdog ends this case (#3543 6052105986).
+  const retained: { closed?: unknown; lab?: LabProcess } = {};
+  it.fails('kills and joins a lab child that reports closed but keeps its IPC handle', async (context) => {
+    retained.lab = await startLab('tasks-reference', context.signal, true);
+    retained.closed = await retained.lab.close().catch((closed: unknown) => closed);
+  });
+  it('leaves no lab child after that watchdog and keeps its failures', () => {
+    expect(processStartTime(retained.lab?.ready.pid ?? 0)).not.toBe(retained.lab?.start);
+    expect(retained.closed).toMatchObject({
+      cause: expect.objectContaining({ message: expect.stringContaining('timed out') }),
+      message: expect.stringContaining('MCP lab cancelled after 2 replies'),
+    });
   });
 });

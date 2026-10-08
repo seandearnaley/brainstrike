@@ -6,12 +6,16 @@
 //   parent -> { type: 'close' }            child -> { type: 'closed', report }
 // Any failure is reported as { type: 'failed', phase, message } and the child
 // exits non-zero. The child never stays alive without its parent.
+// A start with `retainAfterClose: true` is the deterministic harness fault for
+// #3543 6052105986: the child reports `closed` but keeps its IPC channel (a live
+// handle) open, so it stays alive until its parent kills it or disconnects.
 
 const LAB_ENTRY = new URL('../../../../../packages/mcp-test-lab/dist/lab.js', import.meta.url);
 const SCENARIOS = new Set(['apps-reference', 'tasks-reference']);
 
 let session;
 let closing;
+let retainAfterClose = false;
 
 function send(message) {
   return new Promise((resolve, reject) => {
@@ -77,6 +81,7 @@ async function start(scenario) {
 
 process.on('message', (message) => {
   if (message?.type === 'start') {
+    retainAfterClose = message.retainAfterClose === true;
     start(message.scenario).catch((error) => fail('start', error));
     return;
   }
@@ -84,7 +89,9 @@ process.on('message', (message) => {
     close()
       .then(async (report) => {
         await send({ report, type: 'closed' });
-        process.disconnect();
+        if (!retainAfterClose) {
+          process.disconnect();
+        }
       })
       .catch((error) => fail('close', error));
     return;
