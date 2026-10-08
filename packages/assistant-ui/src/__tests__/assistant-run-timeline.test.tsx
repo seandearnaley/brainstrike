@@ -527,7 +527,7 @@ describe('resolveAssistantRunEventRenderPlan', () => {
     // no toolCallId and are not `.started` kinds, so neither the card-suppression
     // rule nor the terminal-pairing rule may hide them — pinned here because a
     // future suppression tweak that silently swallowed them would turn a
-    // deliberately reported retry back into a silent one.
+    // deliberately reported retry back into a silent one, at any detail level.
     for (const [kind, label] of [
       ['run.stalled', 'Model stream stalled'],
       ['run.resumed', 'Continuing after a stall'],
@@ -543,6 +543,7 @@ describe('resolveAssistantRunEventRenderPlan', () => {
       };
       const messages = [{ parts: [runEventPart(event)], role: 'assistant' }];
       expect(resolveAssistantRunEventRenderPlan(messages, event).hidden).toBe(false);
+      expect(isAlwaysVisibleRunEvent(event)).toBe(true);
     }
   });
 

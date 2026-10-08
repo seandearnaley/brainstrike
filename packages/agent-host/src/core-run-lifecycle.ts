@@ -264,8 +264,9 @@ function failureDetail(failure: unknown): string | undefined {
 type FinishedOutcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
 
 /**
- * Stop and Close set their own fact before they abort. A run aborted by its
- * own failure (a failed memory step) has a detail, and that run failed.
+ * Stop and Close set their own fact before they abort. A watchdog that
+ * cancelled a still-running tool aborts the run too, and that run failed; so
+ * does a run aborted by its own failed memory step.
  */
 function joinedSdkOutcome(
   run: HostRunState,

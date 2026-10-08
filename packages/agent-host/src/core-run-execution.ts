@@ -1,3 +1,4 @@
+import { resolveAssistantResilienceConfig } from '@brainstrike/agent/provider-runtime';
 import type { BlobContent } from '@brainstrike/state-store';
 import { type LanguageModel, type ModelMessage, stepCountIs, streamText } from 'ai';
 import {
@@ -20,11 +21,25 @@ import {
   hostRunTools,
   prepareHostProviderStep,
 } from './run-admission.js';
+import { hostRunAttemptEvent } from './run-attempts.js';
 import { hostRunAncestors, hostRunContext } from './run-branch.js';
 import { resolveHostApprovalInput } from './run-continuation.js';
+import { HostRunOutcome } from './run-outcome.js';
+import { stopHostStreamAttempt, watchHostStream } from './run-stream-watchdog.js';
 import type { HostToolRecords } from './tool-records.js';
 
 export type HostRunAction = Extract<HostEvent, { type: 'effect.started' }>;
+
+/**
+ * SDK request retries per model step (exponential backoff from 2s, provider
+ * Retry-After honored up to 60s, abort-aware). The SDK retries only a request
+ * whose response stream never opened, with an `isRetryable` provider error:
+ * nothing of that request reached the log, `prepareStep` ran once outside the
+ * retry, and no tool executes inside it. Each attempt commits its own
+ * `provider.request.prepared` receipt. Subscription quota is typed
+ * non-retryable below this boundary by the provider request middleware.
+ */
+const HOST_PROVIDER_REQUEST_RETRIES = 2;
 
 /** HostCore's single-writer seams that a run's SDK loop and its tool effects commit through. */
 export interface HostRunExecutionPorts {
@@ -128,27 +143,86 @@ export async function executeHostAction(
   return output;
 }
 
-/** One public SDK loop over the run's committed branch; every step commits before it is observed. */
+/** How one SDK attempt ended; Core decides between a new attempt and the run's finish. */
+interface HostSdkAttempt {
+  readonly checkpointFailure: unknown;
+  readonly interrupted: boolean;
+  /** The leg's attempt budget; absent when the resilience config could not be read. */
+  readonly maxAttempts: number | undefined;
+  readonly outcome: HostRunOutcome;
+}
+
+/**
+ * The run leg's SDK loop. A stall, a retryable provider error or an empty
+ * reply ends one attempt; a fresh attempt over the committed branch follows
+ * within the leg's budget, unless the failed step streamed tool input or a
+ * call (see run-attempts.ts). Every attempt failure is committed first.
+ */
 export async function runHostSdkLoop(
   ports: HostRunExecutionPorts,
   run: Run,
   model: LanguageModel
 ): Promise<void> {
-  let failed: string | undefined;
+  // An empty reply is judged per attempt: a failed attempt's text never
+  // entered the transcript, so only a leg that began with committed steps
+  // counts as the model having contributed.
+  const resumed = run.steps > 0;
+  for (let attempt = 1; ; attempt += 1) {
+    const ended = await runHostSdkAttempt(ports, run, model, resumed);
+    if (ended.checkpointFailure !== undefined) {
+      throw ended.checkpointFailure;
+    }
+    // A stopped, closing or steered run ends here: a steer asked for no further step.
+    const record =
+      ended.maxAttempts === undefined || run.stopped || run.steered || ports.closing()
+        ? undefined
+        : hostRunAttemptEvent(run, ended.outcome, attempt, ended.maxAttempts);
+    if (record) {
+      await ports.append(run.threadId, [record], 'full', ports.foldRows);
+      if (record.recovered) {
+        continue;
+      }
+    }
+    await finishHostSdkLoop(
+      run,
+      ports.closing(),
+      ended.outcome.detail(),
+      ended.interrupted,
+      (joined, detail) => ports.finish(run, joined, detail)
+    );
+    return;
+  }
+}
+
+/** One public SDK attempt over the run's committed branch; every step commits before it is observed. */
+async function runHostSdkAttempt(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  model: LanguageModel,
+  resumed: boolean
+): Promise<HostSdkAttempt> {
+  const outcome = new HostRunOutcome(run.admission?.configuration, run.modelId, resumed);
   let interrupted = false;
   let checkpointFailure: unknown;
   let ownerStepFailure: unknown;
+  let maxAttempts: number | undefined;
   run.paused = false;
   const initialMessages = hostRunContext(ports.runs, run);
   const ancestors = hostRunAncestors(ports.runs, run);
   let recordedInputLength = initialMessages.length;
   let historyPrepared = false;
   try {
+    // Strict: a malformed resilience setting fails this run visibly.
+    const resilience = resolveAssistantResilienceConfig();
+    maxAttempts = resilience.streamStallAttempts;
+    // The SDK call's own signal: a watchdog expiry ends provider work without
+    // reading as the user's Stop.
+    const attempt = new AbortController();
     const owner = await ports.openRun(run);
     const admission = await ensureHostRunAdmission(ports.platform, run);
     const result = streamText({
-      abortSignal: run.controller.signal,
-      maxRetries: 0,
+      abortSignal: AbortSignal.any([run.controller.signal, attempt.signal]),
+      maxRetries: HOST_PROVIDER_REQUEST_RETRIES,
       messages: await rebuildApprovedRuntimeMessages({
         approvals: [...run.approvals.values()],
         checkpointedResults: run.checkpointedResults,
@@ -186,6 +260,7 @@ export async function runHostSdkLoop(
             throw new Error('Model step was not committed');
           }
           recordedInputLength += step.response.messages.length;
+          outcome.stepCommitted(step);
         } catch (cause) {
           checkpointFailure = cause;
           run.controller.abort(cause);
@@ -195,8 +270,10 @@ export async function runHostSdkLoop(
           await owner?.commitHostStep?.();
         } catch (cause) {
           // The step is committed; its owner (Memory) failed to take it. That
-          // ends the run as failed with the owner's detail, not a lost checkpoint.
+          // ends the run as failed with the owner's detail, not a lost
+          // checkpoint, and a non-provider failure is never re-attempted.
           ownerStepFailure = cause;
+          outcome.fail(cause);
           run.controller.abort(cause);
         }
       },
@@ -234,10 +311,15 @@ export async function runHostSdkLoop(
       toolApproval: ({ toolCall }) => decideHostSdkApproval(run, ports.platform, toolCall),
       tools: createAdmittedHostSdkTools(run, (action, input) => ports.dispatch(run, action, input)),
     });
-    for await (const chunk of result.fullStream) {
-      if (chunk.type === 'error') {
-        failed = chunk.error instanceof Error ? chunk.error.message : String(chunk.error);
-      }
+    const tools = hostRunTools(run);
+    const watched = watchHostStream(
+      result.fullStream,
+      resilience,
+      (toolName) => Object.hasOwn(tools, toolName),
+      (error) => stopHostStreamAttempt(run, attempt, error)
+    );
+    for await (const chunk of watched) {
+      outcome.observe(chunk);
       await ports.append(run.threadId, [
         { chunk: jsonValue(chunk), runId: run.id, type: 'stream.chunk' },
       ]);
@@ -247,16 +329,11 @@ export async function runHostSdkLoop(
     }
   } catch (cause) {
     interrupted = cause instanceof ApprovalInputReconstructionError;
-    failed = cause instanceof Error ? cause.message : String(cause);
-  }
-  if (checkpointFailure !== undefined) {
-    throw checkpointFailure;
+    outcome.fail(cause);
   }
   if (ownerStepFailure !== undefined) {
-    failed =
-      ownerStepFailure instanceof Error ? ownerStepFailure.message : String(ownerStepFailure);
+    // The abort that follows reaches the stream as its own error; keep the owner's.
+    outcome.fail(ownerStepFailure);
   }
-  await finishHostSdkLoop(run, ports.closing(), failed, interrupted, (outcome, detail) =>
-    ports.finish(run, outcome, detail)
-  );
+  return { checkpointFailure, interrupted, maxAttempts, outcome };
 }
