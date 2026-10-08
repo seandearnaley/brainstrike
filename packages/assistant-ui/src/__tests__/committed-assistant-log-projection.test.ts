@@ -259,4 +259,24 @@ describe('rich committed-log presentation projection', () => {
     projection.acceptCommitted(catalogRows.slice(requested + 1));
     expect(tool(projection).toolName).toBe('brainstrike.writeFixture');
   });
+
+  it('surfaces a committed withheld observational memory reason for the thread view', () => {
+    const projection = projector();
+    projection.acceptCommitted(rows);
+    expect(projection.getSnapshot().observationWithheld).toBeUndefined();
+    const last = rows.at(-1);
+    if (!last) {
+      throw new Error('Missing recorded rows.');
+    }
+    // The exact event the host commits when a branched thread's run gets no OM.
+    projection.acceptCommitted([
+      ...rows,
+      {
+        event: { reason: 'branched-thread', runId, type: 'memory.observation.withheld' },
+        seq: last.seq + 1,
+        threadId,
+      },
+    ]);
+    expect(projection.getSnapshot().observationWithheld).toBe('branched-thread');
+  });
 });
