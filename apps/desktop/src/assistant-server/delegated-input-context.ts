@@ -8,9 +8,9 @@ import {
   assertAssistantChildImageCapability,
   readAdmittedPersonaConfiguration,
 } from '@brainstrike/assistant-contract';
+import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import { buildReferencedFilesContextMessage } from './referenced-files-context';
 import { injectActivatedSkillsContext } from './skills-activation-context';
-import { readWorkspaceTextFile } from './workspace-text-file-reader';
 
 /** Called only after the owning host resolves and authorizes the stored child. */
 export function createDesktopDelegatedInputContext(runtime: RuntimeData | undefined) {

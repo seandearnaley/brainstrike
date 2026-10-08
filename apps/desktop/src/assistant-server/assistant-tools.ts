@@ -8,7 +8,9 @@ import {
   isDesktopNativeToolId,
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
+import { readWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
+import { legacyNativeToolPorts } from './legacy-native-tool-ports';
 import {
   type DesktopAssistantToolDependencies,
   type DesktopToolBuildContext,
@@ -16,7 +18,6 @@ import {
   type MastraTools,
 } from './native-tool-executor-context';
 import { NATIVE_TOOL_EXECUTORS } from './native-tool-executors';
-import { readWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry';
 import { applyToolProjectionRewriteRecording } from './tool-projection-rewrite-repository';
 
 export type { DesktopAssistantToolDependencies } from './native-tool-executor-context';
@@ -41,6 +42,7 @@ export function buildDesktopAssistantTools(
   const context: DesktopToolBuildContext = {
     dependencies,
     isLocalProvider: isLocalProviderRuntime(runtimeData),
+    ports: dependencies.nativeToolPorts ?? legacyNativeToolPorts(runtimeData),
     readFileCursorRegistry:
       dependencies.readWorkspaceFileCursorRegistry ?? readWorkspaceFileCursorRegistry,
     resolveActiveDomainCharBudget: () =>

@@ -94,6 +94,7 @@ test('production Node host retains the existing subscription fetch over its priv
     configuration: { model: 'codex/gpt-6-sol', provider: 'openai-codex' },
     contextWindow: 32_000,
     durableConfiguration: { model: 'codex/gpt-6-sol', provider: 'openai-codex' },
+    freshWorkspaceRoots: async () => [],
     inputTokenLimit: 24_000,
     maxSteps: 1,
     memory: {
@@ -119,6 +120,7 @@ test('production Node host retains the existing subscription fetch over its priv
         },
       },
     },
+    nativeRuntime: { provider: 'openai-codex', workspaceRoots: [] },
     resourceId: 'subscription-private-port-fixture',
     tools: {},
     toolTimeoutMs: 5000,

@@ -31,8 +31,9 @@
  */
 import type { ExecuteCommandInput, RuntimeData } from '@brainstrike/agent';
 import { scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
+import type { ShellOutputStreamer } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import type { ExecuteCommandToolResult, ShellOutputStreamer } from './execute-command-tool';
+import type { ExecuteCommandToolResult } from './execute-command-tool';
 import { runExecuteCommand } from './execute-command-tool';
 import type { ShellCorrelationCapability } from './shell-worktree-correlation';
 import type { WorktreeToolCapability } from './worktree-tools';

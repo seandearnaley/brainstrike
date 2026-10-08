@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { createGrepLineMatcher } from '@brainstrike/db';
+import { MAX_FILES_WALKED_PER_ROOT } from '@brainstrike/host-capabilities/native-tools';
 import { DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE } from '@brainstrike/utils';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
@@ -13,7 +14,6 @@ import {
   setMaxLiveCandidateFilesForTests,
 } from '../../assistant-server/live-grep';
 import * as ripgrep from '../../assistant-server/live-grep-ripgrep';
-import { MAX_FILES_WALKED_PER_ROOT } from '../../assistant-server/workspace-file-walk';
 
 const temporaryRoots: string[] = [];
 

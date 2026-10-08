@@ -10,10 +10,10 @@ import {
   TOOL_DESCRIPTIONS,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
+import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
-import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
 import { requireTool, requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {

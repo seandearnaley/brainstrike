@@ -5,20 +5,21 @@ const { decodedCharsSpy } = vi.hoisted(() => ({
   decodedCharsSpy: vi.fn(),
 }));
 
-vi.mock('../../assistant-server/workspace-model-projection-helpers', async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import('../../assistant-server/workspace-model-projection-helpers')
-    >();
+vi.mock(
+  '../../../../../packages/host-capabilities/src/native-tools/workspace-model-projection-helpers',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import('@brainstrike/host-capabilities/native-tools')>();
 
-  return {
-    ...actual,
-    decodedWorkspaceTextModelOutputChars: (lines: readonly string[]) => {
-      decodedCharsSpy();
-      return actual.decodedWorkspaceTextModelOutputChars(lines);
-    },
-  };
-});
+    return {
+      ...actual,
+      decodedWorkspaceTextModelOutputChars: (lines: readonly string[]) => {
+        decodedCharsSpy();
+        return actual.decodedWorkspaceTextModelOutputChars(lines);
+      },
+    };
+  }
+);
 
 import { projectQuerySelfModelOutput } from '../../assistant-server/query-self-model-projection';
 

@@ -4,7 +4,6 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
-import { fitHeadAndTailToCharBudget, TRUNCATION_HINT } from './execute-command-tool';
 import {
   escapeProjectionPathLineBreaks,
   isNonNegativeInteger,
@@ -12,7 +11,8 @@ import {
   isRecord,
   makeWorkspaceTextModelOutput,
   type WorkspaceTextModelOutput,
-} from './workspace-model-projection-helpers';
+} from '@brainstrike/host-capabilities/native-tools';
+import { fitHeadAndTailToCharBudget, TRUNCATION_HINT } from './execute-command-tool';
 
 // Only the STRUCTURAL helpers above (type guards, the line-break escaper, the
 // {type,value} constructor) are shared. Budget-FITTING logic stays local to

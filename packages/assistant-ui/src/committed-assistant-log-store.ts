@@ -68,6 +68,7 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
         isDisabled: source.isDisabled,
         isLoading: source.isLoading ?? false,
         isRunning: view.isRunning,
+        observationWithheld: view.observationWithheld,
         repository: view.repository,
         state: source.state,
       };
@@ -85,7 +86,8 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
         next.state === previous.state &&
         next.isDisabled === previous.isDisabled &&
         next.isLoading === previous.isLoading &&
-        next.isRunning === previous.isRunning
+        next.isRunning === previous.isRunning &&
+        next.observationWithheld === previous.observationWithheld
       ) {
         return;
       }

@@ -9,6 +9,7 @@ import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract
 import { recoverInterruptedDimensionIndexMaintenanceAtStartup } from '@brainstrike/db';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { purgeMcpOAuthRuntimeState } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import type { ProfileResetLease } from '@brainstrike/host-lease';
 import {
   addLogListener,
@@ -42,7 +43,6 @@ import { disposeLiveChildProcesses } from './assistant-server/execute-command-to
 import type { ForgeService } from './assistant-server/forge-service';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
-import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';

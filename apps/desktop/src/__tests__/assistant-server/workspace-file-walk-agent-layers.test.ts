@@ -13,8 +13,8 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { walkWorkspaceRoot } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { walkWorkspaceRoot } from '../../assistant-server/workspace-file-walk';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();

@@ -19,8 +19,8 @@
  */
 import type { AssistantRunEvent } from '@brainstrike/agent';
 import { FileChunkRepository, GrepSearchService } from '@brainstrike/db';
+import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import { recordDesktopAssistantRunEvent } from './assistant-server/run-persistence';
-import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
 import { getDatabase } from './db-main';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 

@@ -1,16 +1,27 @@
 import {
-  CANVAS_HTML_MAX_BYTES,
   CANVAS_VERSIONS_TABLE,
   canvasHtmlWithinByteCeiling,
 } from '@brainstrike/assistant-contract';
+import {
+  applyCanvasUpdate,
+  CANVAS_CREATED_BY_VALUES,
+  CANVAS_LIST_LIMIT,
+  type CanvasCreatedBy,
+  type CanvasListResult,
+  type CanvasMutationResult,
+  type CanvasMutationSuccess,
+  type CanvasRepositoryFailure,
+  type CanvasStore,
+} from '@brainstrike/host-capabilities/native-tools';
 import { generateWorkspaceSnapshotId } from './snapshot-repository';
 
+/**
+ * Legacy-thread canvas versions in PGlite (migration 082). Host threads keep
+ * their canvases in the host log instead; the tool logic is shared.
+ */
 export interface CanvasDatabase {
   query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }>;
 }
-
-export const CANVAS_CREATED_BY_VALUES = ['assistant', 'user'] as const;
-export type CanvasCreatedBy = (typeof CANVAS_CREATED_BY_VALUES)[number];
 
 export interface CanvasVersion {
   readonly canvasId: string;
@@ -47,21 +58,6 @@ export interface RewriteCanvasInput {
   readonly threadId: string;
 }
 
-export type CanvasRepositoryError =
-  | 'ambiguous_match'
-  | 'no_match'
-  | 'not_found'
-  | 'too_large'
-  | 'version_conflict';
-export interface CanvasRepositoryFailure {
-  readonly error: CanvasRepositoryError;
-  readonly ok: false;
-}
-export interface CanvasMutationSuccess {
-  readonly canvasId: string;
-  readonly version: number;
-}
-export type CanvasMutationResult = CanvasMutationSuccess | CanvasRepositoryFailure;
 export type GetLatestCanvasResult = CanvasVersion | CanvasRepositoryFailure;
 
 interface CanvasSqlRow {
@@ -227,34 +223,26 @@ export async function applyUpdate(
   db: CanvasDatabase,
   input: ApplyCanvasUpdateInput
 ): Promise<CanvasMutationResult> {
-  const latest = await getLatestVersionForThread(db, input.canvasId, input.threadId);
+  return await reviseCanvas(db, input.threadId, input.canvasId, (latest) =>
+    applyCanvasUpdate(latest, input.oldString, input.newString)
+  );
+}
+
+/** The next version of a thread's canvas from its latest one; `insertVersion` owns the ceiling. */
+async function reviseCanvas(
+  db: CanvasDatabase,
+  threadId: string,
+  canvasId: string,
+  next: (latest: CanvasVersion) => string | CanvasRepositoryFailure
+): Promise<CanvasMutationResult> {
+  const latest = await getLatestVersionForThread(db, canvasId, threadId);
   if (isCanvasRepositoryFailure(latest)) {
     return latest;
   }
-
-  const firstMatch = latest.html.indexOf(input.oldString);
-  if (firstMatch === -1) {
-    return { error: 'no_match', ok: false };
+  const html = next(latest);
+  if (typeof html !== 'string') {
+    return html;
   }
-  const secondMatch = latest.html.indexOf(input.oldString, firstMatch + 1);
-  if (secondMatch !== -1) {
-    return { error: 'ambiguous_match', ok: false };
-  }
-
-  // Reject the clearly-oversized composition BEFORE materialising it. UTF-8
-  // bytes >= UTF-16 units, so a unit count over the ceiling is over it in bytes
-  // too — sparing a ~14 MB intermediate on exactly the hostile path the byte
-  // predicate goes to some length not to allocate for. Anything below this
-  // bound still gets insertVersion's exact check.
-  if (
-    latest.html.length - input.oldString.length + input.newString.length >
-    CANVAS_HTML_MAX_BYTES
-  ) {
-    return { error: 'too_large', ok: false };
-  }
-  const html = `${latest.html.slice(0, firstMatch)}${input.newString}${latest.html.slice(
-    firstMatch + input.oldString.length
-  )}`;
   return await insertVersion(db, {
     canvasId: latest.canvasId,
     createdBy: 'assistant',
@@ -270,35 +258,7 @@ export async function rewriteCanvas(
   db: CanvasDatabase,
   input: RewriteCanvasInput
 ): Promise<CanvasMutationResult> {
-  const latest = await getLatestVersionForThread(db, input.canvasId, input.threadId);
-  if (isCanvasRepositoryFailure(latest)) {
-    return latest;
-  }
-  return await insertVersion(db, {
-    canvasId: latest.canvasId,
-    createdBy: 'assistant',
-    html: input.html,
-    resourceId: latest.resourceId,
-    threadId: latest.threadId,
-    title: latest.title,
-    version: latest.version + 1,
-  });
-}
-
-export interface CanvasSummary {
-  readonly canvasId: string;
-  readonly createdAt: string;
-  readonly title: string;
-  readonly version: number;
-}
-
-/** Newest-first cap on listings; exhaustion is reported, never silent. */
-export const CANVAS_LIST_LIMIT = 50;
-
-export interface CanvasListResult {
-  readonly canvases: readonly CanvasSummary[];
-  /** True when more canvases exist beyond {@link CANVAS_LIST_LIMIT}. */
-  readonly truncated: boolean;
+  return await reviseCanvas(db, input.threadId, input.canvasId, () => input.html);
 }
 
 /**
@@ -336,5 +296,25 @@ export async function listCanvasesForThread(
   return {
     canvases: result.rows.slice(0, CANVAS_LIST_LIMIT),
     truncated,
+  };
+}
+
+async function resolveDesktopCanvasDatabase(): Promise<CanvasDatabase> {
+  const { getDatabase } = await import('../db-main');
+  return getDatabase();
+}
+
+/** A legacy thread's PGlite-backed canvas store (lazy main-process handle unless injected). */
+export function createDesktopCanvasStore(
+  thread: { readonly resourceId: string; readonly threadId: string },
+  database?: CanvasDatabase
+): CanvasStore {
+  const db = (): Promise<CanvasDatabase> =>
+    database ? Promise.resolve(database) : resolveDesktopCanvasDatabase();
+  return {
+    create: async (input) => await createCanvas(await db(), { ...input, ...thread }),
+    list: async () => await listCanvasesForThread(await db(), thread.threadId),
+    revise: async (canvasId, next) =>
+      await reviseCanvas(await db(), thread.threadId, canvasId, next),
   };
 }

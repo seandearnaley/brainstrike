@@ -46,6 +46,7 @@ const selection: DesktopPlatformSelection = {
   configuration: { model: 'codex/gpt-6-sol', provider: 'openai-codex' },
   contextWindow: 32_000,
   durableConfiguration: { model: 'codex/gpt-6-sol', provider: 'openai-codex' },
+  freshWorkspaceRoots: async () => [],
   inputTokenLimit: 24_000,
   maxSteps: 1,
   memory: {
@@ -68,6 +69,7 @@ const selection: DesktopPlatformSelection = {
       },
     },
   },
+  nativeRuntime: { provider: 'openai-codex', workspaceRoots: [] },
   resourceId: 'subscription-origin-fixture',
   tools: {},
   toolTimeoutMs: 5000,

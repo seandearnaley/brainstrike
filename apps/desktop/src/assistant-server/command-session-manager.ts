@@ -14,6 +14,10 @@ import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import {
+  acquireWorkspaceMutationLease,
+  isWithinRoot,
+} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
@@ -21,8 +25,6 @@ import treeKill from 'tree-kill';
 import { resolveRootCwd, type WorkspaceRootResolver } from '../workspace-root-cwd';
 import { CommandSessionError, commandSessionStartError } from './command-session-error';
 import { resolveShellInvocation } from './execute-command-tool';
-import { acquireWorkspaceMutationLease } from './workspace-mutation-lease';
-import { isWithinRoot } from './workspace-path';
 
 const logger = createLogger('CommandSessionManager');
 

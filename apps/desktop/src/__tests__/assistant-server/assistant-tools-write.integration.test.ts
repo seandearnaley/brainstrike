@@ -3,12 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
 import type { ToolInputError } from '@brainstrike/assistant-contract';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import {
   EDIT_FAILURE_HINT_MESSAGE,
   resetToolCallLoopGuards,
-} from '../../assistant-server/tool-call-loop-guards';
+} from '@brainstrike/host-capabilities/native-tools';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
 

@@ -16,6 +16,7 @@ import {
   type AssistantThreadMetadata,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
+import { foldHostCanvases } from '@brainstrike/host-capabilities/canvas-state';
 import { createLogger } from '@brainstrike/logging';
 import { connectDesktopAgentHost } from './agent-host-client';
 import { HostThreadLedger } from './host-thread-ledger';
@@ -222,6 +223,13 @@ export function createWindowThreadCapability(
     ledger,
     listThreads,
     ownsThread: async (threadId) => (await threadClient(threadId)) !== undefined,
+    readCanvases: async (threadId) => {
+      const host = await threadClient(threadId);
+      if (!host) {
+        return;
+      }
+      return foldHostCanvases((await host.request('thread/read', { fromSeq: 0, threadId })).rows);
+    },
     renameThread: async (threadId, title) => {
       const host = await threadClient(threadId);
       if (!host) {

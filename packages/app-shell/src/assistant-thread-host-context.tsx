@@ -35,6 +35,16 @@ export interface AssistantThreadHostRuns {
   readonly subscribe: (listener: () => void) => () => void;
 }
 
+/** One committed canvas version, in the canvas panel's read shape. */
+export interface AssistantThreadHostCanvasVersion {
+  readonly canvasId: string;
+  readonly createdAt: string;
+  readonly createdBy: string;
+  readonly html: string;
+  readonly title: string;
+  readonly version: number;
+}
+
 /** A host app supplies committed thread identity and its connected presentation. */
 export interface AssistantThreadHostCapability {
   createThread(resourceId: string): Promise<AssistantMemoryThread>;
@@ -45,6 +55,13 @@ export interface AssistantThreadHostCapability {
   listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]>;
   /** True only for an identity this host owns; its metadata never reaches history. */
   ownsThread(threadId: string): Promise<boolean>;
+  /**
+   * Every committed version of every canvas of a thread this host owns, oldest
+   * first per canvas; undefined for a thread it does not own (history owns it).
+   */
+  readCanvases?(
+    threadId: string
+  ): Promise<ReadonlyMap<string, readonly AssistantThreadHostCanvasVersion[]> | undefined>;
   /** Commits an owned thread's title through the host; it never reaches history. */
   renameThread(threadId: string, title: string): Promise<void>;
   /**
