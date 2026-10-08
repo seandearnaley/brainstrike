@@ -5,7 +5,16 @@
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-wire": "workspace:*",
-    "@brainstrike/logging": "workspace:*"
+    "@brainstrike/canonical-ingestion": "workspace:*",
+    "@brainstrike/db": "workspace:*",
+    "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/host-lease": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
+    "@brainstrike/secure-fs-native": "workspace:*",
+    "@brainstrike/state-store": "workspace:*",
+    "@brainstrike/storage": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -39,6 +48,11 @@
       "types": "./dist/memory-model-targets.d.ts",
       "import": "./dist/memory-model-targets.mjs",
       "require": "./dist/memory-model-targets.js"
+    },
+    "./node-workspace-services": {
+      "types": "./dist/node-workspace-services.d.ts",
+      "import": "./dist/node-workspace-services.mjs",
+      "require": "./dist/node-workspace-services.js"
     },
     "./ports": {
       "types": "./dist/ports.d.ts",

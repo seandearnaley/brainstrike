@@ -1663,9 +1663,36 @@ importers:
       '@brainstrike/assistant-wire':
         specifier: workspace:*
         version: link:../assistant-wire
+      '@brainstrike/canonical-ingestion':
+        specifier: workspace:*
+        version: link:../canonical-ingestion
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../db
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
+      '@brainstrike/host-lease':
+        specifier: workspace:*
+        version: link:../host-lease
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
+      '@brainstrike/secure-fs-native':
+        specifier: workspace:*
+        version: link:../secure-fs-native
+      '@brainstrike/state-store':
+        specifier: workspace:*
+        version: link:../state-store
+      '@brainstrike/storage':
+        specifier: workspace:*
+        version: link:../storage
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*

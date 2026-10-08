@@ -15,6 +15,7 @@ export default defineConfig({
     'src/local-provider-runtime.ts',
     'src/mcp-content-application-port.ts',
     'src/memory-model-targets.ts',
+    'src/node-workspace-services.ts',
     'src/ports.ts',
     'src/provider-credential-projection.ts',
     'src/request.ts',
