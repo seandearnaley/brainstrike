@@ -4,8 +4,8 @@
  * background-ledger.ts, removed with BST-1935); the outcomes replace their
  * dispatch acknowledgements in the parent's own tool results.
  */
-import type { ModelMessage } from 'ai';
-import type { HostChildDeliveryEntry } from './protocol.js';
+import type { ModelMessage, UserModelMessage } from 'ai';
+import type { HostChildDelivery, HostChildDeliveryEntry, HostLogRow } from './protocol.js';
 
 export type HostChildLedgerState = HostChildDeliveryEntry['state'] | 'running';
 
@@ -96,5 +96,34 @@ export function overlayHostChildOutcomes(
           }),
         }
       : message
+  );
+}
+
+/**
+ * A committed user turn as the model reads it: a next-turn delivery's ledger
+ * leads the user's own input inside that one user message, so every reader
+ * that rebuilds the turn from its user message keeps the ledger with it.
+ */
+export function withHostDeliveryLedger(
+  message: UserModelMessage,
+  delivery: HostChildDelivery | undefined
+): UserModelMessage {
+  if (delivery?.via !== 'next-turn') {
+    return message;
+  }
+  const content =
+    typeof message.content === 'string'
+      ? [{ text: message.content, type: 'text' as const }]
+      : message.content;
+  return { ...message, content: [{ text: delivery.ledger, type: 'text' }, ...content] };
+}
+
+/** Every child outcome delivered on a committed branch, from its runs' starts. */
+export function hostBranchDeliveries(
+  rows: readonly HostLogRow[],
+  onBranch: (runId: string) => boolean
+): HostChildDeliveryEntry[] {
+  return rows.flatMap(({ event }) =>
+    event.type === 'run.started' && onBranch(event.runId) ? (event.delivery?.entries ?? []) : []
   );
 }

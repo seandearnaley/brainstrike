@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
@@ -133,6 +134,8 @@ export const worker: AssistantPersonaDefinition = {
 
 /** Overrides for a fixture host: its personas, root policy and extra tools. */
 export interface ChildRunFixture {
+  /** The production run owner over the fixture's own store, as the host platform opens it. */
+  readonly memory?: (store: StateStore) => HostPlatform['openRun'];
   /** The platform's run owner (Memory), opened with each run's context. */
   readonly openRun?: HostPlatform['openRun'];
   readonly personas?: readonly AssistantPersonaDefinition[];
@@ -240,7 +243,17 @@ export async function setupChildRunHost(
   admit?: (platform: HostPlatform) => HostPlatform['admitRun']
 ) {
   const root = await mkdtemp(join(tmpdir(), 'bs-m4-child-runs-'));
-  const store = await StateStore.open(root);
+  // Production Memory reads token counts through the writer's calculator module.
+  const store = await StateStore.open(
+    root,
+    fixture.memory
+      ? {
+          memoryCalculatorModule: fileURLToPath(
+            new URL('../../dist/adapters/memory-storage-calculator.js', import.meta.url)
+          ),
+        }
+      : undefined
+  );
   const batches: AppendItem[][] = [];
   /** A crashed process writes nothing more; its successor opens the same store. */
   const writer = (): { dead: boolean; port: HostEventStore } => {
@@ -262,7 +275,8 @@ export async function setupChildRunHost(
   };
   let current = writer();
   const writes: string[] = [];
-  const base = fixturePlatform(model, writes, fixture);
+  const openRun = fixture.memory?.(store) ?? fixture.openRun;
+  const base = fixturePlatform(model, writes, { ...fixture, ...(openRun ? { openRun } : {}) });
   const admitRun = admit?.(base);
   const platform: HostPlatform = admitRun ? { ...base, admitRun } : base;
   let core = await HostCore.open(current.port, platform, () => () => undefined);

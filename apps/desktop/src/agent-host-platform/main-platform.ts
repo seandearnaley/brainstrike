@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import {
   canonicalToolInputJsonSchema,
+  type HostDelegation,
   type HostPlatform,
   type HostRunAdmissionRequest,
   type HostTool,
@@ -24,8 +25,10 @@ import {
 } from './platform-wire';
 import { serveProviderFetchTransport } from './provider-fetch-transport';
 
-export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools'> {
+export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'delegation' | 'tools'> {
   close(): Promise<void>;
+  /** BST-1932: the personas and subagent limits this run may delegate with. */
+  readonly delegation?: HostDelegation | undefined;
   revalidateWorkspace?(signal: AbortSignal): Promise<void>;
   readonly tools: Readonly<Record<string, HostTool>>;
 }

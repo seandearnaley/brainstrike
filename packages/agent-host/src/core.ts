@@ -478,7 +478,9 @@ export class HostCore {
         ...hostRunCommandRequest(
           { ...params, threadId: root },
           origin,
-          method === 'wake' ? undefined : selected.prompt,
+          method === 'wake'
+            ? this.children.wakeSelection(params, this.runs)
+            : { prompt: selected.prompt },
           controller.signal
         ),
         ...this.workspaces.admissionBinding(root),

@@ -30,6 +30,8 @@ import type {
   HostChildOrigin,
   HostEvent,
   HostLogRow,
+  HostParams,
+  HostRunSnapshot,
 } from './protocol.js';
 import { delegatedHostRunAdmission, type HostRunPosition, startedHostRun } from './run-branch.js';
 
@@ -350,9 +352,24 @@ export class HostChildRuns {
         parentMessageId: tip.id,
         prompt: 'wake',
         threadId,
-        ...(tip.snapshot ? { configuration: tip.snapshot.configuration } : {}),
       },
     };
+  }
+
+  /**
+   * The wake continues its turn: it reopens the committed selection of the run
+   * it follows, as a restart reopens a run, never as a client's configuration.
+   */
+  wakeSelection(
+    params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
+    runs: ReadonlyMap<string, HostRunState>
+  ): { readonly snapshot: HostRunSnapshot } {
+    const tip = 'parentMessageId' in params ? params.parentMessageId : undefined;
+    const snapshot = tip ? runs.get(tip)?.snapshot : undefined;
+    if (!snapshot) {
+      throw new Error('A wake requires the committed selection of the run it follows');
+    }
+    return { snapshot };
   }
 
   /** A committed run.started's delivery advances the watermark. */

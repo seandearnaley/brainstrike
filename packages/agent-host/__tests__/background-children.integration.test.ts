@@ -9,7 +9,7 @@ import type { ModelMessage } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { withHostDelegationTools } from '../src/child-runs.js';
-import type { HostClientOrigin } from '../src/ports.js';
+import type { HostClientOrigin, HostRunAdmissionRequest } from '../src/ports.js';
 import type { HostLogRow } from '../src/protocol.js';
 import {
   blocked,
@@ -17,6 +17,7 @@ import {
   type ChildRunHarness,
   childThreads,
   finished,
+  recordingAdmission,
   rowsUntil,
   setupChildRunHost,
   stream,
@@ -96,7 +97,8 @@ async function settledChildren(harness: ChildRunHarness, count: number): Promise
 
 test('background children return at once and wake an idle parent once, batched, with their outcomes', async () => {
   const { model, release } = fanOutModel();
-  const harness = await setupChildRunHost(model, cleanup);
+  const requests: HostRunAdmissionRequest[] = [];
+  const harness = await setupChildRunHost(model, cleanup, {}, recordingAdmission(requests));
   const runId = await harness.start('Fan out.');
   // Both children finish while the parent's own turn is still running.
   await settledChildren(harness, 2);
@@ -138,6 +140,12 @@ test('background children return at once and wake an idle parent once, batched, 
   expect(delivered).toContain('Beta outcome.');
   expect(delivered).not.toContain('Background task started.');
   expect(runsOf(settled)).toHaveLength(2);
+  // The wake continues the turn: it reopens the committed selection of the run
+  // it follows, never that selection posing as a client's configuration.
+  const wakeRequest = requests.at(-1);
+  expect(requests).toHaveLength(2);
+  expect(wakeRequest?.configuration).toBeUndefined();
+  expect(wakeRequest?.snapshot).toEqual(runsOf(settled)[0]?.snapshot);
 
   for (const threadId of await childThreads(harness)) {
     expect((await harness.core().read(threadId, 0))[0]?.event).toMatchObject({
