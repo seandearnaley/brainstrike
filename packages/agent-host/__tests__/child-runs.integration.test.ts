@@ -106,6 +106,7 @@ test('a foreground persona child runs in its own thread with narrowed tools and 
     'agent-explore',
     'ask_user',
     'read_file',
+    'run_command',
     'write_file',
   ]);
   // The read-only child: persona instructions, a fresh context holding only the

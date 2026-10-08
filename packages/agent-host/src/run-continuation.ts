@@ -88,6 +88,44 @@ export async function commitHostInteractionResponse(
   return { accepted: true };
 }
 
+/**
+ * ADR-0010 (AT-03, AT-22): after a decision lands, a still-pending approval the
+ * root's live policy now allows (a session grant, a per-tool allow) is answered
+ * by that policy, recorded as such, and its run continues. Anything the policy
+ * still asks about waits for a person.
+ */
+export async function approveHostRunByPolicy(
+  run: Run,
+  platform: HostPlatform,
+  interactionId: string,
+  append: (event: HostEvent) => Promise<void>,
+  continueRun: () => Promise<void>
+): Promise<void> {
+  const pending = run.approvals.get(interactionId);
+  if (
+    run.terminal ||
+    !pending ||
+    pending.event.kind !== 'approval' ||
+    hasHostInteractionResponse(pending) ||
+    (await hostRunToolDecision(platform, run, pending.event.toolId)) !== 'allow'
+  ) {
+    return;
+  }
+  await commitHostInteractionResponse(
+    run,
+    platform,
+    {
+      commandId: interactionId,
+      decision: 'approve',
+      interactionId,
+      runId: run.id,
+      threadId: run.threadId,
+    },
+    (event) => append({ ...event, by: 'policy' } as HostEvent),
+    continueRun
+  );
+}
+
 // Continuation calculations reuse Core's owned run and dispatch; no log writer lives here.
 export async function validateHostInteractionResume(
   run: Run,

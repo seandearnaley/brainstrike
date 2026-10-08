@@ -21,6 +21,7 @@ import {
   stream,
   text,
   toolCall,
+  toolCalls,
   toolNames,
   toolResults,
   userTexts,
@@ -244,4 +245,91 @@ test('the child deadline also bounds the leg that resumes after an approval', as
     outcome: 'failed',
   });
   expect(harness.writes).toHaveLength(1);
+});
+
+test("a decision's live grant answers every sibling it now allows; the others stay pending", async () => {
+  // The root policy asks for edits until the user grants them for the session.
+  let granted = false;
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      if (firstUser(call) === 'Fan out writes.') {
+        if (lastUser(call).includes(LEDGER)) {
+          return stream(text('Parent saw every write.'));
+        }
+        return stream(
+          answered(call as CallOptions)
+            ? text('Parent continues.')
+            : toolCalls([
+                ['agent-worker', { prompt: 'WRITE_A' }, 'w-a'],
+                ['agent-worker', { prompt: 'WRITE_B' }, 'w-b'],
+                ['agent-worker', { prompt: 'RUN_C' }, 'w-c'],
+              ])
+        );
+      }
+      const task = firstUser(call);
+      if (answered(call as CallOptions)) {
+        return stream(text(`${task} done.`));
+      }
+      return stream(
+        task === 'RUN_C'
+          ? toolCall('run_command', { command: 'echo C' }, `${task}-call`)
+          : toolCall('write_file', { path: `${task}.txt` }, `${task}-call`)
+      );
+    },
+  });
+  const harness = await setupChildRunHost(model, cleanup, {
+    personas: [explorer, worker],
+    policy: () => ({
+      policies: {
+        ...DEFAULT_PERMISSION_POLICIES,
+        edit: granted ? 'allow' : 'ask',
+        execute: 'ask',
+        read: 'allow',
+      },
+      yolo: false,
+    }),
+  });
+  await harness.start('Fan out writes.');
+  await expect.poll(async () => (await childThreads(harness)).length).toBe(3);
+  const pauses = await Promise.all(
+    (await childThreads(harness)).map(async (threadId) => {
+      const rows = await rowsUntil(harness, threadId, requested);
+      const pause = rows.find(requested)?.event;
+      if (pause?.type !== 'interaction.requested') {
+        throw new Error('Child did not pause');
+      }
+      return { pause, threadId };
+    })
+  );
+  const find = (toolCallId: string) => {
+    const found = pauses.find(({ pause }) => pause.toolCallId === toolCallId);
+    if (!found) {
+      throw new Error(`No pause for ${toolCallId}`);
+    }
+    return found;
+  };
+  const writeA = find('WRITE_A-call');
+  // "Allow edits this session" on A's card: the client grants, then approves A.
+  granted = true;
+  await harness.core().respond({
+    commandId: randomUUID(),
+    decision: 'approve',
+    interactionId: writeA.pause.interactionId,
+    runId: writeA.pause.runId,
+    threadId: writeA.threadId,
+  });
+  await expect.poll(() => harness.writes.length).toBe(2);
+  const bRows = await rowsUntil(
+    harness,
+    find('WRITE_B-call').threadId,
+    (row) => row.event.type === 'interaction.responded'
+  );
+  // The host records that the live policy, not a person, answered B.
+  expect(bRows.find((row) => row.event.type === 'interaction.responded')?.event).toMatchObject({
+    by: 'policy',
+    decision: 'approve',
+  });
+  // No execute grant was given: C still waits for a person.
+  const cRows = await harness.core().read(find('RUN_C-call').threadId, 0);
+  expect(cRows.some((row) => row.event.type === 'interaction.responded')).toBe(false);
 });

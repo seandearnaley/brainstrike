@@ -171,6 +171,16 @@ export function fixturePlatform(
         inputSchema: z.object({ path: z.string() }),
         risk: 'read',
       },
+      run_command: {
+        description: 'Run a workspace command',
+        execute: async (input) => {
+          writes.push(JSON.stringify(input));
+          return { exitCode: 0 };
+        },
+        identity: 'native-command-generation-1',
+        inputSchema: z.object({ command: z.string() }),
+        risk: 'execute',
+      },
       write_file: {
         description: 'Write a workspace file',
         execute: async (input) => {

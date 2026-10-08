@@ -17,6 +17,7 @@ import {
   hostInvocationLimitText,
 } from './child-runs.js';
 import { HostChildWorkQueue } from './child-work-queue.js';
+import { retainHostRunWork } from './core-run-lifecycle.js';
 import type { HostRunState } from './core-state.js';
 import type { HostDelegation, HostRunAdmission } from './ports.js';
 import type {
@@ -100,6 +101,16 @@ export function hostDeliveryPosition(
       via: 'next-turn',
     },
   };
+}
+
+/** A policy answer that did not commit leaves its approval for a person. */
+export function reportHostGrantFailure(run: HostRunState, cause: unknown): void {
+  logger.warn('Host policy answer was not committed', {
+    code: 'host_policy_answer_failed',
+    errorName: cause instanceof Error ? cause.name : typeof cause,
+    runId: run.id,
+    threadId: run.threadId,
+  });
 }
 
 /** A wake that was not admitted leaves its results for the next user turn. */
@@ -187,6 +198,45 @@ export class HostChildRuns {
     } else if (event.type === 'run.finished') {
       this.settlements.get(event.runId)?.resolve();
       this.settlements.delete(event.runId);
+    }
+  }
+
+  /** The root thread of `threadId`'s delegation tree. */
+  rootThread(threadId: string): string {
+    let root = threadId;
+    for (let origin = this.origins.get(root); origin; origin = this.origins.get(root)) {
+      root = origin.parentThreadId;
+    }
+    return root;
+  }
+
+  /**
+   * After a decision on `threadId`, offers every unanswered approval in its
+   * whole delegation tree to `approve`, which answers it only when the root's
+   * live policy now allows it (a grant given with the decision). Each answer
+   * is retained by its run; one that cannot commit is reported and left for a
+   * person.
+   */
+  releaseGranted(
+    threadId: string,
+    runs: ReadonlyMap<string, HostRunState>,
+    approve: (run: HostRunState, interactionId: string) => Promise<void>
+  ): void {
+    const tree = new Set(this.subtree(this.rootThread(threadId)));
+    for (const run of runs.values()) {
+      if (!tree.has(run.threadId) || run.terminal) {
+        continue;
+      }
+      for (const pending of run.approvals.values()) {
+        if (pending.event.kind === 'approval' && !pending.decision) {
+          retainHostRunWork(
+            run,
+            approve(run, pending.event.interactionId).catch((cause: unknown) =>
+              reportHostGrantFailure(run, cause)
+            )
+          );
+        }
+      }
     }
   }
 

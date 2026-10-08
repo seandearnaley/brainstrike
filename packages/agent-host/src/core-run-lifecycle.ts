@@ -187,6 +187,19 @@ export async function acceptHostRunStop(
   return result;
 }
 
+/** Host close fences pending admissions and runs; each abort gets its own reason. */
+export function abortHostClosingWork(
+  admissions: Iterable<AbortController>,
+  runs: Iterable<HostRunState>
+): void {
+  for (const controller of admissions) {
+    controller.abort(new Error('Host is closing'));
+  }
+  for (const run of runs) {
+    run.controller.abort(new Error('Host is closing'));
+  }
+}
+
 /**
  * Host close: join every run's task, effects and owner, then the platform.
  * Returns the runs' retained outcomes once nothing failed to retire.
