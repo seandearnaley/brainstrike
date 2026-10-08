@@ -608,6 +608,100 @@ describe('McpDesktopTaskHost', () => {
     expect(server.cancels).toEqual([]);
   });
 
+  it('binds a host-run task to Core and reports its input receipt from the update ack', async () => {
+    const server = createFakeServer();
+    const presented = Promise.withResolvers<void>();
+    const answer = Promise.withResolvers<{ action: 'accept'; content: { workspace: string } }>();
+    elicitationPresenter.bindTaskPresenter.mockImplementationOnce(
+      (binding: McpTaskElicitationBinding) => {
+        bindings.push(binding);
+        return {
+          presenter: {
+            confirmUrl: async () => ({ action: 'cancel' as const }),
+            form: true,
+            openExternal: async () => undefined,
+            presentForm: () => {
+              presented.resolve();
+              return answer.promise;
+            },
+            url: true,
+          },
+          release: vi.fn(),
+        };
+      }
+    );
+    await host.connected(createConnection(server));
+    const bound = Promise.withResolvers<void>();
+    const execution = {
+      bindTask: vi.fn((_task: { assertCurrent(): Promise<void> }) => bound.promise),
+      requestInput: vi.fn(async () => undefined),
+    };
+    const initial = await host.track({
+      configuredServerId: SERVER_ID,
+      execution,
+      result: server.created('t-host'),
+      toolName: 'deploy',
+    });
+    // Core is asked to commit the exact handle; the registration stays current meanwhile.
+    expect(execution.bindTask).toHaveBeenCalledWith({
+      assertCurrent: expect.any(Function),
+      handle: initial.handle,
+    });
+    await expect(execution.bindTask.mock.calls[0]?.[0].assertCurrent()).resolves.toBeUndefined();
+    const binding = bindings.find(({ taskHandle }) => taskHandle.taskId === 't-host');
+    expect(binding).toMatchObject({ host: { execution }, taskHandle: initial.handle });
+    bound.resolve();
+    await expect(binding?.host?.bound?.()).resolves.toBeUndefined();
+    server.set('t-host', {
+      inputRequests: {
+        'input-1': {
+          method: 'elicitation/create',
+          params: {
+            message: 'Choose a workspace',
+            mode: 'form',
+            requestedSchema: {
+              properties: { workspace: { type: 'string' } },
+              required: ['workspace'],
+              type: 'object',
+            },
+          },
+        },
+      },
+      status: 'input_required',
+    });
+    await presented.promise;
+    // The receipt is the server's ack of the update that carries this input's answer.
+    const receipt = binding?.host?.acknowledged?.('input-1');
+    answer.resolve({ action: 'accept', content: { workspace: 'Eng' } });
+    await expect(receipt).resolves.toBeUndefined();
+    expect(server.updates).toEqual([
+      {
+        inputResponses: { 'input-1': { action: 'accept', content: { workspace: 'Eng' } } },
+        taskId: 't-host',
+      },
+    ]);
+  });
+
+  it('reports a binding Core refused instead of dropping it', async () => {
+    const server = createFakeServer();
+    await host.connected(createConnection(server));
+    const refusal = new Error('Private MCP execution authority is unavailable or stale');
+    await host.track({
+      configuredServerId: SERVER_ID,
+      execution: {
+        bindTask: vi.fn(() => Promise.reject(refusal)),
+        requestInput: vi.fn(async () => undefined),
+      },
+      result: server.created('t-refused'),
+      toolName: 'deploy',
+    });
+    await vi.waitFor(() =>
+      expect(internalErrors).toEqual([
+        ['mcp-task-host-binding-refused', { cause: refusal, taskId: 't-refused' }],
+      ])
+    );
+  });
+
   it('marks tasks restart_required on disconnect, recovers them on reconnect, and retires the epoch on replacement', async () => {
     const server = createFakeServer();
     await host.connected(createConnection(server));

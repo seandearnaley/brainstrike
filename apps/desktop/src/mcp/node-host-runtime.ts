@@ -392,8 +392,10 @@ export class McpHostRuntime {
       invoke: (operation, options) =>
         Promise.resolve().then(() => {
           const parsed = parseMcpHostOperation(operation);
-          return this.elicitationPresenter.runWithOperation(parsed, () =>
-            this.service.invoke(parsed, options)
+          return this.elicitationPresenter.runWithOperation(
+            parsed,
+            () => this.service.invoke(parsed, options),
+            options?.execution
           );
         }),
       replaceConfig: (config) =>

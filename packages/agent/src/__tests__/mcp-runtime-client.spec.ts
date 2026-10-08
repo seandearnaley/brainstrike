@@ -378,17 +378,41 @@ describe('MCP runtime client', () => {
     const discovered = await runtimeClient?.listToolsetsWithErrors();
     expect(discovered?.errors).toEqual({ broken: 'connection refused' });
     const tool = requireExecutableTool(discovered?.toolsets['healthy']?.['fail']);
-    await expect(
-      tool.execute(
-        {},
-        {
-          agent: { toolCallId: 'call-error' },
-          writer: {
-            custom: vi.fn().mockRejectedValue(new Error('progress channel closed')),
-          },
-        }
-      )
-    ).rejects.toThrow('intentional failure');
+    // A server's own tool error result (MCP `isError`) is typed and logged, never silent: the
+    // run's guard sanitizes the model-facing text, so this record is where its reason survives.
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    try {
+      await expect(
+        tool.execute(
+          {},
+          {
+            agent: { toolCallId: 'call-error' },
+            writer: {
+              custom: vi.fn().mockRejectedValue(new Error('progress channel closed')),
+            },
+          }
+        )
+      ).rejects.toMatchObject({
+        code: 'mcp-tool-error-result',
+        message: 'intentional failure',
+        name: 'McpToolResultError',
+        serverName: 'healthy',
+        toolName: 'fail',
+      });
+      expect(logRecords).toContainEqual(
+        expect.objectContaining({
+          args: [
+            'MCP tool returned an error result',
+            { reason: 'intentional failure', serverName: 'healthy', toolName: 'fail' },
+          ],
+          level: 'warn',
+          scope: 'MastraAgentMcpRuntimeClient',
+        })
+      );
+    } finally {
+      removeLogListener();
+    }
   });
 
   it('keeps a complete 2020-12 schema usable at the model boundary', async () => {
@@ -830,6 +854,47 @@ describe('MCP runtime client', () => {
         expect(mcpTaskTracking.awaitSettlement).not.toHaveBeenCalled();
       }
     );
+
+    it('forwards the host tool call execution capability to the invocation and the tracking request', async () => {
+      const remote = createTaskServer(createdTask as unknown as ExplicitHttpMcpCallToolResult);
+      const mcpTaskTracking: McpTaskTrackingCapability = {
+        awaitSettlement: vi.fn(async () => ({ settled: true as const, task: settled })),
+        track: vi.fn(async () => live),
+      };
+      const { host } = createTestHost({ remote });
+      const runtimeClient = await createMcpRuntimeClient({
+        config: undefined,
+        host,
+        mcpTaskTracking,
+        toolTimeoutMs: 60_000,
+      });
+      const discovered = await runtimeClient?.listToolsetsWithErrors();
+      const tool = requireExecutableTool(discovered?.toolsets['remote']?.['export']);
+      const execution = { bindTask: vi.fn(), requestInput: vi.fn() };
+      const abortController = new AbortController();
+      // The agent host's canonical tool context: top-level identities and `brainstrikeMcp`.
+      await tool.execute(
+        {},
+        {
+          abortSignal: abortController.signal,
+          brainstrikeMcp: execution,
+          runId: 'run-1',
+          threadId: 'thread-1',
+          toolCallId: 'call-1',
+        }
+      );
+      expect(host.invoke).toHaveBeenCalledWith(
+        expect.objectContaining({ toolName: 'export', type: 'tools/call' }),
+        expect.objectContaining({ execution })
+      );
+      expect(mcpTaskTracking.track).toHaveBeenCalledWith(
+        { configuredServerId: 'remote', execution, result: createdTask, toolName: 'export' },
+        abortController.signal
+      );
+      await expect(tool.execute({}, { brainstrikeMcp: { bindTask: 'no' } })).rejects.toThrow(
+        'The agent host supplied a malformed MCP execution capability'
+      );
+    });
 
     it('throws for an app-originated task on a host without task tracking', async () => {
       const remote = createTaskServer(createdTask as unknown as ExplicitHttpMcpCallToolResult);

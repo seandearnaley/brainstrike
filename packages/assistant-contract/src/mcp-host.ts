@@ -10,6 +10,10 @@ import type {
   ReadResourceResultSchema,
 } from '@modelcontextprotocol/core';
 import { z } from 'zod';
+import type {
+  McpElicitationPresentationWire,
+  McpElicitationSettlement,
+} from './mcp-elicitation.js';
 import { type McpExtensionEnablement, McpExtensionEnablementSchema } from './mcp-extensions.js';
 import type {
   McpConfiguredProtocol,
@@ -17,6 +21,7 @@ import type {
   McpNegotiatedStatus,
   McpStatusTransport,
 } from './mcp-status.js';
+import type { McpTaskHandle } from './mcp-task-presentation.js';
 
 export type ConfiguredMcpServerId = string & {
   readonly __configuredMcpServerId: 'ConfiguredMcpServerId';
@@ -448,7 +453,33 @@ export interface McpHostWatchEvent {
   revision: number;
   servers: readonly McpHostServerSnapshot[];
 }
+/**
+ * The agent host's run-scoped MCP execution capability, mirrored structurally
+ * (the host's `HostMcpExecution`) so MCP leaf code can carry it without
+ * depending on the host package. Core commits every fact; the leaf only
+ * validates and delivers.
+ */
+export interface McpHostInputCapability {
+  assertCurrent(): Promise<void>;
+  readonly presentation: McpElicitationPresentationWire;
+  settle(answer: McpElicitationSettlement): Promise<'local-finalized' | 'remote-acknowledged'>;
+  readonly signal: AbortSignal;
+  /** Pure: never resolves, finalizes or sends an answer. */
+  validate(answer: McpElicitationSettlement): Promise<void>;
+}
+export interface McpHostTaskCapability {
+  assertCurrent(): Promise<void>;
+  readonly handle: McpTaskHandle;
+}
+export interface McpHostExecution {
+  /** Joins Core's binding commit before the task's input can be presented. */
+  bindTask(task: McpHostTaskCapability): Promise<void>;
+  /** Joins Core's request commit before any client is notified. */
+  requestInput(input: McpHostInputCapability): Promise<void>;
+}
 export interface McpHostInvokeOptions {
+  /** The admitting host tool call's capability. It never reaches the server. */
+  execution?: McpHostExecution;
   onProgress?: (progress: McpHostProgress) => void;
   signal?: AbortSignal;
 }

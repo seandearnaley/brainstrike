@@ -107,6 +107,8 @@ export class McpTaskInputDeliveryUnknownError extends Error {
 type InputDelivery = 'acknowledged' | 'pending' | 'unknown';
 
 interface InputOperation {
+  /** Settles with `outcome`: resolved only by the ack, rejected by anything else. */
+  readonly acknowledged: PromiseWithResolvers<void>;
   readonly controller: AbortController;
   readonly decision: Promise<ElicitResult>;
   delivery: Promise<void> | undefined;
@@ -369,6 +371,21 @@ export class McpTaskInteraction {
     this.withdrawInputs(taskId);
   }
 
+  /**
+   * The server's empty-result ack of the `tasks/update` that carries this
+   * input's answer. It rejects when that delivery's outcome is unknown, or when
+   * the input is withdrawn, superseded or closed first. It never resends.
+   */
+  acknowledgement(taskId: string, inputKey: string): Promise<void> {
+    const operation = this.inputs.get(inputIdentity(taskId, inputKey));
+    if (!operation) {
+      return Promise.reject(
+        new Error(`MCP task "${taskId}" has no input "${inputKey}" in this interaction.`)
+      );
+    }
+    return operation.acknowledged.promise;
+  }
+
   close(): Promise<void> {
     if (this.closePromise) {
       return this.closePromise;
@@ -418,7 +435,10 @@ export class McpTaskInteraction {
     } else {
       const controller = new AbortController();
       const decision = this.resolveInput(taskId, inputKey, request, controller.signal);
+      const acknowledged = Promise.withResolvers<void>();
+      void acknowledged.promise.catch(() => undefined);
       const created: InputOperation = {
+        acknowledged,
         controller,
         decision,
         delivery: undefined,
@@ -511,9 +531,11 @@ export class McpTaskInteraction {
       // an application, and the pinned spec guarantees no-application for none
       // of them, so the key is fenced as unknown and the original error rethrown.
       operation.outcome = 'unknown';
+      operation.acknowledged.reject(new McpTaskInputDeliveryUnknownError(taskId, inputKey));
       throw error;
     }
     operation.outcome = 'acknowledged';
+    operation.acknowledged.resolve();
   }
 
   private async runCancellation(
@@ -564,7 +586,9 @@ export class McpTaskInteraction {
         continue;
       }
       operation.retired = true;
-      operation.controller.abort(new Error(`MCP task "${taskId}" input request was superseded.`));
+      const superseded = new Error(`MCP task "${taskId}" input request was superseded.`);
+      operation.acknowledged.reject(superseded);
+      operation.controller.abort(superseded);
     }
   }
 
@@ -574,7 +598,9 @@ export class McpTaskInteraction {
         continue;
       }
       operation.retired = true;
-      operation.controller.abort(new McpTaskInputWithdrawnError(taskId, operation.inputKey));
+      const withdrawn = new McpTaskInputWithdrawnError(taskId, operation.inputKey);
+      operation.acknowledged.reject(withdrawn);
+      operation.controller.abort(withdrawn);
     }
   }
 
@@ -615,6 +641,9 @@ export class McpTaskInteraction {
       ]),
       ...[...this.cancellations.values()].map(({ promise }) => promise),
     ]);
+    for (const operation of this.inputs.values()) {
+      operation.acknowledged.reject(new Error('MCP task interaction closed.'));
+    }
     this.cancellations.clear();
     this.inputs.clear();
     this.notificationTaskIds.clear();

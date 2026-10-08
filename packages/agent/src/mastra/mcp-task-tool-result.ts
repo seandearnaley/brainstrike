@@ -1,5 +1,6 @@
 import {
   createMcpTaskToolInvocationResult,
+  type McpHostExecution,
   type McpTaskToolInvocationResult,
   readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
@@ -79,6 +80,8 @@ export function readMcpCreatedTaskResult(result: unknown): CreateTaskResult | un
 
 export interface SettleMcpTaskToolResultInput {
   readonly configuredServerId: string;
+  /** The admitting host tool call's capability; absent outside an agent-host run. */
+  readonly execution?: McpHostExecution;
   readonly result: CreateTaskResult;
   readonly signal?: AbortSignal;
   readonly toolName: string;
@@ -93,13 +96,16 @@ export interface SettleMcpTaskToolResultInput {
 export async function settleMcpTaskToolResult(
   input: SettleMcpTaskToolResultInput
 ): Promise<McpTaskToolInvocationResult> {
-  const { configuredServerId, result, signal, toolName, tracking } = input;
+  const { configuredServerId, execution, result, signal, toolName, tracking } = input;
   if (!tracking) {
     throw new Error(
       `MCP tool "${configuredServerId}.${toolName}" returned a task but this host has no task tracking capability`
     );
   }
-  const initial = await tracking.capability.track({ configuredServerId, result, toolName }, signal);
+  const initial = await tracking.capability.track(
+    { configuredServerId, ...(execution ? { execution } : {}), result, toolName },
+    signal
+  );
   const outcome = await tracking.capability.awaitSettlement(initial.handle, {
     ...(signal ? { signal } : {}),
     timeoutMs: tracking.settlementTimeoutMs,

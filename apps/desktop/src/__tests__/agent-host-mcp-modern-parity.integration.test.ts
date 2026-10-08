@@ -1,563 +1,70 @@
 // @vitest-environment node
-import { fork } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { CEILING_SCALED_TOOL_RESULT_BUDGET, createSanitizedToolNameMap } from '@brainstrike/agent';
 import {
-  type CollectCombinedToolsResult,
-  collectCombinedTools,
-} from '@brainstrike/agent/mcp-client';
-import {
-  attachAgentHost,
-  createProductionHostPlatform,
-  type HostClient,
-  type HostEvent,
-  type HostLogRow,
-  startAgentHost,
-} from '@brainstrike/agent-host';
-import { scriptedToolSequence } from '@brainstrike/agent-host/test-fixtures/scripted-model';
-import {
-  DEFAULT_PERMISSION_POLICIES,
-  type McpTaskHandle,
   type McpTaskPresentation,
   parseConfiguredMcpServerId,
-  parseMcpElicitationSettlement,
   readMcpAppToolInvocationResult,
-  readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
-import { McpTaskRepository, MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { processStartTime } from '@brainstrike/state-store';
-import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { fixtureToolRequest } from './fixtures/agent-host-adapter-fixture';
 import {
-  type ComposedAgentHostAdapterServices,
-  createAgentHostAdapterServicesFactory,
-} from '../agent-host-platform/adapter-services';
-import type {
-  McpElicitationFinalizedEvent,
-  McpElicitationPresentation,
-} from '../mcp/elicitation-presenter';
-import { fixtureCapabilities, fixtureToolRequest } from './fixtures/agent-host-adapter-fixture';
+  APP_MIME_TYPE,
+  APP_RESOURCE_URI,
+  APPS_SERVER,
+  answerFor,
+  answerPublicly,
+  causeMessage,
+  diagnostics,
+  durableTask,
+  eventOf,
+  expectCanonicalTask,
+  expectedTaskInput,
+  firstOf,
+  type LabProcess,
+  LEASE_UNAVAILABLE,
+  LEGACY_SERVER,
+  liveServer,
+  modelToolResult,
+  Observed,
+  openGuiInput,
+  openModernHost,
+  openTasksHost,
+  owned,
+  type PublicInput,
+  releaseOwned,
+  reopenAndRecover,
+  requirePresentation,
+  requireTaskHandle,
+  startLab,
+  startThreadRun,
+  TASK_INPUT_REQUEST,
+  TASKS_SERVER,
+} from './fixtures/agent-host-mcp-modern-harness';
 
 // BST-1930/BST-1931: the lab in a forked plain-Node child over loopback HTTP (2026-07-28), the
 // shipped collector, MCP runtime, production platform and Core behind the public host/client
 // protocol, and disposable Root SQLite plus PGlite Tasks storage. Only the model is scripted.
+// Server input is host-owned: Core commits it, and it is answered only through the public
+// `mcp/input/read -> stage -> settle` client (ruling #3543 6052085707 C).
 
-const LAB_FIXTURE = fileURLToPath(
-  new URL('./fixtures/agent-host-mcp-modern-lab.mjs', import.meta.url)
-);
-const TASKS_SERVER = 'lab.tasks';
-const APPS_SERVER = 'lab.apps';
-const APP_RESOURCE_URI = 'ui://get-time/mcp-app.html';
-const APP_MIME_TYPE = 'text/html;profile=mcp-app';
+afterEach(releaseOwned);
 
-type LabScenario = 'apps-reference' | 'tasks-reference';
-const LabReportSchema = z.strictObject({
-  httpListenersClosed: z.number().int(),
-  stdioTransportsClosed: z.number().int(),
-  untriggeredFaultIds: z.array(z.string()),
-});
-const LabReadySchema = z.strictObject({
-  authentication: z.literal('none'),
-  endpoint: z.url(),
-  fixture: z.string().min(1),
-  fixtureSourceSha256: z.string().regex(/^[a-f0-9]{64}$/u),
-  pid: z.number().int().positive(),
-  protocol: z.literal('2026-07-28'),
-  scenario: z.enum(['apps-reference', 'tasks-reference']),
-  transport: z.literal('streamable-http'),
-  type: z.literal('ready'),
-  usesAmbientCredentials: z.literal(false),
-});
-const LabMessageSchema = z.discriminatedUnion('type', [
-  LabReadySchema,
-  z.strictObject({ report: LabReportSchema, type: z.literal('closed') }),
-  z.strictObject({ message: z.string(), phase: z.string(), type: z.literal('failed') }),
-]);
-type LabProcess = Awaited<ReturnType<typeof startLab>>;
-interface LabExit {
-  readonly code: number | null;
-  readonly signal: NodeJS.Signals | null;
-}
-
-/** Owned resources close in reverse acquisition order; every failure is kept. */
-const owned: (() => Promise<unknown>)[] = [];
-afterEach(async () => {
-  const failures: unknown[] = [];
-  for (const release of owned.splice(0).reverse()) {
-    await Promise.resolve()
-      .then(release)
-      .catch((cause: unknown) => failures.push(cause));
-  }
-  if (failures.length > 0) {
-    throw new AggregateError(failures, 'Modern MCP parity cleanup failed');
-  }
-});
-
-/** Fork the lab owner with an empty environment and record its OS start identity. */
-async function startLab(scenario: LabScenario, testSignal: AbortSignal, retainAfterClose = false) {
-  const child = fork(LAB_FIXTURE, [], {
-    env: {},
-    execArgv: [],
-    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-  });
-  const exit = Promise.withResolvers<LabExit>();
-  // 'close' follows exit once stdio drains. A broken fixture is still physically joined (kill is
-  // a no-op after exit) with its original failure, which a test cancellation reports as the cause.
-  child.once('close', (code, signal) => exit.resolve({ code, signal }));
-  let output = '';
-  let read = 0;
-  const abandon = async (cause: unknown): Promise<never> => {
-    child.kill('SIGKILL');
-    await exit.promise;
-    if (!testSignal.aborted || cause !== testSignal.reason) {
-      throw cause;
-    }
-    throw new Error(`MCP lab cancelled after ${read} replies: ${output}`, { cause });
-  };
-  // Owned from the fork, and the test's signal cancels every wait, so a timeout leaves no child.
-  let close = (): Promise<unknown> => abandon(undefined).catch(() => undefined);
-  owned.push(() => close());
-  const capture = (chunk: Buffer): void => {
-    output = `${output}${chunk.toString('utf8')}`.slice(-4096);
-  };
-  child.stdout?.on('data', capture);
-  child.stderr?.on('data', capture);
-  const inbox = new Observed<unknown>();
-  child.on('message', (message) => inbox.push(message));
-  const cancelled = Promise.withResolvers<never>();
-  cancelled.promise.catch(() => undefined);
-  testSignal.addEventListener('abort', () => cancelled.reject(testSignal.reason), { once: true });
-  const next = async () => {
-    const message = await Promise.race([
-      inbox.until((items) => (items.length > read ? { value: items[read] } : undefined)),
-      exit.promise.then((status) => {
-        throw new Error(
-          `MCP lab child exited ${JSON.stringify(status)} before replying: ${output}`
-        );
-      }),
-      cancelled.promise,
-    ]);
-    read += 1;
-    return LabMessageSchema.parse(message.value);
-  };
-  child.send({ retainAfterClose, scenario, type: 'start' });
-  const ready = await next().catch(abandon);
-  const start = ready.type === 'ready' ? processStartTime(ready.pid) : null;
-  if (ready.type !== 'ready' || ready.pid !== child.pid || ready.scenario !== scenario || !start) {
-    return await abandon(new Error(`MCP lab did not start: ${JSON.stringify(ready)} ${output}`));
-  }
-  const join = async () => {
-    child.send({ type: 'close' });
-    const closed = await next();
-    if (closed.type !== 'closed') {
-      throw new Error(`MCP lab cleanup failed: ${JSON.stringify(closed)} ${output}`);
-    }
-    const receipt = {
-      exit: await Promise.race([exit.promise, cancelled.promise]).catch(abandon),
-      pid: ready.pid,
-      report: closed.report,
-      scenario,
-      start,
-      startAfterJoin: processStartTime(ready.pid),
-    };
-    process.stderr.write(`${JSON.stringify({ mcpLabJoined: receipt })}\n`);
-    const { code, signal } = receipt.exit;
-    if (code !== 0 || signal !== null || receipt.startAfterJoin === start) {
-      throw new Error(`MCP lab was not physically joined: ${JSON.stringify(receipt)}`);
-    }
-    return receipt;
-  };
-  let closing: ReturnType<typeof join> | undefined;
-  const closeLab = (): ReturnType<typeof join> => (closing ??= join().catch(abandon));
-  close = closeLab;
-  return { close: closeLab, ready, start };
-}
-
-/** Event-driven observation; a missing fact fails at the unchanged test timeout. */
-class Observed<T> {
-  readonly items: T[] = [];
-  private readonly waiters = new Set<() => void>();
-  push(item: T): void {
-    this.items.push(item);
-    for (const waiter of [...this.waiters]) {
-      waiter();
-    }
-  }
-  async until<R>(select: (items: readonly T[]) => R | undefined): Promise<R> {
-    for (;;) {
-      const selected = select(this.items);
-      if (selected !== undefined) {
-        return selected;
-      }
-      await new Promise<void>((resolve) => {
-        const waiter = (): void => {
-          this.waiters.delete(waiter);
-          resolve();
-        };
-        this.waiters.add(waiter);
-      });
-    }
-  }
-}
-
-interface ModernStorage {
-  readonly db: PGlite | undefined;
-  readonly root: string;
-}
-
-/** Disposable Root plus an on-disk PGlite migrated by the production runner. */
-async function createStorage(tasks: boolean): Promise<ModernStorage> {
-  const root = await mkdtemp(join(tmpdir(), 'bs-m3-mcp-modern-'));
-  owned.push(() => rm(root, { force: true, recursive: true }));
-  if (!tasks) {
-    return { db: undefined, root };
-  }
-  const db = await wasmLoader.createPGlite(join(root, 'mcp-tasks-pglite'));
-  owned.push(() => db.close());
-  const runner = new MigrationRunner(db);
-  await runner.initialize();
-  await runner.up(migrations);
-  return { db, root };
-}
-
-interface ModernHostOptions {
-  readonly appUi: 'rich' | 'text';
-  readonly lab: LabProcess;
-  readonly policy: 'allow' | 'ask';
-  readonly serverId: string;
-  /** Reopen an earlier Root and Tasks writer instead of creating disposable ones. */
-  readonly storage?: ModernStorage;
-  readonly toolName: string;
-}
-
-type ModernHost = Awaited<ReturnType<typeof openModernHost>>;
-
-/** The CLI-first composition: Root startup hands its context to the adapter services (credential
- * file, MCP authority, borrowed Tasks writer) and the production platform behind Core's socket. */
-async function openModernHost(options: ModernHostOptions) {
-  const storage = options.storage ?? (await createStorage(options.serverId === TASKS_SERVER));
-  const { db, root } = storage;
-  const [toolId] = createSanitizedToolNameMap([`${options.serverId}.${options.toolName}`]).keys();
-  if (!toolId) {
-    throw new Error('The canonical sanitizer produced no provider tool name');
-  }
-  const model = scriptedToolSequence([{ input: {}, toolId }]);
-  const presentations = new Observed<McpElicitationPresentation>();
-  const finalized = new Observed<McpElicitationFinalizedEvent>();
-  const internalErrors = new Observed<{ readonly cause: unknown; readonly code: string }>();
-  let services: ComposedAgentHostAdapterServices | undefined;
-  const host = await startAgentHost({ lifetime: 'persistent', root }, async (startup) => {
-    services = await createAgentHostAdapterServicesFactory<CollectCombinedToolsResult>({
-      attachElicitationPresenter: (presenter) => {
-        const unobserve = presenter.observeFinalized((event) => finalized.push(event));
-        const detach = presenter.attach((presentation) => presentations.push(presentation));
-        return () => {
-          detach();
-          unobserve();
-        };
-      },
-      collectCombinedTools,
-      createProviderCredentialReader: fixtureCapabilities.createProviderCredentialReader,
-      onMcpDiscoverySkips: fixtureCapabilities.onMcpDiscoverySkips,
-      runtimeDependencies: {
-        onInternalError: (code, cause) => internalErrors.push({ cause, code }),
-      },
-    })({
-      appUi: options.appUi,
-      credentialStore: { kind: 'file', path: join(root, 'credentials.json') },
-      mcpConfiguration: {
-        servers: [
-          {
-            name: parseConfiguredMcpServerId(options.serverId),
-            protocol: '2026-07-28',
-            startup: 'automatic',
-            transport: 'streamable-http',
-            url: options.lab.ready.endpoint,
-          },
-        ],
-      },
-      openExternal: async () => {
-        throw new Error('No external opener is expected by the modern lab');
-      },
-      openTaskDatabase: async () => {
-        if (!db) {
-          throw new Error('This scenario must not open the Tasks database');
-        }
-        return db;
-      },
-      root,
-      startup,
-    });
-    return createProductionHostPlatform({
-      close: services.close,
-      mcp: services.mcp,
-      readConfiguration: async () => ({
-        configuration: { model: 'fixture', provider: 'openai' },
-        durableConfiguration: { model: 'fixture', provider: 'openai' },
-        maxSteps: 3,
-        memory: {
-          native: { options: { observationalMemory: false, semanticRecall: false } },
-          recordPrompt: async () => undefined,
-          resourceId: 'workspace',
-        },
-        providerRequestContext: { inputTokenLimit: 30_000, provider: 'openai' },
-        resolvedToolResultBudget: CEILING_SCALED_TOOL_RESULT_BUDGET,
-        tools: {},
-        toolTimeoutMs: fixtureToolRequest.toolTimeoutMs,
-      }),
-      readPermissionPolicy: () => ({
-        policies: { ...DEFAULT_PERMISSION_POLICIES, mcp: options.policy },
-        yolo: false,
-      }),
-      resolveModel: async () => model,
-      resolveProviderAuth: async () => undefined,
-      startup,
-    });
-  });
-  owned.push(() => host.close());
-  const client = await attachAgentHost(host.record);
-  owned.push(() => client.close());
-  if (!services) {
-    throw new Error('Root startup did not compose the adapter services');
-  }
-  const authority = services.runtime.elicitationPresenter;
-  return {
-    client,
-    finalized,
-    host,
-    internalErrors,
-    model,
-    presentations,
-    services,
-    // The desktop bridge's exact path: the browser-safe parser, then the one presenter.
-    settle: (input: unknown) => authority.settle(parseMcpElicitationSettlement(input)),
-    storage,
-    toolId,
-  };
-}
-
-function openTasksHost(
-  lab: LabProcess,
-  options: { readonly policy?: 'allow' | 'ask'; readonly storage?: ModernStorage } = {}
-) {
-  return openModernHost({
-    appUi: 'text',
-    lab,
-    policy: options.policy ?? 'allow',
-    serverId: TASKS_SERVER,
-    ...(options.storage ? { storage: options.storage } : {}),
-    toolName: 'start_task',
-  });
-}
-
-type EventOf<T extends HostEvent['type']> = Extract<HostEvent, { type: T }>;
-
-function eventOf<T extends HostEvent['type']>(
-  rows: readonly HostLogRow[],
-  type: T,
-  predicate: (event: EventOf<T>) => boolean = () => true
-): EventOf<T> | undefined {
-  const row = rows.find(({ event }) => event.type === type && predicate(event as EventOf<T>));
-  return row?.event as EventOf<T> | undefined;
-}
-
-/** Public `log/subscribe` replay plus live `log/event` rows, deduplicated by sequence. */
-async function startThreadRun(client: HostClient, prompt: string) {
-  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
-  const rows = new Observed<HostLogRow>();
-  const accept = (row: HostLogRow): void => {
-    if (row.threadId === threadId && !rows.items.some(({ seq }) => seq === row.seq)) {
-      rows.push(row);
-    }
-  };
-  const release = client.onEvent(accept);
-  owned.push(async () => release());
-  for (const row of (await client.request('log/subscribe', { fromSeq: 0, threadId })).rows) {
-    accept(row);
-  }
-  const { runId } = await client.request('run/start', {
-    commandId: randomUUID(),
-    modelId: 'fixture',
-    prompt,
-    threadId,
-  });
-  const ordered = (): HostLogRow[] => [...rows.items].sort((left, right) => left.seq - right.seq);
-  const until = <R>(select: (rows: readonly HostLogRow[]) => R | undefined): Promise<R> =>
-    rows.until(() => select(ordered()));
-  const log = {
-    effect: () => until((items) => eventOf(items, 'effect.started')),
-    finished: () => until((items) => eventOf(items, 'run.finished')),
-    rows: ordered,
-    until,
-  };
-  return { log, runId, threadId };
-}
-
-/** The provider-visible tool result the scripted model received on its next step. */
-function modelToolResult(model: ModernHost['model'], toolCallId: string): unknown {
-  const parts = (model.doStreamCalls.at(-1)?.prompt ?? []).flatMap((message) =>
-    message.role === 'tool' ? message.content : []
-  );
-  const part = parts.find((item) => item.type === 'tool-result' && item.toolCallId === toolCallId);
-  return part?.type === 'tool-result' ? part.output : undefined;
-}
-
-function liveServer(services: ComposedAgentHostAdapterServices) {
-  const [server, ...others] = services.runtime.host.snapshot().servers;
-  if (!server || others.length > 0) {
-    throw new Error('The modern lab host must own exactly one configured server');
-  }
-  return server;
-}
-
-function requireTaskHandle(presentation: McpElicitationPresentation): McpTaskHandle {
-  const handle = presentation.provenance.taskHandle;
-  if (!handle) {
-    throw new Error('Server-originated task input carried no canonical task handle');
-  }
-  return handle;
-}
-
-/** The exact browser-safe settlement the desktop consent dialog sends. */
-function answerFor(presentation: McpElicitationPresentation, action: 'accept' | 'decline') {
-  return {
-    action,
-    configuredServerId: presentation.provenance.configuredServerId,
-    ...(action === 'accept' ? { content: { approved: true } } : {}),
-    generation: presentation.provenance.generation,
-    id: presentation.id,
-    requestId: presentation.provenance.requestId,
-  };
-}
-
-async function durableTask(storage: ModernStorage, handle: McpTaskHandle) {
-  const record = storage.db ? await new McpTaskRepository(storage.db).get(handle) : null;
-  if (!record) {
-    throw new Error('The canonical task handle has no durable record');
-  }
-  return record;
-}
-
-/** Task diagnostics wrap their failure as `{ error | cause, taskId }`. */
-function causeMessage(cause: unknown): string {
-  const wrapped =
-    cause && typeof cause === 'object' && !(cause instanceof Error)
-      ? ((cause as { error?: unknown }).error ?? (cause as { cause?: unknown }).cause)
-      : cause;
-  return wrapped instanceof Error ? wrapped.message : String(wrapped);
-}
-
-function diagnostics(modern: ModernHost): [string, string][] {
-  return modern.internalErrors.items.map(({ cause, code }) => [code, causeMessage(cause)]);
-}
-
-/** The pinned SDK cannot honor a Tasks listen lease; polling stays authoritative. */
-const LEASE_UNAVAILABLE: [string, string] = [
-  'mcp-task-notification-lease-unavailable',
-  'MCP Tasks notification acknowledgement rejected task ids: reference-task-1',
-];
-
-/** One canonical task identity and projection across the committed effect output, the durable
- * Tasks row, the task authority's list and the provider-visible result (with no control handle). */
-async function expectCanonicalTask(
-  modern: ModernHost,
-  rows: readonly HostLogRow[],
-  toolCallId: string,
-  handle: McpTaskHandle,
-  statuses: readonly McpTaskPresentation['status'][]
-): Promise<void> {
-  const finished = eventOf(rows, 'effect.finished', (event) => event.toolCallId === toolCallId);
-  const record = await durableTask(modern.storage, handle);
-  const history = record.history.map(({ at, status }) => ({ at: at.toISOString(), status }));
-  const status = statuses.at(-1);
-  expect(history.map((entry) => entry.status)).toEqual(statuses);
-  expect(record).toMatchObject({ ...handle, blockedDiagnostic: null, status });
-  expect(record.terminalAt).toEqual(record.updatedAt);
-  const task = readMcpTaskToolInvocationResult(finished?.output);
-  expect(task).toEqual({
-    canCancel: false,
-    createdAt: record.createdAt.toISOString(),
-    handle,
-    history,
-    omittedHistoryEntries: 0,
-    recovery: 'terminal',
-    status,
-    statusMessage: null,
-    updatedAt: record.updatedAt.toISOString(),
-  });
-  expect(modern.services.runtime.taskHost.list().tasks).toEqual([task]);
-  expect(modelToolResult(modern.model, toolCallId)).toEqual({
-    type: 'json',
-    value: {
-      history,
-      kind: 'mcp_task_status',
-      omittedHistoryEntries: 0,
-      status,
-      statusMessage: null,
-      updatedAt: record.updatedAt.toISOString(),
-    },
-  });
-  const rowCount = await modern.storage.db?.query<{ count: number }>(
-    'SELECT count(*)::int AS count FROM brainstrike_mcp_tasks'
-  );
-  expect(rowCount?.rows).toEqual([{ count: 1 }]);
-}
-
-const TASK_INPUT_REQUEST = {
-  message: 'Approve the reference task?',
-  mode: 'form',
-  requestedSchema: {
-    properties: { approved: { type: 'boolean' } },
-    required: ['approved'],
-    type: 'object',
-  },
-} as const;
-
-/** Exact server, generation and request provenance of the lab's task input. */
-function expectedTaskInput(
-  generation: number,
-  operation: McpElicitationPresentation['provenance']['operation'],
-  taskHandle: unknown
-): unknown {
-  return {
-    ...TASK_INPUT_REQUEST,
-    id: expect.any(String),
-    provenance: {
-      configuredProtocol: '2026-07-28',
-      configuredServerId: TASKS_SERVER,
-      generation,
-      invocationId: expect.stringMatching(/:task:\d+$/u),
-      negotiatedRevision: '2026-07-28',
-      operation,
-      requestId: 'approval',
-      serverIdentity: { name: 'brainstrike-tasks-reference', version: '1.0.0' },
-      taskHandle,
-      transport: 'streamable-http',
-    },
-  };
-}
-
-/** Restart on the same Root and Tasks writer; the public authority port reconnects. */
-async function reopenAndRecover(previous: ModernHost, lab: LabProcess) {
-  const host = await openTasksHost(lab, { storage: previous.storage });
-  // Recovery runs when the server's next connection opens its Tasks session.
-  await host.services.mcp.authority.control({
-    action: 'connect',
-    configuredServerId: parseConfiguredMcpServerId(TASKS_SERVER),
-  });
-  return { host, recovered: await host.presentations.until((items) => items[0]) };
-}
+const REFUSED = 'MCP Tasks reference task "reference-task-1" received an unexpected input response';
+const UNKNOWN =
+  'MCP task "reference-task-1" input "approval" has an unknown delivery outcome; it is not resent.';
+const STALE = /MCP input authority is unavailable, stale or incompatible/u;
+const APPROVE = { action: 'accept', content: { approved: true } } as const;
+/** A restarted host replays its thread; only a freshly requested input is a recovery. */
+const requested = (items: readonly PublicInput[]): PublicInput | undefined =>
+  items.find(({ status }) => status === 'requested');
 
 describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', () => {
   it('settles a modern Task input through the admitted executor, the canonical task authority and the Tasks database', async (context) => {
     const lab = await startLab('tasks-reference', context.signal);
     const modern = await openTasksHost(lab, { policy: 'ask' });
-    const { log, runId, threadId } = await startThreadRun(modern.client, 'Start the task');
+    const { log, runId, threadId } = await startThreadRun(modern, 'Start the task');
     const approval = await log.until((rows) => eventOf(rows, 'interaction.requested'));
     expect(approval).toMatchObject({ kind: 'approval', runId, toolId: modern.toolId });
     const server = liveServer(modern.services);
@@ -578,7 +85,9 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
         version: 1,
       },
     });
-    expect(modern.presentations.items).toEqual([]);
+    expect(modern.inputs.items).toEqual([]);
+    // The shipped GUI controller (2bfe) watches the same thread through the public client.
+    const { gui, snapshots } = await openGuiInput(modern.client, threadId);
     await modern.client.request('interaction/respond', {
       commandId: randomUUID(),
       decision: 'approve',
@@ -586,7 +95,8 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       runId,
       threadId,
     });
-    const presentation = await modern.presentations.until((items) => items[0]);
+    const input = await modern.inputs.until((items) => items[0]);
+    const presentation = requirePresentation(input);
     const handle = requireTaskHandle(presentation);
     expect(presentation).toEqual(
       expectedTaskInput(
@@ -606,19 +116,20 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       resultMetadata: null,
       status: 'input_required',
     });
-    const answer = answerFor(presentation, 'accept');
-    for (const [stale, code] of [
-      [{ ...answer, generation: server.generation + 1 }, 'mcp-elicitation-stale-authority'],
-      [{ ...answer, requestId: 'other-input' }, 'mcp-elicitation-stale-authority'],
-      [{ ...answer, configuredServerId: 'lab.other' }, 'mcp-elicitation-stale-authority'],
-      [{ ...answer, content: { approved: 'yes' } }, 'mcp-elicitation-settlement-invalid'],
-    ] as const) {
-      expect(() => modern.settle(stale)).toThrow(expect.objectContaining({ code }));
-    }
-    modern.settle(answer);
-    expect(() => modern.settle(answer)).toThrow(
-      expect.objectContaining({ code: 'mcp-elicitation-already-settled' })
+    // Negative controls through the public client: invalid values, then a stale address.
+    await expect(
+      modern.client.request('mcp/input/stage', { ...input.address, content: { approved: 'yes' } })
+    ).rejects.toThrow(STALE);
+    await expect(
+      answerPublicly(modern.client, { ...input.address, runId: randomUUID() }, APPROVE)
+    ).rejects.toThrow(STALE);
+    // A real GUI answer: one decision, committed by Core before native delivery.
+    await snapshots.until((items) =>
+      items.find((snapshot) => snapshot.input?.presentation?.id === presentation.id)
     );
+    await gui.settle(answerFor(presentation, 'accept'));
+    // Exact-once authorization: once Core holds the intent, a second command is refused.
+    await expect(answerPublicly(modern.client, input.address, APPROVE)).rejects.toThrow(STALE);
     expect(await log.finished()).toMatchObject({ outcome: 'completed', runId });
     const effect = await log.effect();
     expect(effect).toMatchObject({
@@ -636,18 +147,35 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       lifecycle: expect.any(Object),
       result: { content: [{ text: 'done', type: 'text' }] },
     });
+    await log.until((rows) => eventOf(rows, 'mcp.input.settled'));
+    // One request, one intent and its positive receipt; durable history keeps no private value.
+    expect(
+      log.rows().flatMap(({ event }): string[][] => {
+        if (event.type === 'mcp.input.settled') {
+          return [[event.type, event.status]];
+        }
+        return event.type.startsWith('mcp.input.') ? [[event.type]] : [];
+      })
+    ).toEqual([
+      ['mcp.input.requested'],
+      ['mcp.input.intent'],
+      ['mcp.input.settled', 'remote-acknowledged'],
+    ]);
+    expect(JSON.stringify(log.rows())).not.toContain(presentation.message);
     expect(modern.finalized.items).toEqual([
       { code: 'mcp-elicitation-already-settled', id: presentation.id },
     ]);
-    expect(modern.presentations.items).toHaveLength(1);
+    expect(modern.presentations.items).toEqual([]);
+    expect(modern.inputs.items).toHaveLength(1);
     expect(diagnostics(modern)).toEqual([LEASE_UNAVAILABLE]);
   });
 
   it('withdraws pending server input when the task authority cancels the task and fences the late answer', async (context) => {
     const lab = await startLab('tasks-reference', context.signal);
     const modern = await openTasksHost(lab);
-    const { log, runId } = await startThreadRun(modern.client, 'Start, then cancel the task');
-    const presentation = await modern.presentations.until((items) => items[0]);
+    const { log, runId } = await startThreadRun(modern, 'Start, then cancel the task');
+    const input = await modern.inputs.until((items) => items[0]);
+    const presentation = requirePresentation(input);
     const handle = requireTaskHandle(presentation);
     await expect(
       modern.services.runtime.taskHost.act({ action: 'cancel', handle })
@@ -658,9 +186,11 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     expect(modern.finalized.items).toEqual([
       { code: 'mcp-elicitation-caller-aborted', id: presentation.id },
     ]);
-    expect(() => modern.settle(answerFor(presentation, 'accept'))).toThrow(
-      expect.objectContaining({ code: 'mcp-elicitation-caller-aborted' })
-    );
+    // Core retired the input with its capability, so the late public answer is refused.
+    await expect(answerPublicly(modern.client, input.address, APPROVE)).rejects.toThrow(STALE);
+    await expect(modern.client.request('mcp/input/read', input.address)).resolves.toMatchObject({
+      status: 'retired',
+    });
     expect(await log.finished()).toMatchObject({ outcome: 'completed', runId });
     await expectCanonicalTask(modern, log.rows(), (await log.effect()).toolCallId, handle, [
       'working',
@@ -668,34 +198,45 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       'input_required',
       'cancelled',
     ]);
-    expect(modern.presentations.items).toHaveLength(1);
+    expect(modern.presentations.items).toEqual([]);
+    expect(modern.inputs.items).toHaveLength(1);
     expect(diagnostics(modern)).toEqual([LEASE_UNAVAILABLE]);
   });
 
   it('delivers a refused server input over the transport without completing the task or asking again', async (context) => {
     const lab = await startLab('tasks-reference', context.signal);
     const modern = await openTasksHost(lab);
-    const { log, runId } = await startThreadRun(modern.client, 'Start, then refuse the task');
-    const presentation = await modern.presentations.until((items) => items[0]);
+    const { log, runId } = await startThreadRun(modern, 'Start, then refuse the task');
+    const input = await modern.inputs.until((items) => items[0]);
+    const presentation = requirePresentation(input);
     const handle = requireTaskHandle(presentation);
-    modern.settle(answerFor(presentation, 'decline'));
-    // The lab's tasks/update accepts only its profiled approval. Two server rejections prove the
-    // refusal crossed the wire and a later poll observed the same input without presenting it again.
-    const rejected = await modern.internalErrors.until((items) => {
-      const failures = items.filter(({ code }) => code === 'mcp-task-consumer-failed');
-      return failures.length >= 2 ? failures : undefined;
+    await expect(
+      answerPublicly(modern.client, input.address, { action: 'decline' })
+    ).resolves.toEqual({ accepted: true, status: 'accepted' });
+    // Retry oracle updated with the causal evidence (#3543 6053865477, P1 6053022823): the lab
+    // answers the one delivery with a JSON-RPC error, which proves no ack, not non-application,
+    // so the next poll raises the visible unknown and nothing is sent or presented again.
+    const failures = await modern.internalErrors.until((items) => {
+      const consumer = items.filter(({ code }) => code === 'mcp-task-consumer-failed');
+      return consumer.length >= 2 ? consumer : undefined;
     });
-    for (const { cause } of rejected) {
-      expect(causeMessage(cause)).toContain(
-        'MCP Tasks reference task "reference-task-1" received an unexpected input response'
-      );
-    }
+    expect(failures.slice(0, 2).map(({ cause }) => causeMessage(cause))).toEqual([
+      expect.stringContaining(REFUSED),
+      UNKNOWN,
+    ]);
+    // Core committed the uncertainty as the settlement outcome.
+    expect(await log.until((rows) => eventOf(rows, 'mcp.input.settled'))).toMatchObject({
+      interactionId: presentation.id,
+      runId,
+      status: 'unknown',
+    });
     expect(await durableTask(modern.storage, handle)).toMatchObject({
       resultMetadata: null,
       status: 'input_required',
     });
     expect(eventOf(log.rows(), 'effect.finished')).toBeUndefined();
-    expect(modern.presentations.items).toEqual([presentation]);
+    expect(modern.presentations.items).toEqual([]);
+    expect(modern.inputs.items).toEqual([input]);
     expect(modern.finalized.items).toEqual([
       { code: 'mcp-elicitation-already-settled', id: presentation.id },
     ]);
@@ -726,7 +267,7 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
         serverId: APPS_SERVER,
         toolName: 'get-time',
       });
-      const { log, runId } = await startThreadRun(modern.client, 'Ask the App for the time');
+      const { log, runId } = await startThreadRun(modern, 'Ask the App for the time');
       expect(await log.finished()).toMatchObject({ outcome: 'completed', runId });
       expect(liveServer(modern.services)).toMatchObject({
         configuredServerId: APPS_SERVER,
@@ -790,14 +331,19 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
         ]);
       }
       expect(modern.presentations.items).toEqual([]);
+      expect(modern.inputs.items).toEqual([]);
     }
   });
 
+  // The recovered answer must go through Core's public client (ruling C). RED until Studio's
+  // recovered-task ownership seam exists (#3543 receipt): a reconstructed leaf has no Core
+  // capability for a recovered task, so today it presents the input on the local listener.
   it('joins the admitted request, task activity, transport and lab process on Root shutdown, fences late events, and recovers the durable input after restart', async (context) => {
     const lab = await startLab('tasks-reference', context.signal);
     const first = await openTasksHost(lab);
-    const { log, runId, threadId } = await startThreadRun(first.client, 'Start, then shut down');
-    const presentation = await first.presentations.until((items) => items[0]);
+    const { log, runId, threadId } = await startThreadRun(first, 'Start, then shut down');
+    const input = await first.inputs.until((items) => items[0]);
+    const presentation = requirePresentation(input);
     const handle = requireTaskHandle(presentation);
     const effect = await log.effect();
     await expect(first.client.request('host/stop', {})).resolves.toEqual({
@@ -820,7 +366,7 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     expect(first.finalized.items).toEqual([
       { code: 'mcp-elicitation-caller-aborted', id: presentation.id },
     ]);
-    expect(() => first.settle(answerFor(presentation, 'accept'))).toThrow(
+    expect(() => first.settleDirect(answerFor(presentation, 'accept'))).toThrow(
       expect.objectContaining({ code: 'mcp-elicitation-caller-aborted' })
     );
     expect(() => first.services.runtime.taskHost.subscribe(() => undefined)).toThrow(
@@ -838,24 +384,29 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     const fenced = (): unknown => ({
       errors: first.internalErrors.items.length,
       finalized: first.finalized.items.length,
+      inputs: first.inputs.items.length,
       presentations: first.presentations.items.length,
     });
     const atShutdown = fenced();
 
-    const { host: second, recovered } = await reopenAndRecover(first, lab);
+    const second = await reopenAndRecover(first, lab, threadId);
     const reopened = (await second.client.request('thread/read', { fromSeq: 0, threadId })).rows;
     expect(eventOf(reopened, 'effect.started')).toEqual(effect);
     expect(eventOf(reopened, 'effect.finished')).toBeUndefined();
     expect(eventOf(reopened, 'run.finished')).toMatchObject({ outcome: 'interrupted', runId });
-    expect(recovered).toEqual(
+    const recovered = await firstOf({
+      local: second.presentations.until((items) => items[0]),
+      public: second.inputs.until(requested),
+    });
+    expect(recovered.fact).toBe('public');
+    const recoveredInput = await second.inputs.until(requested);
+    expect(requirePresentation(recoveredInput)).toEqual(
       expectedTaskInput(liveServer(second.services).generation, { type: 'tools/call' }, handle)
     );
     const settled = new Observed<McpTaskPresentation>();
     const unsubscribe = second.services.runtime.taskHost.subscribe((task) => settled.push(task));
-    owned.push(async () => {
-      unsubscribe();
-    });
-    second.settle(answerFor(recovered, 'accept'));
+    owned.push(async () => unsubscribe());
+    await answerPublicly(second.client, recoveredInput.address, APPROVE);
     expect(
       await settled.until((items) => items.find(({ status }) => status === 'completed'))
     ).toMatchObject({ handle, recovery: 'terminal', status: 'completed' });
@@ -889,47 +440,69 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     ]);
   });
 
-  // RED (PR #3543 correction): the public host/client protocol commits no answerable record of
-  // server-originated MCP input; only the process-local presenter capability receives it.
+  // Formerly RED (#3543): the public protocol committed no answerable record of server input.
+  // Per #3556 6049578135 it now requires the exact durable provenance and a real public
+  // settlement with stale and duplicate controls; a message-bearing event alone cannot pass.
   it('commits server-originated task input where an attached public host client can answer it', async (context) => {
     const lab = await startLab('tasks-reference', context.signal);
     const modern = await openTasksHost(lab);
-    const { log, runId } = await startThreadRun(modern.client, 'Start the task');
-    const presentation = await modern.presentations.until((items) => items[0]);
-    const effect = await log.until((rows) =>
-      rows.find(({ event }) => event.type === 'effect.started' && event.runId === runId)
-    );
-    const toolCallId = effect.event.type === 'effect.started' ? effect.event.toolCallId : '';
-    expect(presentation.provenance).toMatchObject({
+    const { log, runId } = await startThreadRun(modern, 'Start the task');
+    const input = await modern.inputs.until((items) => items[0]);
+    const presentation = requirePresentation(input);
+    const effect = await log.effect();
+    expect(eventOf(log.rows(), 'mcp.task.bound')).toMatchObject({
       configuredServerId: TASKS_SERVER,
-      requestId: 'approval',
-      taskHandle: { serverId: TASKS_SERVER, taskId: 'reference-task-1' },
+      handle: requireTaskHandle(presentation),
+      runId,
+      toolCallId: effect.toolCallId,
+      toolId: modern.toolId,
+      toolIdentity: effect.toolIdentity,
     });
-    // Any committed, client-visible event for this pending call that carries
-    // the server's request; its shape is Studio's to define.
-    await expect
-      .poll(() =>
-        log
-          .rows()
-          .filter(
-            ({ event, seq }) =>
-              seq > effect.seq &&
-              event.type !== 'effect.finished' &&
-              'toolCallId' in event &&
-              event.toolCallId === toolCallId &&
-              JSON.stringify(event).includes(presentation.message)
-          )
-          .map(({ event }) => event)
-      )
-      .toEqual(expect.arrayContaining([expect.objectContaining({ runId, toolCallId })]));
+    expect(input.request).toEqual({
+      configuredServerId: TASKS_SERVER,
+      generation: presentation.provenance.generation,
+      interactionId: presentation.id,
+      invocationId: presentation.provenance.invocationId,
+      mode: 'form',
+      requestId: 'approval',
+      runId,
+      taskId: 'reference-task-1',
+      toolCallId: effect.toolCallId,
+      toolId: modern.toolId,
+      toolIdentity: effect.toolIdentity,
+      type: 'mcp.input.requested',
+    });
+    expect(input.status).toBe('requested');
+    // Durable history carries only the safe envelope; the presentation came from the read.
+    expect(JSON.stringify(log.rows())).not.toContain(presentation.message);
+    await expect(
+      answerPublicly(modern.client, { ...input.address, interactionId: randomUUID() }, APPROVE)
+    ).rejects.toThrow(STALE);
+    const commandId = randomUUID();
+    await expect(answerPublicly(modern.client, input.address, APPROVE, commandId)).resolves.toEqual(
+      { accepted: true, status: 'accepted' }
+    );
+    // The same command is idempotent; a second authorization is refused.
+    await expect(
+      modern.client.request('mcp/input/settle', { ...input.address, action: 'accept', commandId })
+    ).resolves.toMatchObject({ accepted: true });
+    await expect(answerPublicly(modern.client, input.address, APPROVE)).rejects.toThrow(STALE);
+    expect(await log.finished()).toMatchObject({ outcome: 'completed', runId });
+    expect(await log.until((rows) => eventOf(rows, 'mcp.input.settled'))).toMatchObject({
+      interactionId: presentation.id,
+      runId,
+      status: 'remote-acknowledged',
+    });
+    expect(modern.presentations.items).toEqual([]);
   });
 
   // Green since #3543 fix 2: run/stop withdraws task-bound input and refuses a late answer.
   it('fences task-bound server input when the run that admitted it stops', async (context) => {
     const lab = await startLab('tasks-reference', context.signal);
     const first = await openTasksHost(lab);
-    const { log, runId, threadId } = await startThreadRun(first.client, 'Start, then stop');
-    const presentation = await first.presentations.until((items) => items[0]);
+    const { log, runId, threadId } = await startThreadRun(first, 'Start, then stop');
+    const input = await first.inputs.until((items) => items[0]);
+    const presentation = requirePresentation(input);
     const handle = requireTaskHandle(presentation);
     await expect(
       first.client.request('run/stop', { commandId: randomUUID(), runId, threadId })
@@ -937,31 +510,34 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     expect(await log.finished()).toMatchObject({ outcome: 'stopped', runId });
     const finalizedAfterStop = [...first.finalized.items];
     let lateAnswer: unknown = 'accepted';
-    try {
-      first.settle(answerFor(presentation, 'accept'));
-    } catch (cause) {
-      lateAnswer = (cause as { code?: unknown }).code;
-    }
+    await answerPublicly(first.client, input.address, APPROVE).catch((cause: unknown) => {
+      lateAnswer = causeMessage(cause);
+    });
     expect({ finalizedAfterStop, lateAnswer }).toEqual({
       finalizedAfterStop: [
         { code: expect.stringMatching(/^mcp-elicitation-/u), id: presentation.id },
       ],
-      lateAnswer: expect.stringMatching(/^mcp-elicitation-/u),
+      lateAnswer: expect.stringMatching(STALE),
     });
     await first.client.request('host/stop', {});
     await first.host.closed;
-    // Nothing reached the server: a restarted host still recovers the input.
-    const { recovered } = await reopenAndRecover(first, lab);
-    expect(recovered.provenance.taskHandle).toEqual(handle);
+    // Nothing reached the server: a restarted host still recovers the input. The recovered answer
+    // path is the restart case's oracle; this case only requires the recovery itself.
+    const second = await reopenAndRecover(first, lab, threadId);
+    const recovered = await firstOf({
+      local: second.presentations.until((items) => items[0]?.provenance.taskHandle),
+      public: second.inputs.until((items) => requested(items)?.presentation?.provenance.taskHandle),
+    });
+    expect(recovered.value).toEqual(handle);
   });
 
   // Green since #3543 fix 1: the persisted `input_required` is published before input parks.
   it('projects pending server input through the task authority while the server waits for it', async (context) => {
     const lab = await startLab('tasks-reference', context.signal);
     const modern = await openTasksHost(lab);
-    const { log } = await startThreadRun(modern.client, 'Start the task');
-    const presentation = await modern.presentations.until((items) => items[0]);
-    const handle = requireTaskHandle(presentation);
+    const { log } = await startThreadRun(modern, 'Start the task');
+    const input = await modern.inputs.until((items) => items[0]);
+    const handle = requireTaskHandle(requirePresentation(input));
     const record = await durableTask(modern.storage, handle);
     expect(record).toMatchObject({
       ...handle,
@@ -980,9 +556,78 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
         }),
       ]);
     } finally {
-      modern.settle(answerFor(presentation, 'accept'));
+      await answerPublicly(modern.client, input.address, APPROVE);
       await log.finished();
     }
+  });
+
+  // Packet C finding (#3543 6055185569): a legacy push-style server input on a host run failed
+  // with a generic `tool_failed` and no log line. The legacy lab fixture is stateless, so the
+  // server keeps no negotiated client capabilities and refuses `elicitation/create` itself (MCP
+  // 2025-11-25 basic/lifecycle L220; this client declares elicitation per client/elicitation L51).
+  // That refusal is the server's `isError` result: nothing is presented, and its reason is typed
+  // and logged at the MCP boundary instead of vanishing behind the run's tool guard.
+  it("surfaces a stateless legacy server's push-style input refusal instead of failing silently", async (context) => {
+    const records: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => records.push(record));
+    owned.push(async () => removeLogListener());
+    const lab = await startLab('legacy-reference', context.signal);
+    const modern = await openModernHost({
+      appUi: 'text',
+      lab,
+      policy: 'allow',
+      protocol: 'legacy',
+      serverId: LEGACY_SERVER,
+      toolInput: { text: 'parity' },
+      toolName: 'elicit_confirm',
+    });
+    const { log, runId } = await startThreadRun(modern, 'Confirm through the legacy server');
+    expect(await log.finished()).toMatchObject({ runId });
+    expect(eventOf(log.rows(), 'effect.finished')).toMatchObject({
+      output: { error: { code: 'tool_failed', toolName: 'lab.legacy.elicit_confirm' }, ok: false },
+    });
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        args: [
+          'MCP tool returned an error result',
+          {
+            reason: 'Client does not support form elicitation.',
+            serverName: LEGACY_SERVER,
+            toolName: 'elicit_confirm',
+          },
+        ],
+        level: 'warn',
+      })
+    );
+    expect(modern.presentations.items).toEqual([]);
+    expect(modern.inputs.items).toEqual([]);
+  });
+
+  // RED until Studio publishes a read of Core's committed outcome for a recovered task's input
+  // (#3543 receipt). A reconstructed leaf must consult it before presenting or delivering: the
+  // refusal's committed `unknown` must stay a visible unknown across a restart, never re-asked.
+  it('keeps a committed unknown outcome fenced across a host restart', async (context) => {
+    const lab = await startLab('tasks-reference', context.signal);
+    const first = await openTasksHost(lab);
+    const { log, threadId } = await startThreadRun(first, 'Start, then refuse the task');
+    const input = await first.inputs.until((items) => items[0]);
+    await answerPublicly(first.client, input.address, { action: 'decline' });
+    expect(await log.until((rows) => eventOf(rows, 'mcp.input.settled'))).toMatchObject({
+      status: 'unknown',
+    });
+    await first.client.request('host/stop', {});
+    await first.host.closed;
+    const second = await reopenAndRecover(first, lab, threadId);
+    const outcome = await firstOf({
+      local: second.presentations.until((items) => items[0]),
+      public: second.inputs.until(requested),
+      unknown: second.internalErrors.until((items) =>
+        items.find(({ cause }) => causeMessage(cause) === UNKNOWN)
+      ),
+    });
+    expect(outcome.fact).toBe('unknown');
+    expect(second.presentations.items).toEqual([]);
+    expect(requested(second.inputs.items)).toBeUndefined();
   });
 
   // By design only the unchanged test watchdog ends this case (#3543 6052105986).

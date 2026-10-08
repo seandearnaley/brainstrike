@@ -11,7 +11,7 @@
 // handle) open, so it stays alive until its parent kills it or disconnects.
 
 const LAB_ENTRY = new URL('../../../../../packages/mcp-test-lab/dist/lab.js', import.meta.url);
-const SCENARIOS = new Set(['apps-reference', 'tasks-reference']);
+const SCENARIOS = new Set(['apps-reference', 'legacy-reference', 'tasks-reference']);
 
 let session;
 let closing;

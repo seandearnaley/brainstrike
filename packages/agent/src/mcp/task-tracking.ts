@@ -1,4 +1,8 @@
-import type { McpTaskHandle, McpTaskPresentation } from '@brainstrike/assistant-contract';
+import type {
+  McpHostExecution,
+  McpTaskHandle,
+  McpTaskPresentation,
+} from '@brainstrike/assistant-contract';
 import type { CreateTaskResult } from '@brainstrike/mcp-tasks-extension';
 
 /**
@@ -10,6 +14,8 @@ import type { CreateTaskResult } from '@brainstrike/mcp-tasks-extension';
  */
 export interface McpTaskTrackingRequest {
   readonly configuredServerId: string;
+  /** The admitting host tool call's capability; absent outside an agent-host run. */
+  readonly execution?: McpHostExecution;
   readonly result: CreateTaskResult;
   readonly toolName: string;
 }
