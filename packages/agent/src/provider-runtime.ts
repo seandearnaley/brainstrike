@@ -14,13 +14,16 @@ export {
 } from './mastra/runtime-configuration';
 export { createAwsCredentialChain } from './providers/aws-credential-chain';
 export type { LocalLlmHostClient } from './providers/local/llm-host-client';
+export type { LocalEmbeddingHostClient } from './providers/local/local-host-embedding-model';
 export {
   apiKeyAuthInput,
   type ProviderAuthInput,
 } from './providers/provider-auth-input';
 export {
   type ConcreteLanguageModel,
+  createEmbeddingProvider,
   createLanguageModelProvider,
+  createLocalHostMemoryEmbedder,
   createProvider,
   type ProviderModelConfiguration,
 } from './providers/provider-factory';
