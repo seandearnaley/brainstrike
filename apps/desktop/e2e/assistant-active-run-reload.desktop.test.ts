@@ -6,7 +6,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import type { ElectronHarness } from './fixtures/electron-harness';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 
@@ -78,6 +78,7 @@ async function assertLiveReload(
       compositeModelKey: 'openrouter::openai/gpt-5.4',
       provider: 'openrouter',
     });
+    await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
     await new HomePage(window).openSettings();
     await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
     await window
@@ -126,6 +127,7 @@ async function assertLiveReload(
       compositeModelKey: 'openrouter::openai/gpt-5.4',
       provider: 'openrouter',
     });
+    await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
     await expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toBeVisible();
     expect(assistantPosts).toHaveLength(admittedPosts);
     await input.fill('RELOAD_NEXT_UP');
