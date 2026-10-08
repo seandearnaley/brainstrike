@@ -14,6 +14,7 @@ import {
 } from 'vscode-jsonrpc/node';
 import { bindHostConnection } from './connection.js';
 import { HostCore } from './core.js';
+import { closeHostStoreAfterCore, HostCoreRetiredError } from './core-retirement.js';
 import type { HostPlatform } from './ports.js';
 import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.js';
 
@@ -209,21 +210,27 @@ export async function startAgentHost(
             signal.throwIfAborted();
           } catch (cause) {
             try {
-              if (core) {
-                await core.close();
-              } else {
-                await closePlatform();
-              }
+              await closeHostStoreAfterCore(
+                async () => (core ? core.close() : closePlatform()),
+                () => store.close()
+              );
             } catch (cleanupCause) {
+              if (cleanupCause instanceof HostCoreRetiredError) {
+                throw new AggregateError(
+                  [cause, cleanupCause],
+                  'Host startup failed after physical retirement'
+                );
+              }
               throw new AgentHostStartupError([cause, cleanupCause], store, core);
             }
-            await store.close();
             throw cause;
           }
           return {
             close: async () => {
-              await core?.close();
-              await store.close();
+              await closeHostStoreAfterCore(
+                async () => core?.close(),
+                () => store.close()
+              );
             },
             lock: store.lock,
           };

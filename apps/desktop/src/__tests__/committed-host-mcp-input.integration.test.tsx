@@ -48,7 +48,12 @@ async function containsPrivateValue(root: string, secret: string): Promise<boole
 }
 
 /** Native Node owns the real host; jsdom renders the unchanged shipped consent controls. */
-async function setup(signal: AbortSignal, mode: 'form' | 'url' = 'form', unknown = false) {
+async function setup(
+  signal: AbortSignal,
+  mode: 'form' | 'url' = 'form',
+  unknown = false,
+  startupHeld?: () => void
+) {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-mcp-gui-'));
   const secret = `synthetic-private-${randomUUID()}`;
   const child = fork(join(import.meta.dirname, 'fixtures', 'committed-host-mcp-gui.mjs'), [], {
@@ -66,6 +71,10 @@ async function setup(signal: AbortSignal, mode: 'form' | 'url' = 'form', unknown
   ready.promise.catch(() => undefined);
   const delivered: unknown[] = [];
   child.on('message', (message: unknown) => {
+    if (z.object({ type: z.literal('startup-held') }).safeParse(message).success) {
+      startupHeld?.();
+      return;
+    }
     const parsed = Ready.safeParse(message);
     if (parsed.success) {
       ready.resolve(parsed.data);
@@ -89,7 +98,12 @@ async function setup(signal: AbortSignal, mode: 'form' | 'url' = 'form', unknown
     () => ready.reject(new Error('GUI host exited before readiness')),
     ready.reject
   );
-  const aborted = (): void => ready.reject(signal.reason);
+  const aborted = (): void => {
+    ready.reject(signal.reason);
+    if (child.connected) {
+      child.send({ type: 'stop' });
+    }
+  };
   signal.addEventListener('abort', aborted, { once: true });
   let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;
   let closing: Promise<void> | undefined;
@@ -117,7 +131,10 @@ async function setup(signal: AbortSignal, mode: 'form' | 'url' = 'form', unknown
       resources.delete(close);
     })());
   resources.add(close);
-  child.send({ mode, root, secret, type: 'start', unknown });
+  child.send({ holdStartup: Boolean(startupHeld), mode, root, secret, type: 'start', unknown });
+  if (signal.aborted) {
+    aborted();
+  }
   const data = await ready.promise;
   client = await attachAgentHost(decodeHostRecord(data.record));
   return {
@@ -131,6 +148,23 @@ async function setup(signal: AbortSignal, mode: 'form' | 'url' = 'form', unknown
     secret,
   };
 }
+
+test('cancelling a held pre-readiness acquisition joins its real host writer and process before removing Root', async () => {
+  const controller = new AbortController();
+  const entered = Promise.withResolvers<void>();
+  const starting = setup(controller.signal, 'form', false, entered.resolve);
+  starting.catch(() => undefined);
+  try {
+    await entered.promise;
+    const failure = new Error('Synthetic parent startup cancellation');
+    controller.abort(failure);
+    await expect(starting).rejects.toBe(failure);
+    await Promise.all([...resources].map((close) => close()));
+    expect(resources.size).toBe(0);
+  } finally {
+    controller.abort();
+  }
+});
 
 test('the shipped conversation shows an actual Core form and commits one decision before native delivery', async ({
   signal,
