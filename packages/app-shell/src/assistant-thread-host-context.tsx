@@ -17,6 +17,8 @@ export interface AssistantThreadHostCapability {
   /** Commits an owned thread's title through the host; it never reaches history. */
   renameThread(threadId: string, title: string): Promise<void>;
   renderThread(threadId: string, isVisible: boolean): ReactNode | undefined;
+  /** Called when a host thread's committed title changes; a host without live titles omits it. */
+  subscribeTitleChanges?(listener: () => void): () => void;
   /**
    * Commits an owned thread's workspace binding keys through the host. Any key
    * the host does not own rejects before a request, never reaching history.

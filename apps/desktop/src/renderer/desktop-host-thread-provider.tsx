@@ -22,9 +22,11 @@ import { useDesktopHostPresentation } from './use-desktop-host-presentation';
 
 function HostThread({
   client,
+  onTitleCommitted,
   threadId,
 }: {
   readonly client: HostClient;
+  readonly onTitleCommitted: () => void;
   readonly threadId: string;
 }): ReactElement {
   const explorer = useFileExplorerStoreContext();
@@ -40,13 +42,14 @@ function HostThread({
     const current = createCommittedHostConversation({
       client,
       modelId: '',
+      onTitleCommitted,
       readConfiguration: () => configuration.current(explorer.getState().currentFolderId),
       readModelId: () => readDesktopHostModel(threadId),
       threadId,
     });
     setConversation(current);
     return () => current.close();
-  }, [client, explorer, threadId]);
+  }, [client, explorer, onTitleCommitted, threadId]);
   return conversation ? (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
@@ -67,14 +70,18 @@ function HostThread({
 }
 
 // One lazy client capability per actual renderer frame, independent of React replay.
-const windowThreadCapability = createWindowThreadCapability((host, threadId, catalogLoaded) => {
-  // Persisted tabs render before catalog hydration. The observed legacy
-  // Mastra initialization for these SQLite-owned IDs must not claim them.
-  if (!(host || catalogLoaded)) {
-    return <div role="status">Loading assistant threads…</div>;
+const windowThreadCapability = createWindowThreadCapability(
+  (host, threadId, catalogLoaded, onTitleCommitted) => {
+    // Persisted tabs render before catalog hydration. The observed legacy
+    // Mastra initialization for these SQLite-owned IDs must not claim them.
+    if (!(host || catalogLoaded)) {
+      return <div role="status">Loading assistant threads…</div>;
+    }
+    return host ? (
+      <HostThread client={host} onTitleCommitted={onTitleCommitted} threadId={threadId} />
+    ) : undefined;
   }
-  return host ? <HostThread client={host} threadId={threadId} /> : undefined;
-});
+);
 
 /** New roots hydrate from the committed host; existing history keeps its original owner. */
 export function DesktopHostThreadProvider({

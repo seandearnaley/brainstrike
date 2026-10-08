@@ -228,6 +228,8 @@ export async function createProductionHostPlatform(
         const selection: HostRunAdmission = {
           close: release,
           configuration: selected.configuration,
+          // Like the legacy Memory default (`generateTitle: true`).
+          generatesThreadTitle: true,
           model,
           openRun: (context) =>
             StateStoreHostMemory.open(context, {
