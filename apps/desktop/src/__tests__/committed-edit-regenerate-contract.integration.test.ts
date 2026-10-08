@@ -308,7 +308,12 @@ test('the live desktop view equals a fresh fold of the committed log at every re
       sourceId: second,
     });
     const regenerated = await admitted();
-    await resumePoint(regenerated);
+    const afterRegenerate = await resumePoint(regenerated);
+    // Regenerate answers the same committed user message, not a re-sent copy at the tip.
+    expect(committedRunIdentity(afterRegenerate, regenerated)).toMatchObject({
+      parentMessageId: first,
+      userMessageId: secondUser,
+    });
     await live.commands.onEdit?.(editOf('Second question, edited', first, secondUser));
     const edited = await admitted();
     const afterEdit = await resumePoint(edited);
