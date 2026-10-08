@@ -7,6 +7,7 @@ import { McpTaskHandleSchema } from '@brainstrike/assistant-contract/mcp-task-pr
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
+import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), and thread
@@ -116,9 +117,23 @@ const LoginCredential = z.custom<HostLoginCredential>(
   (value) => isProviderCredential(value) && value.type !== 'oauth'
 );
 
+const Provider = { provider: Id };
+
 export const HOST_METHOD_SCHEMAS = {
-  // Secret-bearing: process-local, never in HostCommandLedger, the log or diagnostics.
-  'auth/login': z.strictObject({ credential: LoginCredential, provider: Id }),
+  // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
+  // or diagnostics. The host is the single writer and token holder.
+  'auth/cancel': z.strictObject(Provider),
+  'auth/clear': z.strictObject({}),
+  'auth/connect': z.strictObject({
+    ...Provider,
+    method: z.enum(['device', 'loopback']).optional(),
+  }),
+  'auth/credential/delete': z.strictObject({ account: Id }),
+  'auth/credential/set': z.strictObject({ account: Id, credential: LoginCredential }),
+  'auth/disconnect': z.strictObject(Provider),
+  'auth/login': z.strictObject({ ...Provider, credential: LoginCredential }),
+  'auth/status': z.strictObject(Provider),
+  'auth/verify': z.strictObject(Provider),
   'host/stop': z.strictObject({}),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -349,7 +364,15 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  'auth/cancel': HostAuthStatusSchema,
+  'auth/clear': z.strictObject({ cleared: z.boolean() }),
+  'auth/connect': HostAuthStatusSchema,
+  'auth/credential/delete': z.strictObject({ deleted: z.boolean() }),
+  'auth/credential/set': z.strictObject({ stored: z.literal(true) }),
+  'auth/disconnect': HostAuthStatusSchema,
   'auth/login': z.strictObject({ stored: z.literal(true) }),
+  'auth/status': HostAuthStatusSchema,
+  'auth/verify': HostAuthVerdictSchema,
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
     hostVersion: Id,

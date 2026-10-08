@@ -23,6 +23,7 @@ import ElectronStore from 'electron-store';
 import { z } from 'zod';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { registerAgentHostClientIpc } from './agent-host-client-ipc';
+import { createAgentHostMainClient } from './agent-host-main-client';
 import { createDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
 import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
 import {
@@ -42,6 +43,7 @@ import { disposeLiveChildProcesses } from './assistant-server/execute-command-to
 import type { ForgeService } from './assistant-server/forge-service';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
+import { createProviderVerificationService } from './assistant-server/provider-verification';
 import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
@@ -171,7 +173,6 @@ import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
-import { createShellIpcHandlers } from './ipc-shell-handlers';
 import { registerSkillsIpcHandlers } from './ipc-skills';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
@@ -209,12 +210,8 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { registerPrivilegedSchemes } from './privileged-schemes';
 import {
-  initializeProviderAuthRuntime,
-  purgeProviderAuthRuntimeState,
-} from './provider-auth/provider-auth-runtime';
-import {
+  createDesktopSettingsSecrets,
   desktopCredentialStoreSelection,
-  getSecretsService,
   migrateDesktopLegacySecrets,
 } from './secrets';
 import { setupSecurity } from './setup-security';
@@ -661,6 +658,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
       'native-index': async () => {
+        await agentHostMainClient.close();
         await agentHostClientIpc.close();
         await nativeIndexActivation.close();
       },
@@ -1063,7 +1061,15 @@ const nativeIndexActivation = createNativeIndexActivation({
     // one-time legacy migration has settled into it.
     platformOptions: async () => {
       await migrateDesktopLegacySecrets();
-      return { credentialStore: desktopCredentialStoreSelection() };
+      // An isolated E2E launch's egress boundary may stand in for the Codex
+      // sign-in issuer on loopback; the host refuses any other origin.
+      const e2eCodexIssuer = isElectronE2ETestMode()
+        ? process.env['BRAINSTRIKE_E2E_OPENAI_CODEX_ISSUER']
+        : undefined;
+      return {
+        credentialStore: desktopCredentialStoreSelection(),
+        ...(e2eCodexIssuer ? { openAiCodexIssuer: e2eCodexIssuer } : {}),
+      };
     },
   },
   application: applicationIpcDomain,
@@ -1080,6 +1086,12 @@ const agentHostClientIpc = registerAgentHostClientIpc(
   agentHostPrivateClients.open
 );
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
+// Main's own desktop-origin client: Settings credential writes, provider sign-in
+// and subscription verification reach the host, their single owner, through it.
+const agentHostMainClient = createAgentHostMainClient(
+  nativeIndexActivation.acquireProfile,
+  agentHostPrivateClients.open
+);
 const nativeRootDataDeletion = createNativeRootDataDeletion({
   acquire: () => nativeIndexActivation.acquire(),
   captureOwner: async () => {
@@ -1579,20 +1591,22 @@ if (singleInstanceLockAcquired) {
       }
 
       logger.debug('Setting up IPC handlers that require app readiness...');
-      // ONE SecretsService instance is shared by the secrets IPC domain, the
-      // provider-auth engine, and MCP external bearer resolution — multiple
-      // ElectronStore instances over the same file would serve stale reads to
-      // each other.
-      const secretsService = getSecretsService();
+      // Settings reads the profile store directly and writes through the host,
+      // the single credential writer. Its `auth/clear` also drops the sign-in
+      // engine's in-memory rotated-token overlay (BST-1356).
+      const secretsService = createDesktopSettingsSecrets({
+        clear: async () => (await agentHostMainClient.request('auth/clear', {})).cleared,
+        deleteCredential: async (account) =>
+          (await agentHostMainClient.request('auth/credential/delete', { account })).deleted,
+        setCredential: async (account, credential) => {
+          await agentHostMainClient.request('auth/credential/set', { account, credential });
+        },
+      });
       ipcDisposers.add(
         'secrets',
         registerSecretsIpcHandlers(secretsService, {
           envFileFailures: desktopEnvLoadResult.failures,
-          // Factory reset must also drop the provider-auth engine's IN-MEMORY
-          // rotated-token overlay (BST-1356); wiping the secrets file alone
-          // would leave it the active credential for the process lifetime.
           onClearAll: async () => {
-            await purgeProviderAuthRuntimeState();
             await purgeMcpOAuthRuntimeState();
           },
           // Projected per invoke from the RECORDED bootstrap result — loading is
@@ -1607,29 +1621,22 @@ if (singleInstanceLockAcquired) {
             }),
         })
       );
-      // Provider OAuth engine (BST-1355) + the OpenAI Codex descriptor
-      // (BST-1356). The browser opener is the SAME validated
-      // shell.openExternal path the shell IPC domain uses (allow-listed
-      // protocols; never an embedded webview), and a failed open surfaces as
-      // a typed visible error.
-      //
-      // ONE engine instance is shared with the assistant server's credential
-      // resolution (see provider-auth-runtime): a second engine would carry
-      // its own single-flight map and replay a rotating refresh token.
-      const shellOpenHandlers = createShellIpcHandlers({ shell });
+      // Provider sign-in (BST-1355/1356) runs in the host's one OAuth engine,
+      // the only refresher; a second engine would replay a rotating refresh
+      // token. Main forwards the visible window's calls over its private client.
       ipcDisposers.add(
         'provider-auth',
         registerProviderAuthIpcHandlers({
-          engine: initializeProviderAuthRuntime({
-            appVersion: app.getVersion(),
-            openExternal: async (url) => {
-              const result = await shellOpenHandlers.openExternal(url);
-              if (!result.ok) {
-                throw new Error(result.error ?? 'shell.openExternal failed');
-              }
-            },
-            secrets: secretsService,
-          }),
+          auth: {
+            cancel: (provider) => agentHostMainClient.request('auth/cancel', { provider }),
+            connect: (provider, method) =>
+              agentHostMainClient.request('auth/connect', {
+                provider,
+                ...(method === undefined ? {} : { method }),
+              }),
+            disconnect: (provider) => agentHostMainClient.request('auth/disconnect', { provider }),
+            status: (provider) => agentHostMainClient.request('auth/status', { provider }),
+          },
         })
       );
       ipcDisposers.add('agent', registerAgentIpcHandlers());
@@ -1932,6 +1939,11 @@ if (singleInstanceLockAcquired) {
           envFileFailures: desktopEnvLoadResult.failures,
           llmHostManager,
           nativeIndexSearch,
+          // Subscription freshness through the host's one refresher; no token returns.
+          providerVerificationService: createProviderVerificationService({
+            verifySubscriptionSession: (provider) =>
+              agentHostMainClient.request('auth/verify', { provider }),
+          }),
           resolveForgeService: () => forgeService ?? null,
           resolveWorktreeService: () => worktreeService,
           // T1 injection point (BST-1164): the run-persistence seam's snapshot

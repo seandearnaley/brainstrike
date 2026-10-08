@@ -19,7 +19,6 @@ import {
 } from '@brainstrike/assistant-contract';
 import { respondJson } from '@brainstrike/assistant-service/http';
 import { getDatabase } from '../db-main';
-import { getProviderAuthEngine } from '../provider-auth/provider-auth-runtime';
 import { createDesktopDelegatedSuspensionResolver } from './delegated-conversation-host';
 import {
   readDelegatedDecisionStates,
@@ -42,33 +41,9 @@ import { respondToSecretReadError } from './secret-error-responses';
 import type { AssistantServerOptions } from './server-options';
 
 const defaultOpenRouterModelMetadataService = createOpenRouterModelMetadataService();
-const defaultProviderVerificationService = createProviderVerificationService({
-  /**
-   * BST-1356: subscription freshness is answered by the SHARED provider-auth
-   * engine's single-flight refresher. Resolved lazily so this module-scope
-   * construction never forces the runtime to exist (it does not in tests or
-   * on web); an uninitialized runtime surfaces as a typed unsupported-probe
-   * failure rather than a crash.
-   */
-  verifySubscriptionSession: async (providerId) => {
-    let engine: ReturnType<typeof getProviderAuthEngine>;
-    try {
-      engine = getProviderAuthEngine();
-    } catch {
-      // Uninitialized runtime (web, tests, any non-desktop host): surface the
-      // TYPED unsupported-probe failure the verification service turns into a
-      // `verification_unsupported` 400, rather than letting a bare Error
-      // escape as a 500 (PR #2527 review, finding 8).
-      throw new UnsupportedVerificationCredentialError(
-        'subscription sign-in can only be verified in the desktop app'
-      );
-    }
-    const result = await engine.getFreshAccessToken(providerId);
-    // The access token itself NEVER leaves the engine (gate constraint 3) —
-    // only the verdict crosses into the verification result.
-    return result.ok ? { ok: true } : { ok: false, status: result.status };
-  },
-});
+// Desktop composition injects the host's subscription verifier; without it a
+// subscription probe fails closed as `verification_unsupported`.
+const defaultProviderVerificationService = createProviderVerificationService();
 
 /**
  * Newest-N bound on rediscovered suspend() pauses per thread open (BST-1084,

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
 import { type AgentHost, attachAgentHost, startAgentHost } from '@brainstrike/agent-host';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
+import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
 import { afterEach, expect, test, vi } from 'vitest';
 import {
   mainPlatformConnection,
@@ -21,7 +21,6 @@ import {
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { RemoteMcpRuntime } from '../mcp/remote-runtime';
-import { createInteractiveSubscriptionFetchFactory } from '../provider-auth/subscription-fetch';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -78,8 +77,8 @@ afterEach(() => vi.unstubAllGlobals());
 /**
  * Signed legal gate, constraint 4: the openai-codex subscription is resolvable
  * only for an interactive desktop session. A CLI client attached to the
- * desktop's own host over its public socket is not one, even while a desktop
- * window is open (the production per-origin gate reports `visible-ui`).
+ * desktop's own host over its public socket is not one, even though the host
+ * holds a live, refreshable sign-in for the desktop's profile.
  */
 test('a CLI socket client attached to the desktop host cannot resolve the openai-codex subscription', async () => {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-subscription-origin-'));
@@ -95,34 +94,22 @@ test('a CLI socket client attached to the desktop host cannot resolve the openai
       return Response.json({ error: { type: 'fixture_terminal' } }, { status: 400 });
     })
   );
-  const freshToken = vi.fn(async () => ({
-    accessToken: 'synthetic-offline-subscription-bearer',
-    ok: true as const,
-  }));
-  // The production composition of Main's subscription capability, with a
-  // visible desktop window holding the assistant origin.
-  const oauthSubscriptionFetch = createInteractiveSubscriptionFetchFactory({
-    appVersion: '0.0.0-fixture',
-    getFreshAccessToken: freshToken,
-    resolveOriginRole: () => 'visible-ui',
+  // The desktop profile's private file store, holding a live sign-in the
+  // host's engine would use for a desktop-origin run.
+  const credentialStore = { kind: 'file' as const, path: join(root, 'credentials.json') };
+  const seed = createHostCredentials({ selection: credentialStore });
+  await seed.secrets().setCredential('openai-codex', {
+    access: 'synthetic-offline-subscription-bearer',
+    expires: Date.now() + 3_600_000,
+    refresh: 'synthetic-offline-refresh',
+    type: 'oauth',
   });
+  await seed.close();
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
     // Production's Main MCP stores; this scenario configures no MCP server.
     mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
     readConfiguration: async () => selection,
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
-    resolveProviderAuth: async (provider) =>
-      providerAuthInputFromCredential(
-        provider,
-        {
-          access: 'at',
-          expires: Date.now() + 3_600_000,
-          refresh: 'rt',
-          source: 'stored',
-          type: 'oauth',
-        },
-        { oauthSubscriptionFetch }
-      ),
   });
   let host: AgentHost | undefined;
   let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;
@@ -131,7 +118,9 @@ test('a CLI socket client attached to the desktop host cannot resolve the openai
       installParentPlatformPort({ data: { event: 'platform-capabilities' }, ports: [nodePort] })
     ).toBe(true);
     const options = { lifetime: 'persistent' as const, root };
-    host = await startAgentHost(options, (context) => createHostPlatform(options, context));
+    host = await startAgentHost(options, (context) =>
+      createHostPlatform(options, context, { credentialStore })
+    );
     // The CLI's transport: the host's public socket, authenticated by host.json.
     client = await attachAgentHost(host.record);
     const attached = client;
@@ -161,7 +150,6 @@ test('a CLI socket client attached to the desktop host cannot resolve the openai
       requests: [],
       started: expect.stringMatching(/interactive desktop/i),
     });
-    expect(freshToken).not.toHaveBeenCalled();
   } finally {
     await client?.close();
     await host?.close();

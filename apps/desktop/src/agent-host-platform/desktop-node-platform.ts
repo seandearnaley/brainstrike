@@ -11,23 +11,22 @@ import {
   type ProductionHostRunConfiguration,
   platformToolInputSchema,
 } from '@brainstrike/agent-host';
-import { findProviderDefinition, type SupportedProvider } from '@brainstrike/assistant-contract';
+import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import { createDesktopNodeMcpHost } from '@brainstrike/host-capabilities/mcp/desktop-node-mcp';
+import { MCP_STORE_METHODS } from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
 import { mainPlatformConnection } from './connection';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
-import { decodePlatformAuth } from './platform-auth';
 import {
   PlatformPolicySchema,
   PlatformProgressSchema,
   PlatformSelectionSchema,
 } from './platform-wire';
-import { createProviderFetchTransport } from './provider-fetch-transport';
 
 type PlatformSelection = z.output<typeof PlatformSelectionSchema>;
 
@@ -77,15 +76,18 @@ export async function createHostPlatform(
   startup: HostStartupContext,
   platformOptions?: HostPlatformLaunchOptions
 ): Promise<HostPlatform> {
-  // Provider credentials resolve here, in Node, from the profile store Main's
-  // Settings writes. Only subscription OAuth still borrows Main's engine.
+  const port = await parentPlatformPort();
+  const connection = mainPlatformConnection(port);
+  // The profile's one credential authority: the single writer, token holder and
+  // OAuth refresher. Main lends only its validated browser opener.
   const host = await createHostCapabilities({
     env: process.env,
     launch: platformOptions,
+    openExternal: async (url) => {
+      await request(MCP_STORE_METHODS.openExternal, { url });
+    },
     startup,
   });
-  const port = await parentPlatformPort();
-  const connection = mainPlatformConnection(port);
   const executions = new Map<string, HostToolContext & { readonly toolId: string }>();
   const request = async (
     method: string,
@@ -123,6 +125,7 @@ export async function createHostPlatform(
   );
   await startup.register(() => mcpHost.close());
   return createProductionHostPlatform({
+    auth: host.auth,
     close: async () => {
       // MCP cleanup still writes through Main's stores, so it joins before Main closes.
       await mcpHost.close();
@@ -147,63 +150,20 @@ export async function createHostPlatform(
       );
       const configuration = desktopRuntimeConfiguration(selected);
       const provider = configuration.provider;
-      const fetchScopes = new Map<string, ReturnType<typeof createProviderFetchTransport>>();
       let closing: Promise<void> | undefined;
-      const resolveAuth = async (
-        selectedProvider: string
-      ): Promise<ProviderAuthInput | undefined> => {
+      // Every provider resolves here, in Node, for this admission's client origin:
+      // subscription auth refuses anything but the private desktop client
+      // (signed legal gate, constraint 4), including restart recovery.
+      const resolveAuth = (selectedProvider: string): Promise<ProviderAuthInput | undefined> => {
         if (closing) {
-          throw new Error('Private provider selection is closing');
+          throw new Error('Provider selection is closing');
         }
-        if (findProviderDefinition(selectedProvider)?.authType !== 'oauth_subscription') {
-          return await host.resolveProviderAuth(selectedProvider);
-        }
-        // Signed legal gate, constraint 4: subscription auth only for a run a
-        // visible desktop client admitted. CLI and other socket clients, and
-        // restart recovery with no live client, fail closed.
-        if (admission.origin !== 'desktop-ui') {
-          throw new Error(
-            'The ChatGPT subscription provider is available only to runs started from an interactive desktop window.'
-          );
-        }
-        const response = await request(
-          'platform/auth',
-          { provider: selectedProvider, threadId: admission.threadId },
-          admission.signal
-        );
-        if (closing) {
-          throw new Error('Private provider selection closed during auth lookup');
-        }
-        let captured = fetchScopes.get(selectedProvider);
-        if (!captured) {
-          captured = createProviderFetchTransport(connection, {
-            provider: selectedProvider,
-            threadId: admission.threadId,
-          });
-          fetchScopes.set(selectedProvider, captured);
-        }
-        return decodePlatformAuth(response, captured.fetch);
+        return host.auth.resolveProviderAuth(selectedProvider, admission.origin);
       };
       const closeSelection = (): Promise<void> =>
-        (closing ??= (async () => {
-          const results = await Promise.allSettled(
-            [...fetchScopes.values()].map((captured) => captured.close())
-          );
-          const failures = results.flatMap((result) =>
-            result.status === 'rejected' ? [result.reason] : []
-          );
-          try {
-            await request('platform/release', { threadId: admission.threadId });
-          } catch (cause) {
-            failures.push(cause);
-          }
-          if (failures.length > 0) {
-            if (failures.length === 1) {
-              throw failures[0];
-            }
-            throw new AggregateError(failures, 'Private provider selection cleanup failed');
-          }
-        })());
+        (closing ??= request('platform/release', { threadId: admission.threadId }).then(
+          () => undefined
+        ));
       let memory: ProductionHostRunConfiguration['memory'];
       try {
         memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth);
@@ -344,7 +304,6 @@ export async function createHostPlatform(
       throw new Error('Desktop provider auth requires an admitted thread selection');
     },
     startup,
-    storeProviderCredential: host.storeProviderCredential,
     validateWorkspaceBinding: async ({ binding, signal, threadId }) => {
       z.strictObject({ accepted: z.literal(true) }).parse(
         await request('platform/workspace/validate', { binding, threadId }, signal)

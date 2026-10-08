@@ -97,6 +97,7 @@ export async function createHostPlatform(
     ? 'This standalone host supports the canonical askUser and submitPlan native tools and the configured MCP servers (text Apps only). Other native tools, MCP Tasks, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.'
     : 'This standalone host supports the canonical askUser and submitPlan native tools. Other native tools, configured MCP/Tasks, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.';
   return createProductionHostPlatform({
+    auth: host.auth,
     close: async () => {
       // MCP cleanup can still write OAuth records through the credential store.
       await mcp?.close();
@@ -185,8 +186,8 @@ export async function createHostPlatform(
       };
     },
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
-    resolveProviderAuth: host.resolveProviderAuth,
+    // The standalone host has no private desktop client: subscription auth refuses.
+    resolveProviderAuth: (provider) => host.auth.resolveProviderAuth(provider, undefined),
     startup,
-    storeProviderCredential: host.storeProviderCredential,
   });
 }

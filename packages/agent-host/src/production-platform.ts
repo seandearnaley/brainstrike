@@ -51,6 +51,8 @@ export interface ProductionHostRunConfiguration {
 }
 
 export interface ProductionHostPlatformOptions {
+  /** The host's credential authority, where this host owns a credential store. */
+  readonly auth?: HostPlatform['auth'];
   close(): Promise<void>;
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
@@ -65,7 +67,6 @@ export interface ProductionHostPlatformOptions {
   ) => Promise<Exclude<LanguageModel, string>>;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   readonly startup: HostStartupContext;
-  readonly storeProviderCredential?: HostPlatform['storeProviderCredential'];
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
@@ -294,8 +295,6 @@ export async function createProductionHostPlatform(
     close,
     readPermissionPolicy: options.readPermissionPolicy,
     stateIndexer: indexer,
-    ...(options.storeProviderCredential
-      ? { storeProviderCredential: options.storeProviderCredential }
-      : {}),
+    ...(options.auth ? { auth: options.auth } : {}),
   };
 }
