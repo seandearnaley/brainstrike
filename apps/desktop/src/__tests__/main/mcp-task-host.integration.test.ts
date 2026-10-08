@@ -682,6 +682,26 @@ describe('McpDesktopTaskHost', () => {
     ]);
   });
 
+  it('reports a binding Core refused instead of dropping it', async () => {
+    const server = createFakeServer();
+    await host.connected(createConnection(server));
+    const refusal = new Error('Private MCP execution authority is unavailable or stale');
+    await host.track({
+      configuredServerId: SERVER_ID,
+      execution: {
+        bindTask: vi.fn(() => Promise.reject(refusal)),
+        requestInput: vi.fn(async () => undefined),
+      },
+      result: server.created('t-refused'),
+      toolName: 'deploy',
+    });
+    await vi.waitFor(() =>
+      expect(internalErrors).toEqual([
+        ['mcp-task-host-binding-refused', { cause: refusal, taskId: 't-refused' }],
+      ])
+    );
+  });
+
   it('marks tasks restart_required on disconnect, recovers them on reconnect, and retires the epoch on replacement', async () => {
     const server = createFakeServer();
     await host.connected(createConnection(server));

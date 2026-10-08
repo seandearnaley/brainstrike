@@ -63,8 +63,11 @@ const ERROR_MESSAGES = {
 } satisfies Record<McpElicitationPresenterErrorCode, string>;
 export class McpElicitationPresenterError extends Error {
   readonly category = 'operation' as const;
-  constructor(readonly code: McpElicitationPresenterErrorCode) {
-    super(ERROR_MESSAGES[code]);
+  constructor(
+    readonly code: McpElicitationPresenterErrorCode,
+    options?: ErrorOptions
+  ) {
+    super(ERROR_MESSAGES[code], options);
     this.name = 'McpElicitationPresenterError';
   }
 }
@@ -572,9 +575,12 @@ export class McpElicitationPresenterAuthority {
       listener?.(structuredClone(pending.presentation));
       return;
     }
-    const refuse = (): void =>
+    // Core's refusal stays the cause, so the failure is diagnosable rather than generic.
+    const refuse = (cause: unknown): void =>
       this.finish(pending.presentation.id, 'mcp-elicitation-origin-unbound', () =>
-        pending.reject(new McpElicitationPresenterError('mcp-elicitation-origin-unbound'))
+        pending.reject(
+          new McpElicitationPresenterError('mcp-elicitation-origin-unbound', { cause })
+        )
       );
     Promise.resolve()
       .then(async () => {

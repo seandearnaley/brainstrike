@@ -573,7 +573,10 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
       },
       handle,
     });
-    bound?.catch(() => undefined);
+    // A refused binding fails this task's presentations closed; it is reported, never silent.
+    bound?.catch((cause: unknown) =>
+      this.options.onInternalError('mcp-task-host-binding-refused', { cause, taskId })
+    );
     // Idempotent and identity-guarded: it releases only this registration, so it
     // can never erase an entry a later recovery registered for the same task.
     const retire = (): void => {

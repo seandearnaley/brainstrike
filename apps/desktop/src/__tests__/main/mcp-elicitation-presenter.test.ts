@@ -616,7 +616,10 @@ describe('McpElicitationPresenterAuthority host-owned input (BST-1930 part B)', 
         () => authority.presenter.presentForm(formRequest, context('request-2')),
         core.execution
       )
-    ).rejects.toMatchObject({ code: 'mcp-elicitation-origin-unbound' });
+    ).rejects.toMatchObject({
+      cause: { message: 'MCP input authority is unavailable, stale or incompatible' },
+      code: 'mcp-elicitation-origin-unbound',
+    });
     authority.close();
   });
 
@@ -687,16 +690,18 @@ describe('McpElicitationPresenterAuthority host-owned input (BST-1930 part B)', 
       resolveServer: () => connectedServer(),
     });
     const core = recordingCore();
+    const refusal = new Error('Private MCP execution authority is unavailable or stale');
     const binding = authority.bindTaskPresenter({
       configuredServerId: SERVER_ID,
       generation: 7,
-      host: { bound: () => Promise.reject(new Error('refused')), execution: core.execution },
+      host: { bound: () => Promise.reject(refusal), execution: core.execution },
       operation: { type: 'tools/call' },
       taskHandle,
     });
+    // The refusal stays the cause: a mounted-app run diagnosed the Main origin defect from it.
     await expect(
       binding.presenter.presentForm(formRequest, context('approval'))
-    ).rejects.toMatchObject({ code: 'mcp-elicitation-origin-unbound' });
+    ).rejects.toMatchObject({ cause: refusal, code: 'mcp-elicitation-origin-unbound' });
     expect(core.execution.requestInput).not.toHaveBeenCalled();
     binding.release();
     authority.close();
