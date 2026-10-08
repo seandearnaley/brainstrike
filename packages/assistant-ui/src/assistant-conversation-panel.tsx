@@ -19,7 +19,7 @@ import { RewindProvider } from './rewind-context';
 
 type ThreadSurfaceProps = ComponentProps<typeof ChatThreadUI>;
 export type AssistantConversationPanelProps = Partial<
-  Omit<ThreadSurfaceProps, 'threadKey' | 'hasGroupedProviders' | 'onSteerActiveRun'>
+  Omit<ThreadSurfaceProps, 'threadKey' | 'hasGroupedProviders'>
 > &
   Pick<
     AssistantUiPanelProps,
@@ -32,6 +32,8 @@ export type AssistantConversationPanelProps = Partial<
      * child's view never does: its runtime belongs to another owner.
      */
     readonly ownsFollowUpQueue?: boolean;
+    /** Steering is a queue control: only an owning surface offers it. */
+    readonly onSteerActiveRun?: (() => Promise<boolean>) | undefined;
     readonly onSendActiveInput?: SendActiveConversationInput | undefined;
     readonly prepareActiveInput?: ((input: AssistantChildInput) => AssistantChildInput) | undefined;
     readonly className?: string;

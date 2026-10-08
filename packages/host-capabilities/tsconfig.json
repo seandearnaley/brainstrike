@@ -14,6 +14,7 @@
   "references": [
     { "path": "../agent-host" },
     { "path": "../assistant-contract" },
+    { "path": "../effect-kit" },
     { "path": "../host-lease" }
   ]
 }

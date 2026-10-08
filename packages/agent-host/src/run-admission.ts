@@ -54,6 +54,14 @@ export class HostRunAdmissionCleanupError extends AggregateError {
   }
 }
 
+/** A run owner's open acquired resources and then failed to join them. */
+export class HostRunOwnerCleanupError extends AggregateError {
+  constructor(cause: unknown, cleanup: unknown, message = 'Run owner open and cleanup failed') {
+    super([cause, cleanup], message);
+    this.name = 'HostRunOwnerCleanupError';
+  }
+}
+
 /** Copy data records; credentials/functions and native capabilities stay process-local. */
 function immutableData<T>(input: T): T {
   if (Array.isArray(input)) {
@@ -90,6 +98,15 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
         }
       : {}),
     configuration: immutableData(selected.configuration),
+    ...(selected.unavailableMcpServers
+      ? {
+          unavailableMcpServers: Object.freeze(
+            selected.unavailableMcpServers.map(({ reason, serverId }) =>
+              Object.freeze({ reason, serverId })
+            )
+          ),
+        }
+      : {}),
     ...(selected.provider
       ? { provider: Object.freeze({ prepare: selected.provider.prepare.bind(selected.provider) }) }
       : {}),
@@ -105,6 +122,19 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
       )
     ),
   });
+}
+
+/** The run proceeds without each unavailable MCP server; its log names each one. */
+export function hostMcpUnavailableEvents(
+  admission: HostRunAdmission,
+  runId: string
+): Extract<HostEvent, { type: 'mcp.tools.unavailable' }>[] {
+  return (admission.unavailableMcpServers ?? []).map(({ reason, serverId }) => ({
+    reason,
+    runId,
+    serverId,
+    type: 'mcp.tools.unavailable',
+  }));
 }
 
 /** A new run command's admission request; only a live client supplies an origin. */
@@ -195,7 +225,17 @@ export async function acquireHostRunAdmission(
 /** The Core retains this promise; both owners are attempted even when one join fails. */
 export async function closeHostRunResources(run: HostRunState): Promise<void> {
   const joined = await Promise.allSettled([
-    Promise.resolve(run.owner).then((owner) => owner?.close()),
+    Promise.resolve(run.owner).then(
+      (owner) => owner?.close(),
+      (cause: unknown) => {
+        // A failed or aborted open has nothing to close, and its failure is
+        // already the run's outcome. Only an unjoined partial acquisition is a
+        // cleanup failure; an admission's own failure stays with that branch.
+        if (cause instanceof HostRunOwnerCleanupError) {
+          throw cause;
+        }
+      }
+    ),
     Promise.resolve(run.admissionTask ?? run.admission).then(
       (admission) => admission?.close?.(),
       (cause: unknown) => {

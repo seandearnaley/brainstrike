@@ -18,6 +18,7 @@ import {
   queueHostAdmission,
   rejectHostRunAdmission,
   retainHostRunWork,
+  steerHostRun,
 } from './core-run-lifecycle.js';
 import {
   createHostRunContext,
@@ -44,6 +45,7 @@ import {
   acquireHostRunAdmission,
   closeHostRunResources,
   ensureHostRunAdmission,
+  hostMcpUnavailableEvents,
   hostRunCommandRequest,
 } from './run-admission.js';
 import {
@@ -65,6 +67,7 @@ import {
   createHostApprovalResponses,
   finishApprovedHostResults,
 } from './run-continuation.js';
+import { userRunVerdict } from './run-verdicts.js';
 import { HostThreadPresentationState } from './thread-presentation-state.js';
 import { HostToolRecords } from './tool-records.js';
 import { revertHostRunEdits } from './workspace-edits.js';
@@ -472,7 +475,8 @@ export class HostCore {
       }
       run.release = release;
       const result = { runId: run.id };
-      await this.accept(params.threadId, method, record, result, [started]);
+      const unavailable = hostMcpUnavailableEvents(admission, run.id);
+      await this.accept(params.threadId, method, record, result, [started, ...unavailable]);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);
@@ -509,7 +513,6 @@ export class HostCore {
       mcpInputs: this.mcpInputs,
       openRun: (run) => this.openRun(run),
       platform: this.platform,
-      presentations: this.presentations,
       records: this.records,
       retired: (threadId) => this.closing || this.deletions.has(threadId),
       runs: this.runs,
@@ -698,6 +701,22 @@ export class HostCore {
     }
   }
 
+  recordVerdict(params: HostParams<'run/verdict'>): Promise<{ accepted: true }> {
+    return this.command('run/verdict', params, async () => {
+      const event = userRunVerdict(this.runs.get(params.runId)?.threadId, params);
+      await this.accept(params.threadId, 'run/verdict', params, { accepted: true }, [event]);
+      return { accepted: true } as const;
+    });
+  }
+
+  steer(params: HostParams<'run/steer'>): Promise<{ outcome: 'steering' | 'already-terminal' }> {
+    return this.command('run/steer', params, () =>
+      steerHostRun(this.run(params.threadId, params.runId), (result) =>
+        this.accept(params.threadId, 'run/steer', params, result, [])
+      )
+    );
+  }
+
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
     const join = async (): Promise<void> => {
       const run = this.run(params.threadId, params.runId);
@@ -772,12 +791,16 @@ export class HostCore {
     outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
     detail?: string
   ): Promise<void> {
+    // A completed run asks for its thread's title while its admission is still live.
+    const titling =
+      outcome === 'completed' ? this.presentations.request(run, this.runs.values()) : undefined;
     return finishHostRunWithProviderBilling(
       run,
       outcome,
       detail,
       () => this.closing,
-      (owned) => this.closeRunOwner(owned),
+      (owned) =>
+        titling ? titling.then(() => this.closeRunOwner(owned)) : this.closeRunOwner(owned),
       () => this.read(run.threadId, 0),
       (event, commit) =>
         this.append(run.threadId, [event], 'full', (rows) => {

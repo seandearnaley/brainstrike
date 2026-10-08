@@ -3,8 +3,10 @@ import type {
   AssistantThreadMetadata,
   AssistantThreadRepository,
   AssistantThreadRunStatus,
+  RunLedgerRow,
   ThreadWorkspaceRepository,
 } from '@brainstrike/assistant-data';
+import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from 'react';
 
 /** A host thread's latest committed root run, read as the thread badges read a run row. */
@@ -14,6 +16,17 @@ export interface AssistantThreadHostRun {
   /** The run is waiting on its user: an approval, question or plan is unanswered. */
   readonly needsInput: boolean;
   readonly status: Exclude<AssistantThreadRunStatus, 'cancelling'>;
+}
+
+/** Cost views' share of the host: its committed runs and provider calls. */
+export interface AssistantThreadHostLedgerSnapshot {
+  readonly runs: readonly RunLedgerRow[];
+  readonly usage: readonly HostUsageRecord[];
+}
+
+export interface AssistantThreadHostLedger {
+  readonly getSnapshot: () => AssistantThreadHostLedgerSnapshot;
+  readonly subscribe: (listener: () => void) => () => void;
 }
 
 /** The host's committed run state per thread it owns, as this window observes it. */
@@ -37,6 +50,8 @@ export interface AssistantThreadHostCapability {
   createThread(resourceId: string): Promise<AssistantMemoryThread>;
   /** True only for an identity owned and physically deleted by this host. */
   deleteThread(threadId: string): Promise<boolean>;
+  /** Omitted by a host that reports no usage; cost views then count history only. */
+  readonly ledger?: AssistantThreadHostLedger;
   listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]>;
   /** True only for an identity this host owns; its metadata never reaches history. */
   ownsThread(threadId: string): Promise<boolean>;
@@ -79,6 +94,16 @@ export function useAssistantThreadHost(): AssistantThreadHostCapability | undefi
 const NO_HOST_RUNS: ReadonlyMap<string, AssistantThreadHostRun> = new Map();
 const readNoHostRuns = (): ReadonlyMap<string, AssistantThreadHostRun> => NO_HOST_RUNS;
 const subscribeNoHostRuns = (): (() => void) => () => undefined;
+
+const NO_HOST_LEDGER: AssistantThreadHostLedgerSnapshot = { runs: [], usage: [] };
+const readNoHostLedger = (): AssistantThreadHostLedgerSnapshot => NO_HOST_LEDGER;
+
+/** The host's committed runs and usage; empty where no host reports them (web). */
+export function useAssistantThreadHostLedger(): AssistantThreadHostLedgerSnapshot {
+  const ledger = useAssistantThreadHost()?.ledger;
+  const read = ledger?.getSnapshot ?? readNoHostLedger;
+  return useSyncExternalStore(ledger?.subscribe ?? subscribeNoHostRuns, read, read);
+}
 
 /** The host's run state for its threads; empty where no host reports one (web). */
 export function useAssistantThreadHostRuns(): ReadonlyMap<string, AssistantThreadHostRun> {

@@ -1,10 +1,12 @@
 import { makeLiveQueryKey, usePGliteDatabase, usePGliteLiveQuery } from '@brainstrike/db/react';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability';
 import { resolveAssistantMemoryResourceId } from '../assistant-memory-resource';
 import {
   DAILY_SPEND_AGGREGATION_SQL,
   type DailySpendSummary,
+  type HostUsageRecord,
+  hostDailySpendRows,
   mapDailySpendUsageRow,
   resolveDailySpendSummary,
 } from './daily-spend';
@@ -46,7 +48,13 @@ interface MappedSpend {
  * (`resolveModelPricing`) prices the unreported remainder exactly like the
  * cost panels, so the guardrail's numbers can never drift from the ledger's.
  */
-export function useDailySpend(resourceIdOverride?: string | null): DailySpendState {
+const NO_HOST_USAGE: readonly HostUsageRecord[] = [];
+
+/** `hostUsage`: agent-host threads' committed provider calls, counted beside run_usage. */
+export function useDailySpend(
+  resourceIdOverride?: string | null,
+  hostUsage: readonly HostUsageRecord[] = NO_HOST_USAGE
+): DailySpendState {
   const database = usePGliteDatabase();
   const available = database !== null && hasDurableAssistantUsageCapability();
   const resourceId = resolveAssistantMemoryResourceId(resourceIdOverride);
@@ -64,12 +72,15 @@ export function useDailySpend(resourceIdOverride?: string | null): DailySpendSta
   // stale until the next write (review #1714). A bounded 5-minute clock tick
   // re-evaluates the window; the gate can therefore reopen at most 5 minutes
   // after the oldest usage row leaves the window.
+  // The same tick re-evaluates the host's share of the window.
   const refresh = liveQuery.refresh;
+  const [windowEndMs, setWindowEndMs] = useState(() => Date.now());
   useEffect(() => {
     if (!available) {
       return;
     }
     const interval = setInterval(() => {
+      setWindowEndMs(Date.now());
       void refresh();
     }, DAILY_SPEND_WINDOW_REFRESH_MS);
     return () => clearInterval(interval);
@@ -80,7 +91,11 @@ export function useDailySpend(resourceIdOverride?: string | null): DailySpendSta
       return { error: null, spend: null };
     }
     try {
-      const rows = liveQuery.rows.map(mapDailySpendUsageRow);
+      const rows = [
+        ...liveQuery.rows.map(mapDailySpendUsageRow),
+        // A new host call moves the window's end to now, never earlier.
+        ...hostDailySpendRows(hostUsage, Math.max(windowEndMs, Date.now())),
+      ];
       return { error: null, spend: resolveDailySpendSummary(rows, resolveModelPricing) };
     } catch (error: unknown) {
       return {
@@ -88,7 +103,7 @@ export function useDailySpend(resourceIdOverride?: string | null): DailySpendSta
         spend: null,
       };
     }
-  }, [available, liveQuery.loading, liveQuery.rows]);
+  }, [available, hostUsage, liveQuery.loading, liveQuery.rows, windowEndMs]);
 
   return {
     available,

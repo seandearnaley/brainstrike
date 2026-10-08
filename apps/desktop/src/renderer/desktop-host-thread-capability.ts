@@ -19,6 +19,7 @@ import {
 import { foldHostCanvases } from '@brainstrike/host-capabilities/canvas-state';
 import { createLogger } from '@brainstrike/logging';
 import { connectDesktopAgentHost } from './agent-host-client';
+import { HostThreadLedger } from './host-thread-ledger';
 import { HostThreadRuns } from './host-thread-runs';
 
 /** Workspace views and binding changes are thread state, not conversation activity. */
@@ -112,11 +113,16 @@ export function createWindowThreadCapability(
     readonly host: HostClient | undefined;
     readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
     readonly onTitleCommitted: () => void;
+    readonly ledger: HostThreadLedger;
     readonly runs: HostThreadRuns;
     readonly threadId: string;
   }) => ReturnType<AssistantThreadHostCapability['renderThread']>
-): AssistantThreadHostCapability & { readonly runs: HostThreadRuns } {
+): AssistantThreadHostCapability & {
+  readonly ledger: HostThreadLedger;
+  readonly runs: HostThreadRuns;
+} {
   const runs = new HostThreadRuns();
+  const ledger = new HostThreadLedger();
   const titleListeners = new Set<() => void>();
   const titleCommitted = (): void => {
     for (const listener of titleListeners) {
@@ -167,6 +173,7 @@ export function createWindowThreadCapability(
         const { rows } = await host.request('thread/read', { fromSeq: 0, threadId });
         threads.set(threadId, host);
         runs.accept(threadId, rows);
+        ledger.accept(threadId, rows);
         return projectThread(threadId, resourceId, rows, presentation);
       })
     );
@@ -210,8 +217,10 @@ export function createWindowThreadCapability(
       await host.request('thread/delete', { threadId });
       threads.delete(threadId);
       runs.delete(threadId);
+      ledger.delete(threadId);
       return true;
     },
+    ledger,
     listThreads,
     ownsThread: async (threadId) => (await threadClient(threadId)) !== undefined,
     readCanvases: async (threadId) => {
@@ -232,6 +241,7 @@ export function createWindowThreadCapability(
       renderThread({
         catalogLoaded,
         host: threads.get(threadId),
+        ledger,
         onRunningChange,
         onTitleCommitted: titleCommitted,
         runs,

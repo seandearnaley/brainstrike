@@ -22,7 +22,6 @@ import {
 } from './run-admission.js';
 import { hostRunAncestors, hostRunContext } from './run-branch.js';
 import { resolveHostApprovalInput } from './run-continuation.js';
-import type { HostThreadPresentationState } from './thread-presentation-state.js';
 import type { HostToolRecords } from './tool-records.js';
 
 export type HostRunAction = Extract<HostEvent, { type: 'effect.started' }>;
@@ -50,7 +49,6 @@ export interface HostRunExecutionPorts {
   readonly mcpInputs: HostMcpInputState;
   openRun(run: Run): Promise<HostRunOwner | undefined>;
   readonly platform: HostPlatform;
-  readonly presentations: HostThreadPresentationState;
   readonly records: HostToolRecords;
   /** The host is closing or the run's thread is being deleted. */
   retired(threadId: string): boolean;
@@ -147,7 +145,6 @@ export async function runHostSdkLoop(
   try {
     const owner = await ports.openRun(run);
     const admission = await ensureHostRunAdmission(ports.platform, run);
-    ports.presentations.request(run, admission, ports.runs.values());
     const result = streamText({
       abortSignal: run.controller.signal,
       maxRetries: 0,
@@ -223,7 +220,8 @@ export async function runHostSdkLoop(
         });
         return prepareHostProviderStep(provider, memory?.system, owner);
       },
-      stopWhen: stepCountIs(admission.snapshot.maxSteps - run.steps),
+      // A committed run/steer ends the run after the step in flight (BST-588).
+      stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],
       toolApproval: ({ toolCall }) => decideHostSdkApproval(run, ports.platform, toolCall),
       tools: createAdmittedHostSdkTools(run, (action, input) => ports.dispatch(run, action, input)),
     });

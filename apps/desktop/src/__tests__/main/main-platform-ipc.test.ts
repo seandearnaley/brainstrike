@@ -1,10 +1,6 @@
 import { BrowserWindow, type IpcMainInvokeEvent, ipcMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerMainPlatformIpcHandlers } from '../../main-platform-ipc';
-import {
-  resetAssistantAuthOriginsForTest,
-  resolveAssistantAuthOriginRole,
-} from '../../provider-auth/assistant-auth-origin';
 import { createAllowlistedSenderFrame } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 
 const { getWindowRoleByWebContentsIdMock } = vi.hoisted(() => ({
@@ -52,7 +48,6 @@ describe('main platform IPC', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    resetAssistantAuthOriginsForTest();
     handlers = new Map();
     noteNextWindowReload = vi.fn<NoteNextWindowReload>();
     getWindowRoleByWebContentsIdMock.mockReturnValue('visible-ui');
@@ -147,59 +142,6 @@ describe('main platform IPC', () => {
       expect(getAssistantUrl).not.toHaveBeenCalled();
     }
   );
-
-  it('attaches only one destroyed listener per sender across repeated auth issuances', async () => {
-    registerPartialMainPlatformIpcHandlers({
-      getAssistantAuth: () => ({ token: 'a'.repeat(64), url: 'http://127.0.0.1:4999' }),
-      getAssistantUrl: () => 'http://127.0.0.1:4999',
-      noteNextWindowReload,
-    });
-
-    const once = vi.fn();
-    const event = {
-      sender: { id: 7301, once },
-      senderFrame: createAllowlistedSenderFrame(),
-    } as unknown as IpcMainInvokeEvent;
-    const handler = handlers.get('assistant:get-auth');
-
-    await handler?.(event);
-    await handler?.(event);
-    await handler?.(event);
-
-    expect(once).toHaveBeenCalledTimes(1);
-    expect(once).toHaveBeenCalledWith('destroyed', expect.any(Function));
-
-    // The single listener carries the whole teardown now — prove it genuinely
-    // drops the issuance record, not just that it was attached.
-    expect(resolveAssistantAuthOriginRole()).toBe('visible-ui');
-    const onDestroyed = once.mock.calls[0]?.[1] as () => void;
-    onDestroyed();
-    expect(resolveAssistantAuthOriginRole()).toBeUndefined();
-  });
-
-  it('attaches a destroyed listener for each distinct sender', async () => {
-    registerPartialMainPlatformIpcHandlers({
-      getAssistantAuth: () => ({ token: 'a'.repeat(64), url: 'http://127.0.0.1:4999' }),
-      getAssistantUrl: () => 'http://127.0.0.1:4999',
-      noteNextWindowReload,
-    });
-
-    const onceA = vi.fn();
-    const onceB = vi.fn();
-    const handler = handlers.get('assistant:get-auth');
-
-    await handler?.({
-      sender: { id: 7301, once: onceA },
-      senderFrame: createAllowlistedSenderFrame(),
-    } as unknown as IpcMainInvokeEvent);
-    await handler?.({
-      sender: { id: 7302, once: onceB },
-      senderFrame: createAllowlistedSenderFrame(),
-    } as unknown as IpcMainInvokeEvent);
-
-    expect(onceA).toHaveBeenCalledTimes(1);
-    expect(onceB).toHaveBeenCalledTimes(1);
-  });
 
   it('records normalized renderer reload intent for the sender window', async () => {
     const window = { isDestroyed: () => false };

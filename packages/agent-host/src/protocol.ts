@@ -7,6 +7,7 @@ import { McpTaskHandleSchema } from '@brainstrike/assistant-contract/mcp-task-pr
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
+import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), thread
@@ -14,7 +15,10 @@ import { z } from 'zod';
 // in `thread/list`), withheld observational memory, tool catalog IDs on
 // committed tool events, image attachments on a user message (`run/start`
 // and `run.started`), committed workspace edit attribution,
-// `checkpoint/revert` and per-thread tool state.
+// `checkpoint/revert`, per-thread tool state, the prompt breakdown on
+// `provider.request.prepared`, `run/steer` (end the active run at its next
+// step boundary), and `mcp.tools.unavailable`, committed with `run.started` for
+// each configured MCP server whose tools the run proceeds without.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -30,6 +34,9 @@ const ThreadPresentation = {
   title: ThreadTitle.optional(),
 };
 const Run = { ...Thread, runId: Id };
+/** Task Ledger run labels (brainstrike_assistant_run_outcomes verdict/source). */
+const RunVerdict = z.enum(['failed', 'mixed', 'succeeded']);
+const RunVerdictDetail = z.string().max(2000);
 const McpInput = { ...Run, interactionId: Id };
 export const HostMcpInputStatusSchema = z.enum([
   'requested',
@@ -167,10 +174,34 @@ export type HostLoginCredential = Exclude<ProviderCredential, { readonly type: '
 const LoginCredential = z.custom<HostLoginCredential>(
   (value) => isProviderCredential(value) && value.type !== 'oauth'
 );
+/**
+ * The launching desktop's one-time import of its retired encrypted store,
+ * decrypted where only it can decrypt: every entry, or why none could be read.
+ */
+const HostLegacyImportSchema = z.union([
+  z.strictObject({ entries: z.array(z.strictObject({ account: Id, value: z.string() })) }),
+  z.strictObject({ unavailable: z.string().min(1) }),
+]);
+export type HostLegacyImport = z.infer<typeof HostLegacyImportSchema>;
+
+const Provider = { provider: Id };
 
 export const HOST_METHOD_SCHEMAS = {
-  // Secret-bearing: process-local, never in HostCommandLedger, the log or diagnostics.
-  'auth/login': z.strictObject({ credential: LoginCredential, provider: Id }),
+  // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
+  // or diagnostics. The host is the single writer and token holder.
+  'auth/cancel': z.strictObject(Provider),
+  'auth/clear': z.strictObject({}),
+  'auth/connect': z.strictObject({
+    ...Provider,
+    method: z.enum(['device', 'loopback']).optional(),
+  }),
+  'auth/credential/delete': z.strictObject({ account: Id }),
+  'auth/credential/set': z.strictObject({ account: Id, credential: LoginCredential }),
+  'auth/disconnect': z.strictObject(Provider),
+  'auth/import-legacy': HostLegacyImportSchema,
+  'auth/login': z.strictObject({ ...Provider, credential: LoginCredential }),
+  'auth/status': z.strictObject(Provider),
+  'auth/verify': z.strictObject(Provider),
   /**
    * Restore a finished run's edited paths to their state before the run first
    * changed them (one entry, or every unreverted entry of the run). Refused
@@ -229,7 +260,20 @@ export const HOST_METHOD_SCHEMAS = {
     parentMessageId: Id.nullable().optional(),
     prompt: Id,
   }),
+  /**
+   * End the active run gracefully at its next step boundary, after the step in
+   * flight, so the user's steering message can start the next turn (BST-588).
+   */
+  'run/steer': z.strictObject({ ...Command, ...Run }),
   'run/stop': z.strictObject({ ...Command, ...Run }),
+  /** A client verdict is always the user's; hook and revert labels are host-committed. */
+  'run/verdict': z.strictObject({
+    ...Command,
+    ...Run,
+    detail: RunVerdictDetail.optional(),
+    source: z.literal('user'),
+    verdict: RunVerdict,
+  }),
   /** Destructive Root lifecycle; the existing StateStore intent owns recovery. */
   'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
@@ -292,6 +336,15 @@ export const HostMcpInputRequestSchema = z.strictObject({
   taskId: Id.optional(),
   type: z.literal('mcp.input.requested'),
 });
+/** A prepared provider prompt's composition (the context popover's breakdown). */
+export const HostPromptBreakdownSchema = z.strictObject({
+  attachmentsCount: z.number().int().nonnegative(),
+  historyMessagesTokens: z.number().int().nonnegative(),
+  provenance: z.literal('heuristic'),
+  systemInstructionsTokens: z.number().int().nonnegative(),
+  toolDefinitionsProvenance: z.enum(['heuristic', 'measured']),
+  toolDefinitionsTokens: z.number().int().nonnegative(),
+});
 export const HostEventSchema = z.union([
   z.strictObject({
     binding: ThreadWorkspaceBindingSchema,
@@ -311,6 +364,13 @@ export const HostEventSchema = z.union([
     interactionId: Id,
     status: z.enum(['local-finalized', 'remote-acknowledged', 'unknown', 'retired']),
     type: z.literal('mcp.input.settled'),
+  }),
+  z.strictObject({
+    ...RunFields,
+    // Already redacted and bounded by the MCP discovery diagnostics.
+    reason: z.string().min(1),
+    serverId: Id,
+    type: z.literal('mcp.tools.unavailable'),
   }),
   z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
   z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),
@@ -367,6 +427,8 @@ export const HostEventSchema = z.union([
     type: z.literal('provider.request.prepared'),
     ...RunFields,
     accounting: z.json(),
+    /** The prepared prompt's composition, for the context popover. */
+    breakdown: HostPromptBreakdownSchema.optional(),
     modelId: Id,
     provider: Id,
   }),
@@ -434,6 +496,14 @@ export const HostEventSchema = z.union([
     commandId: Id,
     outcomes: z.array(HostEditRevertOutcomeSchema),
   }),
+  /** Only the host commits labels; precedence is applied by projectRunVerdicts. */
+  z.strictObject({
+    type: z.literal('run.verdict'),
+    ...RunFields,
+    detail: RunVerdictDetail.optional(),
+    source: z.enum(['edit_revert', 'hook', 'user']),
+    verdict: RunVerdict,
+  }),
 ]);
 export type HostEvent = z.infer<typeof HostEventSchema>;
 export const HostLogRowSchema = z.strictObject({
@@ -445,7 +515,19 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  'auth/cancel': HostAuthStatusSchema,
+  'auth/clear': z.strictObject({ cleared: z.boolean() }),
+  'auth/connect': HostAuthStatusSchema,
+  'auth/credential/delete': z.strictObject({ deleted: z.boolean() }),
+  'auth/credential/set': z.strictObject({ stored: z.literal(true) }),
+  'auth/disconnect': HostAuthStatusSchema,
+  'auth/import-legacy': z.strictObject({
+    alreadyPresent: z.number().int().nonnegative(),
+    migrated: z.number().int().nonnegative(),
+  }),
   'auth/login': z.strictObject({ stored: z.literal(true) }),
+  'auth/status': HostAuthStatusSchema,
+  'auth/verify': HostAuthVerdictSchema,
   'checkpoint/revert': z.strictObject({ outcomes: z.array(HostEditRevertOutcomeSchema) }),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
@@ -471,7 +553,9 @@ export const HOST_RESULT_SCHEMAS = {
   'mcp/input/stage': z.strictObject({ staged: z.literal(true) }),
   'run/regenerate': z.strictObject({ runId: Id }),
   'run/start': z.strictObject({ runId: Id }),
+  'run/steer': z.strictObject({ outcome: z.enum(['steering', 'already-terminal']) }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
+  'run/verdict': z.strictObject({ accepted: z.literal(true) }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),
   'thread/list': z.strictObject({
     // Presentation fields never committed are absent.
