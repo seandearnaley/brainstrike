@@ -112,6 +112,23 @@ function decodeBlob(blob: Uint8Array): Buffer {
   return buffer;
 }
 
+/** Counts/hashes alone did not qualify retained auxiliary Float32 bytes for a legacy upgrade. */
+function validateLegacyOrdinaryVectors(db: Database.Database, version: IndexSchemaVersion): void {
+  if (version === INDEX_SCHEMA_VERSION) {
+    return;
+  }
+  try {
+    for (const blob of db.prepare('SELECT emb FROM vec_chunks').pluck().iterate()) {
+      decodeBlob(decoder(Schema.Uint8Array)(blob));
+    }
+  } catch (error) {
+    throw new IndexerError(
+      'rebuild-required',
+      `Stored ordinary vector bytes are invalid: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
 function requireEmbeddingHash(value: string | null): string {
   if (value === null) {
     throw new TypeError('Vector writes require a configured embedding hash.');
@@ -197,6 +214,7 @@ export class IndexWriter {
         this.options,
         version
       );
+      validateLegacyOrdinaryVectors(this.db, version);
       this.db.pragma('journal_mode = WAL');
       this.db.pragma('synchronous = NORMAL');
       this.db.pragma('foreign_keys = ON');

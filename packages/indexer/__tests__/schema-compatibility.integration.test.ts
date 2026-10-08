@@ -377,3 +377,146 @@ it('preserves the retained schema 9 cleanup failure fence during upgrade and reo
     await f.close();
   }
 });
+
+for (const [version, alteration] of [
+  [9, 'extra-profile-column'],
+  [9, 'altered-scope-index'],
+  [8, 'missing-source-check'],
+  [9, 'missing-source-check'],
+  [8, 'ordinary-length'],
+  [9, 'ordinary-length'],
+  [8, 'ordinary-nan'],
+  [9, 'ordinary-nan'],
+  [8, 'ordinary-infinity'],
+  [9, 'ordinary-infinity'],
+] as const) {
+  it(`refuses schema ${version} ${alteration} before DDL and leaves the original image unchanged`, async () => {
+    const f = await compatibleFixture(version);
+    let admitted: Awaited<ReturnType<typeof openIndexer>> | undefined;
+    try {
+      const db = openConnection(f.dbPath);
+      try {
+        if (alteration === 'extra-profile-column') {
+          db.exec('ALTER TABLE state_message_profiles ADD COLUMN reviewed_extra TEXT');
+        }
+        if (alteration === 'altered-scope-index') {
+          db.exec('DROP INDEX state_message_scope');
+          db.exec(
+            'CREATE INDEX state_message_scope ON state_message_vectors(resource_id,thread_id,profile_hash)'
+          );
+        }
+        if (alteration === 'missing-source-check') {
+          const source = f.recorded.schema.find((object) => object.name === 'state_index_source');
+          if (!source) {
+            throw new Error('Recorded source schema is missing');
+          }
+          db.exec('ALTER TABLE state_index_source RENAME TO reviewed_source_backup');
+          db.exec(source.sql.replace(' CHECK(singleton=1)', ''));
+          db.exec('INSERT INTO state_index_source SELECT * FROM reviewed_source_backup');
+          db.exec('DROP TABLE reviewed_source_backup');
+        }
+        if (alteration.startsWith('ordinary-')) {
+          const vector = Buffer.alloc(alteration === 'ordinary-length' ? 4 : 384 * 4);
+          if (alteration === 'ordinary-nan') {
+            vector.writeFloatLE(Number.NaN, 0);
+          }
+          if (alteration === 'ordinary-infinity') {
+            vector.writeFloatLE(Number.POSITIVE_INFINITY, 0);
+          }
+          const original = f.recorded.rows['vec_chunks']?.[0];
+          const id = original?.['id'];
+          const rootId = original?.['root_id'];
+          const bin = original?.['bin'];
+          if (
+            typeof id !== 'number' ||
+            typeof rootId !== 'string' ||
+            typeof bin !== 'object' ||
+            bin === null
+          ) {
+            throw new Error('Recorded ordinary vector is missing');
+          }
+          db.transaction(() => {
+            db.prepare('DELETE FROM vec_chunks').run();
+            db.prepare('INSERT INTO vec_chunks(id,root_id,bin,emb) VALUES(?,?,vec_bit(?),?)').run(
+              BigInt(id),
+              rootId,
+              Buffer.from(bin.hex, 'hex'),
+              vector
+            );
+          })();
+        }
+      } finally {
+        db.close();
+      }
+      const baseline = retained(f.dbPath, version, false);
+      const bytes = readFileSync(f.dbPath);
+      const truth = truthHash(f.root);
+      const result = await openIndexer(f.options, deadlines).then(
+        async (port) => {
+          admitted = port;
+          let lateFailure: string | undefined;
+          try {
+            if (alteration === 'extra-profile-column') {
+              const messageId = '["thread",1]';
+              const plan = await port.prepareStateMessageVectors({
+                messages: [{ messageId, seq: 1 }],
+                profile: f.recorded.memoryProfile,
+                scope: f.messageQuery.scope,
+              });
+              await port.upsertStateMessageVectors({
+                embeddings: [{ messageId, vectors: [f.recorded.memoryVector] }],
+                plan,
+              });
+            } else if (alteration.startsWith('ordinary-')) {
+              await port.search(f.vectorQuery);
+            }
+          } catch (error) {
+            lateFailure = error instanceof Error ? error.message : String(error);
+          }
+          const audit = openConnection(f.dbPath, { readonly: true });
+          try {
+            return {
+              admittedSchema: audit
+                .prepare('SELECT schema_version FROM index_metadata')
+                .pluck()
+                .get(),
+              lateFailure,
+            };
+          } finally {
+            audit.close();
+          }
+        },
+        (error: unknown) => error
+      );
+      expect(result).toMatchObject({ code: 'rebuild-required' });
+      expect(readFileSync(f.dbPath)).toEqual(bytes);
+      expect(retained(f.dbPath, version, false)).toEqual(baseline);
+      const audit = openConnection(f.dbPath, { readonly: true });
+      try {
+        expect(audit.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(
+          version
+        );
+        expect(
+          audit
+            .prepare("SELECT count(*) FROM sqlite_schema WHERE name='state_observation_vectors'")
+            .pluck()
+            .get()
+        ).toBe(0);
+        if (version === 8) {
+          expect(
+            audit
+              .prepare("SELECT count(*) FROM sqlite_schema WHERE name='state_message_vectors'")
+              .pluck()
+              .get()
+          ).toBe(0);
+        }
+      } finally {
+        audit.close();
+      }
+      expect(truthHash(f.root)).toBe(truth);
+    } finally {
+      await admitted?.close();
+      await f.close();
+    }
+  });
+}

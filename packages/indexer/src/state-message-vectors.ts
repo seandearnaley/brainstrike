@@ -68,19 +68,35 @@ export function vectorBytes(vector: readonly number[], dimensions: number): Buff
 
 /** Derived leaf on the existing writer connection; no inference or transcript writer. */
 export class StateMessageVectors {
-  static initialize(db: Database.Database): void {
-    db.exec(`
-      CREATE TABLE state_message_generation(singleton INTEGER PRIMARY KEY CHECK(singleton=1),generation INTEGER NOT NULL CHECK(generation>=0),pending_cleanup INTEGER NOT NULL CHECK(pending_cleanup IN (0,1)));
-      INSERT INTO state_message_generation VALUES(1,0,0);
-      CREATE TABLE state_message_profiles(hash TEXT PRIMARY KEY,json TEXT NOT NULL,dimensions INTEGER NOT NULL CHECK(dimensions>0));
-      CREATE TABLE state_message_vectors(
+  /** The actual writer definitions also qualify the legacy migration frontier. */
+  static readonly definitions = [
+    {
+      name: 'state_message_generation',
+      sql: 'CREATE TABLE state_message_generation(singleton INTEGER PRIMARY KEY CHECK(singleton=1),generation INTEGER NOT NULL CHECK(generation>=0),pending_cleanup INTEGER NOT NULL CHECK(pending_cleanup IN (0,1)))',
+    },
+    {
+      name: 'state_message_profiles',
+      sql: 'CREATE TABLE state_message_profiles(hash TEXT PRIMARY KEY,json TEXT NOT NULL,dimensions INTEGER NOT NULL CHECK(dimensions>0))',
+    },
+    {
+      name: 'state_message_vectors',
+      sql: `CREATE TABLE state_message_vectors(
         pk INTEGER PRIMARY KEY,root_id TEXT NOT NULL,resource_id TEXT NOT NULL,thread_id TEXT NOT NULL,
         message_id TEXT NOT NULL,seq INTEGER NOT NULL CHECK(seq>0),segment_ordinal INTEGER NOT NULL CHECK(segment_ordinal>=0),
         profile_hash TEXT NOT NULL REFERENCES state_message_profiles(hash),source_hash TEXT NOT NULL,
         dimensions INTEGER NOT NULL,emb BLOB NOT NULL CHECK(length(emb)=dimensions*4),
-        UNIQUE(thread_id,message_id,segment_ordinal,profile_hash));
-      CREATE INDEX state_message_scope ON state_message_vectors(root_id,resource_id,thread_id,profile_hash);
-    `);
+        UNIQUE(thread_id,message_id,segment_ordinal,profile_hash))`,
+    },
+    {
+      name: 'state_message_scope',
+      sql: 'CREATE INDEX state_message_scope ON state_message_vectors(root_id,resource_id,thread_id,profile_hash)',
+    },
+  ] as const;
+  static initialize(db: Database.Database): void {
+    for (const { sql } of StateMessageVectors.definitions) {
+      db.exec(sql);
+    }
+    db.exec('INSERT INTO state_message_generation VALUES(1,0,0)');
   }
 
   constructor(

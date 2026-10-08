@@ -21,6 +21,12 @@ import type { StateProjection } from './state-projection.js';
 
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const decodeCount = decoder(count);
+const stateSourceColumns =
+  'singleton INTEGER PRIMARY KEY CHECK(singleton=1),root TEXT,projection_identity TEXT';
+const stateSourceDefinition = `CREATE TABLE state_index_source(${stateSourceColumns},resource_grants TEXT NOT NULL)`;
+// Normalize only SQL whitespace; quoted constraint/default literals retain their exact bytes.
+const normalizedDefinition = (sql: string): string =>
+  sql.replace(/'(?:''|[^'])*'|\s+/gu, (token) => (token.startsWith("'") ? token : ' ')).trim();
 
 /** The same derived writer owns this projection, FTS, references and physical purge. */
 export class StateEventStore {
@@ -40,7 +46,7 @@ export class StateEventStore {
     options: IndexerOptions
   ): void {
     db.exec(`
-      CREATE TABLE state_index_source(singleton INTEGER PRIMARY KEY CHECK(singleton=1),root TEXT,projection_identity TEXT,resource_grants TEXT NOT NULL);
+      ${stateSourceDefinition};
       CREATE TABLE state_event_rows(pk INTEGER PRIMARY KEY,thread_id TEXT NOT NULL,seq INTEGER NOT NULL CHECK(seq>0),payload TEXT NOT NULL,content TEXT,gap_reason TEXT,UNIQUE(thread_id,seq));
       CREATE TABLE state_event_blob_refs(event_pk INTEGER NOT NULL REFERENCES state_event_rows(pk) ON DELETE CASCADE,hash TEXT NOT NULL,PRIMARY KEY(event_pk,hash)) WITHOUT ROWID;
       CREATE INDEX state_blob_hash ON state_event_blob_refs(hash);
@@ -110,6 +116,7 @@ export class StateEventStore {
   /** Exact additive frontier: a legacy label must not hide partial or counterfeit additions. */
   static validateLayout(db: Database.Database, version: IndexSchemaVersion): void {
     const additions: readonly (readonly [string, string, boolean])[] = [
+      ['state_index_source', 'table', true],
       ['state_message_generation', 'table', version >= 9],
       ['state_message_profiles', 'table', version >= 9],
       ['state_message_vectors', 'table', version >= 9],
@@ -118,11 +125,11 @@ export class StateEventStore {
       ['state_observation_scope', 'index', version === 10],
     ];
     const objects = decoder(
-      Schema.Array(Schema.Struct({ name: Schema.String, type: Schema.String }))
+      Schema.Array(Schema.Struct({ name: Schema.String, sql: Schema.String, type: Schema.String }))
     )(
       db
         .prepare(
-          'SELECT name,type FROM sqlite_schema WHERE name IN (SELECT value FROM json_each(?))'
+          'SELECT name,sql,type FROM sqlite_schema WHERE name IN (SELECT value FROM json_each(?))'
         )
         .all(JSON.stringify(additions.map(([name]) => name)))
     );
@@ -133,6 +140,24 @@ export class StateEventStore {
           'rebuild-required',
           'Declared derived schema disagrees with its additive layout.'
         );
+      }
+    }
+    if (version !== INDEX_SCHEMA_VERSION) {
+      const required = [
+        {
+          name: 'state_index_source',
+          sql:
+            version === 8
+              ? `CREATE TABLE state_index_source(${stateSourceColumns})`
+              : stateSourceDefinition,
+        },
+        ...(version === 9 ? StateMessageVectors.definitions : []),
+      ];
+      for (const { name, sql } of required) {
+        const stored = objects.find((object) => object.name === name);
+        if (!stored || normalizedDefinition(stored.sql) !== normalizedDefinition(sql)) {
+          throw new IndexerError('rebuild-required', `Legacy derived definition changed: ${name}.`);
+        }
       }
     }
     const columns = decoder(Schema.Array(Schema.String))(
