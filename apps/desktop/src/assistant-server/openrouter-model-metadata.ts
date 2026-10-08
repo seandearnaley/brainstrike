@@ -13,6 +13,9 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_CACHE_ENTRIES = 128;
 const MAX_VISIBLE_ERROR_CHARS = 300;
 const MAX_MODEL_ID_CHARS = 256;
+const OPENROUTER_DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
+const INVALID_BASE_URL_MESSAGE =
+  'OPENROUTER_BASE_URL must be an absolute HTTP(S) base URL without credentials, query or fragment';
 
 class OpenRouterMetadataRequestError extends Error {
   constructor(error: unknown) {
@@ -68,9 +71,28 @@ export function requireOpenRouterModelId(modelId: string): readonly [string, str
   return [parts[0] as string, parts[1] as string];
 }
 
-function buildModelUrl(modelId: string): string {
+function requireOpenRouterBaseUrl(): string {
+  let url: URL;
+  try {
+    url = new URL(process.env['OPENROUTER_BASE_URL'] || OPENROUTER_DEFAULT_BASE_URL);
+  } catch {
+    throw new Error(INVALID_BASE_URL_MESSAGE);
+  }
+  if (
+    !(url.protocol === 'http:' || url.protocol === 'https:') ||
+    url.username ||
+    url.password ||
+    url.href.includes('?') ||
+    url.href.includes('#')
+  ) {
+    throw new Error(INVALID_BASE_URL_MESSAGE);
+  }
+  return url.href.replace(/\/$/, '');
+}
+
+function buildModelUrl(modelId: string, baseUrl: string): string {
   const [provider, model] = requireOpenRouterModelId(modelId);
-  return `https://openrouter.ai/api/v1/model/${encodeURIComponent(provider)}/${encodeURIComponent(model)}`;
+  return `${baseUrl}/model/${encodeURIComponent(provider)}/${encodeURIComponent(model)}`;
 }
 
 function toVisibleError(error: unknown): string {
@@ -119,9 +141,9 @@ export function createOpenRouterModelMetadataService(
   const cache = new Map<string, OpenRouterModelMetadata>();
   const pending = new Map<string, Promise<OpenRouterModelMetadataSnapshot>>();
 
-  const retain = (metadata: OpenRouterModelMetadata): void => {
-    cache.delete(metadata.id);
-    cache.set(metadata.id, metadata);
+  const retain = (cacheKey: string, metadata: OpenRouterModelMetadata): void => {
+    cache.delete(cacheKey);
+    cache.set(cacheKey, metadata);
     while (cache.size > maxCacheEntries) {
       const oldest = cache.keys().next().value as string | undefined;
       if (!oldest) {
@@ -134,13 +156,15 @@ export function createOpenRouterModelMetadataService(
   const refresh = async (
     modelId: string,
     apiKey: string,
-    stale: OpenRouterModelMetadata | undefined
+    stale: OpenRouterModelMetadata | undefined,
+    cacheKey: string,
+    modelUrl: string
   ): Promise<OpenRouterModelMetadataSnapshot> => {
     const request = Effect.tryPromise({
       catch: (error: unknown): Error =>
         error instanceof Error ? error : new OpenRouterMetadataRequestError(error),
       try: async (signal: AbortSignal): Promise<OpenRouterModelMetadata> => {
-        const response = await fetchImpl(buildModelUrl(modelId), {
+        const response = await fetchImpl(modelUrl, {
           headers: { accept: 'application/json', authorization: `Bearer ${apiKey}` },
           signal,
         });
@@ -160,7 +184,7 @@ export function createOpenRouterModelMetadataService(
     });
     try {
       const metadata = await runAtPromiseBoundary(bounded);
-      retain(metadata);
+      retain(cacheKey, metadata);
       return { freshness: 'live', metadata };
     } catch (error) {
       if (!stale) {
@@ -178,17 +202,25 @@ export function createOpenRouterModelMetadataService(
         throw new Error('OpenRouter API key is required for model metadata');
       }
 
-      const cached = cache.get(modelId);
+      const baseUrl = requireOpenRouterBaseUrl();
+      const cacheKey = JSON.stringify([baseUrl, modelId]);
+      const cached = cache.get(cacheKey);
       if (cached && now() - cached.checkedAt < successTtlMs) {
         return { freshness: 'fresh-cache', metadata: cached };
       }
 
-      const pendingKey = `${modelId}:${createHash('sha256').update(normalizedApiKey).digest('hex')}`;
+      const pendingKey = `${cacheKey}:${createHash('sha256').update(normalizedApiKey).digest('hex')}`;
       const existing = pending.get(pendingKey);
       if (existing) {
         return existing;
       }
-      const request = refresh(modelId, normalizedApiKey, cached).finally(() => {
+      const request = refresh(
+        modelId,
+        normalizedApiKey,
+        cached,
+        cacheKey,
+        buildModelUrl(modelId, baseUrl)
+      ).finally(() => {
         pending.delete(pendingKey);
       });
       pending.set(pendingKey, request);
