@@ -20,9 +20,8 @@ existing writer. Native requests must execute
 the existing StateStore mutation chain across the awaited pure calculation.
 Other requests execute `executeMemoryRequest(db, request)`. The calculator is
 `packages/agent-host/src/adapters/memory-storage-calculator.ts`; Studio chooses
-its trusted writer-side module wiring. The interim imports of `memory-types`
-are type-only compiled-leaf references because Studio owns the shared package
-export file; switch them to the public StateStore type export during integration. No client-supplied executable URL or
+its trusted writer-side module wiring. Adapters use the public StateStore type
+exports. No client-supplied executable URL or
 function crosses the data-only request port.
 
 The calculator uses the pinned public core `InMemoryStore` domain as a transient
@@ -65,23 +64,24 @@ machinery solely to contain these hidden native jobs.
 The reviewed lifecycle patch is the simpler M3 route. It forwards owner/call
 signals into existing native work, retains independent failures, joins sibling
 branches and cleanup tails, and rejects incomplete settlement without dropping
-the still-owned work. It changes the pinned memory library's lifecycle only;
+the still-owned work. Two additional narrow fixes index the exact persisted
+resource-group serialization and escape/decode native group attributes once,
+preserving Core's original JSON-array message cursors. These changes are mirrored
+in the pinned ESM/CJS builds;
 the host remains the actor/approval/transcript authority. The existing public
 provider wrapper still joins raw promises, original sources and actual usage
 receipts, and retains cancel/receipt failures even when they have abort names.
 
 Owner: the M3 memory leaf worker, integrated by Studio under the parent M3 work.
-Source: reviewed candidate `e51d6ad9b3528d639882206e03a97d64750ce66b`.
-Patch SHA-256: `9966af06a023baf33b90bfbeb9c0ee9360800a3f15ed074543376cb9a47d9cec`.
+Source: reviewed component `9a92dc217a3f45f38c81a1a4991aef2b369e5666`.
+Patch SHA-256: `0b8a5aa601a30da348a27f6b24a3d7394d455a57c72dd0f3133a87a4f8b5df71`.
 Pinned versions remain Memory 1.32.1 and Core 1.71.0. The existing core patch is
 still present; this closure must not be described as patch-free.
 
-Studio must register `@mastra/memory@1.32.1` in the existing pnpm patch map and
-refresh its patch references without changing versions. This leaf packet does
-not edit shared manifests, lockfiles or registry. Local validation activates
-only the task worktree's installed files after breaking pnpm hardlinks and
-verifies both ESM/CJS contexts with reverse-patch checks and source hashes.
-An unregistered frozen install cannot reproduce that activation yet.
+The existing pnpm patch map registers `@mastra/memory@1.32.1`; the lockfile pins
+its patch hash without changing versions. An official frozen offline install
+applies that registration with normal scripts. Qualification uses
+`pnpm_config_verify_deps_before_run=error` under the qualified pnpm runtime.
 
 Removal condition under the existing M3/M4 work: the pinned upstream memory API
 or the planned reduced memory implementation must pass the same public ESM/CJS
@@ -92,11 +92,14 @@ is demonstrated.
 
 ## Qualification limits
 
-The selected local tests cover native ESM/CJS lifecycle, raw provider ownership,
-host Stop/lease retention, committed projection identity, and isolated SQLite
-atomicity. They are component evidence. Real StateStore-backed host memory,
-shared profile/vector/indexer cleanup, and strict purge/reset after reopen remain
-integration acceptance work. The old same-thread Stop counterexample remains
-in the base host test until Studio's canonical interruption healer is included.
+The component includes seven actual native observation writer cases and five
+call-recording cases, plus unchanged native ESM/CJS lifecycle controls. Core's
+trusted producer exports observation groups and native chunks together on the
+existing state projection; the derived writer verifies every group against its
+same-transaction native record and relational thread/resource owners. Native
+records/history remain outside the transcript. Component evidence does not
+establish the production HostMemory factory, Main borrowed capability, physical
+Stop/delete retirement, populated old-schema upgrade, or the full M3 regression.
+Those composed acceptance checks remain open until separately demonstrated.
 
 CI is disabled due to cost; validation must run locally.

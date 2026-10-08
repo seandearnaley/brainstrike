@@ -29,6 +29,7 @@ export async function observationMemoryHost(
   scope: 'thread' | 'resource',
   options: {
     readonly realIndexer?: boolean;
+    readonly stateProjectionModule?: string;
     readonly buffered?: boolean;
     readonly beforeEmbedding?: (
       values: readonly string[],
@@ -41,8 +42,9 @@ export async function observationMemoryHost(
     ...(options.realIndexer ? { realIndexer: true } : {}),
     ...(options.realIndexer
       ? {
-          stateProjectionModule: new URL('./observation-state-projection.mjs', import.meta.url)
-            .href,
+          stateProjectionModule:
+            options.stateProjectionModule ??
+            new URL('./observation-state-projection.mjs', import.meta.url).href,
         }
       : {}),
   });

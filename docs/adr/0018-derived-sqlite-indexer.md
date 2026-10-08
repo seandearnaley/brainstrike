@@ -61,6 +61,24 @@ derived schemas require explicit rebuilding; opening preserves their files and P
 
 ## Consequences
 
+### M3 public Memory observation vectors
+
+The owner accepted the observation route on 7 October 2026 in
+[BST-1977's milestone decision](https://github.com/seandearnaley/brainstrike/pull/3543#issuecomment-6049206913).
+Canonical observations remain native Memory records and groups in StateStore,
+written by Core's existing canonical writer; they are outside the transcript.
+The same derived indexer accepts an observation route using those existing
+record/group identities and public Memory's existing deterministic vector IDs.
+There is no message alias, second database, writer or durable identity.
+
+Preparation captures the exact already-persisted observation text, canonical
+scope, full profile and original run signal. Public `Memory.indexObservation`
+retains its native chunking and IDs through call-local prepared context. A
+resource-scoped mismatch between indexed text and the persisted group needs a
+real causal reproduction and a narrow reviewed vendor patch with an upstream
+link and removal condition. Vector OM remains refused until that route,
+retirement and deletion are demonstrated through public Memory.
+
 Runtime inputs, IPC envelopes, worker results and SQL rows have Effect Schema
 boundaries. No fallback engine, inference in Node, retry loop, silent rebuild or
 second persistence authority is introduced. A different configured profile requires
