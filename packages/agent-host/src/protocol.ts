@@ -14,7 +14,7 @@ import { z } from 'zod';
 // in `thread/list`), withheld observational memory, tool catalog IDs on
 // committed tool events, image attachments on a user message (`run/start`
 // and `run.started`), committed workspace edit attribution,
-// `checkpoint/revert` and per-thread tool state.
+// `checkpoint/revert`, per-thread tool state and run attempt records.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -400,6 +400,30 @@ export const HostEventSchema = z.union([
     ...RunFields,
     detail: z.string().optional(),
     outcome: z.enum(['completed', 'failed', 'stopped', 'interrupted']),
+  }),
+  /**
+   * One provider attempt of a run leg ended in a recoverable class of failure.
+   * `recovered` means a fresh attempt over the committed branch follows;
+   * otherwise `refusal` says why not, and `run.finished` follows.
+   */
+  z.strictObject({
+    type: z.literal('run.attempt'),
+    ...RunFields,
+    /** The attempt that ended, from 1, within this leg's `maxAttempts`. */
+    attempt: z.number().int().positive(),
+    detail: z.string().min(1),
+    maxAttempts: z.number().int().positive(),
+    reason: z.enum(['stalled', 'provider-error', 'empty-response']),
+    recovered: z.boolean(),
+    refusal: z.enum(['budget-exhausted', 'tool-parts', 'committed-output']).optional(),
+    /** A stall's breadcrumb: which silence fired and how far the stream got. */
+    stall: z
+      .strictObject({
+        lastPartType: Id.optional(),
+        partsSeen: Seq,
+        phase: z.enum(['awaiting-output', 'reasoning', 'streaming', 'tool-executing']),
+      })
+      .optional(),
   }),
   z.strictObject({
     type: z.literal('workspace.edit.recorded'),

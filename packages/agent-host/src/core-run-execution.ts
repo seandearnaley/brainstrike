@@ -21,6 +21,7 @@ import {
   hostRunTools,
   prepareHostProviderStep,
 } from './run-admission.js';
+import { hostRunAttemptEvent } from './run-attempts.js';
 import { hostRunAncestors, hostRunContext } from './run-branch.js';
 import { resolveHostApprovalInput } from './run-continuation.js';
 import { HostRunOutcome } from './run-outcome.js';
@@ -142,15 +143,67 @@ export async function executeHostAction(
   return output;
 }
 
-/** One public SDK loop over the run's committed branch; every step commits before it is observed. */
+/** How one SDK attempt ended; Core decides between a new attempt and the run's finish. */
+interface HostSdkAttempt {
+  readonly checkpointFailure: unknown;
+  readonly interrupted: boolean;
+  /** The leg's attempt budget; absent when the resilience config could not be read. */
+  readonly maxAttempts: number | undefined;
+  readonly outcome: HostRunOutcome;
+}
+
+/**
+ * The run leg's SDK loop. A stall, a retryable provider error or an empty
+ * reply ends one attempt; a fresh attempt over the committed branch follows
+ * within the leg's budget, unless the failed step streamed tool input or a
+ * call (see run-attempts.ts). Every attempt failure is committed first.
+ */
 export async function runHostSdkLoop(
   ports: HostRunExecutionPorts,
   run: Run,
   model: LanguageModel
 ): Promise<void> {
-  const outcome = new HostRunOutcome(run.admission?.configuration, run.modelId, run.steps > 0);
+  // An empty reply is judged per attempt: a failed attempt's text never
+  // entered the transcript, so only a leg that began with committed steps
+  // counts as the model having contributed.
+  const resumed = run.steps > 0;
+  for (let attempt = 1; ; attempt += 1) {
+    const ended = await runHostSdkAttempt(ports, run, model, resumed);
+    if (ended.checkpointFailure !== undefined) {
+      throw ended.checkpointFailure;
+    }
+    const record =
+      ended.maxAttempts === undefined || run.stopped || ports.closing()
+        ? undefined
+        : hostRunAttemptEvent(run, ended.outcome, attempt, ended.maxAttempts);
+    if (record) {
+      await ports.append(run.threadId, [record], 'full', ports.foldRows);
+      if (record.recovered) {
+        continue;
+      }
+    }
+    await finishHostSdkLoop(
+      run,
+      ports.closing(),
+      ended.outcome.detail(),
+      ended.interrupted,
+      (joined, detail) => ports.finish(run, joined, detail)
+    );
+    return;
+  }
+}
+
+/** One public SDK attempt over the run's committed branch; every step commits before it is observed. */
+async function runHostSdkAttempt(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  model: LanguageModel,
+  resumed: boolean
+): Promise<HostSdkAttempt> {
+  const outcome = new HostRunOutcome(run.admission?.configuration, run.modelId, resumed);
   let interrupted = false;
   let checkpointFailure: unknown;
+  let maxAttempts: number | undefined;
   run.paused = false;
   const initialMessages = hostRunContext(ports.runs, run);
   const ancestors = hostRunAncestors(ports.runs, run);
@@ -159,6 +212,7 @@ export async function runHostSdkLoop(
   try {
     // Strict: a malformed resilience setting fails this run visibly.
     const resilience = resolveAssistantResilienceConfig();
+    maxAttempts = resilience.streamStallAttempts;
     // The SDK call's own signal: a watchdog expiry ends provider work without
     // reading as the user's Stop.
     const attempt = new AbortController();
@@ -204,6 +258,7 @@ export async function runHostSdkLoop(
             throw new Error('Model step was not committed');
           }
           recordedInputLength += step.response.messages.length;
+          outcome.stepCommitted(step);
           await owner?.commitHostStep?.();
         } catch (cause) {
           checkpointFailure = cause;
@@ -263,10 +318,5 @@ export async function runHostSdkLoop(
     interrupted = cause instanceof ApprovalInputReconstructionError;
     outcome.fail(cause);
   }
-  if (checkpointFailure !== undefined) {
-    throw checkpointFailure;
-  }
-  await finishHostSdkLoop(run, ports.closing(), outcome.detail(), interrupted, (joined, detail) =>
-    ports.finish(run, joined, detail)
-  );
+  return { checkpointFailure, interrupted, maxAttempts, outcome };
 }

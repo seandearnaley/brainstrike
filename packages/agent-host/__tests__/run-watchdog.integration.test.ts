@@ -1,176 +1,19 @@
-import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { setTimeout as sleep } from 'node:timers/promises';
-import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { StateStore } from '@brainstrike/state-store';
-import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { z } from 'zod';
-import { HostCore } from '../src/core.js';
-import type { HostPlatform } from '../src/ports.js';
-import type { HostEvent, HostLogRow } from '../src/protocol.js';
+import {
+  committedTextDeltas,
+  finishedRun,
+  probeTool,
+  stop,
+  stubResilience,
+  type Timeline,
+  text,
+  timedModel,
+  usage,
+} from './fixtures/timed-host-run.js';
 
-type Chunk =
-  Awaited<ReturnType<MockLanguageModelV4['doStream']>>['stream'] extends ReadableStream<infer C>
-    ? C
-    : never;
-type Finished = Extract<HostEvent, { type: 'run.finished' }>;
-/** A provider stream part, or a pause in milliseconds before the next one. */
-type Timeline = readonly (Chunk | number)[];
-
-// Short, ordered windows (the resilience config enforces their order). The
-// machine runs many suites at once, so every healthy pause keeps wide slack.
-const WINDOWS = {
-  BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS: '1500',
-  BRAINSTRIKE_STREAM_INACTIVITY_MS: '1000',
-  BRAINSTRIKE_STREAM_REASONING_GAP_MS: '4000',
-  BRAINSTRIKE_TOOL_CALL_INPUT_MS: '2000',
-} as const;
-const TERMINAL_POLL = { interval: 50, timeout: 30_000 };
-
-beforeEach(() => {
-  for (const [name, value] of Object.entries(WINDOWS)) {
-    vi.stubEnv(name, value);
-  }
-});
+// Watchdog proofs only: recovery is off, so every expiry is terminal.
+beforeEach(() => stubResilience({ BRAINSTRIKE_STREAM_STALL_ATTEMPTS: '1' }));
 afterEach(() => vi.unstubAllEnvs());
-
-// The pinned provider v4 stream contract, as the recorded scripted fixtures use it.
-const usage = {
-  inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
-  outputTokens: { reasoning: 0, text: 1, total: 1 },
-};
-const stop: Chunk = { finishReason: { raw: 'stop', unified: 'stop' }, type: 'finish', usage };
-const text = (delta: string): Chunk[] => [
-  { id: 'text-1', type: 'text-start' },
-  { delta, id: 'text-1', type: 'text-delta' },
-  { id: 'text-1', type: 'text-end' },
-];
-
-/**
- * One timeline per provider call. A timeline without a `finish` part leaves
- * the provider stream open until the request is aborted, like a wedged route.
- */
-function timedModel(calls: readonly Timeline[]): {
-  readonly model: MockLanguageModelV4;
-  readonly aborted: () => number;
-} {
-  let call = 0;
-  let aborted = 0;
-  const model = new MockLanguageModelV4({
-    doStream: async ({ abortSignal }) => {
-      const timeline = calls[Math.min(call, calls.length - 1)] ?? [];
-      call += 1;
-      const stream = new ReadableStream<Chunk>({
-        start(controller) {
-          abortSignal?.addEventListener(
-            'abort',
-            () => {
-              aborted += 1;
-              controller.error(abortSignal.reason);
-            },
-            { once: true }
-          );
-          void (async () => {
-            controller.enqueue({ type: 'stream-start', warnings: [] });
-            for (const entry of timeline) {
-              if (typeof entry === 'number') {
-                await sleep(entry);
-              } else if (!abortSignal?.aborted) {
-                controller.enqueue(entry);
-              }
-            }
-            if (timeline.some((entry) => typeof entry !== 'number' && entry.type === 'finish')) {
-              controller.close();
-            }
-          })();
-        },
-      });
-      return { stream };
-    },
-  });
-  return { aborted: () => aborted, model };
-}
-
-async function finishedRun(
-  model: MockLanguageModelV4,
-  overrides: Partial<HostPlatform> = {}
-): Promise<{ readonly rows: readonly HostLogRow[]; readonly terminal: Finished }> {
-  const root = await mkdtemp(join(tmpdir(), 'bs-m3-run-watchdog-'));
-  const store = await StateStore.open(root);
-  const core = await HostCore.open(
-    store,
-    {
-      close: async () => undefined,
-      maxSteps: 3,
-      readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
-      resolveModel: async () => model,
-      tools: {},
-      ...overrides,
-    },
-    () => () => undefined
-  );
-  try {
-    const { threadId } = await core.startThread({ commandId: randomUUID() });
-    const { runId } = await core.startRun({
-      commandId: randomUUID(),
-      modelId: 'scripted',
-      prompt: 'Synthetic offline watchdog test.',
-      threadId,
-    });
-    let terminal: Finished | undefined;
-    let rows: readonly HostLogRow[] = [];
-    await expect
-      .poll(async () => {
-        rows = await core.read(threadId, 0);
-        terminal = rows
-          .map((row) => row.event)
-          .find(
-            (event): event is Finished => event.type === 'run.finished' && event.runId === runId
-          );
-        return terminal !== undefined;
-      }, TERMINAL_POLL)
-      .toBe(true);
-    if (!terminal) {
-      throw new Error('Run did not finish');
-    }
-    return { rows, terminal };
-  } finally {
-    await core.close();
-    await store.close();
-    await rm(root, { force: true, recursive: true });
-  }
-}
-
-function committedTextDeltas(rows: readonly HostLogRow[]): string[] {
-  return rows.flatMap((row) =>
-    row.event.type === 'stream.chunk' &&
-    typeof row.event.chunk === 'object' &&
-    row.event.chunk !== null &&
-    !Array.isArray(row.event.chunk) &&
-    row.event.chunk['type'] === 'text-delta' &&
-    typeof row.event.chunk['text'] === 'string'
-      ? [row.event.chunk['text']]
-      : []
-  );
-}
-
-const probeTool = (delayMs: number): Partial<HostPlatform> => ({
-  tools: {
-    probe: {
-      description: 'Read-only probe',
-      execute: async () => {
-        await sleep(delayMs);
-        return { seen: true };
-      },
-      identity: 'probe-identity',
-      inputSchema: z.object({ text: z.string() }),
-      risk: 'read',
-    },
-  },
-});
 
 test('a provider that never answers fails after the first-output window and is cancelled', async () => {
   const { aborted, model } = timedModel([[]]);
