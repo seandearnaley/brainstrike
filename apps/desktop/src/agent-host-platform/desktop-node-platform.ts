@@ -12,10 +12,12 @@ import {
 } from '@brainstrike/agent-host';
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
 import { mainPlatformConnection } from './connection';
+import { desktopHostSharedTools } from './desktop-host-shared-tools';
 import { bindNodeMcpPlatformTransport } from './mcp-platform-transport';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
@@ -77,6 +79,8 @@ export async function createHostPlatform(
   const port = await parentPlatformPort();
   const connection = mainPlatformConnection(port);
   const executions = new Map<string, HostToolContext & { readonly toolId: string }>();
+  // One host-lifetime registry; its handles are scoped to their thread.
+  const readFileCursorRegistry = new ReadWorkspaceFileCursorRegistry();
   const mcp = bindNodeMcpPlatformTransport(connection, (origin) => {
     const execution = executions.get(JSON.stringify([origin.runId, origin.toolCallId]));
     return execution?.threadId === origin.threadId && execution.toolId === origin.toolId
@@ -193,109 +197,118 @@ export async function createHostPlatform(
         }
         throw cause;
       }
+      const shared = desktopHostSharedTools({
+        readFileCursorRegistry,
+        request,
+        selected,
+        threadId: admission.threadId,
+      });
       const tools = Object.fromEntries(
-        Object.entries(selected.tools).map(([name, descriptor]) => [
-          name,
-          {
-            description: descriptor.description,
-            identity: descriptor.identity,
-            ...(descriptor.interaction
-              ? {
-                  interaction: {
-                    kind: descriptor.interaction.kind,
-                    resumeSchema: platformToolInputSchema(
-                      descriptor.interaction.resumeSchema,
-                      async (input) =>
-                        z
-                          .discriminatedUnion('success', [
-                            z.strictObject({ success: z.literal(true), value: z.json() }),
-                            z.strictObject({ error: z.string(), success: z.literal(false) }),
-                          ])
-                          .parse(
-                            await request(
-                              'platform/validate',
-                              {
-                                input: z.json().parse(input),
-                                resume: true,
-                                threadId: admission.threadId,
-                                toolId: name,
-                              },
-                              admission.signal
+        Object.entries(selected.tools)
+          .filter(([name]) => !Object.hasOwn(shared, name))
+          .map(([name, descriptor]) => [
+            name,
+            {
+              description: descriptor.description,
+              identity: descriptor.identity,
+              ...(descriptor.interaction
+                ? {
+                    interaction: {
+                      kind: descriptor.interaction.kind,
+                      resumeSchema: platformToolInputSchema(
+                        descriptor.interaction.resumeSchema,
+                        async (input) =>
+                          z
+                            .discriminatedUnion('success', [
+                              z.strictObject({ success: z.literal(true), value: z.json() }),
+                              z.strictObject({ error: z.string(), success: z.literal(false) }),
+                            ])
+                            .parse(
+                              await request(
+                                'platform/validate',
+                                {
+                                  input: z.json().parse(input),
+                                  resume: true,
+                                  threadId: admission.threadId,
+                                  toolId: name,
+                                },
+                                admission.signal
+                              )
                             )
-                          )
-                    ),
-                  },
+                      ),
+                    },
+                  }
+                : {}),
+              ...(descriptor.mcpAuthority ? { mcpAuthority: descriptor.mcpAuthority } : {}),
+              ...(descriptor.mcpBinding ? { mcpBinding: descriptor.mcpBinding } : {}),
+              permissionToolId: descriptor.permissionToolId,
+              risk: descriptor.risk,
+              ...(descriptor.strict === undefined ? {} : { strict: descriptor.strict }),
+              execute: async (input: unknown, context: HostToolContext): Promise<unknown> => {
+                const address = JSON.stringify([context.runId, context.toolCallId]);
+                if (executions.has(address)) {
+                  throw new Error('Platform tool call is already executing');
                 }
-              : {}),
-            ...(descriptor.mcpAuthority ? { mcpAuthority: descriptor.mcpAuthority } : {}),
-            ...(descriptor.mcpBinding ? { mcpBinding: descriptor.mcpBinding } : {}),
-            permissionToolId: descriptor.permissionToolId,
-            risk: descriptor.risk,
-            ...(descriptor.strict === undefined ? {} : { strict: descriptor.strict }),
-            execute: async (input: unknown, context: HostToolContext): Promise<unknown> => {
-              const address = JSON.stringify([context.runId, context.toolCallId]);
-              if (executions.has(address)) {
-                throw new Error('Platform tool call is already executing');
-              }
-              executions.set(address, { ...context, toolId: name });
-              try {
-                return await request(
-                  'platform/execute',
-                  {
-                    input: z.json().parse(input),
-                    ...(context.resumeData === undefined
-                      ? {}
-                      : { resumeData: z.json().parse(context.resumeData) }),
+                executions.set(address, { ...context, toolId: name });
+                try {
+                  return await request(
+                    'platform/execute',
+                    {
+                      input: z.json().parse(input),
+                      ...(context.resumeData === undefined
+                        ? {}
+                        : { resumeData: z.json().parse(context.resumeData) }),
+                      runId: context.runId,
+                      threadId: context.threadId,
+                      toolCallId: context.toolCallId,
+                      toolId: name,
+                    },
+                    context.signal
+                  );
+                } finally {
+                  mcp.release({
                     runId: context.runId,
                     threadId: context.threadId,
                     toolCallId: context.toolCallId,
                     toolId: name,
-                  },
-                  context.signal
-                );
-              } finally {
-                mcp.release({
-                  runId: context.runId,
-                  threadId: context.threadId,
-                  toolCallId: context.toolCallId,
+                  });
+                  executions.delete(address);
+                }
+              },
+              inputSchema: platformToolInputSchema(descriptor.inputSchema, async (input) =>
+                z
+                  .discriminatedUnion('success', [
+                    z.strictObject({ success: z.literal(true), value: z.json() }),
+                    z.strictObject({ error: z.string(), success: z.literal(false) }),
+                  ])
+                  .parse(
+                    await request(
+                      'platform/validate',
+                      { input: z.json().parse(input), threadId: admission.threadId, toolId: name },
+                      admission.signal
+                    )
+                  )
+              ),
+              toModelOutput: async ({
+                input,
+                output,
+                toolCallId,
+              }: Parameters<NonNullable<HostTool['toModelOutput']>>[0]) => {
+                const projected = await request('platform/project', {
+                  input: z.json().parse(input),
+                  output: z.json().parse(output),
+                  threadId: admission.threadId,
+                  toolCallId,
                   toolId: name,
                 });
-                executions.delete(address);
-              }
+                return projected === undefined || projected === null
+                  ? { type: 'json' as const, value: z.json().parse(output) }
+                  : canonicalToolModelOutput(projected, toolCallId, name);
+              },
             },
-            inputSchema: platformToolInputSchema(descriptor.inputSchema, async (input) =>
-              z
-                .discriminatedUnion('success', [
-                  z.strictObject({ success: z.literal(true), value: z.json() }),
-                  z.strictObject({ error: z.string(), success: z.literal(false) }),
-                ])
-                .parse(
-                  await request(
-                    'platform/validate',
-                    { input: z.json().parse(input), threadId: admission.threadId, toolId: name },
-                    admission.signal
-                  )
-                )
-            ),
-            toModelOutput: async ({
-              input,
-              output,
-              toolCallId,
-            }: Parameters<NonNullable<HostTool['toModelOutput']>>[0]) => {
-              const projected = await request('platform/project', {
-                input: z.json().parse(input),
-                output: z.json().parse(output),
-                threadId: admission.threadId,
-                toolCallId,
-                toolId: name,
-              });
-              return projected === undefined || projected === null
-                ? { type: 'json' as const, value: z.json().parse(output) }
-                : canonicalToolModelOutput(projected, toolCallId, name);
-            },
-          },
-        ])
+          ])
       );
+      Object.assign(tools, shared);
       return {
         close: closeSelection,
         configuration,
@@ -329,6 +342,11 @@ export async function createHostPlatform(
     resolveProviderAuth: async () => {
       throw new Error('Desktop provider auth requires an admitted thread selection');
     },
+    resolveWorkspaceRoot: async ({ rootId, signal }) =>
+      z
+        .string()
+        .min(1)
+        .parse(await request('platform/workspace/root', { rootId }, signal)),
     startup,
     validateWorkspaceBinding: async ({ binding, signal, threadId }) => {
       z.strictObject({ accepted: z.literal(true) }).parse(

@@ -4,6 +4,8 @@ export * from './executors.js';
 export * from './file-mutation-tools.js';
 export * from './glob-workspace-tool.js';
 export * from './gutter-prefix-guard.js';
+export * from './host-stores.js';
+export * from './host-tools.js';
 export * from './manage-canvas-tool.js';
 export * from './manage-task-list-tool.js';
 export * from './ports.js';

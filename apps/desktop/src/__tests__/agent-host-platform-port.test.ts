@@ -50,6 +50,7 @@ function selected(
     configuration: { model: 'fixture', provider: 'openai' },
     contextWindow: 32_000,
     durableConfiguration: {},
+    freshWorkspaceRoots: async () => [],
     inputTokenLimit: 24_000,
     maxSteps: 5,
     memory: {
@@ -75,6 +76,7 @@ function selected(
         },
       },
     },
+    nativeRuntime: { provider: 'openai', workspaceRoots: [] },
     resourceId: 'workspace',
     tools,
     toolTimeoutMs: 5000,

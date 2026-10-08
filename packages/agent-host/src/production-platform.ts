@@ -64,6 +64,8 @@ export interface ProductionHostPlatformOptions {
     auth: ProviderAuthInput | undefined
   ) => Promise<Exclude<LanguageModel, string>>;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
+  /** The live root owner checkpoint revert revalidates against. */
+  readonly resolveWorkspaceRoot?: HostPlatform['resolveWorkspaceRoot'];
   readonly startup: HostStartupContext;
   readonly stateIndexer?: StateStoreIndexerPort;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
@@ -279,5 +281,6 @@ export async function createProductionHostPlatform(
     },
     close,
     readPermissionPolicy: options.readPermissionPolicy,
+    ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
   };
 }

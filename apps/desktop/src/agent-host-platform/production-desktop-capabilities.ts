@@ -329,6 +329,7 @@ async function createDesktopNativeTools(
   request: HostRunAdmissionRequest,
   workspace?: DesktopWorkspaceBindingBorrow
 ): Promise<{
+  readonly freshRoots: () => Promise<NonNullable<RuntimeData['workspaceRoots']>>;
   readonly readWorkspaceFile: WorkspaceFileReader;
   readonly revalidateWorkspace: () => Promise<void>;
   readonly runtime: RuntimeData;
@@ -475,11 +476,30 @@ async function createDesktopNativeTools(
     ])
   );
   return {
+    freshRoots,
     readWorkspaceFile,
     revalidateWorkspace,
     runtime,
     tools,
     ...(workspaceSkills ? { workspaceSkills } : {}),
+  };
+}
+
+/** What the host's shared native tools need from this admission; roots come back per call. */
+function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['nativeRuntime'] {
+  if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
+    throw new Error('Desktop admission has no native tool runtime');
+  }
+  return {
+    ...(runtime.boundWorkspaceRootId ? { boundWorkspaceRootId: runtime.boundWorkspaceRootId } : {}),
+    provider: runtime.provider,
+    ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
+    ...(runtime.workspaceRootPath ? { workspaceRootPath: runtime.workspaceRootPath } : {}),
+    workspaceRoots: runtime.workspaceRoots.map(({ displayName, path, rootId }) => ({
+      displayName,
+      path,
+      rootId,
+    })),
   };
 }
 
@@ -618,9 +638,11 @@ export function productionDesktopCapabilities(
           intent.cliWorkspace ? native.runtime.workspaceRoots : undefined,
           desktopWorkspaceRootObservation(workspace)
         ),
+        freshWorkspaceRoots: native.freshRoots,
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
         memory: { options: intent.memoryOptions, settings: memorySettings },
+        nativeRuntime: desktopNativeRuntime(native.runtime),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         ...desktopSystemFields(system),
         tools,
@@ -721,6 +743,15 @@ export function productionDesktopCapabilities(
         throw new Error('Unsupported provider credential request');
       }
       return deriveAssistantTurnAuthInput({ provider }, await readProviderCredential(provider));
+    },
+    resolveWorkspaceRoot: async (rootId) => {
+      const root = (await loadWorkspaceRootsFromDatabase(await getDatabase())).find(
+        (candidate) => candidate.rootId === rootId
+      );
+      if (!root) {
+        throw new Error('The workspace root is no longer mounted');
+      }
+      return root.path;
     },
   };
 }

@@ -12,5 +12,13 @@ export const HostPlatformLaunchOptionsSchema = z.strictObject({
       }),
     ])
     .optional(),
+  /**
+   * A standalone host's workspace roots (`--workspace`, cwd when omitted). The
+   * launch option owns their identity; a profile-backed host never takes them.
+   */
+  workspaceRoots: z
+    .array(z.string().refine(isAbsolute, 'Workspace roots must be absolute paths'))
+    .min(1)
+    .optional(),
 });
 export type HostPlatformLaunchOptions = z.infer<typeof HostPlatformLaunchOptionsSchema>;

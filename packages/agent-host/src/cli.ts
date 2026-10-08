@@ -53,7 +53,7 @@ interface HostCliArguments {
   readonly positionals: readonly string[];
   readonly values: Partial<
     Record<CliStringOption, string> &
-      Record<CliBooleanOption, boolean> & { 'workspace-root': string[] }
+      Record<CliBooleanOption, boolean> & { workspace: string[]; 'workspace-root': string[] }
   >;
   readonly workspaceInput?: CliWorkspaceRunInput;
 }
@@ -83,6 +83,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       run: { type: 'string' },
       skills: { type: 'string' },
       thread: { type: 'string' },
+      workspace: { multiple: true, type: 'string' },
       'workspace-instructions': { type: 'string' },
       'workspace-root': { multiple: true, type: 'string' },
     },
@@ -144,6 +145,14 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
   };
 }
 
+/** A newly started standalone host's trusted launch selection. */
+function launchSelection(values: HostCliArguments['values']): HostPlatformLaunchOptions {
+  return {
+    ...credentialSelection(values),
+    workspaceRoots: (values.workspace ?? [process.cwd()]).map((root) => resolve(root)),
+  };
+}
+
 function credentialSelection(
   values: HostCliArguments['values']
 ): HostPlatformLaunchOptions | undefined {
@@ -171,6 +180,11 @@ function assertCredentialAuthority(spawned: boolean, values: HostCliArguments['v
   ) {
     throw new Error(
       'An attached host retains its existing credential authority; credential backend selection requires a new host'
+    );
+  }
+  if (!spawned && values.workspace) {
+    throw new Error(
+      'An attached host retains its workspace roots; --workspace applies only to a newly started standalone host'
     );
   }
 }
@@ -208,11 +222,14 @@ Question answers use {"answer":"text"} or {"answer":["choice 1","choice 2"]}.
 Plan decisions use {"action":"approved"} or {"action":"rejected","feedback":"reason"}.
 Standalone hosts use an explicit --model provider::model from the canonical catalog.
 This selection does not change desktop model enablement or saved settings.
-Per-run workspace input: repeat --workspace-root <existing canonical id>,
+A newly started standalone host's workspace is its launch roots: repeat
+--workspace <dir> (default: the current directory). File, task-list and canvas
+tools run there; an attached host keeps its own roots.
+Per-run workspace input for a profile-backed host: repeat --workspace-root <existing canonical id>,
 --workspace-instructions inherit|off, and --skills inherit|off (default off).
-Selectors narrow live owner grants; paths and the current directory grant no access.
+Selectors narrow live owner grants; they never add paths.
 An empty selection grants no workspace; Skills also require the owner's home-tier capability.
-Native tools, configured MCP/Tasks, Skills/workspace instructions, vector Memory,
+Search/shell tools, configured MCP/Tasks, Skills/workspace instructions, vector Memory,
 local inference and browser OAuth require platform capabilities.
 An existing host keeps its own platform and admission policy.
 Credential backends require an explicit existing keyring service or absolute private file:
@@ -241,7 +258,7 @@ Run signals stop and join its execution; attach signals detach.
             'Starting a host requires --platform <module>; this entry composes no default platform'
           );
         }
-        await createAgentHostSpawner(platformModule, credentialSelection(values))(options, signal);
+        await createAgentHostSpawner(platformModule, launchSelection(values))(options, signal);
         spawned = true;
       },
     }

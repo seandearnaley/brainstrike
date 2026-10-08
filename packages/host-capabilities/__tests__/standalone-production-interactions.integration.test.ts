@@ -16,6 +16,20 @@ import question from '@brainstrike/test-utils/fixtures/committed-host-question.j
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 
+/** The canonical human tools plus the shared workspace tools a standalone host runs. */
+const STANDALONE_NATIVE_TOOL_IDS = [
+  NATIVE_TOOL_ID.askUser,
+  NATIVE_TOOL_ID.submitPlan,
+  NATIVE_TOOL_ID.readWorkspaceFile,
+  NATIVE_TOOL_ID.readWorkspaceDirectory,
+  NATIVE_TOOL_ID.writeWorkspaceFile,
+  NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
+  NATIVE_TOOL_ID.deleteWorkspaceFile,
+  NATIVE_TOOL_ID.renameWorkspaceFile,
+  NATIVE_TOOL_ID.manageTaskList,
+  NATIVE_TOOL_ID.manageCanvas,
+];
+
 const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const httpFixture = new URL('./fixtures/standalone-production-http.mjs', import.meta.url).href;
 const roots: string[] = [];
@@ -161,12 +175,12 @@ test.each(
           capabilities: {
             configuredMcp: 'unavailable',
             nativeTools: {
-              available: [NATIVE_TOOL_ID.askUser, NATIVE_TOOL_ID.submitPlan],
+              available: STANDALONE_NATIVE_TOOL_IDS,
               remaining: 'unavailable',
             },
             vectorMemory: 'unavailable',
           },
-          intent: { enabledNativeToolIds: [NATIVE_TOOL_ID.askUser, NATIVE_TOOL_ID.submitPlan] },
+          intent: { enabledNativeToolIds: STANDALONE_NATIVE_TOOL_IDS },
         },
         toolIdentities: {
           brainstrike_askUser: NATIVE_TOOL_ID.askUser,
