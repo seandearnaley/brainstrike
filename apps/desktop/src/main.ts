@@ -1081,9 +1081,7 @@ const nativeIndexActivation = createNativeIndexActivation({
             );
           }
         },
-        // ADR-0007: the host's built-in local model runs in the hidden llm-host renderer.
-        llmHost: llmHostManager,
-        // ADR-0007: a host thread's local observer borrows the hidden llm-host.
+        // ADR-0007: a host thread's admitted local chat model or observer borrows the hidden llm-host.
         localLlm: createMainLlmHostClient(llmHostManager),
         // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
         mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
