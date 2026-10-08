@@ -233,6 +233,7 @@ export async function createHostPlatform(
         throw cause;
       }
       const shared = desktopHostSharedTools({
+        appPaths: platformOptions?.appPaths,
         readFileCursorRegistry,
         request,
         selected,
