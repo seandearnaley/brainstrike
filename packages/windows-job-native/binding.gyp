@@ -2,7 +2,7 @@
   "targets": [
     {
       "target_name": "windows_job_native",
-      "sources": ["src/windows_job.cc"],
+      "sources": ["src/windows_job.cc", "src/linux-process-observer.cc"],
       "include_dirs": ["<!@(node -p \"require('node-addon-api').include\")"],
       "defines": ["NAPI_CPP_EXCEPTIONS"],
       "cflags_cc": ["-Wall", "-Wextra", "-Werror"],
