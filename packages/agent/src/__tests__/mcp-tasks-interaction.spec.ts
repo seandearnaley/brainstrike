@@ -239,6 +239,33 @@ describe('McpTaskInteraction', () => {
     await interaction.close();
   });
 
+  it('withdraws unanswered input without cancelling the task and presents a re-request afresh', async () => {
+    const presented: AbortSignal[] = [];
+    const fake = createClient();
+    // The user never answers; only a withdrawal or close ends the input.
+    const interaction = createInteraction(fake, (_request, context) => {
+      presented.push(context.signal);
+      return new Promise<ElicitResult>(() => undefined);
+    });
+    await interaction.start(['task-1']);
+    const parked = fake.observationPort.publish(inputRequiredTask('task-1'));
+    await vi.waitFor(() => expect(presented).toHaveLength(1));
+
+    interaction.withdraw('task-1');
+
+    expect(presented[0]?.aborted).toBe(true);
+    await expect(parked).resolves.toBeUndefined();
+    // Neither tasks/update nor tasks/cancel: the task itself is left to the server.
+    expect(fake.requestExtension).not.toHaveBeenCalled();
+    expect(interaction.snapshot()).toMatchObject({ activeCancellations: 0, activeInputs: 0 });
+    // A later observation of the same key (a recovered poller) asks again.
+    const recovered = fake.observationPort.publish(inputRequiredTask('task-1'));
+    await vi.waitFor(() => expect(presented).toHaveLength(2));
+    expect(presented[1]?.aborted).toBe(false);
+    await interaction.close();
+    await expect(recovered).rejects.toThrow(/unexpected consumer error for task-1/u);
+  });
+
   it('retires superseded input before a stale user response can be delivered', async () => {
     const decision = deferred<ElicitResult>();
     const fake = createClient();

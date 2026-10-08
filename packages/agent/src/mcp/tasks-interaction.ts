@@ -326,6 +326,18 @@ export class McpTaskInteraction {
     return promise;
   }
 
+  /**
+   * Withdraws a task's unanswered input WITHOUT cancelling the task. The host
+   * calls this when its sole poller for the task ends while the session stays
+   * open: nothing can observe the outcome of a late answer, so none may be
+   * delivered. The durable handle stays recoverable, and a recovered poller
+   * that observes the same input key presents it afresh.
+   */
+  withdraw(taskId: string): void {
+    this.requireOpen();
+    this.withdrawInputs(taskId);
+  }
+
   close(): Promise<void> {
     if (this.closePromise) {
       return this.closePromise;
