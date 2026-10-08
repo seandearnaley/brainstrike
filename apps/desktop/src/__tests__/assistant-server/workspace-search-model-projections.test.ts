@@ -4,12 +4,12 @@ import {
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent';
-import { decodedWorkspaceTextModelOutputChars as decodedChars } from '@brainstrike/host-capabilities/native-tools';
-import { describe, expect, it } from 'vitest';
 import {
+  decodedWorkspaceTextModelOutputChars as decodedChars,
   projectGlobWorkspaceModelOutput,
   projectGrepSearchModelOutput,
-} from '../../assistant-server/workspace-search-model-projections';
+} from '@brainstrike/host-capabilities/native-tools';
+import { describe, expect, it } from 'vitest';
 
 function serializedChars(value: unknown): number {
   return JSON.stringify(value).length;

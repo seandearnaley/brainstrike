@@ -52,6 +52,8 @@ const STANDALONE_WORKSPACE_TOOL_IDS = [
   NATIVE_TOOL_ID.renameWorkspaceFile,
   NATIVE_TOOL_ID.manageTaskList,
   NATIVE_TOOL_ID.manageCanvas,
+  NATIVE_TOOL_ID.globWorkspace,
+  NATIVE_TOOL_ID.findWorkspaceSymbol,
 ] as const;
 const STANDALONE_NATIVE_TOOL_IDS = [...STANDALONE_HUMAN_TOOL_IDS, ...STANDALONE_WORKSPACE_TOOL_IDS];
 
@@ -231,7 +233,7 @@ export async function createHostPlatform(
           runtimeData: configuration,
         },
         resolvedToolResultBudget,
-        system: `This standalone host supports the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, the task list and canvases. Its workspace roots: ${workspaceRoots.map((root) => root.path).join(', ')}. Search and shell tools, configured MCP/Tasks, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`,
+        system: `This standalone host supports the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob and symbol search, the task list and canvases. Its workspace roots: ${workspaceRoots.map((root) => root.path).join(', ')}. Content search, language-server inspection and shell tools, configured MCP/Tasks, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`,
         tools: { ...bindings.tools, ...workspaceTools },
         toolTimeoutMs: resolveAssistantResilienceConfig().toolTimeoutMs,
       };

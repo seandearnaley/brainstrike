@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CEILING_SCALED_TOOL_RESULT_BUDGET } from '@brainstrike/agent/tool-runtime';
@@ -32,7 +32,12 @@ async function host(
   dataRoot: string,
   workspace: string,
   calls: readonly { readonly toolId: string; readonly input: unknown }[],
-  freshRoots: () => void
+  freshRoots: () => void,
+  ids: Parameters<typeof createSharedNativeHostTools>[0]['ids'] = [
+    NATIVE_TOOL_ID.writeWorkspaceFile,
+    NATIVE_TOOL_ID.manageTaskList,
+    NATIVE_TOOL_ID.manageCanvas,
+  ]
 ): Promise<{ client: HostClient; host: AgentHost }> {
   const roots = [{ displayName: 'workspace', path: workspace, rootId: ROOT_ID }];
   const tools = createSharedNativeHostTools({
@@ -40,11 +45,7 @@ async function host(
       freshRoots();
       return roots;
     },
-    ids: [
-      NATIVE_TOOL_ID.writeWorkspaceFile,
-      NATIVE_TOOL_ID.manageTaskList,
-      NATIVE_TOOL_ID.manageCanvas,
-    ],
+    ids,
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     resolvedToolResultBudget: CEILING_SCALED_TOOL_RESULT_BUDGET,
     runtime: { model: 'scripted', provider: 'openai', workspaceRoots: roots },
@@ -201,4 +202,62 @@ test('the shared native tools execute in the host: edits revert, task list and c
   });
   expect(reverted.outcomes).toEqual([expect.objectContaining({ status: 'reverted' })]);
   expect(await readFile(join(workspace, 'notes.txt'), 'utf8')).toBe('original notes\n');
+});
+
+test('glob and symbol search run in the host over the admitted root', async () => {
+  const dataRoot = await realpath(await mkdtemp(join(tmpdir(), 'bs-shared-search-data-')));
+  const workspace = await realpath(await mkdtemp(join(tmpdir(), 'bs-shared-search-workspace-')));
+  cleanup.push(async () => {
+    await rm(dataRoot, { force: true, recursive: true });
+    await rm(workspace, { force: true, recursive: true });
+  });
+  await mkdir(join(workspace, 'src'));
+  await writeFile(
+    join(workspace, 'src', 'server.ts'),
+    'export function startServer(port: number) {\n  return port;\n}\n'
+  );
+  await writeFile(join(workspace, 'README.md'), 'notes\n');
+  let rootReads = 0;
+  const calls = [
+    { input: { pattern: 'src/**/*.ts' }, toolId: NATIVE_TOOL_ID.globWorkspace },
+    {
+      input: { path: 'src/server.ts', query: 'startServer' },
+      toolId: NATIVE_TOOL_ID.findWorkspaceSymbol,
+    },
+  ];
+  const opened = await host(
+    dataRoot,
+    workspace,
+    calls,
+    () => {
+      rootReads += 1;
+    },
+    [NATIVE_TOOL_ID.globWorkspace, NATIVE_TOOL_ID.findWorkspaceSymbol]
+  );
+  const { threadId } = await opened.client.request('thread/start', { commandId: randomUUID() });
+  const { runId } = await opened.client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Find the server entry point',
+    threadId,
+  });
+  const rows = await finished(opened.client, threadId, runId);
+  expect(rows.find((row) => row.event.type === 'run.finished')?.event).toMatchObject({
+    outcome: 'completed',
+  });
+  expect(rootReads).toBe(calls.length * 2);
+  const outputs = rows.flatMap((row) =>
+    row.event.type === 'effect.finished' ? [row.event.output] : []
+  );
+  expect(outputs).toEqual([
+    expect.objectContaining({
+      matches: [expect.objectContaining({ path: '/src/server.ts', rootId: ROOT_ID })],
+      totalMatches: 1,
+    }),
+    expect.objectContaining({
+      matches: [expect.objectContaining({ declarationLine: 1, endLine: 3 })],
+      path: 'src/server.ts',
+      totalMatches: 1,
+    }),
+  ]);
 });

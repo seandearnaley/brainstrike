@@ -11,6 +11,7 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
+import { projectGrepSearchModelOutput } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runGrepSearch } from '../../assistant-server/grep-search-tool';
 import {
@@ -18,7 +19,6 @@ import {
   resetRipgrepAvailabilityForTests,
   setMaxLiveCandidateFilesForTests,
 } from '../../assistant-server/live-grep';
-import { projectGrepSearchModelOutput } from '../../assistant-server/workspace-search-model-projections';
 import { singleRootRuntime } from './_tool-test-helpers';
 
 const queryMock = vi.fn();
