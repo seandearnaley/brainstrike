@@ -22,6 +22,16 @@ import {
   type UpdateWorkspaceContextSelectionInput,
   type UpdateWorkspaceTapestrySelectionsInput,
 } from '@brainstrike/agent';
+import {
+  normalizeWorkspacePath,
+  normalizeWorkspacePaths,
+  REDACTED_PATH_LOG_VALUE,
+  readWorkspaceTextFile,
+  redactToolErrorForLog,
+  resolveWorkspaceAbsolutePath,
+  resolveWorkspaceRootPath,
+  runReadWorkspaceFile,
+} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import type {
@@ -31,23 +41,15 @@ import type {
 import { BrowserWindow } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
-import { runReadWorkspaceFile } from './read-workspace-file-tool';
 import {
   normalizeRuntimeWorkspaceIndex,
   type WorkspaceIndexSummary,
 } from './runtime-workspace-index';
-import { REDACTED_PATH_LOG_VALUE, redactToolErrorForLog } from './tool-execute-support';
-import { normalizeWorkspacePath, normalizeWorkspacePaths } from './workspace-path';
-import {
-  resolveWorkspaceAbsolutePath,
-  resolveWorkspaceRootPath,
-} from './workspace-path-resolution';
 import {
   getWorkspaceRoots,
   resolveFocusedWorkspaceRoot,
   resolveWorkspaceRoot,
 } from './workspace-roots';
-import { readWorkspaceTextFile } from './workspace-text-file-reader';
 
 const logger = createLogger('DesktopAssistantTools');
 

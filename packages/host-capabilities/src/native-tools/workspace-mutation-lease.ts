@@ -1,5 +1,5 @@
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { isWithinRoot } from './workspace-path';
+import { isWithinRoot } from './workspace-path.js';
 
 interface LeaseRequest {
   readonly grant: (release: () => void) => void;

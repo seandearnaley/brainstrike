@@ -1,4 +1,5 @@
 import { ASSISTANT_TASK_STATUSES, type AssistantTaskItem } from '@brainstrike/agent';
+import type { TaskListStore } from '@brainstrike/host-capabilities/native-tools';
 
 /**
  * Minimal query surface the task-list repository needs. Both the production
@@ -86,4 +87,24 @@ export async function writeThreadTaskList(
            updated_at = NOW()`,
     [args.threadId, args.resourceId, JSON.stringify(args.tasks)]
   );
+}
+
+async function resolveDesktopTaskListDatabase(): Promise<TaskListDatabase> {
+  const { getDatabase } = await import('../db-main');
+  return getDatabase();
+}
+
+/** A legacy thread's PGlite-backed plan (lazy main-process handle unless injected). */
+export function createDesktopTaskListStore(
+  thread: { readonly resourceId: string; readonly threadId: string },
+  database?: TaskListDatabase
+): TaskListStore {
+  return {
+    replace: async (next) => {
+      const db = database ?? (await resolveDesktopTaskListDatabase());
+      const tasks = next(await readThreadTaskList(db, thread.threadId));
+      await writeThreadTaskList(db, { ...thread, tasks });
+      return tasks;
+    },
+  };
 }

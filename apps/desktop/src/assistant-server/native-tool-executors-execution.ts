@@ -19,6 +19,13 @@ import {
   resolveSelfApprovalDecision,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import {
+  logToolFailure,
+  parseToolExecuteInput,
+  resolveShellOutputStreamer,
+  type ToolExecuteContext,
+  type ToolExecuteInput,
+} from '@brainstrike/host-capabilities/native-tools';
 import { resolveDesktopPythonExecutable } from '../python-runtime';
 import { resolveDesktopSandboxHelperPath } from '../sandbox-runtime';
 import {
@@ -34,13 +41,6 @@ import { runQueryDiagnostics } from './query-diagnostics-tool';
 import { projectQuerySelfModelOutput } from './query-self-model-projection';
 import { runQuerySelf, toQuerySelfInputError } from './query-self-tool';
 import { runSkillScript } from './run-skill-script-tool';
-import {
-  logToolFailure,
-  parseToolExecuteInput,
-  resolveShellOutputStreamer,
-  type ToolExecuteContext,
-  type ToolExecuteInput,
-} from './tool-execute-support';
 
 export const EXECUTION_TOOL_EXECUTORS = executorGroup({
   // Arbitrary shell execution is registered like every other native tool and

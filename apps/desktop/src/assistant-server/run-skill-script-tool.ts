@@ -14,11 +14,14 @@ import {
   requireNativeToolExecutionBudget,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
+import type { ShellOutputStreamer } from '@brainstrike/host-capabilities/native-tools';
+import {
+  isWithinRoot,
+  withWorkspaceMutationLease,
+} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
-import { runDetachedProcess, type ShellOutputStreamer } from './execute-command-tool';
-import { withWorkspaceMutationLease } from './workspace-mutation-lease';
-import { isWithinRoot } from './workspace-path';
+import { runDetachedProcess } from './execute-command-tool';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('RunSkillScriptTool');

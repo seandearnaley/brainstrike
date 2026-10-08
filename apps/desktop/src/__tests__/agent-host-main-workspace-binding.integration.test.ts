@@ -74,6 +74,7 @@ test('actual Core binding commands reach the live Main owner over the private pl
       configuration: { model: 'gpt-4o-mini', provider: 'openai' },
       contextWindow: 128_000,
       durableConfiguration: {},
+      freshWorkspaceRoots: async () => [],
       inputTokenLimit: 24_000,
       maxSteps: 5,
       memory: {
@@ -93,6 +94,7 @@ test('actual Core binding commands reach the live Main owner over the private pl
           },
         },
       },
+      nativeRuntime: { provider: 'openai', workspaceRoots: [] },
       resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
       revalidateWorkspace: revalidateRetained,
       tools: {},

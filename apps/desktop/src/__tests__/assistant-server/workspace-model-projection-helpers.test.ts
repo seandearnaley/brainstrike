@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import {
   clipProjectionEnd,
   clipProjectionMiddle,
@@ -10,7 +9,8 @@ import {
   makeWorkspaceTextModelOutput,
   PROJECTION_ENVELOPE_RESERVE_CHARS,
   projectionSingleLine,
-} from '../../assistant-server/workspace-model-projection-helpers';
+} from '@brainstrike/host-capabilities/native-tools';
+import { describe, expect, it } from 'vitest';
 
 describe('workspace model projection helpers', () => {
   it('keeps strict shared guards producer-agnostic', () => {

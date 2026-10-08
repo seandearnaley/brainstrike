@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { isWithinRoot } from '@brainstrike/host-capabilities/native-tools';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
-import { isWithinRoot } from './workspace-path';
 
 const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
 

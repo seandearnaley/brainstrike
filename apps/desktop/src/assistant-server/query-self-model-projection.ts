@@ -20,14 +20,14 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
-import type { QuerySelfResult } from './query-self-tool';
 import {
   decodedWorkspaceTextModelOutputChars as decodedChars,
   isRecord,
   makeWorkspaceTextModelOutput as makeTextModelOutput,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
-} from './workspace-model-projection-helpers';
+} from '@brainstrike/host-capabilities/native-tools';
+import type { QuerySelfResult } from './query-self-tool';
 
 const CELL_SEPARATOR = '\t';
 

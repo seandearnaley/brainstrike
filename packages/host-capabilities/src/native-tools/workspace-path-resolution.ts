@@ -13,7 +13,7 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { type RuntimeData, withFileLock } from '@brainstrike/agent';
-import { isWithinRoot, normalizeWorkspacePath } from './workspace-path';
+import { isWithinRoot, normalizeWorkspacePath } from './workspace-path.js';
 
 export function normalizeWorkspaceRootPath(value: string | undefined): string | undefined {
   if (typeof value !== 'string') {
