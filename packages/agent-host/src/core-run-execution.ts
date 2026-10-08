@@ -1,4 +1,5 @@
 import { resolveAssistantResilienceConfig } from '@brainstrike/agent/provider-runtime';
+import { isGuardedToolError } from '@brainstrike/assistant-contract';
 import type { BlobContent } from '@brainstrike/state-store';
 import { type LanguageModel, type ModelMessage, stepCountIs, streamText } from 'ai';
 import {
@@ -13,6 +14,7 @@ import type { HostMcpInputState } from './mcp-input-state.js';
 import type { HostPlatform, HostRunOwner } from './ports.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 import {
+  combineHostSystemContext,
   createAdmittedHostSdkTools,
   decideHostSdkApproval,
   ensureHostRunAdmission,
@@ -140,6 +142,28 @@ export async function executeHostAction(
     },
   ]);
   run.outputs.set(action.toolCallId, jsonValue(output));
+  // A PostToolUse hook's context is committed before the model reads the result.
+  const post = await run.admission?.hooks?.postToolUse({
+    error: isGuardedToolError(output),
+    input,
+    output,
+    toolName: registered.permissionToolId ?? action.toolId,
+  });
+  if (post?.additionalContext) {
+    await ports.append(
+      run.threadId,
+      [
+        {
+          context: post.additionalContext,
+          runId: run.id,
+          toolCallId: action.toolCallId,
+          type: 'hook.context',
+        },
+      ],
+      'full',
+      ports.foldRows
+    );
+  }
   return output;
 }
 
@@ -296,7 +320,8 @@ async function runHostSdkAttempt(
         });
         recordedInputLength = memory?.messages.length ?? prepared.length;
         if (!admission.provider) {
-          return memory ?? { messages: prepared };
+          const step = memory ?? { messages: prepared };
+          return { ...step, ...combineHostSystemContext(step.system, run.promptContext) };
         }
         const provider = await admission.provider.prepare({
           configuration: admission.configuration,
@@ -304,7 +329,7 @@ async function runHostSdkAttempt(
           modelId: run.modelId,
           signal: run.controller.signal,
         });
-        return prepareHostProviderStep(provider, memory?.system, owner);
+        return prepareHostProviderStep(provider, memory?.system, owner, run.promptContext);
       },
       // A committed run/steer ends the run after the step in flight (BST-588).
       stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],

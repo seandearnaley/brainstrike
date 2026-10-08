@@ -568,6 +568,16 @@ export const HostEventSchema = z.union([
   }),
   /** Committed with the approval that granted it; the run's later decisions include it. */
   z.strictObject({ type: z.literal('permission.granted'), ...RunFields, grant: PermissionGrant }),
+  /**
+   * Context a lifecycle hook added for the model: a UserPromptSubmit hook's
+   * for its run's instructions, or a PostToolUse hook's for one tool result.
+   */
+  z.strictObject({
+    type: z.literal('hook.context'),
+    ...RunFields,
+    context: z.string().min(1),
+    toolCallId: Id.optional(),
+  }),
   /** Only the host commits labels; precedence is applied by projectRunVerdicts. */
   z.strictObject({
     type: z.literal('run.verdict'),

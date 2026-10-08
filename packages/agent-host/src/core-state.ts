@@ -209,6 +209,8 @@ export interface HostRunState {
   readonly permits: Map<string, Action>;
   /** Committed on run.started: it reads and proposes a plan, and approval ends it. */
   planMode?: true;
+  /** A UserPromptSubmit hook's committed context, part of the run's instructions. */
+  promptContext?: string;
   readonly rawInputs: Map<string, Json>;
   release?: (() => void) | undefined;
   readonly responses: Set<string>;
@@ -222,6 +224,8 @@ export interface HostRunState {
   task?: Promise<void>;
   terminal: boolean;
   readonly threadId: string;
+  /** PostToolUse hooks' committed context, read with each tool's result. */
+  readonly toolContexts: Map<string, string>;
 }
 
 export function createHostRunState(
@@ -257,6 +261,7 @@ export function createHostRunState(
     stopped: false,
     terminal: false,
     threadId,
+    toolContexts: new Map(),
   };
 }
 

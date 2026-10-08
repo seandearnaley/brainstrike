@@ -31,6 +31,7 @@ import {
   recordHostConversationId,
 } from './core-state.js';
 import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
+import { foldHostHookContext, hostRunAssistantTail, hostStopReason } from './hook-context.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
@@ -211,6 +212,14 @@ export class HostCore {
       case 'interaction.responded':
         foldHostInteraction(this.runs, event);
         break;
+      case 'hook.context': {
+        const run = this.runs.get(event.runId);
+        if (!run) {
+          throw new Error('Hook context references an unknown run');
+        }
+        foldHostHookContext(run, event);
+        break;
+      }
       case 'effect.started':
         this.runs.get(event.runId)?.started.add(event.toolCallId);
         break;
@@ -501,7 +510,7 @@ export class HostCore {
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);
-      run.task = this.loop(run, admission.model);
+      run.task = this.beginRun(run, admission);
       // Stop/close joins this task; retain failures rather than leaking rejections.
       run.task.catch(() => undefined);
       return result;
@@ -881,12 +890,72 @@ export class HostCore {
       (owned) =>
         titling ? titling.then(() => this.closeRunOwner(owned)) : this.closeRunOwner(owned),
       () => this.read(run.threadId, 0),
-      (event, commit) =>
-        this.append(run.threadId, [event], 'full', (rows) => {
-          commit();
-          this.foldRows(rows);
-        })
+      // A Stop hook's verdict lands with the run's terminal row, never after it.
+      async (event, commit) =>
+        this.append(
+          run.threadId,
+          [...(await this.stopHooks(run, event)), event],
+          'full',
+          (rows) => {
+            commit();
+            this.foldRows(rows);
+          }
+        )
     ).then(() => this.presentations.settle(run));
+  }
+
+  /** The run's Stop hooks see how it ended; a verdict they report labels the run. */
+  private async stopHooks(
+    run: Run,
+    finished: Extract<HostEvent, { type: 'run.finished' }>
+  ): Promise<HostEvent[]> {
+    const hooks = run.admission?.hooks;
+    if (!hooks) {
+      return [];
+    }
+    const assistantMessage = hostRunAssistantTail(run.messages);
+    const { verdict } = await hooks.stop({
+      ...(assistantMessage === undefined ? {} : { assistantMessage }),
+      reason: hostStopReason(finished.outcome),
+    });
+    return verdict
+      ? [
+          {
+            ...(verdict.detail === undefined ? {} : { detail: verdict.detail }),
+            runId: run.id,
+            source: 'hook',
+            type: 'run.verdict',
+            verdict: verdict.verdict,
+          },
+        ]
+      : [];
+  }
+
+  /**
+   * A fresh run's prompt passes its UserPromptSubmit hooks before the first
+   * step: a block ends the run with the hook's reason; added context joins the
+   * run's instructions (committed, so recovery keeps it).
+   */
+  private async beginRun(run: Run, admission: HostRunAdmission): Promise<void> {
+    try {
+      const gate = await admission.hooks?.userPromptSubmit(run.branch.prompt);
+      if (gate?.blocked) {
+        await this.finish(run, 'failed', `The request was blocked by a hook: ${gate.reason}`);
+        return;
+      }
+      if (gate?.additionalContext) {
+        await this.append(
+          run.threadId,
+          [{ context: gate.additionalContext, runId: run.id, type: 'hook.context' }],
+          'full',
+          this.foldRows
+        );
+      }
+    } catch (cause) {
+      await this.finish(run, 'failed', cause instanceof Error ? cause.message : String(cause));
+      return;
+    }
+    await this.loop(run, admission.model);
   }
 
   close(): Promise<void> {

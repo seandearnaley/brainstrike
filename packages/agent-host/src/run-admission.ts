@@ -8,6 +8,7 @@ import {
 import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import type { HostRunState } from './core-state.js';
+import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.js';
 import { canonical, jsonValue } from './json-value.js';
 import { McpAuthorityReconstructionError } from './mcp-authority.js';
 import type {
@@ -24,23 +25,24 @@ import { createHostSdkTools } from './sdk-tools.js';
 import { bindHostRunWorkspace, validateHostRunWorkspaceBinding } from './workspace-state.js';
 
 /** Provider instructions and public Memory context share the same SDK system input. */
-export function combineHostSystemContext(
-  provider: string | undefined,
-  memory: string | undefined
-): { readonly system?: string } {
-  const sections = [provider, memory].filter((section): section is string => Boolean(section));
+export function combineHostSystemContext(...context: readonly (string | undefined)[]): {
+  readonly system?: string;
+} {
+  const sections = context.filter((section): section is string => Boolean(section));
   return sections.length > 0 ? { system: sections.join('\n\n') } : {};
 }
 
 export function prepareHostProviderStep(
   provider: HostPreparedModelRequest,
   memorySystem: string | undefined,
-  owner: HostRunOwner | undefined
+  owner: HostRunOwner | undefined,
+  hookContext?: string
 ): HostPreparedModelRequest {
   return {
     ...provider,
     model: owner?.prepareHostModel?.(provider.model) ?? provider.model,
-    ...combineHostSystemContext(provider.system, memorySystem),
+    // A UserPromptSubmit hook's context joins the run's instructions.
+    ...combineHostSystemContext(provider.system, memorySystem, hookContext),
   };
 }
 
@@ -422,6 +424,14 @@ export function createAdmittedHostSdkTools(
         throw new Error('SDK execution input changed after permission admission');
       }
       return dispatch(action, input);
+    },
+    // A PostToolUse hook's committed context is read beside the tool's result.
+    modelOutput: async (id, options) => {
+      const project = hostRunTools(run)[id]?.toModelOutput;
+      return withHostToolHookContext(
+        project ? await project(options) : defaultHostToolModelOutput(options.output),
+        run.toolContexts.get(options.toolCallId)
+      );
     },
     tools: hostRunTools(run),
   });
