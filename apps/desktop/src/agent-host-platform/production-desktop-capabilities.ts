@@ -31,6 +31,7 @@ import {
   resolveToolRiskCategory,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
+import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-repository';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
@@ -48,6 +49,10 @@ import { readWorkspaceTextFile } from '../assistant-server/workspace-text-file-r
 import { getDatabase } from '../db-main';
 import { readProviderCredential } from '../provider-api-key';
 import { readDesktopHostSystemContext } from './desktop-host-context';
+import type {
+  DesktopWorkspaceBindingAuthority,
+  DesktopWorkspaceBindingBorrow,
+} from './desktop-workspace-binding';
 import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
 import {
   PlatformClientConfigurationSchema,
@@ -75,6 +80,26 @@ function desktopContextReaderFields(
   return restricted ? { readWorkspaceFile } : {};
 }
 
+function desktopWorkspaceSelectionFields(
+  request: HostRunAdmissionRequest,
+  workspace: DesktopWorkspaceBindingBorrow | undefined
+): Pick<DesktopPlatformSelection, 'workspace'> {
+  return request.workspaceBinding?.operatingRootId && workspace
+    ? {
+        workspace: {
+          boundWorkspaceRootId: request.workspaceBinding.operatingRootId,
+          roots: [...workspace.roots],
+        },
+      }
+    : {};
+}
+
+function desktopWorkspaceRootObservation(
+  workspace: DesktopWorkspaceBindingBorrow | undefined
+): RuntimeData['workspaceRoots'] {
+  return workspace ? [...workspace.roots] : undefined;
+}
+
 function desktopRetrievalScopeFields(
   restricted: boolean,
   roots: NonNullable<RuntimeData['workspaceRoots']>
@@ -86,13 +111,15 @@ function desktopDurableConfiguration(
   intent: z.output<typeof PlatformClientConfigurationSchema>,
   observerTarget: string | null,
   system: string | undefined,
-  cliWorkspaceRoots?: RuntimeData['workspaceRoots']
+  cliWorkspaceRoots?: RuntimeData['workspaceRoots'],
+  boundWorkspaceRoots?: RuntimeData['workspaceRoots']
 ): DesktopPlatformSelection['durableConfiguration'] {
   return z.record(z.string(), z.json()).parse(
     JSON.parse(
       JSON.stringify({
         intent,
         ...(cliWorkspaceRoots ? { cliWorkspaceRoots } : {}),
+        ...(boundWorkspaceRoots ? { boundWorkspaceRoots } : {}),
         ...desktopSystemFields(system),
         memoryResolution: {
           observationalMemory: desktopObservationResolution(
@@ -278,7 +305,8 @@ async function createDesktopNativeTools(
   intent: z.output<typeof PlatformClientConfigurationSchema>,
   dependencies: DesktopAssistantToolDependencies,
   budget: ReturnType<typeof resolveScaledToolResultBudget>,
-  request: HostRunAdmissionRequest
+  request: HostRunAdmissionRequest,
+  workspace?: DesktopWorkspaceBindingBorrow
 ): Promise<{
   readonly readWorkspaceFile: WorkspaceFileReader;
   readonly revalidateWorkspace: () => Promise<void>;
@@ -290,7 +318,8 @@ async function createDesktopNativeTools(
   const liveRoots = await loadWorkspaceRootsFromDatabase(db);
   request.signal.throwIfAborted();
   const selection = intent.cliWorkspace;
-  const roots = selection ? selectCliWorkspaceRoots(liveRoots, selection) : liveRoots;
+  const bindingRoots = workspace ? [...workspace.roots] : liveRoots;
+  const roots = selection ? selectCliWorkspaceRoots(bindingRoots, selection) : bindingRoots;
   if (selection && request.snapshot) {
     const capturedRoots = CliWorkspaceRootsSchema.parse(
       request.snapshot.configuration['cliWorkspaceRoots']
@@ -298,6 +327,7 @@ async function createDesktopNativeTools(
     revalidateCliWorkspaceRoots(capturedRoots, liveRoots, selection);
   }
   const freshRoots = async (): Promise<typeof roots> => {
+    await workspace?.revalidate(request.signal);
     if (!selection) {
       return roots;
     }
@@ -309,7 +339,11 @@ async function createDesktopNativeTools(
   const revalidateWorkspace = async (): Promise<void> => {
     await freshRoots();
   };
-  const readWorkspaceFile = desktopContextReader(request, freshRoots, selection !== undefined);
+  const readWorkspaceFile = desktopContextReader(
+    request,
+    freshRoots,
+    selection !== undefined || workspace !== undefined
+  );
   const focused = roots.find((root) => root.rootId === intent.selectionFolderId);
   if (intent.selectionFolderId && !focused) {
     throw new Error('The selected workspace root is no longer mounted');
@@ -329,6 +363,9 @@ async function createDesktopNativeTools(
       : {}),
     workspaceInstructionsPreference: intent.workspaceInstructionsPreference,
     workspaceRoots: roots,
+    ...(request.workspaceBinding?.operatingRootId
+      ? { boundWorkspaceRootId: request.workspaceBinding.operatingRootId }
+      : {}),
     ...(focused
       ? {
           selectionFilePaths:
@@ -381,7 +418,10 @@ async function createDesktopNativeTools(
           },
           {
             ...dependencies,
-            ...desktopRetrievalScopeFields(selection !== undefined, currentRoots),
+            ...desktopRetrievalScopeFields(
+              selection !== undefined || workspace !== undefined,
+              currentRoots
+            ),
             ...(workspaceSkills ? { skillScriptResolver: workspaceSkills } : {}),
             resolvedToolResultBudget: budget,
           }
@@ -404,7 +444,7 @@ async function createDesktopNativeTools(
             throw new Error('Native executor changed after admission');
           }
           const result = await executor.execute(input, context);
-          if (selection) {
+          if (selection || workspace) {
             await revalidateWorkspace();
             context.signal.throwIfAborted();
           }
@@ -426,86 +466,160 @@ async function createDesktopNativeTools(
 export function productionDesktopCapabilities(
   dependencies: DesktopAssistantToolDependencies,
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
-  readCliOwnerIntent?: DesktopCliOwnerIntentReader
+  readCliOwnerIntent?: DesktopCliOwnerIntentReader,
+  workspaceAuthority?: DesktopWorkspaceBindingAuthority
 ): DesktopPlatformCapabilities {
   const policies = new Map<string, PermissionToolGateSnapshot>();
-  return {
-    readConfiguration: async (request) => {
-      const db = await getDatabase();
-      request.signal.throwIfAborted();
-      const catalog = await readDesktopCatalogSelection(db, request.modelId);
-      const { definition } = catalog;
-      const intent = await readDesktopIntent(
-        request,
-        catalog,
-        readPersistedPolicy,
-        readCliOwnerIntent
-      );
-      const configuration = PlatformModelConfigurationSchema.parse(intent.modelConfiguration);
-      const permissionPolicy = platformPermissionPolicy(intent.permissionPolicy);
-      if (configuration.provider !== catalog.provider || configuration.model !== catalog.model) {
-        throw new Error('Captured settings do not belong to the selected catalog model');
+  const readConfiguration = async (
+    request: HostRunAdmissionRequest,
+    workspace?: DesktopWorkspaceBindingBorrow
+  ): Promise<DesktopPlatformSelection> => {
+    const db = await getDatabase();
+    request.signal.throwIfAborted();
+    const catalog = await readDesktopCatalogSelection(db, request.modelId);
+    const { definition } = catalog;
+    const intent = await readDesktopIntent(
+      request,
+      catalog,
+      readPersistedPolicy,
+      readCliOwnerIntent
+    );
+    const configuration = PlatformModelConfigurationSchema.parse(intent.modelConfiguration);
+    const permissionPolicy = platformPermissionPolicy(intent.permissionPolicy);
+    if (configuration.provider !== catalog.provider || configuration.model !== catalog.model) {
+      throw new Error('Captured settings do not belong to the selected catalog model');
+    }
+    const inputTokenLimit = desktopInputTokenLimit(definition, intent, configuration);
+    const { memorySettings, observerTarget } = resolveDesktopMemorySettings(
+      intent,
+      configuration.provider
+    );
+    const budget = resolveScaledToolResultBudget(definition.contextWindow);
+    const native = await createDesktopNativeTools(
+      db,
+      configuration,
+      intent,
+      dependencies,
+      budget,
+      request,
+      workspace
+    );
+    const { tools } = native;
+    const resilience = resolveAssistantResilienceConfig();
+    // MCP tools are composed and executed by the Node host's own MCP runtime.
+    const close = (): Promise<void> => {
+      if (policies.get(request.threadId) === permissionPolicy) {
+        policies.delete(request.threadId);
       }
-      const inputTokenLimit = desktopInputTokenLimit(definition, intent, configuration);
-      const { memorySettings, observerTarget } = resolveDesktopMemorySettings(
-        intent,
-        configuration.provider
-      );
-      const budget = resolveScaledToolResultBudget(definition.contextWindow);
-      const native = await createDesktopNativeTools(
-        db,
+      return Promise.resolve();
+    };
+    try {
+      policies.set(request.threadId, permissionPolicy);
+      const system = await readDesktopHostSystemContext({
+        inputTokenLimit,
+        ...desktopContextReaderFields(
+          intent.cliWorkspace !== undefined || workspace !== undefined,
+          native.readWorkspaceFile
+        ),
+        request,
+        runtime: native.runtime,
+        tools,
+        ...(native.workspaceSkills ? { workspaceSkills: native.workspaceSkills } : {}),
+      });
+      await native.revalidateWorkspace();
+      return {
+        close,
         configuration,
-        intent,
-        dependencies,
-        budget,
-        request
-      );
-      const { tools } = native;
-      const resilience = resolveAssistantResilienceConfig();
-      // MCP tools are composed and executed by the Node host's own MCP runtime.
-      const close = (): Promise<void> => {
-        if (policies.get(request.threadId) === permissionPolicy) {
-          policies.delete(request.threadId);
-        }
-        return Promise.resolve();
+        contextWindow: definition.contextWindow,
+        durableConfiguration: desktopDurableConfiguration(
+          intent,
+          observerTarget,
+          system,
+          intent.cliWorkspace ? native.runtime.workspaceRoots : undefined,
+          desktopWorkspaceRootObservation(workspace)
+        ),
+        inputTokenLimit,
+        maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
+        memory: { options: intent.memoryOptions, settings: memorySettings },
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        ...desktopSystemFields(system),
+        tools,
+        toolTimeoutMs: resilience.toolTimeoutMs,
+        ...desktopWorkspaceSelectionFields(request, workspace),
       };
+    } catch (cause) {
       try {
-        policies.set(request.threadId, permissionPolicy);
-        const system = await readDesktopHostSystemContext({
-          inputTokenLimit,
-          ...desktopContextReaderFields(
-            intent.cliWorkspace !== undefined,
-            native.readWorkspaceFile
-          ),
-          request,
-          runtime: native.runtime,
-          tools,
-          ...(native.workspaceSkills ? { workspaceSkills: native.workspaceSkills } : {}),
+        await close();
+      } catch (cleanup) {
+        throw new AggregateError([cause, cleanup], 'Desktop configuration and cleanup failed');
+      }
+      throw cause;
+    }
+  };
+  return {
+    ...(workspaceAuthority
+      ? { validateWorkspaceBinding: workspaceAuthority.validateWorkspaceBinding }
+      : {}),
+    readConfiguration: async (request) => {
+      let workspace: DesktopWorkspaceBindingBorrow | undefined;
+      if (request.workspaceBinding && changesThreadWorkspaceScope(request.workspaceBinding)) {
+        if (!workspaceAuthority) {
+          throw new Error('Desktop run has no live workspace binding owner');
+        }
+        workspace = await workspaceAuthority.acquire({
+          binding: request.workspaceBinding,
+          signal: request.signal,
+          threadId: request.threadId,
         });
-        await native.revalidateWorkspace();
+      }
+      try {
+        if (workspace && request.snapshot) {
+          const captured = CliWorkspaceRootsSchema.parse(
+            request.snapshot.configuration['boundWorkspaceRoots']
+          );
+          revalidateCliWorkspaceRoots(captured, [...workspace.roots], {
+            instructions: 'off',
+            rootIds: captured.map((root) => root.rootId),
+            skills: 'off',
+          });
+          if (captured.length !== workspace.roots.length) {
+            throw new Error(
+              'Recovered workspace binding cannot widen its committed root observation'
+            );
+          }
+        }
+        const selected = await readConfiguration(request, workspace);
+        let closing: Promise<void> | undefined;
         return {
-          close,
-          configuration,
-          contextWindow: definition.contextWindow,
-          durableConfiguration: desktopDurableConfiguration(
-            intent,
-            observerTarget,
-            system,
-            intent.cliWorkspace ? native.runtime.workspaceRoots : undefined
-          ),
-          inputTokenLimit,
-          maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
-          memory: { options: intent.memoryOptions, settings: memorySettings },
-          resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-          ...desktopSystemFields(system),
-          tools,
-          toolTimeoutMs: resilience.toolTimeoutMs,
+          ...selected,
+          ...(workspace
+            ? { revalidateWorkspace: (signal: AbortSignal) => workspace.revalidate(signal) }
+            : {}),
+          close: () =>
+            (closing ??= (async () => {
+              const results = await Promise.allSettled([
+                selected.close(),
+                ...(workspace ? [workspace.close()] : []),
+              ]);
+              const failures = results.flatMap((result) =>
+                result.status === 'rejected' ? [result.reason] : []
+              );
+              if (failures.length > 0) {
+                throw new AggregateError(
+                  failures,
+                  'Desktop selection and workspace retirement failed'
+                );
+              }
+            })()),
         };
       } catch (cause) {
         try {
-          await close();
+          await workspace?.close();
         } catch (cleanup) {
-          throw new AggregateError([cause, cleanup], 'Desktop configuration and cleanup failed');
+          throw new AggregateError(
+            [cause, cleanup],
+            'Desktop selection and workspace acquisition failed'
+          );
         }
         throw cause;
       }
