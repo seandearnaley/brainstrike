@@ -20,7 +20,11 @@ import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
-import { createHostRunHooks, getGlobalHooksPath } from '@brainstrike/host-capabilities/hooks';
+import {
+  createHostRunHooks,
+  getGlobalHooksPath,
+  trustedHookRoots,
+} from '@brainstrike/host-capabilities/hooks';
 import { createDesktopNodeMcpHost } from '@brainstrike/host-capabilities/mcp/desktop-node-mcp';
 import { MCP_STORE_METHODS } from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
 import {
@@ -336,15 +340,12 @@ export async function createHostPlatform(
           ])
       );
       Object.assign(tools, shared);
-      // Global hooks run as configured; a root's project file stays untrusted
-      // (and is reported, not run) until the host owns its approval.
+      // Global hooks run as configured; a root's project file runs only at the
+      // hash the host trusted it at, and is reported, not run, otherwise.
       const hooks = createHostRunHooks({
         globalPath: getGlobalHooksPath(),
         maxHookTimeoutMs: selected.toolTimeoutMs,
-        roots: (selected.workspace?.roots ?? []).map((root) => ({
-          absPath: root.path,
-          rootId: root.rootId,
-        })),
+        roots: await trustedHookRoots(startup.store, selected.workspace?.roots ?? []),
         sessionId: admission.threadId,
       });
       return {
