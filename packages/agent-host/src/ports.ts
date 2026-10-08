@@ -23,7 +23,7 @@ import type {
   ToolSet,
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
-import type { HostHistoryHit, HostRunSnapshot } from './protocol.js';
+import type { HostHistoryHit, HostLoginCredential, HostRunSnapshot } from './protocol.js';
 
 /** Private native authority. Validation never resolves or sends an answer. */
 export interface HostMcpInputCapability {
@@ -56,6 +56,8 @@ export interface HostToolContext {
   readonly write?: (chunk: unknown) => Promise<void>;
 }
 export interface HostRunContext {
+  /** A typed, committed reason this run received no observational memory. */
+  recordObservationWithheld?(reason: 'branched-thread'): Promise<void>;
   /** These receipts append through HostCore, before publication and terminal join. */
   recordObserverUsage?(receipt: {
     readonly kind: 'observation' | 'reflection';
@@ -119,10 +121,20 @@ export interface HostRunAdmission {
   readonly tools: Readonly<Record<string, HostTool>>;
 }
 
+/**
+ * The transport a run-admitting command arrived on. `desktop-ui` is only a port
+ * the launching desktop handed over its private parent channel; every public
+ * socket client (the CLI included) is `public-socket`. Absent means no live
+ * client admitted it (restart recovery).
+ */
+export type HostClientOrigin = 'desktop-ui' | 'public-socket';
+
 export interface HostRunAdmissionRequest {
   /** Canonical non-secret UI settings/context captured with this input command. */
   readonly configuration?: HostRunSnapshot['configuration'];
   readonly modelId: string;
+  /** The admitting client's transport; capabilities bound to an origin refuse others. */
+  readonly origin?: HostClientOrigin;
   readonly prompt?: string;
   readonly signal: AbortSignal;
   /** Reopen the committed selection, rejecting changed executors rather than substituting. */
@@ -192,6 +204,8 @@ export interface HostPlatform {
     readonly threads: readonly string[];
   }): Promise<readonly HostHistoryHit[]>;
   readonly stateIndexer?: StateStoreIndexerPort;
+  /** The host's own credential store, its single writer; absent where none is owned. */
+  storeProviderCredential?(provider: string, credential: HostLoginCredential): Promise<void>;
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
   validateWorkspaceBinding?(request: {
     readonly binding: ThreadWorkspaceBinding;

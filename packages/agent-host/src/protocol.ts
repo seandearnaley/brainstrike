@@ -1,3 +1,8 @@
+import { isProviderCredential, type ProviderCredential } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
+  SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES,
+} from '@brainstrike/assistant-contract/assistant-attachments';
 import { McpTaskHandleSchema } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
@@ -5,7 +10,10 @@ import { z } from 'zod';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), and thread
-// titles (`thread/rename`, `thread.renamed`, titles in `thread/list`).
+// presentation (`thread/update`, `thread.updated`: title, colour and icon, also
+// in `thread/list`), withheld observational memory, tool catalog IDs on
+// committed tool events, and image attachments on a user message (`run/start`
+// and `run.started`).
 // 12 (M4): cross-thread history search (`history/search`).
 export const AGENT_HOST_PROTOCOL_VERSION = 12;
 
@@ -15,6 +23,12 @@ const Command = { commandId: Id };
 const Thread = { threadId: Id };
 /** A committed thread title: trimmed, never blank. */
 const ThreadTitle = z.string().trim().min(1);
+/** A thread's committed presentation; each field is optional and set independently. */
+const ThreadPresentation = {
+  color: Id.optional(),
+  icon: Id.optional(),
+  title: ThreadTitle.optional(),
+};
 const Run = { ...Thread, runId: Id };
 const McpInput = { ...Run, interactionId: Id };
 export const HostMcpInputStatusSchema = z.enum([
@@ -30,6 +44,22 @@ const McpContent = z.record(
   z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
 );
 const Seq = z.number().int().nonnegative();
+/**
+ * An image on a user message, as the composer encodes it: a base64 data URL.
+ * Core admits it against the shared attachment contract's caps.
+ */
+export const HostImageAttachmentSchema = z.strictObject({
+  data: z.string().min(1),
+  mediaType: z.enum(SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES),
+  /** The attached file's name, shown with the image. */
+  name: z.string().min(1).max(255),
+  type: z.literal('image'),
+});
+export type HostImageAttachment = z.infer<typeof HostImageAttachmentSchema>;
+const Attachments = z
+  .array(HostImageAttachmentSchema)
+  .min(1)
+  .max(ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE);
 const McpAuthorityBase = {
   extensions: z.strictObject({ apps: z.boolean(), tasks: z.boolean() }),
   protocol: z.enum(['legacy', 'auto', '2026-07-28']),
@@ -90,7 +120,15 @@ export const HostHistoryHitSchema = z.strictObject({
   ts: z.number().int().nonnegative(),
 });
 export type HostHistoryHit = z.infer<typeof HostHistoryHitSchema>;
+/** A key a user supplies directly. Subscription OAuth is never a login payload. */
+export type HostLoginCredential = Exclude<ProviderCredential, { readonly type: 'oauth' }>;
+const LoginCredential = z.custom<HostLoginCredential>(
+  (value) => isProviderCredential(value) && value.type !== 'oauth'
+);
+
 export const HOST_METHOD_SCHEMAS = {
+  // Secret-bearing: process-local, never in HostCommandLedger, the log or diagnostics.
+  'auth/login': z.strictObject({ credential: LoginCredential, provider: Id }),
   /** Ranked committed text across this host's threads; each word is a literal term. */
   'history/search': z.strictObject({
     limit: z.number().int().positive().max(100),
@@ -135,6 +173,8 @@ export const HOST_METHOD_SCHEMAS = {
   'run/start': z.strictObject({
     ...Command,
     ...Thread,
+    /** Images on the new user message, beside its prompt. */
+    attachments: Attachments.optional(),
     configuration: z.record(z.string(), z.json()).optional(),
     modelId: Id,
     /** A committed run ID to follow, null for the thread root; omitted is the current tip. */
@@ -146,8 +186,10 @@ export const HOST_METHOD_SCHEMAS = {
   'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
-  'thread/rename': z.strictObject({ ...Command, ...Thread, title: ThreadTitle }),
   'thread/start': z.strictObject(Command),
+  'thread/update': z
+    .strictObject({ ...Command, ...Thread, ...ThreadPresentation })
+    .refine((params) => Object.keys(params).length > 2, 'A thread update changes no field'),
   'thread/workspace/binding/read': z.strictObject(Thread),
   'thread/workspace/binding/update': z.strictObject({
     ...Command,
@@ -165,7 +207,7 @@ export type HostMethod = keyof typeof HOST_METHOD_SCHEMAS;
 export type HostParams<M extends HostMethod> = z.infer<(typeof HOST_METHOD_SCHEMAS)[M]>;
 /** Private input diagnostics must not quote schema paths or unknown secret-bearing keys. */
 export function parseHostParams<M extends HostMethod>(method: M, input: unknown): HostParams<M> {
-  if (!method.startsWith('mcp/')) {
+  if (!(method.startsWith('mcp/') || method.startsWith('auth/'))) {
     return HOST_METHOD_SCHEMAS[method].parse(input) as HostParams<M>;
   }
   const parsed = HOST_METHOD_SCHEMAS[method].safeParse(input);
@@ -180,6 +222,8 @@ const Action = {
   ...RunFields,
   input: z.json(),
   toolCallId: Id,
+  /** The user-facing catalog ID (`brainstrike.readWorkspaceFile`), not the provider-sanitized name. */
+  toolCatalogId: Id.optional(),
   toolId: Id,
   toolIdentity: Id,
 };
@@ -221,7 +265,7 @@ export const HostEventSchema = z.union([
     type: z.literal('mcp.input.settled'),
   }),
   z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
-  z.strictObject({ title: ThreadTitle, type: z.literal('thread.renamed') }),
+  z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),
   z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
   z.strictObject({
     commandId: Id,
@@ -233,6 +277,8 @@ export const HostEventSchema = z.union([
   z.strictObject({
     type: z.literal('run.started'),
     ...RunFields,
+    /** The user message's images; a regeneration repeats its message's. */
+    attachments: Attachments.optional(),
     modelId: Id,
     /**
      * The committed message this run's new user message follows (a run ID;
@@ -262,6 +308,12 @@ export const HostEventSchema = z.union([
     kind: z.enum(['observation', 'reflection']),
     modelId: Id,
     usage: z.json(),
+  }),
+  /** OM keeps one merged text per thread, so a branched thread's run receives none. */
+  z.strictObject({
+    type: z.literal('memory.observation.withheld'),
+    ...RunFields,
+    reason: z.literal('branched-thread'),
   }),
   z.strictObject({
     type: z.literal('provider.request.prepared'),
@@ -312,6 +364,7 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  'auth/login': z.strictObject({ stored: z.literal(true) }),
   'history/search': z.strictObject({ hits: z.array(HostHistoryHitSchema) }),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
@@ -340,12 +393,12 @@ export const HOST_RESULT_SCHEMAS = {
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),
   'thread/list': z.strictObject({
-    // A thread never renamed has no committed title.
-    threads: z.array(z.strictObject({ ...Thread, title: ThreadTitle.optional() })),
+    // Presentation fields never committed are absent.
+    threads: z.array(z.strictObject({ ...Thread, ...ThreadPresentation })),
   }),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
-  'thread/rename': z.strictObject({ accepted: z.literal(true) }),
   'thread/start': z.strictObject(Thread),
+  'thread/update': z.strictObject({ accepted: z.literal(true) }),
   'thread/workspace/binding/read': z.strictObject({
     binding: ThreadWorkspaceBindingSchema.nullable(),
   }),

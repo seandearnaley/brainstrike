@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { HostRecord } from '@brainstrike/host-lease';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostCore } from './core.js';
+import type { HostClientOrigin, HostPlatform } from './ports.js';
 import { type HostLogRow, type HostMethod, type HostParams, parseHostParams } from './protocol.js';
 
 export interface HostConnectionLifecycle {
@@ -10,14 +11,22 @@ export interface HostConnectionLifecycle {
   stop(): Promise<void>;
 }
 
+export interface HostConnectionOptions {
+  readonly lifecycle?: HostConnectionLifecycle;
+  /** The transport's client origin; the public socket is never the desktop. */
+  readonly origin?: HostClientOrigin;
+  readonly storeProviderCredential?: HostPlatform['storeProviderCredential'];
+}
+
 /** All transports enter this same authenticated method dispatcher. */
 export function bindHostConnection(
   connection: MessageConnection,
   core: HostCore,
   record: HostRecord,
   attached: () => void,
-  lifecycle?: HostConnectionLifecycle
+  options: HostConnectionOptions = {}
 ): () => void {
+  const { lifecycle, origin = 'public-socket', storeProviderCredential } = options;
   let initialized = false;
   let disposed = false;
   const mcpClient = {
@@ -77,10 +86,17 @@ export function bindHostConnection(
     };
   });
   handle('history/search', (params) => core.history.search(params));
+  handle('auth/login', async (params) => {
+    if (!storeProviderCredential) {
+      throw new Error('This host owns no credential store');
+    }
+    await storeProviderCredential(params.provider, params.credential);
+    return { stored: true };
+  });
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
   handle('thread/delete', (params) => core.deleteThread(params));
-  handle('thread/rename', (params) => core.renameThread(params));
+  handle('thread/update', (params) => core.updateThread(params));
   handle('thread/read', async (params) => ({
     rows: await core.read(params.threadId, params.fromSeq),
   }));
@@ -88,8 +104,8 @@ export function bindHostConnection(
   handle('thread/workspace/set', (params) => core.setWorkspace(params));
   handle('thread/workspace/binding/read', (params) => core.readWorkspaceBinding(params.threadId));
   handle('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
-  handle('run/start', (params) => core.startRun(params));
-  handle('run/regenerate', (params) => core.regenerateRun(params));
+  handle('run/start', (params) => core.startRun(params, origin));
+  handle('run/regenerate', (params) => core.regenerateRun(params, origin));
   handle('run/stop', (params) => core.stop(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));

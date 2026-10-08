@@ -1,6 +1,8 @@
 import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import type { HostPlatformLaunchOptions, HostStartupContext } from '@brainstrike/agent-host';
 import type { KeyringCredentialBackend } from '@brainstrike/agent-host/credential-contract';
+import type { HostLoginCredential } from '@brainstrike/agent-host/protocol';
+import { findProviderDefinition, isSupportedProvider } from '@brainstrike/assistant-contract';
 import { createHostCredentials, type HostCredentials } from './credentials.js';
 import { createHostProviderAuth } from './provider-auth.js';
 
@@ -13,6 +15,22 @@ export interface HostCapabilities {
   close(): Promise<void>;
   readonly credentials: HostCredentials;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
+  /** The single writer of user-supplied keys; subscription OAuth never logs in this way. */
+  storeProviderCredential(provider: string, credential: HostLoginCredential): Promise<void>;
+}
+
+/** A key credential must match the provider's own authentication form. */
+function assertLoginCredential(provider: string, credential: HostLoginCredential): void {
+  if (!isSupportedProvider(provider)) {
+    throw new Error('Unsupported provider credential login');
+  }
+  const authType = findProviderDefinition(provider)?.authType;
+  if (authType !== 'api_key' && authType !== 'aws') {
+    throw new Error(`Provider ${provider} does not accept a credential login`);
+  }
+  if (credential.type !== authType) {
+    throw new Error(`Provider ${provider} requires a ${authType} credential`);
+  }
 }
 
 export interface HostCapabilitiesOptions {
@@ -44,5 +62,9 @@ export async function createHostCapabilities(
     close,
     credentials,
     resolveProviderAuth: createHostProviderAuth({ credentials, env: options.env }),
+    storeProviderCredential: async (provider, credential) => {
+      assertLoginCredential(provider, credential);
+      await credentials.secrets().setCredential(provider, credential);
+    },
   };
 }

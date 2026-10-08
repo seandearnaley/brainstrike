@@ -167,6 +167,16 @@ export function committedRunAncestors(rows: readonly HostLogRow[], runId: string
   return chain.reverse();
 }
 
+/** True when the thread holds a committed run off this run's path (a sibling branch). */
+export function committedThreadBranches(rows: readonly HostLogRow[], runId: string): boolean {
+  const { threadId } = committedRunSource(rows, runId).started;
+  const path = new Set([...committedRunAncestors(rows, runId), runId]);
+  return rows.some(
+    ({ event, threadId: rowThread }) =>
+      rowThread === threadId && event.type === 'run.started' && !path.has(event.runId)
+  );
+}
+
 function previousCommittedMessage(rows: readonly HostLogRow[], started: HostLogRow): string | null {
   const identities = new Set<string>();
   let parentMessageId: string | null = null;

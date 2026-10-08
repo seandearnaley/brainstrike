@@ -1,6 +1,6 @@
 /**
  * Host auto-titles: the first completed run of an untitled thread asks the
- * run's own model for a title and commits it as `thread.renamed`. A user
+ * run's own model for a title and commits it as `thread.updated`. A user
  * rename always wins, and a titled thread is never retitled.
  */
 import { randomUUID } from 'node:crypto';
@@ -108,7 +108,7 @@ test('the first completed run titles an untitled thread once, and the title surv
   await completed(client, threadId, 'Add an owner to each step');
   expect(model.doGenerateCalls).toHaveLength(1);
   const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
-  expect(rows.filter(({ event }) => event.type === 'thread.renamed')).toHaveLength(1);
+  expect(rows.filter(({ event }) => event.type === 'thread.updated')).toHaveLength(1);
 
   await client.close();
   await hosts.at(-1)?.close();
@@ -129,14 +129,14 @@ test('a user rename made while the title is generating wins', async () => {
   const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
   const run = completed(client, threadId, 'Plan a rollback for the release');
   await requested.promise;
-  await client.request('thread/rename', { commandId: randomUUID(), threadId, title: 'Mine' });
+  await client.request('thread/update', { commandId: randomUUID(), threadId, title: 'Mine' });
   release.resolve('Generated title');
   await run;
   // The generated title never replaces the user's.
   await expect
     .poll(async () => {
       const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
-      return rows.flatMap(({ event }) => (event.type === 'thread.renamed' ? [event.title] : []));
+      return rows.flatMap(({ event }) => (event.type === 'thread.updated' ? [event.title] : []));
     })
     .toEqual(['Mine']);
   expect(await titleOf(client, threadId)).toBe('Mine');

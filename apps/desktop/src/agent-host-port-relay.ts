@@ -60,3 +60,30 @@ export async function openAgentHostPortRelay(record: HostRecord): Promise<AgentH
     throw cause;
   }
 }
+
+/**
+ * Relays a visible client over a port the host received on its private parent
+ * channel, so the host admits it as the desktop origin. Closing either side
+ * closes both and settles `closed`.
+ */
+export function openAgentHostChildRelay(hostPort: MessagePortMain): AgentHostPortRelay {
+  const channel = new MessageChannelMain();
+  const exited = Promise.withResolvers<void>();
+  let open = true;
+  const close = (): Promise<void> => {
+    if (open) {
+      open = false;
+      hostPort.close();
+      channel.port1.close();
+      exited.resolve();
+    }
+    return exited.promise;
+  };
+  hostPort.on('message', (event) => channel.port1.postMessage(event.data));
+  channel.port1.on('message', (event) => hostPort.postMessage(event.data));
+  hostPort.once('close', () => void close());
+  channel.port1.once('close', () => void close());
+  hostPort.start();
+  channel.port1.start();
+  return { close, closed: exited.promise, port: channel.port2 };
+}
