@@ -357,4 +357,29 @@ describe('rich committed-log presentation projection', () => {
     expect(second?.result).toEqual(expect.objectContaining({ path: expect.any(String) }));
     expect(projection.getSnapshot().pendingInteractions).toEqual([]);
   });
+  it('carries a committed approval’s host execution context to its tool card', () => {
+    const executionContext = {
+      allowedDomains: [],
+      allowRead: [],
+      allowWrite: [],
+      defaultReadAccess: 'permissive',
+      executorKind: 'fence',
+      language: 'python',
+      policyFingerprint: 'fingerprint',
+      scratchParentDir: '/tmp',
+      timeoutMs: 30_000,
+    };
+    // The host commits it on interaction.requested for a run_python approval.
+    const withContext = rows.map((row) =>
+      row.event['type'] === 'interaction.requested'
+        ? { ...row, event: { ...row.event, executionContext } }
+        : row
+    );
+    const projection = projector();
+    projection.acceptCommitted(withContext);
+    expect(tool(projection).providerMetadata?.['brainstrike']).toMatchObject({ executionContext });
+    const plain = projector();
+    plain.acceptCommitted(rows);
+    expect(tool(plain).providerMetadata?.['brainstrike']?.['executionContext']).toBeUndefined();
+  });
 });
