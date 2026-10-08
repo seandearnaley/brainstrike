@@ -554,9 +554,17 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
           }
         },
         (cause: unknown) => {
-          if (!session.closed) {
-            this.options.onInternalError('mcp-task-settlement-failed', { cause, taskId });
+          if (session.closed) {
+            return;
           }
+          // Tracking ended (its caller stopped, or polling failed) while the
+          // session stays open. Nothing will observe this task now, so its
+          // unanswered input is withdrawn — finalizing the presentation so a
+          // late answer is refused — without sending tasks/cancel, and the
+          // durable row is projected as recoverable rather than live.
+          session.interaction?.withdraw(taskId);
+          this.store(projectMcpTaskRecord(entry.record, 'restart_required'));
+          this.options.onInternalError('mcp-task-settlement-failed', { cause, taskId });
         }
       )
       .finally(() => {

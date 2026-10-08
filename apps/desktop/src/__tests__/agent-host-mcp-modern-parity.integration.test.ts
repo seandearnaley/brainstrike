@@ -828,11 +828,13 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       requestsSettled: 2,
       subscriptionsClosed: 0,
     });
+    // Root shutdown stops the admitting run before the presenter closes, so the
+    // input is withdrawn with its task tracking (BST-1930 fence), not by close.
     expect(first.finalized.items).toEqual([
-      { code: 'mcp-elicitation-presenter-closed', id: presentation.id },
+      { code: 'mcp-elicitation-caller-aborted', id: presentation.id },
     ]);
     expect(() => first.settle(answerFor(presentation, 'accept'))).toThrow(
-      expect.objectContaining({ code: 'mcp-elicitation-presenter-closed' })
+      expect.objectContaining({ code: 'mcp-elicitation-caller-aborted' })
     );
     expect(() => first.services.runtime.taskHost.subscribe(() => undefined)).toThrow(
       'MCP Tasks host is closed.'
@@ -894,11 +896,11 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     expect(fenced()).toEqual(atShutdown);
     // Diagnostics of the joined cancellation, not cleanup failures (the
     // physical receipt above reports none): Core's close reason ends the
-    // tracked task wait, and closing the interaction ends its pending input.
+    // tracked task wait, which withdraws its pending input, so closing the
+    // interaction later finds no input to fail.
     expect(diagnostics(first)).toEqual([
       LEASE_UNAVAILABLE,
       ['mcp-task-settlement-failed', 'Host is closing'],
-      ['mcp-task-consumer-failed', 'MCP task interaction closed.'],
     ]);
   });
 
