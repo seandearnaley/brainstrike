@@ -302,9 +302,10 @@ export async function memoryVectorHost(options: {
   return {
     close,
     async closeRejectedAdmission(): Promise<void> {
-      // Core retains the failed admission cause. No Memory owner was constructed;
-      // the negative test verifies zero SDK, embedding and working-memory calls.
-      await expect(core.close()).rejects.toBeInstanceOf(AggregateError);
+      // No Memory owner was constructed, so close has nothing to join: the open's
+      // own failure reached the run, and close succeeds. The negative test
+      // verifies zero SDK, embedding and working-memory calls.
+      await core.close();
       await store.close();
       await rm(root, { force: true, recursive: true });
     },
