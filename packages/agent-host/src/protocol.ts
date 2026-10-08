@@ -6,7 +6,8 @@ import { z } from 'zod';
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), and thread
 // titles (`thread/rename`, `thread.renamed`, titles in `thread/list`).
-export const AGENT_HOST_PROTOCOL_VERSION = 11;
+// 12 (M4): cross-thread history search (`history/search`).
+export const AGENT_HOST_PROTOCOL_VERSION = 12;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
