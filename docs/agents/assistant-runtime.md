@@ -2451,8 +2451,10 @@ Guard: `packages/agent/src/__tests__/mastra-tool-suspend-resume.integration.spec
 (real Agent + real PGlite), the unregistered-resume and sanitized-id cases in
 `mastra-tool-approval-chunks.spec.ts`, the settle-the-card cases in
 `data-stream-session.spec.ts`,
-`packages/agent/src/mastra/__tests__/plan-mode-tool-gate.spec.ts`,
-`scripts/__tests__/suspending-tool-registry-contract.test.mjs`.
+`packages/agent/src/mastra/__tests__/plan-mode-tool-gate.spec.ts`. In the agent
+host nothing suspends: a suspending tool pauses only as an approval any client
+answers, and run_python's network gate settles visibly
+(`apps/desktop/src/__tests__/agent-host-suspending-tool.integration.test.ts`).
 
 ---
 

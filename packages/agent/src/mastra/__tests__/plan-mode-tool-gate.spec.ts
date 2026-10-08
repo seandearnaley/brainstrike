@@ -84,14 +84,6 @@ describe('suspending tools vs the resume-UI registry', () => {
       expect(hasRegisteredSuspendResumeUi(tool.id)).toBe(true);
     }
   });
-
-  // The reverse-drift scan ("no OTHER module declares a suspendSchema") lives in
-  // scripts/__tests__/suspending-tool-registry-contract.test.mjs: it must walk
-  // BOTH tool source roots recursively (suspending tools are defined in
-  // packages/agent but registered in apps/desktop), which a package-scoped
-  // vitest cannot do without turning a foreign package's source into an
-  // unhashed turbo input. It is control-tested there against subdirectory,
-  // shorthand, desktop-root, and comment-only fixtures.
 });
 
 describe('filterToolsForPlanMode', () => {
