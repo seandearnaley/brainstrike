@@ -320,7 +320,11 @@ export class CommittedAssistantLogProjection {
       throw new Error('The owner must supply a canonical message identity and timestamp.');
     }
     let parentId = identity.parentMessageId;
-    if (identity.userMessageId) {
+    if (identity.userMessageId && this.messageIndexes.has(identity.userMessageId)) {
+      // A regeneration answers its committed user message again: the new
+      // answer is a sibling under it, and the user message stays as committed.
+      parentId = identity.userMessageId;
+    } else if (identity.userMessageId) {
       const user = fromThreadMessageLike(
         {
           content: [{ text: requiredString(row.event, 'prompt'), type: 'text' }],
