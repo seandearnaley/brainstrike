@@ -23,6 +23,14 @@ export class AgentHostAdapterClosedError extends Error {
   }
 }
 
+export class McpDiscoveryAdmissionError extends Error {
+  readonly code = 'mcp-discovery-admission-failed';
+  constructor() {
+    super('Configured MCP tools could not be admitted');
+    this.name = 'McpDiscoveryAdmissionError';
+  }
+}
+
 /** The collector and its publication policy, injected by each host composition. */
 export interface McpHostCollector<Collection extends AgentHostMcpCollection> {
   /** Bind exact questions/URL consent through the canonical dispatcher before connecting. */

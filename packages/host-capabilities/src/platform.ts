@@ -31,9 +31,10 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assist
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { z } from 'zod';
 import { createHostCapabilities } from './capabilities.js';
+import { createCliMcpHost } from './mcp/cli-mcp-host.js';
 import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.js';
 
-const capabilities = {
+const standaloneCapabilities = {
   browserOAuth: 'unavailable',
   configuredMcp: 'unavailable',
   localInference: 'unavailable',
@@ -79,9 +80,30 @@ export async function createHostPlatform(
     launch: platformOptions,
     startup,
   });
+  // Configured MCP servers run in this host's own MCP runtime (Tasks off for now).
+  const mcpConfig = platformOptions?.mcpConfig;
+  const mcp = mcpConfig
+    ? await createCliMcpHost({ configPath: mcpConfig.path, credentials: host.credentials, startup })
+    : undefined;
+  if (mcp) {
+    await startup.register(async () => {
+      await mcp.close();
+    });
+  }
+  const capabilities = mcp
+    ? { ...standaloneCapabilities, configuredMcp: 'available' }
+    : standaloneCapabilities;
+  const system = mcp
+    ? 'This standalone host supports the canonical askUser and submitPlan native tools and the configured MCP servers (text Apps only). Other native tools, MCP Tasks, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.'
+    : 'This standalone host supports the canonical askUser and submitPlan native tools. Other native tools, configured MCP/Tasks, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.';
   return createProductionHostPlatform({
     auth: host.auth,
-    close: () => host.close(),
+    close: async () => {
+      // MCP cleanup can still write OAuth records through the credential store.
+      await mcp?.close();
+      await host.close();
+    },
+    ...(mcp ? { mcp: mcp.mcp } : {}),
     readConfiguration: async (request): Promise<ProductionHostRunConfiguration> => {
       request.signal.throwIfAborted();
       if (readCliWorkspaceRunInput(request.configuration)) {
@@ -158,8 +180,7 @@ export async function createHostPlatform(
           runtimeData: configuration,
         },
         resolvedToolResultBudget,
-        system:
-          'This standalone host supports the canonical askUser and submitPlan native tools. Other native tools, configured MCP/Tasks, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.',
+        system,
         tools: bindings.tools,
         toolTimeoutMs: resolveAssistantResilienceConfig().toolTimeoutMs,
       };

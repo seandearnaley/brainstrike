@@ -24,6 +24,12 @@ export const HostPlatformLaunchOptionsSchema = z.strictObject({
    * for that import to settle.
    */
   legacyImportPending: z.literal(true).optional(),
+  /** The MCP server configuration this host composes, as the desktop's config JSON. */
+  mcpConfig: z
+    .strictObject({
+      path: z.string().refine(isAbsolute, 'An explicit absolute MCP config file is required'),
+    })
+    .optional(),
   /**
    * The isolated E2E launch's stand-in for the OpenAI Codex sign-in issuer,
    * inside its provider egress boundary. A shipped launch never sets it.

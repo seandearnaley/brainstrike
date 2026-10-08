@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { launchHost } from '@brainstrike/host-lease';
+import { readCliMcpInput, settleCliMcpInput } from './cli-mcp-input.js';
 import { HostCliExitError, runHostCliSession } from './cli-session.js';
 import { attachAgentHost, type HostClient } from './client.js';
 import { createAgentHostSpawner } from './launcher.js';
@@ -29,6 +30,7 @@ function required<T>(value: T | undefined, name: string): T {
 }
 
 type CliStringOption =
+  | 'action'
   | 'aws-profile'
   | 'command-id'
   | 'credential-file'
@@ -37,7 +39,9 @@ type CliStringOption =
   | 'data-root'
   | 'decision'
   | 'from-seq'
+  | 'content'
   | 'interaction'
+  | 'mcp-config'
   | 'model'
   | 'platform'
   | 'prompt'
@@ -66,8 +70,10 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
     allowPositionals: true,
     args,
     options: {
+      action: { type: 'string' },
       'aws-profile': { type: 'string' },
       'command-id': { type: 'string' },
+      content: { type: 'string' },
       'credential-file': { type: 'string' },
       'credential-service': { type: 'string' },
       'credential-store': { type: 'string' },
@@ -78,6 +84,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       interaction: { type: 'string' },
       interactive: { type: 'boolean' },
       json: { type: 'boolean' },
+      'mcp-config': { type: 'string' },
       model: { type: 'string' },
       'non-interactive': { type: 'boolean' },
       platform: { type: 'string' },
@@ -113,6 +120,8 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'interaction respond',
       'interaction resume',
       'log follow',
+      'mcp input read',
+      'mcp input settle',
       'auth login',
     ].includes(command)
   ) {
@@ -151,9 +160,23 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
   };
 }
 
-function credentialSelection(
+function launchSelection(
   values: HostCliArguments['values']
 ): HostPlatformLaunchOptions | undefined {
+  const credentials = credentialSelection(values);
+  const mcpConfig = values['mcp-config'];
+  if (!(credentials || mcpConfig)) {
+    return undefined;
+  }
+  return {
+    ...credentials,
+    ...(mcpConfig ? { mcpConfig: { path: resolve(mcpConfig) } } : {}),
+  };
+}
+
+function credentialSelection(
+  values: HostCliArguments['values']
+): Pick<HostPlatformLaunchOptions, 'credentialStore'> | undefined {
   const kind = values['credential-store'];
   const file = values['credential-file'];
   const service = values['credential-service'];
@@ -178,6 +201,11 @@ function assertCredentialAuthority(spawned: boolean, values: HostCliArguments['v
   ) {
     throw new Error(
       'An attached host retains its existing credential authority; credential backend selection requires a new host'
+    );
+  }
+  if (!spawned && values['mcp-config']) {
+    throw new Error(
+      'An attached host retains its existing MCP configuration; --mcp-config requires a new host'
     );
   }
 }
@@ -253,6 +281,8 @@ run stop --thread <id> --run <id>
 interaction respond --thread <id> --run <id> --interaction <id> --decision approve|deny
 interaction resume --thread <id> --run <id> --interaction <id> --resume-data <json>
 log follow --thread <id> [--from-seq <n>]
+mcp input read --thread <id> --run <id> --interaction <id>
+mcp input settle --thread <id> --run <id> --interaction <id> --action accept|decline|cancel [--content <json>]
 auth login --provider <id> [--region <aws region> [--aws-profile <name>]]
 
 auth login reads the API key or AWS bearer key from stdin, never from arguments.
@@ -269,6 +299,8 @@ An empty selection grants no workspace; Skills also require the owner's home-tie
 Native tools, configured MCP/Tasks, Skills/workspace instructions, vector Memory,
 local inference and browser OAuth require platform capabilities.
 An existing host keeps its own platform and admission policy.
+A new host composes configured MCP servers from --mcp-config <file> (the desktop's MCP config JSON).
+The interaction id is the committed mcp.input.requested event's interactionId.
 Credential backends require an explicit existing keyring service or absolute private file:
 --credential-store keyring --credential-service <service>
 --credential-store file --credential-file <path>
@@ -297,7 +329,7 @@ Run signals stop and join its execution; attach signals detach.
             'Starting a host requires --platform <module>; this entry composes no default platform'
           );
         }
-        await createAgentHostSpawner(platformModule, credentialSelection(values))(options, signal);
+        await createAgentHostSpawner(platformModule, launchSelection(values))(options, signal);
         spawned = true;
       },
     }
@@ -423,6 +455,28 @@ Run signals stop and join its execution; attach signals detach.
         print(await client.request('interaction/resume', params));
         break;
       }
+      case 'mcp input read':
+        print(
+          await readCliMcpInput(client, {
+            interactionId: required(values.interaction, 'interaction'),
+            runId: runId(),
+            threadId: threadId(),
+          })
+        );
+        break;
+      case 'mcp input settle':
+        print(
+          await settleCliMcpInput(
+            client,
+            {
+              interactionId: required(values.interaction, 'interaction'),
+              runId: runId(),
+              threadId: threadId(),
+            },
+            { action: values.action, commandId, content: values.content }
+          )
+        );
+        break;
       case 'log follow': {
         const selected = threadId();
         const rows = new Map<number, unknown>();
@@ -460,7 +514,7 @@ Run signals stop and join its execution; attach signals detach.
       }
       default:
         throw new Error(
-          'Expected host start/status/stop, thread start/read, run start/stop, interaction respond/resume, or log follow'
+          'Expected host start/status/stop, thread start/read, run start/stop, interaction respond/resume, mcp input read/settle, or log follow'
         );
     }
   } finally {
