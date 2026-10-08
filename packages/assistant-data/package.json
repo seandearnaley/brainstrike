@@ -23,6 +23,10 @@
     "node": ">=22"
   },
   "exports": {
+    "./assistant-thread-metadata-merge": {
+      "types": "./dist/assistant-thread-metadata-merge.d.ts",
+      "import": "./dist/assistant-thread-metadata-merge.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"

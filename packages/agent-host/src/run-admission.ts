@@ -14,6 +14,7 @@ import type {
 import type { HostEvent } from './protocol.js';
 import { HostRunSnapshotSchema } from './protocol.js';
 import { createHostSdkTools } from './sdk-tools.js';
+import { bindHostRunWorkspace, validateHostRunWorkspaceBinding } from './workspace-state.js';
 
 /** Provider instructions and public Memory context share the same SDK system input. */
 export function combineHostSystemContext(
@@ -109,6 +110,7 @@ export async function acquireHostRunAdmission(
   platform: HostPlatform,
   request: HostRunAdmissionRequest
 ): Promise<HostRunAdmission> {
+  await validateHostRunWorkspaceBinding(platform, request);
   let selected: HostRunAdmission;
   if (platform.admitRun) {
     selected = await platform.admitRun(request);
@@ -131,7 +133,8 @@ export async function acquireHostRunAdmission(
     };
   }
   try {
-    const admission = captureHostRunAdmission(selected);
+    await validateHostRunWorkspaceBinding(platform, request);
+    const admission = captureHostRunAdmission(bindHostRunWorkspace(selected, request));
     const { snapshot, tools } = admission;
     if (
       request.snapshot &&
@@ -192,19 +195,22 @@ export async function closeHostRunResources(run: HostRunState): Promise<void> {
   }
 }
 
-export function ensureHostRunAdmission(
+export async function ensureHostRunAdmission(
   platform: HostPlatform,
   run: HostRunState
 ): Promise<HostRunAdmission> {
-  if (run.admission) {
-    return Promise.resolve(run.admission);
-  }
-  run.admissionTask ??= acquireHostRunAdmission(platform, {
+  const request: HostRunAdmissionRequest = {
     modelId: run.modelId,
     signal: run.controller.signal,
     ...(run.snapshot ? { snapshot: run.snapshot } : {}),
+    ...(run.snapshot?.workspaceBinding ? { workspaceBinding: run.snapshot.workspaceBinding } : {}),
     threadId: run.threadId,
-  }).then((admission) => {
+  };
+  if (run.admission) {
+    await validateHostRunWorkspaceBinding(platform, request);
+    return run.admission;
+  }
+  run.admissionTask ??= acquireHostRunAdmission(platform, request).then((admission) => {
     run.admission = admission;
     return admission;
   });

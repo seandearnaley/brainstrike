@@ -22,6 +22,11 @@
     "node": ">=22"
   },
   "exports": {
+    "./thread-workspace-binding": {
+      "types": "./dist/thread-workspace-binding.d.ts",
+      "import": "./dist/thread-workspace-binding.js",
+      "require": "./dist/thread-workspace-binding.js"
+    },
     "./thread-workspace-snapshot": {
       "types": "./dist/thread-workspace-snapshot.d.ts",
       "import": "./dist/thread-workspace-snapshot.js",

@@ -196,6 +196,10 @@ export async function startAgentHost(
             if (acquiredPlatform.admitRun) {
               ownedPlatform.admitRun = acquiredPlatform.admitRun.bind(acquiredPlatform);
             }
+            if (acquiredPlatform.validateWorkspaceBinding) {
+              ownedPlatform.validateWorkspaceBinding =
+                acquiredPlatform.validateWorkspaceBinding.bind(acquiredPlatform);
+            }
             core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
               core = acquired;
               if (signal.aborted) {
