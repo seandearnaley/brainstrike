@@ -5,6 +5,17 @@ import {
   type ThreadAssistantMessage,
   type ThreadMessage,
 } from '@assistant-ui/react';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  type AssistantRunEvent,
+  describeRunAttempt,
+  PROVIDER_CALL_WARNING_RUN_EVENT_KIND,
+  providerCallWarningDetail,
+  providerCallWarningLabel,
+  providerCallWarningMetadata,
+  type RunAttemptNoticeInput,
+  readProviderCallWarning,
+} from '@brainstrike/assistant-contract';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
 import type { ThreadTokenUsage } from './context-usage-store';
 
@@ -13,6 +24,8 @@ export interface CommittedAssistantLogRow {
   readonly event: Readonly<Record<string, unknown>>;
   readonly seq: number;
   readonly threadId: string;
+  /** The row's committed time, when the owner supplies it. */
+  readonly ts?: number;
 }
 
 /** IDs, parents and timestamps come from the owner; the projection never creates durable IDs. */
@@ -65,10 +78,46 @@ const AWAITING_INTERACTION: MessageStatus = { reason: 'interrupt', type: 'requir
 interface ProjectedRun {
   readonly authoritativeInputs: Set<string>;
   readonly authoritativeResults: Set<string>;
+  readonly createdAt: Date;
   readonly messageId: string;
   readonly partIndexes: Map<string, number>;
+  readonly runId: string;
   step: number;
   terminal: boolean;
+  /** Distinct provider warnings shown for this run: one fact, one row. */
+  readonly warnings: Set<string>;
+}
+
+type ProjectedRunEvent = Pick<
+  AssistantRunEvent,
+  'detail' | 'kind' | 'label' | 'metadata' | 'status'
+>;
+
+const ATTEMPT_REASONS = new Set<unknown>(['stalled', 'provider-error', 'empty-response']);
+const ATTEMPT_REFUSALS = new Set<unknown>(['budget-exhausted', 'tool-parts', 'committed-output']);
+
+/** A committed host `run.attempt` row, read strictly like every other committed event. */
+function readRunAttempt(event: Readonly<Record<string, unknown>>): RunAttemptNoticeInput {
+  const { attempt, maxAttempts, reason, recovered, refusal } = event;
+  if (
+    typeof attempt !== 'number' ||
+    typeof maxAttempts !== 'number' ||
+    !ATTEMPT_REASONS.has(reason) ||
+    typeof recovered !== 'boolean' ||
+    (refusal !== undefined && !ATTEMPT_REFUSALS.has(refusal))
+  ) {
+    throw new Error('Committed run attempt has an unsupported shape.');
+  }
+  return {
+    attempt,
+    detail: requiredString(event, 'detail'),
+    maxAttempts,
+    reason: reason as RunAttemptNoticeInput['reason'],
+    recovered,
+    ...(refusal === undefined
+      ? {}
+      : { refusal: refusal as NonNullable<RunAttemptNoticeInput['refusal']> }),
+  };
 }
 
 function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
@@ -305,6 +354,92 @@ export class CommittedAssistantLogProjection {
     this.part(run, `data:${row.seq}`, () => ({ data, name, type: 'data' }));
   }
 
+  /** A run-timeline row derived from one committed host row; its identity is the row's. */
+  private runEvent(
+    run: ProjectedRun,
+    row: CommittedAssistantLogRow,
+    key: string,
+    event: ProjectedRunEvent
+  ): void {
+    const data: AssistantRunEvent = {
+      ...event,
+      id: `${run.runId}:${row.seq}:${key}`,
+      runId: run.runId,
+      // A row without its committed time sits at its run's creation.
+      timestamp: new Date(row.ts ?? run.createdAt.getTime()).toISOString(),
+    };
+    this.part(run, `run-event:${row.seq}:${key}`, () => ({
+      data,
+      name: ASSISTANT_RUN_EVENT_DATA_NAME,
+      type: 'data',
+    }));
+  }
+
+  /** The provider's report of what it did not do with this request (BST-1701). */
+  private warned(run: ProjectedRun, row: CommittedAssistantLogRow, warnings: unknown): void {
+    if (!Array.isArray(warnings)) {
+      return;
+    }
+    warnings.forEach((entry: unknown, index) => {
+      const warning = readProviderCallWarning(entry);
+      const signature = JSON.stringify([warning.type, warning.subject, warning.detail]);
+      if (run.warnings.has(signature)) {
+        return;
+      }
+      run.warnings.add(signature);
+      this.runEvent(run, row, `warning:${index}`, {
+        detail: providerCallWarningDetail(warning),
+        kind: PROVIDER_CALL_WARNING_RUN_EVENT_KIND,
+        label: providerCallWarningLabel(warning),
+        metadata: providerCallWarningMetadata(warning),
+        status: 'failed',
+      });
+    });
+  }
+
+  /**
+   * One provider attempt ended. Its unfinished text never entered the
+   * transcript, so it reads as incomplete; the attempt and any re-attempt
+   * are timeline rows with the legacy `run.stalled` / `run.resumed` kinds.
+   */
+  private attempt(run: ProjectedRun, row: CommittedAssistantLogRow): void {
+    const attempt = readRunAttempt(row.event);
+    const message = this.message(run);
+    const content = message.content.map(
+      (part): Part =>
+        (part.type === 'text' || part.type === 'reasoning') && part.status?.type === 'running'
+          ? { ...part, status: { reason: 'other', type: 'incomplete' } }
+          : part
+    );
+    if (content.some((part, index) => part !== message.content[index])) {
+      this.put({ ...message, content });
+    }
+    const notice = describeRunAttempt(attempt);
+    const stall = record(row.event['stall']);
+    this.runEvent(run, row, 'ended', {
+      detail: notice.ended.detail,
+      kind: 'run.stalled',
+      label: notice.ended.label,
+      metadata: {
+        attempt: attempt.attempt,
+        maxAttempts: attempt.maxAttempts,
+        reason: attempt.reason,
+        ...(attempt.refusal ? { refusal: attempt.refusal } : {}),
+        ...(typeof stall?.['phase'] === 'string' ? { phase: stall['phase'] } : {}),
+      },
+      status: 'info',
+    });
+    if (notice.resumed) {
+      this.runEvent(run, row, 'resumed', {
+        detail: notice.resumed.detail,
+        kind: 'run.resumed',
+        label: notice.resumed.label,
+        metadata: { attempt: attempt.attempt + 1, maxAttempts: attempt.maxAttempts },
+        status: 'info',
+      });
+    }
+  }
+
   private tool(
     run: ProjectedRun,
     input: Readonly<Record<string, unknown>>,
@@ -396,10 +531,13 @@ export class CommittedAssistantLogProjection {
     this.runs.set(runId, {
       authoritativeInputs: new Set(),
       authoritativeResults: new Set(),
+      createdAt: identity.createdAt,
       messageId: message.id,
       partIndexes: new Map(),
+      runId,
       step: 0,
       terminal: false,
+      warnings: new Set(),
     });
     this.view = {
       ...this.view,
@@ -417,6 +555,10 @@ export class CommittedAssistantLogProjection {
    */
   private other(run: ProjectedRun, row: CommittedAssistantLogRow): void {
     const event = row.event;
+    if (event['type'] === 'run.attempt') {
+      this.attempt(run, row);
+      return;
+    }
     if (event['type'] !== 'memory.observation.withheld') {
       this.data(run, row, event, 'brainstrike.host-event');
       return;
@@ -440,6 +582,7 @@ export class CommittedAssistantLogProjection {
     }
     if (type === 'start-step') {
       run.step += 1;
+      this.warned(run, row, chunk['warnings']);
     } else if (
       type === 'text-start' ||
       type === 'text-delta' ||

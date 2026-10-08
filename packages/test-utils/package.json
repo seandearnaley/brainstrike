@@ -36,6 +36,7 @@
     "./fixtures/committed-approved-host-run.json": "./fixtures/committed-approved-host-run.json",
     "./fixtures/committed-host-plan.json": "./fixtures/committed-host-plan.json",
     "./fixtures/committed-host-question.json": "./fixtures/committed-host-question.json",
+    "./fixtures/committed-host-run-attempts.json": "./fixtures/committed-host-run-attempts.json",
     "./fixtures/committed-rich-host-runs.json": "./fixtures/committed-rich-host-runs.json",
     "./fixtures/observation-memory": "./fixtures/observation-memory.mjs",
     "./vitest.base": {

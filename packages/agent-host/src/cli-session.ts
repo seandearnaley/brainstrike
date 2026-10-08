@@ -4,7 +4,13 @@ import { z } from 'zod';
 import type { HostCliOutput } from './cli.js';
 import type { HostClient } from './client.js';
 import type { HostLogRow } from './protocol.js';
-import { CommittedThreadView, foldHostRuns, type PendingHostApproval } from './thread-view.js';
+import {
+  CommittedThreadView,
+  foldHostRuns,
+  HostRunNotices,
+  type HostRunView,
+  type PendingHostApproval,
+} from './thread-view.js';
 
 function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -30,10 +36,32 @@ export interface HostCliSessionOptions {
   readonly threadId: string;
 }
 
-function displayRow(row: HostLogRow, output: HostCliOutput, json: boolean): void {
+/** A failed or interrupted run ends the CLI with its committed detail. */
+export function hostRunExitError(run: HostRunView): HostCliExitError | undefined {
+  if (run.status !== 'failed' && run.status !== 'interrupted') {
+    return;
+  }
+  return new HostCliExitError(
+    run.detail === undefined
+      ? `Run ${run.status}; inspect its committed log.`
+      : `Run ${run.status}: ${run.detail}`,
+    1
+  );
+}
+
+function displayRow(
+  row: HostLogRow,
+  output: HostCliOutput,
+  json: boolean,
+  notices: HostRunNotices
+): void {
   if (json) {
     output.write(`${JSON.stringify(row)}\n`);
     return;
+  }
+  // Warnings and attempt records go beside the answer, like the approval prompt.
+  for (const notice of notices.read(row)) {
+    process.stderr.write(`\n${notice}\n`);
   }
   const event = row.event;
   if (event.type === 'stream.chunk') {
@@ -49,7 +77,8 @@ function displayRow(row: HostLogRow, output: HostCliOutput, json: boolean): void
     }
   } else if (event.type === 'effect.finished') {
     output.write(`\n${JSON.stringify(event.output)}\n`);
-  } else if (event.type === 'run.finished') {
+  } else if (event.type === 'run.finished' || event.type === 'run.attempt') {
+    // An ended attempt's partial text stays on its own line.
     output.write('\n');
   }
 }
@@ -58,6 +87,7 @@ function displayRow(row: HostLogRow, output: HostCliOutput, json: boolean): void
 export async function runHostCliSession(options: HostCliSessionOptions): Promise<void> {
   const { client, threadId, output } = options;
   const view = new CommittedThreadView(threadId);
+  const notices = new HostRunNotices();
   const completion = Promise.withResolvers<void>();
   // A disconnect can happen while the initial subscribe/start request is pending.
   completion.promise.catch(() => undefined);
@@ -92,7 +122,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
       }
       printedSeq = row.seq;
       if (options.json || ('runId' in row.event && row.event.runId === runId)) {
-        displayRow(row, output, options.json);
+        displayRow(row, output, options.json, notices);
       }
     }
   };
@@ -133,11 +163,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
       showApproval(pending);
     }
     if (run && run.status !== 'running') {
-      finish(
-        run.status === 'failed' || run.status === 'interrupted'
-          ? new HostCliExitError(`Run ${run.status}; inspect its committed log.`, 1)
-          : undefined
-      );
+      finish(hostRunExitError(run));
     }
   };
   const accept = (rows: readonly HostLogRow[]): void => {

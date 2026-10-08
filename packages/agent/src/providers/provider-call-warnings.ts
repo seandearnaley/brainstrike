@@ -34,41 +34,23 @@
  * text fields are read by FIELD NAME (`feature`/`setting`,
  * `details`/`message`), which is what keeps an unknown type readable.
  */
-import { boundRunEventReason } from '@brainstrike/assistant-contract';
+import {
+  boundRunEventReason,
+  type ProviderCallWarning,
+  type ProviderCallWarningOrigin,
+  readProviderCallWarning,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 
+// The read of one warning is shared with the host path (assistant-contract).
+export {
+  type ProviderCallWarning,
+  type ProviderCallWarningOrigin,
+  readProviderCallWarning,
+  UNRECOGNIZED_PROVIDER_WARNING_TYPE,
+} from '@brainstrike/assistant-contract';
+
 const logger = createLogger('MastraAgent');
-
-export interface ProviderCallWarningOrigin {
-  readonly modelId: string;
-  readonly provider: string;
-}
-
-/**
- * One provider warning, normalized across the spec's four shapes.
- *
- * `type` stays an open `string` rather than the spec's union: this consumer
- * must survive an adapter that adds a fifth kind, and a closed union here
- * would either drop it or force a cast at the boundary.
- */
-export interface ProviderCallWarning {
-  /** The provider's own explanation (`details` / `message`), when it gave one. */
-  readonly detail?: string;
-  /** Configured model that produced this warning, including persona pins. */
-  readonly origin?: ProviderCallWarningOrigin;
-  /** What the warning is ABOUT (`feature` / `setting`), when the shape names one. */
-  readonly subject?: string;
-  readonly type: string;
-}
-
-/**
- * The `type` recorded for an entry whose shape this consumer cannot read.
- *
- * Deliberately still RECORDED. Dropping an unreadable warning would recreate
- * the defect one layer down: the provider reported something and the user
- * would hear nothing.
- */
-export const UNRECOGNIZED_PROVIDER_WARNING_TYPE = 'unrecognized';
 
 /**
  * Distinct warnings retained per run. A repeat is deduped rather than counted,
@@ -86,44 +68,6 @@ export interface ProviderCallWarningSink {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function readString(source: Record<string, unknown>, keys: readonly string[]): string | undefined {
-  for (const key of keys) {
-    const value = source[key];
-    if (typeof value === 'string' && value.length > 0) {
-      return boundRunEventReason(value);
-    }
-  }
-  return;
-}
-
-/**
- * Read one entry off a provider `warnings` array.
- *
- * Field names, not type names: `unsupported`/`compatibility` carry `feature` +
- * `details`, `deprecated` carries `setting` + `message`, `other` carries
- * `message` alone. Reading by field keeps a future type readable whenever it
- * reuses one of those names, and never special-cases a feature.
- */
-export function readProviderCallWarning(value: unknown): ProviderCallWarning {
-  if (typeof value === 'string' && value.length > 0) {
-    return { detail: boundRunEventReason(value), type: UNRECOGNIZED_PROVIDER_WARNING_TYPE };
-  }
-  if (!isRecord(value)) {
-    return { type: UNRECOGNIZED_PROVIDER_WARNING_TYPE };
-  }
-  const type = value['type'];
-  const subject = readString(value, ['feature', 'setting']);
-  const detail = readString(value, ['details', 'message']);
-  return {
-    ...(detail === undefined ? {} : { detail }),
-    ...(subject === undefined ? {} : { subject }),
-    type:
-      typeof type === 'string' && type.length > 0
-        ? boundRunEventReason(type)
-        : UNRECOGNIZED_PROVIDER_WARNING_TYPE,
-  };
 }
 
 function warningSignature(warning: ProviderCallWarning): string {
