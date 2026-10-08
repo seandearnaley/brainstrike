@@ -7,7 +7,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { startModelProviderShim } from './utils/model-provider-shim';
+import { type ModelProviderRequest, startModelProviderShim } from './utils/model-provider-shim';
 
 const WORKERS = [
   { input: 'alpha.txt', marker: 'PARKED_ALPHA', output: 'alpha-output.txt' },
@@ -15,6 +15,24 @@ const WORKERS = [
   { input: 'gamma.txt', marker: 'PARKED_GAMMA', output: 'gamma-output.txt' },
 ] as const;
 const ROOT_OUTPUT = 'root-output.txt';
+const ROOT_PROMPT = 'Start three Workers, then create a root report while they work.';
+
+function hasRole(message: unknown, role: string): boolean {
+  return (
+    typeof message === 'object' && message !== null && 'role' in message && message.role === role
+  );
+}
+
+/** The provider turn that opens the root run: its prompt is the latest user message and no tool has run yet. */
+function isRootOpeningTurn({ messages, toolNames }: ModelProviderRequest): boolean {
+  return (
+    toolNames.length > 0 &&
+    !messages.some((message) => hasRole(message, 'tool')) &&
+    JSON.stringify(messages.filter((message) => hasRole(message, 'user')).at(-1)).includes(
+      ROOT_PROMPT
+    )
+  );
+}
 
 async function readNativeState(
   page: Page,
@@ -205,17 +223,7 @@ test('root approval resumes while three Workers are parked, then live grants com
   Object.assign(process.env, environment);
   try {
     const window = await electron.ensureWindow();
-    const assistantPosts: { body: unknown; path: string }[] = [];
     const assistantFailures: string[] = [];
-    window.on('request', (request) => {
-      const requestPath = new URL(request.url()).pathname;
-      if (
-        request.method() === 'POST' &&
-        (requestPath === '/assistant' || requestPath === '/assistant/decide')
-      ) {
-        assistantPosts.push({ body: request.postDataJSON(), path: requestPath });
-      }
-    });
     window.on('response', (response) => {
       const requestPath = new URL(response.url()).pathname;
       if (requestPath.startsWith('/assistant') && response.status() >= 500) {
@@ -236,19 +244,17 @@ test('root approval resumes while three Workers are parked, then live grants com
     await window.getByTestId('permission-policy-edit').selectOption('ask');
     await ensureAssistantShellVisible(window);
     const root = window.getByRole('region', { exact: true, name: 'Assistant' });
-    await root
-      .getByRole('textbox', { name: 'Message input' })
-      .fill('Start three Workers, then create a root report while they work.');
+    await root.getByRole('textbox', { name: 'Message input' }).fill(ROOT_PROMPT);
     await root.getByRole('button', { exact: true, name: 'Send' }).click();
-    await expect
-      .poll(() => assistantPosts.filter((request) => request.path === '/assistant').length)
-      .toBe(1);
-    const initialPost = assistantPosts.find((request) => request.path === '/assistant');
-    const rootThreadId = (
-      initialPost?.body as { data?: { memory?: { threadId?: unknown } } } | undefined
-    )?.data?.memory?.threadId;
-    if (typeof rootThreadId !== 'string') {
-      throw new Error('Initial assistant request lacked a root thread ID');
+    // One Send admits one root run: exactly one provider turn opens it (the
+    // root prompt with no tool history yet). A second admission would add another.
+    await expect.poll(() => provider.requests().filter(isRootOpeningTurn).length).toBe(1);
+    const rootTab = window
+      .getByRole('tablist', { name: 'Open assistant threads' })
+      .getByRole('tab', { selected: true });
+    const rootThreadId = (await rootTab.getAttribute('id'))?.replace('assistant-thread-tab-', '');
+    if (!rootThreadId) {
+      throw new Error('The root thread tab has no thread id');
     }
     const rootApproval = root.getByRole('button', {
       exact: true,
