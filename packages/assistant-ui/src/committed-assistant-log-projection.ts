@@ -5,6 +5,10 @@ import {
   type ThreadAssistantMessage,
   type ThreadMessage,
 } from '@assistant-ui/react';
+import {
+  type AssistantContextBreakdownState,
+  parseAssistantContextBreakdown,
+} from '@brainstrike/assistant-contract/context-breakdown';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
 import type { ThreadTokenUsage } from './context-usage-store';
 
@@ -41,6 +45,8 @@ export interface CommittedAssistantPendingInteraction {
 
 export interface CommittedAssistantLogView {
   readonly activeRunId: string | undefined;
+  /** Latest prepared provider prompt's composition, for the context popover. */
+  readonly contextBreakdown?: AssistantContextBreakdownState | undefined;
   /** Latest chat provider step, never aggregate billing or observer usage. */
   readonly contextUsage?: ThreadTokenUsage | undefined;
   readonly isRunning: boolean;
@@ -537,6 +543,21 @@ export class CommittedAssistantLogProjection {
     };
   }
 
+  /** Any other run event: a host-event data part; a prepared request also carries its breakdown. */
+  private hostEvent(
+    run: ProjectedRun,
+    row: CommittedAssistantLogRow,
+    event: CommittedAssistantLogRow['event']
+  ): void {
+    if (event['type'] === 'provider.request.prepared' && event['breakdown'] !== undefined) {
+      this.view = {
+        ...this.view,
+        contextBreakdown: parseAssistantContextBreakdown(event['breakdown']),
+      };
+    }
+    this.data(run, row, event, 'brainstrike.host-event');
+  }
+
   private apply(row: CommittedAssistantLogRow): void {
     const event = row.event;
     if (event['type'] === 'run.started') {
@@ -636,7 +657,7 @@ export class CommittedAssistantLogProjection {
     } else if (event['type'] === 'run.finished') {
       this.finish(run, event);
     } else {
-      this.data(run, row, event, 'brainstrike.host-event');
+      this.hostEvent(run, row, event);
     }
   }
 }

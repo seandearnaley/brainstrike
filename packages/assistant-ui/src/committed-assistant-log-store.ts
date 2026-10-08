@@ -47,12 +47,17 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
     this.threadId = options.threadId;
     this.projection = new CommittedAssistantLogProjection(options);
     let displayedContext: ThreadTokenUsage | undefined;
+    let displayedBreakdown: CommittedAssistantLogView['contextBreakdown'];
     const read = (): CommittedAssistantSnapshot => {
       const source = options.source.getSnapshot();
       const view = this.projection.acceptCommitted(source.rows);
       if (view.contextUsage && view.contextUsage !== displayedContext) {
         displayedContext = view.contextUsage;
         useContextUsageStore.getState().recordUsage(this.threadId, displayedContext);
+      }
+      if (view.contextBreakdown && view.contextBreakdown !== displayedBreakdown) {
+        displayedBreakdown = view.contextBreakdown;
+        useContextUsageStore.getState().recordBreakdown(this.threadId, displayedBreakdown);
       }
       return {
         connection:

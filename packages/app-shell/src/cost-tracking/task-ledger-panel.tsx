@@ -27,6 +27,7 @@ import {
 } from '@brainstrike/ui';
 import { ListChecks, Loader2, RefreshCw } from 'lucide-react';
 import { useCallback } from 'react';
+import { useAssistantThreadHostLedger } from '../assistant-thread-host-context';
 import type { LedgerModelComparisonRow, LedgerTrendPoint } from '../run-ledger-analytics';
 import { useLedgerAnalytics } from './use-ledger-analytics';
 
@@ -596,7 +597,9 @@ function RunTableSection({
 
 /** Live Task Ledger panel — wires the reactive run query + analytics fetch to the view. */
 export function TaskLedgerPanel() {
-  const ledger = useRunLedger();
+  // Agent-host threads' committed runs list beside the run tables' rows.
+  const { runs: hostRuns } = useAssistantThreadHostLedger();
+  const ledger = useRunLedger(undefined, hostRuns);
   const analytics = useLedgerAnalytics();
   // Per-run cap (budget guardrails, display-only): flags over-cap runs.
   const perRunCapUsd = useAssistantBudgetPreferencesStore((state) => state.perRunCapUsd);

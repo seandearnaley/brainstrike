@@ -167,3 +167,49 @@ export function resolveDailySpendSummary(
     unpricedModels,
   };
 }
+
+/** One provider call an agent-host thread committed, as the spend views count it. */
+export interface HostUsageRecord {
+  /** The committed row time (ms since epoch). */
+  readonly at: number;
+  readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
+  readonly inputTokens: number;
+  readonly model: string;
+  readonly outputTokens: number;
+  readonly provider: string;
+}
+
+const DAILY_SPEND_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The host's share of the rolling last-24h window, in the SQL aggregate's
+ * shape: one row per (provider, model). The host records no provider-billed
+ * cost, so every token is unreported and priced through the registry.
+ */
+export function hostDailySpendRows(
+  records: readonly HostUsageRecord[],
+  nowMs: number
+): DailySpendUsageRow[] {
+  const groups = new Map<string, DailySpendUsageRow>();
+  for (const record of records) {
+    if (record.at < nowMs - DAILY_SPEND_WINDOW_MS) {
+      continue;
+    }
+    const key = `${record.provider}::${record.model}`;
+    const row = groups.get(key);
+    groups.set(key, {
+      model: record.model,
+      provider: record.provider,
+      unreportedCacheCreationTokens:
+        (row?.unreportedCacheCreationTokens ?? 0) + record.cacheWriteTokens,
+      unreportedCacheReadTokens: (row?.unreportedCacheReadTokens ?? 0) + record.cacheReadTokens,
+      unreportedInputTokens: (row?.unreportedInputTokens ?? 0) + record.inputTokens,
+      unreportedOutputTokens: (row?.unreportedOutputTokens ?? 0) + record.outputTokens,
+    });
+  }
+  return [...groups.values()].sort(
+    (left, right) =>
+      left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model)
+  );
+}
