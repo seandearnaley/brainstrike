@@ -31,10 +31,10 @@ import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
 import { createSecretsMcpBearerCredentialAuthority } from '../mcp/bearer-credential';
 import { createCredentialMcpOAuthStore } from '../mcp/credential-oauth-store';
-import type { McpElicitationPresenterAuthority } from '../mcp/elicitation-presenter';
 import { McpHostRuntime, type McpHostRuntimeDependencies } from '../mcp/node-host-runtime';
 import { identityKey, parseRecords } from '../mcp/oauth-client-provider';
 import type { AgentHostAdapterServices, AgentHostAdapterServicesOptions } from './contracts';
+import { type McpElicitationDisplaySurface, McpHostInputRelay } from './mcp-input-relay';
 
 export {
   CredentialFileFormatError,
@@ -128,8 +128,12 @@ export interface AgentHostMcpCollection {
 }
 
 export interface AgentHostAdapterCapabilities<Collection extends AgentHostMcpCollection> {
-  /** Bind exact questions/URL consent through the canonical dispatcher before connecting. */
-  readonly attachElicitationPresenter: (presenter: McpElicitationPresenterAuthority) => () => void;
+  /**
+   * Attach a local display of MCP server input. The agent host's Core is the
+   * consent surface: a display sees input only after Core committed it, and
+   * clients answer through the host protocol.
+   */
+  readonly attachElicitationPresenter: (presenter: McpElicitationDisplaySurface) => () => void;
   /** Inject the existing collector, including Settings filters and result bounds. */
   readonly collectCombinedTools: (options: {
     readonly durableArtifactSettlement: false;
@@ -168,6 +172,7 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
     let runtime: McpHostRuntime | undefined;
     let configuration: Promise<unknown> | undefined;
     let detachElicitation: (() => void) | undefined;
+    let mcpInput: McpHostInputRelay | undefined;
     const clients = new Set<McpRuntimeClient>();
     const collections = new Set<Promise<HostMcpToolSelection>>();
     let closing: Promise<void> | undefined;
@@ -197,7 +202,10 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
               await joinCredentialCleanup(
                 [
                   ...[...clients].map((client) => client.disconnect()),
-                  Promise.resolve().then(() => detachElicitation?.()),
+                  Promise.resolve().then(() => {
+                    detachElicitation?.();
+                    mcpInput?.close();
+                  }),
                 ],
                 'MCP borrowed client cleanup failed.'
               );
@@ -294,7 +302,8 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
         capabilities.runtimeDependencies
       );
       runtime = authority;
-      detachElicitation = capabilities.attachElicitationPresenter(authority.elicitationPresenter);
+      mcpInput = new McpHostInputRelay(authority.elicitationPresenter);
+      detachElicitation = capabilities.attachElicitationPresenter(mcpInput.surface);
       const reader = capabilities.createProviderCredentialReader(settingsSecrets);
       const readProviderCredential: ProviderCredentialReader = (provider) =>
         guarded(() => reader(provider));
@@ -385,7 +394,7 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
       };
       return {
         close,
-        mcp: { authority: authority.host, close: closeMcp, executableTools },
+        mcp: { authority: authority.host, close: closeMcp, executableTools, input: mcpInput },
         readProviderCredential,
         resolveProviderAuth: async (provider) =>
           providerAuthInputFromCredential(

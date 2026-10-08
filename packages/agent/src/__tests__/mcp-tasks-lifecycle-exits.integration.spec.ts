@@ -156,6 +156,37 @@ describe('McpTaskLifecycle exit fencing', () => {
     expectNoLifecycleLeaks(lifecycle);
   });
 
+  it('releases one task with its reason, keeping its durable handle and every other poller', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(CREATED_AT));
+    db = await openDatabase();
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
+    const lifecycle = new McpTaskLifecycle({
+      authority,
+      client: {
+        requestExtension: vi.fn(() => Promise.reject(new Error('poll must not start'))),
+      },
+      onUpdate: vi.fn(),
+      repository,
+    });
+    const released = await lifecycle.track(task('task-released'));
+    const kept = await lifecycle.track(task('task-kept'));
+    const reason = new Error('input has no consent surface');
+
+    expect(lifecycle.release('task-released', reason)).toBe(true);
+
+    await expect(released.settled).rejects.toBe(reason);
+    expect(lifecycle.release('task-released', reason)).toBe(false);
+    expect(lifecycle.snapshot()).toMatchObject({ activeTasks: 1 });
+    await expect(repository.get(taskIdentity(authority, 'task-released'))).resolves.toMatchObject({
+      status: 'working',
+    });
+    await lifecycle.stop('closed');
+    await expect(kept.settled).rejects.toMatchObject({ reason: 'closed' });
+    expectNoLifecycleLeaks(lifecycle);
+  });
+
   it('uses the task TTL as a hard lifetime backstop and never polls after expiry', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(CREATED_AT));

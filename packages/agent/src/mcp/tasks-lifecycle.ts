@@ -311,6 +311,22 @@ export class McpTaskLifecycle {
   }
 
   /**
+   * Ends this lifecycle's tracking of one task without touching its durable
+   * row: the task's poller is aborted with `reason`, so its `settled` rejects
+   * with it. For a task that can make no progress through this host; recovery
+   * can resume it later. Returns whether the task was tracked.
+   */
+  release(taskId: string, reason: unknown): boolean {
+    this.requireOpen();
+    const task = this.active.get(taskId);
+    if (!task) {
+      return false;
+    }
+    task.controller.abort(reason);
+    return true;
+  }
+
+  /**
    * Aborts every poller and drains in-flight creates; that part never rejects
    * and is memoized. Only `server-removed` and `server-replaced` retire the
    * authority epoch afterwards: a disconnect, restart, or close leaves the
@@ -450,14 +466,16 @@ export class McpTaskLifecycle {
       if (signal.aborted) {
         throw abortReason(signal);
       }
+      // The persisted state reaches the task authority before the interaction
+      // consumer, which parks this observation on the user's answer: while the
+      // server waits for input, the authority must already project it.
+      await raceAbort(Promise.resolve(this.onUpdate(persisted)), signal);
       if (persisted.blockedDiagnostic !== null) {
-        await raceAbort(Promise.resolve(this.onUpdate(persisted)), signal);
         return persisted;
       }
       if (this.observationPort) {
         await raceAbort(this.observationPort.publish(result), signal);
       }
-      await raceAbort(Promise.resolve(this.onUpdate(persisted)), signal);
       if (TERMINAL_TASK_STATUSES.has(persisted.status)) {
         return persisted;
       }

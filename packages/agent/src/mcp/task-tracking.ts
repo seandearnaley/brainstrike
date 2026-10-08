@@ -1,4 +1,8 @@
-import type { McpTaskHandle, McpTaskPresentation } from '@brainstrike/assistant-contract';
+import type {
+  McpHostCaller,
+  McpTaskHandle,
+  McpTaskPresentation,
+} from '@brainstrike/assistant-contract';
 import type { CreateTaskResult } from '@brainstrike/mcp-tasks-extension';
 
 /**
@@ -9,6 +13,8 @@ import type { CreateTaskResult } from '@brainstrike/mcp-tasks-extension';
  * settlement store. The tool never polls or answers input itself.
  */
 export interface McpTaskTrackingRequest {
+  /** The host tool call that created the task; absent outside a host run. */
+  readonly caller?: McpHostCaller;
   readonly configuredServerId: string;
   readonly result: CreateTaskResult;
   readonly toolName: string;

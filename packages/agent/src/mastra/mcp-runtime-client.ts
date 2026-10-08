@@ -1,4 +1,6 @@
 import {
+  type McpHostCaller,
+  McpHostCallerSchema,
   type McpHostPort,
   parseConfiguredMcpServerId,
   parseMcpHostOperation,
@@ -68,10 +70,13 @@ export interface McpRuntimeClient {
   listToolsetsWithErrors: () => Promise<McpToolsetsWithErrors>;
 }
 
+/** The host invocation carries its caller; it never reaches the server request (not `_meta`). */
+type HostCallToolOptions = ExplicitHttpMcpRequestOptions & { readonly caller?: McpHostCaller };
+
 interface OfficialSdkMcpClientLike {
   callTool: (
     params: ExplicitHttpMcpCallToolParams,
-    options?: ExplicitHttpMcpRequestOptions
+    options?: HostCallToolOptions
   ) => Promise<ExplicitHttpMcpCallToolResult>;
   close: () => Promise<void>;
   listTools: (options?: ExplicitHttpMcpRequestOptions) => Promise<ExplicitHttpMcpListToolsResult>;
@@ -122,7 +127,8 @@ function createHostClient(
     throw lease.signal.reason;
   }
   let closed = false;
-  const requestOptions = (options?: ExplicitHttpMcpRequestOptions) => ({
+  const requestOptions = (options?: HostCallToolOptions) => ({
+    ...(options?.caller ? { caller: options.caller } : {}),
     ...(options?.onprogress ? { onProgress: options.onprogress } : {}),
     signal: options?.signal ? AbortSignal.any([lease.signal, options.signal]) : lease.signal,
   });
@@ -387,7 +393,25 @@ function createDocumentationOnlyMcpOutputSchema(
  */
 type McpExecuteContext = Pick<ToolExecutionContext, 'agent' | 'writer' | 'abortSignal'> & {
   requestContext?: unknown;
+  runId?: unknown;
+  threadId?: unknown;
+  toolCallId?: unknown;
 };
+
+/**
+ * The exact host tool call this execution belongs to. Only the agent host's
+ * canonical tool context sets all three identities at the top level; Mastra's
+ * own contexts carry a top-level `runId` but nest the call under `agent`, so
+ * they have no host caller. Input without a caller is refused by a host that
+ * owns the consent surface; it is never attributed by inference.
+ */
+function readHostCaller(context: McpExecuteContext): { readonly caller?: McpHostCaller } {
+  const { runId, threadId, toolCallId } = context;
+  if (typeof runId !== 'string' || typeof threadId !== 'string' || typeof toolCallId !== 'string') {
+    return {};
+  }
+  return { caller: McpHostCallerSchema.parse({ runId, threadId, toolCallId }) };
+}
 
 async function executeMcpTool(
   { client, server, taskTracking }: TransportOwnedServerClient,
@@ -397,6 +421,7 @@ async function executeMcpTool(
   context: McpExecuteContext
 ): Promise<unknown> {
   const serverName = server.name;
+  const hostCaller = readHostCaller(context);
   const appResourceUri = readMcpAppToolResourceUri(definitionMeta);
   const appOrigin = appResourceUri
     ? { resourceUri: appResourceUri, serverId: serverName, toolName }
@@ -463,6 +488,7 @@ async function executeMcpTool(
         ...(requestMeta ? { _meta: requestMeta } : {}),
       },
       {
+        ...hostCaller,
         ...(callSignal ? { signal: callSignal } : {}),
         ...(onprogress ? { onprogress } : {}),
       }
@@ -489,7 +515,12 @@ async function executeMcpTool(
       );
     }
     await taskTracking.capability.track(
-      { configuredServerId: serverName, result: createdTask, toolName },
+      {
+        ...hostCaller,
+        configuredServerId: serverName,
+        result: createdTask,
+        toolName,
+      },
       context.abortSignal
     );
     return createdTask;
@@ -499,6 +530,7 @@ async function executeMcpTool(
       // `server.name` IS the configured server id: the host authority snapshot
       // exposes `configuredServerId` and createMcpRuntimeClient maps it to
       // `name` verbatim, so this matches McpTaskHandle.serverId on the host.
+      ...hostCaller,
       configuredServerId: serverName,
       result: createdTask,
       ...(context.abortSignal ? { signal: context.abortSignal } : {}),

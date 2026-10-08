@@ -12,12 +12,14 @@ import {
   ApprovalInputReconstructionError,
   rebuildApprovedRuntimeMessages,
 } from './approval-input.js';
+import { HostMcpInputLedger } from './core-mcp-input.js';
 import {
   abortHostThreadRuns,
   assertHostAdmissionCleanup,
   joinHostClosingRun,
   joinHostRunOwner,
   joinHostThreadDeletion,
+  reconcileOpenedHostRuns,
   rejectHostRunAdmission,
 } from './core-run-lifecycle.js';
 import {
@@ -80,6 +82,12 @@ export class HostCore {
   private admission: Promise<void> = Promise.resolve();
   private closing = false;
   private closeTask?: Promise<void>;
+  private readonly mcpInput = new HostMcpInputLedger({
+    append: (threadId, events) => this.append(threadId, events, 'full'),
+    closing: () => this.closing,
+    deleting: (threadId) => this.deletions.has(threadId),
+    runs: () => this.runs,
+  });
 
   private constructor(
     readonly store: HostEventStore,
@@ -102,37 +110,13 @@ export class HostCore {
         core.fold(await readHostRow(store, row));
       }
     }
-    for (const run of core.runs.values()) {
-      if (run.terminal) {
-        continue;
-      }
-      if (run.stopped) {
-        await core.finish(run, 'stopped');
-        continue;
-      }
-      const uncertain = [...run.started].some(
-        (id) => !(run.outputs.has(id) || run.checkpointedResults.has(id))
-      );
-      if (uncertain) {
-        await core.finish(
-          run,
-          'interrupted',
-          'Host restarted with an uncertain external effect; it was not replayed'
-        );
-      } else if (run.approvals.size > 0) {
-        run.release = retainRun();
-        if ([...run.approvals.values()].every(hasHostInteractionResponse)) {
-          run.task = core.continueRun(run);
-          run.task.catch(() => undefined);
-        }
-      } else {
-        await core.finish(
-          run,
-          'interrupted',
-          'Host restarted outside a committed decision boundary'
-        );
-      }
-    }
+    await reconcileOpenedHostRuns(core.runs.values(), {
+      continueRun: (run) => core.continueRun(run),
+      finish: (run, outcome, detail) => core.finish(run, outcome, detail),
+      retainRun,
+    });
+    // From startup on, Core is the single consent surface for host-run MCP input.
+    await core.mcpInput.open(platform.mcpInput);
     return core;
   }
 
@@ -201,6 +185,10 @@ export class HostCore {
         }
         break;
       }
+      case 'input.requested':
+      case 'input.retired':
+        this.mcpInput.fold(row.threadId, event);
+        break;
       default:
         break;
     }
@@ -338,6 +326,7 @@ export class HostCore {
         (run) => this.closeRunOwner(run),
         (run) => this.finish(run, 'stopped')
       );
+      await this.mcpInput.joinThread(params.threadId);
       await erase(params.threadId);
       for (const commandId of this.commands.forgetThread(params.threadId)) {
         this.conversationIds.delete(commandId);
@@ -790,6 +779,11 @@ export class HostCore {
     });
   }
 
+  /** A client's answer to committed MCP input; the presenter alone settles it. */
+  settleInput(params: HostParams<'input/settle'>): Promise<{ accepted: true }> {
+    return this.mcpInput.settle(params);
+  }
+
   private async commitMessages(run: Run, messages: readonly ModelMessage[]): Promise<void> {
     if (messages.length === 0) {
       return;
@@ -981,11 +975,14 @@ export class HostCore {
       )
     );
     const platform = await Promise.allSettled([this.platform.close()]);
+    // The presenter's close finalizes remaining input; join those retirements.
+    const mcpInput = await this.mcpInput.close();
     const failures = [
       ...this.failedAdmissions.values(),
       ...[...joined, ...platform]
         .filter((result) => result.status === 'rejected')
         .map((result) => result.reason),
+      ...mcpInput,
     ];
     if (failures.length > 0) {
       throw new AggregateError(failures, 'Host cleanup failed');

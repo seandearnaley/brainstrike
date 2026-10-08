@@ -2,6 +2,9 @@ import type { ProviderRequestAccounting } from '@brainstrike/agent/provider-requ
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type {
+  McpElicitationPresentationWire,
+  McpElicitationRetiredWire,
+  McpElicitationSettlement,
   McpHostCloseReport,
   McpHostPort,
   PermissionToolGateSnapshot,
@@ -119,6 +122,35 @@ export interface HostMcpRuntime {
   readonly authority: McpHostPort;
   close(): Promise<McpHostCloseReport>;
   executableTools(request: HostMcpToolRequest): Promise<HostMcpToolSelection>;
+  /** Server input of host-run MCP calls; Core is its single consent surface. */
+  readonly input?: HostMcpInputPort;
+}
+
+/** Core's side of the input port: the only writer of MCP input to the run log. */
+export interface HostMcpInputSink {
+  /**
+   * Binds the input to its provenance caller and commits it before any client
+   * can display it. Rejects with `HostMcpInputUnboundError` when it cannot.
+   */
+  present(presentation: McpElicitationPresentationWire): Promise<void>;
+  /** The presenter's finalization of a presentation. */
+  retire(retired: McpElicitationRetiredWire): void;
+}
+
+/** Platform side: the process-local presenter, which owns presentation and settlement. */
+export interface HostMcpInputPort {
+  /** Core attaches its sink once; input fails closed while none is attached. */
+  attach(sink: HostMcpInputSink): () => void;
+  /** The presenter's settle(), the only settlement writer; throws its coded refusal. */
+  settle(settlement: McpElicitationSettlement): void;
+}
+
+/** Core refuses MCP input it cannot bind to an exact run and tool call. */
+export class HostMcpInputUnboundError extends Error {
+  constructor(reason: string) {
+    super(`MCP server input cannot be bound to a host run: ${reason}`);
+    this.name = 'HostMcpInputUnboundError';
+  }
 }
 export interface HostTool {
   readonly description: string;
@@ -146,6 +178,8 @@ export interface HostPlatform {
   close(): Promise<void>;
   /** Supplied by the existing run configuration, not a second host default. */
   readonly maxSteps?: number | undefined;
+  /** Process-local MCP presenter; Core commits and answers its input. */
+  readonly mcpInput?: HostMcpInputPort | undefined;
   /** Run-scoped construction; cached shared memory must not capture a run signal. */
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   readPermissionPolicy(
