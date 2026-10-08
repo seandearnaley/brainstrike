@@ -29,7 +29,9 @@
  * Failure controls, for `controls` and `sampler-control` only:
  * `--inject-failure <startup|work|dummy-cleanup|sampler-crash|sampler-hang>`
  * fails that step. Every one must still stop and join the sampler and leave no
- * process behind, and must exit 2.
+ * process behind, and must exit 2. `dummy-expired` (with `--inject-contention`)
+ * lets the dummy expire by itself before its release instead; cleanup must
+ * still prove it gone without signalling, and the run exits 4.
  *
  * `qualification` (and `guard`) refuse to start, before building, when
  * classified build, lint or test work is observed. The control modes measure
@@ -69,7 +71,9 @@ import tailwindcss from '@tailwindcss/vite';
 import type { Browser } from 'playwright';
 import { build, defineConfig, preview, version as viteVersion } from 'vite';
 import {
+  awaitDummyExit,
   blindSpot,
+  type ContentionDummy,
   contentionSummary,
   coverThrough,
   describeMatch,
@@ -81,7 +85,7 @@ import {
   spawnSampler,
   startContentionDummy,
   startSampling,
-  stopDummy,
+  stopContentionDummy,
 } from './committed-benchmark-host.mts';
 import {
   BLIND_SPOT,
@@ -167,9 +171,23 @@ const SAMPLER_CONTROL_BUSY_MS = 3000;
 /** Must match the page's injected error (committed-assistant-production-benchmark.tsx). */
 const NEGATIVE_CONTROL_ERROR = 'BST-1929 negative control: injected execution error';
 
-type InjectedFailure = 'dummy-cleanup' | 'sampler-crash' | 'sampler-hang' | 'startup' | 'work';
+/** The contention dummy's lifetime: it outlives any control run unless released. */
+const DUMMY_LIFETIME_MS = 120_000;
+/** `dummy-expired`: sampled mid-run (a few 500 ms ticks), then gone by itself before release. */
+const EXPIRED_DUMMY_LIFETIME_MS = 1500;
+/** Bounds the expired control's wait: its lifetime plus the dummy's exit bound. */
+const EXPIRED_DUMMY_WAIT_MS = EXPIRED_DUMMY_LIFETIME_MS + 5000;
+
+type InjectedFailure =
+  | 'dummy-cleanup'
+  | 'dummy-expired'
+  | 'sampler-crash'
+  | 'sampler-hang'
+  | 'startup'
+  | 'work';
 const INJECTED_FAILURES: readonly InjectedFailure[] = [
   'dummy-cleanup',
+  'dummy-expired',
   'sampler-crash',
   'sampler-hang',
   'startup',
@@ -204,8 +222,8 @@ function checkControlFlags(
   if (mode !== 'controls' && mode !== 'sampler-control') {
     throw new Error('--inject-failure only runs with --mode controls or sampler-control.');
   }
-  if (injectFailure === 'dummy-cleanup' && !injectContention) {
-    throw new Error('--inject-failure dummy-cleanup needs --inject-contention.');
+  if (injectFailure.startsWith('dummy-') && !injectContention) {
+    throw new Error(`--inject-failure ${injectFailure} needs --inject-contention.`);
   }
 }
 
@@ -556,7 +574,7 @@ async function sampledRun(args: Args) {
   const samplesFile = join(args.out, `host-samples-${args.mode}-${stamp()}.jsonl`);
   const owner = spawnSampler(samplesFile, process.pid, samplerFault(args.injectFailure));
   let started: Awaited<ReturnType<typeof startSampling>> | undefined;
-  let dummy: number | undefined;
+  let dummy: ContentionDummy | undefined;
   let outcome: Awaited<ReturnType<typeof buildAndMeasure>> | undefined;
   let busy: Awaited<ReturnType<typeof busyRendererControl>> | undefined;
   let failure: unknown;
@@ -565,7 +583,11 @@ async function sampledRun(args: Args) {
       throw new Error(injectedFailure('startup'));
     }
     started = await startSampling(owner);
-    dummy = args.injectContention ? startContentionDummy(CONTROL_BIOME) : undefined;
+    const lifetimeMs =
+      args.injectFailure === 'dummy-expired' ? EXPIRED_DUMMY_LIFETIME_MS : DUMMY_LIFETIME_MS;
+    dummy = args.injectContention
+      ? await startContentionDummy(CONTROL_BIOME, lifetimeMs)
+      : undefined;
     if (args.injectFailure === 'work') {
       throw new Error(injectedFailure('work'));
     }
@@ -577,10 +599,14 @@ async function sampledRun(args: Args) {
   } catch (error) {
     failure = error;
   }
+  if (dummy !== undefined && args.injectFailure === 'dummy-expired') {
+    // The expired control: the dummy's own lifetime ends before its release.
+    await awaitDummyExit(dummy, EXPIRED_DUMMY_WAIT_MS);
+  }
   const dummyCleanup =
     dummy === undefined
       ? undefined
-      : await stopDummy(
+      : await stopContentionDummy(
           dummy,
           args.injectFailure === 'dummy-cleanup'
             ? new Error(injectedFailure('dummy-cleanup'))
@@ -605,10 +631,14 @@ async function sampledRun(args: Args) {
 
 type SampledRun = Awaited<ReturnType<typeof sampledRun>>;
 
-function cleanupFailed(run: SampledRun): boolean {
+/** A failed dummy cleanup, or an expired control whose expiry was not observed before release. */
+function cleanupFailed(args: Args, run: SampledRun): boolean {
+  if (args.injectFailure === 'dummy-expired' && run.dummyCleanup?.exitedBeforeRelease !== true) {
+    return true;
+  }
   return (
     run.dummyCleanup !== undefined &&
-    (run.dummyCleanup.error !== undefined || run.dummyCleanup.stillRunning)
+    (run.dummyCleanup.error !== undefined || !run.dummyCleanup.exitProven)
   );
 }
 
@@ -621,12 +651,12 @@ function exitCodeFor(
   contended: boolean
 ): number {
   if (args.mode === 'sampler-control') {
-    return run.failure === undefined && samplerOk && !cleanupFailed(run) ? 0 : 2;
+    return run.failure === undefined && samplerOk && !cleanupFailed(args, run) ? 0 : 2;
   }
   const measured = run.outcome?.measured;
   const measuredCode =
     run.failure === undefined && measured ? exitCodeOf(args.mode, measured.results, judgements) : 2;
-  if (!(qualified && samplerOk) || cleanupFailed(run) || measuredCode === 2) {
+  if (!(qualified && samplerOk) || cleanupFailed(args, run) || measuredCode === 2) {
     return 2;
   }
   return contended ? 4 : measuredCode;
@@ -674,7 +704,7 @@ function summaryLines(run: SampledRun, samplerOk: boolean): string[] {
     `blind spot: unknown node/tsgo/Electron per snapshot ${JSON.stringify(blind.count)}, summed pcpu ${JSON.stringify(blind.pcpu)}, CPU advanced >= ${blind.cpuSecondsAdvancedLowerBound} s. ${BLIND_SPOT}`,
     run.dummyCleanup === undefined
       ? ''
-      : `dummy pid ${run.dummyCleanup.pid} stillRunning=${run.dummyCleanup.stillRunning}${run.dummyCleanup.error ? ` cleanup error=${run.dummyCleanup.error}` : ''}`,
+      : `dummy pid ${run.dummyCleanup.pid} (never signalled) exitProven=${run.dummyCleanup.exitProven} exitedBeforeRelease=${run.dummyCleanup.exitedBeforeRelease}${run.dummyCleanup.error ? ` cleanup error=${run.dummyCleanup.error}` : ''}${run.dummyCleanup.lifelineError ? ` lifeline=${run.dummyCleanup.lifelineError}` : ''}`,
   ].filter((line) => line !== '');
 }
 

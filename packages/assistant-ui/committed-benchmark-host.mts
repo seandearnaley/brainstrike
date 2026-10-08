@@ -10,9 +10,10 @@
  * Analysis: the sampler's own overhead, renderer CPU, contention, and the
  * guard's blind spot (unknown tool hosts), all from identity-only snapshots.
  */
-import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { constants, copyFileSync, mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import type { Socket } from 'node:net';
 import { getPriority, setPriority } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -35,7 +36,7 @@ const COVERAGE_TIMEOUT_MS = 2 * SAMPLE_INTERVAL_MS + PS_TIMEOUT_MS;
 const STARTUP_TIMEOUT_MS = 10_000;
 /** Darwin reports a just-killed group as EPERM for about 10 ms before ESRCH. */
 const GROUP_CONFIRMATION_MS = 2000;
-/** The idle dummy exits on SIGTERM at once; this only bounds the wait. */
+/** The idle dummy exits as soon as its lifeline closes; this only bounds the wait. */
 const DUMMY_EXIT_TIMEOUT_MS = 5000;
 const POLL_MS = 50;
 const STDERR_CHARS = 16_384;
@@ -227,43 +228,117 @@ export function joinedCleanly(join: SamplerJoin): boolean {
 
 // ---- The contention control's dummy ----
 
-export function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
-  }
+/**
+ * The mid-run contention control's dummy, owned through pipes rather than a
+ * pid. It must be reparented away from the runner (so it is not this run's
+ * own work), so no ChildProcess handle reaches it directly. It inherits two
+ * of the launcher's pipes instead:
+ * - fd 3, its lifeline: it exits when the runner ends that pipe, or by itself
+ *   after its lifetime. Not stdin, because Node destroys a child's stdin as
+ *   soon as that child (here, the launcher) exits.
+ * - stdout: the launcher's `close` fires only once every holder of its pipes,
+ *   the dummy included, has exited.
+ *
+ * So releasing it never signals a pid that may have been recycled.
+ */
+export interface ContentionDummy {
+  /** When the launcher's `close` proved the dummy gone, if it has. */
+  readonly exitedAt: () => number | undefined;
+  readonly lifeline: Socket;
+  readonly lifelineError: () => string | undefined;
+  /** For the report and `midRun` matching only; never signalled. */
+  readonly pid: number;
 }
 
 /**
- * The mid-run contention control: an idle clone of this Node binary, named so
- * that the kernel's executable name is a classified lint tool. It is
- * reparented away from the runner, so it is not this run's own work.
+ * An idle clone of this Node binary, named so that the kernel's executable
+ * name is a classified lint tool.
  */
-export function startContentionDummy(binary: string): number {
+export async function startContentionDummy(
+  binary: string,
+  lifetimeMs: number
+): Promise<ContentionDummy> {
   mkdirSync(dirname(binary), { recursive: true });
   copyFileSync(process.execPath, binary, constants.COPYFILE_FICLONE);
-  const launcher = `const c=require('node:child_process').spawn(${JSON.stringify(binary)},['-e','setTimeout(()=>{},120000)'],{detached:true,stdio:'ignore'});c.unref();process.stdout.write(String(c.pid));`;
-  return Number(execFileSync(process.execPath, ['-e', launcher], { encoding: 'utf8' }));
+  const script = `const l=new (require('node:net').Socket)({fd:3,readable:true,writable:false});l.on('end',()=>process.exit(0));l.on('error',()=>process.exit(0));l.resume();setTimeout(()=>process.exit(0),${lifetimeMs});`;
+  const launcher = `const c=require('node:child_process').spawn(${JSON.stringify(binary)},['-e',${JSON.stringify(script)}],{detached:true,stdio:['ignore','inherit','ignore','inherit']});c.unref();process.stdout.write(c.pid+'\\n');`;
+  const child = spawn(process.execPath, ['-e', launcher], {
+    stdio: ['ignore', 'pipe', 'ignore', 'pipe'],
+  });
+  const lifeline = child.stdio[3] as Socket;
+  let exitedAt: number | undefined;
+  let lifelineError: string | undefined;
+  let out = '';
+  child.once('close', () => {
+    exitedAt = Date.now();
+  });
+  // Ending the lifeline after the dummy has gone can report EPIPE: kept, not thrown.
+  lifeline.on('error', (error) => {
+    lifelineError = String(error);
+  });
+  // Flowing, so the dummy's exit ends this side and `close` can fire.
+  lifeline.resume();
+  child.stdout?.setEncoding('utf8').on('data', (chunk: string) => {
+    out += chunk;
+  });
+  const deadline = Date.now() + DUMMY_EXIT_TIMEOUT_MS;
+  while (!out.includes('\n')) {
+    if (Date.now() > deadline || exitedAt !== undefined) {
+      lifeline.end();
+      throw new Error('The contention dummy did not report its pid.');
+    }
+    await delay(POLL_MS);
+  }
+  return {
+    exitedAt: () => exitedAt,
+    lifeline,
+    lifelineError: () => lifelineError,
+    pid: Number(out.split('\n')[0]),
+  };
 }
 
-/** Never throws: its failure is recorded and the next owner still runs. */
-export async function stopDummy(pid: number, injected: Error | undefined) {
+/** Waits, bounded, for the launcher's `close` to prove the dummy gone. */
+export async function awaitDummyExit(dummy: ContentionDummy, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (dummy.exitedAt() === undefined && Date.now() < deadline) {
+    await delay(POLL_MS);
+  }
+  return dummy.exitedAt() !== undefined;
+}
+
+/**
+ * Never throws and never signals. It closes the dummy's lifeline and waits,
+ * bounded, for `close` to prove that exact instance gone. An exit it cannot
+ * prove is reported, not forced.
+ */
+export async function stopContentionDummy(dummy: ContentionDummy, injected: Error | undefined) {
+  const releasedAt = Date.now();
+  const exitedBeforeRelease = dummy.exitedAt() !== undefined;
   try {
-    if (isAlive(pid)) {
-      process.kill(pid, 'SIGTERM');
-    }
-    const deadline = Date.now() + DUMMY_EXIT_TIMEOUT_MS;
-    while (isAlive(pid) && Date.now() < deadline) {
-      await delay(POLL_MS);
-    }
+    dummy.lifeline.end();
+    await awaitDummyExit(dummy, DUMMY_EXIT_TIMEOUT_MS);
     if (injected) {
       throw injected;
     }
-    return { error: undefined, pid, stillRunning: isAlive(pid) };
+    return {
+      error: undefined,
+      exitedAt: dummy.exitedAt(),
+      exitedBeforeRelease,
+      exitProven: dummy.exitedAt() !== undefined,
+      lifelineError: dummy.lifelineError(),
+      pid: dummy.pid,
+      releasedAt,
+    };
   } catch (error) {
-    return { error: String(error), pid, stillRunning: isAlive(pid) };
+    return {
+      error: String(error),
+      exitedAt: dummy.exitedAt(),
+      exitedBeforeRelease,
+      exitProven: dummy.exitedAt() !== undefined,
+      lifelineError: dummy.lifelineError(),
+      pid: dummy.pid,
+      releasedAt,
+    };
   }
 }
 
