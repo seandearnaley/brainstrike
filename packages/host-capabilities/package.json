@@ -10,6 +10,7 @@
   "exports": {
     ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
     "./credentials": { "types": "./dist/credentials.d.ts", "default": "./dist/credentials.js" },
+    "./hooks": { "types": "./dist/hooks/index.d.ts", "default": "./dist/hooks/index.js" },
     "./platform": { "types": "./dist/platform.d.ts", "default": "./dist/platform.js" },
     "./provider-credentials": {
       "types": "./dist/provider-credentials.d.ts",

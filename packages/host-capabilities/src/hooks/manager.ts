@@ -10,14 +10,14 @@
 
 import type { AssistantRunEventMetadata, AssistantRunEventStatus } from '@brainstrike/agent';
 import type { ScopedLogger } from '@brainstrike/logging';
-import { runHooksForEvent } from './executor';
+import { runHooksForEvent } from './executor.js';
 import {
   type HookEventName,
   type HookEventResult,
   type HooksConfigLoadResult,
   isBlockingEvent,
   type LoadedHook,
-} from './types';
+} from './types.js';
 
 type HookLogger = Pick<ScopedLogger, 'debug' | 'info' | 'warn' | 'error'>;
 

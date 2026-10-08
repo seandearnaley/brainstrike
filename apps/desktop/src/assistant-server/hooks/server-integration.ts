@@ -16,12 +16,16 @@ import type {
   StreamChunk,
 } from '@brainstrike/agent';
 import { createAssistantRunEvent, resolveToolTimeoutMs } from '@brainstrike/agent';
+import type { HookRunVerdict } from '@brainstrike/host-capabilities/hooks';
+import {
+  getGlobalHooksPath,
+  HookManager,
+  type HookRunEventInput,
+  loadHooksConfig,
+} from '@brainstrike/host-capabilities/hooks';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { getWorkspaceRoots } from '../workspace-roots';
-import { getGlobalHooksPath, loadHooksConfig } from './config';
 import { createDesktopHookRunner } from './hook-runner-impl';
-import { HookManager, type HookRunEventInput } from './manager';
-import type { HookRunVerdict } from './run-verdict';
 
 /**
  * Bound on the assistant text handed to Stop hooks as `assistant_message`.

@@ -334,7 +334,7 @@ export async function decideHostSdkApproval(
   run: HostRunState,
   platform: HostPlatform,
   call: { toolName: string; toolCallId: string; input: unknown }
-): Promise<'approved' | 'denied' | 'user-approval'> {
+): Promise<'approved' | 'denied' | 'user-approval' | { type: 'denied'; reason: string }> {
   run.controller.signal.throwIfAborted();
   const registered = hostRunTools(run)[call.toolName];
   if (!registered) {
@@ -356,6 +356,18 @@ export async function decideHostSdkApproval(
   );
   if (decision === 'deny' || prior?.decision === 'deny') {
     return 'denied';
+  }
+  // A PreToolUse hook refines a decision the policy allows or asks about; it
+  // runs once per call, before any approval request.
+  if (!prior && run.admission?.hooks) {
+    const hooked = await run.admission.hooks.preToolUse({
+      input: call.input,
+      toolName: registered.permissionToolId ?? call.toolName,
+    });
+    run.controller.signal.throwIfAborted();
+    if (hooked.blocked) {
+      return { reason: hooked.reason, type: 'denied' };
+    }
   }
   if (registered.interaction) {
     run.liveInputs.set(call.toolCallId, { value: call.input });

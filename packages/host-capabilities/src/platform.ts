@@ -31,6 +31,8 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assist
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { z } from 'zod';
 import { createHostCapabilities } from './capabilities.js';
+import { getGlobalHooksPath } from './hooks/config.js';
+import { createHostRunHooks } from './hooks/host-run-hooks.js';
 import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.js';
 
 const capabilities = {
@@ -134,9 +136,18 @@ export async function createHostPlatform(
         catalog.definition.contextWindow
       );
       const bindings = createStandaloneHumanTools(resolvedToolResultBudget);
+      const toolTimeoutMs = resolveAssistantResilienceConfig().toolTimeoutMs;
+      // The standalone host has no workspace roots, so only global hooks apply.
+      const hooks = createHostRunHooks({
+        globalPath: getGlobalHooksPath(),
+        maxHookTimeoutMs: toolTimeoutMs,
+        roots: [],
+        sessionId: request.threadId,
+      });
       return {
         configuration,
         durableConfiguration: { capabilities, intent },
+        ...(hooks ? { hooks } : {}),
         maxSteps: DEFAULT_AGENT_MAX_STEPS,
         memory: {
           native: {
@@ -160,7 +171,7 @@ export async function createHostPlatform(
         system:
           'This standalone host supports the canonical askUser and submitPlan native tools. Other native tools, configured MCP/Tasks, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.',
         tools: bindings.tools,
-        toolTimeoutMs: resolveAssistantResilienceConfig().toolTimeoutMs,
+        toolTimeoutMs,
       };
     },
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),

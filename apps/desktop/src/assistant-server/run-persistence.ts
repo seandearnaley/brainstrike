@@ -14,11 +14,11 @@ import {
 } from '@brainstrike/agent';
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { AssistantRunErrorRepository } from '@brainstrike/db';
+import type { HookRunVerdict } from '@brainstrike/host-capabilities/hooks';
 import { continuationProjectionId } from './delegated-continuation-identity';
 import { createDesktopDelegatedConversationHost } from './delegated-conversation-host';
 import { delegatedHostRunId } from './delegated-host-run-id';
 import { completeFailedRootRun, settleFailedDelegationChildRuns } from './delegated-stream-failure';
-import type { HookRunVerdict } from './hooks/run-verdict';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { runCriticalDatabaseOperation } from './run-critical-database';
 

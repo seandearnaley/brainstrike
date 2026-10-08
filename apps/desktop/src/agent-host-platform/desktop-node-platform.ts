@@ -14,6 +14,7 @@ import {
 import { findProviderDefinition, type SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
+import { createHostRunHooks, getGlobalHooksPath } from '@brainstrike/host-capabilities/hooks';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
@@ -308,10 +309,22 @@ export async function createHostPlatform(
           },
         ])
       );
+      // Global hooks run as configured; a root's project file stays untrusted
+      // (and is reported, not run) until the host owns its approval.
+      const hooks = createHostRunHooks({
+        globalPath: getGlobalHooksPath(),
+        maxHookTimeoutMs: selected.toolTimeoutMs,
+        roots: (selected.workspace?.roots ?? []).map((root) => ({
+          absPath: root.path,
+          rootId: root.rootId,
+        })),
+        sessionId: admission.threadId,
+      });
       return {
         close: closeSelection,
         configuration,
         durableConfiguration: selected.durableConfiguration,
+        ...(hooks ? { hooks } : {}),
         ...(selected.system === undefined ? {} : { system: selected.system }),
         maxSteps: selected.maxSteps,
         memory,

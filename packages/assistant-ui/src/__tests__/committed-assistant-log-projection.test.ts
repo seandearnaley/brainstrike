@@ -1,7 +1,10 @@
 // Actual HostCore + native StateStore + pinned AI SDK approved-run capture,
 // shared unchanged through test-utils' public recorded fixture.
 // No private cross-package code/fixture imports or alternate wire decoder.
+
+import { TOOL_CALL_BLOCKED_MESSAGE } from '@brainstrike/assistant-contract/tool-approval';
 import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
+import hookBlocked from '@brainstrike/test-utils/fixtures/committed-host-hook-blocked.json';
 import { describe, expect, it } from 'vitest';
 import {
   CommittedAssistantLogProjection,
@@ -258,5 +261,34 @@ describe('rich committed-log presentation projection', () => {
     expect(tool(projection).toolName).toBe('brainstrike.writeFixture');
     projection.acceptCommitted(catalogRows.slice(requested + 1));
     expect(tool(projection).toolName).toBe('brainstrike.writeFixture');
+  });
+  it('settles a call the host blocked before it ran as declined, with the blocking reason', () => {
+    // Recorded from the real CLI host: a global PreToolUse hook blocked askUser.
+    const blocked: readonly CommittedAssistantLogRow[] = hookBlocked;
+    const blockedStart = blocked.find(({ event }) => event['type'] === 'run.started');
+    const blockedRunId = blockedStart?.event['runId'];
+    if (!blockedStart || typeof blockedRunId !== 'string') {
+      throw new Error('Missing recorded blocked run.');
+    }
+    const projection = new CommittedAssistantLogProjection({
+      identifyRun: () => ({ ...identity, assistantMessageId: blockedRunId }),
+      threadId: blockedStart.threadId,
+    });
+    projection.acceptCommitted(blocked);
+    const message = projection
+      .getSnapshot()
+      .repository.messages.find(({ message }) => message.id === blockedRunId)?.message;
+    const part = message?.content.find((part) => part.type === 'tool-call');
+    expect(part).toMatchObject({
+      isError: false,
+      result: {
+        kind: 'declined',
+        message: TOOL_CALL_BLOCKED_MESSAGE,
+        reason: 'Questions are disabled in this workspace',
+      },
+      toolCallId: 'call_standalone_human_1',
+    });
+    // The host decided; no user decision was ever offered.
+    expect(part?.type === 'tool-call' ? part.approval : 'not a tool').toBeUndefined();
   });
 });
