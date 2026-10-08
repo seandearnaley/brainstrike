@@ -13,6 +13,7 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { connectDesktopAgentHost } from './agent-host-client';
+import { HostThreadRuns } from './host-thread-runs';
 
 /** Workspace views and binding changes are thread state, not conversation activity. */
 const WORKSPACE_COMMANDS = new Set(['thread/workspace/set', 'thread/workspace/binding/update']);
@@ -67,13 +68,16 @@ function bindingPatch(metadata: AssistantThreadMetadata): ThreadWorkspaceBinding
 }
 
 export function createWindowThreadCapability(
-  renderThread: (
-    host: HostClient | undefined,
-    threadId: string,
-    catalogLoaded: boolean,
-    onTitleCommitted: () => void
-  ) => ReturnType<AssistantThreadHostCapability['renderThread']>
-): AssistantThreadHostCapability {
+  renderThread: (view: {
+    readonly catalogLoaded: boolean;
+    readonly host: HostClient | undefined;
+    readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
+    readonly onTitleCommitted: () => void;
+    readonly runs: HostThreadRuns;
+    readonly threadId: string;
+  }) => ReturnType<AssistantThreadHostCapability['renderThread']>
+): AssistantThreadHostCapability & { readonly runs: HostThreadRuns } {
+  const runs = new HostThreadRuns();
   const titleListeners = new Set<() => void>();
   const titleCommitted = (): void => {
     for (const listener of titleListeners) {
@@ -123,6 +127,7 @@ export function createWindowThreadCapability(
       catalog.threads.map(async ({ threadId, title }) => {
         const { rows } = await host.request('thread/read', { fromSeq: 0, threadId });
         threads.set(threadId, host);
+        runs.accept(threadId, rows);
         return projectThread(threadId, resourceId, rows, title);
       })
     );
@@ -165,6 +170,7 @@ export function createWindowThreadCapability(
       }
       await host.request('thread/delete', { threadId });
       threads.delete(threadId);
+      runs.delete(threadId);
       return true;
     },
     listThreads,
@@ -176,8 +182,16 @@ export function createWindowThreadCapability(
       }
       await host.request('thread/rename', { commandId: crypto.randomUUID(), threadId, title });
     },
-    renderThread: (threadId) =>
-      renderThread(threads.get(threadId), threadId, catalogLoaded, titleCommitted),
+    renderThread: (threadId, _isVisible, onRunningChange) =>
+      renderThread({
+        catalogLoaded,
+        host: threads.get(threadId),
+        onRunningChange,
+        onTitleCommitted: titleCommitted,
+        runs,
+        threadId,
+      }),
+    runs,
     subscribeTitleChanges: (listener) => {
       titleListeners.add(listener);
       return () => titleListeners.delete(listener);

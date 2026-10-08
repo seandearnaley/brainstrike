@@ -17,6 +17,8 @@ export interface CommittedHostConversation {
   close(): void;
   readonly commands: CommittedAssistantCommands;
   readonly mcpInput: CommittedHostMcpInput;
+  /** The thread's committed session; this conversation connects and releases it. */
+  readonly source: CommittedThreadSession;
   readonly store: CommittedAssistantLogStore;
 }
 
@@ -160,6 +162,7 @@ export function createCommittedHostConversation(options: {
     },
     commands,
     mcpInput,
+    source,
     store,
   };
 }
