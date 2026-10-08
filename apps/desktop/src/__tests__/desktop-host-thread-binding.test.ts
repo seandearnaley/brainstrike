@@ -128,12 +128,24 @@ test('a thread outside the host catalog is not host-owned', async () => {
   const { capability, request } = fixture();
   request
     .mockResolvedValueOnce({ threads: [{ threadId: thread }] })
-    .mockResolvedValueOnce({ rows: startedRows });
+    .mockResolvedValueOnce({ rows: startedRows })
+    // After the snapshot, each miss is re-resolved against the host's catalog.
+    .mockResolvedValueOnce({ threads: [{ threadId: thread }] });
   expect(await capability.ownsThread('legacy-history-thread')).toBe(false);
   await expect(capability.updateThreadBinding('legacy-history-thread', BINDING)).rejects.toThrow();
-  expect(request.mock.calls.map(([method]) => method)).not.toContain(
-    'thread/workspace/binding/update'
-  );
+  expect(request.mock.calls.map(([method]) => method)).toEqual([
+    'thread/list',
+    'thread/read',
+    'thread/list',
+  ]);
+});
+
+test('a failed owner read rejects instead of classifying the thread as historical', async () => {
+  const { capability, request } = fixture();
+  const unreachable = new Error('The agent host connection closed');
+  request.mockResolvedValueOnce({ threads: [] }).mockRejectedValueOnce(unreachable);
+  await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
+  await expect(capability.ownsThread(thread)).rejects.toBe(unreachable);
 });
 
 test('a thread created after the catalog loaded is host-owned without another catalog read', async () => {

@@ -122,10 +122,24 @@ export function createWindowThreadCapability(
     return projected;
   };
   const threadClient = async (threadId: string): Promise<HostClient | undefined> => {
-    if (!(catalogLoaded || threads.has(threadId))) {
-      await listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
+    const known = threads.get(threadId);
+    if (known) {
+      return known;
     }
-    return threads.get(threadId);
+    if (!catalogLoaded) {
+      await listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
+      return threads.get(threadId);
+    }
+    // Absence from this window's snapshot is not historical ownership: another
+    // client (a window or the CLI) may have created the thread since. Only the
+    // host's current catalog decides; a failed read rejects, never defaults.
+    const host = await client();
+    const catalog = await host.request('thread/list', {});
+    if (!catalog.threads.some((thread) => thread.threadId === threadId)) {
+      return;
+    }
+    threads.set(threadId, host);
+    return host;
   };
   return {
     createThread: async (resourceId) => {
