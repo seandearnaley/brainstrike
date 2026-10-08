@@ -33,6 +33,7 @@ import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { createHostedProvider, resolveEmbeddingApiKey } from '../hosted-embeddings';
 import { SecretReadError } from '../secrets';
 import {
+  resolveAdmittedRetrievalRoots,
   resolveNativeAssistantCollection,
   searchNativeAssistantChunks,
 } from './native-assistant-retrieval';
@@ -151,6 +152,7 @@ interface ContextChunkConversionResult {
 }
 
 export interface RetrievalToolDependencies {
+  admittedWorkspaceRootIds?: readonly string[] | undefined;
   embeddingHostManager?: QueryEmbeddingHost | null | undefined;
   nativeIndexSearch?: IndexSearchCapability | undefined;
 }
@@ -627,7 +629,8 @@ async function searchForChunks(
   embeddingSetId: string,
   input: RetrievalContextInput,
   selection: RetrievalSelectionState,
-  rootId: string | undefined
+  rootId: string | undefined,
+  admittedRootIds: readonly string[] | undefined
 ): Promise<ChunkSearchResult[]> {
   const chunkRepository = new FileChunkRepository(db);
   const limit = input.limit ?? DEFAULT_LIMIT;
@@ -642,7 +645,25 @@ async function searchForChunks(
       ? { selectionSnapshotId: selection.selectionSnapshotId }
       : {}),
     ...(rootId === undefined ? {} : { rootId }),
+    ...(admittedRootIds === undefined ? {} : { rootIds: admittedRootIds }),
   });
+}
+
+/** Check actual catalog file ownership before an admitted subset receives content. */
+export function assertAdmittedRetrievalFileRoots(
+  files: ReadonlyMap<string, FileRecordRow>,
+  fileIds: readonly string[],
+  admitted: readonly string[] | undefined
+): void {
+  if (
+    admitted !== undefined &&
+    fileIds.some((id) => {
+      const rootId = files.get(id)?.rootId;
+      return rootId === undefined || rootId === null || !admitted.includes(rootId);
+    })
+  ) {
+    throw new ToolInputError('Retrieval returned a file outside its admitted workspace scope.');
+  }
 }
 
 async function packRetrievedContext(
@@ -665,7 +686,8 @@ async function packRetrievedContext(
     rank: number;
   }>,
   runtimeData: RuntimeData | undefined,
-  input: RetrievalContextInput
+  input: RetrievalContextInput,
+  admittedRootIds: readonly string[] | undefined
 ): Promise<{
   packed: ContextPackerResult;
   contextText: string;
@@ -674,6 +696,7 @@ async function packRetrievedContext(
   const recordRepository = new FileRecordRepository(db);
   const fileIds = Array.from(new Set(searchResults.map((result) => result.chunk.fileRecordId)));
   const fileMap = await buildFileRecordMap(recordRepository, db, fileIds);
+  assertAdmittedRetrievalFileRoots(fileMap, fileIds, admittedRootIds);
   const { chunks: chunkInputs, skippedSourceRangeChunks } = toContextChunks(searchResults, fileMap);
   if (searchResults.length > 0 && skippedSourceRangeChunks.length === searchResults.length) {
     logger.warn('All retrieved chunks are missing source ranges', {
@@ -708,6 +731,11 @@ async function runRetrieval(
 ): Promise<RetrievalToolExecutionResult> {
   signal?.throwIfAborted();
   const query = normalizeQuery(input.query);
+  const rootId = resolveOptionalWorkspaceRoot(runtimeData, input.root)?.rootId;
+  const admittedRootIds = resolveAdmittedRetrievalRoots(
+    dependencies.admittedWorkspaceRootIds,
+    rootId
+  );
   const embeddingSetId = dependencies.nativeIndexSearch
     ? await resolveNativeAssistantCollection(
         dependencies.nativeIndexSearch,
@@ -733,10 +761,10 @@ async function runRetrieval(
   const db = await getDatabase();
   signal?.throwIfAborted();
   const embeddingSet = await resolveEmbeddingSet(db, embeddingSetId);
-  const rootId = resolveOptionalWorkspaceRoot(runtimeData, input.root)?.rootId;
   const native = dependencies.nativeIndexSearch
     ? await searchNativeAssistantChunks({
         ...input,
+        admittedWorkspaceRootIds: admittedRootIds,
         capability: dependencies.nativeIndexSearch,
         embeddingHostManager: dependencies.embeddingHostManager,
         embeddingSet,
@@ -784,14 +812,16 @@ async function runRetrieval(
       embeddingSetId,
       input,
       selectionState,
-      rootId
+      rootId,
+      admittedRootIds
     );
   }
   const { packed, contextText, skippedSourceRangeChunks } = await packRetrievedContext(
     db,
     searchResults,
     runtimeData,
-    input
+    input,
+    admittedRootIds
   );
   await native?.assertCurrent();
   signal?.throwIfAborted();

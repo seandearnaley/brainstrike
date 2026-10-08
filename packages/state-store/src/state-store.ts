@@ -341,6 +341,7 @@ export class StateStore implements MemoryDomainPort {
   private chain: Promise<unknown> = Promise.resolve();
   private nextId = 0;
   private closed = false;
+  private closeTask: Promise<void> | undefined;
   private closing = false;
   private failed: unknown = null;
   private exportsInFlight = 0;
@@ -932,11 +933,19 @@ export class StateStore implements MemoryDomainPort {
   // ---- reset / close --------------------------------------------------------------------------------------------------
 
   private async shutdownWriter(): Promise<void> {
-    try {
-      await this.call({ op: 'close' }); // rejects if the store failed earlier: the error still reaches the caller
-    } finally {
-      this.closing = true;
-      await this.worker.terminate(); // better-sqlite3 closes every connection on the worker's environment teardown
+    const database = await Promise.allSettled([this.call({ op: 'close' })]);
+    this.closing = true;
+    // better-sqlite3 closes every connection on the worker's environment teardown.
+    // Preserve a database rejection even when physical termination also rejects.
+    const writer = await Promise.allSettled([this.worker.terminate()]);
+    const failures = [...database, ...writer]
+      .filter((result) => result.status === 'rejected')
+      .map((result) => result.reason);
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'StateStore database and writer cleanup failed');
     }
   }
 
@@ -957,19 +966,21 @@ export class StateStore implements MemoryDomainPort {
   }
 
   /** Waits for queued writes and in-flight boundary syncs, then releases the files and the lock. */
-  async close(): Promise<void> {
-    if (this.closed) {
-      return;
-    }
+  close(): Promise<void> {
+    this.closeTask ??= this.closed ? Promise.resolve() : this.closeOwned();
+    return this.closeTask;
+  }
+
+  private async closeOwned(): Promise<void> {
     this.closed = true;
     await this.chain;
     while (this.inflight.size) {
       await Promise.allSettled([...this.inflight]);
     }
-    try {
-      await this.shutdownWriter();
-    } finally {
-      this.lock.release();
-    }
+    // BST-1977: a failed physical join cannot authorize Root release, and every
+    // caller retains the original close promise rather than an early success.
+    // https://github.com/seandearnaley/brainstrike/pull/3543#issuecomment-6053571110
+    await this.shutdownWriter();
+    this.lock.release();
   }
 }

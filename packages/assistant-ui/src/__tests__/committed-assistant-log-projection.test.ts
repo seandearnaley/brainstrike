@@ -1,3 +1,7 @@
+// Actual HostCore + native StateStore + pinned AI SDK approved-run capture,
+// shared unchanged through test-utils' public recorded fixture.
+// No private cross-package code/fixture imports or alternate wire decoder.
+import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
 import { describe, expect, it } from 'vitest';
 import {
   CommittedAssistantLogProjection,
@@ -5,10 +9,6 @@ import {
   type CommittedAssistantRunIdentity,
 } from '../committed-assistant-log-projection';
 import { recordedMessage } from './committed-assistant-test-support';
-// Actual HostCore + native StateStore + pinned AI SDK approved-run capture,
-// copied unchanged from agent-host's committed approved-run-log.json artifact.
-// No private cross-package code/fixture imports or alternate wire decoder.
-import recording from './fixtures/committed-approved-host-run.json';
 
 const rows: readonly CommittedAssistantLogRow[] = recording;
 const start = rows.find(({ event }) => event['type'] === 'run.started');

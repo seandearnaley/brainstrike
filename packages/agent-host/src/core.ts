@@ -11,6 +11,7 @@ import {
   ApprovalInputReconstructionError,
   rebuildApprovedRuntimeMessages,
 } from './approval-input.js';
+import { hostRunClosingOutcomes, reportRetiredHostOutcomes } from './core-retirement.js';
 import {
   abortHostThreadRuns,
   assertHostAdmissionCleanup,
@@ -976,6 +977,7 @@ export class HostCore {
       )
     );
     const platform = await Promise.allSettled([this.platform.close()]);
+    const outcomes = hostRunClosingOutcomes(joined);
     const failures = [
       ...this.failedAdmissions.values(),
       ...[...joined, ...platform]
@@ -983,12 +985,13 @@ export class HostCore {
         .map((result) => result.reason),
     ];
     if (failures.length > 0) {
-      throw new AggregateError(failures, 'Host cleanup failed');
+      throw new AggregateError([...outcomes, ...failures], 'Host cleanup failed');
     }
     for (const run of this.runs.values()) {
       run.release?.();
       run.release = undefined;
     }
     this.listeners.clear();
+    reportRetiredHostOutcomes(outcomes);
   }
 }

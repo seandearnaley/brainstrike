@@ -1,7 +1,7 @@
 import type { SecretsWriteResult } from '@brainstrike/assistant-contract/secrets-bridge';
 import type { JSHandle, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { setupAssistantMock } from './utils/assistant-mock';
+import { configureAssistantProvider, setupAssistantMock } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
@@ -65,10 +65,11 @@ async function installCollectibleProviderWrite(
 }
 
 test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
-  test.beforeEach(async ({ window }) => {
+  test.beforeEach(async ({ modelProvider, window }) => {
     const { mockFileSystemOperations } = await loadElectronHelpers();
     await mockFileSystemOperations(window);
-    await setupAssistantMock(window, { variant: 'simple' });
+    await configureAssistantProvider(window);
+    modelProvider.setScript({ finalText: 'Hello from desktop assistant!' });
     await ensureMockWorkspaceOpen(window);
   });
 
@@ -84,7 +85,7 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
       });
     }
 
-    const chatPanel = window.getByTestId('chat-panel');
+    const chatPanel = window.getByRole('region', { exact: true, name: 'Assistant' });
     await expect(chatPanel).toBeVisible({ timeout: 25_000 });
     await expect
       .poll(async () => window.evaluate(() => performance.timeOrigin), {
@@ -147,7 +148,7 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
       });
     }
 
-    const chatPanel = window.getByTestId('chat-panel');
+    const chatPanel = window.getByRole('region', { exact: true, name: 'Assistant' });
     await expect(chatPanel).toBeVisible({ timeout: 25_000 });
     await expect
       .poll(async () => window.evaluate(() => performance.timeOrigin), {

@@ -24,10 +24,12 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { getDatabase } from '../db-main';
 import {
+  resolveAdmittedRetrievalRoots,
   resolveNativeAssistantCollection,
   searchNativeAssistantChunks,
 } from './native-assistant-retrieval';
 import {
+  assertAdmittedRetrievalFileRoots,
   assertEmbeddingDimensions,
   buildFileRecordMap,
   generateQueryEmbeddingForSet,
@@ -163,6 +165,11 @@ export async function runHybridSearch(
   if (!query) {
     throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.invalidQuery);
   }
+  const root = resolveOptionalWorkspaceRoot(runtimeData, input.root);
+  const admittedRootIds = resolveAdmittedRetrievalRoots(
+    dependencies.admittedWorkspaceRootIds,
+    root?.rootId
+  );
   const embeddingSetId = dependencies.nativeIndexSearch
     ? await resolveNativeAssistantCollection(
         dependencies.nativeIndexSearch,
@@ -172,7 +179,6 @@ export async function runHybridSearch(
     : resolveHybridEmbeddingSetId(runtimeData, input.embeddingSetId);
   // Root resolution stays OUTSIDE the sanitizing catch: its errors are locally
   // constructed, user-actionable messages ("Open folders: ...") the model needs.
-  const root = resolveOptionalWorkspaceRoot(runtimeData, input.root);
 
   try {
     const db = await getDatabase();
@@ -182,6 +188,7 @@ export async function runHybridSearch(
       const started = performance.now();
       const native = await searchNativeAssistantChunks({
         ...input,
+        admittedWorkspaceRootIds: admittedRootIds,
         capability: dependencies.nativeIndexSearch,
         embeddingHostManager: dependencies.embeddingHostManager,
         embeddingSet,
@@ -196,6 +203,11 @@ export async function runHybridSearch(
         new FileRecordRepository(db),
         db,
         native.hits.map(({ hit }) => hit.fileId)
+      );
+      assertAdmittedRetrievalFileRoots(
+        fileMap,
+        native.hits.map(({ hit }) => hit.fileId),
+        admittedRootIds
       );
       await native.assertCurrent();
       const items: HybridSearchToolResultItem[] = native.hits.map((result, index) => {
@@ -271,10 +283,12 @@ export async function runHybridSearch(
       ...(input.chunkType === undefined ? {} : { chunkType: input.chunkType }),
       ...(input.filePaths === undefined ? {} : { filePaths: input.filePaths }),
       ...(root === undefined ? {} : { rootIds: [root.rootId] }),
+      ...(admittedRootIds === undefined ? {} : { rootIds: admittedRootIds }),
     });
 
     const fileRecordIds = Array.from(new Set(results.map((result) => result.chunk.fileRecordId)));
     const fileMap = await buildFileRecordMap(new FileRecordRepository(db), db, fileRecordIds);
+    assertAdmittedRetrievalFileRoots(fileMap, fileRecordIds, admittedRootIds);
     signal?.throwIfAborted();
 
     const items: HybridSearchToolResultItem[] = results.map((result) => {

@@ -2,6 +2,7 @@ import { exec } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { FullConfig } from '@playwright/test';
+import { E2E_CREDENTIAL_ENV_NAMES } from './utils/model-provider-shim';
 
 const execAsync = promisify(exec);
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
@@ -13,8 +14,23 @@ function verboseLog(...args: unknown[]): void {
   console.log(...args);
 }
 
+/**
+ * Removes every provider credential the runner inherited (BST-1931). Workers
+ * are spawned after global setup, so a developer's real shell keys never reach
+ * an E2E app; fixture keys a spec sets later in its worker are unaffected.
+ */
+function scrubInheritedProviderCredentials(): void {
+  for (const name of Object.keys(process.env)) {
+    if (E2E_CREDENTIAL_ENV_NAMES.has(name.toUpperCase())) {
+      delete process.env[name];
+      verboseLog(`🔒 Removed inherited provider credential ${name}`);
+    }
+  }
+}
+
 async function globalSetup(_config: FullConfig) {
   verboseLog('🔧 Setting up Electron E2E tests...');
+  scrubInheritedProviderCredentials();
 
   // Build the Electron app before running tests (skip in CI since it's already built)
   if (process.env['CI']) {

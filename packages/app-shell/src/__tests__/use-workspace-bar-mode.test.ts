@@ -241,6 +241,46 @@ describe('useWorkspaceBarMode worktree map checkout intent', () => {
     expect(onSelectWorktree).not.toHaveBeenCalled();
   });
 
+  it('reports a refused bind visibly instead of leaving the new thread Local in silence', async () => {
+    const refusal = new Error('This host has no live thread workspace binding capability');
+    onSelectWorktree.mockRejectedValueOnce(refusal);
+    useWorktreeCheckoutIntentStore.getState().publish({
+      branch: 'bs/bright-fox',
+      path: '/wt',
+      threadId: 'thread-1',
+      worktreeId: 'wt-1',
+    });
+
+    renderHook(() => useWorkspaceBarMode(args));
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ description: refusal.message, variant: 'destructive' })
+      )
+    );
+    expect(loggerErrorSpy).toHaveBeenCalledWith('worktree map checkout intent failed', {
+      error: refusal,
+      threadId: 'thread-1',
+    });
+  });
+
+  it('reports a refused hand-off to Local visibly too', async () => {
+    const refusal = new Error('Folders are still loading — try again in a moment.');
+    onHandOffToLocal.mockRejectedValueOnce(refusal);
+    useWorktreeCheckoutIntentStore
+      .getState()
+      .publish({ branch: null, path: '/repo', threadId: 'thread-1', worktreeId: null });
+
+    renderHook(() => useWorkspaceBarMode(args));
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ description: refusal.message, variant: 'destructive' })
+      )
+    );
+    expect(onSelectWorktree).not.toHaveBeenCalled();
+  });
+
   it('ignores an intent published for a different thread', async () => {
     useWorktreeCheckoutIntentStore
       .getState()

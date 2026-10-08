@@ -226,6 +226,7 @@ export const SEARCH_TOOL_EXECUTORS = executorGroup({
             resolvedInput,
             runtimeData,
             {
+              admittedWorkspaceRootIds: dependencies.admittedWorkspaceRootIds,
               embeddingHostManager: dependencies.embeddingHostManager,
               nativeIndexSearch: dependencies.nativeIndexSearch,
             },
@@ -257,6 +258,7 @@ export const SEARCH_TOOL_EXECUTORS = executorGroup({
             resolvedInput,
             runtimeData,
             {
+              admittedWorkspaceRootIds: dependencies.admittedWorkspaceRootIds,
               embeddingHostManager: dependencies.embeddingHostManager,
               nativeIndexSearch: dependencies.nativeIndexSearch,
             },

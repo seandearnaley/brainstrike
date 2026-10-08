@@ -1,12 +1,12 @@
+// Actual HostCore + native StateStore captures. The approval run is Packet B's
+// shared public fixture; the question and plan runs are byte-identical copies of the
+// desktop fixtures apps/desktop/src/__tests__/fixtures/committed-host-*.json.
+import approvalRecording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
 import { describe, expect, it } from 'vitest';
 import {
   CommittedAssistantLogProjection,
   type CommittedAssistantLogRow,
 } from '../committed-assistant-log-projection';
-// Actual HostCore + native StateStore captures. The approval run is Packet B's
-// package fixture; the question and plan runs are byte-identical copies of the
-// desktop fixtures apps/desktop/src/__tests__/fixtures/committed-host-*.json.
-import approvalRecording from './fixtures/committed-approved-host-run.json';
 import planRecording from './fixtures/committed-host-plan.json';
 import questionRecording from './fixtures/committed-host-question.json';
 
