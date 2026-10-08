@@ -53,6 +53,13 @@ function selection(root: string, native: Record<string, unknown> = {}) {
     },
     resourceId: 'workspace',
     tools: {
+      brainstrike_executeCommand: {
+        description: 'Shell command',
+        identity: NATIVE_TOOL_ID.executeCommand,
+        inputSchema: { type: 'object' },
+        permissionToolId: NATIVE_TOOL_ID.executeCommand,
+        risk: 'execute',
+      },
       brainstrike_lspInspect: {
         description: 'Language-server inspection',
         identity: NATIVE_TOOL_ID.lspInspect,
@@ -164,4 +171,56 @@ test('the desktop host reads the curated context selection in its own process', 
     'platform/workspace/roots',
     'platform/workspace/roots',
   ]);
+});
+
+test('the desktop host runs executeCommand in its own process and correlates worktree commands through Main', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-shell-')));
+  directories.push(root);
+  const request = vi.fn(async (method: string, _input: unknown) => {
+    switch (method) {
+      case 'platform/workspace/roots':
+        return [{ displayName: 'A', path: root, rootId: 'root-a' }];
+      case 'platform/worktree/paths':
+        return { paths: ['/repo/.worktrees/fox'] };
+      case 'platform/shell/completed':
+        return { accepted: true };
+      default:
+        throw new Error(`Unexpected Main request ${method}`);
+    }
+  });
+  const tools = desktopHostSharedTools({
+    readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+    request,
+    selected: selection(root),
+    threadId: 'host-thread',
+  });
+  const tool = tools['brainstrike_executeCommand'];
+  if (!tool) {
+    throw new Error('executeCommand was not built for the host');
+  }
+  // An ordinary command runs here; only root revalidation reaches Main.
+  await expect(
+    tool.execute({ command: 'printf host-ran', cwd: '.' }, execution())
+  ).resolves.toMatchObject({ exitCode: 0, stdout: 'host-ran' });
+  expect(request.mock.calls.map(([method]) => method)).toEqual([
+    'platform/workspace/roots',
+    'platform/workspace/roots',
+  ]);
+
+  // A worktree-shaped command snapshots Main's paths first, then reports its completion.
+  request.mockClear();
+  const command = 'git worktree prune --dry-run 2>/dev/null; printf done';
+  await expect(tool.execute({ command, cwd: '.' }, execution())).resolves.toMatchObject({
+    stdout: 'done',
+  });
+  await vi.waitFor(() =>
+    expect(request).toHaveBeenCalledWith('platform/shell/completed', {
+      command,
+      precedingWorktreePaths: ['/repo/.worktrees/fox'],
+      rootId: 'root-a',
+      runId: 'host-run',
+      threadId: 'host-thread',
+    })
+  );
+  expect(request.mock.calls.map(([method]) => method)).toContain('platform/worktree/paths');
 });

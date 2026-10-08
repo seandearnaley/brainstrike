@@ -7,7 +7,7 @@ import {
   type ReadWorkspaceFileCursorRegistry,
 } from '@brainstrike/host-capabilities/native-tools';
 import { getEditDiagnostics } from '../assistant-server/lsp-diagnostics';
-import { DESKTOP_HOST_TOOL_EXECUTORS, isHostExecutedNativeToolId } from './host-executed-tools';
+import { desktopHostToolExecutors, isHostExecutedNativeToolId } from './host-executed-tools';
 import type { PlatformSelection } from './platform-wire';
 
 type AdmittedWorkspaceContext = NonNullable<PlatformSelection['nativeRuntime']['workspaceContext']>;
@@ -63,7 +63,7 @@ export function desktopHostSharedTools(options: {
   };
   const local = createSharedNativeHostTools({
     diagnostics: (args) => getEditDiagnostics(args),
-    executors: DESKTOP_HOST_TOOL_EXECUTORS,
+    executors: desktopHostToolExecutors(options.request, options.threadId),
     freshRoots: async (signal) =>
       CliWorkspaceRootsSchema.parse(
         await options.request('platform/workspace/roots', { threadId: options.threadId }, signal)

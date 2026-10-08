@@ -195,3 +195,41 @@ test('Main admits the request’s curated context selection to the host’s nati
     await captured.close();
   }
 });
+
+test('Main reconciles a host command’s worktrees under the host run’s identity', async () => {
+  const service = {
+    list: vi.fn(async () => ({ ok: true as const, value: [{ path: '/repo/.worktrees/fox' }] })),
+    reconcileFromShell: vi.fn(async () => ({
+      ok: true as const,
+      value: { adopted: [], likelyMoves: [], vanishedLedgerIds: [] },
+    })),
+    repositoryContextForRoot: vi.fn(async () => ({
+      ok: true as const,
+      value: { commonDir: '/repo/.git' },
+    })),
+  };
+  const shell = productionDesktopCapabilities({
+    resolveForgeService: () => null,
+    resolveWorktreeService: () => service as never,
+  }).shell;
+  if (!shell) {
+    throw new Error('Main offers no shell correlation');
+  }
+  await expect(shell.worktreePaths()).resolves.toEqual(['/repo/.worktrees/fox']);
+  shell.completed({
+    command: 'git worktree add ../fox',
+    precedingWorktreePaths: ['/repo/.worktrees/fox'],
+    rootId: 'root-a',
+    runId: 'host-run',
+    threadId: 'host-thread',
+  });
+  await vi.waitFor(() =>
+    expect(service.reconcileFromShell).toHaveBeenCalledWith({
+      precedingWorktreePaths: new Set(['/repo/.worktrees/fox']),
+      repoCommonDir: '/repo/.git',
+      runId: 'host-run',
+      threadId: 'host-thread',
+    })
+  );
+  expect(service.repositoryContextForRoot).toHaveBeenCalledWith('root-a');
+});

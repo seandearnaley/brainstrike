@@ -56,7 +56,11 @@ import type {
   DesktopWorkspaceBindingAuthority,
   DesktopWorkspaceBindingBorrow,
 } from './desktop-workspace-binding';
-import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
+import type {
+  DesktopPlatformCapabilities,
+  DesktopPlatformSelection,
+  DesktopShellCorrelation,
+} from './main-platform';
 import {
   PlatformClientConfigurationSchema,
   PlatformModelConfigurationSchema,
@@ -515,6 +519,32 @@ function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['n
 }
 
 /** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
+/** Main's worktree/forge correlation of host commands, over the same services as legacy threads. */
+function desktopShellCorrelation(services: DesktopWorktreeServices): DesktopShellCorrelation {
+  return {
+    completed: ({ command, precedingWorktreePaths, rootId, runId, threadId }) => {
+      desktopWorktreeToolDependencies(services, {
+        runId,
+        threadId,
+      }).shellCorrelation?.onCommandCompleted({
+        command,
+        precedingWorktreePaths: precedingWorktreePaths
+          ? new Set(precedingWorktreePaths)
+          : undefined,
+        rootId,
+      });
+    },
+    worktreePaths: async () => {
+      const service = services.resolveWorktreeService?.();
+      if (!service) {
+        return null;
+      }
+      const listed = await service.list();
+      return listed.ok ? listed.value.map((entry) => entry.path) : null;
+    },
+  };
+}
+
 export function productionDesktopCapabilities(
   dependencies: DesktopHostToolServices,
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
@@ -699,5 +729,6 @@ export function productionDesktopCapabilities(
       }
       return root.path;
     },
+    shell: desktopShellCorrelation(dependencies),
   };
 }
