@@ -26,7 +26,7 @@ export interface CommittedHostConversation {
 export function createCommittedHostConversation(options: {
   readonly client: HostClient;
   readonly modelId: string;
-  /** Told when a newer committed title (a rename or an auto-title) reaches this view. */
+  /** Told when a newer committed title, colour or icon reaches this view. */
   readonly onTitleCommitted?: () => void;
   readonly readModelId?: () => string;
   readonly readConfiguration?: () => Record<string, unknown>;
@@ -142,7 +142,7 @@ export function createCommittedHostConversation(options: {
   const unsubscribeTitles = source.subscribe(() => {
     const renamed = source
       .getSnapshot()
-      .rows.findLast((row) => row.event.type === 'thread.renamed');
+      .rows.findLast((row) => row.event.type === 'thread.updated');
     if (renamed && renamed.seq > titleSeq) {
       titleSeq = renamed.seq;
       options.onTitleCommitted?.();

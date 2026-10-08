@@ -5,8 +5,11 @@ import { z } from 'zod';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), and thread
-// titles (`thread/rename`, `thread.renamed`, titles in `thread/list`).
-// 12: child threads (BST-1932): `thread.started` with a delegation `origin`.
+// presentation (`thread/update`, `thread.updated`: title, colour and icon, also
+// in `thread/list`), withheld
+// observational memory, and tool catalog IDs on committed tool events.
+// 12: child threads (BST-1932): `thread.started` with a delegation `origin`, and
+// the child results a `run.started` delivers.
 export const AGENT_HOST_PROTOCOL_VERSION = 12;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -15,6 +18,12 @@ const Command = { commandId: Id };
 const Thread = { threadId: Id };
 /** A committed thread title: trimmed, never blank. */
 const ThreadTitle = z.string().trim().min(1);
+/** A thread's committed presentation; each field is optional and set independently. */
+const ThreadPresentation = {
+  color: Id.optional(),
+  icon: Id.optional(),
+  title: ThreadTitle.optional(),
+};
 const Run = { ...Thread, runId: Id };
 const McpInput = { ...Run, interactionId: Id };
 export const HostMcpInputStatusSchema = z.enum([
@@ -180,8 +189,10 @@ export const HOST_METHOD_SCHEMAS = {
   'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
-  'thread/rename': z.strictObject({ ...Command, ...Thread, title: ThreadTitle }),
   'thread/start': z.strictObject(Command),
+  'thread/update': z
+    .strictObject({ ...Command, ...Thread, ...ThreadPresentation })
+    .refine((params) => Object.keys(params).length > 2, 'A thread update changes no field'),
   'thread/workspace/binding/read': z.strictObject(Thread),
   'thread/workspace/binding/update': z.strictObject({
     ...Command,
@@ -214,6 +225,8 @@ const Action = {
   ...RunFields,
   input: z.json(),
   toolCallId: Id,
+  /** The user-facing catalog ID (`brainstrike.readWorkspaceFile`), not the provider-sanitized name. */
+  toolCatalogId: Id.optional(),
   toolId: Id,
   toolIdentity: Id,
 };
@@ -256,7 +269,7 @@ export const HostEventSchema = z.union([
   }),
   z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
   z.strictObject({ origin: HostChildOriginSchema, type: z.literal('thread.started') }),
-  z.strictObject({ title: ThreadTitle, type: z.literal('thread.renamed') }),
+  z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),
   z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
   z.strictObject({
     commandId: Id,
@@ -299,6 +312,12 @@ export const HostEventSchema = z.union([
     kind: z.enum(['observation', 'reflection']),
     modelId: Id,
     usage: z.json(),
+  }),
+  /** OM keeps one merged text per thread, so a branched thread's run receives none. */
+  z.strictObject({
+    type: z.literal('memory.observation.withheld'),
+    ...RunFields,
+    reason: z.literal('branched-thread'),
   }),
   z.strictObject({
     type: z.literal('provider.request.prepared'),
@@ -376,12 +395,12 @@ export const HOST_RESULT_SCHEMAS = {
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),
   'thread/list': z.strictObject({
-    // A thread never renamed has no committed title.
-    threads: z.array(z.strictObject({ ...Thread, title: ThreadTitle.optional() })),
+    // Presentation fields never committed are absent.
+    threads: z.array(z.strictObject({ ...Thread, ...ThreadPresentation })),
   }),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
-  'thread/rename': z.strictObject({ accepted: z.literal(true) }),
   'thread/start': z.strictObject(Thread),
+  'thread/update': z.strictObject({ accepted: z.literal(true) }),
   'thread/workspace/binding/read': z.strictObject({
     binding: ThreadWorkspaceBindingSchema.nullable(),
   }),

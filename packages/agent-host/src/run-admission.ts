@@ -255,6 +255,7 @@ export function hostStepInteractions(
         interactionId: part.approvalId,
         kind: registered.interaction?.kind ?? 'approval',
         runId: run.id,
+        ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
         toolCallId: part.toolCall.toolCallId,
         toolId: part.toolCall.toolName,
         toolIdentity: registered.identity,
@@ -335,6 +336,7 @@ export async function decideHostSdkApproval(
   const action: Extract<HostEvent, { type: 'effect.started' }> = {
     input: jsonValue(call.input),
     runId: run.id,
+    ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
     toolCallId: call.toolCallId,
     toolId: call.toolName,
     toolIdentity: registered.identity,

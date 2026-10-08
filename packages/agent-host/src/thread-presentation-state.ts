@@ -6,7 +6,9 @@ import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
 
 const logger = createLogger('AgentHost');
 
-type Renamed = Extract<HostEvent, { type: 'thread.renamed' }>;
+type Updated = Extract<HostEvent, { type: 'thread.updated' }>;
+/** A thread's committed presentation: its title, colour and icon. */
+export type HostThreadPresentation = Omit<Updated, 'type'>;
 
 const TITLE_INSTRUCTIONS =
   "Write a short title, at most eight words, for a conversation that starts with the user's message. Reply with the title only: no quotes and no trailing punctuation.";
@@ -21,38 +23,43 @@ function normalizeTitle(text: string): string | undefined {
   return title || undefined;
 }
 
-/** The thread catalog's committed titles, folded from Core's own log; owns no writer. */
-export class HostThreadTitleState {
-  private readonly titles = new Map<string, string>();
+/** The thread catalog's committed presentation, folded from Core's own log; owns no writer. */
+export class HostThreadPresentationState {
+  private readonly presentations = new Map<string, HostThreadPresentation>();
   private readonly pending = new Map<string, Promise<string | undefined>>();
 
   constructor(
     private readonly core: {
       /** Core's admission queue: a generated title commits after any queued rename. */
       readonly admit: (threadId: string, perform: () => Promise<void>) => Promise<void>;
-      readonly append: (threadId: string, event: Renamed) => Promise<void>;
-      readonly rename: (params: HostParams<'thread/rename'>, event: Renamed) => Promise<void>;
+      readonly append: (threadId: string, event: Updated) => Promise<void>;
+      readonly update: (params: HostParams<'thread/update'>, event: Updated) => Promise<void>;
     }
   ) {}
 
   fold(row: HostLogRow): void {
-    if (row.event.type === 'thread.renamed') {
-      this.titles.set(row.threadId, row.event.title);
+    if (row.event.type === 'thread.updated') {
+      const { type: _type, ...changed } = row.event;
+      this.presentations.set(row.threadId, { ...this.presentations.get(row.threadId), ...changed });
     }
   }
 
   forget(threadId: string): void {
-    this.titles.delete(threadId);
+    this.presentations.delete(threadId);
   }
 
-  /** A thread never renamed has no committed title; the client shows its default. */
-  read(threadId: string): { title?: string } {
-    const title = this.titles.get(threadId);
-    return title === undefined ? {} : { title };
+  /** Fields never committed are absent; the client shows its defaults. */
+  read(threadId: string): HostThreadPresentation {
+    return { ...this.presentations.get(threadId) };
   }
 
-  async rename(params: HostParams<'thread/rename'>): Promise<{ accepted: true }> {
-    await this.core.rename(params, { title: params.title, type: 'thread.renamed' });
+  private titled(threadId: string): boolean {
+    return this.presentations.get(threadId)?.title !== undefined;
+  }
+
+  async update(params: HostParams<'thread/update'>): Promise<{ accepted: true }> {
+    const { commandId: _commandId, threadId: _threadId, ...changed } = params;
+    await this.core.update(params, { ...changed, type: 'thread.updated' });
     return { accepted: true };
   }
 
@@ -66,7 +73,7 @@ export class HostThreadTitleState {
     if (
       !admission.generatesThreadTitle ||
       this.pending.has(run.id) ||
-      this.titles.has(run.threadId) ||
+      this.titled(run.threadId) ||
       [...runs].some((other) => other.threadId === run.threadId && other.outcome === 'completed')
     ) {
       return;
@@ -109,8 +116,8 @@ export class HostThreadTitleState {
           return;
         }
         await this.core.admit(run.threadId, async () => {
-          if (!this.titles.has(run.threadId)) {
-            await this.core.append(run.threadId, { title: generated, type: 'thread.renamed' });
+          if (!this.titled(run.threadId)) {
+            await this.core.append(run.threadId, { title: generated, type: 'thread.updated' });
           }
         });
       })
