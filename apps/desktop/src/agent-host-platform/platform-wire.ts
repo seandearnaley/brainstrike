@@ -182,6 +182,7 @@ export const PlatformProgressSchema = z.strictObject({
 });
 /** Confidential, private launcher channel only; absent from client protocol and log. */
 export const PlatformAuthSchema = z.union([
+  z.strictObject({ kind: z.literal('custom_fetch') }),
   z.strictObject({ apiKey: z.string(), kind: z.literal('api_key') }),
   z.strictObject({ apiKey: z.string(), kind: z.literal('aws'), region: Id }),
   z.strictObject({

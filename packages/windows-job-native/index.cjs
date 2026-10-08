@@ -9,6 +9,7 @@ const native = bindings({
 
 module.exports = {
   activeProcessCount: native.activeProcessCount,
+  drainOtherProcesses: native.drainOtherProcesses,
   initialize: native.initialize,
   terminateOtherProcesses: native.terminateOtherProcesses,
 };

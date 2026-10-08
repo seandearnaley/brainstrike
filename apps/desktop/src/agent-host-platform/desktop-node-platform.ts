@@ -1,4 +1,4 @@
-import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
+import type { ProviderAuthInput, RuntimeData } from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
   canonicalToolModelOutput,
@@ -24,6 +24,7 @@ import {
   PlatformProgressSchema,
   PlatformSelectionSchema,
 } from './platform-wire';
+import { createProviderFetchTransport } from './provider-fetch-transport';
 
 type PlatformSelection = z.output<typeof PlatformSelectionSchema>;
 
@@ -99,8 +100,6 @@ export async function createHostPlatform(
     connection.dispose();
     port.close();
   });
-  const resolveAuth = async (provider: string) =>
-    decodePlatformAuth(await request('platform/auth', { provider }));
   return createProductionHostPlatform({
     close: async () => {
       await request('platform/close', {});
@@ -122,12 +121,58 @@ export async function createHostPlatform(
       );
       const configuration = desktopRuntimeConfiguration(selected);
       const provider = configuration.provider;
+      const fetchScopes = new Map<string, ReturnType<typeof createProviderFetchTransport>>();
+      let closing: Promise<void> | undefined;
+      const resolveAuth = async (
+        selectedProvider: string
+      ): Promise<ProviderAuthInput | undefined> => {
+        if (closing) {
+          throw new Error('Private provider selection is closing');
+        }
+        const response = await request(
+          'platform/auth',
+          { provider: selectedProvider, threadId: admission.threadId },
+          admission.signal
+        );
+        if (closing) {
+          throw new Error('Private provider selection closed during auth lookup');
+        }
+        let captured = fetchScopes.get(selectedProvider);
+        if (!captured) {
+          captured = createProviderFetchTransport(connection, {
+            provider: selectedProvider,
+            threadId: admission.threadId,
+          });
+          fetchScopes.set(selectedProvider, captured);
+        }
+        return decodePlatformAuth(response, captured.fetch);
+      };
+      const closeSelection = (): Promise<void> =>
+        (closing ??= (async () => {
+          const results = await Promise.allSettled(
+            [...fetchScopes.values()].map((captured) => captured.close())
+          );
+          const failures = results.flatMap((result) =>
+            result.status === 'rejected' ? [result.reason] : []
+          );
+          try {
+            await request('platform/release', { threadId: admission.threadId });
+          } catch (cause) {
+            failures.push(cause);
+          }
+          if (failures.length > 0) {
+            if (failures.length === 1) {
+              throw failures[0];
+            }
+            throw new AggregateError(failures, 'Private provider selection cleanup failed');
+          }
+        })());
       let memory: ProductionHostRunConfiguration['memory'];
       try {
         memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth);
       } catch (cause) {
         try {
-          await request('platform/release', { threadId: admission.threadId });
+          await closeSelection();
         } catch (cleanup) {
           throw new AggregateError([cause, cleanup], 'Memory model admission and cleanup failed');
         }
@@ -230,9 +275,7 @@ export async function createHostPlatform(
         ])
       );
       return {
-        close: async () => {
-          await request('platform/release', { threadId: admission.threadId });
-        },
+        close: closeSelection,
         configuration,
         durableConfiguration: selected.durableConfiguration,
         ...(selected.system === undefined ? {} : { system: selected.system }),
@@ -244,6 +287,7 @@ export async function createHostPlatform(
           runtimeData: configuration,
         },
         resolvedToolResultBudget: resolveScaledToolResultBudget(selected.contextWindow),
+        resolveProviderAuth: resolveAuth,
         tools,
         toolTimeoutMs: selected.toolTimeoutMs,
       };
@@ -260,7 +304,9 @@ export async function createHostPlatform(
         ...(policy.sessionGrants ? { sessionGrants: policy.sessionGrants } : {}),
       };
     },
-    resolveProviderAuth: resolveAuth,
+    resolveProviderAuth: async () => {
+      throw new Error('Desktop provider auth requires an admitted thread selection');
+    },
     startup,
   });
 }

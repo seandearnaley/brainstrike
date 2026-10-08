@@ -31,15 +31,22 @@ export async function encodePlatformAuth(
     });
   }
   if (auth?.kind === 'custom_fetch') {
-    throw new Error(
-      'The selected provider requires its interactive authenticated stream capability'
-    );
+    return { kind: 'custom_fetch' };
   }
   return PlatformAuthSchema.parse(auth ?? null);
 }
 
-export function decodePlatformAuth(input: unknown): ProviderAuthInput | undefined {
+export function decodePlatformAuth(
+  input: unknown,
+  fetch?: typeof globalThis.fetch
+): ProviderAuthInput | undefined {
   const auth = PlatformAuthSchema.parse(input);
+  if (auth?.kind === 'custom_fetch') {
+    if (!fetch) {
+      throw new Error('The selected provider has no admitted private fetch capability');
+    }
+    return { apiKey: 'brainstrike-private-provider-transport', fetch, kind: 'custom_fetch' };
+  }
   if (auth?.kind === 'aws' && 'identity' in auth) {
     const { accessKeyId, accountId, credentialScope, expiration, secretAccessKey, sessionToken } =
       auth.identity;

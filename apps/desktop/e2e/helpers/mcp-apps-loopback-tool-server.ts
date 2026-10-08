@@ -22,6 +22,8 @@ export interface LoopbackToolServer {
     prepare: (call: McpAppToolCall) => Promise<McpAppPreparedToolCall>
   ) => void;
   readonly origin: string;
+  readonly prepareFailures: () => readonly Readonly<{ message: string; stack?: string }>[];
+  readonly prepareRequests: () => number;
   readonly snapshot: () => LoopbackServerSnapshot;
 }
 
@@ -84,11 +86,14 @@ export async function createLoopbackToolServer(): Promise<LoopbackToolServer> {
   let activeRequests = 0;
   let completedRequests = 0;
   let totalRequests = 0;
+  const prepareFailures: Readonly<{ message: string; stack?: string }>[] = [];
+  let prepareRequests = 0;
 
   const handlePrepare = async (
     payload: Readonly<Record<string, unknown>>,
     response: ServerResponse
   ): Promise<void> => {
+    prepareRequests += 1;
     try {
       if (!admissionPreparer) {
         throw new Error('BST-1571 ordinary admission is unavailable');
@@ -123,7 +128,11 @@ export async function createLoopbackToolServer(): Promise<LoopbackToolServer> {
         riskCategory: prepared.riskCategory,
         token: preparationId,
       });
-    } catch {
+    } catch (error: unknown) {
+      prepareFailures.push({
+        message: String(error),
+        ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+      });
       reply(response, 400, { code: 'admission_rejected' });
     }
   };
@@ -295,6 +304,8 @@ export async function createLoopbackToolServer(): Promise<LoopbackToolServer> {
       admissionPreparer = prepare;
     },
     origin: `http://127.0.0.1:${address.port}`,
+    prepareFailures: () => [...prepareFailures],
+    prepareRequests: () => prepareRequests,
     snapshot: () => ({
       abortedRequests,
       activeRequests,

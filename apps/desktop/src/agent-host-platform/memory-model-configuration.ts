@@ -9,19 +9,20 @@ import {
 } from '@brainstrike/agent-host';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import type { z } from 'zod';
+import {
+  createDesktopHostMemoryVectorConfiguration,
+  type DesktopHostMemoryVectorCapabilities,
+} from './memory-vector-configuration';
 import type { PlatformSelectionSchema } from './platform-wire';
 
 /** Materialize public Memory options from the admitted, non-secret selection. */
 export async function createDesktopHostMemoryConfiguration(
   selection: z.output<typeof PlatformSelectionSchema>,
-  resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>
+  resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>,
+  vectors?: DesktopHostMemoryVectorCapabilities
 ): Promise<ProductionHostRunConfiguration['memory']> {
-  const { observationalMemory: observation, semanticRecall } = selection.memory.settings;
-  if (semanticRecall.enabled || (observation.enabled && observation.retrievalMode === 'vector')) {
-    throw new Error(
-      'This Root is missing the canonical Memory vector capability; requested settings preserved.'
-    );
-  }
+  const { observationalMemory: observation } = selection.memory.settings;
+  const vectorConfiguration = createDesktopHostMemoryVectorConfiguration(selection, vectors);
 
   let observationalMemory: NonNullable<
     ProductionHostRunConfiguration['memory']['native']['options']
@@ -61,16 +62,21 @@ export async function createDesktopHostMemoryConfiguration(
     };
   }
 
+  vectors?.signal.throwIfAborted();
   return {
     native: {
+      ...(vectorConfiguration.vectorBridge
+        ? { embedder: vectorConfiguration.embedder, vector: vectorConfiguration.vectorBridge }
+        : {}),
       options: {
         ...selection.memory.options,
         observationalMemory,
-        semanticRecall: false,
+        semanticRecall: vectorConfiguration.semanticRecall,
         workingMemory: { ...selection.memory.options.workingMemory },
       },
     },
     recordPrompt: async () => undefined,
     resourceId: selection.resourceId,
+    ...(vectorConfiguration.vectorBridge ? { vectorBridge: vectorConfiguration.vectorBridge } : {}),
   };
 }

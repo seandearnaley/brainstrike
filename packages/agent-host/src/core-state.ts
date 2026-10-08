@@ -14,6 +14,7 @@ export interface AcceptedCommand {
   readonly method: string;
   readonly payload: string;
   readonly result: Json;
+  readonly threadId: string;
 }
 
 /** Process-local attempts retain uncertainty; restart uses only committed records. */
@@ -21,6 +22,7 @@ export interface AttemptedCommand {
   readonly method: string;
   readonly payload: string;
   readonly settlement: Promise<Json>;
+  readonly threadId?: string;
 }
 
 /** Owned exclusively by HostCore, with no independent writer or admission queue. */
@@ -30,11 +32,34 @@ export class HostCommandLedger {
 
   commit(commandId: string, command: AcceptedCommand): void {
     this.accepted.set(commandId, command);
+    const attempt = this.attempts.get(commandId);
+    if (attempt) {
+      this.attempts.set(commandId, { ...attempt, threadId: command.threadId });
+    }
+  }
+
+  /** Erase process-local payloads only after their canonical thread deletion joined. */
+  forgetThread(threadId: string): readonly string[] {
+    const conversationCommands: string[] = [];
+    for (const [id, command] of this.accepted) {
+      if (command.threadId === threadId) {
+        if (command.method === 'run/start') {
+          conversationCommands.push(id);
+        }
+        this.accepted.delete(id);
+      }
+    }
+    for (const [id, command] of this.attempts) {
+      if (command.threadId === threadId) {
+        this.attempts.delete(id);
+      }
+    }
+    return conversationCommands;
   }
 
   async perform<T extends Json>(
     method: string,
-    params: { commandId: string },
+    params: { commandId: string; threadId?: string },
     perform: () => Promise<T>,
     repeat?: (result: T) => Promise<T>
   ): Promise<T> {
@@ -54,7 +79,12 @@ export class HostCommandLedger {
     }
     const settlement = Promise.withResolvers<Json>();
     settlement.promise.catch(() => undefined);
-    this.attempts.set(params.commandId, { method, payload, settlement: settlement.promise });
+    this.attempts.set(params.commandId, {
+      method,
+      payload,
+      settlement: settlement.promise,
+      ...(params.threadId ? { threadId: params.threadId } : {}),
+    });
     try {
       const value = await perform();
       settlement.resolve(value);
@@ -144,12 +174,14 @@ export function createHostRunState(
 export function foldHostAcceptedCommand(
   commands: HostCommandLedger,
   runs: ReadonlyMap<string, HostRunState>,
-  event: Extract<HostEvent, { type: 'command.accepted' }>
+  event: Extract<HostEvent, { type: 'command.accepted' }>,
+  threadId: string
 ): void {
   commands.commit(event.commandId, {
     method: event.method,
     payload: canonical(event.payload),
     result: event.result,
+    threadId,
   });
   if (event.method !== 'run/stop') {
     return;

@@ -7,6 +7,7 @@ import type { StateStore } from '@brainstrike/state-store';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import { MessageList } from '@mastra/core/agent';
 import { MastraCompositeStore } from '@mastra/core/storage';
+import { removeWorkingMemoryTags } from '@mastra/memory';
 import {
   type LanguageModel,
   type LanguageModelMiddleware,
@@ -21,6 +22,10 @@ import type { HostLogRow } from '../protocol.js';
 import { committedMemoryTranscript } from './committed-memory-transcript.js';
 import { HostMemory, type HostMemoryCapabilities, type HostMemoryIdentity } from './memory.js';
 import { StateStoreMemoryStorage } from './memory-storage.js';
+import {
+  StateStoreMemoryVector,
+  type StateStoreMemoryVectorOptions,
+} from './state-store-memory-vector.js';
 
 export interface StateStoreHostMemoryOptions {
   readonly native: Omit<HostMemoryCapabilities['native'], 'storage'>;
@@ -29,6 +34,8 @@ export interface StateStoreHostMemoryOptions {
   readonly recordPrompt: HostMemoryCapabilities['recordPrompt'];
   readonly resourceId: string;
   readonly store: StateStore;
+  /** Captured run bridge over the existing Root indexer, prepared before native embedding. */
+  readonly vectorBridge?: StateStoreMemoryVector;
 }
 
 /** The existing run owner encloses public Memory and its borrowed writer domain. */
@@ -43,8 +50,13 @@ export class StateStoreHostMemory implements HostRunOwner {
     private readonly readRows: () => Promise<HostLogRow[]>,
     private readonly providerContext: ProviderRequestContext | undefined,
     private readonly semanticRecall: boolean,
-    private readonly resourceRecall: boolean
+    private readonly resourceRecall: boolean,
+    private readonly vectorBridge: StateStoreMemoryVector | undefined
   ) {}
+
+  static createVectorBridge(options: StateStoreMemoryVectorOptions): StateStoreMemoryVector {
+    return new StateStoreMemoryVector(options);
+  }
 
   static async open(
     context: HostRunContext,
@@ -54,6 +66,13 @@ export class StateStoreHostMemory implements HostRunOwner {
     const semanticRecall = Boolean(recall);
     const resourceRecall =
       semanticRecall && !(typeof recall === 'object' && recall.scope === 'thread');
+    const vectorBridge = options.vectorBridge;
+    if (vectorBridge) {
+      vectorBridge.assertOwner(options.resourceId, context.threadId, context.signal);
+      if (options.native.vector !== vectorBridge) {
+        throw new Error('Native Memory must use its captured prepared vector bridge');
+      }
+    }
     if (
       semanticRecall &&
       (!(options.native.vector && options.native.embedder) ||
@@ -98,7 +117,8 @@ export class StateStoreHostMemory implements HostRunOwner {
       readRows,
       providerContext,
       semanticRecall,
-      resourceRecall
+      resourceRecall,
+      vectorBridge
     );
     try {
       await storage.init();
@@ -318,7 +338,14 @@ export class StateStoreHostMemory implements HostRunOwner {
     const current = committedMemoryTranscript(rows, this.identity.resourceId).filter((message) =>
       currentIds.has(message.id)
     );
-    await this.memory.commitStep(current);
+    if (this.semanticRecall && this.vectorBridge) {
+      const identities = committedVectorIdentities(rows, current);
+      await this.vectorBridge.withPreparedMessages(identities, () =>
+        this.memory.commitStep(current)
+      );
+    } else {
+      await this.memory.commitStep(current);
+    }
   }
 
   close(): Promise<void> {
@@ -329,6 +356,36 @@ export class StateStoreHostMemory implements HostRunOwner {
     })();
     return this.closing;
   }
+}
+
+function committedVectorIdentities(
+  rows: readonly HostLogRow[],
+  messages: readonly MastraDBMessage[]
+): { messageId: string; seq: number }[] {
+  const sources = new Map(rows.map((row) => [committedRowAddress(row), row]));
+  for (const row of rows) {
+    if (row.event.type === 'run.started') {
+      sources.set(committedRunIdentity(rows, row.event.runId).userMessageId, row);
+    }
+  }
+  return messages.filter(hasNativeEmbeddingText).map((message) => {
+    const row = sources.get(message.id);
+    if (!row || row.threadId !== message.threadId) {
+      throw new Error('Vector source has no canonical committed message sequence');
+    }
+    return { messageId: message.id, seq: row.seq };
+  });
+}
+
+/** Native saveMessages skips messages without text after its public WM sanitizer. */
+function hasNativeEmbeddingText(message: MastraDBMessage): boolean {
+  const content = message.content.content;
+  if (typeof content === 'string' && removeWorkingMemoryTags(content).trim()) {
+    return true;
+  }
+  return message.content.parts.some(
+    (part) => part.type === 'text' && Boolean(removeWorkingMemoryTags(part.text).trim())
+  );
 }
 
 /** Vendor metadata cannot authorize a Root thread for the acquired resource. */

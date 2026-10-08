@@ -78,6 +78,7 @@ export function bindHostConnection(
   });
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
+  handle('thread/delete', (params) => core.deleteThread(params));
   handle('thread/read', async (params) => ({
     rows: await core.read(params.threadId, params.fromSeq),
   }));

@@ -996,8 +996,8 @@ function reportNativeIndexActivationError(message: string, error: unknown): void
 const nativeIndexActivation = createNativeIndexActivation({
   agentHostPlatform: {
     platform: () =>
-      createDesktopPlatformPort(
-        productionDesktopCapabilities({ embeddingHostManager, nativeIndexSearch }, async () => {
+      createDesktopPlatformPort({
+        ...productionDesktopCapabilities({ embeddingHostManager, nativeIndexSearch }, async () => {
           const stored = await storage.getItem('permission-policy.v1');
           if (!stored) {
             return;
@@ -1008,8 +1008,11 @@ const nativeIndexActivation = createNativeIndexActivation({
           const { enforce, ...input } = envelope.state;
           const policy = platformPermissionPolicy(input);
           return { ...policy, yolo: policy.yolo || !enforce };
-        })
-      ),
+        }),
+        // BST-1977: app-owned host/stop released Root with the native writer live.
+        // Retiring the profile here would wait on this same Core close request.
+        closeRootCapabilities: () => nativeIndexActivation.closeRootCapabilities(),
+      }),
     platformModule: resolveBundledSiblingPath(
       'Agent host platform',
       'agent-host-platform-entry.js'

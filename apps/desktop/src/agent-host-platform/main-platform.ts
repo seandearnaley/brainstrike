@@ -6,6 +6,7 @@ import {
   validateCanonicalToolInput,
 } from '@brainstrike/agent-host';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
+import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import { encodePlatformAuth } from './platform-auth';
@@ -17,12 +18,15 @@ import {
   PlatformSelectionSchema,
   PlatformToolRequestSchema,
 } from './platform-wire';
+import { serveProviderFetchTransport } from './provider-fetch-transport';
 
 export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools'> {
   close(): Promise<void>;
   readonly tools: Readonly<Record<string, HostTool>>;
 }
 export interface DesktopPlatformCapabilities {
+  /** Join Main-owned Root borrowers before Core releases its canonical writer. */
+  closeRootCapabilities?(): Promise<void>;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
   readPermissionPolicy(
     threadId?: string
@@ -77,12 +81,50 @@ async function rejectPlatformSelection(
   throw cause;
 }
 
+interface DesktopSelectionOwner {
+  closing?: Promise<void>;
+  readonly selection: DesktopPlatformSelection;
+}
+
+async function closeDesktopProviderSelection(
+  borrowed: DesktopPlatformSelection,
+  auth: readonly Promise<ProviderAuthInput | undefined>[],
+  closeFetch: () => Promise<void>,
+  onClosed: () => void
+): Promise<void> {
+  // A cancelled requester can detach while the original credential-owner
+  // lookup is still settling. Join it before releasing its captured selection.
+  await Promise.allSettled(auth);
+  const failures: unknown[] = [];
+  for (const close of [closeFetch, () => borrowed.close()]) {
+    try {
+      await close();
+    } catch (cause) {
+      failures.push(cause);
+    }
+  }
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Desktop provider selection cleanup failed');
+  }
+  onClosed();
+}
+
 /** One private connection borrows existing owners; it constructs no platform store. */
 export function serveDesktopPlatform(
   connection: MessageConnection,
   capabilities: DesktopPlatformCapabilities
 ): { close(): Promise<void> } {
-  const selections = new Map<string, DesktopPlatformSelection>();
+  const selections = new Map<string, DesktopSelectionOwner>();
+  const authScopes = new Map<
+    string,
+    Map<
+      string,
+      { readonly original: Promise<ProviderAuthInput | undefined>; value?: ProviderAuthInput }
+    >
+  >();
   const admissions = new Set<string>();
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
@@ -113,10 +155,57 @@ export function serveDesktopPlatform(
   };
   const selection = (threadId: string): DesktopPlatformSelection => {
     const value = selections.get(threadId);
-    if (!value) {
+    if (!value || value.closing) {
       throw new Error('Platform thread has no admitted capabilities');
     }
-    return value;
+    return value.selection;
+  };
+  const providerFetch = serveProviderFetchTransport(connection, {
+    getFetch: ({ threadId, provider }) => {
+      selection(threadId);
+      const auth = authScopes.get(threadId)?.get(provider)?.value;
+      if (auth?.kind !== 'custom_fetch') {
+        throw new Error('Provider fetch has no captured auth capability for this admitted thread');
+      }
+      return auth.fetch;
+    },
+  });
+  const resolveAuth = (
+    threadId: string,
+    provider: string
+  ): Promise<ProviderAuthInput | undefined> => {
+    const admitted = selection(threadId);
+    const observation = admitted.memory.settings.observationalMemory;
+    if (
+      provider !== admitted.configuration.provider &&
+      (!observation.enabled ||
+        parseObservationalMemoryModelTarget(observation.modelTarget).provider !== provider)
+    ) {
+      throw new Error('Provider auth is not part of this admitted thread selection');
+    }
+    let scope = authScopes.get(threadId);
+    if (!scope) {
+      scope = new Map();
+      authScopes.set(threadId, scope);
+    }
+    let captured = scope.get(provider);
+    if (!captured) {
+      const next: {
+        readonly original: Promise<ProviderAuthInput | undefined>;
+        value?: ProviderAuthInput;
+      } = { original: Promise.resolve().then(() => capabilities.resolveProviderAuth(provider)) };
+      next.original.then(
+        (value) => {
+          if (value !== undefined) {
+            next.value = value;
+          }
+        },
+        () => undefined
+      );
+      captured = next;
+      scope.set(provider, captured);
+    }
+    return captured.original;
   };
   connection.onRequest('platform/policy', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
@@ -141,9 +230,22 @@ export function serveDesktopPlatform(
           signal,
           threadId: request.threadId,
         });
-        let joined: Promise<void> | undefined;
-        captured = { ...borrowed, close: () => (joined ??= borrowed.close()) };
-        selections.set(request.threadId, captured);
+        const owner: DesktopSelectionOwner = {
+          selection: {
+            ...borrowed,
+            close: () =>
+              (owner.closing ??= closeDesktopProviderSelection(
+                borrowed,
+                [...(authScopes.get(request.threadId)?.values() ?? [])].map(
+                  (auth) => auth.original
+                ),
+                () => providerFetch.release(request.threadId),
+                () => authScopes.delete(request.threadId)
+              )),
+          },
+        };
+        captured = owner.selection;
+        selections.set(request.threadId, owner);
         signal.throwIfAborted();
         return await describePlatformSelection(captured);
       } catch (cause) {
@@ -164,7 +266,7 @@ export function serveDesktopPlatform(
       const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);
       const captured = selections.get(threadId);
       if (captured) {
-        await captured.close();
+        await captured.selection.close();
         selections.delete(threadId);
       }
     })
@@ -197,8 +299,10 @@ export function serveDesktopPlatform(
     'platform/auth',
     (input: unknown, token: CancellationToken): Promise<unknown> =>
       execute(token, async () => {
-        const { provider } = z.strictObject({ provider: z.string().min(1) }).parse(input);
-        const auth = await capabilities.resolveProviderAuth(provider);
+        const { provider, threadId } = z
+          .strictObject({ provider: z.string().min(1), threadId: z.string().min(1) })
+          .parse(input);
+        const auth = await resolveAuth(threadId, provider);
         // Closures are never dropped or silently replaced at this private boundary.
         return encodePlatformAuth(auth);
       })
@@ -266,9 +370,13 @@ export function serveDesktopPlatform(
         await Promise.allSettled([...pending]);
       }
       const results = await Promise.allSettled(
-        [...selections.values()].map((value) => value.close())
+        [...selections.values()].map((value) => value.selection.close())
       );
-      const failures = results.flatMap((result) =>
+      const root = await Promise.allSettled([
+        providerFetch.close(),
+        Promise.resolve().then(() => capabilities.closeRootCapabilities?.()),
+      ]);
+      const failures = [...results, ...root].flatMap((result) =>
         result.status === 'rejected' ? [result.reason] : []
       );
       if (failures.length > 0) {

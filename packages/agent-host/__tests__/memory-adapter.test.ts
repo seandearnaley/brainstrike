@@ -295,6 +295,92 @@ test('actual SDK provider AbortError is expected while original cancel AbortErro
   await secondResult.stream.cancel().catch(() => undefined);
 });
 
+test.each(['v1', 'v2', 'v3'] as const)(
+  'concrete %s embedding joins an abort-ignoring provider and preserves caller metadata',
+  async (specificationVersion) => {
+    const controller = new AbortController();
+    const caller = new AbortController();
+    const entered = Promise.withResolvers<AbortSignal | undefined>();
+    const release = Promise.withResolvers<void>();
+    const lifetime = new MemoryProviderLifetime(controller.signal, async () => undefined);
+    let retired = false;
+    const seen: unknown[] = [];
+    const embedding = lifetime.embedding({
+      doEmbed: async (params: {
+        readonly abortSignal?: AbortSignal;
+        readonly headers?: Record<string, string | undefined>;
+        readonly values: string[];
+      }) => {
+        seen.push(params);
+        entered.resolve(params.abortSignal);
+        await release.promise;
+        retired = true;
+        return { embeddings: [[1]], usage: { tokens: 7 }, warnings: [] };
+      },
+      maxEmbeddingsPerCall: 1,
+      modelId: 'held-embedding-fixture',
+      provider: 'local-fixture',
+      specificationVersion,
+      supportsParallelCalls: false,
+    });
+    const result = embedding.doEmbed({
+      abortSignal: caller.signal,
+      headers: { 'x-fixture': 'preserved' },
+      values: ['held provider'],
+    });
+    const outcome = Promise.resolve(result).catch((cause: unknown) => cause);
+    try {
+      const signal = await entered.promise;
+      expect(signal).toBeDefined();
+      expect(embedding.modelId).toBe('held-embedding-fixture');
+      expect(seen).toEqual([
+        expect.objectContaining({
+          headers: { 'x-fixture': 'preserved' },
+          values: ['held provider'],
+        }),
+      ]);
+      controller.abort(new Error('Embedding owner Stop'));
+      expect(signal?.aborted).toBe(true);
+      let joined = false;
+      const closing = lifetime.join().then(() => {
+        joined = true;
+      });
+      await nextTurn();
+      expect(joined).toBe(false);
+      expect(retired).toBe(false);
+      release.resolve();
+      expect(lifetime.ownsCancellation(await outcome)).toBe(true);
+      await closing;
+      expect(retired).toBe(true);
+    } finally {
+      release.resolve();
+      await outcome;
+      await lifetime.join();
+    }
+  }
+);
+
+test.each(['same-reason', 'independent-abort'] as const)(
+  'close retains %s cleanup failure after owner cancellation',
+  async (kind) => {
+    const failure = new DOMException('Independent native cleanup failure', 'AbortError');
+    const f = await fixture({
+      joinNativeLifetime: async () => {
+        throw kind === 'same-reason' ? f.controller.signal.reason : failure;
+      },
+    });
+    f.controller.abort(kind === 'same-reason' ? failure : new Error('Native cleanup owner Stop'));
+    try {
+      await expect(f.adapter.close()).rejects.toMatchObject({
+        errors: expect.arrayContaining([failure]),
+      });
+    } finally {
+      await f.adapter.close().catch(() => undefined);
+      await f.storage.close();
+    }
+  }
+);
+
 test('native foreground observer accepts the actual SDK AbortError from its stopped provider', async () => {
   const entered = Promise.withResolvers<void>();
   const model = new MockLanguageModelV4({

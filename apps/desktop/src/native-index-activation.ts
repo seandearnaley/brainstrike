@@ -56,6 +56,7 @@ import {
 } from './native-index-settings';
 import { createNativeSourceInventory } from './native-index-source-inventory';
 import {
+  joinNativeSourceRetirement,
   type NativeIndexSources,
   retireNativeIndexSources,
 } from './native-index-source-retirement';
@@ -801,17 +802,14 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   };
   const stopSources = async (): Promise<void> => {
     const pending = fenceTerminal();
-    const source = stopSourcesOwned();
-    const outcomes = await Promise.allSettled([source, pending]);
-    // Transition startup failures remain observed by their caller; physical cleanup must still succeed.
-    const result = outcomes[0];
-    if (result?.status === 'rejected') {
-      throw result.reason;
-    }
+    return joinNativeSourceRetirement(stopSourcesOwned(), pending);
   };
-  const close = async (): Promise<void> => {
+  const closeRootCapabilities = async (): Promise<void> => {
     await stopSources();
     await closeOwned();
+  };
+  const close = async (): Promise<void> => {
+    await closeRootCapabilities();
     await runtime.retireProfile();
   };
   const destroyAndRetireProfile = async (): Promise<void> => {
@@ -992,6 +990,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       };
     },
     close,
+    closeRootCapabilities,
     destroyAndRetireProfile,
     getReadiness: () => (graph ? catalogReadiness(graph) : []),
     getSearchAuthority: readAuthority.getSearchAuthority,

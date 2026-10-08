@@ -1,7 +1,7 @@
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 
-export const AGENT_HOST_PROTOCOL_VERSION = 7;
+export const AGENT_HOST_PROTOCOL_VERSION = 8;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
@@ -88,6 +88,8 @@ export const HOST_METHOD_SCHEMAS = {
     prompt: Id,
   }),
   'run/stop': z.strictObject({ ...Command, ...Run }),
+  /** Destructive Root lifecycle; the existing StateStore intent owns recovery. */
+  'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
   'thread/start': z.strictObject(Command),
@@ -206,6 +208,7 @@ export const HOST_RESULT_SCHEMAS = {
   'log/unsubscribe': z.strictObject({ unsubscribed: z.literal(true) }),
   'run/start': z.strictObject({ runId: Id }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
+  'thread/delete': z.strictObject({ deleted: z.literal(true) }),
   'thread/list': z.strictObject({ threads: z.array(z.strictObject(Thread)) }),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   'thread/start': z.strictObject(Thread),
