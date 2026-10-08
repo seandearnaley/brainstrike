@@ -7,11 +7,11 @@ import type {
   GlobWorkspaceToolResult,
   GrepToolResult,
 } from '@brainstrike/host-capabilities/native-tools';
-import { describe, expect, it } from 'vitest';
 import {
   attachGlobWorkspaceTelemetry,
   attachGrepSearchTelemetry,
-} from '../../assistant-server/tool-call-telemetry';
+} from '@brainstrike/host-capabilities/native-tools';
+import { describe, expect, it } from 'vitest';
 
 describe('search tool-call telemetry extraction', () => {
   it('keeps truncated = output clipping only and reports substrate flags separately (BST-1247)', () => {

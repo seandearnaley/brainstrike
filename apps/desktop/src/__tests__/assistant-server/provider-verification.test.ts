@@ -1,11 +1,12 @@
 import { listProviders, type ProviderCredential } from '@brainstrike/assistant-contract';
-import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 import {
   createProviderVerificationService,
   listApiKeyProbeProviderIds,
   MissingProviderCredentialError,
   UnknownVerificationProviderError,
-} from '../../assistant-server/provider-verification';
+  UnsupportedVerificationCredentialError,
+} from '@brainstrike/host-capabilities/provider-verification';
+import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 
 const FAKE_KEY = 'sk-super-secret-test-key-000';
 
@@ -859,5 +860,49 @@ describe('ProviderVerificationService routing and caching', () => {
       const snapshot = await service.verify(provider);
       expect(JSON.stringify(snapshot)).not.toContain(FAKE_KEY);
     }
+  });
+});
+
+describe('ProviderVerificationService subscription sign-in', () => {
+  it("answers from the host's refresher without reading the sign-in in Main", async () => {
+    const readCredential = vi.fn(() => Promise.resolve(apiKeyCredential()));
+    const verifySubscriptionSession = vi.fn(async () => ({ ok: true }) as const);
+    const fetchImpl = vi.fn<typeof fetch>();
+    const service = createProviderVerificationService({
+      env: {},
+      fetchImpl,
+      now: () => 1_000_000,
+      readCredential,
+      verifySubscriptionSession,
+    });
+
+    await expect(service.verify('openai-codex')).resolves.toMatchObject({
+      freshness: 'live',
+      result: { status: 'verified_limited' },
+    });
+    expect(verifySubscriptionSession).toHaveBeenCalledWith('openai-codex');
+    expect(readCredential).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('reports a disconnected or revoked sign-in as invalid', async () => {
+    const service = createProviderVerificationService({
+      env: {},
+      now: () => 1_000_000,
+      readCredential: () => Promise.resolve(undefined),
+      verifySubscriptionSession: async () => ({ ok: false, status: 'reconnect_required' }),
+    });
+
+    await expect(service.verify('openai-codex')).resolves.toMatchObject({
+      result: { status: 'invalid' },
+    });
+  });
+
+  it('fails closed without the host verifier', async () => {
+    const { service } = createService();
+
+    await expect(service.verify('openai-codex')).rejects.toBeInstanceOf(
+      UnsupportedVerificationCredentialError
+    );
   });
 });

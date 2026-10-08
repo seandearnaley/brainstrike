@@ -1,4 +1,9 @@
-import type { ProviderAuthInput, RuntimeData } from '@brainstrike/agent/provider-runtime';
+import type {
+  LocalEmbeddingHostClient,
+  LocalLlmHostClient,
+  ProviderAuthInput,
+  RuntimeData,
+} from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
   canonicalToolModelOutput,
@@ -11,10 +16,13 @@ import {
   type ProductionHostRunConfiguration,
   platformToolInputSchema,
 } from '@brainstrike/agent-host';
-import { findProviderDefinition, type SupportedProvider } from '@brainstrike/assistant-contract';
+import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
+import { createHostRunHooks, getGlobalHooksPath } from '@brainstrike/host-capabilities/hooks';
 import { createDesktopNodeMcpHost } from '@brainstrike/host-capabilities/mcp/desktop-node-mcp';
+import { MCP_STORE_METHODS } from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
 import {
   forgetSharedNativeToolThread,
   ReadWorkspaceFileCursorRegistry,
@@ -23,17 +31,19 @@ import {
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
+import { disposeLiveChildProcesses } from '../assistant-server/execute-command-tool';
+import { disposeLspServers } from '../assistant-server/lsp-diagnostics';
 import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
-import { decodePlatformAuth } from './platform-auth';
 import {
+  PlatformLocalEmbeddingResultSchema,
+  PlatformLocalGenerationResultSchema,
   PlatformPolicySchema,
   PlatformProgressSchema,
   PlatformSelectionSchema,
 } from './platform-wire';
-import { createProviderFetchTransport } from './provider-fetch-transport';
 
 type PlatformSelection = z.output<typeof PlatformSelectionSchema>;
 
@@ -77,29 +87,58 @@ function desktopRuntimeConfiguration(
   };
 }
 
+type PlatformRequest = (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
+
+/**
+ * ADR-0007: Node never runs local inference. A thread's admitted local observer
+ * and recall embedder borrow Main's hidden hosts; JSON-RPC cancellation carries
+ * the caller's signal.
+ */
+function borrowedLocalInference(
+  request: PlatformRequest,
+  threadId: string
+): { readonly embedding: LocalEmbeddingHostClient; readonly llm: LocalLlmHostClient } {
+  return {
+    embedding: {
+      queryEmbedding: async ({ query }, options) =>
+        PlatformLocalEmbeddingResultSchema.parse(
+          await request('platform/embedding/query', { query, threadId }, options?.signal)
+        ).embedding,
+    },
+    llm: {
+      generate: async (generation, options) =>
+        PlatformLocalGenerationResultSchema.parse(
+          await request('platform/llm/generate', { ...generation, threadId }, options?.signal)
+        ),
+      warmup: async (modelId, options) => {
+        await request('platform/llm/warmup', { modelId, threadId }, options?.signal);
+      },
+    },
+  };
+}
+
 /** Electron-free production entry: Node owns the model loop, Memory and committed log. */
 export async function createHostPlatform(
   _options: HostStartOptions,
   startup: HostStartupContext,
   platformOptions?: HostPlatformLaunchOptions
 ): Promise<HostPlatform> {
-  // Provider credentials resolve here, in Node, from the profile store Main's
-  // Settings writes. Only subscription OAuth still borrows Main's engine.
+  const port = await parentPlatformPort();
+  const connection = mainPlatformConnection(port);
+  // The profile's one credential authority: the single writer, token holder and
+  // OAuth refresher. Main lends only its validated browser opener.
   const host = await createHostCapabilities({
     env: process.env,
     launch: platformOptions,
+    openExternal: async (url) => {
+      await request(MCP_STORE_METHODS.openExternal, { url });
+    },
     startup,
   });
-  const port = await parentPlatformPort();
-  const connection = mainPlatformConnection(port);
   const executions = new Map<string, HostToolContext & { readonly toolId: string }>();
   // One host-lifetime registry; its handles are scoped to their thread.
   const readFileCursorRegistry = new ReadWorkspaceFileCursorRegistry();
-  const request = async (
-    method: string,
-    input: unknown,
-    signal?: AbortSignal
-  ): Promise<unknown> => {
+  const request: PlatformRequest = async (method, input, signal) => {
     signal?.throwIfAborted();
     const cancellation = new CancellationTokenSource();
     const cancel = (): void => cancellation.cancel();
@@ -126,18 +165,27 @@ export async function createHostPlatform(
     port.close();
   });
   // The desktop's one MCP runtime: host-thread MCP tools run here, beside Core.
+  // Its servers connect after readiness, so bearer reads wait for a pending
+  // legacy import like every other credential use.
   const mcpHost = await createDesktopNodeMcpHost(connection, request, startup, () =>
-    host.credentials.secrets()
+    host.auth.secrets()
   );
   await startup.register(() => mcpHost.close());
   return createProductionHostPlatform({
+    auth: host.auth,
     close: async () => {
       // MCP cleanup still writes through Main's stores, so it joins before Main closes.
       await mcpHost.close();
+      // The language servers and command trees this host spawned.
+      await disposeLspServers();
+      disposeLiveChildProcesses();
       await request('platform/close', {});
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     mcp: mcpHost.services.mcp,
+    // Main admits every desktop run under the workspace memory resource.
+    memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
+    providers: host.providers,
     readConfiguration: async (admission) => {
       const response = await request(
         'platform/admit',
@@ -146,6 +194,7 @@ export async function createHostPlatform(
           ...(admission.snapshot ? { snapshot: admission.snapshot } : {}),
           ...(admission.workspaceBinding ? { workspaceBinding: admission.workspaceBinding } : {}),
           modelId: admission.modelId,
+          ...(admission.planMode ? { planMode: true } : {}),
           ...(admission.prompt === undefined ? {} : { prompt: admission.prompt }),
           threadId: admission.threadId,
         },
@@ -156,66 +205,26 @@ export async function createHostPlatform(
       );
       const configuration = desktopRuntimeConfiguration(selected);
       const provider = configuration.provider;
-      const fetchScopes = new Map<string, ReturnType<typeof createProviderFetchTransport>>();
       let closing: Promise<void> | undefined;
-      const resolveAuth = async (
-        selectedProvider: string
-      ): Promise<ProviderAuthInput | undefined> => {
+      // Every provider resolves here, in Node, for this admission's client origin:
+      // subscription auth refuses anything but the private desktop client
+      // (signed legal gate, constraint 4), including restart recovery.
+      const resolveAuth = (selectedProvider: string): Promise<ProviderAuthInput | undefined> => {
         if (closing) {
-          throw new Error('Private provider selection is closing');
+          throw new Error('Provider selection is closing');
         }
-        if (findProviderDefinition(selectedProvider)?.authType !== 'oauth_subscription') {
-          return await host.resolveProviderAuth(selectedProvider);
-        }
-        // Signed legal gate, constraint 4: subscription auth only for a run a
-        // visible desktop client admitted. CLI and other socket clients, and
-        // restart recovery with no live client, fail closed.
-        if (admission.origin !== 'desktop-ui') {
-          throw new Error(
-            'The ChatGPT subscription provider is available only to runs started from an interactive desktop window.'
-          );
-        }
-        const response = await request(
-          'platform/auth',
-          { provider: selectedProvider, threadId: admission.threadId },
-          admission.signal
-        );
-        if (closing) {
-          throw new Error('Private provider selection closed during auth lookup');
-        }
-        let captured = fetchScopes.get(selectedProvider);
-        if (!captured) {
-          captured = createProviderFetchTransport(connection, {
-            provider: selectedProvider,
-            threadId: admission.threadId,
-          });
-          fetchScopes.set(selectedProvider, captured);
-        }
-        return decodePlatformAuth(response, captured.fetch);
+        return host.auth.resolveProviderAuth(selectedProvider, admission.origin);
       };
       const closeSelection = (): Promise<void> =>
-        (closing ??= (async () => {
-          const results = await Promise.allSettled(
-            [...fetchScopes.values()].map((captured) => captured.close())
-          );
-          const failures = results.flatMap((result) =>
-            result.status === 'rejected' ? [result.reason] : []
-          );
-          try {
-            await request('platform/release', { threadId: admission.threadId });
-          } catch (cause) {
-            failures.push(cause);
-          }
-          if (failures.length > 0) {
-            if (failures.length === 1) {
-              throw failures[0];
-            }
-            throw new AggregateError(failures, 'Private provider selection cleanup failed');
-          }
-        })());
+        (closing ??= request('platform/release', { threadId: admission.threadId }).then(
+          () => undefined
+        ));
       let memory: ProductionHostRunConfiguration['memory'];
       try {
-        memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth);
+        memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth, {
+          ...borrowedLocalInference(request, admission.threadId),
+          signal: admission.signal,
+        });
       } catch (cause) {
         try {
           await closeSelection();
@@ -328,10 +337,22 @@ export async function createHostPlatform(
           ])
       );
       Object.assign(tools, shared);
+      // Global hooks run as configured; a root's project file stays untrusted
+      // (and is reported, not run) until the host owns its approval.
+      const hooks = createHostRunHooks({
+        globalPath: getGlobalHooksPath(),
+        maxHookTimeoutMs: selected.toolTimeoutMs,
+        roots: (selected.workspace?.roots ?? []).map((root) => ({
+          absPath: root.path,
+          rootId: root.rootId,
+        })),
+        sessionId: admission.threadId,
+      });
       return {
         close: closeSelection,
         configuration,
         durableConfiguration: selected.durableConfiguration,
+        ...(hooks ? { hooks } : {}),
         ...(selected.system === undefined ? {} : { system: selected.system }),
         maxSteps: selected.maxSteps,
         memory,
@@ -368,7 +389,6 @@ export async function createHostPlatform(
         .parse(await request('platform/workspace/root', { rootId }, signal)),
     selectProjectionRewrites: selectHostProjectionRewrites,
     startup,
-    storeProviderCredential: host.storeProviderCredential,
     validateWorkspaceBinding: async ({ binding, signal, threadId }) => {
       z.strictObject({ accepted: z.literal(true) }).parse(
         await request('platform/workspace/validate', { binding, threadId }, signal)

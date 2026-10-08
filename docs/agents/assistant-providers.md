@@ -310,10 +310,19 @@ through enclosing close and prevent Root release.
   reaching an `@ai-sdk` module drags a Node HTTP stack into the renderer bundle
   (R2 in `docs/agents/mastra-boundary.md`).
 
+**Desktop provider reads are host methods.** The agent host answers
+`host/status`, `providers/verify` and `providers/openrouter-model` over the
+window's desktop-ui port, reading its own environment and credential store
+(`packages/host-capabilities/src/provider-services.ts`). Keys never cross the
+protocol. A subscription probe needs the desktop origin and asks the host's one
+refresher (`auth/verify`). Env-file rejections reach the host as a launch
+option. Main's HTTP routes for the same reads remain only until its server is
+deleted; the desktop renderer never calls them.
+
 **OpenRouter model metadata.**
 
-- Desktop exposes `GET /assistant/openrouter-model?model=<provider/model>`: it
-  resolves the stored key in main, validates exact model identity, positive
+- The metadata service (`packages/host-capabilities/src/openrouter-model-metadata.ts`)
+  resolves the stored key, validates exact model identity, positive
   context/output limits, bounded supported parameters and the full reasoning
   object, and keeps a bounded five-minute cache. A refresh failure may return a
   prior snapshot only as explicit `stale-cache` data with a warning; a first
@@ -616,9 +625,10 @@ Guard: `packages/agent/src/__tests__/{provider-factory.auth-input,runtime-config
   digest), 10s fetch-and-body timeout even if abort is ignored, NO retries.
   Only `verified`/`verified_limited` earn the 60s success TTL; failures get
   a 3s click-storm cache. Sample the timestamp AFTER the probe resolves.
-- Exposed as `GET /assistant/verify-provider?provider=<id>` behind the same
-  origin/auth gates as the metadata endpoint. The renderer sends only the
-  provider id; credentials resolve main-side through the typed reader.
+- Desktop asks the host (`providers/verify`). The HTTP client
+  `GET /assistant/verify-provider?provider=<id>` serves a shell with no host
+  capability. Either way the client sends only the provider id and the
+  credential resolves where the keys live.
 - The renderer seam `verifyProviderCredential`
   (`packages/app-shell/src/verify-provider-credential.ts`) is a plain async
   FUNCTION, not a hook: settings-ui owns the probe UI but cannot import

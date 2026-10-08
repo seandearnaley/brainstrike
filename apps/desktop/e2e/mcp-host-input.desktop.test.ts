@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { readAgentHostLog } from './utils/agent-host-log';
+import { readAgentHostLog, readCommittedMcpTasks, readCommittedRuns } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { startPendingInputFixture } from './utils/mcp-pending-input-fixture';
@@ -123,6 +123,13 @@ test('a host-run MCP server input is presented once and answered once through Co
     const pending = await readAgentHostLog(electron.getUserDataDir());
     expect(pending.mcpInputs).toEqual([{ type: 'mcp.input.requested' }]);
     await expect(dialog).toHaveCount(1);
+    // The host's StateStore holds the task, bound to the thread whose run created it.
+    const [stored, ...others] = await readCommittedMcpTasks(electron.getUserDataDir());
+    expect(others).toEqual([]);
+    expect(stored).toMatchObject({ status: 'input_required', threadId: expect.any(String) });
+    expect(await readCommittedRuns(electron.getUserDataDir(), stored?.threadId ?? '')).toHaveLength(
+      1
+    );
     // The Tasks list the renderer reads is the same runtime's task.
     const tasks = await readTasks(page);
     expect(tasks).toHaveLength(1);

@@ -30,6 +30,11 @@ export {
   CheckpointTurnRevertControl,
 } from './checkpoint-turn-revert';
 export {
+  type CommittedApprovalGrant,
+  committedApprovalGrant,
+  committedApprovalOptions,
+} from './committed-approval-options';
+export {
   CommittedAssistantConversation,
   type CommittedAssistantConversationProps,
 } from './committed-assistant-conversation';
@@ -38,6 +43,7 @@ export {
   type CommittedAssistantLogProjectionOptions,
   type CommittedAssistantLogRow,
   type CommittedAssistantLogView,
+  type CommittedAssistantPendingInteraction,
   type CommittedAssistantRunIdentity,
 } from './committed-assistant-log-projection';
 export {

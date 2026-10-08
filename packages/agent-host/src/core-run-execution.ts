@@ -303,6 +303,7 @@ async function runHostSdkAttempt(
   const outcome = new HostRunOutcome(run.admission?.configuration, run.modelId, resumed);
   let interrupted = false;
   let checkpointFailure: unknown;
+  let ownerStepFailure: unknown;
   let maxAttempts: number | undefined;
   run.paused = false;
   const initialMessages = hostRunContext(ports.runs, run);
@@ -360,9 +361,19 @@ async function runHostSdkAttempt(
           }
           recordedInputLength += step.response.messages.length;
           outcome.stepCommitted(step);
-          await owner?.commitHostStep?.();
         } catch (cause) {
           checkpointFailure = cause;
+          run.controller.abort(cause);
+          return;
+        }
+        try {
+          await owner?.commitHostStep?.();
+        } catch (cause) {
+          // The step is committed; its owner (Memory) failed to take it. That
+          // ends the run as failed with the owner's detail, not a lost
+          // checkpoint, and a non-provider failure is never re-attempted.
+          ownerStepFailure = cause;
+          outcome.fail(cause);
           run.controller.abort(cause);
         }
       },
@@ -426,6 +437,10 @@ async function runHostSdkAttempt(
   } catch (cause) {
     interrupted = cause instanceof ApprovalInputReconstructionError;
     outcome.fail(cause);
+  }
+  if (ownerStepFailure !== undefined) {
+    // The abort that follows reaches the stream as its own error; keep the owner's.
+    outcome.fail(ownerStepFailure);
   }
   return { checkpointFailure, interrupted, maxAttempts, outcome };
 }

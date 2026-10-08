@@ -1,13 +1,14 @@
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SecretReadError, type SecretsService } from '@brainstrike/agent-host/credential-contract';
+import type { HostLegacyImport, HostLoginCredential } from '@brainstrike/agent-host/protocol';
+import type { ProviderCredential } from '@brainstrike/assistant-contract';
 import {
   createHostCredentials,
   type HostCredentialStoreSelection,
   type HostCredentials,
   type LegacySecretMigrationReport,
   type LegacySecretSource,
-  migrateLegacySecrets,
 } from '@brainstrike/host-capabilities/credentials';
 import { app, safeStorage } from 'electron';
 import { z } from 'zod';
@@ -23,10 +24,10 @@ export {
 export type { ProviderCredential, SecretReadErrorCode } from '@brainstrike/assistant-contract';
 
 /**
- * The profile's credential store, shared by Main and the forked agent host.
- * Production uses the OS keyring under a profile-scoped service; isolated test
- * runs use a private file inside their disposable profile and never reach the
- * OS keychain.
+ * The profile's credential store: the forked agent host is its writer and Main
+ * reads it. Production uses the OS keyring under a profile-scoped service;
+ * isolated test runs use a private file inside their disposable profile and
+ * never reach the OS keychain.
  */
 export function desktopCredentialStoreSelection(
   userData: string = app.getPath('userData'),
@@ -39,43 +40,139 @@ export function desktopCredentialStoreSelection(
 }
 
 let desktopCredentials: HostCredentials | undefined;
-let legacyMigration: Promise<LegacySecretMigrationReport> | undefined;
 
 function getDesktopCredentials(): HostCredentials {
   desktopCredentials ??= createHostCredentials({ selection: desktopCredentialStoreSelection() });
   return desktopCredentials;
 }
 
-/**
- * The one-time move of the retired safeStorage entries into the profile's
- * store, started once. Every credential operation in Main and the forked host
- * waits for it; a conflict or decrypt failure keeps the legacy copy and every
- * credential operation rejects with that failure.
- */
-export function migrateDesktopLegacySecrets(): Promise<LegacySecretMigrationReport> {
-  legacyMigration ??= migrateLegacySecrets({
-    destination: getDesktopCredentials().store(),
-    source: createSafeStorageLegacySecretSource(),
-  });
-  return legacyMigration;
+/** Hands the decrypted retired store to the host this app launched (`auth/import-legacy`). */
+export type DesktopLegacyImporter = (
+  input: HostLegacyImport
+) => Promise<LegacySecretMigrationReport>;
+
+let legacyImporter: DesktopLegacyImporter | undefined;
+let legacyImport:
+  | { readonly promise: Promise<LegacySecretMigrationReport>; settled: boolean }
+  | undefined;
+
+/** Desktop composition installs the host import once, before the first credential use. */
+export function installDesktopLegacyImporter(importer: DesktopLegacyImporter): void {
+  legacyImporter = importer;
 }
 
-/** One Main-process authority over the selected store (Settings, OAuth engine, MCP bearer). */
+/** Whether the retired store still holds entries; read without decrypting. */
+export async function desktopLegacySecretsPending(
+  file: string = defaultLegacySecretsFile()
+): Promise<boolean> {
+  return Object.keys((await readLegacySecretsFile(file))?.secrets ?? {}).length > 0;
+}
+
+async function runDesktopLegacyImport(): Promise<LegacySecretMigrationReport> {
+  const source = createSafeStorageLegacySecretSource();
+  let entries: Awaited<ReturnType<LegacySecretSource['entries']>>;
+  try {
+    entries = await source.entries();
+  } catch (cause) {
+    // The host holds credential use until it hears; an unreadable store is its answer too.
+    await legacyImporter?.({
+      unavailable: cause instanceof Error ? cause.message : String(cause),
+    }).catch(() => undefined);
+    throw cause;
+  }
+  if (entries.length === 0) {
+    return { alreadyPresent: 0, migrated: 0 };
+  }
+  if (!legacyImporter) {
+    throw new Error('The retired credential store can only be imported through the agent host');
+  }
+  const report = await legacyImporter({
+    entries: entries.map(({ account, value }) => ({ account, value })),
+  });
+  // Retired only after the host verified every entry, which also records completion.
+  await source.retire();
+  return report;
+}
+
+/**
+ * The one-time move of the retired safeStorage entries into the profile store.
+ * Only Main can decrypt them; the host, their only writer, imports them once
+ * it is ready. Main's credential reads join this import. A host launched
+ * while entries remained holds its own credential use until it hears, so a
+ * relaunched host (`afterHostLaunch`) is told again after a failed import.
+ */
+export function importDesktopLegacySecrets(
+  options: { readonly afterHostLaunch?: boolean } = {}
+): Promise<LegacySecretMigrationReport> {
+  if (legacyImport && !(options.afterHostLaunch && legacyImport.settled)) {
+    return legacyImport.promise;
+  }
+  const current = { promise: runDesktopLegacyImport(), settled: false };
+  const settle = (): void => {
+    current.settled = true;
+  };
+  current.promise.then(settle, settle);
+  legacyImport = current;
+  return current.promise;
+}
+
+/** The host's credential writes Settings forwards to; the host is their only writer. */
+export interface DesktopCredentialWriter {
+  clear(): Promise<boolean>;
+  deleteCredential(account: string): Promise<boolean>;
+  setCredential(account: string, credential: HostLoginCredential): Promise<void>;
+}
+
+function awaitingMigration<T>(operation: () => Promise<T>): Promise<T> {
+  return importDesktopLegacySecrets().then(operation);
+}
+
+/**
+ * Main's read-only view of the profile store (Settings listing, hosted
+ * embeddings, tool and MCP keys). Subscription tokens stay with the host's one
+ * refresher, so an OAuth entry reads as `credential_type_unsupported`. Writes
+ * refuse: Settings changes go through {@link createDesktopSettingsSecrets}.
+ */
 export function getSecretsService(): SecretsService {
   const service = getDesktopCredentials().secrets();
-  const migrated = async <T>(operation: () => Promise<T>): Promise<T> => {
-    await migrateDesktopLegacySecrets();
-    return operation();
+  const refuseWrite = async (): Promise<never> => {
+    throw new Error('Main reads credentials only; the agent host owns every credential write');
   };
   return {
-    clearAll: () => migrated(() => service.clearAll()),
-    deleteKey: (provider) => migrated(() => service.deleteKey(provider)),
-    getCredential: (provider) => migrated(() => service.getCredential(provider)),
-    getKey: (provider) => migrated(() => service.getKey(provider)),
-    listProviders: () => migrated(() => service.listProviders()),
-    saveKey: (provider, value) => migrated(() => service.saveKey(provider, value)),
-    setCredential: (provider, credential) =>
-      migrated(() => service.setCredential(provider, credential)),
+    clearAll: refuseWrite,
+    deleteKey: refuseWrite,
+    getCredential: (provider) =>
+      awaitingMigration(async () => {
+        const credential = await service.getCredential(provider);
+        if (credential?.type === 'oauth') {
+          throw new SecretReadError('credential_type_unsupported', provider);
+        }
+        return credential;
+      }),
+    getKey: (provider) => awaitingMigration(() => service.getKey(provider)),
+    listProviders: () => awaitingMigration(() => service.listProviders()),
+    saveKey: refuseWrite,
+    setCredential: refuseWrite,
+  };
+}
+
+/** Settings: Main's reads plus writes through the host's private desktop client. */
+export function createDesktopSettingsSecrets(writer: DesktopCredentialWriter): SecretsService {
+  const reads = getSecretsService();
+  const write = (account: string, credential: ProviderCredential): Promise<boolean> =>
+    awaitingMigration(async () => {
+      if (credential.type === 'oauth') {
+        throw new Error('Subscription sign-in is stored only by the host sign-in flow');
+      }
+      await writer.setCredential(account, credential);
+      return true;
+    });
+  return {
+    ...reads,
+    clearAll: () => awaitingMigration(() => writer.clear()),
+    deleteKey: (account) => awaitingMigration(() => writer.deleteCredential(account)),
+    saveKey: (account, key) => write(account, { key, type: 'api_key' }),
+    setCredential: write,
   };
 }
 
@@ -90,6 +187,25 @@ const LegacySecretsFileSchema = z.looseObject({
   secrets: z.record(z.string(), z.string()).optional(),
 });
 
+function defaultLegacySecretsFile(): string {
+  return join(app.getPath('userData'), 'brainstrike-secrets.json');
+}
+
+async function readLegacySecretsFile(
+  file: string
+): Promise<z.output<typeof LegacySecretsFileSchema> | undefined> {
+  let content: string;
+  try {
+    content = await readFile(file, 'utf8');
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+  return LegacySecretsFileSchema.parse(JSON.parse(content));
+}
+
 /**
  * The retired safeStorage store (`brainstrike-secrets.json`), read only by the
  * one-time migration. Account names and plaintext values are kept as stored;
@@ -97,21 +213,11 @@ const LegacySecretsFileSchema = z.looseObject({
  * empties its `secrets` and keeps every other key.
  */
 export function createSafeStorageLegacySecretSource(
-  file: string = join(app.getPath('userData'), 'brainstrike-secrets.json'),
+  file: string = defaultLegacySecretsFile(),
   storage?: LegacySafeStorage
 ): LegacySecretSource {
-  const read = async (): Promise<z.output<typeof LegacySecretsFileSchema> | undefined> => {
-    let content: string;
-    try {
-      content = await readFile(file, 'utf8');
-    } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-        return;
-      }
-      throw error;
-    }
-    return LegacySecretsFileSchema.parse(JSON.parse(content));
-  };
+  const read = (): Promise<z.output<typeof LegacySecretsFileSchema> | undefined> =>
+    readLegacySecretsFile(file);
   return {
     entries: async () => {
       const encrypted = Object.entries((await read())?.secrets ?? {});

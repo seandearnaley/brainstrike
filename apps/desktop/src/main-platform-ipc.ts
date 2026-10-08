@@ -3,10 +3,6 @@ import { BrowserWindow, ipcMain, type WebContents } from 'electron';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import type { DesktopPowerSnapshot } from './platform/desktop-power-snapshot';
-import {
-  forgetAssistantAuthIssuance,
-  recordAssistantAuthIssuance,
-} from './provider-auth/assistant-auth-origin';
 
 const EMBEDDING_HOST_SHARED_SENDER_POLICY = {
   reason:
@@ -57,13 +53,6 @@ export function registerMainPlatformIpcHandlers({
 }: MainPlatformIpcDependencies): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  // Renderer reloads preserve the WebContents, and every reload re-requests
-  // auth — without this guard each issuance stacks another 'destroyed'
-  // listener on the same sender (MaxListenersExceededWarning after ~11).
-  // One listener per WebContents suffices: the issuance record is keyed by
-  // sender id, which is stable until 'destroyed'.
-  const sendersWithDestroyedListener = new WeakSet<WebContents>();
-
   registry.registerAuthorizedInvoke(
     'agent',
     DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetUrl,
@@ -75,32 +64,7 @@ export function registerMainPlatformIpcHandlers({
     'agent',
     DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetAuth,
     { roles: ['visible-ui'] },
-    (event) => {
-      const result = getAssistantAuth();
-      // BST-1356: remember WHO holds the assistant bearer token. The channel's
-      // role policy already guarantees `visible-ui` here; recording the sender
-      // lets the credential-resolution layer enforce constraint 4 per origin
-      // instead of falling back to a process-wide window probe. Only record on
-      // an actual token issuance — an error/null probe grants nothing.
-      if (result && 'token' in result) {
-        recordAssistantAuthIssuance(event.sender.id);
-        // Bookkeeping only — NOT the security boundary. Authorization comes
-        // from `resolveAssistantAuthOriginRole` re-reading the role registry
-        // on every credential resolution, so a destroyed sender (whose role
-        // entry is cleared) already stops authorizing without this listener.
-        // Guarded because some senders (and test doubles) expose no `once`.
-        if (
-          typeof event.sender.once === 'function' &&
-          !sendersWithDestroyedListener.has(event.sender)
-        ) {
-          sendersWithDestroyedListener.add(event.sender);
-          event.sender.once('destroyed', () => {
-            forgetAssistantAuthIssuance(event.sender.id);
-          });
-        }
-      }
-      return result;
-    }
+    () => getAssistantAuth()
   );
 
   registry.registerUnauthenticatedInvoke(

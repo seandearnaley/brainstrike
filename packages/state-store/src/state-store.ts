@@ -33,6 +33,7 @@ import {
   type Unreadable,
 } from './event-schema.js';
 import { type LockOptions, RootLock } from './lock.js';
+import type { McpTaskDomainReply, McpTaskDomainRequest } from './mcp-task-types.js';
 import type { MemoryDomainPort, MemoryDomainRequest, MemorySnapshot } from './memory-types.js';
 import { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 import type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
@@ -671,6 +672,17 @@ export class StateStore implements MemoryDomainPort {
       return reply['snapshot'] as MemorySnapshot;
     };
     return request.operation === 'read' ? execute() : this.run(execute);
+  }
+
+  /** MCP Tasks handles on this same writer: reads run directly, writes join the mutation chain. */
+  mcpTasks(request: McpTaskDomainRequest): Promise<McpTaskDomainReply> {
+    const execute = async (): Promise<McpTaskDomainReply> => {
+      const reply = await this.call({ op: 'mcp-tasks', request });
+      return { rows: reply['rows'] as McpTaskDomainReply['rows'] };
+    };
+    return request.operation === 'get' || request.operation === 'list-active'
+      ? execute()
+      : this.run(execute);
   }
 
   health(): { stateDamage: string | null; visibleErrors: Unreadable[] } {

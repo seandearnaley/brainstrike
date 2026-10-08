@@ -79,7 +79,7 @@ export function PlanModeExitProvider({
   );
 }
 
-function usePlanModeExit(): (() => void) | null {
+export function usePlanModeExit(): (() => void) | null {
   return use(PlanModeExitContext);
 }
 

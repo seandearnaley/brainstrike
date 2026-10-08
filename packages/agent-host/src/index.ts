@@ -29,6 +29,11 @@ export {
   type StateStoreHostMemoryOptions,
 } from './adapters/state-store-host-memory.js';
 export {
+  HostAuthStatusSchema,
+  type HostAuthVerdict,
+  HostAuthVerdictSchema,
+} from './auth-wire.js';
+export {
   type HostCliDefaults,
   type HostCliOutput,
   runHostCli,
@@ -50,6 +55,7 @@ export {
 } from './mcp-authority.js';
 export { materializeHostProviderModel } from './model-router-sdk.js';
 export {
+  type HostEnvFileFailure,
   type HostPlatformLaunchOptions,
   HostPlatformLaunchOptionsSchema,
 } from './platform-launch-options.js';

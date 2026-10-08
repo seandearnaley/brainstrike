@@ -6,7 +6,11 @@ import type {
   McpElicitationSettlement,
   McpHostCloseReport,
   McpHostPort,
+  OpenRouterModelMetadataSnapshot,
   PermissionToolGateSnapshot,
+  ProviderAuthStartMethod,
+  ProviderAuthStatus,
+  ProviderVerificationSnapshot,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
@@ -24,7 +28,14 @@ import type {
   ToolSet,
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
-import type { HostEditOp, HostEvent, HostLoginCredential, HostRunSnapshot } from './protocol.js';
+import type { HostAuthVerdict } from './auth-wire.js';
+import type {
+  HostEditOp,
+  HostEvent,
+  HostLegacyImport,
+  HostLoginCredential,
+  HostRunSnapshot,
+} from './protocol.js';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
 export type HostProjectionRewrite = Extract<
@@ -65,6 +76,8 @@ export interface HostMcpExecution {
   bindTask(task: HostMcpTaskCapability): Promise<void>;
   /** Joins the safe request commit before any client is notified. */
   requestInput(input: HostMcpInputCapability): Promise<void>;
+  /** The thread whose run admitted this call; its deletion erases the call's task rows. */
+  readonly threadId: string;
 }
 
 /** One file mutation a native tool performs inside an admitted workspace root. */
@@ -161,6 +174,21 @@ export interface HostProviderPort {
   prepare(request: HostProviderRequest): Promise<HostPreparedModelRequest>;
 }
 
+/** A lifecycle hook's verdict on one tool call; hooks refine a permitted decision, never widen it. */
+export type HostPreToolUseVerdict =
+  | { readonly blocked: false }
+  | { readonly blocked: true; readonly reason: string };
+
+/** The run's user-authored lifecycle hooks, from the composition's hooks configuration. */
+export interface HostRunHooks {
+  /** Before a tool the policy would allow or ask about: a hook may block it, with a reason. */
+  preToolUse(call: {
+    readonly input: unknown;
+    /** The tool's catalog ID (`brainstrike.readWorkspaceFile`), which hook matchers name. */
+    readonly toolName: string;
+  }): Promise<HostPreToolUseVerdict>;
+}
+
 /** One immutable selection retained across approval legs, never re-read from Settings. */
 export interface HostRunAdmission {
   /** Join resources selected before the run is committed, including failed admission. */
@@ -168,6 +196,8 @@ export interface HostRunAdmission {
   readonly configuration: Readonly<RuntimeData>;
   /** Title an untitled thread's first completed run through this run's model. */
   readonly generatesThreadTitle?: boolean;
+  /** Present only when the composition loaded at least one hook for this run. */
+  readonly hooks?: HostRunHooks | undefined;
   /** The selected provider input budget; host compaction keeps requests inside it. */
   readonly inputTokenLimit?: number | undefined;
   readonly model: LanguageModel;
@@ -175,6 +205,35 @@ export interface HostRunAdmission {
   readonly provider?: HostProviderPort;
   readonly snapshot: HostRunSnapshot;
   readonly tools: Readonly<Record<string, HostTool>>;
+  /** Configured MCP servers this run proceeds without; committed with `run.started`. */
+  readonly unavailableMcpServers?: readonly HostMcpUnavailableServer[];
+}
+
+/**
+ * The host's single credential writer, token holder and OAuth refresher.
+ * `connect` and subscription use require the private desktop origin.
+ */
+export interface HostAuthService {
+  cancel(provider: string): Promise<ProviderAuthStatus>;
+  clear(): Promise<boolean>;
+  connect(
+    provider: string,
+    method: ProviderAuthStartMethod | undefined,
+    origin: HostClientOrigin | undefined
+  ): Promise<ProviderAuthStatus>;
+  deleteCredential(account: string): Promise<boolean>;
+  disconnect(provider: string): Promise<ProviderAuthStatus>;
+  /** Idempotent; settles every credential use a launch-declared pending import holds. */
+  importLegacy(
+    input: HostLegacyImport
+  ): Promise<{ readonly alreadyPresent: number; readonly migrated: number }>;
+  /** A Settings-namespace entry under its existing account (provider, tool or MCP key). */
+  setCredential(account: string, credential: HostLoginCredential): Promise<void>;
+  status(provider: string): Promise<ProviderAuthStatus>;
+  /** A provider login, validated against the provider's authentication form. */
+  storeProviderCredential(provider: string, credential: HostLoginCredential): Promise<void>;
+  /** Refresh-aware session liveness through the one refresher; never a token. */
+  verify(provider: string): Promise<HostAuthVerdict>;
 }
 
 /**
@@ -191,6 +250,8 @@ export interface HostRunAdmissionRequest {
   readonly modelId: string;
   /** The admitting client's transport; capabilities bound to an origin refuse others. */
   readonly origin?: HostClientOrigin;
+  /** Plan mode: admit only what reads and proposes a plan, and say so to the model. */
+  readonly planMode?: true;
   readonly prompt?: string;
   readonly signal: AbortSignal;
   /** Reopen the committed selection, rejecting changed executors rather than substituting. */
@@ -200,11 +261,19 @@ export interface HostRunAdmissionRequest {
   readonly workspaceBinding?: ThreadWorkspaceBinding;
 }
 
+/** A configured MCP server whose tools a run proceeds without, and why. */
+export interface HostMcpUnavailableServer {
+  readonly reason: string;
+  readonly serverId: string;
+}
+
 /** The existing configured authority and its generation-qualified executors. */
 export interface HostMcpToolSelection {
   readonly bindings: Readonly<Record<string, McpHostToolBinding>>;
   /** Release this run's borrowed client after its executions and watches join. */
   close(): Promise<void>;
+  /** Servers whose discovery failed; Core commits each with the run's start. */
+  readonly unavailable: readonly HostMcpUnavailableServer[];
 }
 export interface HostMcpToolRequest {
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
@@ -238,9 +307,23 @@ export interface HostTool {
   readonly toModelOutput?: Tool<unknown, unknown>['toModelOutput'];
 }
 
+/**
+ * Provider reads a client makes by id: availability, a credential probe and
+ * OpenRouter model metadata. Keys resolve inside the host and never cross.
+ */
+export interface HostProviderService {
+  openRouterModel(modelId: string): Promise<OpenRouterModelMetadataSnapshot>;
+  /** The availability payload Settings and the assistant panel gate on. */
+  status(): Promise<Readonly<Record<string, unknown>>>;
+  /** A subscription probe needs the desktop origin, like a subscription run. */
+  verify(provider: string, origin: HostClientOrigin): Promise<ProviderVerificationSnapshot>;
+}
+
 /** Credentials and process-local capabilities never become protocol payloads. */
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
+  /** The host's credential authority; absent where the host owns no credential store. */
+  readonly auth?: HostAuthService;
   close(): Promise<void>;
   /** Purge process-local caches scoped to a thread Core just deleted. */
   forgetThread?(threadId: string): void;
@@ -250,6 +333,8 @@ export interface HostPlatform {
   readonly maxSteps?: number | undefined;
   /** Run-scoped construction; cached shared memory must not capture a run signal. */
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
+  /** Provider reads from the host's own store; absent where it owns none. */
+  readonly providers?: HostProviderService;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
@@ -268,8 +353,6 @@ export interface HostPlatform {
   ): readonly HostProjectionRewrite[];
   /** Borrowed existing native writer; startup acquires it before interrupted purge replay. */
   readonly stateIndexer?: StateStoreIndexerPort;
-  /** The host's own credential store, its single writer; absent where none is owned. */
-  storeProviderCredential?(provider: string, credential: HostLoginCredential): Promise<void>;
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
   validateWorkspaceBinding?(request: {
     readonly binding: ThreadWorkspaceBinding;

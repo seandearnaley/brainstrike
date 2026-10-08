@@ -9,6 +9,7 @@ import {
   type PersistedToolInvocation,
   parseFileIdentity,
   parseReadProjectionResult,
+  projectGrepSearchModelOutput,
   type RecencyPruneInvocation,
   readStateScope,
   readToolCallId,
@@ -26,7 +27,6 @@ import {
   listPriorInvocations,
   type ProjectionRewriteDatabaseProvider,
 } from './tool-projection-rewrite-store';
-import { projectGrepSearchModelOutput } from './workspace-search-model-projections';
 
 const logger = createLogger('ToolProjectionRewriteRepository');
 

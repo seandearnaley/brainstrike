@@ -34,7 +34,20 @@ import type {
   EditDiagnostic,
   EditDiagnosticsResult,
   LspDiagnosticSeverity,
-  LspUnavailableReason,
+} from '@brainstrike/host-capabilities/native-tools';
+import {
+  boundQueryFailureDetail,
+  clipHover,
+  DIAGNOSTIC_TIMEOUT_MS,
+  type InspectLocation,
+  type LspInspectionResult,
+  type LspInspectQuery,
+  type LspQueryFailure,
+  QUERY_TIMEOUT_MS,
+  type RawLocation,
+  type RawQueryFailure,
+  toInspectLocations,
+  toQueryFailure,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import {
@@ -54,24 +67,11 @@ import type {
   Position,
   PublishDiagnosticsParams,
 } from 'vscode-languageserver-protocol/node';
-import {
-  boundQueryFailureDetail,
-  clipHover,
-  DIAGNOSTIC_TIMEOUT_MS,
-  type InspectLocation,
-  type LspInspectQuery,
-  type LspQueryFailure,
-  QUERY_TIMEOUT_MS,
-  type RawLocation,
-  type RawQueryFailure,
-  toInspectLocations,
-  toQueryFailure,
-} from './lsp-inspection-shapes';
 
 // Re-exported so `lsp-diagnostics` stays the single import surface for the
 // inspect tool + its model projection (the split is an internal file boundary,
 // not a new public seam).
-export type { InspectLocation, LspInspectQuery, LspQueryFailure };
+export type { InspectLocation, LspInspectionResult, LspInspectQuery, LspQueryFailure };
 
 // LSP method names used verbatim (string overloads avoid the branded-type
 // identity mismatch between vscode-jsonrpc and -protocol under the main
@@ -848,29 +848,6 @@ export async function getEditDiagnostics(
       reason: 'server-unavailable',
     };
   }
-}
-
-/**
- * Result of an `lspInspect` call (report R2 Phase B). Mirrors core's tool
- * contract: hover / line diagnostics / definition / implementation groups.
- * `available:false` carries an honest reason exactly like the diagnostics path.
- */
-export interface LspInspectionResult {
-  available: boolean;
-  definition?: InspectLocation[];
-  diagnostics?: EditDiagnostic[];
-  hover?: string;
-  implementation?: InspectLocation[];
-  language?: string;
-  message?: string;
-  /**
-   * Legs that did not answer (BST-1614). Present only when non-empty. Any
-   * group named here is UNKNOWN: its omission above is the absence of an
-   * answer, never a verified "there are none". A partial failure deliberately
-   * does NOT flip `available` — a hover that worked is still worth returning.
-   */
-  queryFailures?: LspQueryFailure[];
-  reason?: LspUnavailableReason;
 }
 
 export interface GetLspInspectionArgs {

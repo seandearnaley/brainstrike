@@ -212,14 +212,20 @@ export function finishHostRun(
     await Promise.allSettled([...run.effects]);
     await closeOwner(run);
     await run.stopAcceptance;
+    const ownerDetail = failureDetail(run.ownerFailure);
     const joinedOutcome = run.stopped
       ? 'stopped'
       : run.controller.signal.aborted && closing()
         ? 'interrupted'
-        : run.mcpInputPersistenceFailures?.length && outcome === 'completed'
+        : (run.mcpInputPersistenceFailures?.length || ownerDetail !== undefined) &&
+            outcome === 'completed'
           ? 'failed'
           : outcome;
-    const joinedDetail = detail ?? run.mcpInputPersistenceFailures?.[0]?.message;
+    // A joined owner failure stays visible whatever ended the run (Stop included).
+    const joinedDetail =
+      detail !== undefined && ownerDetail !== undefined && !detail.includes(ownerDetail)
+        ? `${detail} (${ownerDetail})`
+        : (detail ?? ownerDetail ?? run.mcpInputPersistenceFailures?.[0]?.message);
     await publish(
       {
         outcome: joinedOutcome,
@@ -238,11 +244,29 @@ export function finishHostRun(
   return run.completion;
 }
 
+/** An owner failure's own message, plus any aggregated cause it does not already name. */
+function failureDetail(failure: unknown): string | undefined {
+  if (failure === undefined) {
+    return undefined;
+  }
+  if (!(failure instanceof Error)) {
+    return String(failure);
+  }
+  const causes =
+    failure instanceof AggregateError
+      ? failure.errors
+          .map((cause: unknown) => (cause instanceof Error ? cause.message : String(cause)))
+          .filter((message) => !failure.message.includes(message))
+      : [];
+  return causes.length > 0 ? `${failure.message}: ${causes.join('; ')}` : failure.message;
+}
+
 type FinishedOutcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
 
 /**
  * Stop and Close set their own fact before they abort. A watchdog that
- * cancelled a still-running tool aborts the run too, and that run failed.
+ * cancelled a still-running tool aborts the run too, and that run failed; so
+ * does a run aborted by its own failed memory step.
  */
 function joinedSdkOutcome(
   run: HostRunState,

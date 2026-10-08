@@ -100,7 +100,7 @@ test(
         write: unavailable,
       },
       openExternal: unavailable,
-      openTaskDatabase: unavailable,
+      openTaskStorage: unavailable,
     });
     const indexer = await openIndexer(
       {
@@ -192,6 +192,7 @@ test(
             executableTools: async () => ({
               bindings: { [mcpName]: { configuredServerId, generation, tool: mcpTool } },
               close: async () => undefined,
+              unavailable: [],
             }),
           },
           readConfiguration: async (request) => {

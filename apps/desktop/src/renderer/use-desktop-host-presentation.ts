@@ -53,10 +53,13 @@ type Presentation = Pick<
   | 'disabledReason'
   | 'openRouterModelMetadataLookup'
   | 'effectiveInputBudget'
+  | 'planMode'
 >;
 
 interface DesktopHostPresentation extends Presentation {
   readConfiguration(selectionFolderId: string | null): Record<string, unknown>;
+  /** Whether the next run starts in plan mode. */
+  readPlanMode(): boolean;
 }
 
 /** Existing picker/settings owners project controls; they own no assistant execution. */
@@ -71,6 +74,9 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
   const setModel = useAssistantPreferencesStore((state) => state.setModel);
   const setProviderSettings = useAssistantPreferencesStore((state) => state.setProviderSettings);
   const recentModels = useAssistantPreferencesStore((state) => state.recentModels);
+  const planModeEnabled = useAssistantPreferencesStore((state) => state.planModeEnabled);
+  const togglePlanMode = useAssistantPreferencesStore((state) => state.togglePlanMode);
+  const setPlanModeEnabled = useAssistantPreferencesStore((state) => state.setPlanModeEnabled);
   const getLocalRuntimeModels = useAssistantPreferencesStore(
     (state) => state.getLocalRuntimeModels
   );
@@ -208,6 +214,23 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
     },
     [metadata.lookup, model, providerSettings, selectedProvider, setThreadDraftRuntime, threadId]
   );
+  // Plan mode is never offered for the built-in local provider: its toggle is hidden.
+  const planModeAvailable = selectedProvider !== undefined && selectedProvider !== 'local';
+  const planMode = useMemo(
+    () =>
+      planModeAvailable
+        ? {
+            enabled: planModeEnabled,
+            onExit: () => setPlanModeEnabled(false),
+            onToggle: togglePlanMode,
+          }
+        : undefined,
+    [planModeAvailable, planModeEnabled, setPlanModeEnabled, togglePlanMode]
+  );
+  const readPlanMode = useCallback(
+    () => planModeAvailable && useAssistantPreferencesStore.getState().planModeEnabled,
+    [planModeAvailable]
+  );
   const onEnableModel = useEnableModel();
   const contextWindow = metadata.modelDef?.contextWindow;
   // The legacy composer's gate: the selected model's vision decides.
@@ -228,7 +251,9 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
     onProviderSettingsValidationChange: providerDraft.report,
     openRouterModelMetadataLookup: metadata.lookup,
     providerSettings: effective,
+    ...(planMode ? { planMode } : {}),
     readConfiguration,
+    readPlanMode,
     recentModels: recentModels.filter((recent) =>
       picker.pickerModels.some((entry) => `${entry.providerId}::${entry.id}` === recent)
     ),

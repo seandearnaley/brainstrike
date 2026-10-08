@@ -10,7 +10,7 @@ import {
   DEFAULT_AGENT_MAX_STEPS,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent/tool-runtime';
-import type { HostRunAdmissionRequest, HostToolContext } from '@brainstrike/agent-host';
+import type { HostRunAdmissionRequest, HostTool, HostToolContext } from '@brainstrike/agent-host';
 import {
   CliWorkspaceRootsSchema,
   materializeCliWorkspaceIntent,
@@ -27,15 +27,17 @@ import {
   DESKTOP_NATIVE_TOOLS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
-  findProviderDefinition,
+  NATIVE_TOOL_ID,
   resolveAutoObservationalMemoryModelTarget,
   resolveToolRiskCategory,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
+import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
 import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-repository';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
+import type { SelectedEmbeddingRequestPlan } from '@brainstrike/embeddings/inference-plan';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import { z } from 'zod';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
@@ -43,21 +45,27 @@ import {
   buildDesktopAssistantTools,
   type DesktopAssistantToolDependencies,
 } from '../assistant-server/assistant-tools';
-import { deriveAssistantTurnAuthInput } from '../assistant-server/provider-auth-input';
+import { pgliteGrepIndex } from '../assistant-server/grep-search-tool';
 import { prepareRequestSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
+import {
+  type DesktopWorktreeServices,
+  desktopWorktreeToolDependencies,
+} from '../assistant-server/worktree-tool-dependencies';
 import { getDatabase } from '../db-main';
-import { readProviderCredential } from '../provider-api-key';
-import { readDesktopHostSystemContext } from './desktop-host-context';
+import { desktopPlanModeTools, readDesktopHostSystemContext } from './desktop-host-context';
 import type {
   DesktopWorkspaceBindingAuthority,
   DesktopWorkspaceBindingBorrow,
 } from './desktop-workspace-binding';
+import type { DesktopShellCorrelation } from './host-tool-services';
 import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
+import { resolveDesktopMemoryVectors } from './memory-vector-selection';
 import {
   PlatformClientConfigurationSchema,
   PlatformModelConfigurationSchema,
+  PlatformWorkspaceContextSchema,
   platformPermissionPolicy,
 } from './platform-wire';
 
@@ -268,16 +276,40 @@ function resolveDesktopMemorySettings(
         ? { ...observation, enabled: false }
         : { ...observation, modelTarget: observerTarget },
   };
-  if (
-    memorySettings.semanticRecall.enabled ||
-    (memorySettings.observationalMemory.enabled &&
-      memorySettings.observationalMemory.retrievalMode === 'vector')
-  ) {
-    throw new Error(
-      'This Root is missing the canonical Memory vector capability; the requested Memory settings were preserved.'
-    );
-  }
   return { memorySettings, observerTarget };
+}
+
+/** Catalog dimensions of the recall embedder: hosted from the registry, local from the DB catalog. */
+async function readEmbeddingDimensions(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  provider: string,
+  modelId: string
+): Promise<number> {
+  if (provider !== 'local') {
+    const model = isSupportedProvider(provider)
+      ? listEmbeddingModels(provider).find((candidate) => candidate.id === modelId)
+      : undefined;
+    if (!model) {
+      throw new Error(`Embedding model "${provider}/${modelId}" is not in the provider catalog.`);
+    }
+    return model.defaultDimension;
+  }
+  // The same catalog row the legacy local recall embedder read its dimensions from.
+  const result = await db.query(
+    'SELECT capabilities FROM models WHERE id = $1 AND provider_id = $2 LIMIT 1',
+    [modelId, 'local']
+  );
+  const row = z
+    .object({ capabilities: z.union([z.string(), z.record(z.string(), z.unknown())]) })
+    .optional()
+    .parse(result.rows[0]);
+  if (!row) {
+    throw new Error(`Local embedding model "${modelId}" is not in the model catalog.`);
+  }
+  return z
+    .object({ defaultDimension: z.number().int().positive() })
+    .parse(typeof row.capabilities === 'string' ? JSON.parse(row.capabilities) : row.capabilities)
+    .defaultDimension;
 }
 
 function desktopContextReader(
@@ -304,7 +336,7 @@ async function createDesktopNativeTools(
   db: Awaited<ReturnType<typeof getDatabase>>,
   configuration: z.output<typeof PlatformModelConfigurationSchema>,
   intent: z.output<typeof PlatformClientConfigurationSchema>,
-  dependencies: DesktopAssistantToolDependencies,
+  { resolveForgeService, resolveWorktreeService, ...dependencies }: DesktopHostToolServices,
   budget: ReturnType<typeof resolveScaledToolResultBudget>,
   request: HostRunAdmissionRequest,
   workspace?: DesktopWorkspaceBindingBorrow
@@ -420,6 +452,10 @@ async function createDesktopNativeTools(
           },
           {
             ...dependencies,
+            ...desktopWorktreeToolDependencies(
+              { resolveForgeService, resolveWorktreeService },
+              { runId: context?.runId, threadId: context?.threadId }
+            ),
             ...desktopRetrievalScopeFields(
               selection !== undefined || workspace !== undefined,
               currentRoots
@@ -433,7 +469,7 @@ async function createDesktopNativeTools(
     });
   const native = build();
   const tools = Object.fromEntries(
-    Object.entries(native.tools).map(([name, tool]) => [
+    advertisedNativeTools(native.tools, resolveWorktreeService).map(([name, tool]) => [
       name,
       {
         ...tool,
@@ -465,6 +501,26 @@ async function createDesktopNativeTools(
   };
 }
 
+/** Main's tool services for host threads, resolved per run (the worktree services lazily). */
+export type DesktopHostToolServices = DesktopAssistantToolDependencies & DesktopWorktreeServices;
+
+const WORKTREE_TOOL_IDS: ReadonlySet<string> = new Set([
+  NATIVE_TOOL_ID.listWorktrees,
+  NATIVE_TOOL_ID.manageWorktree,
+]);
+
+/** A worktree tool without Main's worktree service cannot run, so it is not advertised. */
+function advertisedNativeTools(
+  tools: Readonly<Record<string, HostTool>>,
+  resolveWorktreeService: DesktopWorktreeServices['resolveWorktreeService']
+): [string, HostTool][] {
+  const entries = Object.entries(tools);
+  if (resolveWorktreeService?.()) {
+    return entries;
+  }
+  return entries.filter(([, tool]) => !WORKTREE_TOOL_IDS.has(tool.permissionToolId ?? ''));
+}
+
 /** What the host's shared native tools need from this admission; roots come back per call. */
 function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['nativeRuntime'] {
   if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
@@ -473,7 +529,11 @@ function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['n
   return {
     ...(runtime.boundWorkspaceRootId ? { boundWorkspaceRootId: runtime.boundWorkspaceRootId } : {}),
     provider: runtime.provider,
+    ...(runtime.selectionFilePaths ? { selectionFilePaths: [...runtime.selectionFilePaths] } : {}),
     ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
+    ...(runtime.workspaceContext
+      ? { workspaceContext: PlatformWorkspaceContextSchema.parse(runtime.workspaceContext) }
+      : {}),
     ...(runtime.workspaceRootPath ? { workspaceRootPath: runtime.workspaceRootPath } : {}),
     workspaceRoots: runtime.workspaceRoots.map(({ displayName, path, rootId }) => ({
       displayName,
@@ -483,12 +543,63 @@ function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['n
   };
 }
 
+/** Plan mode admits only the plan-mode tool set; the built-in local provider has no plan mode. */
+function desktopRunTools(
+  tools: Readonly<Record<string, HostTool>>,
+  request: HostRunAdmissionRequest,
+  provider: string
+): Readonly<Record<string, HostTool>> {
+  if (!request.planMode) {
+    return tools;
+  }
+  if (provider === 'local') {
+    throw new Error('Plan mode is unavailable for the built-in local provider');
+  }
+  return desktopPlanModeTools(tools);
+}
+
+async function readSavedLocalEmbeddingSelection(
+  read: (() => Promise<SelectedEmbeddingRequestPlan | undefined>) | undefined
+): Promise<SelectedEmbeddingRequestPlan | undefined> {
+  if (!read) {
+    throw new Error('Local Memory vectors require the saved local execution selection');
+  }
+  return await read();
+}
+
+/** Main's worktree/forge correlation of host commands, over the same services as legacy threads. */
+function desktopShellCorrelation(services: DesktopWorktreeServices): DesktopShellCorrelation {
+  return {
+    completed: ({ command, precedingWorktreePaths, rootId, runId, threadId }) => {
+      desktopWorktreeToolDependencies(services, {
+        runId,
+        threadId,
+      }).shellCorrelation?.onCommandCompleted({
+        command,
+        precedingWorktreePaths: precedingWorktreePaths
+          ? new Set(precedingWorktreePaths)
+          : undefined,
+        rootId,
+      });
+    },
+    worktreePaths: async () => {
+      const service = services.resolveWorktreeService?.();
+      if (!service) {
+        return null;
+      }
+      const listed = await service.list();
+      return listed.ok ? listed.value.map((entry) => entry.path) : null;
+    },
+  };
+}
+
 /** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
 export function productionDesktopCapabilities(
-  dependencies: DesktopAssistantToolDependencies,
+  dependencies: DesktopHostToolServices,
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
-  workspaceAuthority?: DesktopWorkspaceBindingAuthority
+  workspaceAuthority?: DesktopWorkspaceBindingAuthority,
+  readLocalEmbeddingSelection?: () => Promise<SelectedEmbeddingRequestPlan | undefined>
 ): Omit<DesktopPlatformCapabilities, 'mcp'> {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   const readConfiguration = async (
@@ -515,6 +626,11 @@ export function productionDesktopCapabilities(
       intent,
       configuration.provider
     );
+    const memoryVectors = await resolveDesktopMemoryVectors(memorySettings, {
+      readDimensions: (provider, modelId) => readEmbeddingDimensions(db, provider, modelId),
+      readLocalSelection: () => readSavedLocalEmbeddingSelection(readLocalEmbeddingSelection),
+    });
+    request.signal.throwIfAborted();
     const budget = resolveScaledToolResultBudget(definition.contextWindow);
     const native = await createDesktopNativeTools(
       db,
@@ -525,7 +641,7 @@ export function productionDesktopCapabilities(
       request,
       workspace
     );
-    const { tools } = native;
+    const tools = desktopRunTools(native.tools, request, configuration.provider);
     const resilience = resolveAssistantResilienceConfig();
     // MCP tools are composed and executed by the Node host's own MCP runtime.
     const close = (): Promise<void> => {
@@ -542,6 +658,7 @@ export function productionDesktopCapabilities(
           intent.cliWorkspace !== undefined || workspace !== undefined,
           native.readWorkspaceFile
         ),
+        planMode: request.planMode === true,
         request,
         runtime: native.runtime,
         tools,
@@ -562,7 +679,12 @@ export function productionDesktopCapabilities(
         freshWorkspaceRoots: native.freshRoots,
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
-        memory: { options: intent.memoryOptions, settings: memorySettings },
+        memory: {
+          options: intent.memoryOptions,
+          settings: memorySettings,
+          ...(memoryVectors ? { vectorProfile: memoryVectors.profile } : {}),
+        },
+        ...(memoryVectors?.local ? { localEmbedding: memoryVectors.local } : {}),
         nativeRuntime: desktopNativeRuntime(native.runtime),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         ...desktopSystemFields(system),
@@ -583,6 +705,7 @@ export function productionDesktopCapabilities(
     ...(workspaceAuthority
       ? { validateWorkspaceBinding: workspaceAuthority.validateWorkspaceBinding }
       : {}),
+    hostTools: { grepIndex: pgliteGrepIndex, shell: desktopShellCorrelation(dependencies) },
     readConfiguration: async (request) => {
       let workspace: DesktopWorkspaceBindingBorrow | undefined;
       if (request.workspaceBinding && changesThreadWorkspaceScope(request.workspaceBinding)) {
@@ -650,26 +773,16 @@ export function productionDesktopCapabilities(
     readPermissionPolicy: async (threadId) => {
       const captured = threadId ? policies.get(threadId) : undefined;
       const persisted = await readPersistedPolicy?.();
-      return platformPermissionPolicy(
-        persisted
-          ? {
-              ...persisted,
-              ...(captured?.sessionGrants ? { sessionGrants: captured.sessionGrants } : {}),
-            }
-          : (captured ?? { policies: DEFAULT_PERMISSION_POLICIES, yolo: false })
+      // A host thread's session grants are the host's own (permission.granted);
+      // no renderer store reaches its decisions.
+      const { sessionGrants: _sessionGrants, ...policy } = platformPermissionPolicy(
+        persisted ?? captured ?? { policies: DEFAULT_PERMISSION_POLICIES, yolo: false }
       );
+      return policy;
     },
-    // The Node host resolves every other provider itself; Main lends only the
-    // interactive subscription OAuth engine it still owns.
-    resolveProviderAuth: async (provider) => {
-      if (
-        !isSupportedProvider(provider) ||
-        findProviderDefinition(provider)?.authType !== 'oauth_subscription'
-      ) {
-        throw new Error('Main lends only subscription OAuth credentials to the host');
-      }
-      return deriveAssistantTurnAuthInput({ provider }, await readProviderCredential(provider));
-    },
+    ...(dependencies.embeddingHostManager
+      ? { localEmbedding: dependencies.embeddingHostManager }
+      : {}),
     resolveWorkspaceRoot: async (rootId) => {
       const root = (await loadWorkspaceRootsFromDatabase(await getDatabase())).find(
         (candidate) => candidate.rootId === rootId

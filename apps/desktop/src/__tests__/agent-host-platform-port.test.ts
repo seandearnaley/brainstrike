@@ -20,8 +20,6 @@ import {
   type DesktopPlatformSelection,
   serveDesktopPlatform,
 } from '../agent-host-platform/main-platform';
-import { decodePlatformAuth } from '../agent-host-platform/platform-auth';
-import { createProviderFetchTransport } from '../agent-host-platform/provider-fetch-transport';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { RemoteMcpRuntime } from '../mcp/remote-runtime';
 
@@ -85,8 +83,8 @@ function selected(
 }
 function harness(
   readConfiguration: DesktopPlatformCapabilities['readConfiguration'],
-  resolveProviderAuth: DesktopPlatformCapabilities['resolveProviderAuth'] = async () => undefined,
-  closeRootCapabilities?: DesktopPlatformCapabilities['closeRootCapabilities']
+  closeRootCapabilities?: DesktopPlatformCapabilities['closeRootCapabilities'],
+  hostTools?: DesktopPlatformCapabilities['hostTools']
 ) {
   const channel = new MessageChannel();
   const first = new UtilityPort(channel.port1);
@@ -98,7 +96,7 @@ function harness(
     ...(closeRootCapabilities ? { closeRootCapabilities } : {}),
     readConfiguration,
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
-    resolveProviderAuth,
+    ...(hostTools ? { hostTools } : {}),
   });
   client.onClose(() => client.dispose());
   client.listen();
@@ -129,11 +127,7 @@ it.each([false, true])(
         throw failure;
       }
     });
-    const f = harness(
-      async () => selected({}),
-      async () => undefined,
-      closeRoot
-    );
+    const f = harness(async () => selected({}), closeRoot);
     try {
       let acknowledged = false;
       const closing = f.client.sendRequest('platform/close', {}).then(() => {
@@ -159,183 +153,9 @@ it.each([false, true])(
   }
 );
 
-it('retains the resolved AWS chain across the private port once without a bearer fallback', async () => {
-  const identity = {
-    accessKeyId: 'AKIDEXAMPLE',
-    accountId: '123456789012',
-    expiration: new Date('2030-01-01T00:00:00.000Z'),
-    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
-    sessionToken: 'owned-fixture-session',
-  };
-  const resolve = vi.fn(async () => identity);
-  const h = harness(
-    async () => ({ ...selected({}), configuration: { model: 'fixture', provider: 'bedrock' } }),
-    async () => ({
-      credentialProvider: resolve,
-      kind: 'aws',
-      region: 'us-east-1',
-    })
-  );
-  try {
-    await admit(h.client);
-    const auth = decodePlatformAuth(
-      await h.client.sendRequest('platform/auth', { provider: 'bedrock', threadId: 'thread' })
-    );
-    if (auth?.kind !== 'aws' || !auth.credentialProvider) {
-      throw new Error('The private port lost the selected chain capability');
-    }
-    expect(auth.apiKey).toBeUndefined();
-    expect(auth.region).toBe('us-east-1');
-    expect(await auth.credentialProvider()).toEqual(identity);
-    expect(await auth.credentialProvider()).toEqual(identity);
-    expect(resolve).toHaveBeenCalledTimes(1);
-  } finally {
-    h.destroy();
-    await h.owner.close();
-  }
-});
 async function admit(client: MessageConnection): Promise<unknown> {
   return client.sendRequest('platform/admit', { modelId: 'openai::fixture', threadId: 'thread' });
 }
-
-it.each([false, true])(
-  'Main joins the admitted provider body before Root cleanup and retains its failure (failure=%s)',
-  async (failed) => {
-    const cancelling = Promise.withResolvers<void>();
-    const physical = Promise.withResolvers<void>();
-    const originalFailure = new Error('Captured subscription body failed to retire');
-    const closeSelection = vi.fn(async () => undefined);
-    const closeRoot = vi.fn(async () => undefined);
-    const fetch = vi.fn<typeof globalThis.fetch>(
-      async () =>
-        new Response(
-          new ReadableStream<Uint8Array>({
-            cancel: async () => {
-              cancelling.resolve();
-              await physical.promise;
-              if (failed) {
-                throw originalFailure;
-              }
-            },
-          })
-        )
-    );
-    const auth = vi.fn(async () => ({
-      apiKey: 'fixture-dummy',
-      fetch,
-      kind: 'custom_fetch' as const,
-    }));
-    const h = harness(async () => selected({}, closeSelection), auth, closeRoot);
-    const proxy = createProviderFetchTransport(h.client, {
-      provider: 'openai',
-      threadId: 'thread',
-    });
-    try {
-      await expect(
-        h.client.sendRequest('platform/auth', { provider: 'openai', threadId: 'thread' })
-      ).rejects.toThrow();
-      expect(auth).not.toHaveBeenCalled();
-      await admit(h.client);
-      await expect(
-        h.client.sendRequest('platform/auth', { provider: 'google', threadId: 'thread' })
-      ).rejects.toThrow();
-      expect(auth).not.toHaveBeenCalled();
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        await expect(
-          h.client.sendRequest('platform/auth', { provider: 'openai', threadId: 'thread' })
-        ).resolves.toEqual({ kind: 'custom_fetch' });
-      }
-      expect(auth).toHaveBeenCalledOnce();
-      await proxy.fetch('https://synthetic.invalid/response');
-      let acknowledged = false;
-      const closing = h.client.sendRequest('platform/close', {}).then(() => {
-        acknowledged = true;
-      });
-      const outcome = Promise.allSettled([closing]);
-      await cancelling.promise;
-      expect(acknowledged).toBe(false);
-      expect(closeSelection).not.toHaveBeenCalled();
-      expect(closeRoot).not.toHaveBeenCalled();
-      physical.resolve();
-      const [result] = await outcome;
-      // The requester joins its transport while cancellation RPCs are still
-      // writable; the enclosing owner close disposes the server connection.
-      const [clientJoin] = await Promise.allSettled([proxy.close()]);
-      if (failed) {
-        expect(result?.status).toBe('rejected');
-        expect(clientJoin?.status).toBe('rejected');
-        const [ownerJoin] = await Promise.allSettled([h.owner.close()]);
-        if (ownerJoin?.status !== 'rejected') {
-          throw new Error('Main owner close lost its original provider failure');
-        }
-        const causes: unknown[] = [ownerJoin.reason];
-        for (const cause of causes) {
-          if (cause instanceof AggregateError) {
-            causes.push(...cause.errors);
-          }
-        }
-        expect(causes).toContain(originalFailure);
-      } else {
-        expect(result?.status).toBe('fulfilled');
-        expect(clientJoin?.status).toBe('fulfilled');
-        await h.owner.close();
-      }
-      expect(closeSelection).toHaveBeenCalledOnce();
-      expect(closeRoot).toHaveBeenCalledOnce();
-      expect(fetch).toHaveBeenCalledOnce();
-    } finally {
-      physical.resolve();
-      await Promise.allSettled([proxy.close()]);
-      await Promise.allSettled([h.owner.close()]);
-      h.destroy();
-    }
-  }
-);
-
-it('selection release joins the original auth lookup after its requester cancels', async () => {
-  const entered = Promise.withResolvers<void>();
-  const original = Promise.withResolvers<undefined>();
-  const borrowedClose = vi.fn(async () => undefined);
-  const h = harness(
-    async () => selected({}, borrowedClose),
-    async () => {
-      entered.resolve();
-      return await original.promise;
-    }
-  );
-  const cancellation = new CancellationTokenSource();
-  try {
-    await admit(h.client);
-    const auth = Promise.allSettled([
-      h.client.sendRequest(
-        'platform/auth',
-        { provider: 'openai', threadId: 'thread' },
-        cancellation.token
-      ),
-    ]);
-    await entered.promise;
-    cancellation.cancel();
-    let acknowledged = false;
-    const release = h.client.sendRequest('platform/release', { threadId: 'thread' }).then(() => {
-      acknowledged = true;
-    });
-    const joined = Promise.allSettled([release]);
-    // A later independent RPC demonstrates the peer has dispatched requests.
-    await h.client.sendRequest('platform/policy', { threadId: 'thread' });
-    expect(acknowledged).toBe(false);
-    expect(borrowedClose).not.toHaveBeenCalled();
-    original.resolve(undefined);
-    const [result] = await joined;
-    expect(result?.status).toBe('fulfilled');
-    await auth;
-    expect(borrowedClose).toHaveBeenCalledOnce();
-  } finally {
-    original.resolve(undefined);
-    cancellation.dispose();
-    await h.owner.close();
-    h.destroy();
-  }
-});
 
 it('utility loss aborts a progress-blocked executor and joins its physical tail before releasing the selection', async () => {
   const entered = Promise.withResolvers<AbortSignal>();
@@ -619,6 +439,60 @@ it('failed schema projection releases the selection before an admission error re
     await expect(admit(h.client)).rejects.toBeInstanceOf(Error);
     expect(close).toHaveBeenCalledTimes(1);
     await h.owner.close();
+  } finally {
+    h.destroy();
+  }
+});
+
+it('serves a host command’s worktree snapshot and completion to Main’s correlation, for an admitted thread only', async () => {
+  const completed = vi.fn();
+  const h = harness(async () => selected({}), undefined, {
+    shell: { completed, worktreePaths: async () => ['/repo/.worktrees/fox'] },
+  });
+  try {
+    await expect(
+      h.client.sendRequest('platform/worktree/paths', { threadId: 'thread' })
+    ).rejects.toBeInstanceOf(Error);
+    await admit(h.client);
+    await expect(
+      h.client.sendRequest('platform/worktree/paths', { threadId: 'thread' })
+    ).resolves.toEqual({ paths: ['/repo/.worktrees/fox'] });
+    const input = {
+      command: 'git worktree add ../fox',
+      precedingWorktreePaths: ['/repo/.worktrees/fox'],
+      rootId: 'root-a',
+      runId: 'host-run',
+      threadId: 'thread',
+    };
+    await expect(h.client.sendRequest('platform/shell/completed', input)).resolves.toEqual({
+      accepted: true,
+    });
+    expect(completed).toHaveBeenCalledWith(input);
+  } finally {
+    h.destroy();
+  }
+});
+
+it('serves grep’s indexed half to an admitted thread only', async () => {
+  const result = {
+    candidatesTruncated: false,
+    matches: [],
+    scanLimited: false,
+    skippedMissingLineMetadata: 0,
+    totalMatches: 0,
+    truncated: false,
+  };
+  const grepIndex = vi.fn(async () => result);
+  const h = harness(async () => selected({}), undefined, { grepIndex });
+  const request = { options: { maxResults: 5, pattern: 'needle' }, threadId: 'thread' };
+  try {
+    await expect(h.client.sendRequest('desktop-read/grep-index', request)).rejects.toBeInstanceOf(
+      Error
+    );
+    expect(grepIndex).not.toHaveBeenCalled();
+    await admit(h.client);
+    await expect(h.client.sendRequest('desktop-read/grep-index', request)).resolves.toEqual(result);
+    expect(grepIndex).toHaveBeenCalledWith({ maxResults: 5, pattern: 'needle' });
   } finally {
     h.destroy();
   }

@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import type { ProviderAuthInput, RuntimeData } from '@brainstrike/agent/provider-runtime';
+import type { LocalLlmHostClient, RuntimeData } from '@brainstrike/agent/provider-runtime';
 import {
   canonicalToolInputJsonSchema,
   type HostPlatform,
@@ -10,12 +10,18 @@ import {
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
-import { isSharedNativeToolId } from '@brainstrike/host-capabilities/native-tools';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
+import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { isHostExecutedNativeToolId } from './host-executed-tools';
+import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
-import { encodePlatformAuth } from './platform-auth';
+import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
+  PlatformLocalEmbeddingQuerySchema,
+  PlatformLocalGenerationResultSchema,
+  PlatformLocalGenerationSchema,
+  PlatformLocalWarmupSchema,
   PlatformPolicySchema,
   PlatformProgressSchema,
   PlatformRunRequestSchema,
@@ -24,25 +30,31 @@ import {
   PlatformToolRequestSchema,
   PlatformWorkspaceBindingRequestSchema,
 } from './platform-wire';
-import { serveProviderFetchTransport } from './provider-fetch-transport';
 
 export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools'> {
   close(): Promise<void>;
   /** The admitted roots revalidated against their live owners, for the host's shared tools. */
   freshWorkspaceRoots(): Promise<NonNullable<RuntimeData['workspaceRoots']>>;
+  /** Main-only: an admitted local recall embedder's exact plan, never on the wire. */
+  readonly localEmbedding?: DesktopMemoryVectorSelection['local'];
   revalidateWorkspace?(signal: AbortSignal): Promise<void>;
   readonly tools: Readonly<Record<string, HostTool>>;
 }
 export interface DesktopPlatformCapabilities {
   /** Join Main-owned Root borrowers before Core releases its canonical writer. */
   closeRootCapabilities?(): Promise<void>;
+  /** Main-owned stores and services the agent host's own tools read (cap-tools). */
+  readonly hostTools?: HostToolServiceCapabilities;
+  /** ADR-0007: Main's hidden embedding host, borrowed by a thread's admitted local recall. */
+  readonly localEmbedding?: Pick<EmbeddingHostManager, 'queryEmbedding'>;
+  /** ADR-0007: Main's hidden llm-host, borrowed by a thread's admitted local observer. */
+  readonly localLlm?: LocalLlmHostClient;
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
-  resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   /** The live path of a mounted profile root; rejects an unknown root. */
   resolveWorkspaceRoot?(rootId: string): Promise<string>;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
@@ -77,6 +89,7 @@ async function describePlatformSelection(
   const {
     close: _close,
     freshWorkspaceRoots: _freshWorkspaceRoots,
+    localEmbedding: _localEmbedding,
     revalidateWorkspace: _revalidateWorkspace,
     tools: _tools,
     ...configuration
@@ -115,36 +128,11 @@ function desktopAdmissionRequest(
     ...(request.snapshot ? { snapshot: request.snapshot } : {}),
     ...(request.workspaceBinding ? { workspaceBinding: request.workspaceBinding } : {}),
     modelId: request.modelId,
+    ...(request.planMode ? { planMode: true } : {}),
     ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
     signal,
     threadId: request.threadId,
   };
-}
-
-async function closeDesktopProviderSelection(
-  borrowed: DesktopPlatformSelection,
-  auth: readonly Promise<ProviderAuthInput | undefined>[],
-  closeFetch: () => Promise<void>,
-  onClosed: () => void
-): Promise<void> {
-  // A cancelled requester can detach while the original credential-owner
-  // lookup is still settling. Join it before releasing its captured selection.
-  await Promise.allSettled(auth);
-  const failures: unknown[] = [];
-  for (const close of [closeFetch, () => borrowed.close()]) {
-    try {
-      await close();
-    } catch (cause) {
-      failures.push(cause);
-    }
-  }
-  if (failures.length === 1) {
-    throw failures[0];
-  }
-  if (failures.length > 1) {
-    throw new AggregateError(failures, 'Desktop provider selection cleanup failed');
-  }
-  onClosed();
 }
 
 /** One private connection borrows existing owners; it constructs no platform store. */
@@ -153,13 +141,6 @@ export function serveDesktopPlatform(
   capabilities: DesktopPlatformCapabilities
 ): { close(): Promise<void> } {
   const selections = new Map<string, DesktopSelectionOwner>();
-  const authScopes = new Map<
-    string,
-    Map<
-      string,
-      { readonly original: Promise<ProviderAuthInput | undefined>; value?: ProviderAuthInput }
-    >
-  >();
   const admissions = new Set<string>();
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
@@ -196,53 +177,60 @@ export function serveDesktopPlatform(
     }
     return value.selection;
   };
-  const providerFetch = serveProviderFetchTransport(connection, {
-    getFetch: ({ threadId, provider }) => {
-      selection(threadId);
-      const auth = authScopes.get(threadId)?.get(provider)?.value;
-      if (auth?.kind !== 'custom_fetch') {
-        throw new Error('Provider fetch has no captured auth capability for this admitted thread');
-      }
-      return auth.fetch;
-    },
-  });
-  const resolveAuth = (
-    threadId: string,
-    provider: string
-  ): Promise<ProviderAuthInput | undefined> => {
-    const admitted = selection(threadId);
-    const observation = admitted.memory.settings.observationalMemory;
-    if (
-      provider !== admitted.configuration.provider &&
-      (!observation.enabled ||
-        parseObservationalMemoryModelTarget(observation.modelTarget).provider !== provider)
-    ) {
-      throw new Error('Provider auth is not part of this admitted thread selection');
+  // Only the admitted selection's own local observer may borrow the llm-host.
+  const localObserver = (threadId: string, modelId: string): LocalLlmHostClient => {
+    const observation = selection(threadId).memory.settings.observationalMemory;
+    const target = observation.enabled
+      ? parseObservationalMemoryModelTarget(observation.modelTarget)
+      : undefined;
+    if (target?.provider !== 'local' || target.model !== modelId) {
+      throw new Error('Local generation is not part of this admitted thread selection');
     }
-    let scope = authScopes.get(threadId);
-    if (!scope) {
-      scope = new Map();
-      authScopes.set(threadId, scope);
+    if (!capabilities.localLlm) {
+      throw new Error('This desktop has no local LLM host for the admitted local observer');
     }
-    let captured = scope.get(provider);
-    if (!captured) {
-      const next: {
-        readonly original: Promise<ProviderAuthInput | undefined>;
-        value?: ProviderAuthInput;
-      } = { original: Promise.resolve().then(() => capabilities.resolveProviderAuth(provider)) };
-      next.original.then(
-        (value) => {
-          if (value !== undefined) {
-            next.value = value;
-          }
-        },
-        () => undefined
-      );
-      captured = next;
-      scope.set(provider, captured);
-    }
-    return captured.original;
+    return capabilities.localLlm;
   };
+  connection.onRequest('platform/llm/generate', (input: unknown, token: CancellationToken) =>
+    execute(token, async (signal) => {
+      const { threadId, ...generation } = PlatformLocalGenerationSchema.parse(input);
+      return PlatformLocalGenerationResultSchema.parse(
+        await localObserver(threadId, generation.modelId).generate(generation, { signal })
+      );
+    })
+  );
+  connection.onRequest('platform/embedding/query', (input: unknown, token: CancellationToken) =>
+    execute(token, async (signal) => {
+      const { query, threadId } = PlatformLocalEmbeddingQuerySchema.parse(input);
+      const local = selection(threadId).localEmbedding;
+      if (!local) {
+        throw new Error('Local embedding is not part of this admitted thread selection');
+      }
+      if (!capabilities.localEmbedding) {
+        throw new Error('This desktop has no embedding host for the admitted local recall');
+      }
+      const { workerPlan } = local;
+      return {
+        embedding: await capabilities.localEmbedding.queryEmbedding(
+          {
+            dimensions: workerPlan.dimensions,
+            inferencePlan: workerPlan,
+            modelId: workerPlan.modelId,
+            modelKey: local.modelKey,
+            query,
+          },
+          { signal }
+        ),
+      };
+    })
+  );
+  connection.onRequest('platform/llm/warmup', (input: unknown, token: CancellationToken) =>
+    execute(token, async (signal) => {
+      const { modelId, threadId } = PlatformLocalWarmupSchema.parse(input);
+      await localObserver(threadId, modelId).warmup(modelId, { signal });
+      return null;
+    })
+  );
   connection.onRequest('platform/policy', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const { threadId } = z.strictObject({ threadId: z.string().min(1).optional() }).parse(input);
@@ -277,6 +265,7 @@ export function serveDesktopPlatform(
       return await capabilities.resolveWorkspaceRoot(rootId);
     })
   );
+  serveHostToolServices(connection, execute, selection, capabilities.hostTools);
   connection.onRequest('platform/workspace/roots', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);
@@ -299,15 +288,7 @@ export function serveDesktopPlatform(
           ...(request.workspaceBinding ? { workspaceBinding: request.workspaceBinding } : {}),
           selection: {
             ...borrowed,
-            close: () =>
-              (owner.closing ??= closeDesktopProviderSelection(
-                borrowed,
-                [...(authScopes.get(request.threadId)?.values() ?? [])].map(
-                  (auth) => auth.original
-                ),
-                () => providerFetch.release(request.threadId),
-                () => authScopes.delete(request.threadId)
-              )),
+            close: () => (owner.closing ??= borrowed.close()),
           },
         };
         captured = owner.selection;
@@ -362,18 +343,6 @@ export function serveDesktopPlatform(
       })
   );
   connection.onRequest(
-    'platform/auth',
-    (input: unknown, token: CancellationToken): Promise<unknown> =>
-      execute(token, async () => {
-        const { provider, threadId } = z
-          .strictObject({ provider: z.string().min(1), threadId: z.string().min(1) })
-          .parse(input);
-        const auth = await resolveAuth(threadId, provider);
-        // Closures are never dropped or silently replaced at this private boundary.
-        return encodePlatformAuth(auth);
-      })
-  );
-  connection.onRequest(
     'platform/execute',
     (input: unknown, token: CancellationToken): Promise<unknown> =>
       execute(token, async (signal) => {
@@ -382,8 +351,8 @@ export function serveDesktopPlatform(
         if (!tool) {
           throw new Error('Platform executor is not admitted');
         }
-        if (isSharedNativeToolId(tool.permissionToolId ?? request.toolId)) {
-          throw new Error('Shared native tools execute in the agent host');
+        if (isHostExecutedNativeToolId(tool.permissionToolId ?? request.toolId)) {
+          throw new Error('Host-executed native tools run in the agent host');
         }
         const output = await tool.execute(request.input, {
           ...(request.resumeData === undefined ? {} : { resumeData: request.resumeData }),
@@ -443,7 +412,6 @@ export function serveDesktopPlatform(
         [...selections.values()].map((value) => value.selection.close())
       );
       const root = await Promise.allSettled([
-        providerFetch.close(),
         Promise.resolve().then(() => capabilities.closeRootCapabilities?.()),
       ]);
       const failures = [...results, ...root].flatMap((result) =>

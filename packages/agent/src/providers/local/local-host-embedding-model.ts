@@ -17,7 +17,10 @@ export interface LocalEmbeddingHostQuery {
 }
 
 export interface LocalEmbeddingHostClient {
-  queryEmbedding: (payload: LocalEmbeddingHostQuery) => Promise<number[]>;
+  queryEmbedding: (
+    payload: LocalEmbeddingHostQuery,
+    options?: { readonly signal?: AbortSignal }
+  ) => Promise<number[]>;
 }
 
 export function createLocalHostEmbeddingModel(args: {
@@ -39,17 +42,16 @@ export function createLocalHostEmbeddingModel(args: {
   };
 
   return {
-    async doEmbed({ values }) {
+    async doEmbed({ abortSignal, values }) {
       const dimensions = await getDimensions();
       const embeddings: number[][] = [];
       for (const value of values) {
+        // The host request carries the caller's cancellation (run Stop) to the hidden host.
         embeddings.push(
-          await client.queryEmbedding({
-            dimensions,
-            modelId,
-            modelKey,
-            query: value,
-          })
+          await client.queryEmbedding(
+            { dimensions, modelId, modelKey, query: value },
+            abortSignal ? { signal: abortSignal } : {}
+          )
         );
       }
       return { embeddings };

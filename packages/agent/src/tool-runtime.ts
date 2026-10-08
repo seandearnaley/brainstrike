@@ -9,6 +9,7 @@ export {
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
 } from './mastra/default-instructions';
+export { filterToolsForPlanMode } from './mastra/plan-mode-tool-gate';
 export { applyToolModelOutputProjections } from './mastra/tool-model-output';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 export {

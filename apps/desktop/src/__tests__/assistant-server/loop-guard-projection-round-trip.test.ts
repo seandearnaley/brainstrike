@@ -7,14 +7,12 @@ import {
 import type { GrepFileSummary, GrepToolResult } from '@brainstrike/host-capabilities/native-tools';
 import {
   buildRepeatedCallRefusalResult,
+  projectGlobWorkspaceModelOutput,
+  projectGrepSearchModelOutput,
   resetToolCallLoopGuards,
   withRepeatedCallGuard,
 } from '@brainstrike/host-capabilities/native-tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  projectGlobWorkspaceModelOutput,
-  projectGrepSearchModelOutput,
-} from '../../assistant-server/workspace-search-model-projections';
 
 /**
  * BST-1188 loop guards: proof that the repeated-identical-call warning and

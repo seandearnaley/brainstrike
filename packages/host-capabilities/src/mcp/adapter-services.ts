@@ -146,9 +146,8 @@ export function createAgentHostAdapterServicesFactory<Collection extends AgentHo
         isClosing: () => closing !== undefined,
         mcpConfiguration: options.mcpConfiguration,
         oauthStore: oauth,
-        onMcpDiscoverySkips: capabilities.onMcpDiscoverySkips,
         openExternal: options.openExternal,
-        openTaskDatabase: options.openTaskDatabase,
+        openTaskStorage: options.openTaskStorage,
         ...(capabilities.runtimeDependencies
           ? { runtimeDependencies: capabilities.runtimeDependencies }
           : {}),

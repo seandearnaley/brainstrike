@@ -2,7 +2,8 @@ import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { committedApprovalOptions } from '../committed-approval-options';
 import { ToolFallback } from '../tool-fallback';
 import { extractPrimaryArg } from '../tool-summaries';
 
@@ -461,5 +462,56 @@ describe('ToolFallback', () => {
 
       expect(container.querySelector('[data-testid="tool-fallback"]')).toBeInTheDocument();
     });
+  });
+});
+
+describe('a committed permission approval', () => {
+  const pending = {
+    addResult: () => {},
+    args: { path: 'notes.txt' },
+    argsText: '{"path":"notes.txt"}',
+    part: {},
+    resume: () => {},
+    status: { reason: 'interrupt' as const, type: 'requires-action' as const },
+    toolCallId: 'grant-call',
+    toolName: 'brainstrike.writeWorkspaceFile',
+    type: 'tool-call' as const,
+  };
+
+  it('offers each grant option and answers with the chosen option', async () => {
+    const respondToApproval = vi.fn(() => Promise.resolve());
+    wrap(
+      <ToolFallback
+        {...pending}
+        approval={{ id: 'approval-1', options: committedApprovalOptions('edit') }}
+        respondToApproval={respondToApproval}
+      />
+    );
+    for (const label of ['Approve', 'Always allow', 'Allow edits this session', 'Decline']) {
+      expect(
+        screen.getByRole('button', { name: `${label} brainstrike.writeWorkspaceFile` })
+      ).toBeInTheDocument();
+    }
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Allow edits this session brainstrike.writeWorkspaceFile',
+      })
+    );
+    expect(respondToApproval).toHaveBeenCalledWith({ approved: true, optionId: 'grant-session' });
+  });
+
+  it('answers a decline option as not approved', async () => {
+    const respondToApproval = vi.fn(() => Promise.resolve());
+    wrap(
+      <ToolFallback
+        {...pending}
+        approval={{ id: 'approval-1', options: committedApprovalOptions('edit') }}
+        respondToApproval={respondToApproval}
+      />
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Decline brainstrike.writeWorkspaceFile' })
+    );
+    expect(respondToApproval).toHaveBeenCalledWith({ approved: false, optionId: 'deny' });
   });
 });

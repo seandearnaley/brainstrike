@@ -61,6 +61,7 @@ import {
   retireNativeIndexSources,
 } from './native-index-source-retirement';
 import { createNativeIndexWatchHealthHandler } from './native-index-watch-health';
+import { createProfileAdmission } from './native-profile-admission';
 import {
   closeAllIndexQueries,
   installIndexQueryTarget,
@@ -251,7 +252,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         ...dependencies.agentHostPlatform,
         closeTimeoutMs: 1000,
         root: resolveDesktopDatabaseProfileDirectory(),
-        startupTimeoutMs: 5000,
       }),
     getAuthority: authority,
     getFileInvalidator: () => graph?.publication?.invalidateFile,
@@ -808,6 +808,18 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     await stopSources();
     await closeOwned();
   };
+  const profileAdmission = createProfileAdmission(
+    runtime,
+    {
+      epoch: () => terminalEpoch,
+      reconfiguration: () => reconfiguration,
+      reopen: () => {
+        terminalRequested = false;
+      },
+      requested: () => terminalRequested,
+    },
+    closeRootCapabilities
+  );
   const close = async (): Promise<void> => {
     await closeRootCapabilities();
     await runtime.retireProfile();
@@ -954,22 +966,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   });
   return {
     acquire,
-    acquireProfile: async () => {
-      if (terminalRequested) {
-        throw new TransitionError('Profile admission is closed for terminal retirement.');
-      }
-      // Index setup errors remain on their own surface. The runtime separately
-      // retains and rejects failed physical profile retirement before attachment.
-      await reconfiguration?.catch(() => undefined);
-      if (terminalRequested) {
-        throw new TransitionError('Profile admission closed during index reconfiguration.');
-      }
-      const attachment = await runtime.acquireProfile({ indexIndependent: true });
-      if (terminalRequested) {
-        throw new TransitionError('Profile admission closed during attachment.');
-      }
-      return attachment;
-    },
+    acquireProfile: profileAdmission.acquireProfile,
     acquireRead,
     captureAcknowledgedAuthority: () => {
       const current = graph;
@@ -990,7 +987,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       };
     },
     close,
-    closeRootCapabilities,
+    closeRootCapabilities: profileAdmission.releaseRootForHost,
     destroyAndRetireProfile,
     getReadiness: () => (graph ? catalogReadiness(graph) : []),
     getSearchAuthority: readAuthority.getSearchAuthority,

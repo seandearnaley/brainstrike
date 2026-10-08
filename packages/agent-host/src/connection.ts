@@ -1,9 +1,11 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { HostRecord } from '@brainstrike/host-lease';
 import type { MessageConnection } from 'vscode-jsonrpc';
+import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
-import type { HostClientOrigin, HostPlatform } from './ports.js';
+import type { HostAuthService, HostClientOrigin, HostProviderService } from './ports.js';
 import { type HostLogRow, type HostMethod, type HostParams, parseHostParams } from './protocol.js';
+import { bindHostProviderMethods } from './provider-connection.js';
 
 export interface HostConnectionLifecycle {
   readonly closing: boolean;
@@ -12,10 +14,13 @@ export interface HostConnectionLifecycle {
 }
 
 export interface HostConnectionOptions {
+  /** The platform's credential authority, where the host owns one. */
+  readonly auth?: HostAuthService;
   readonly lifecycle?: HostConnectionLifecycle;
   /** The transport's client origin; the public socket is never the desktop. */
   readonly origin?: HostClientOrigin;
-  readonly storeProviderCredential?: HostPlatform['storeProviderCredential'];
+  /** The platform's provider reads, where the host owns a credential store. */
+  readonly providers?: HostProviderService;
 }
 
 /** All transports enter this same authenticated method dispatcher. */
@@ -26,7 +31,7 @@ export function bindHostConnection(
   attached: () => void,
   options: HostConnectionOptions = {}
 ): () => void {
-  const { lifecycle, origin = 'public-socket', storeProviderCredential } = options;
+  const { auth, lifecycle, origin = 'public-socket', providers } = options;
   let initialized = false;
   let disposed = false;
   const mcpClient = {
@@ -85,13 +90,8 @@ export function bindHostConnection(
       start: record.start,
     };
   });
-  handle('auth/login', async (params) => {
-    if (!storeProviderCredential) {
-      throw new Error('This host owns no credential store');
-    }
-    await storeProviderCredential(params.provider, params.credential);
-    return { stored: true };
-  });
+  bindHostAuthMethods(handle, auth, origin);
+  bindHostProviderMethods(handle, providers, origin);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
   handle('thread/delete', (params) => core.deleteThread(params));
