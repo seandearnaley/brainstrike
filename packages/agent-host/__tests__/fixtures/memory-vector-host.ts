@@ -131,7 +131,7 @@ export async function memoryVectorHost(options: {
         options.stateProjectionModule ??
         new URL('../../dist/state-projection.js', import.meta.url).href,
     },
-    stateResources: [{ profile: RECORDED_VECTOR_PROFILE, resourceId, rootId: root }],
+    stateResources: [{ resourceId, rootId: root }],
     stateRoot: root,
   } as const;
   const indexerDeadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };

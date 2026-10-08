@@ -146,7 +146,7 @@ export async function observationHostLifecycle(
           embedding: { indexMode: 'text-only' },
           rootIds: [root],
           stateProjection: { mode: 'dev', module: producerModule },
-          stateResources: [{ profile: RECORDED_VECTOR_PROFILE, resourceId, rootId: root }],
+          stateResources: [{ resourceId, rootId: root }],
           stateRoot: root,
         },
         { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
