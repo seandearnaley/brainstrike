@@ -248,6 +248,67 @@ test.each(unownedCases)('$label cannot become an owned cancellation', async ({ b
   }
 });
 
+test.each(['aggregate', 'member array'] as const)(
+  'proxy %s cannot hide original mixed aggregate membership',
+  async (kind) => {
+    const f = await ownedFixture();
+    const genuine = new Error('Original proxied fixture failure');
+    const aggregate = new AggregateError([f.first, genuine], 'Recorded aggregate membership');
+    const traps: string[] = [];
+    try {
+      let original: unknown = aggregate;
+      if (kind === 'aggregate') {
+        original = new Proxy(aggregate, {
+          getOwnPropertyDescriptor: (target, key) => {
+            traps.push(`aggregate descriptor ${String(key)}`);
+            return key === 'errors'
+              ? {
+                  configurable: true,
+                  enumerable: false,
+                  value: [f.first, f.second],
+                  writable: true,
+                }
+              : Reflect.getOwnPropertyDescriptor(target, key);
+          },
+          getPrototypeOf: (target) => {
+            traps.push('aggregate prototype');
+            return Reflect.getPrototypeOf(target);
+          },
+        });
+      } else {
+        const members: unknown[] = [f.first, genuine];
+        Reflect.set(
+          aggregate,
+          'errors',
+          new Proxy(members, {
+            getOwnPropertyDescriptor: (target, key) => {
+              traps.push(`member descriptor ${String(key)}`);
+              return key === '1'
+                ? { configurable: true, enumerable: true, value: f.second, writable: true }
+                : Reflect.getOwnPropertyDescriptor(target, key);
+            },
+          })
+        );
+      }
+      const recognized = f.lifetime.ownsCancellation(original);
+      console.error(
+        'Proxy ownership recognition receipt:',
+        JSON.stringify({
+          genuineMemberRetained: aggregate.errors[1] === genuine,
+          kind,
+          recognized,
+          traps,
+        })
+      );
+      expect(aggregate.errors[1]).toBe(genuine);
+      expect(recognized).toBe(false);
+      expect(traps).toEqual([]);
+    } finally {
+      await f.lifetime.join();
+    }
+  }
+);
+
 test('foreign-enclosure cancellation stays unowned even when both owners use the exact same reason', async () => {
   const reason = new Error('Shared recorded reason object');
   const a = await ownedFixture(reason);

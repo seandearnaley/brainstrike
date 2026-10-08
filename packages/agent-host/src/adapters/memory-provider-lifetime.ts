@@ -1,3 +1,4 @@
+import { isProxy } from 'node:util/types';
 import type { MastraEmbeddingModel, MastraVector } from '@mastra/core/vector';
 import { type LanguageModelUsage, wrapLanguageModel } from 'ai';
 
@@ -76,7 +77,7 @@ export class MemoryProviderLifetime {
   }
 
   private ownsCancellationMember(cause: unknown, ancestors: Set<object>): boolean {
-    if (typeof cause !== 'object' || cause === null || ancestors.has(cause)) {
+    if (typeof cause !== 'object' || cause === null || isProxy(cause) || ancestors.has(cause)) {
       return false;
     }
     if (this.cancellations.has(cause)) {
@@ -91,7 +92,7 @@ export class MemoryProviderLifetime {
         return false;
       }
       const members: unknown = descriptor.value;
-      if (!Array.isArray(members)) {
+      if (isProxy(members) || !Array.isArray(members)) {
         return false;
       }
       const count: unknown = Object.getOwnPropertyDescriptor(members, 'length')?.value;
