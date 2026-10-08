@@ -554,13 +554,13 @@ export class HostCore {
     const method = 'checkpoint/revert';
     return this.command(method, params, async () => {
       this.run(params.threadId, params.runId);
-      const { event, result } = await revertHostRunEdits(this.records.edits, params, {
+      const { events, result } = await revertHostRunEdits(this.records.edits, params, {
         pending: this.pendingAdmissions,
         platform: this.platform,
         runs: this.runs.values(),
         storeRoot: this.store.root,
       });
-      await this.accept(params.threadId, method, params, result, [event], this.foldRows, 'full');
+      await this.accept(params.threadId, method, params, result, events, this.foldRows, 'full');
       return result;
     });
   }
