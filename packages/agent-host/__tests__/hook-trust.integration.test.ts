@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
+import { ErrorCodes } from 'vscode-jsonrpc';
 import { attachAgentHost, type HostClient } from '../src/client.js';
 import { readHostHookApproval, trustHostHooks } from '../src/hook-trust.js';
 import type { HostPlatform } from '../src/ports.js';
@@ -71,15 +72,22 @@ test('a trust is recorded only for the reviewed bytes and survives a host restar
   const read = () => client.request('hooks/trust/read', { rootId: 'root-1' });
   await expect(read()).resolves.toEqual({ trust: null });
 
-  // A stale review is refused: the file on disk is not what the client hashed.
+  // Refusals answer InvalidParams with the host's reason: a stale review (the
+  // file on disk is not what the client hashed), a relative path, no file.
+  const file = join(workspace, '.brainstrike', 'hooks.json');
   await expect(
     client.request('hooks/trust', { path: workspace, rootId: 'root-1', sha256: sha256Of('{}') })
-  ).rejects.toThrow(
-    `${join(workspace, '.brainstrike', 'hooks.json')} changed since it was reviewed`
-  );
+  ).rejects.toMatchObject({
+    code: ErrorCodes.InvalidParams,
+    message: `${file} changed since it was reviewed; review it again`,
+  });
   await expect(
     client.request('hooks/trust', { path: 'relative/root', rootId: 'root-1', sha256 })
-  ).rejects.toThrow('absolute');
+  ).rejects.toMatchObject({ code: ErrorCodes.InvalidParams, message: /absolute path/ });
+  const noHooks = await tempDir('bs-m3-hook-trust-none-');
+  await expect(
+    client.request('hooks/trust', { path: noHooks, rootId: 'root-1', sha256 })
+  ).rejects.toMatchObject({ code: ErrorCodes.InvalidParams, message: /cannot be read/ });
   await expect(read()).resolves.toEqual({ trust: null });
 
   await expect(

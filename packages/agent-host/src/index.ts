@@ -50,6 +50,7 @@ export { HostCore, type HostEventStore } from './core.js';
 export { readHostRow } from './event-storage.js';
 export {
   type HostHookTrustStore,
+  hostHookApprovalFor,
   hostProjectHooksPath,
   readHostHookApproval,
   readHostHookTrust,
