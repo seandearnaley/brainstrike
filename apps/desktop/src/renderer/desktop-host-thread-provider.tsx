@@ -14,6 +14,8 @@ import {
   type CommittedHostConversation,
   createCommittedHostConversation,
 } from './committed-host-conversation';
+import { CommittedHostMcpInputView } from './committed-host-mcp-input-view';
+import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
 import { useDesktopHostPresentation } from './use-desktop-host-presentation';
@@ -46,12 +48,19 @@ function HostThread({
     return () => current.close();
   }, [client, explorer, threadId]);
   return conversation ? (
-    <CommittedAssistantConversation
-      {...presentation}
-      commands={conversation.commands}
-      label="Assistant"
-      store={conversation.store}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1">
+        <CommittedAssistantConversation
+          {...presentation}
+          commands={conversation.commands}
+          label="Assistant"
+          store={conversation.store}
+          workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
+        />
+      </div>
+      {/* Core-owned MCP input: the dialog portals; status and alerts sit under the conversation. */}
+      <CommittedHostMcpInputView input={conversation.mcpInput} />
+    </div>
   ) : (
     <div role="status">Connecting to the agent host…</div>
   );

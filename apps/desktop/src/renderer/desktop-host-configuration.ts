@@ -13,14 +13,15 @@ import {
   useSkillsPreferencesStore,
 } from '@brainstrike/app-state/stores/skills-preferences-store';
 import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
-import {
-  DESKTOP_NATIVE_TOOL_IDS,
-  isSupportedProvider,
-  type RuntimeData,
-} from '@brainstrike/assistant-contract';
+import { DESKTOP_NATIVE_TOOL_IDS, isSupportedProvider } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
-import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-wire';
+import {
+  captureDesktopHostIntent,
+  type DesktopHostModelProjection,
+} from '../agent-host-platform/desktop-host-intent';
+
+export type { DesktopHostModelProjection } from '../agent-host-platform/desktop-host-intent';
 
 export function readDesktopHostModel(threadId: string): string {
   const draft = useAssistantThreadStore.getState().draftRuntimeByThreadId[threadId];
@@ -40,14 +41,6 @@ export function readDesktopHostModel(threadId: string): string {
 }
 
 /** Capture intent at Send from the same stores used by the existing assistant. */
-export interface DesktopHostModelProjection {
-  readonly agentLoop: RuntimeData['agentLoop'];
-  readonly model: RuntimeData['model'];
-  readonly modelSettings: RuntimeData['modelSettings'];
-  readonly provider: RuntimeData['provider'];
-  readonly providerOptions: RuntimeData['providerOptions'];
-}
-
 export function readDesktopHostConfiguration(
   threadId: string,
   selectionFolderId: string | null,
@@ -71,33 +64,25 @@ export function readDesktopHostConfiguration(
   // only the existing generation-option projection belongs in the event log.
   const { providerSettings: _providerSettings, ...modelConfiguration } = draft;
   const permission = getPermissionToolGateSnapshotInput();
-  const { enforce, ...policy } = permission;
   const instructions = useWorkspaceInstructionsPreferencesStore.getState();
   const workspaceContext = toRuntimeWorkspaceContext(
     useWorkspaceContextCurationStore.getState().contextSnapshot,
     selectionFolderId
   );
-  return PlatformClientConfigurationSchema.parse({
+  return captureDesktopHostIntent({
     agentLoop: projection?.agentLoop ?? buildAgentLoopSettings(providerSettings[provider]),
     enabledNativeToolIds: DESKTOP_NATIVE_TOOL_IDS.filter((id) =>
       useNativeToolPreferencesStore.getState().isToolEnabled(id)
     ),
     memoryOptions: buildAssistantMemoryOptions(providerSettings[provider]),
     memorySettings: useAssistantMemoryPreferencesStore.getState().getRuntimeMemorySettings(),
-    modelConfiguration: {
-      ...modelConfiguration,
-      // Keep the projected pair with its options. Existing Main admission
-      // verifies that this complete selection matches the input command.
-      ...(projection ? { model: projection.model, provider: projection.provider } : {}),
-      ...(threadDraft?.modelSettings ? { modelSettings: threadDraft.modelSettings } : {}),
-      ...(threadDraft?.providerOptions ? { providerOptions: threadDraft.providerOptions } : {}),
-      ...(projection?.modelSettings ? { modelSettings: projection.modelSettings } : {}),
-      ...(projection?.providerOptions ? { providerOptions: projection.providerOptions } : {}),
-    },
-    permissionPolicy: { ...policy, yolo: policy.yolo || !enforce },
-    ...(workspaceContext ? { workspaceContext } : {}),
-    ...(selectionFolderId ? { selectionFolderId } : {}),
+    modelConfiguration,
+    permission,
+    projection,
+    selectionFolderId,
     skillsPreference: buildSkillsContextRequest(useSkillsPreferencesStore.getState()),
+    threadDraft,
+    workspaceContext,
     workspaceInstructionsPreference: {
       masterEnabled: instructions.masterEnabled,
       oversizedOptInByRootId: instructions.oversizedOptInByRootId,

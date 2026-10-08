@@ -1,17 +1,23 @@
 import { expect, test } from './fixtures/electron-fixture';
-import { readAssistantMockRequests, setupAssistantMock } from './utils/assistant-mock';
+import {
+  configureAssistantProvider,
+  readAssistantMockRequests,
+  setupAssistantMock,
+} from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 /** Real Electron shell, native DB and workspace hydration; inference is mocked. */
 test('restores distinct child tabs and native transcripts without executing a run @smoke', async ({
+  modelProvider,
   window,
 }, testInfo) => {
   const { mockFileSystemOperations } = await loadElectronHelpers();
   await mockFileSystemOperations(window);
   await ensureMockWorkspaceOpen(window);
-  await setupAssistantMock(window, { message: 'Root fixture ready.' });
+  await configureAssistantProvider(window);
+  modelProvider.setScript({ finalText: 'Root fixture ready.' });
   await ensureAssistantShellVisible(window);
   const input = window.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
@@ -21,7 +27,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
     timeout: E2E_TIMEOUTS.messageVisibility,
   });
 
-  const rootPanel = window.getByTestId('chat-panel');
+  const rootPanel = window.getByRole('region', { exact: true, name: 'Assistant' });
   await expect(
     rootPanel.getByRole('button', { includeHidden: true, name: 'Regenerate response' })
   ).toHaveCount(1);

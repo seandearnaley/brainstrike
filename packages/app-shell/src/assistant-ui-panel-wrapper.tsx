@@ -29,7 +29,6 @@ import {
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import {
-  createPgliteAssistantThreadRepository,
   hasDurableAssistantUsageCapability,
   useAssistantThreadStore,
 } from '@brainstrike/assistant-data';
@@ -110,6 +109,7 @@ import { useAssistantModelChange } from './hooks/use-assistant-model-change';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantProviderDisabledReason } from './hooks/use-assistant-provider-disabled-reason';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
+import { useAssistantThreadRepositories } from './hooks/use-assistant-thread-repositories';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useAssistantThreadRootBinding } from './hooks/use-assistant-thread-root-binding';
 import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
@@ -678,10 +678,7 @@ export function AssistantUiPanelWrapper({
       workspaceIndexingPaused,
     ]
   );
-  const assistantThreadRepository = useMemo(
-    () => (db ? createPgliteAssistantThreadRepository(db) : null),
-    [db]
-  );
+  const { assistantThreadRepository, forgeThreadRepository } = useAssistantThreadRepositories(db);
   const {
     desktopAssistantBackendAvailable,
     localChatTransport,
@@ -1264,7 +1261,7 @@ export function AssistantUiPanelWrapper({
   // Forge observations arrive out of band from main, so they need their own
   // trigger source alongside the stream-scanning one — same decision layer.
   useForgeRunEvents({
-    assistantThreadRepository,
+    assistantThreadRepository: forgeThreadRepository,
     branchLookup: forgeBranchLookup,
     memoryResourceId,
     notifications: notificationCallbacks,

@@ -37,13 +37,17 @@ export function readCliWorkspaceRunInput(input: unknown): CliWorkspaceRunInput |
 }
 
 interface WorkspaceIntent {
-  readonly cliWorkspace?: CliWorkspaceSelection;
-  readonly selectionFolderId?: string;
-  readonly skillsPreference?: {
-    readonly disabledSkillKeys: readonly string[];
-    readonly masterEnabled: boolean;
-  };
-  readonly workspaceContext?: { readonly files: readonly { readonly rootId?: string }[] };
+  readonly cliWorkspace?: CliWorkspaceSelection | undefined;
+  readonly selectionFolderId?: string | undefined;
+  readonly skillsPreference?:
+    | {
+        readonly disabledSkillKeys: readonly string[];
+        readonly masterEnabled: boolean;
+      }
+    | undefined;
+  readonly workspaceContext?:
+    | { readonly files: readonly { readonly rootId?: string | undefined }[] }
+    | undefined;
   readonly workspaceInstructionsPreference: {
     readonly masterEnabled: boolean;
     readonly oversizedOptInByRootId: Readonly<Record<string, boolean>>;

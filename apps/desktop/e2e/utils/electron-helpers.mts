@@ -7,6 +7,12 @@ import { getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
 import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
+import {
+  closeModelProviderShimWithProcess,
+  type ModelProviderShim,
+  resolveProviderEgressEnvironment,
+  startModelProviderShim,
+} from './model-provider-shim.ts';
 
 declare const process: NodeJS.Process;
 const require = createRequire(import.meta.url);
@@ -25,6 +31,11 @@ interface LaunchElectronAppOptions {
   /** Extra environment for this launch, applied BEFORE the harness's own variables so it cannot override them. */
   readonly env?: Readonly<Record<string, string>>;
   readonly launchMode?: 'built' | 'dev-server' | 'test-built';
+  /**
+   * The provider egress boundary for this launch. The harness passes its own so
+   * scripts survive restarts; any other launch owns one until its app exits.
+   */
+  readonly modelProvider?: ModelProviderShim;
   readonly userDataDir?: string;
 }
 
@@ -220,7 +231,10 @@ function logEnvironmentDiagnostics(userDataDir?: string): void {
 export async function launchElectronApp(
   _debugPort?: number,
   userDataDir?: string,
-  options: Pick<LaunchElectronAppOptions, 'disableExternalLocalRuntimeProbes' | 'env'> = {}
+  options: Pick<
+    LaunchElectronAppOptions,
+    'disableExternalLocalRuntimeProbes' | 'env' | 'modelProvider'
+  > = {}
 ): Promise<ElectronAppContext> {
   return await launchElectronAppWithOptions({
     ...options,
@@ -231,6 +245,26 @@ export async function launchElectronApp(
 
 export async function launchElectronAppWithOptions(
   options: LaunchElectronAppOptions = {}
+): Promise<ElectronAppContext> {
+  // Every launch has a provider egress boundary (BST-1931). A caller's boundary
+  // survives restarts; otherwise this launch owns one until its app exits.
+  if (options.modelProvider) {
+    return await launchElectronAppWithBoundary(options, options.modelProvider);
+  }
+  const boundary = await startModelProviderShim();
+  try {
+    const context = await launchElectronAppWithBoundary(options, boundary);
+    closeModelProviderShimWithProcess(boundary, context.app.process());
+    return context;
+  } catch (error) {
+    await boundary.close();
+    throw error;
+  }
+}
+
+async function launchElectronAppWithBoundary(
+  options: LaunchElectronAppOptions,
+  modelProvider: ModelProviderShim
 ): Promise<ElectronAppContext> {
   const electronPath = require('electron');
   const mainPath = path.resolve(import.meta.dirname, '..', '..', 'dist', 'main.js');
@@ -243,6 +277,10 @@ export async function launchElectronAppWithOptions(
   if (!userDataDir) {
     throw new Error('Desktop E2E launches must provide an isolated userDataDir.');
   }
+  const providerEgressEnv = resolveProviderEgressEnvironment(modelProvider, [
+    options.env ?? {},
+    process.env,
+  ]);
 
   // Launch retries hide startup races and inflate failing PR/runtime cost. The
   // harness must fail once with the launch evidence that caused the failure.
@@ -270,7 +308,8 @@ export async function launchElectronAppWithOptions(
       launchTimeoutMs,
       launchMode,
       options.disableExternalLocalRuntimeProbes ?? false,
-      options.env ?? {}
+      options.env ?? {},
+      providerEgressEnv
     );
 
     try {
@@ -345,12 +384,14 @@ async function killLingeringElectronProcesses(userDataDir?: string): Promise<voi
 function createLaunchOptions(
   _electronPath: string,
   mainPath: string,
-  _debugPort?: number,
-  userDataDir?: string,
-  launchTimeoutMs?: number,
-  launchMode: 'built' | 'dev-server' | 'test-built' = 'test-built',
-  disableExternalLocalRuntimeProbes = false,
-  extraEnv: Readonly<Record<string, string>> = {}
+  _debugPort: number | undefined,
+  userDataDir: string | undefined,
+  launchTimeoutMs: number | undefined,
+  launchMode: 'built' | 'dev-server' | 'test-built',
+  disableExternalLocalRuntimeProbes: boolean,
+  extraEnv: Readonly<Record<string, string>>,
+  /** Provider egress boundary values; applied over every other source (BST-1931). */
+  providerEgressEnv: Readonly<Record<string, string>>
 ): Parameters<typeof electron.launch>[0] {
   const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
@@ -414,6 +455,8 @@ function createLaunchOptions(
       ...baseEnv,
       // Before every harness-owned variable below: a spec's env can add, never override them.
       ...extraEnv,
+      // Provider base URLs, MASTRA_OFFLINE: the egress boundary owns these keys.
+      ...providerEgressEnv,
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_DISABLE_SANDBOX: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase

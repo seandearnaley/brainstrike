@@ -41,6 +41,10 @@ import {
 } from './production-platform.js';
 import type { HostStartupContext } from './runtime.js';
 import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.js';
+import {
+  readCliWorkspaceRunInput,
+  STANDALONE_WORKSPACE_CAPABILITY_ERROR,
+} from './standalone-workspace-input.js';
 
 const capabilities = {
   browserOAuth: 'unavailable',
@@ -143,6 +147,11 @@ export function createHostPlatform(
     },
     readConfiguration: async (request): Promise<ProductionHostRunConfiguration> => {
       request.signal.throwIfAborted();
+      if (readCliWorkspaceRunInput(request.configuration)) {
+        throw new Error(
+          `[${STANDALONE_WORKSPACE_CAPABILITY_ERROR}] Standalone workspace input requires the existing profile/catalog and pinned workspace service capabilities`
+        );
+      }
       const catalog = selection(request.modelId);
       const selected: RuntimeData = { model: catalog.model, provider: catalog.provider };
       const modelSettings = buildModelSettingsOption(selected).modelSettings;

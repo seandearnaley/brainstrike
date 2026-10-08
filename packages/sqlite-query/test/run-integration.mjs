@@ -1,5 +1,8 @@
 import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const desktopRequire = createRequire(
@@ -41,6 +44,8 @@ child.on('exit', (code, signal) => {
   }
   const utilityEnvironment = { ...process.env };
   utilityEnvironment.ELECTRON_RUN_AS_NODE = undefined;
+  const profileDirectory = mkdtempSync(join(tmpdir(), 'brainstrike-query-utility-profile-'));
+  utilityEnvironment.SQLITE_QUERY_TEST_USER_DATA_DIR = profileDirectory;
   const utility = spawn(
     executable,
     [fileURLToPath(new URL('./electron-utility.cjs', import.meta.url))],
@@ -50,9 +55,11 @@ child.on('exit', (code, signal) => {
     }
   );
   utility.on('error', (error) => {
+    rmSync(profileDirectory, { force: true, recursive: true });
     throw error;
   });
-  utility.on('exit', (exitCode, exitSignal) => {
+  utility.on('close', (exitCode, exitSignal) => {
+    rmSync(profileDirectory, { force: true, recursive: true });
     if (exitSignal) {
       throw new Error(`SQLite query utility proof exited with ${exitSignal}.`);
     }

@@ -15,6 +15,7 @@ import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { EmbeddingSetRow } from './retrieval-tool';
 
 interface NativeAssistantRequest {
+  admittedWorkspaceRootIds?: readonly string[] | undefined;
   capability: IndexSearchCapability;
   chunkType?: string | undefined;
   embeddingHostManager: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
@@ -53,6 +54,26 @@ function executionIdentity(status: IndexerStatus): string {
 
 function refuse(message: string): never {
   throw new ToolInputError(message);
+}
+
+/** BST-1943: an omitted root queried the whole collection despite Main's CLI subset. */
+export function resolveAdmittedRetrievalRoots(
+  admitted: readonly string[] | undefined,
+  explicitRootId: string | undefined
+): readonly string[] | undefined {
+  if (admitted === undefined) {
+    return;
+  }
+  if (
+    admitted.length === 0 ||
+    new Set(admitted).size !== admitted.length ||
+    (explicitRootId !== undefined && !admitted.includes(explicitRootId))
+  ) {
+    refuse(
+      '[ERR_CLI_WORKSPACE_RETRIEVAL_UNAVAILABLE] Retrieval requires a nonempty admitted workspace root scope.'
+    );
+  }
+  return explicitRootId === undefined ? admitted : [explicitRootId];
 }
 
 function resolveNativeLimit(request: NativeAssistantRequest): number {
@@ -129,6 +150,7 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
 }> {
   const { capability, embeddingSet, embeddingSetId, query, signal } = request;
   signal?.throwIfAborted();
+  const admitted = resolveAdmittedRetrievalRoots(request.admittedWorkspaceRootIds, request.rootId);
   const limit = resolveNativeLimit(request);
   const status = await capability.status();
   signal?.throwIfAborted();
@@ -146,12 +168,17 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
   const { profile } = status.embedding;
   const plan = status.queryPlan;
   assertSelectedQueryIdentity(profile, plan, embeddingSet);
-  const rootIds = request.rootId === undefined ? [] : [request.rootId];
+  const rootIds = admitted ?? (request.rootId === undefined ? [] : [request.rootId]);
   // Main authorizes only the active collection's bindings. A root scope intersects
   // those bindings; verify membership again on every returned canonical hit.
   const scope = {
     rootIds,
-    ...(request.rootId === undefined ? { collectionId: embeddingSetId } : {}),
+    // The factory gives collectionId precedence over roots. Use its existing
+    // root query for a CLI subset; retain saved collection validation above and
+    // membership validation on every hit below. Ordinary Desktop stays unchanged.
+    ...(admitted === undefined && request.rootId === undefined
+      ? { collectionId: embeddingSetId }
+      : {}),
   };
   let coverageHint: string | undefined;
   let scanLimited = false;
@@ -209,7 +236,7 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
     for (const hit of pool.hits) {
       if (
         hit.embeddingSetId !== embeddingSetId ||
-        (request.rootId !== undefined && hit.rootId !== request.rootId) ||
+        (rootIds.length > 0 && (hit.rootId === null || !rootIds.includes(hit.rootId))) ||
         !Number.isFinite(hit.score) ||
         hit.chunkIndex === null ||
         hit.chunkIndex < 0 ||

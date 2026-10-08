@@ -12,6 +12,11 @@
     "strictNullChecks": true,
     "types": [
       "node"
+    ],
+    "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
     ]
   },
   "include": [
@@ -34,7 +39,40 @@
       "path": "../assistant-wire"
     },
     {
+      "path": "../canonical-ingestion"
+    },
+    {
+      "path": "../db"
+    },
+    {
+      "path": "../effect-kit"
+    },
+    {
+      "path": "../file-system"
+    },
+    {
+      "path": "../host-lease"
+    },
+    {
+      "path": "../indexer"
+    },
+    {
+      "path": "../indexing-contract"
+    },
+    {
       "path": "../logging"
+    },
+    {
+      "path": "../sqlite-query"
+    },
+    {
+      "path": "../state-store"
+    },
+    {
+      "path": "../storage"
+    },
+    {
+      "path": "../types"
     },
     {
       "path": "../utils"

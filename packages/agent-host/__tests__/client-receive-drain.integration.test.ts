@@ -30,8 +30,7 @@ const rows = HostLogRowSchema.array()
     JSON.parse(
       await readFile(
         new URL(
-          '../../../apps/desktop/src/__tests__/fixtures/committed-approved-host-run.json',
-          import.meta.url
+          import.meta.resolve('@brainstrike/test-utils/fixtures/committed-approved-host-run.json')
         ),
         'utf8'
       )

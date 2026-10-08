@@ -52,7 +52,11 @@ import type {
   McpTaskTrackingRequest,
   McpTrackedTask,
 } from '@brainstrike/agent/mcp-tasks';
-import type { ConfiguredMcpServerId, McpTaskListResult } from '@brainstrike/assistant-contract';
+import type {
+  ConfiguredMcpServerId,
+  McpHostExecution,
+  McpTaskListResult,
+} from '@brainstrike/assistant-contract';
 import {
   MCP_TASK_LIST_LIMIT,
   MCP_TASK_PRESENTATION_PROTOCOL_VERSION,
@@ -370,7 +374,7 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
       throw new Error(`MCP Tasks session for "${request.configuredServerId}" is not ready.`);
     }
     const tracked = await session.lifecycle.track(request.result, signal);
-    const entry = this.register(session, tracked, request.toolName);
+    const entry = this.register(session, tracked, request.toolName, request.execution);
     if (!TERMINAL_STATUSES.has(entry.presentation.status)) {
       await this.ensureInteraction(session, connection, [tracked.record.taskId]);
     }
@@ -524,18 +528,33 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
   private register(
     session: TaskSession,
     tracked: McpTrackedTask,
-    toolName: string | undefined
+    toolName: string | undefined,
+    execution?: McpHostExecution
   ): TrackedEntry {
     const { taskId } = tracked.record;
     const existing = session.tasks.get(taskId);
     if (existing) {
       throw new Error(`MCP task "${taskId}" is already registered with this host.`);
     }
+    const handle = projectMcpTaskRecord(tracked.record, 'live').handle;
+    // Core commits the task binding before any of its input can be presented to it.
+    let bound: Promise<void> | undefined;
     const binding = this.options.elicitationPresenter.bindTaskPresenter({
       configuredServerId: session.configuredServerId,
       generation: session.generation,
+      ...(execution
+        ? {
+            host: {
+              acknowledged: (inputKey: string) =>
+                session.interaction?.acknowledgement(taskId, inputKey) ??
+                Promise.reject(new Error(`MCP task "${taskId}" has no interaction coordinator.`)),
+              bound: () => bound ?? Promise.reject(new Error('MCP task binding was not started.')),
+              execution,
+            },
+          }
+        : {}),
       operation: { ...(toolName ? { target: toolName } : {}), type: 'tools/call' },
-      taskHandle: projectMcpTaskRecord(tracked.record, 'live').handle,
+      taskHandle: handle,
     } satisfies McpTaskElicitationBinding);
     const entry: TrackedEntry = {
       binding,
@@ -546,6 +565,26 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
     };
     session.tasks.set(taskId, entry);
     this.store(entry.presentation);
+    bound = execution?.bindTask({
+      assertCurrent: async () => {
+        if (session.closed || session.tasks.get(taskId) !== entry) {
+          throw new Error(`MCP task "${taskId}" is no longer tracked by this registration.`);
+        }
+      },
+      handle,
+    });
+    // A refused binding fails this task's presentations closed; it is reported, never silent.
+    bound?.catch((cause: unknown) =>
+      this.options.onInternalError('mcp-task-host-binding-refused', { cause, taskId })
+    );
+    // Idempotent and identity-guarded: it releases only this registration, so it
+    // can never erase an entry a later recovery registered for the same task.
+    const retire = (): void => {
+      binding.release();
+      if (session.tasks.get(taskId) === entry) {
+        session.tasks.delete(taskId);
+      }
+    };
     void tracked.settled
       .then(
         (record) => {
@@ -554,17 +593,22 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
           }
         },
         (cause: unknown) => {
-          if (!session.closed) {
-            this.options.onInternalError('mcp-task-settlement-failed', { cause, taskId });
+          if (session.closed) {
+            return;
           }
+          // Tracking ended (its caller stopped, or polling failed) while the
+          // session stays open. Nothing will observe this task now, so its
+          // unanswered input is withdrawn — finalizing the presentation so a
+          // late answer is refused — without sending tasks/cancel. The exact
+          // registration is retired BEFORE the durable row is projected as
+          // recoverable, so a recovery driven by that projection starts afresh.
+          session.interaction?.withdraw(taskId);
+          retire();
+          this.store(projectMcpTaskRecord(entry.record, 'restart_required'));
+          this.options.onInternalError('mcp-task-settlement-failed', { cause, taskId });
         }
       )
-      .finally(() => {
-        binding.release();
-        if (session.tasks.get(taskId) === entry) {
-          session.tasks.delete(taskId);
-        }
-      });
+      .finally(retire);
     return entry;
   }
 
