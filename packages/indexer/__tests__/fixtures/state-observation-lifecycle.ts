@@ -4,6 +4,7 @@ import type { TestContext } from 'vitest';
 interface OwnedResource {
   close(): Promise<unknown>;
   removal: boolean;
+  value: unknown;
 }
 
 function retainedOwner(error: unknown): boolean {
@@ -78,6 +79,16 @@ export class ObservationLifecycle {
     return result;
   }
 
+  /** Manual reopen and final teardown share the first physical retirement outcome. */
+  closeResource(value: unknown): Promise<unknown> {
+    this.check();
+    const resource = this.resources.find((entry) => entry.value === value);
+    if (!resource) {
+      throw new TypeError('Observation fixture cannot retire an unowned resource');
+    }
+    return this.track(resource.close());
+  }
+
   acquire<Value>(
     start: () => Promise<Value> | Value,
     close: (value: Value) => Promise<unknown> | unknown,
@@ -92,9 +103,14 @@ export class ObservationLifecycle {
           return start();
         })
         .then(async (value) => {
+          let retirement: Promise<unknown> | undefined;
           this.resources.push({
-            close: () => Promise.resolve().then(() => close(value)),
+            close: () => {
+              retirement ??= Promise.resolve().then(() => close(value));
+              return retirement;
+            },
             removal: options.removal ?? false,
+            value,
           });
           await options.beforePublication?.(value);
           this.check();

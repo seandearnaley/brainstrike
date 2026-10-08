@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { fork, spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,7 @@ import { openIndexer } from '@brainstrike/indexer';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { afterEach, expect, it, type TestContext } from 'vitest';
+import { createIndexerConnection, IndexerLifecycleError } from '../dist/transport.js';
 import { ObservationLifecycle } from './fixtures/state-observation-lifecycle.js';
 
 const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
@@ -177,6 +178,134 @@ if (probeReceipt === undefined) {
         await port.destroy();
         await rm(root, { force: true, recursive: true });
         // Expected failure was asserted above; do not have the shared hook replay it.
+        owners.delete(context.task);
+      }
+    },
+    getAdjustedTimeout('database')
+  );
+  it(
+    'retains a live failed manual close without teardown starting another physical attempt',
+    async (context) => {
+      const owner = ownerFor(context);
+      const root = await owner.acquire(
+        () => mkdtemp(join(tmpdir(), 'observation-live-close-retained-')),
+        (ownedRoot) => rm(ownedRoot, { force: true, recursive: true }),
+        { removal: true }
+      );
+      const entry = join(root, 'non-exiting-indexer.mjs');
+      // Actual native indexer/IPC/writer; only its process-disconnect acknowledgement is refused.
+      await writeFile(
+        entry,
+        `process.disconnect = () => {};\nawait import(${JSON.stringify(new URL('../dist/process-entry.js', import.meta.url).href)});\n`
+      );
+      let output = '';
+      const host = await owner.acquire(
+        () => {
+          const child = fork(entry, [], {
+            execArgv: [],
+            serialization: 'advanced',
+            stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+          });
+          child.stdout?.on('data', (bytes: Buffer) => {
+            output += bytes.toString();
+          });
+          child.stderr?.on('data', (bytes: Buffer) => {
+            output += bytes.toString();
+          });
+          const closed = new Promise<void>((resolve, reject) => {
+            child.once('error', reject);
+            child.once('close', () => resolve());
+          });
+          return { child, closed };
+        },
+        async ({ child, closed }) => {
+          if (child.exitCode === null && child.signalCode === null) {
+            throw new Error('Live manual-close child is retained until explicit physical cleanup');
+          }
+          await closed;
+        }
+      );
+      let killAttempts = 0;
+      let closeAttempts = 0;
+      let permitted = false;
+      const connection = createIndexerConnection(
+        {
+          dbPath: join(root, 'index.sqlite'),
+          embedding: { indexMode: 'text-only' },
+          rootIds: ['root'],
+        },
+        deadlines,
+        {
+          kill: () => {
+            killAttempts += 1;
+            return permitted && host.child.kill();
+          },
+          onError: (listener) => {
+            host.child.on('error', listener);
+            return () => host.child.off('error', listener);
+          },
+          onExit: (listener) => {
+            host.child.on('exit', listener);
+            return () => host.child.off('exit', listener);
+          },
+          onMessage: (listener) => {
+            host.child.on('message', listener);
+            return () => host.child.off('message', listener);
+          },
+          send: (message) => host.child.send(message),
+        }
+      );
+      const closePhysical = (port: Awaited<ReturnType<typeof openIndexer>>) => {
+        closeAttempts += 1;
+        return port.close();
+      };
+      try {
+        const port = await owner.acquire(() => connection.ready, closePhysical);
+        const pid = (await port.info()).pid;
+        const primary = await owner
+          .execute(async () => {
+            await owner.closeResource(port);
+          })
+          .catch((error: unknown) => error);
+        expect(primary).toBeInstanceOf(IndexerLifecycleError);
+        expect(connection.exited).toBe(false);
+        expect(alive(pid)).toBe(true);
+        expect(closeAttempts).toBe(1);
+        expect(killAttempts).toBe(1);
+        // A forbidden automatic retry would now physically kill the still-owned process.
+        permitted = true;
+        const failed = await owner.close().catch((error: unknown) => error);
+        expect(failed).toBeInstanceOf(AggregateError);
+        if (!(failed instanceof AggregateError)) {
+          throw new Error('Failed physical join was discarded');
+        }
+        expect(failed.errors[0]).toBe(primary);
+        console.info(
+          'live manual-close ownership receipt',
+          JSON.stringify({
+            childLive: alive(pid),
+            closeAttempts,
+            killAttempts,
+            rootRetained: existsSync(root),
+          }),
+          output
+        );
+        expect(closeAttempts).toBe(1);
+        expect(killAttempts).toBe(1);
+        expect(connection.exited).toBe(false);
+        expect(alive(pid)).toBe(true);
+        expect(existsSync(root)).toBe(true);
+        const retirement = owner.close();
+        expect(owner.close()).toBe(retirement);
+        await expect(retirement).rejects.toBe(failed);
+      } finally {
+        // Explicit control cleanup occurs only after checking the retained failed outcome.
+        if (host.child.exitCode === null && host.child.signalCode === null) {
+          host.child.kill();
+        }
+        await host.closed;
+        await connection.destroy();
+        await rm(root, { force: true, recursive: true });
         owners.delete(context.task);
       }
     },

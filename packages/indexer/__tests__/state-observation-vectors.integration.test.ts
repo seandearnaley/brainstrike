@@ -200,8 +200,8 @@ async function fixture(owner: ObservationLifecycle, nativeScope: 'thread' | 'res
     },
     reopen: () =>
       owner.work(async () => {
-        await store.close();
-        await port.close();
+        await owner.closeResource(store);
+        await owner.closeResource(port);
         owner.check();
         port = await acquirePort({ ...options, embedding: { indexMode: 'open-existing' } });
         store = await owner.acquire(
@@ -732,8 +732,8 @@ it(
     const f = await fixture(owner);
     await write(f);
     const transcript = await f.store.read('one');
-    await f.store.close();
-    await f.port.close();
+    await owner.closeResource(f.store);
+    await owner.closeResource(f.port);
     const db = openConnection(f.options.dbPath);
     db.prepare('UPDATE index_metadata SET schema_version=9').run();
     db.close();
