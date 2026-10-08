@@ -30,6 +30,7 @@ import { CommittedHostMcpInputView } from './committed-host-mcp-input-view';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
+import { HostApprovalStrip } from './host-approval-strip';
 import type { HostThreadLedger } from './host-thread-ledger';
 import type { HostThreadRuns } from './host-thread-runs';
 import { useDesktopHostPresentation } from './use-desktop-host-presentation';
@@ -135,6 +136,7 @@ function HostThread({
             <HostChildConversations revision={effects} threadId={threadId}>
               <CommittedAssistantConversation
                 {...presentation}
+                approvalStrip={<HostApprovalStrip client={client} tree={conversation.approvals} />}
                 commands={conversation.commands}
                 label={label}
                 onRunningChange={onRunningChange}

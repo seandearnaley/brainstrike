@@ -90,3 +90,35 @@ export function parallelToolModel(toolId: string): MockLanguageModelV4 {
     },
   });
 }
+
+/** The wake ledger's heading: the parent model's input when its children report back. */
+const WAKE_LEDGER = 'Background invocations of this turn';
+
+/**
+ * BST-1932: a delegating root and its children, told apart by the tools each
+ * request offers. The root's first turn delegates once through `delegate`;
+ * after a tool result or a wake ledger it answers. A child runs `childCalls`
+ * in order, then answers.
+ */
+export function scriptedDelegation(
+  delegate: { readonly toolId: string; readonly input: unknown },
+  childCalls: readonly { readonly toolId: string; readonly input: unknown }[]
+): MockLanguageModelV4 {
+  const root = scriptedToolSequence([delegate]);
+  const answered = scriptedToolSequence([]);
+  const child = scriptedToolSequence(childCalls);
+  return new MockLanguageModelV4({
+    doStream: async (options) => {
+      if (!(options.tools ?? []).some((tool) => tool.name === delegate.toolId)) {
+        return child.doStream(options);
+      }
+      const delegated = options.prompt.some(
+        (message) =>
+          message.role === 'tool' ||
+          (message.role === 'user' &&
+            message.content.some((part) => part.type === 'text' && part.text.includes(WAKE_LEDGER)))
+      );
+      return (delegated ? answered : root).doStream(options);
+    },
+  });
+}

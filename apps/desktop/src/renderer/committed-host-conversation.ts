@@ -7,19 +7,18 @@ import {
   type HostLogRow,
 } from '@brainstrike/agent-host/protocol';
 import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
-import { usePermissionPolicyStore } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
-  type CommittedApprovalGrant,
   type CommittedAssistantCommands,
   type CommittedAssistantLogRow,
   CommittedAssistantLogStore,
   type CommittedAssistantRunIdentity,
-  committedApprovalGrant,
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
 import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
+import { respondToHostApproval } from './host-approval-response';
+import { HostTreeApprovals } from './host-tree-approvals';
 
 const logger = createLogger('CommittedHostConversation');
 
@@ -43,17 +42,6 @@ function hostImageAttachment(
     name: attachment.name,
     type: 'image',
   });
-}
-
-/**
- * "Always allow" also saves the per-tool override in the permission settings,
- * as the approval card's button does, until that write moves to the host's
- * settings owner. A session grant is the host's alone.
- */
-function keepToolOverride(grant: CommittedApprovalGrant): void {
-  if (grant.scope === 'tool') {
-    usePermissionPolicyStore.getState().setToolOverride(grant.toolId, 'allow');
-  }
 }
 
 /** The desktop's message identities for a committed run, from its host's own identities. */
@@ -80,6 +68,8 @@ export function committedConversationIdentity(
 }
 
 export interface CommittedHostConversation {
+  /** BST-1932: the approvals waiting in this thread and every thread delegated beneath it. */
+  readonly approvals: HostTreeApprovals;
   /** The thread's committed edit checkpoints, reverted through the host. */
   readonly checkpoints: CommittedHostCheckpoints;
   /** Release this view's subscription; the client/root host belongs to its caller. */
@@ -196,19 +186,8 @@ export function createCommittedHostConversation(options: {
         });
         return;
       }
-      // A grant option is committed by the host, which keeps it for the thread.
-      const grant = committedApprovalGrant(response.optionId, interaction);
-      await client.request('interaction/respond', {
-        commandId: crypto.randomUUID(),
-        decision: response.approved ? 'approve' : 'deny',
-        ...(grant ? { grant } : {}),
-        interactionId: interaction.interactionId,
-        runId: interaction.runId,
-        threadId,
-      });
-      if (grant) {
-        keepToolOverride(grant);
-      }
+      // A grant option is committed by the host, which keeps it for the thread's tree.
+      await respondToHostApproval(client, interaction, response);
     },
     // Branch selection is client view state: the vendor already moved its own
     // head over the committed tree, and nothing is written to the host.
@@ -224,11 +203,16 @@ export function createCommittedHostConversation(options: {
       options.onTitleCommitted?.();
     }
   });
+  const approvals = new HostTreeApprovals(client, threadId, source);
   const disconnect = source.connect();
   return {
+    approvals,
     checkpoints: new CommittedHostCheckpoints(client, source, threadId),
     close: () => {
       unsubscribeTitles();
+      approvals.close().catch((error: unknown) => {
+        logger.error('Delegated approvals unsubscribe failed', { error, threadId });
+      });
       mcpInput.close();
       // The client outlives this view, so the unsubscribe is not joined here;
       // its refusal is reported, never swallowed.
