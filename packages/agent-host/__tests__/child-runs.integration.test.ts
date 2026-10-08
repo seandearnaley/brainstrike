@@ -5,7 +5,7 @@
  * persona, and only its final text reaches the parent's model context.
  */
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -17,9 +17,12 @@ import { type AppendItem, StateStore } from '@brainstrike/state-store';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
+import { attachAgentHost } from '../src/client.js';
 import { HostCore, type HostEventStore } from '../src/core.js';
+import { openHostStateIndex } from '../src/host-state-index.js';
 import type { HostPlatform } from '../src/ports.js';
 import type { HostLogRow } from '../src/protocol.js';
+import { startAgentHost } from '../src/runtime.js';
 
 type Chunk =
   Awaited<ReturnType<MockLanguageModelV4['doStream']>>['stream'] extends ReadableStream<infer C>
@@ -134,32 +137,8 @@ function delegationModel(task: string) {
   });
 }
 
-async function setup(task: string) {
-  const root = await mkdtemp(join(tmpdir(), 'bs-m4-child-runs-'));
-  const store = await StateStore.open(root);
-  const batches: AppendItem[][] = [];
-  /** A crashed process writes nothing more; its successor opens the same store. */
-  const writer = (): { dead: boolean; port: HostEventStore } => {
-    const state = { dead: false } as { dead: boolean; port: HostEventStore };
-    state.port = {
-      append: (items, committed, durability) => {
-        if (state.dead) {
-          return Promise.reject(new Error('process crashed'));
-        }
-        batches.push([...items]);
-        return store.append(items, committed, durability);
-      },
-      read: (threadId, fromSeq) => store.read(threadId, fromSeq),
-      root: store.root,
-      syncBoundary: (threadId) => store.syncBoundary(threadId),
-      threads: () => store.threads(),
-    };
-    return state;
-  };
-  let current = writer();
-  const model = delegationModel(task);
-  const writes: string[] = [];
-  const platform: HostPlatform = {
+function fixturePlatform(model: MockLanguageModelV4, writes: string[]): HostPlatform {
+  return {
     close: async () => undefined,
     delegation: { personas: [explorer], settings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS },
     maxSteps: 4,
@@ -188,6 +167,34 @@ async function setup(task: string) {
       },
     },
   };
+}
+
+async function setup(task: string) {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m4-child-runs-'));
+  const store = await StateStore.open(root);
+  const batches: AppendItem[][] = [];
+  /** A crashed process writes nothing more; its successor opens the same store. */
+  const writer = (): { dead: boolean; port: HostEventStore } => {
+    const state = { dead: false } as { dead: boolean; port: HostEventStore };
+    state.port = {
+      append: (items, committed, durability) => {
+        if (state.dead) {
+          return Promise.reject(new Error('process crashed'));
+        }
+        batches.push([...items]);
+        return store.append(items, committed, durability);
+      },
+      read: (threadId, fromSeq) => store.read(threadId, fromSeq),
+      root: store.root,
+      syncBoundary: (threadId) => store.syncBoundary(threadId),
+      threads: () => store.threads(),
+    };
+    return state;
+  };
+  let current = writer();
+  const model = delegationModel(task);
+  const writes: string[] = [];
+  const platform = fixturePlatform(model, writes);
   let core = await HostCore.open(current.port, platform, () => () => undefined);
   const crashed: HostCore[] = [];
   cleanup.push(async () => {
@@ -393,4 +400,67 @@ test('a crash restart interrupts a running child and its parent without a model 
       .listThreads()
       .map((thread) => thread.threadId)
   ).toEqual([harness.threadId]);
+});
+
+test('deleting a parent thread deletes its child threads through the same host delete path', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m4-child-delete-')));
+  const model = delegationModel('EXPLORE_TASK: find what notes.txt says.');
+  const start = () =>
+    startAgentHost({ lifetime: 'persistent', root }, async (context) => {
+      const index = await openHostStateIndex(context.store.root);
+      return {
+        ...fixturePlatform(model, []),
+        close: () => index.close(),
+        stateIndexer: index.indexer,
+      };
+    });
+  let host = await start();
+  let client = await attachAgentHost(host.record);
+  cleanup.push(async () => {
+    await client.close();
+    await host.close();
+    await rm(root, { force: true, recursive: true });
+  });
+  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+  const { threadId: neighbor } = await client.request('thread/start', { commandId: randomUUID() });
+  const { runId } = await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Delegate the notes question to Explorer.',
+    threadId,
+  });
+  let childThreadId: string | undefined;
+  await expect
+    .poll(async () => {
+      const rows = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
+      const output = rows.find(
+        (row) => row.event.type === 'effect.finished' && row.event.toolCallId === 'parent-call-1'
+      )?.event;
+      childThreadId =
+        output?.type === 'effect.finished'
+          ? (output.output as { childThreadId?: string }).childThreadId
+          : undefined;
+      return rows.some((row) => row.event.type === 'run.finished' && row.event.runId === runId);
+    })
+    .toBe(true);
+  expect(childThreadId).toBeDefined();
+  const child = childThreadId as string;
+  expect(
+    (await client.request('thread/read', { fromSeq: 0, threadId: child })).rows.length
+  ).toBeGreaterThan(0);
+
+  expect(await client.request('thread/delete', { threadId })).toEqual({ deleted: true });
+  await expect(client.request('thread/read', { fromSeq: 0, threadId: child })).rejects.toThrow(
+    'Unknown thread'
+  );
+  await client.close();
+  await host.close();
+  host = await start();
+  client = await attachAgentHost(host.record);
+  await expect(client.request('thread/read', { fromSeq: 0, threadId: child })).rejects.toThrow(
+    'Unknown thread'
+  );
+  expect((await client.request('thread/list', {})).threads.map((row) => row.threadId)).toEqual([
+    neighbor,
+  ]);
 });

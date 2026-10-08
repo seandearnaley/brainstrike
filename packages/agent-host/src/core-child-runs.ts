@@ -58,6 +58,18 @@ export class HostChildRuns {
     return this.origins.has(threadId);
   }
 
+  /** `threadId` and every descendant child thread, deepest first. */
+  subtree(threadId: string): string[] {
+    const children = [...this.origins]
+      .filter(([, origin]) => origin.parentThreadId === threadId)
+      .flatMap(([child]) => this.subtree(child));
+    return [...children, threadId];
+  }
+
+  forget(threadId: string): void {
+    this.origins.delete(threadId);
+  }
+
   /** Folds after HostCore's own fold, so a started run already exists. */
   fold(row: HostLogRow, runs: ReadonlyMap<string, HostRunState>): void {
     const event = row.event;

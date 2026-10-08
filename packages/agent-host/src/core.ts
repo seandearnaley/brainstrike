@@ -368,38 +368,52 @@ export class HostCore {
     if (!erase) {
       return Promise.reject(new Error('The Root owner has no thread deletion capability'));
     }
+    // BST-1932: a thread's child threads go with it, deepest first, through this path.
+    const subtree = this.children.subtree(params.threadId);
     const deletion = this.admission.then(async (): Promise<{ deleted: true }> => {
       if (this.closing) {
         throw new Error('Host is closing');
       }
-      assertHostAdmissionCleanup(this.failedAdmissions, params.threadId);
-      const runs = [...this.runs.values()].filter((run) => run.threadId === params.threadId);
+      for (const threadId of subtree) {
+        assertHostAdmissionCleanup(this.failedAdmissions, threadId);
+      }
+      const runs = [...this.runs.values()].filter((run) => subtree.includes(run.threadId));
       await joinHostThreadDeletion(
         runs,
         (run) => this.closeRunOwner(run),
         (run) => this.finish(run, 'stopped')
       );
-      await erase(params.threadId);
-      for (const commandId of this.commands.forgetThread(params.threadId)) {
-        this.conversationIds.delete(commandId);
+      for (const threadId of subtree) {
+        await erase(threadId);
+        this.forgetThread(threadId);
       }
-      this.threads.delete(params.threadId);
-      this.titles.forget(params.threadId);
-      this.workspaces.forget(params.threadId);
-      this.mcpInputs.forgetThread(params.threadId);
       for (const run of runs) {
         this.runs.delete(run.id);
         this.conversationIds.delete(run.id);
       }
       return { deleted: true };
     });
-    this.deletions.set(params.threadId, deletion);
-    abortHostThreadRuns(params.threadId, this.pendingAdmissions, this.runs.values());
+    for (const threadId of subtree) {
+      this.deletions.set(threadId, deletion);
+      abortHostThreadRuns(threadId, this.pendingAdmissions, this.runs.values());
+    }
     this.admission = deletion.then(
       () => undefined,
       () => undefined
     );
     return deletion;
+  }
+
+  private forgetThread(threadId: string): void {
+    for (const commandId of this.commands.forgetThread(threadId)) {
+      this.conversationIds.delete(commandId);
+    }
+    this.conversationIds.delete(threadId);
+    this.threads.delete(threadId);
+    this.children.forget(threadId);
+    this.titles.forget(threadId);
+    this.workspaces.forget(threadId);
+    this.mcpInputs.forgetThread(threadId);
   }
 
   startThread(params: HostParams<'thread/start'>): Promise<{ threadId: string }> {
