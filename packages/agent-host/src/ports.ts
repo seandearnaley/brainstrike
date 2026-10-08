@@ -1,6 +1,9 @@
 import type { ProviderRequestAccounting } from '@brainstrike/agent/provider-request';
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
-import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
+import type {
+  ScaledToolResultBudget,
+  ScopedToolOutputArtifactReader,
+} from '@brainstrike/agent/tool-runtime';
 import type {
   McpElicitationPresentationWire,
   McpElicitationSettlement,
@@ -107,6 +110,8 @@ export interface HostToolState {
 }
 
 export interface HostToolContext {
+  /** The thread's committed-output artifact reader, supplied by Core. */
+  readonly artifacts?: ScopedToolOutputArtifactReader | undefined;
   /** Present for every Core-dispatched execution; file tools must refuse without it. */
   readonly edits?: HostWorkspaceEditTracker | undefined;
   readonly mcp?: HostMcpExecution | undefined;
