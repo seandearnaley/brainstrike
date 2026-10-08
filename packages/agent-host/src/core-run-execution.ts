@@ -11,6 +11,7 @@ import {
   prepareCompactedContext,
   summarizeHostContext,
 } from './context-compaction.js';
+import { hostContextNotes } from './context-notes.js';
 import { finishHostSdkLoop, retainHostRunWork } from './core-run-lifecycle.js';
 import type { HostRunState as Run } from './core-state.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
@@ -407,7 +408,12 @@ async function runHostSdkAttempt(
           stepNumber: run.steps,
         });
         recordedInputLength = memory?.messages.length ?? prepared.length;
-        const system = combineHostSystemContext(memory?.system, compactionNote).system;
+        // Per-step notes from committed thread state (the legacy task-list note).
+        const notes = hostContextNotes(hostRunTools(run), ports.records.stateView(run.threadId));
+        const system = combineHostSystemContext(
+          combineHostSystemContext(memory?.system, compactionNote).system,
+          notes
+        ).system;
         if (!admission.provider) {
           return { messages: memory?.messages ?? prepared, ...(system ? { system } : {}) };
         }
