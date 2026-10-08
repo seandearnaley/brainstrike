@@ -637,3 +637,43 @@ test('the desktop host runs querySelf and queryDiagnostics, reading only Main’
     threadId: 'host-thread',
   });
 });
+
+test('the desktop host runs run_python against the bundled runtime its launch app paths name', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-python-')));
+  const resourcesPath = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-resources-')));
+  const userDataPath = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-user-data-')));
+  directories.push(root, resourcesPath, userDataPath);
+  const request = vi.fn(async (method: string) => {
+    if (method !== 'platform/workspace/roots') {
+      throw new Error(`Unexpected Main request ${method}`);
+    }
+    return [{ displayName: 'A', path: root, rootId: 'root-a' }];
+  });
+  const selected = selection(root);
+  selected.tools['brainstrike_runPython'] = {
+    description: 'Run Python',
+    identity: NATIVE_TOOL_ID.runPython,
+    inputSchema: { type: 'object' },
+    permissionToolId: NATIVE_TOOL_ID.runPython,
+    risk: 'execute',
+  };
+  const tools = desktopHostSharedTools({
+    appPaths: { isPackaged: true, resourcesPath, userDataPath },
+    readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+    request,
+    selected,
+    threadId: 'host-thread',
+  });
+  const tool = tools['brainstrike_runPython'];
+  if (!tool) {
+    throw new Error('run_python was not built for the host');
+  }
+  // This launch's resources hold no bundled runtime: the host resolved the interpreter
+  // from its own app paths and reports that, typed, without asking Main.
+  const output = await tool.execute({ code: 'print(1)' }, execution());
+  expect(output).toMatchObject({ kind: 'unavailable', reason: 'interpreter_unavailable' });
+  expect(JSON.stringify(output)).toContain(join(resourcesPath, 'python-runtime', 'manifest.json'));
+  expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
+    new Set(['platform/workspace/roots'])
+  );
+});

@@ -20,6 +20,10 @@ import {
 } from '../assistant-server/native-tool-executors-context';
 import { grepSearchExecutor } from '../assistant-server/native-tool-executors-grep';
 import { INSPECTION_TOOL_EXECUTORS } from '../assistant-server/native-tool-executors-inspection';
+import {
+  type CodeExecutionHost,
+  runPythonExecutor,
+} from '../assistant-server/native-tool-executors-python';
 import { retrievalToolExecutors } from '../assistant-server/native-tool-executors-retrieval';
 import { selfInspectionExecutors } from '../assistant-server/native-tool-executors-self';
 import { executeCommandExecutor } from '../assistant-server/native-tool-executors-shell';
@@ -32,6 +36,9 @@ import {
 } from '../assistant-server/query-self-core';
 import type { WorkspaceContextBroadcaster } from '../assistant-server/workspace-context-tools';
 import type { WorktreeToolCapability } from '../assistant-server/worktree-tools';
+import { resolvePythonBinary } from '../python-runtime/resolve-python-binary';
+import { resolveDesktopPythonRuntimeResourcesDir } from '../python-runtime/resources-dir';
+import { resolveDesktopSeccompApplyPath } from '../sandbox-runtime-path';
 import { hostIndexSearch, hostQueryEmbedding, hostRetrievalStore } from './host-retrieval-clients';
 import {
   BrowserNavigateResultSchema,
@@ -68,6 +75,7 @@ const DESKTOP_HOST_TOOL_IDS: ReadonlySet<string> = new Set([
   NATIVE_TOOL_ID.browserGetPageText,
   NATIVE_TOOL_ID.browserNavigate,
   NATIVE_TOOL_ID.browserReadPage,
+  NATIVE_TOOL_ID.runPython,
 ]);
 
 /** Main admits these but never executes them for a host thread. */
@@ -216,12 +224,38 @@ function hostDiagnosticsReader(request: MainRequest, threadId: string): Diagnost
   };
 }
 
+/** The launching desktop app's facts, from the host's launch options. */
+export interface HostAppPaths {
+  readonly isPackaged: boolean;
+  readonly resourcesPath: string;
+  readonly userDataPath: string;
+}
+
+/** The same bundled interpreter and sandbox helper Main resolves, from the launch facts. */
+function hostCodeExecution(appPaths: HostAppPaths): CodeExecutionHost {
+  return {
+    resolvePythonExecutable: (signal) =>
+      resolvePythonBinary({
+        resourcesDir: resolveDesktopPythonRuntimeResourcesDir(
+          appPaths.isPackaged,
+          appPaths.resourcesPath
+        ),
+        signal,
+        userDataDir: appPaths.userDataPath,
+      }),
+    resolveSeccompApplyPath: () =>
+      resolveDesktopSeccompApplyPath(appPaths.isPackaged, appPaths.resourcesPath),
+  };
+}
+
 /** The desktop host's own executors, bound to its Main connection and thread. */
 export function desktopHostToolExecutors(
   request: MainRequest,
   threadId: string,
   /** Main admitted retrieval to the thread's own roots (a CLI selection or a workspace binding). */
-  retrievalRootsOnly: boolean
+  retrievalRootsOnly: boolean,
+  /** Absent without a launching desktop; then run_python has no interpreter here. */
+  appPaths?: HostAppPaths
 ): Readonly<Record<string, NativeToolExecutor>> {
   const nativeIndexSearch = hostIndexSearch(request, threadId);
   const embeddingHostManager = hostQueryEmbedding(request, threadId);
@@ -253,6 +287,9 @@ export function desktopHostToolExecutors(
     ...worktreeToolExecutors(({ runtimeData }) =>
       hostWorktreeTools(request, threadId, runtimeData?.memory?.runId)
     ),
+    ...(appPaths
+      ? { [NATIVE_TOOL_ID.runPython]: runPythonExecutor(hostCodeExecution(appPaths)) }
+      : {}),
     [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor(({ runtimeData }) =>
       hostShellCorrelation(request, threadId, runtimeData?.memory?.runId)
     ),

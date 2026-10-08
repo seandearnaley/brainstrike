@@ -9,6 +9,17 @@ const LoopbackIssuer = z.url().refine((value) => {
 
 /** Trusted launch selection only; values and credentials stay in the adapter. */
 export const HostPlatformLaunchOptionsSchema = z.strictObject({
+  /**
+   * The launching desktop app's facts, for the runtimes it bundles (the Python
+   * interpreter and the Linux sandbox helper). A standalone host has none.
+   */
+  appPaths: z
+    .strictObject({
+      isPackaged: z.boolean(),
+      resourcesPath: z.string().refine(isAbsolute, 'The app resources path must be absolute'),
+      userDataPath: z.string().refine(isAbsolute, 'The app user-data path must be absolute'),
+    })
+    .optional(),
   credentialStore: z
     .discriminatedUnion('kind', [
       z.strictObject({ kind: z.literal('keyring'), service: z.string().min(1) }),

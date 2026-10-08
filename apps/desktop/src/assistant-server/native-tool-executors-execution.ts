@@ -5,15 +5,12 @@
  * exhaustive map.
  */
 import {
-  createRunPythonTool,
   type InspectCommandSessionsInput,
   type ManageCommandSessionInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   type RunSkillScriptInput,
   readToolExecutionThreadId,
   resolveGuardedToolSignal,
-  resolveRequestPermissionPolicy,
-  resolveSelfApprovalDecision,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
@@ -32,6 +29,7 @@ import {
   runManageCommandSession,
 } from './command-session-tools';
 import { executorGroup } from './native-tool-executor-context';
+import { runPythonExecutor } from './native-tool-executors-python';
 import { selfInspectionExecutors } from './native-tool-executors-self';
 import { executeCommandExecutor } from './native-tool-executors-shell';
 import { mainDiagnosticsReader } from './query-diagnostics-tool';
@@ -79,70 +77,14 @@ export const EXECUTION_TOOL_EXECUTORS = executorGroup({
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.runSkillScript],
     };
   },
-  // BST-1067. Registered as the factory-returned Tool object DIRECTLY (not
-  // re-wrapped in the registry's { description, execute, id, inputSchema }
-  // literal shape): BST-1070 added a suspendSchema for the network
-  // escalation, and the literal would silently drop it — leaving the network
-  // gate never firing, with no error and no run event. Excluded for the
-  // built-in local provider (same WebGPU-prefill reasoning as the task-list
-  // tool and the plan-mode gate).
-  [NATIVE_TOOL_ID.runPython]: ({ dependencies, isLocalProvider, runtimeData }) =>
-    isLocalProvider
-      ? undefined
-      : createRunPythonTool({
-          // Gate A decision (BST-1097): run_python raises its OWN approval
-          // suspension instead of carrying Mastra's per-tool
-          // `requireApproval` flag (the flag re-fires on the Gate B resume
-          // leg and denies it). Resolved lazily at execute() time from THIS
-          // request's permission snapshot through the SAME resolvers the
-          // permission gate uses (`resolveRequestPermissionPolicy` →
-          // `resolveSelfApprovalDecision`), so the tool and the gate cannot
-          // disagree about the decision.
-          resolveApprovalDecision: () =>
-            resolveSelfApprovalDecision(
-              resolveRequestPermissionPolicy(runtimeData?.permissionPolicyRequest),
-              NATIVE_TOOL_ID.runPython
-            ),
-          resolveHost: async (signal) => {
-            // LAZY import, deliberately. `@brainstrike/agent/fence-executor`
-            // pulls in @anthropic-ai/sandbox-runtime AND evaluates
-            // `promisify(fs.realpath.native)` at MODULE SCOPE. A top-level
-            // import would load all of that merely to BUILD the tool map —
-            // on every desktop main startup, and inside every test that
-            // imports this registry (measured: it broke 8 suites that mock
-            // `node:fs` without a `.native`). Loading it only when a
-            // run_python call actually needs an executor is what the seam's
-            // Node-only subpath posture intends.
-            const { createFenceExecutorFactory, FenceUnsupportedPlatformError, isFenceSupported } =
-              await import('@brainstrike/agent/fence-executor');
-            // Fence FIRST, interpreter second. On a host with no OS fence
-            // (Windows today) the missing half is the sandbox, and resolving
-            // the interpreter first would report a python_* failure there —
-            // telling the user to fix the interpreter on a machine that
-            // could not have run anything anyway, inverting exactly the
-            // "which half is missing" distinction the error mapping exists
-            // to preserve. It also skips a pointless first-run unpack.
-            if (!isFenceSupported()) {
-              throw new FenceUnsupportedPlatformError(process.platform);
-            }
-            const command = await (
-              dependencies.resolvePythonExecutable ?? resolveDesktopPythonExecutable
-            )(signal);
-            const linuxSeccompApplyPath = (
-              dependencies.resolveSeccompApplyPath ?? resolveDesktopSandboxHelperPath
-            )();
-            const fence = createFenceExecutorFactory({
-              ...(linuxSeccompApplyPath === undefined ? {} : { linuxSeccompApplyPath }),
-              interpreters: { python: { command, scriptExtension: 'py' } },
-            });
-            // `undefined` on a host with no OS fence (Windows today). Under
-            // exactOptionalPropertyTypes an explicit `fence: undefined` is
-            // not assignable, and omitting the key is also the honest
-            // shape: the capability is ABSENT, and the seam then throws
-            // ExecutorKindUnavailableError rather than degrading.
-            return fence ? { fence } : {};
-          },
-        }),
+  // Main resolves the bundled runtime and sandbox helper from Electron's app facts.
+  [NATIVE_TOOL_ID.runPython]: (context) =>
+    runPythonExecutor({
+      resolvePythonExecutable:
+        context.dependencies.resolvePythonExecutable ?? resolveDesktopPythonExecutable,
+      resolveSeccompApplyPath:
+        context.dependencies.resolveSeccompApplyPath ?? resolveDesktopSandboxHelperPath,
+    })(context),
   // Session tools are omitted for the built-in local provider: both ids are
   // absent from LOCAL_DESKTOP_NATIVE_TOOL_IDS and this gate makes that real
   // at runtime rather than only in the catalog.
