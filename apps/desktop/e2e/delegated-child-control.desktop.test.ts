@@ -74,7 +74,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       .getByRole('combobox', { exact: true, name: 'Read permission' })
       .selectOption('ask');
     await ensureAssistantShellVisible(window);
-    const root = window.getByTestId('chat-panel');
+    const root = window.getByRole('region', { exact: true, name: 'Assistant' });
     await root.getByTestId('composer-effort-trigger').click();
     await window.getByRole('slider', { name: 'Reasoning effort' }).press('End');
     await window.keyboard.press('Escape');
@@ -328,7 +328,7 @@ test('sends human input to the active child and reloads its rich conversation', 
       .getByRole('combobox', { exact: true, name: 'Read permission' })
       .selectOption('allow');
     await ensureAssistantShellVisible(window);
-    const root = window.getByTestId('chat-panel');
+    const root = window.getByRole('region', { exact: true, name: 'Assistant' });
     await root
       .getByRole('textbox', { name: 'Message input' })
       .fill('ROOT_ACTIVE_INPUT_TASK: delegate to Explorer to read evidence.txt.');

@@ -349,7 +349,7 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
       .selectOption('ask');
     await window.getByTestId('permission-policy-edit').selectOption('ask');
     await ensureAssistantShellVisible(window);
-    const root = window.getByTestId('chat-panel');
+    const root = window.getByRole('region', { exact: true, name: 'Assistant' });
     await root
       .getByRole('textbox', { name: 'Message input' })
       .fill(

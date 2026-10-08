@@ -147,7 +147,7 @@ test.fixme(
         .selectOption('ask');
       await window.getByTestId('permission-policy-edit').selectOption('ask');
       await ensureAssistantShellVisible(window);
-      const root = window.getByTestId('chat-panel');
+      const root = window.getByRole('region', { exact: true, name: 'Assistant' });
       await root
         .getByRole('textbox', { name: 'Message input' })
         .fill('Ask two Explorers to read their evidence, then create the report canvas.');

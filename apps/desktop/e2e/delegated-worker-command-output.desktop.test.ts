@@ -135,7 +135,7 @@ test('delegated command asks by default, then a per-tool grant streams output an
         .getByRole('combobox', { exact: true, name: 'Read permission' })
         .selectOption('allow');
       await ensureAssistantShellVisible(window);
-      const root = window.getByTestId('chat-panel');
+      const root = window.getByRole('region', { exact: true, name: 'Assistant' });
       const firstActivityCount = await root.getByTestId('assistant-activity-group').count();
       await root
         .getByRole('textbox', { name: 'Message input' })

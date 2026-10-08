@@ -201,7 +201,7 @@ async function assertWorkerWrite(
         .getByRole('combobox', { exact: true, name: 'Read permission' })
         .selectOption('allow');
       await ensureAssistantShellVisible(window);
-      let root = window.getByTestId('chat-panel');
+      let root = window.getByRole('region', { exact: true, name: 'Assistant' });
       await root
         .getByRole('textbox', { name: 'Message input' })
         .fill(
@@ -263,7 +263,7 @@ async function assertWorkerWrite(
           ownedProcess = restarted.app.process();
           expect(restarted.app.process().pid).not.toBe(oldProcessId);
           window = restarted.window;
-          root = window.getByTestId('chat-panel');
+          root = window.getByRole('region', { exact: true, name: 'Assistant' });
           child = window.getByRole('region', { exact: true, name: childName });
         } else {
           await window.reload();

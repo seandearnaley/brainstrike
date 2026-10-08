@@ -154,7 +154,7 @@ async function runBudgetCase(
       // budgets are what is under test, not the approval UI.
       await allowExecuteWithoutApproval(window);
       await ensureAssistantShellVisible(window);
-      const root = window.getByTestId('chat-panel');
+      const root = window.getByRole('region', { exact: true, name: 'Assistant' });
       await root
         .getByRole('textbox', { name: 'Message input' })
         .fill('Run the scripted command that proves the tool budget.');

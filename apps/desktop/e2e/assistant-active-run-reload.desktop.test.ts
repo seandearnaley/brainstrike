@@ -84,7 +84,7 @@ async function assertLiveReload(
       .getByRole('combobox', { exact: true, name: 'Read permission' })
       .selectOption(approval ? 'ask' : 'allow');
     await ensureAssistantShellVisible(window);
-    const panel = window.getByTestId('chat-panel');
+    const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
     const input = panel.getByRole('textbox', { name: 'Message input' });
     await input.fill('Read evidence.txt for the reload regression.');
     await panel.getByRole('button', { exact: true, name: 'Send' }).click();

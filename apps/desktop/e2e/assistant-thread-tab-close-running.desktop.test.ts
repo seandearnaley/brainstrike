@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 
@@ -92,6 +92,7 @@ test('closing a running second turn of a titled thread hides it: no cancel, the 
     });
     await ensureMockWorkspaceOpen(window);
     await configureAssistantProvider(window, { compositeModelKey: MODEL, provider: 'openrouter' });
+    await enableAssistantCatalogModel(window, MODEL);
     await ensureAssistantShellVisible(window);
     await openThreadsPanel(window);
 

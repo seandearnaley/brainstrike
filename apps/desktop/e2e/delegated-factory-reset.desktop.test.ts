@@ -21,7 +21,9 @@ async function openSubagents(page: Page): Promise<void> {
 
 async function sendInventoryProbe(page: Page, marker: string): Promise<void> {
   await ensureAssistantShellVisible(page);
-  const panel = page.getByTestId('chat-panel').filter({ visible: true });
+  const panel = page
+    .getByRole('region', { exact: true, name: 'Assistant' })
+    .filter({ visible: true });
   await panel.getByRole('textbox', { name: 'Message input' }).fill(marker);
   await panel.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(panel.getByText(`${marker} complete`, { exact: true })).toBeVisible();

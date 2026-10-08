@@ -44,7 +44,7 @@ test('assembles concurrent child control, reload, and durable results @smoke', a
       const activityDiagnostics = {
         activityCount: await window.getByTestId('assistant-activity-group').count(),
         buttons: await window
-          .getByTestId('chat-panel')
+          .getByRole('region', { exact: true, name: 'Assistant' })
           .getByRole('button')
           .evaluateAll((buttons) =>
             buttons.map((button) => ({
@@ -95,7 +95,7 @@ test('assembles concurrent child control, reload, and durable results @smoke', a
       // The scenario holds BOTH work permits below ("two work permits"): pin it.
       await settings.setSubagentLimit('Subagent work at once', 'maxConcurrentWork', 2);
       await ensureAssistantShellVisible(window);
-      const root = window.getByTestId('chat-panel');
+      const root = window.getByRole('region', { exact: true, name: 'Assistant' });
       const composer = root.getByRole('textbox', { name: 'Message input' });
       await composer.fill(assembledMarkers.parentPrompt);
       await root.getByRole('button', { exact: true, name: 'Send' }).click();
@@ -416,7 +416,7 @@ async function assertChildDecision(
         .getByRole('combobox', { exact: true, name: 'Read permission' })
         .selectOption('allow');
       await ensureAssistantShellVisible(window);
-      const root = window.getByTestId('chat-panel');
+      const root = window.getByRole('region', { exact: true, name: 'Assistant' });
       await root
         .getByRole('textbox', { name: 'Message input' })
         .fill('Delegate to Decision Probe to request my decision.');
