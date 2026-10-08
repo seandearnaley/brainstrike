@@ -468,9 +468,12 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
     const activeShells=new Set();
     const appReceipts=new Map();
     const outcomes=new Map();
+    const callFailures=new Map();
     const pendingRpcOutcomes=new Map();
     const prepareCancellations=new Map();
     const protocolErrors=[];
+    const protocolDiagnostics=[];
+    const frameBindings=[];
     const provenance=new McpAppProvenanceAuthority();
     const recoveryFocusRef=createRef();
     const sandboxFrameRef=createRef();
@@ -623,6 +626,12 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
       render({phase:'ready'},authority,mount.shellUrl);
       await waitFor('sandbox shell frame',()=>sandboxFrameRef.current?.contentWindow);
       const outerFrame=sandboxFrameRef.current;
+      frameBindings.push({
+        expectedShellUrl:mount.shellUrl,
+        frameConnected:outerFrame.isConnected,
+        frameUrl:outerFrame.src,
+        generation:generation.generation,
+      });
       // The shell is cross-origin (its own brainstrike-mcp-app: origin): its
       // document is unreachable and the app frame is its first child window.
       await waitFor('sandbox app frame',()=>outerFrame.contentWindow?.length===1);
@@ -640,7 +649,10 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
         },
         onProtocolError:error=>{
           protocolErrors.push(String(error.stack??error.message).slice(0,1500));
-          if(current?.bridge===bridge&&!current.tearingDown){
+          protocolDiagnostics.push({bridge:bridge.snapshot,message:String(error.message)});
+          // Source/origin diagnostics reject foreign traffic while retaining
+          // the bound frame. Only the canonical disconnected phase is fatal.
+          if(current?.bridge===bridge&&bridge.snapshot.phase==='disconnected'&&!current.tearingDown){
             protocolTeardown=teardown({code:'protocol-failed',phase:'error'},'failed');
           }
         },
@@ -658,6 +670,7 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
             outcomes.set(label,result?.isError===true?'rejected':'resolved');
             return result;
           }catch(error){
+            callFailures.set(label,String(error.stack??error.message??error));
             outcomes.set(label,'rejected');
             throw error;
           }
@@ -737,7 +750,10 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
         name:'create_issue',
       },{signal:controller.signal}).then(
         ()=>outcomes.set(label,'resolved'),
-        ()=>outcomes.set(label,'rejected')
+        error=>{
+          callFailures.set(label,String(error.stack??error.message??error));
+          outcomes.set(label,'rejected');
+        }
       ).finally(()=>prepareCancellations.delete(label));
     }
 
@@ -814,6 +830,14 @@ function harnessSource(serverOrigin: string, appDocument: string): string {
       fail:()=>teardown({code:'protocol-failed',phase:'error'}),
       initialReady:()=>initialReady,
       outcome:label=>outcomes.get(label),
+      diagnostics:()=>({
+        callFailures:Object.fromEntries(callFailures),
+        frameBindings:[...frameBindings],
+        outcomes:Object.fromEntries(outcomes),
+        protocolDiagnostics:[...protocolDiagnostics],
+        protocolErrors:[...protocolErrors],
+        snapshot:current?lifecycleSnapshot(current):undefined,
+      }),
       pendingRpcOutcome:label=>pendingRpcOutcomes.get(label),
       protocolFailure:async()=>{
         const session=current;
@@ -1115,270 +1139,299 @@ async function expectServerIdle(server: LoopbackToolServer): Promise<void> {
     .toEqual({ activeRequests: 0, openSockets: 0 });
 }
 
-test('MCP Apps production host lifecycle is accessible and quiescent in packaged Electron', {
-  tag: ['@destructive', '@packaged'],
-}, async () => {
-  test.setTimeout(360_000);
-  const executablePath = packagedExecutablePath();
-  await access(executablePath, constants.X_OK);
-  await access(appHostModulePath, constants.R_OK);
-  await access(appSurfaceModulePath, constants.R_OK);
-  const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'bst-1571-packaged-host-'));
-  const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'bst-1571-packaged-user-data-'));
-  const toolServer = await createLoopbackToolServer();
-  let disposeAdmission: (() => Promise<void>) | undefined =
-    await installOrdinaryRuntimeAdmission(toolServer);
-  const harnessBundle = await buildHarness(temporaryDirectory, toolServer.origin);
-  let packagedApplication: PackagedHarnessApplication | undefined;
-  try {
-    packagedApplication = await launchPackagedHarness(executablePath, harnessBundle, userDataDir);
-    const { page } = packagedApplication;
-    const root = page.locator('#bst-1571-root');
-    expect(packagedApplication.isPackaged).toBe(true);
-    await waitForHarness(page);
-    // The REAL main window: its header CSP blocks blob: frames (the pre-fix
-    // shell transport that regressed in production) …
-    expect(await harnessCall<HostCspProbe>(page, 'probeHostCsp')).toEqual({
-      blockedUri: 'blob',
-      hasMetaCsp: false,
-      violatedDirective: 'frame-src',
-    });
-    const initial = await harnessCall<LifecycleSnapshot>(page, 'initialReady');
-    expect(initial.authority).toMatchObject({ listenerCount: 1, phase: 'open' });
-    expect(initial.bridge).toMatchObject({ listenerCount: 1, phase: 'ready', timerCount: 0 });
-    expect(initial.resources).toEqual({
-      activeFetches: 0,
-      activeFrames: 1,
-      activeShells: 1,
-      domFrames: 1,
-    });
-    // … while the brainstrike-mcp-app: shell the packaged main serves loaded,
-    // handshook through the nested app frame, and is fenced against
-    // navigation from the host.
-    const shellUrl = await harnessCall<string | undefined>(page, 'shellUrl');
-    expect(shellUrl).toMatch(/^brainstrike-mcp-app:\/\/[0-9a-f]{32}\/$/u);
-    if (shellUrl === undefined) {
-      throw new Error('BST-1571 shell URL is unavailable');
-    }
-    expect(await packagedApplication.fetchStatusFromMain(shellUrl)).toBe(200);
-    expect(await harnessCall<FrameFenceProbe>(page, 'probeFrameFence')).toEqual({
-      appFrames: 1,
-      roundTrip: { released: true },
-      shellDocumentReachable: false,
-    });
-
-    // The mounted sandbox shares the main window's session, so the boundary
-    // needs a session-level policy too (BST-1599). `notifications` proves it:
-    // it is outside Permissions-Policy, so neither the app frame's `allow`
-    // attribute nor the shell's header can decline it.
-    const sessionPolicy = await probeSandboxSessionPolicy(packagedApplication);
-    expect(sessionPolicy.appPermission).toBe('denied');
-    expect(sessionPolicy.shellPermission).toBe('denied');
-    // The CHECK path is a separate handler with a separate (optional)
-    // attribution field, and APIs that check before requesting never reach
-    // the request handler — so it is measured against real Electron too, not
-    // only against the unit test's hand-rolled session.
-    expect(sessionPolicy.appPermissionState).toBe('denied/denied');
-    expect(sessionPolicy.shellPermissionState).toBe('denied/denied');
-    // …and the host renderer keeps Electron's default outcome on both paths.
-    expect(sessionPolicy.hostPermissionState).toBe('granted/granted');
-    expect(sessionPolicy.hostPermission).toBe('granted');
-    // The app document cannot even reach `will-download`: its sandbox is
-    // exactly `allow-scripts`. The shell frame's download DOES reach the
-    // session and the policy cancels it, while the host renderer's does not.
-    expect(
-      sessionPolicy.downloads.filter((download) =>
-        download.url.startsWith('blob:brainstrike-mcp-app://')
-      )
-    ).toEqual([
-      {
-        defaultPrevented: true,
-        url: expect.stringMatching(/^blob:brainstrike-mcp-app:\/\/[0-9a-f]{32}\//u),
-      },
-    ]);
-    expect(
-      sessionPolicy.downloads.filter(
-        (download) => !download.url.startsWith('blob:brainstrike-mcp-app://')
-      )
-    ).toEqual([{ defaultPrevented: false, url: expect.stringMatching(/^blob:file:\/\/\//u) }]);
-
-    const completionBefore = toolServer.snapshot();
-    await beginCall(page, 'completion');
-    const allowButton = root.getByRole('button', { name: 'Allow create_issue once' });
-    await expect(allowButton).toBeFocused();
-    await expect(root.getByRole('alertdialog')).not.toContainText('must-not-render-in-host-ui');
-    await allowButton.click();
-    await expectOutcome(page, 'completion', 'resolved');
-    await expectHarnessValue(page, 'receipt', 'completion', 'resolved');
-    await expect(harnessCall<Readonly<{ released: boolean }>>(page, 'roundTrip')).resolves.toEqual({
-      released: true,
-    });
-    expectQuiescent(await harnessCall(page, 'complete'));
-    // Release is fenced: the served shell answers 404 the moment the mount closes.
-    expect(await packagedApplication.fetchStatusFromMain(shellUrl)).toBe(404);
-    await expectServerIdle(toolServer);
-    expect(toolServer.snapshot()).toMatchObject({
-      completedRequests: completionBefore.completedRequests + 1,
-      totalRequests: completionBefore.totalRequests + 1,
-    });
-    await expect(root.getByRole('status')).toHaveText('Linear issue editor completed.');
-    await expect(root.getByRole('button', { name: 'Return to Linear result' })).toBeFocused();
-
-    await harnessCall(page, 'restart');
-    const denialBefore = toolServer.snapshot();
-    for (const label of ['denial-1', 'denial-2', 'denial-3']) {
-      await beginCall(page, label);
-      await root.getByRole('button', { name: 'Deny create_issue' }).click();
-      await expectOutcome(page, label, 'rejected');
-      await expectHarnessValue(page, 'receipt', label, 'rejected');
-      await expect.poll(() => toolServer.snapshot().pendingPreparedCalls).toBe(0);
-      await expect(root.getByRole('button', { name: 'Return to Linear result' })).toBeFocused();
-    }
-    expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
-    await expectServerIdle(toolServer);
-    expect(toolServer.snapshot().totalRequests).toBe(denialBefore.totalRequests);
-
-    await harnessCall(page, 'restart');
-    await harnessCallWithArgs(page, 'beginPrepareCancellation', ['prepare-response']);
-    await expect.poll(() => toolServer.snapshot().pendingPreparedCalls).toBe(1);
-    await harnessCallWithArgs(page, 'cancelPrepare', ['prepare-response']);
-    await expectOutcome(page, 'prepare-response', 'rejected');
-    await expect.poll(() => toolServer.snapshot().pendingPreparedCalls).toBe(0);
-    expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
-    await expectServerIdle(toolServer);
-
-    await harnessCall(page, 'restart');
-    const failureBefore = toolServer.snapshot();
-    await beginCall(page, 'failure', 'failure');
-    await root.getByRole('button', { name: 'Allow create_issue once' }).click();
-    await expectOutcome(page, 'failure', 'rejected');
-    await expectHarnessValue(page, 'receipt', 'failure', 'rejected');
-    expectQuiescent(await harnessCall(page, 'fail'));
-    await expectServerIdle(toolServer);
-    expect(toolServer.snapshot()).toMatchObject({
-      completedRequests: failureBefore.completedRequests + 1,
-      totalRequests: failureBefore.totalRequests + 1,
-    });
-    await expect(root.getByRole('alert')).toContainText('The app could not start safely.');
-    await expect(root.getByRole('button', { name: 'Retry Linear issue editor' })).toBeFocused();
-
-    await harnessCall(page, 'restart');
-    const replacementBefore = toolServer.snapshot();
-    await beginCall(page, 'replacement', 'hold');
-    await root.getByRole('button', { name: 'Allow create_issue once' }).click();
-    await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
-    await harnessCallWithArgs(page, 'beginPendingRpc', ['replacement']);
-    const replacement = await harnessCall<{
-      readonly current: LifecycleSnapshot;
-      readonly previous: LifecycleSnapshot;
-    }>(page, 'reset');
-    expectQuiescent(replacement.previous);
-    expect(replacement.current.authority).toMatchObject({ listenerCount: 1, phase: 'open' });
-    expect(replacement.current.bridge).toMatchObject({ listenerCount: 1, phase: 'ready' });
-    expect(replacement.current.resources).toEqual({
-      activeFetches: 0,
-      activeFrames: 1,
-      activeShells: 1,
-      domFrames: 1,
-    });
-    await expectHarnessValue(page, 'pendingRpcOutcome', 'replacement', 'rejected');
-    expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
-    await expectServerIdle(toolServer);
-    expect(toolServer.snapshot()).toMatchObject({
-      abortedRequests: replacementBefore.abortedRequests + 1,
-      totalRequests: replacementBefore.totalRequests + 1,
-    });
-
-    await harnessCall(page, 'restart');
-    const disconnectBefore = toolServer.snapshot();
-    await beginCall(page, 'disconnect', 'hold');
-    await root.getByRole('button', { name: 'Allow create_issue once' }).click();
-    await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
-    expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
-    await expectOutcome(page, 'disconnect', 'rejected');
-    await expectServerIdle(toolServer);
-    expect(toolServer.snapshot()).toMatchObject({
-      abortedRequests: disconnectBefore.abortedRequests + 1,
-      totalRequests: disconnectBefore.totalRequests + 1,
-    });
-
-    await harnessCall(page, 'restart');
-    const timeoutBefore = toolServer.snapshot();
-    await beginCall(page, 'timeout', 'hold');
-    await root.getByRole('button', { name: 'Allow create_issue once' }).click();
-    await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
-    await expectOutcome(page, 'timeout', 'rejected');
-    await expectHarnessValue(page, 'receipt', 'timeout', 'rejected');
-    await expectServerIdle(toolServer);
-    const afterTimeout = await harnessCall<LifecycleSnapshot>(page, 'snapshot');
-    expect(afterTimeout.authority).toMatchObject({ pendingCalls: 0, phase: 'open' });
-    expect(afterTimeout.bridge).toMatchObject({
-      listenerCount: 1,
-      pendingCallbacks: 0,
-      pendingInboundRequests: 0,
-      pendingOutboundRequests: 0,
-      phase: 'ready',
-      timerCount: 0,
-    });
-    expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
-    expect(toolServer.snapshot()).toMatchObject({
-      abortedRequests: timeoutBefore.abortedRequests + 1,
-      totalRequests: timeoutBefore.totalRequests + 1,
-    });
-
-    await harnessCall(page, 'restart');
-    const protocolBefore = toolServer.snapshot();
-    await beginCall(page, 'protocol', 'hold');
-    await root.getByRole('button', { name: 'Allow create_issue once' }).click();
-    await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
-    const protocolFailure = await harnessCall<LifecycleSnapshot>(page, 'protocolFailure');
-    expectQuiescent(protocolFailure, 'disconnected');
-    await expectOutcome(page, 'protocol', 'rejected');
-    await expectServerIdle(toolServer);
-    expect(toolServer.snapshot()).toMatchObject({
-      abortedRequests: protocolBefore.abortedRequests + 1,
-      totalRequests: protocolBefore.totalRequests + 1,
-    });
-
-    await harnessCall(page, 'restart');
-    const shutdownBefore = toolServer.snapshot();
-    await beginCall(page, 'shutdown', 'hold');
-    await root.getByRole('button', { name: 'Allow create_issue once' }).click();
-    await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
-    expectQuiescent(await harnessCall(page, 'shutdown'));
-    await expectOutcome(page, 'shutdown', 'rejected');
-    await expectServerIdle(toolServer);
-    expect(toolServer.snapshot()).toMatchObject({
-      abortedRequests: shutdownBefore.abortedRequests + 1,
-      totalRequests: shutdownBefore.totalRequests + 1,
-    });
-
-    const launchedBrowser = packagedApplication.browser;
-    expect(packagedApplication.child.kill('SIGTERM')).toBe(true);
-    await waitForProcessExit(packagedApplication.child);
-    await expect.poll(() => launchedBrowser.isConnected()).toBe(false);
-    packagedApplication = undefined;
-    await expectServerIdle(toolServer);
-    expect(toolServer.snapshot().pendingPreparedCalls).toBe(0);
-    await disposeAdmission();
-    disposeAdmission = undefined;
-    await toolServer.close();
-    expect(toolServer.snapshot()).toMatchObject({
-      activeRequests: 0,
-      listening: false,
-      openSockets: 0,
-    });
-  } finally {
-    if (packagedApplication) {
-      packagedApplication.child.kill('SIGTERM');
-      await waitForProcessExit(packagedApplication.child).catch(() => {
-        packagedApplication?.child.kill('SIGKILL');
+test(
+  'MCP Apps production host lifecycle is accessible and quiescent in packaged Electron',
+  {
+    tag: ['@destructive', '@packaged'],
+  },
+  async ({}, testInfo) => {
+    test.setTimeout(360_000);
+    const executablePath = packagedExecutablePath();
+    await access(executablePath, constants.X_OK);
+    await access(appHostModulePath, constants.R_OK);
+    await access(appSurfaceModulePath, constants.R_OK);
+    const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'bst-1571-packaged-host-'));
+    const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'bst-1571-packaged-user-data-'));
+    const toolServer = await createLoopbackToolServer();
+    let disposeAdmission: (() => Promise<void>) | undefined =
+      await installOrdinaryRuntimeAdmission(toolServer);
+    const harnessBundle = await buildHarness(temporaryDirectory, toolServer.origin);
+    let packagedApplication: PackagedHarnessApplication | undefined;
+    let rendererDiagnostics: unknown;
+    try {
+      packagedApplication = await launchPackagedHarness(executablePath, harnessBundle, userDataDir);
+      const { page } = packagedApplication;
+      const root = page.locator('#bst-1571-root');
+      expect(packagedApplication.isPackaged).toBe(true);
+      await waitForHarness(page);
+      // The REAL main window: its header CSP blocks blob: frames (the pre-fix
+      // shell transport that regressed in production) …
+      expect(await harnessCall<HostCspProbe>(page, 'probeHostCsp')).toEqual({
+        blockedUri: 'blob',
+        hasMetaCsp: false,
+        violatedDirective: 'frame-src',
       });
-      await packagedApplication.browser.close().catch(() => undefined);
+      const initial = await harnessCall<LifecycleSnapshot>(page, 'initialReady');
+      expect(initial.authority).toMatchObject({ listenerCount: 1, phase: 'open' });
+      expect(initial.bridge).toMatchObject({ listenerCount: 1, phase: 'ready', timerCount: 0 });
+      expect(initial.resources).toEqual({
+        activeFetches: 0,
+        activeFrames: 1,
+        activeShells: 1,
+        domFrames: 1,
+      });
+      // … while the brainstrike-mcp-app: shell the packaged main serves loaded,
+      // handshook through the nested app frame, and is fenced against
+      // navigation from the host.
+      const shellUrl = await harnessCall<string | undefined>(page, 'shellUrl');
+      expect(shellUrl).toMatch(/^brainstrike-mcp-app:\/\/[0-9a-f]{32}\/$/u);
+      if (shellUrl === undefined) {
+        throw new Error('BST-1571 shell URL is unavailable');
+      }
+      expect(await packagedApplication.fetchStatusFromMain(shellUrl)).toBe(200);
+      expect(await harnessCall<FrameFenceProbe>(page, 'probeFrameFence')).toEqual({
+        appFrames: 1,
+        roundTrip: { released: true },
+        shellDocumentReachable: false,
+      });
+
+      // The mounted sandbox shares the main window's session, so the boundary
+      // needs a session-level policy too (BST-1599). `notifications` proves it:
+      // it is outside Permissions-Policy, so neither the app frame's `allow`
+      // attribute nor the shell's header can decline it.
+      const sessionPolicy = await probeSandboxSessionPolicy(packagedApplication);
+      expect(sessionPolicy.appPermission).toBe('denied');
+      expect(sessionPolicy.shellPermission).toBe('denied');
+      // The CHECK path is a separate handler with a separate (optional)
+      // attribution field, and APIs that check before requesting never reach
+      // the request handler — so it is measured against real Electron too, not
+      // only against the unit test's hand-rolled session.
+      expect(sessionPolicy.appPermissionState).toBe('denied/denied');
+      expect(sessionPolicy.shellPermissionState).toBe('denied/denied');
+      // …and the host renderer keeps Electron's default outcome on both paths.
+      expect(sessionPolicy.hostPermissionState).toBe('granted/granted');
+      expect(sessionPolicy.hostPermission).toBe('granted');
+      // The app document cannot even reach `will-download`: its sandbox is
+      // exactly `allow-scripts`. The shell frame's download DOES reach the
+      // session and the policy cancels it, while the host renderer's does not.
+      expect(
+        sessionPolicy.downloads.filter((download) =>
+          download.url.startsWith('blob:brainstrike-mcp-app://')
+        )
+      ).toEqual([
+        {
+          defaultPrevented: true,
+          url: expect.stringMatching(/^blob:brainstrike-mcp-app:\/\/[0-9a-f]{32}\//u),
+        },
+      ]);
+      expect(
+        sessionPolicy.downloads.filter(
+          (download) => !download.url.startsWith('blob:brainstrike-mcp-app://')
+        )
+      ).toEqual([{ defaultPrevented: false, url: expect.stringMatching(/^blob:file:\/\/\//u) }]);
+
+      const completionBefore = toolServer.snapshot();
+      await beginCall(page, 'completion');
+      const allowButton = root.getByRole('button', { name: 'Allow create_issue once' });
+      await expect(allowButton).toBeFocused();
+      await expect(root.getByRole('alertdialog')).not.toContainText('must-not-render-in-host-ui');
+      await allowButton.click();
+      await expectOutcome(page, 'completion', 'resolved');
+      await expectHarnessValue(page, 'receipt', 'completion', 'resolved');
+      await expect(
+        harnessCall<Readonly<{ released: boolean }>>(page, 'roundTrip')
+      ).resolves.toEqual({
+        released: true,
+      });
+      expectQuiescent(await harnessCall(page, 'complete'));
+      // Release is fenced: the served shell answers 404 the moment the mount closes.
+      expect(await packagedApplication.fetchStatusFromMain(shellUrl)).toBe(404);
+      await expectServerIdle(toolServer);
+      expect(toolServer.snapshot()).toMatchObject({
+        completedRequests: completionBefore.completedRequests + 1,
+        totalRequests: completionBefore.totalRequests + 1,
+      });
+      await expect(root.getByRole('status')).toHaveText('Linear issue editor completed.');
+      await expect(root.getByRole('button', { name: 'Return to Linear result' })).toBeFocused();
+
+      await harnessCall(page, 'restart');
+      const denialBefore = toolServer.snapshot();
+      for (const label of ['denial-1', 'denial-2', 'denial-3']) {
+        await beginCall(page, label);
+        await root.getByRole('button', { name: 'Deny create_issue' }).click();
+        await expectOutcome(page, label, 'rejected');
+        await expectHarnessValue(page, 'receipt', label, 'rejected');
+        await expect.poll(() => toolServer.snapshot().pendingPreparedCalls).toBe(0);
+        await expect(root.getByRole('button', { name: 'Return to Linear result' })).toBeFocused();
+      }
+      expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
+      await expectServerIdle(toolServer);
+      expect(toolServer.snapshot().totalRequests).toBe(denialBefore.totalRequests);
+
+      await harnessCall(page, 'restart');
+      await harnessCallWithArgs(page, 'beginPrepareCancellation', ['prepare-response']);
+      await expect.poll(() => toolServer.snapshot().pendingPreparedCalls).toBe(1);
+      await harnessCallWithArgs(page, 'cancelPrepare', ['prepare-response']);
+      await expectOutcome(page, 'prepare-response', 'rejected');
+      await expect.poll(() => toolServer.snapshot().pendingPreparedCalls).toBe(0);
+      expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
+      await expectServerIdle(toolServer);
+
+      await harnessCall(page, 'restart');
+      const failureBefore = toolServer.snapshot();
+      await beginCall(page, 'failure', 'failure');
+      await root.getByRole('button', { name: 'Allow create_issue once' }).click();
+      await expectOutcome(page, 'failure', 'rejected');
+      await expectHarnessValue(page, 'receipt', 'failure', 'rejected');
+      expectQuiescent(await harnessCall(page, 'fail'));
+      await expectServerIdle(toolServer);
+      expect(toolServer.snapshot()).toMatchObject({
+        completedRequests: failureBefore.completedRequests + 1,
+        totalRequests: failureBefore.totalRequests + 1,
+      });
+      await expect(root.getByRole('alert')).toContainText('The app could not start safely.');
+      await expect(root.getByRole('button', { name: 'Retry Linear issue editor' })).toBeFocused();
+
+      await harnessCall(page, 'restart');
+      const replacementBefore = toolServer.snapshot();
+      await beginCall(page, 'replacement', 'hold');
+      await root.getByRole('button', { name: 'Allow create_issue once' }).click();
+      await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
+      await harnessCallWithArgs(page, 'beginPendingRpc', ['replacement']);
+      const replacement = await harnessCall<{
+        readonly current: LifecycleSnapshot;
+        readonly previous: LifecycleSnapshot;
+      }>(page, 'reset');
+      expectQuiescent(replacement.previous);
+      expect(replacement.current.authority).toMatchObject({ listenerCount: 1, phase: 'open' });
+      expect(replacement.current.bridge).toMatchObject({ listenerCount: 1, phase: 'ready' });
+      expect(replacement.current.resources).toEqual({
+        activeFetches: 0,
+        activeFrames: 1,
+        activeShells: 1,
+        domFrames: 1,
+      });
+      await expectHarnessValue(page, 'pendingRpcOutcome', 'replacement', 'rejected');
+      expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
+      await expectServerIdle(toolServer);
+      expect(toolServer.snapshot()).toMatchObject({
+        abortedRequests: replacementBefore.abortedRequests + 1,
+        totalRequests: replacementBefore.totalRequests + 1,
+      });
+
+      await harnessCall(page, 'restart');
+      const disconnectBefore = toolServer.snapshot();
+      await beginCall(page, 'disconnect', 'hold');
+      await root.getByRole('button', { name: 'Allow create_issue once' }).click();
+      await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
+      expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
+      await expectOutcome(page, 'disconnect', 'rejected');
+      await expectServerIdle(toolServer);
+      expect(toolServer.snapshot()).toMatchObject({
+        abortedRequests: disconnectBefore.abortedRequests + 1,
+        totalRequests: disconnectBefore.totalRequests + 1,
+      });
+
+      await harnessCall(page, 'restart');
+      const timeoutBefore = toolServer.snapshot();
+      await beginCall(page, 'timeout', 'hold');
+      await root.getByRole('button', { name: 'Allow create_issue once' }).click();
+      await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
+      await expectOutcome(page, 'timeout', 'rejected');
+      await expectHarnessValue(page, 'receipt', 'timeout', 'rejected');
+      await expectServerIdle(toolServer);
+      const afterTimeout = await harnessCall<LifecycleSnapshot>(page, 'snapshot');
+      expect(afterTimeout.authority).toMatchObject({ pendingCalls: 0, phase: 'open' });
+      expect(afterTimeout.bridge).toMatchObject({
+        listenerCount: 1,
+        pendingCallbacks: 0,
+        pendingInboundRequests: 0,
+        pendingOutboundRequests: 0,
+        phase: 'ready',
+        timerCount: 0,
+      });
+      expectQuiescent(await harnessCall(page, 'disconnect'), 'disconnected');
+      expect(toolServer.snapshot()).toMatchObject({
+        abortedRequests: timeoutBefore.abortedRequests + 1,
+        totalRequests: timeoutBefore.totalRequests + 1,
+      });
+
+      await harnessCall(page, 'restart');
+      const protocolBefore = toolServer.snapshot();
+      await beginCall(page, 'protocol', 'hold');
+      await root.getByRole('button', { name: 'Allow create_issue once' }).click();
+      await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
+      const protocolFailure = await harnessCall<LifecycleSnapshot>(page, 'protocolFailure');
+      expectQuiescent(protocolFailure, 'disconnected');
+      await expectOutcome(page, 'protocol', 'rejected');
+      await expectServerIdle(toolServer);
+      expect(toolServer.snapshot()).toMatchObject({
+        abortedRequests: protocolBefore.abortedRequests + 1,
+        totalRequests: protocolBefore.totalRequests + 1,
+      });
+
+      await harnessCall(page, 'restart');
+      const shutdownBefore = toolServer.snapshot();
+      await beginCall(page, 'shutdown', 'hold');
+      await root.getByRole('button', { name: 'Allow create_issue once' }).click();
+      await expect.poll(() => toolServer.snapshot().activeRequests).toBe(1);
+      expectQuiescent(await harnessCall(page, 'shutdown'));
+      await expectOutcome(page, 'shutdown', 'rejected');
+      await expectServerIdle(toolServer);
+      expect(toolServer.snapshot()).toMatchObject({
+        abortedRequests: shutdownBefore.abortedRequests + 1,
+        totalRequests: shutdownBefore.totalRequests + 1,
+      });
+
+      rendererDiagnostics = await harnessCall<unknown>(page, 'diagnostics');
+      const launchedBrowser = packagedApplication.browser;
+      expect(packagedApplication.child.kill('SIGTERM')).toBe(true);
+      await waitForProcessExit(packagedApplication.child);
+      await expect.poll(() => launchedBrowser.isConnected()).toBe(false);
+      packagedApplication = undefined;
+      await expectServerIdle(toolServer);
+      expect(toolServer.snapshot().pendingPreparedCalls).toBe(0);
+      await disposeAdmission();
+      disposeAdmission = undefined;
+      await toolServer.close();
+      expect(toolServer.snapshot()).toMatchObject({
+        activeRequests: 0,
+        listening: false,
+        openSockets: 0,
+      });
+    } finally {
+      try {
+        const renderer = packagedApplication
+          ? await harnessCall<unknown>(packagedApplication.page, 'diagnostics').catch(
+              (error: unknown) => ({ unavailable: String(error) })
+            )
+          : rendererDiagnostics;
+        await testInfo.attach('mcp-apps-prepare-diagnostics', {
+          body: JSON.stringify(
+            {
+              failures: toolServer.prepareFailures(),
+              prepareRequests: toolServer.prepareRequests(),
+              renderer,
+              snapshot: toolServer.snapshot(),
+            },
+            null,
+            2
+          ),
+          contentType: 'application/json',
+        });
+      } finally {
+        if (packagedApplication) {
+          packagedApplication.child.kill('SIGTERM');
+          await waitForProcessExit(packagedApplication.child).catch(() => {
+            packagedApplication?.child.kill('SIGKILL');
+          });
+          await packagedApplication.browser.close().catch(() => undefined);
+        }
+        await disposeAdmission?.().catch(() => undefined);
+        await toolServer.close();
+        await rm(temporaryDirectory, { force: true, recursive: true });
+        await rm(userDataDir, { force: true, recursive: true });
+      }
     }
-    await disposeAdmission?.().catch(() => undefined);
-    await toolServer.close();
-    await rm(temporaryDirectory, { force: true, recursive: true });
-    await rm(userDataDir, { force: true, recursive: true });
   }
-});
+);
