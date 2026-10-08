@@ -6,10 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { ExplicitHttpMcpClient } from '@brainstrike/agent/mcp-client';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import { createSecretsMcpBearerCredentialAuthority } from '@brainstrike/host-capabilities/mcp/bearer-credential';
+import {
+  createMcpHostRuntime,
+  type McpHostRuntimePlatform,
+} from '@brainstrike/host-capabilities/mcp/node-host-runtime';
+import { createInMemoryMcpOAuthStore } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import { describe, expect, it, vi } from 'vitest';
-import { createSecretsMcpBearerCredentialAuthority } from '../../mcp/bearer-credential';
-import { createMcpHostRuntime, type McpHostRuntimePlatform } from '../../mcp/node-host-runtime';
-import { createInMemoryMcpOAuthStore } from '../../mcp/oauth-client-provider';
 
 // An accidental desktop construction path must fail even in the desktop test harness.
 vi.mock('electron', () => {

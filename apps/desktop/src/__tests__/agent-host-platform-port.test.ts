@@ -20,6 +20,8 @@ import {
   type DesktopPlatformSelection,
   serveDesktopPlatform,
 } from '../agent-host-platform/main-platform';
+import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
+import { RemoteMcpRuntime } from '../mcp/remote-runtime';
 
 /** Real Node ports with the Electron utility port's public MessageEvent shape. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -87,6 +89,7 @@ function harness(
   const server = mainPlatformConnection(first);
   const client = mainPlatformConnection(second);
   const owner = serveDesktopPlatform(server, {
+    mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
     ...(closeRootCapabilities ? { closeRootCapabilities } : {}),
     readConfiguration,
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),

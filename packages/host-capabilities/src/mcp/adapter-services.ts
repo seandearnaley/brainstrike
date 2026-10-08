@@ -14,26 +14,26 @@ import {
 import { createKeyringCredentialBackend } from '@brainstrike/agent-host/keyring-native';
 import type { ProviderCredentialReader } from '@brainstrike/assistant-service/ports';
 import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
-import { createSecretsMcpBearerCredentialAuthority } from '../mcp/bearer-credential';
-import { createCredentialMcpOAuthStore } from '../mcp/credential-oauth-store';
-import type { McpHostRuntime } from '../mcp/node-host-runtime';
-import { identityKey, parseRecords } from '../mcp/oauth-client-provider';
-import type { AgentHostAdapterServices, AgentHostAdapterServicesOptions } from './contracts';
+import { createSecretsMcpBearerCredentialAuthority } from './bearer-credential.js';
+import type { AgentHostAdapterServices, AgentHostAdapterServicesOptions } from './contracts.js';
+import { createCredentialMcpOAuthStore } from './credential-oauth-store.js';
 import {
   AgentHostAdapterClosedError,
   createMcpHostServices,
   type McpHostCollector,
   type McpHostServices,
-} from './mcp-host-services';
-import type { AgentHostMcpCollection } from './mcp-tool-binding';
+} from './mcp-host-services.js';
+import type { AgentHostMcpCollection } from './mcp-tool-binding.js';
+import type { McpHostRuntime } from './node-host-runtime.js';
+import { identityKey, parseRecords } from './oauth-client-provider.js';
 
 export {
   CredentialFileFormatError,
   createFileCredentialBackend,
   isMcpOAuthCredentialAccount,
 } from '@brainstrike/agent-host/file-credentials';
-export { AgentHostAdapterClosedError } from './mcp-host-services';
-export { type AgentHostMcpCollection, bindMcpTool } from './mcp-tool-binding';
+export { AgentHostAdapterClosedError } from './mcp-host-services.js';
+export { type AgentHostMcpCollection, bindMcpTool } from './mcp-tool-binding.js';
 
 export interface AgentHostAdapterCapabilities<Collection extends AgentHostMcpCollection>
   extends McpHostCollector<Collection> {

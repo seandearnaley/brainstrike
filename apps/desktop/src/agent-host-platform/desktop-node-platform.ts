@@ -14,12 +14,12 @@ import {
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
+import { createDesktopNodeMcpHost } from '@brainstrike/host-capabilities/mcp/desktop-node-mcp';
+import { MCP_STORE_METHODS } from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
 import { mainPlatformConnection } from './connection';
-import { createDesktopNodeMcpHost } from './desktop-node-mcp';
-import { MCP_STORE_METHODS } from './mcp-runtime-wire';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import {
@@ -120,7 +120,9 @@ export async function createHostPlatform(
     port.close();
   });
   // The desktop's one MCP runtime: host-thread MCP tools run here, beside Core.
-  const mcpHost = await createDesktopNodeMcpHost(connection, request, startup);
+  const mcpHost = await createDesktopNodeMcpHost(connection, request, startup, () =>
+    host.credentials.secrets()
+  );
   await startup.register(() => mcpHost.close());
   return createProductionHostPlatform({
     auth: host.auth,

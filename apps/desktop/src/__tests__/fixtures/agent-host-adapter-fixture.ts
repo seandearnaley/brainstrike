@@ -3,11 +3,11 @@ import {
   createSanitizedToolNameMap,
   resolveAssistantResilienceConfig,
 } from '@brainstrike/agent';
-import { expect } from 'vitest';
 import type {
   AgentHostAdapterCapabilities,
   AgentHostMcpCollection,
-} from '../../agent-host-platform/adapter-services';
+} from '@brainstrike/host-capabilities/mcp/adapter-services';
+import { expect } from 'vitest';
 
 export const fixtureCapabilities: AgentHostAdapterCapabilities<AgentHostMcpCollection> = {
   attachElicitationPresenter: (presenter) =>

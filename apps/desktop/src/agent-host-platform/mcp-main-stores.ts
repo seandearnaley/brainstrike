@@ -1,23 +1,19 @@
-import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
-import { z } from 'zod';
-import type { McpOAuthStore } from '../mcp/oauth-client-provider';
-import { parseRecords } from '../mcp/oauth-client-provider';
-import type { RemoteMcpRuntime } from '../mcp/remote-runtime';
 import {
-  MCP_CREDENTIAL_KEY_PREFIX,
   MCP_STORE_METHODS,
-  McpCredentialKeySchema,
   McpOAuthIdentitySchema,
   respond,
-} from './mcp-runtime-wire';
+} from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
+import type { McpOAuthStore } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import { parseRecords } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
+import { z } from 'zod';
+import type { RemoteMcpRuntime } from '../mcp/remote-runtime';
 
 /** Main's MCP stores that still need Electron or Main's database host (c1 interim). */
 export interface DesktopMcpPlatformCapabilities {
-  listCredentials(): Promise<readonly string[]>;
   readonly oauth: McpOAuthStore;
   openExternal(url: string): Promise<void>;
   queryTasks(sql: string, params: readonly unknown[]): Promise<{ readonly rows: unknown[] }>;
-  readCredential(key: string): Promise<string | null>;
   readonly runtime: RemoteMcpRuntime;
 }
 
@@ -35,7 +31,7 @@ function tokenSignal(token: CancellationToken): AbortSignal {
 /**
  * Serve the Node MCP runtime's store adapters and bind Main's runtime proxy to
  * this host connection. Each adapter is removed when its store moves to Node:
- * credentials with the keyring migration, the Tasks tables with host-owned
+ * OAuth records with the shared credential store, the Tasks tables with host-owned
  * storage, config with host-owned config, the opener stays a narrow adapter.
  */
 export function serveMainMcpStores(
@@ -65,20 +61,6 @@ export function serveMainMcpStores(
         const result = await capabilities.queryTasks(request.sql, request.params);
         return { rows: result.rows };
       })
-    ),
-    connection.onRequest(MCP_STORE_METHODS.credentialRead, (input: unknown) =>
-      respond(() =>
-        capabilities.readCredential(
-          McpCredentialKeySchema.parse(z.strictObject({ key: z.string() }).parse(input).key)
-        )
-      )
-    ),
-    connection.onRequest(MCP_STORE_METHODS.credentialList, () =>
-      respond(async () =>
-        (await capabilities.listCredentials()).filter((key) =>
-          key.startsWith(MCP_CREDENTIAL_KEY_PREFIX)
-        )
-      )
     ),
     connection.onRequest(MCP_STORE_METHODS.oauthRead, (input: unknown, token: CancellationToken) =>
       respond(() =>

@@ -16,8 +16,8 @@ import {
   parseConfiguredMcpServerId,
   parseMcpAppExecuteResult,
 } from '@brainstrike/assistant-contract';
+import type { McpDesktopTaskHostPort } from '@brainstrike/host-capabilities/mcp/task-host';
 import { getDesktopMcpHostRuntime } from './host-runtime';
-import type { McpDesktopTaskHostPort } from './task-host';
 
 type McpDesktopAppHostErrorCode =
   | 'mcp_app_admission_unavailable'

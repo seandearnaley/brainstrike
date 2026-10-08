@@ -6,14 +6,14 @@ import {
   parseConfiguredMcpServerId,
   parseMcpHostConfig,
 } from '@brainstrike/assistant-contract';
-import { describe, expect, it, vi } from 'vitest';
-import { McpHostRevisionPublisher } from '../../mcp/host-revision-publisher';
+import { McpHostRevisionPublisher } from '@brainstrike/host-capabilities/mcp/host-revision-publisher';
 import {
   type McpHostActor,
   type McpHostActorFactoryInput,
   McpHostService,
   McpHostServiceError,
-} from '../../mcp/host-service';
+} from '@brainstrike/host-capabilities/mcp/host-service';
+import { describe, expect, it, vi } from 'vitest';
 
 const alpha = parseConfiguredMcpServerId('alpha');
 const beta = parseConfiguredMcpServerId('beta');

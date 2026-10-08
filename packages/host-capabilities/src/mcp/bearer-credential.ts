@@ -1,5 +1,5 @@
 import type { ExplicitHttpMcpFetch } from '@brainstrike/agent/mcp-client';
-import type { SecretsService } from '../secrets';
+import type { SecretsService } from '@brainstrike/agent-host/credential-contract';
 
 const BEARER_TOKEN_PATTERN = /^[A-Za-z0-9._~+/-]+=*$/u;
 

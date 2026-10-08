@@ -3,6 +3,7 @@ import {
   healInterruptedModelMessages,
   type ProviderRequestContext,
 } from '@brainstrike/agent/provider-request';
+import { createLogger } from '@brainstrike/logging';
 import type { StateStore } from '@brainstrike/state-store';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import { MessageList } from '@mastra/core/agent';
@@ -19,6 +20,7 @@ import {
   committedRowAddress,
   committedRunAncestors,
   committedRunIdentity,
+  committedThreadBranches,
 } from '../committed-identities.js';
 import { readHostRow } from '../event-storage.js';
 import type { HostRunContext, HostRunOwner } from '../ports.js';
@@ -36,6 +38,47 @@ import {
   type StateStoreObservationVectorOptions,
 } from './state-store-observation-vector.js';
 
+const logger = createLogger('AgentHostMemory');
+
+/**
+ * OM keeps one merged observation text per thread, with no per-message
+ * provenance to filter by, so a run on a branched thread receives none.
+ */
+function withholdsObservation(
+  observation: unknown,
+  rows: readonly HostLogRow[],
+  runId: string
+): boolean {
+  if (
+    !observation ||
+    (typeof observation === 'object' && Reflect.get(observation, 'enabled') === false)
+  ) {
+    return false;
+  }
+  return committedThreadBranches(rows, runId);
+}
+
+/** This run's native Memory: without OM on a branched thread, with its reason committed. */
+async function selectRunMemory(
+  native: StateStoreHostMemoryOptions['native'],
+  rows: readonly HostLogRow[],
+  context: HostRunContext
+): Promise<StateStoreHostMemoryOptions['native']> {
+  if (!withholdsObservation(native.options?.observationalMemory, rows, context.runId)) {
+    return native;
+  }
+  if (!context.recordObservationWithheld) {
+    throw new Error('Withheld observational memory requires the host-owned receipt writer');
+  }
+  await context.recordObservationWithheld('branched-thread');
+  logger.info('Observational memory withheld from a branched thread', {
+    code: 'host_memory_observation_withheld',
+    reason: 'branched-thread',
+    runId: context.runId,
+    threadId: context.threadId,
+  });
+  return { ...native, options: { ...native.options, observationalMemory: false } };
+}
 export interface StateStoreHostMemoryOptions {
   readonly native: Omit<HostMemoryCapabilities['native'], 'storage'>;
   readonly providerRequestContext?: () => ProviderRequestContext | Promise<ProviderRequestContext>;
@@ -114,6 +157,10 @@ export class StateStoreHostMemory implements HostRunOwner {
     }
     // Snapshot configuration before constructing native run-owned resources.
     const providerContext = await options.providerRequestContext?.();
+    const inputRows = await Promise.all(
+      (await options.store.read(context.threadId, 0)).map((row) => readHostRow(options.store, row))
+    );
+    const native = await selectRunMemory(options.native, inputRows, context);
     const readRows = (): Promise<HostLogRow[]> => readResourceRows(context, options);
     const readTranscript = async (): Promise<MastraDBMessage[]> =>
       committedMemoryTranscript(await readRows(), options.resourceId);
@@ -137,7 +184,7 @@ export class StateStoreHostMemory implements HostRunOwner {
               new StateStoreObservationMemory(native, vectorBridge),
           }
         : {}),
-      native: { ...options.native, storage },
+      native: { ...native, storage },
       recordObserverUsage: async (current, receipt) => {
         if (!context.recordObserverUsage) {
           throw new Error('Public Memory requires the host-owned usage receipt writer');
@@ -160,11 +207,6 @@ export class StateStoreHostMemory implements HostRunOwner {
     );
     try {
       await storage.init();
-      const inputRows = await Promise.all(
-        (await options.store.read(context.threadId, 0)).map((row) =>
-          readHostRow(options.store, row)
-        )
-      );
       const committed = committedRunIdentity(inputRows, context.runId);
       if (!(await domain.getThreadById({ threadId: context.threadId }))) {
         await domain.saveThread({

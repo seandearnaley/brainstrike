@@ -51,6 +51,8 @@ export async function guardedFetchText(
   }
 
   let requestSignal: AbortSignal | undefined;
+  // Non-abort failures pass through to the Promise caller unchanged.
+  // @effect-diagnostics-next-line unknownInEffectCatch:off
   const request = Effect.tryPromise({
     // An abort this effect's own interruption caused (the deadline or the
     // caller) is discarded with the fiber; only `orElse` builds the timeout

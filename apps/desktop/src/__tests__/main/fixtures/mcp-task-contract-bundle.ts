@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import * as clientModule from '@brainstrike/agent/mcp-client';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
-import type { McpTaskElicitationBinding } from '../../../mcp/elicitation-presenter';
-import * as taskModule from '../../../mcp/task-host';
+import type { McpTaskElicitationBinding } from '@brainstrike/host-capabilities/mcp/elicitation-presenter';
+import * as taskModule from '@brainstrike/host-capabilities/mcp/task-host';
 
 // Run in plain Node: Vitest source aliases conceal public-bundle identities.
 const db = await wasmLoader.createPGlite('memory://bst1948-built-contract');

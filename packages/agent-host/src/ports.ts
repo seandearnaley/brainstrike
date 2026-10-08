@@ -59,6 +59,8 @@ export interface HostToolContext {
   readonly write?: (chunk: unknown) => Promise<void>;
 }
 export interface HostRunContext {
+  /** A typed, committed reason this run received no observational memory. */
+  recordObservationWithheld?(reason: 'branched-thread'): Promise<void>;
   /** These receipts append through HostCore, before publication and terminal join. */
   recordObserverUsage?(receipt: {
     readonly kind: 'observation' | 'reflection';

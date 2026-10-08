@@ -6,6 +6,7 @@ import type { HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js'
 import {
   HOST_METHOD_SCHEMAS,
   type HostEvent,
+  type HostImageAttachment,
   type HostParams,
   type HostRunSnapshot,
 } from './protocol.js';
@@ -139,6 +140,8 @@ export function foldHostInteraction(
 }
 /** A run's committed position in the thread's conversation tree. */
 export interface HostRunBranch {
+  /** Images on the user message, beside its prompt. */
+  readonly attachments?: readonly HostImageAttachment[];
   /** The committed run its user message follows; null is the thread root. */
   readonly parentMessageId: string | null;
   readonly prompt: string;
@@ -272,6 +275,9 @@ export function createHostRunContext(
   publish: (threadId: string, events: readonly HostEvent[]) => Promise<unknown>
 ): HostRunContext {
   return {
+    recordObservationWithheld: async (reason) => {
+      await publish(run.threadId, [{ reason, runId: run.id, type: 'memory.observation.withheld' }]);
+    },
     recordObserverUsage: async (receipt) => {
       if (run.terminal) {
         throw new Error('Memory receipt arrived after the run lifetime joined');

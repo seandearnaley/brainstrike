@@ -275,13 +275,17 @@ export async function pollDeviceFlow(
   const injectedSleep = deps.sleep;
   const wait = (ms: number) =>
     injectedSleep
-      ? Effect.tryPromise({ catch: (error) => error, try: () => injectedSleep(ms) })
+      ? // An injected test sleep's rejection passes through to the flow's Promise caller unchanged.
+        // @effect-diagnostics-next-line unknownInEffectCatch:off
+        Effect.tryPromise({ catch: (error) => error, try: () => injectedSleep(ms) })
       : Effect.sleep(ms);
   const poll = Effect.gen(function* () {
     const deadline = (yield* readNow) + start.expiresInMs;
     let intervalMs = Math.max(start.intervalMs, DEVICE_FLOW_MIN_INTERVAL_MS);
 
     while ((yield* readNow) < deadline) {
+      // A poll's typed ProviderAuthFlowError passes through to the engine unchanged.
+      // @effect-diagnostics-next-line unknownInEffectCatch:off
       const response = yield* Effect.tryPromise({
         catch: (error: unknown): unknown => error,
         try: (signal) =>

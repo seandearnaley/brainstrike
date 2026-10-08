@@ -235,4 +235,28 @@ describe('rich committed-log presentation projection', () => {
     expect(answer(projection).id).toBe(identity.assistantMessageId);
     expect(projection.getSnapshot().isRunning).toBe(false);
   });
+
+  it('names a committed tool by its catalog ID; rows without one keep their recorded tool ID', () => {
+    const recordedToolId = rows.find(({ event }) => event['type'] === 'interaction.requested')
+      ?.event['toolId'];
+    expect(recordedToolId).toEqual(expect.any(String));
+    const legacy = projector();
+    legacy.acceptCommitted(rows);
+    expect(tool(legacy).toolName).toBe(recordedToolId);
+
+    // The host commits the catalog ID on both authoritative tool events.
+    const catalogRows = rows.map((row) =>
+      row.event['type'] === 'interaction.requested' || row.event['type'] === 'effect.started'
+        ? { ...row, event: { ...row.event, toolCatalogId: 'brainstrike.writeFixture' } }
+        : row
+    );
+    const projection = projector();
+    const requested = catalogRows.findIndex(
+      ({ event }) => event['type'] === 'interaction.requested'
+    );
+    projection.acceptCommitted(catalogRows.slice(0, requested + 1));
+    expect(tool(projection).toolName).toBe('brainstrike.writeFixture');
+    projection.acceptCommitted(catalogRows.slice(requested + 1));
+    expect(tool(projection).toolName).toBe('brainstrike.writeFixture');
+  });
 });

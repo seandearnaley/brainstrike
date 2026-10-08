@@ -466,7 +466,7 @@ export function productionDesktopCapabilities(
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
   workspaceAuthority?: DesktopWorkspaceBindingAuthority
-): DesktopPlatformCapabilities {
+): Omit<DesktopPlatformCapabilities, 'mcp'> {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   const readConfiguration = async (
     request: HostRunAdmissionRequest,

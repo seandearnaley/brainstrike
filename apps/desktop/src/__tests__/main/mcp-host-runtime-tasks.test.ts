@@ -5,11 +5,14 @@
  */
 import type { McpClientExtensionRegistry } from '@brainstrike/agent/mcp-client';
 import { MCP_SUPPORT_MATRIX, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import { createDefaultMcpExtensionRegistry } from '@brainstrike/host-capabilities/mcp/host-extensions';
+import type {
+  McpDesktopTaskHostPort,
+  McpTaskConnection,
+} from '@brainstrike/host-capabilities/mcp/task-host';
 import { MCP_APPS_CLIENT_CAPABILITY } from '@brainstrike/mcp-app-host';
 import { describe, expect, it, vi } from 'vitest';
-import { createDefaultMcpExtensionRegistry } from '../../mcp/host-extensions';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
-import type { McpDesktopTaskHostPort, McpTaskConnection } from '../../mcp/task-host';
 import type { ResolvedMcpConfig, ResolvedMcpServer } from '../../mcp-loader';
 
 type HttpServer = Extract<ResolvedMcpServer, { transport: 'streamable-http' }>;

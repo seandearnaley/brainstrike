@@ -1,4 +1,9 @@
 import {
+  classifyMcpConnectFailure,
+  classifyMcpLifecycleFailure,
+  McpLifecycleFailure,
+} from '@brainstrike/host-capabilities/mcp/lifecycle-errors';
+import {
   ProtocolError,
   ProtocolErrorCode,
   SdkError,
@@ -7,11 +12,6 @@ import {
   UnauthorizedError,
 } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
-import {
-  classifyMcpConnectFailure,
-  classifyMcpLifecycleFailure,
-  McpLifecycleFailure,
-} from '../../mcp/lifecycle-errors';
 
 describe('classifyMcpLifecycleFailure', () => {
   it.each([

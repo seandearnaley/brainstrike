@@ -4,6 +4,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import {
+  createInMemoryMcpOAuthStore,
+  createMcpOAuthClientProvider,
+  createMcpOAuthStoreIdentity,
+} from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import {
   Client,
   IssuerMismatchError,
   StreamableHTTPClientTransport,
@@ -11,11 +16,6 @@ import {
 } from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
-import {
-  createInMemoryMcpOAuthStore,
-  createMcpOAuthClientProvider,
-  createMcpOAuthStoreIdentity,
-} from '../../mcp/oauth-client-provider';
 import { runProductionMcpConformanceClient } from '../../mcp/official-conformance-client';
 import { discoverToolsFromConfig } from '../../mcp/tool-discovery';
 import type { ResolvedMcpServer } from '../../mcp-loader';

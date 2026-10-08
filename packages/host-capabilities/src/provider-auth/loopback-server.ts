@@ -285,9 +285,12 @@ export async function startLoopbackServer(
 
   return {
     cancel: () => {
+      // The engine's typed cancellation class, matched by instanceof at the Promise boundary.
+      // @effect-diagnostics-next-line globalErrorInEffectFailure:off
       settle(Effect.fail(new ProviderAuthFlowCancelledError()));
     },
     close: async () => {
+      // @effect-diagnostics-next-line globalErrorInEffectFailure:off
       settle(Effect.fail(new ProviderAuthFlowCancelledError()));
       await teardown();
     },

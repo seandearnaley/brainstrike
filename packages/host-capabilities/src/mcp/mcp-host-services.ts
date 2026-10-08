@@ -7,13 +7,13 @@ import type {
 } from '@brainstrike/agent-host';
 import { joinCredentialCleanup } from '@brainstrike/agent-host/credential-contract';
 import type { McpExtensionEnablement, McpHostCloseReport } from '@brainstrike/assistant-contract';
+import type { ResolvedMcpConfig } from '@brainstrike/assistant-contract/mcp-config';
 import type { McpTaskDatabase } from '@brainstrike/db';
-import type { McpBearerCredentialAuthority } from '../mcp/bearer-credential';
-import type { McpElicitationPresenterAuthority } from '../mcp/elicitation-presenter';
-import { McpHostRuntime, type McpHostRuntimeDependencies } from '../mcp/node-host-runtime';
-import type { McpOAuthStore } from '../mcp/oauth-client-provider';
-import type { ResolvedMcpConfig } from '../mcp-loader';
-import { type AgentHostMcpCollection, bindMcpTool } from './mcp-tool-binding';
+import type { McpBearerCredentialAuthority } from './bearer-credential.js';
+import type { McpElicitationPresenterAuthority } from './elicitation-presenter.js';
+import { type AgentHostMcpCollection, bindMcpTool } from './mcp-tool-binding.js';
+import { McpHostRuntime, type McpHostRuntimeDependencies } from './node-host-runtime.js';
+import type { McpOAuthStore } from './oauth-client-provider.js';
 
 export class AgentHostAdapterClosedError extends Error {
   readonly code = 'agent_host_adapter_closed';

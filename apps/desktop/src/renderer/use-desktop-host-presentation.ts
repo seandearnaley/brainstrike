@@ -4,6 +4,7 @@ import {
   buildProviderOptionsWhenReady,
   getRuntimeProviderLlmModels,
   type LlmProviderModelDefinition,
+  resolveComposerAttachmentsAvailability,
   toRuntimeProviderModels,
   useAssistantLocalRuntimeCatalog,
   useAssistantModelChange,
@@ -30,6 +31,7 @@ import { readDesktopHostConfiguration } from './desktop-host-configuration';
 
 type Presentation = Pick<
   CommittedAssistantConversationProps,
+  | 'attachmentsAvailability'
   | 'onEnableModel'
   | 'onModelChange'
   | 'onProviderSettingsChange'
@@ -208,6 +210,11 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
   );
   const onEnableModel = useEnableModel();
   const contextWindow = metadata.modelDef?.contextWindow;
+  // The legacy composer's gate: the selected model's vision decides.
+  const attachmentsAvailability = resolveComposerAttachmentsAvailability({
+    providerGateAvailable: selectedProvider !== 'local',
+    selectedModel: selectedDefinition,
+  });
   return {
     ...picker,
     composerDraftCommand: composerDraft.command,
@@ -233,5 +240,6 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
     ...(selectedModel ? { selectedModel } : {}),
     ...(selectedProvider ? { selectedProvider } : {}),
     ...(contextWindow ? { contextWindow } : {}),
+    ...(attachmentsAvailability ? { attachmentsAvailability } : {}),
   };
 }

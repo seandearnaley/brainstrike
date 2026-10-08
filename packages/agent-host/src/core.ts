@@ -68,6 +68,7 @@ import {
   hostRegeneratePosition,
   hostRunAncestors,
   hostRunContext,
+  hostStartCommandRecord,
   hostStartPosition,
 } from './run-branch.js';
 
@@ -78,7 +79,7 @@ import {
   finishApprovedHostResults,
   resolveHostApprovalInput,
 } from './run-continuation.js';
-import { HostThreadTitleState } from './thread-title-state.js';
+import { HostThreadPresentationState } from './thread-presentation-state.js';
 import { HostThreadWorkspaceState } from './workspace-state.js';
 
 export { jsonValue } from './json-value.js';
@@ -94,15 +95,15 @@ export class HostCore {
   private readonly commands = new HostCommandLedger();
   private readonly mcpInputs = new HostMcpInputState();
   private readonly threads = new Set<string>();
-  private readonly titles = new HostThreadTitleState({
+  private readonly presentations = new HostThreadPresentationState({
     admit: (threadId, perform) => this.admit(threadId, perform),
     append: async (threadId, event) => {
       await this.append(threadId, [event], 'normal', this.foldRows);
     },
-    rename: (params, event) =>
+    update: (params, event) =>
       this.accept(
         params.threadId,
-        'thread/rename',
+        'thread/update',
         params,
         { accepted: true },
         [event],
@@ -188,7 +189,7 @@ export class HostCore {
 
   private fold(row: HostLogRow): void {
     this.mcpInputs.fold(row);
-    this.titles.fold(row);
+    this.presentations.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
     switch (event.type) {
@@ -253,11 +254,14 @@ export class HostCore {
   }
 
   listThreads(): HostResults['thread/list']['threads'] {
-    return [...this.threads].map((threadId) => ({ threadId, ...this.titles.read(threadId) }));
+    return [...this.threads].map((threadId) => ({
+      threadId,
+      ...this.presentations.read(threadId),
+    }));
   }
 
-  renameThread(params: HostParams<'thread/rename'>): Promise<{ accepted: true }> {
-    return this.command('thread/rename', params, () => this.titles.rename(params));
+  updateThread(params: HostParams<'thread/update'>): Promise<{ accepted: true }> {
+    return this.command('thread/update', params, () => this.presentations.update(params));
   }
 
   read(threadId: string, fromSeq: number): Promise<HostLogRow[]> {
@@ -388,7 +392,7 @@ export class HostCore {
         this.conversationIds.delete(commandId);
       }
       this.threads.delete(params.threadId);
-      this.titles.forget(params.threadId);
+      this.presentations.forget(params.threadId);
       this.workspaces.forget(params.threadId);
       this.mcpInputs.forgetThread(params.threadId);
       for (const run of runs) {
@@ -418,9 +422,14 @@ export class HostCore {
   }
 
   startRun(params: HostParams<'run/start'>, origin?: HostClientOrigin): Promise<{ runId: string }> {
-    return this.command('run/start', params, () =>
-      this.admitRun('run/start', params, origin, () =>
-        hostStartPosition(this.runs.values(), params)
+    const record = hostStartCommandRecord(params);
+    return this.command('run/start', record, () =>
+      this.admitRun(
+        'run/start',
+        params,
+        origin,
+        () => hostStartPosition(this.runs.values(), params),
+        record
       )
     );
   }
@@ -442,7 +451,8 @@ export class HostCore {
     method: 'run/start' | 'run/regenerate',
     params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
     origin: HostClientOrigin | undefined,
-    position: () => HostRunPosition
+    position: () => HostRunPosition,
+    record: { readonly commandId: string } = params
   ): Promise<{ runId: string }> {
     assertHostRunAdmissible(this.threads, this.runs.values(), this.conversationIds, params);
     const selected = position();
@@ -470,7 +480,7 @@ export class HostCore {
       }
       run.release = release;
       const result = { runId: run.id };
-      await this.accept(params.threadId, method, params, result, [started]);
+      await this.accept(params.threadId, method, record, result, [started]);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);
@@ -587,7 +597,7 @@ export class HostCore {
     try {
       const owner = await this.openRun(run);
       const admission = await ensureHostRunAdmission(this.platform, run);
-      this.titles.request(run, admission, this.runs.values());
+      this.presentations.request(run, admission, this.runs.values());
       const result = streamText({
         abortSignal: run.controller.signal,
         maxRetries: 0,
@@ -935,7 +945,7 @@ export class HostCore {
             this.fold(row);
           }
         })
-    ).then(() => this.titles.settle(run));
+    ).then(() => this.presentations.settle(run));
   }
 
   close(): Promise<void> {

@@ -528,7 +528,7 @@ test('assistant provider probes own complete response deadlines at one Effect bo
 
 test('MCP OAuth callback scope closes its server and every claimed wait', () => {
   const contract = readRepoFile('docs/agents/effect-boundary.md');
-  const source = readRepoFile('apps/desktop/src/mcp/oauth-loopback-callback.ts');
+  const source = readRepoFile('packages/host-capabilities/src/mcp/oauth-loopback-callback.ts');
   assert.match(contract, /MCP OAuth callback Scope owns listener teardown/u);
   assert.match(contract, /effect-boundary\/mcp-oauth-callback-scope\.md/u);
   assert.match(source, /Effect\.acquireRelease\(/u);
