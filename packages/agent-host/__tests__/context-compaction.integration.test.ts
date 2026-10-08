@@ -240,3 +240,68 @@ test('a summarizer answer outside the five-section schema commits the labelled d
   expect(request).toContain('answer-11 ');
   expect(request).toContain(compaction.summary);
 });
+
+/** The provider's own overflow answer (OpenAI's `context_length_exceeded`), then a terminal 400. */
+function stubOverflowThenTerminal(): { requests: string[] } {
+  const requests: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      requests.push(await new Request(input, init).text());
+      return requests.length === 1
+        ? Response.json(
+            {
+              error: {
+                code: 'context_length_exceeded',
+                message: "This model's maximum context length was exceeded.",
+                param: 'input',
+                type: 'invalid_request_error',
+              },
+            },
+            { status: 400 }
+          )
+        : Response.json(
+            { error: { message: 'Offline compaction fixture', type: 'fixture_terminal' } },
+            { status: 400 }
+          );
+    })
+  );
+  return { requests };
+}
+
+test('a provider context overflow commits a deterministic compaction and a recovered attempt over the compacted branch', async () => {
+  const { requests } = stubOverflowThenTerminal();
+  // Six earlier turns of ~10,000 tokens: under the pre-request trigger of 100,000,
+  // with answer-4 and answer-5 inside the protect window.
+  const host = await longThreadHost(6, ANSWER_CHARS, BUDGET);
+  const { events, terminal } = await host.run('Latest question');
+
+  const compaction = compactionOf(events);
+  expect(compaction).toMatchObject({ kind: 'deterministic', reason: 'context-overflow' });
+  expect(compaction.summary).toContain('after a provider context-overflow error');
+  expect(compaction).not.toHaveProperty('usage');
+  const attempts = events.filter((event) => event.type === 'run.attempt');
+  expect(attempts).toEqual([
+    expect.objectContaining({ attempt: 1, reason: 'context-overflow', recovered: true }),
+  ]);
+  // The compaction commits before the attempt row that announces the recovery.
+  expect(events.indexOf(compaction)).toBeLessThan(events.indexOf(attempts[0] as HostEvent));
+  expect(requests).toHaveLength(2);
+  expect(requests[0]).toContain('answer-0 ');
+  expect(requests[1]).not.toContain('answer-0 ');
+  expect(requests[1]).toContain('answer-5 ');
+  expect(requests[1]).toContain(compaction.summary);
+  expect(terminal.outcome).toBe('failed');
+});
+
+test('a provider context overflow with nothing droppable fails the run without a compaction or attempt', async () => {
+  const { requests } = stubOverflowThenTerminal();
+  const host = await longThreadHost(2, ANSWER_CHARS, BUDGET);
+  const { events, terminal } = await host.run('Latest question');
+
+  expect(events.filter((event) => event.type === 'context.compacted')).toEqual([]);
+  expect(events.filter((event) => event.type === 'run.attempt')).toEqual([]);
+  expect(requests).toHaveLength(1);
+  expect(terminal).toMatchObject({ outcome: 'failed' });
+  expect(terminal.detail).toContain('maximum context length');
+});

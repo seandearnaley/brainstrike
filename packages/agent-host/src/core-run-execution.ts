@@ -7,6 +7,7 @@ import {
 } from './approval-input.js';
 import {
   type HostContextCompactions,
+  overflowCompaction,
   prepareCompactedContext,
   summarizeHostContext,
 } from './context-compaction.js';
@@ -16,7 +17,11 @@ import { healInterruptedRunHistory } from './interrupted-history.js';
 import { jsonValue } from './json-value.js';
 import type { HostMcpInputState } from './mcp-input-state.js';
 import type { HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
-import { type HostProjectionRewrites, prepareProjectionRewrites } from './projection-rewrites.js';
+import {
+  applyProjectionRewrites,
+  type HostProjectionRewrites,
+  prepareProjectionRewrites,
+} from './projection-rewrites.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 import {
   combineHostSystemContext,
@@ -178,6 +183,34 @@ function rewriteRunContext(
 }
 
 /**
+ * After a context overflow: commit the legacy deterministic compaction of the
+ * run's branch, as its next attempt would see it. False when nothing was
+ * droppable, so no recovery is claimed.
+ */
+export async function recoverHostContextOverflow(
+  ports: HostRunExecutionPorts,
+  run: Run
+): Promise<boolean> {
+  const ancestors = hostRunAncestors(ports.runs, run);
+  const healed = healInterruptedRunHistory(
+    hostRunContext(ports.runs, run),
+    ancestors,
+    run.threadId
+  );
+  const event = overflowCompaction({
+    chain: [...ancestors, run],
+    compactions: ports.compactions.read(run.threadId),
+    inputTokenLimit: run.admission?.inputTokenLimit,
+    messages: applyProjectionRewrites(healed, ports.rewrites.read(run.threadId)),
+  });
+  if (!event) {
+    return false;
+  }
+  await commitContextEvent(ports, run, event);
+  return true;
+}
+
+/**
  * The run's first request context: heal interrupted history, apply committed
  * tool-output rewrites (and the policy's new ones), then the compaction
  * overlay (and a new compaction past the trigger), in the legacy order.
@@ -236,7 +269,13 @@ export async function runHostSdkLoop(
       ended.maxAttempts === undefined || run.stopped || ports.closing()
         ? undefined
         : hostRunAttemptEvent(run, ended.outcome, attempt, ended.maxAttempts);
-    if (record) {
+    // An overflow is re-attempted only over a branch a committed compaction
+    // shortened; with nothing droppable the run fails as the provider reported.
+    const recoverable =
+      record?.reason !== 'context-overflow' ||
+      !record.recovered ||
+      (await recoverHostContextOverflow(ports, run));
+    if (record && recoverable) {
       await ports.append(run.threadId, [record], 'full', ports.foldRows);
       if (record.recovered) {
         continue;

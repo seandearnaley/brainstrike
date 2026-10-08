@@ -94,7 +94,12 @@ type ProjectedRunEvent = Pick<
   'detail' | 'kind' | 'label' | 'metadata' | 'status'
 >;
 
-const ATTEMPT_REASONS = new Set<unknown>(['stalled', 'provider-error', 'empty-response']);
+const ATTEMPT_REASONS = new Set<unknown>([
+  'context-overflow',
+  'empty-response',
+  'provider-error',
+  'stalled',
+]);
 const ATTEMPT_REFUSALS = new Set<unknown>(['budget-exhausted', 'tool-parts', 'committed-output']);
 
 /** A committed host `run.attempt` row, read strictly like every other committed event. */

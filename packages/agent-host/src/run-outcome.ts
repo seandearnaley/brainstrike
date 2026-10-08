@@ -1,3 +1,5 @@
+import { extractProviderRunError, isContextOverflowProviderErrorCode } from '@brainstrike/agent';
+import { ProviderRequestContextOverflowError } from '@brainstrike/agent/provider-request';
 import {
   describeEmptyModelResponse,
   describeStreamStall,
@@ -27,6 +29,17 @@ const NON_WHITESPACE = /\S/u;
 type HostRunAttempt = Extract<HostEvent, { type: 'run.attempt' }>;
 /** How one attempt failed, when that failure class may be re-attempted. */
 export type HostAttemptFailure = Pick<HostRunAttempt, 'detail' | 'reason' | 'refusal' | 'stall'>;
+
+/**
+ * The request did not fit: the host's own measured budget refused it, or the
+ * provider reported a context overflow. Core recovers it only by compacting.
+ */
+function isContextOverflow(cause: unknown): boolean {
+  return (
+    cause instanceof ProviderRequestContextOverflowError ||
+    isContextOverflowProviderErrorCode(extractProviderRunError(cause).code)
+  );
+}
 
 /** A provider-classified transient failure; typed host refusals are never retryable. */
 function isRetryableProviderError(cause: unknown): boolean {
@@ -190,12 +203,17 @@ export class HostRunOutcome {
         },
       };
     }
-    if (isRetryableProviderError(this.cause)) {
+    const reason = isContextOverflow(this.cause)
+      ? ('context-overflow' as const)
+      : isRetryableProviderError(this.cause)
+        ? ('provider-error' as const)
+        : undefined;
+    if (reason) {
       const refusal = this.openStepTools
         ? ('tool-parts' as const)
         : (this.committedErrorStep ??
           (this.openStepOutput ? ('committed-output' as const) : undefined));
-      return { detail, reason: 'provider-error', ...(refusal ? { refusal } : {}) };
+      return { detail, reason, ...(refusal ? { refusal } : {}) };
     }
     return this.emptyReply() ? { detail, reason: 'empty-response' } : undefined;
   }

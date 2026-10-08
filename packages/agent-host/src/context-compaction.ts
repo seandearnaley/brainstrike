@@ -296,17 +296,66 @@ async function compactionEvent(request: CompactionRequest): Promise<Compacted> {
     if (request.signal.aborted) {
       throw cause;
     }
-    const selected = select(request.candidates, request.reclaim);
     return {
-      compactedRunIds: selected.map((turn) => turn.run.id),
-      kind: 'deterministic',
-      reason: 'pre-request',
-      runId: request.runId,
-      summary: `Deterministic fallback: dropped ${selected.length} earlier turns (${messageCount(selected)} messages) after an agentic summarizer failure; no summarization model ran.`,
-      type: 'context.compacted',
+      ...deterministicEvent(
+        request.runId,
+        select(request.candidates, request.reclaim),
+        'pre-request',
+        'an agentic summarizer failure'
+      ),
       ...(cause instanceof HostContextSummarySchemaError ? cause.receipt : {}),
     };
   }
+}
+
+/** The legacy deterministic drop line (`deterministicDropLine`), at whole-turn grain. */
+function deterministicEvent(
+  runId: string,
+  selected: readonly Turn[],
+  reason: Compacted['reason'],
+  after: string
+): Compacted {
+  return {
+    compactedRunIds: selected.map((turn) => turn.run.id),
+    kind: 'deterministic',
+    reason,
+    runId,
+    summary: `Deterministic fallback: dropped ${selected.length} earlier turns (${messageCount(selected)} messages) after ${after}; no summarization model ran.`,
+    type: 'context.compacted',
+  };
+}
+
+/**
+ * Legacy `createContextOverflowRecovery`: after the provider reported a
+ * context overflow, drop the oldest droppable turns toward the target (at
+ * least one). Undefined when no turn is droppable or no input budget is
+ * known, so the run fails as reported and nothing claims headroom.
+ */
+export function overflowCompaction(input: {
+  readonly chain: readonly HostRunState[];
+  readonly compactions: readonly Compacted[];
+  readonly inputTokenLimit: number | undefined;
+  readonly messages: readonly ModelMessage[];
+}): Compacted | undefined {
+  const run = input.chain.at(-1);
+  const limit = input.inputTokenLimit;
+  if (!run || limit === undefined) {
+    return;
+  }
+  const turns = splitTurns(input.chain, input.messages);
+  const compacted = new Set(input.compactions.flatMap((event) => event.compactedRunIds));
+  const candidates = droppable(turns, compacted);
+  if (candidates.length === 0) {
+    return;
+  }
+  const current = estimateTokens(applyOverlay(turns, input.compactions));
+  const reclaim = Math.max(1, current - CONTEXT_COMPACTION_TARGET_RATIO * limit);
+  return deterministicEvent(
+    run.id,
+    select(candidates, reclaim),
+    'context-overflow',
+    'a provider context-overflow error'
+  );
 }
 
 /** The committed overlay: compacted turns leave the request; their note joins the system text. */

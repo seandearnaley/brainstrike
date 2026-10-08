@@ -413,7 +413,7 @@ export const HostEventSchema = z.union([
     attempt: z.number().int().positive(),
     detail: z.string().min(1),
     maxAttempts: z.number().int().positive(),
-    reason: z.enum(['stalled', 'provider-error', 'empty-response']),
+    reason: z.enum(['stalled', 'provider-error', 'empty-response', 'context-overflow']),
     recovered: z.boolean(),
     refusal: z.enum(['budget-exhausted', 'tool-parts', 'committed-output']).optional(),
     /** A stall's breadcrumb: which silence fired and how far the stream got. */
@@ -463,7 +463,7 @@ export const HostEventSchema = z.union([
     compactedRunIds: z.array(Id).min(1),
     kind: z.enum(['agentic', 'deterministic']),
     modelId: Id.optional(),
-    reason: z.literal('pre-request'),
+    reason: z.enum(['pre-request', 'context-overflow']),
     summary: z.string().min(1),
     usage: z.json().optional(),
   }),
