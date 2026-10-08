@@ -24,6 +24,7 @@ import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
 import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
+import { createRemoteLlmHostClient } from './llm-host-port';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import {
@@ -116,6 +117,9 @@ export async function createHostPlatform(
     }
     await context.write?.(progress.chunk);
   });
+  // ADR-0007: the built-in local model's inference stays in Main's hidden
+  // llm-host renderer; this host only relays each generation to it.
+  const localLlmHostClient = createRemoteLlmHostClient(connection);
   connection.listen();
   connection.onClose(() => connection.dispose());
   await startup.register(async () => {
@@ -137,6 +141,7 @@ export async function createHostPlatform(
       await request('platform/close', {});
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
+    localLlmHostClient,
     mcp: mcpHost.services.mcp,
     readConfiguration: async (admission) => {
       const response = await request(
@@ -172,7 +177,12 @@ export async function createHostPlatform(
         ));
       let memory: ProductionHostRunConfiguration['memory'];
       try {
-        memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth);
+        memory = await createDesktopHostMemoryConfiguration(
+          selected,
+          resolveAuth,
+          undefined,
+          localLlmHostClient
+        );
       } catch (cause) {
         try {
           await closeSelection();

@@ -1,3 +1,4 @@
+import type { LocalLlmHostClient } from '@brainstrike/agent/local-llm';
 import {
   buildGenerationProviderOptionsOption,
   buildModelSettingsOption,
@@ -56,6 +57,12 @@ export interface ProductionHostPlatformOptions {
   close(): Promise<void>;
   /** Purge process-local caches of a deleted thread. */
   readonly forgetThread?: HostPlatform['forgetThread'];
+  /**
+   * The launching desktop's hidden-renderer inference for the built-in `local`
+   * provider (ADR-0007: models never load in a host process). The CLI has none
+   * and refuses that provider before admission.
+   */
+  readonly localLlmHostClient?: LocalLlmHostClient;
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
@@ -76,16 +83,35 @@ export interface ProductionHostPlatformOptions {
 
 function rootModel(
   configuration: RuntimeData,
-  auth: ProviderAuthInput | undefined
+  auth: ProviderAuthInput | undefined,
+  localLlmHostClient: LocalLlmHostClient | undefined
 ): Exclude<LanguageModel, string> {
   const selected = resolveRuntimeConfiguration(configuration, auth);
   const model = createProvider(
     selected.provider,
     selected.authInput,
     selected.runtime.model,
-    selected.runtime
+    selected.provider === 'local' && localLlmHostClient
+      ? { ...selected.runtime, localLlmHostClient }
+      : selected.runtime
   );
   return materializeHostProviderModel(model);
+}
+
+/** The run's concrete model; a local one loads before admission returns, as the legacy stream did. */
+async function admittedModel(
+  options: Pick<ProductionHostPlatformOptions, 'localLlmHostClient' | 'resolveModel'>,
+  configuration: RuntimeData,
+  auth: ProviderAuthInput | undefined,
+  signal: AbortSignal
+): Promise<Exclude<LanguageModel, string>> {
+  const localModel = configuration.provider === 'local' ? configuration.model : undefined;
+  if (localModel && options.localLlmHostClient) {
+    await options.localLlmHostClient.warmup(localModel, { signal });
+  }
+  return options.resolveModel
+    ? await options.resolveModel(configuration, auth)
+    : rootModel(configuration, auth, options.localLlmHostClient);
 }
 
 function unavailableMcpServers(
@@ -232,9 +258,7 @@ export async function createProductionHostPlatform(
         const auth = selected.resolveProviderAuth
           ? await selected.resolveProviderAuth(provider)
           : await options.resolveProviderAuth(provider);
-        const model = options.resolveModel
-          ? await options.resolveModel(selected.configuration, auth)
-          : rootModel(selected.configuration, auth);
+        const model = await admittedModel(options, selected.configuration, auth, request.signal);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
         const authoredTools = { ...selected.tools };

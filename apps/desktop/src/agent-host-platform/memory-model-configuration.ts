@@ -1,3 +1,4 @@
+import type { LocalLlmHostClient } from '@brainstrike/agent/local-llm';
 import {
   createProvider,
   type ProviderAuthInput,
@@ -19,7 +20,8 @@ import type { PlatformSelectionSchema } from './platform-wire';
 export async function createDesktopHostMemoryConfiguration(
   selection: z.output<typeof PlatformSelectionSchema>,
   resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>,
-  vectors?: DesktopHostMemoryVectorCapabilities
+  vectors?: DesktopHostMemoryVectorCapabilities,
+  localLlmHostClient?: LocalLlmHostClient
 ): Promise<ProductionHostRunConfiguration['memory']> {
   const { observationalMemory: observation } = selection.memory.settings;
   const vectorConfiguration = createDesktopHostMemoryVectorConfiguration(selection, vectors);
@@ -29,21 +31,31 @@ export async function createDesktopHostMemoryConfiguration(
   >['observationalMemory'] = false;
   if (observation.enabled) {
     const target = parseObservationalMemoryModelTarget(observation.modelTarget);
+    let configuration: ReturnType<typeof resolveRuntimeConfiguration>;
     if (target.provider === 'local') {
-      throw new Error(
-        'Local Observational Memory requires the existing local LLM host capability.'
+      // Keyless, through the same hidden-renderer seam as the chat model.
+      if (!localLlmHostClient) {
+        throw new Error(
+          'Local Observational Memory requires the existing local LLM host capability.'
+        );
+      }
+      const local = resolveRuntimeConfiguration(
+        { model: target.model, provider: target.provider },
+        undefined
+      );
+      configuration = { ...local, runtime: { ...local.runtime, localLlmHostClient } };
+    } else {
+      const auth = await resolveProviderAuth(target.provider);
+      if (auth?.kind !== 'api_key' || !auth.apiKey.trim()) {
+        throw new Error(
+          `Observational Memory requires the resolved ${target.provider} API credential`
+        );
+      }
+      configuration = resolveRuntimeConfiguration(
+        { model: target.model, provider: target.provider },
+        auth
       );
     }
-    const auth = await resolveProviderAuth(target.provider);
-    if (auth?.kind !== 'api_key' || !auth.apiKey.trim()) {
-      throw new Error(
-        `Observational Memory requires the resolved ${target.provider} API credential`
-      );
-    }
-    const configuration = resolveRuntimeConfiguration(
-      { model: target.model, provider: target.provider },
-      auth
-    );
     observationalMemory = {
       model: materializeHostProviderModel(
         createProvider(

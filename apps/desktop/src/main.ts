@@ -1070,6 +1070,8 @@ const nativeIndexActivation = createNativeIndexActivation({
             );
           }
         },
+        // ADR-0007: the host's built-in local model runs in the hidden llm-host renderer.
+        llmHost: llmHostManager,
         // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
         mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
       });

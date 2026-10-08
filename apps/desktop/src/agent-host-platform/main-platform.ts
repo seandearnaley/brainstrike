@@ -12,6 +12,7 @@ import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract
 import { isSharedNativeToolId } from '@brainstrike/host-capabilities/native-tools';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
+import { type DesktopLlmHostInference, serveLlmHostPort } from './llm-host-port';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import {
   PlatformPolicySchema,
@@ -33,6 +34,8 @@ export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools
 export interface DesktopPlatformCapabilities {
   /** Join Main-owned Root borrowers before Core releases its canonical writer. */
   closeRootCapabilities?(): Promise<void>;
+  /** The hidden llm-host renderer's inference, for the host's built-in local model. */
+  readonly llmHost?: DesktopLlmHostInference;
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
@@ -127,6 +130,9 @@ export function serveDesktopPlatform(
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
   const mcpStores = serveMainMcpStores(connection, capabilities.mcp);
+  const llmHost = capabilities.llmHost
+    ? serveLlmHostPort(connection, capabilities.llmHost)
+    : undefined;
   let closing: Promise<void> | undefined;
   const execute = <T>(
     token: CancellationToken,
@@ -335,6 +341,7 @@ export function serveDesktopPlatform(
         await Promise.allSettled([...pending]);
       }
       mcpStores.close();
+      llmHost?.dispose();
       const results = await Promise.allSettled(
         [...selections.values()].map((value) => value.selection.close())
       );
