@@ -1,4 +1,5 @@
-import type { ModelMessage } from 'ai';
+import { COMPACTION_SUMMARIZER_INSTRUCTIONS, hasCompactionSummarySchema } from '@brainstrike/agent';
+import { generateText, type LanguageModel, type ModelMessage } from 'ai';
 import type { HostRunState } from './core-state.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 
@@ -136,15 +137,123 @@ function select(candidates: readonly Turn[], reclaim: number): Turn[] {
   return selected;
 }
 
-function compactionEvent(selected: readonly Turn[]): Compacted {
-  const messages = selected.reduce((total, turn) => total + turn.messages.length, 0);
-  return {
-    compactedRunIds: selected.map((turn) => turn.run.id),
-    kind: 'deterministic',
-    reason: 'pre-request',
-    summary: `Deterministic fallback: dropped ${selected.length} earlier turns (${messages} messages) to fit the input budget; no summarization model ran.`,
-    type: 'context.compacted',
+/** Usage the summarizer's provider reported; the legacy summarizer required both counts. */
+export interface HostContextSummaryUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+}
+
+export interface HostContextSummary extends HostContextSummaryUsage {
+  readonly text: string;
+}
+
+/** The summarizer answered, but not in the required five-section shape. */
+export class HostContextSummarySchemaError extends Error {
+  readonly usage: HostContextSummaryUsage;
+
+  constructor(usage: HostContextSummaryUsage) {
+    super('Compaction summarizer response violated the required five-section schema.');
+    this.name = 'HostContextSummarySchemaError';
+    this.usage = usage;
+  }
+}
+
+function requireUsage(count: number | undefined, field: string): number {
+  if (!(typeof count === 'number' && Number.isFinite(count) && count >= 0)) {
+    throw new Error(`Compaction summarizer omitted provider-reported ${field}.`);
+  }
+  return count;
+}
+
+/**
+ * The legacy agentic summarizer (`generateAgenticCompactionSummary`) on the
+ * run's own admitted model: its instructions, one step, no tools, and the
+ * five-section schema check.
+ */
+export async function summarizeHostContext(
+  model: LanguageModel,
+  transcript: string,
+  signal: AbortSignal
+): Promise<HostContextSummary> {
+  const result = await generateText({
+    abortSignal: signal,
+    model,
+    prompt: transcript,
+    system: COMPACTION_SUMMARIZER_INSTRUCTIONS,
+  });
+  const usage = {
+    inputTokens: requireUsage(result.totalUsage.inputTokens, 'inputTokens'),
+    outputTokens: requireUsage(result.totalUsage.outputTokens, 'outputTokens'),
   };
+  if (!hasCompactionSummarySchema(result.text)) {
+    throw new HostContextSummarySchemaError(usage);
+  }
+  return { ...usage, text: result.text };
+}
+
+function transcriptContent(message: ModelMessage): unknown {
+  if (typeof message.content === 'string') {
+    return message.content;
+  }
+  return message.content.map((part) =>
+    part.type === 'image' || part.type === 'file'
+      ? { mediaType: part.mediaType, type: part.type }
+      : part
+  );
+}
+
+/** One JSON line per message, like the legacy projected transcript; attachments by label only. */
+function transcript(turns: readonly Turn[]): string {
+  return turns
+    .flatMap((turn) => turn.messages)
+    .map((message) => JSON.stringify({ content: transcriptContent(message), role: message.role }))
+    .join('\n');
+}
+
+function messageCount(turns: readonly Turn[]): number {
+  return turns.reduce((total, turn) => total + turn.messages.length, 0);
+}
+
+interface CompactionRequest {
+  readonly candidates: readonly Turn[];
+  readonly reclaim: number;
+  readonly runId: string;
+  readonly signal: AbortSignal;
+  readonly summarize: (transcript: string) => Promise<HostContextSummary>;
+}
+
+/**
+ * Past the trigger, the agentic summary replaces every droppable turn. When
+ * the summarizer fails, the legacy deterministic fallback drops only the
+ * oldest turns that reach the target, and the committed summary says so.
+ */
+async function compactionEvent(request: CompactionRequest): Promise<Compacted> {
+  try {
+    const summary = await request.summarize(transcript(request.candidates));
+    return {
+      compactedRunIds: request.candidates.map((turn) => turn.run.id),
+      kind: 'agentic',
+      reason: 'pre-request',
+      runId: request.runId,
+      summary: summary.text,
+      type: 'context.compacted',
+      usage: { inputTokens: summary.inputTokens, outputTokens: summary.outputTokens },
+    };
+  } catch (cause) {
+    if (request.signal.aborted) {
+      throw cause;
+    }
+    const selected = select(request.candidates, request.reclaim);
+    return {
+      compactedRunIds: selected.map((turn) => turn.run.id),
+      kind: 'deterministic',
+      reason: 'pre-request',
+      runId: request.runId,
+      summary: `Deterministic fallback: dropped ${selected.length} earlier turns (${messageCount(selected)} messages) after an agentic summarizer failure; no summarization model ran.`,
+      type: 'context.compacted',
+      ...(cause instanceof HostContextSummarySchemaError ? { usage: cause.usage } : {}),
+    };
+  }
 }
 
 /** The committed overlay: compacted turns leave the request; their note joins the system text. */
@@ -155,7 +264,7 @@ function applyOverlay(turns: readonly Turn[], compactions: readonly Compacted[])
 
 /**
  * Before the first provider request of a run: past the trigger ratio, commit a
- * deterministic compaction of the oldest turns, then apply every committed
+ * compaction of the droppable earlier turns, then apply every committed
  * compaction of this branch. Below the trigger nothing is committed.
  */
 export async function prepareCompactedContext(input: {
@@ -164,25 +273,29 @@ export async function prepareCompactedContext(input: {
   readonly compactions: readonly Compacted[];
   readonly inputTokenLimit: number | undefined;
   readonly messages: readonly ModelMessage[];
+  readonly signal: AbortSignal;
+  readonly summarize: (transcript: string) => Promise<HostContextSummary>;
 }): Promise<{ readonly messages: ModelMessage[]; readonly note?: string }> {
   const turns = splitTurns(input.chain, input.messages);
   const compactions = [...input.compactions];
   const limit = input.inputTokenLimit;
-  if (limit !== undefined) {
+  const run = input.chain.at(-1);
+  if (run && limit !== undefined) {
     const current = estimateTokens(applyOverlay(turns, compactions));
-    if (current >= CONTEXT_COMPACTION_TRIGGER_RATIO * limit) {
-      const compacted = new Set(compactions.flatMap((event) => event.compactedRunIds));
-      const selected = select(
-        droppable(turns, compacted),
-        current - CONTEXT_COMPACTION_TARGET_RATIO * limit
-      );
-      if (selected.length > 0) {
-        const event = compactionEvent(selected);
-        await input.commit(event);
-        compactions.push(event);
-      }
+    const compacted = new Set(compactions.flatMap((event) => event.compactedRunIds));
+    const candidates = droppable(turns, compacted);
+    if (current >= CONTEXT_COMPACTION_TRIGGER_RATIO * limit && candidates.length > 0) {
+      const event = await compactionEvent({
+        candidates,
+        reclaim: current - CONTEXT_COMPACTION_TARGET_RATIO * limit,
+        runId: run.id,
+        signal: input.signal,
+        summarize: input.summarize,
+      });
+      await input.commit(event);
+      compactions.push(event);
     }
   }
-  const note = compactionNote(compactions, new Set(input.chain.map((run) => run.id)));
+  const note = compactionNote(compactions, new Set(input.chain.map((turn) => turn.id)));
   return { messages: applyOverlay(turns, compactions), ...(note ? { note } : {}) };
 }

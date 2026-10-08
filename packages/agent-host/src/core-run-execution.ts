@@ -4,7 +4,11 @@ import {
   ApprovalInputReconstructionError,
   rebuildApprovedRuntimeMessages,
 } from './approval-input.js';
-import { type HostContextCompactions, prepareCompactedContext } from './context-compaction.js';
+import {
+  type HostContextCompactions,
+  prepareCompactedContext,
+  summarizeHostContext,
+} from './context-compaction.js';
 import { finishHostSdkLoop, retainHostRunWork } from './core-run-lifecycle.js';
 import type { HostRunState as Run } from './core-state.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
@@ -226,6 +230,9 @@ export async function runHostSdkLoop(
             compactions: ports.compactions.read(run.threadId),
             inputTokenLimit: admission.inputTokenLimit,
             messages: prepared,
+            signal: run.controller.signal,
+            summarize: (transcript) =>
+              summarizeHostContext(admission.model, transcript, run.controller.signal),
           });
           prepared = overlay.messages;
           compactionNote = overlay.note;

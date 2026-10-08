@@ -401,13 +401,23 @@ export const HostEventSchema = z.union([
     detail: z.string().optional(),
     outcome: z.enum(['completed', 'failed', 'stopped', 'interrupted']),
   }),
-  /** Host-committed overlay: later requests replace these turns with `summary`. */
+  /**
+   * Host-committed overlay from the run that made it: later requests replace
+   * these turns with `summary`. `usage` is the summarizer's own model usage.
+   */
   z.strictObject({
+    type: z.literal('context.compacted'),
+    ...RunFields,
     compactedRunIds: z.array(Id).min(1),
-    kind: z.literal('deterministic'),
+    kind: z.enum(['agentic', 'deterministic']),
     reason: z.literal('pre-request'),
     summary: z.string().min(1),
-    type: z.literal('context.compacted'),
+    usage: z
+      .strictObject({
+        inputTokens: z.number().int().nonnegative(),
+        outputTokens: z.number().int().nonnegative(),
+      })
+      .optional(),
   }),
   z.strictObject({
     type: z.literal('workspace.edit.recorded'),

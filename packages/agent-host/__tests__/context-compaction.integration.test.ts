@@ -128,32 +128,108 @@ async function longThreadHost(turns: number, answerChars: number, inputTokenLimi
   };
 }
 
-test('a thread longer than its input budget compacts its oldest turns before the request instead of dropping them silently', async () => {
-  const requests: string[] = [];
+const SUMMARY = [
+  'Goal: answer the latest question.',
+  'State: twelve earlier questions were answered.',
+  'Decisions: None.',
+  'Next: None.',
+  'Files touched: None.',
+].join('\n');
+
+/**
+ * The summarizer's non-streaming call gets the final Responses object of the
+ * recorded SDK7 fixture (host-capabilities standalone-production-http.mjs);
+ * the run's streaming request gets a terminal 400.
+ */
+function stubProvider(summary: string): { requests: Record<string, unknown>[] } {
+  const requests: Record<string, unknown>[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn<typeof globalThis.fetch>(async (input, init) => {
-      requests.push(await new Request(input, init).text());
-      return Response.json(
-        { error: { message: 'Offline compaction fixture', type: 'fixture_terminal' } },
-        { status: 400 }
-      );
+      const body = (await new Request(input, init).json()) as Record<string, unknown>;
+      requests.push(body);
+      if (body['stream'] === true) {
+        return Response.json(
+          { error: { message: 'Offline compaction fixture', type: 'fixture_terminal' } },
+          { status: 400 }
+        );
+      }
+      const part = { annotations: [], text: summary, type: 'output_text' };
+      return Response.json({
+        created_at: 1_753_600_000,
+        id: 'resp_compaction_1',
+        model: body['model'],
+        object: 'response',
+        output: [
+          {
+            content: [part],
+            id: 'msg_compaction_1',
+            role: 'assistant',
+            status: 'completed',
+            type: 'message',
+          },
+        ],
+        status: 'completed',
+        usage: { input_tokens: 42, output_tokens: 9, total_tokens: 51 },
+      });
     })
   );
+  return { requests };
+}
+
+function compactionOf(events: readonly HostEvent[]) {
+  const compacted = events.filter(
+    (event): event is Extract<HostEvent, { type: 'context.compacted' }> =>
+      event.type === 'context.compacted'
+  );
+  expect(compacted).toHaveLength(1);
+  const [compaction] = compacted;
+  if (!compaction) {
+    throw new Error('No committed compaction');
+  }
+  return compaction;
+}
+
+test('a thread longer than its input budget commits an agentic summary of its earlier turns before the request', async () => {
+  const { requests } = stubProvider(SUMMARY);
   // 12 earlier turns of ~2,500 estimated tokens against a 20,000-token budget.
   const host = await longThreadHost(12, 10_000, 20_000);
   const { events } = await host.run('Latest question');
 
-  const compacted = events.filter((event) => event.type === 'context.compacted');
-  expect(compacted).toHaveLength(1);
-  const [compaction] = compacted;
-  expect(compaction).toMatchObject({ kind: 'deterministic', reason: 'pre-request' });
-  expect(requests).toHaveLength(1);
-  const [request] = requests;
-  // The oldest turn is replaced by the committed summary, the newest kept whole.
+  const compaction = compactionOf(events);
+  expect(compaction).toMatchObject({
+    kind: 'agentic',
+    reason: 'pre-request',
+    summary: SUMMARY,
+    usage: { inputTokens: 42, outputTokens: 9 },
+  });
+  // Every earlier turn except the previous one (answer-11).
+  expect(compaction.compactedRunIds).toHaveLength(11);
+  expect(requests).toHaveLength(2);
+  const [summarizer, request] = requests.map((body) => JSON.stringify(body));
+  expect(summarizer).toContain('Create a concise conversation state summary');
+  expect(summarizer).toContain('answer-0 ');
+  expect(summarizer).toContain('answer-10 ');
+  expect(summarizer).not.toContain('answer-11 ');
+  expect(request).not.toContain('answer-0 ');
+  expect(request).not.toContain('answer-10 ');
+  expect(request).toContain('answer-11 ');
+  expect(request).toContain('State: twelve earlier questions were answered.');
+});
+
+test('a summarizer answer outside the five-section schema commits the labelled deterministic fallback', async () => {
+  const { requests } = stubProvider('Just a sentence.');
+  const host = await longThreadHost(12, 10_000, 20_000);
+  const { events } = await host.run('Latest question');
+
+  const compaction = compactionOf(events);
+  expect(compaction).toMatchObject({
+    kind: 'deterministic',
+    usage: { inputTokens: 42, outputTokens: 9 },
+  });
+  expect(compaction.summary).toContain('after an agentic summarizer failure');
+  const request = JSON.stringify(requests.at(-1));
   expect(request).not.toContain('answer-0 ');
   expect(request).toContain('answer-11 ');
-  expect(request).toContain(
-    compaction?.type === 'context.compacted' ? compaction.summary : 'missing summary'
-  );
+  expect(request).toContain(compaction.summary);
 });
