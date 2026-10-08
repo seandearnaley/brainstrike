@@ -29,6 +29,21 @@ export class HostToolStates {
     this.threads.delete(threadId);
   }
 
+  /** A read-only view of one thread's latest committed values. */
+  view(threadId: string): Pick<HostToolState, 'entries' | 'read'> {
+    const state = (): ReadonlyMap<string, Json> => this.threads.get(threadId) ?? new Map();
+    return {
+      entries: (prefix) =>
+        [...state()]
+          .filter(([key]) => key.startsWith(prefix))
+          .map(([key, value]) => [key, jsonValue(value)] as const),
+      read: (key) => {
+        const value = state().get(key);
+        return value === undefined ? undefined : jsonValue(value);
+      },
+    };
+  }
+
   capability(
     scope: {
       readonly assertCurrent: () => void;

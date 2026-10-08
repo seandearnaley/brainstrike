@@ -6,6 +6,7 @@ export { resolveAssistantResilienceConfig } from './config/resilience-config';
 export {
   buildContextBudgetNote,
   buildCurrentDateNote,
+  buildCurrentTaskListNote,
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
 } from './mastra/default-instructions';
