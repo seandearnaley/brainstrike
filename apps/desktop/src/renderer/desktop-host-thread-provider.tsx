@@ -1,7 +1,7 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { HostChildConversations, useAssistantRunNotifications } from '@brainstrike/app-shell';
 import { AssistantThreadHostContext } from '@brainstrike/app-shell/assistant-thread-host-context';
-import { CommittedAssistantConversation, personaLabelForToolName } from '@brainstrike/assistant-ui';
+import { CommittedAssistantConversation } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
 import {
   type ReactElement,
@@ -104,7 +104,7 @@ function HostThread({
 
 // One lazy client capability per actual renderer frame, independent of React replay.
 const windowThreadCapability = createWindowThreadCapability(
-  ({ catalogLoaded, childPersona, host, onRunningChange, onTitleCommitted, runs, threadId }) => {
+  ({ catalogLoaded, childCallSign, host, onRunningChange, onTitleCommitted, runs, threadId }) => {
     // Persisted tabs render before catalog hydration. The observed legacy
     // Mastra initialization for these SQLite-owned IDs must not claim them.
     if (!(host || catalogLoaded)) {
@@ -113,8 +113,8 @@ const windowThreadCapability = createWindowThreadCapability(
     return host ? (
       <HostThread
         client={host}
-        // A child's region is named by the persona it runs, like its workspace tab.
-        label={childPersona ? personaLabelForToolName(`agent-${childPersona}`) : 'Assistant'}
+        // A child's region is named by its call sign, like its workspace tab.
+        label={childCallSign ?? 'Assistant'}
         onRunningChange={onRunningChange}
         onTitleCommitted={onTitleCommitted}
         runs={runs}

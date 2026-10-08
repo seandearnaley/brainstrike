@@ -1,11 +1,14 @@
 import {
   SubagentConversationNavigationContext,
+  SubagentConversationPresentationContext,
   SubagentInvocationResolverContext,
   SubagentLiveInvocationContext,
 } from '@brainstrike/assistant-ui';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { createLogger } from '@brainstrike/logging';
+import { isAgentColor } from '@brainstrike/types/agent-color';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { getDelegatedColorPresentation } from './agent-color-presentation';
 import {
   type AssistantThreadHostChild,
   useAssistantThreadHost,
@@ -111,6 +114,26 @@ export function HostChildConversations({
     },
     [list, threadId]
   );
+  // The card presents the child's call sign and family colour, as its tab does.
+  const presentation = useCallback(
+    async (childThreadId: string) => {
+      const known =
+        current?.find((child) => child.threadId === childThreadId) ??
+        (await list?.(threadId))?.find((child) => child.threadId === childThreadId);
+      if (!known) {
+        throw new Error('The child conversation belongs to another parent.');
+      }
+      if (!isAgentColor(known.color)) {
+        throw new Error('The child conversation colour is not an agent colour.');
+      }
+      return {
+        colorId: known.color,
+        displayName: known.callSign,
+        markClassName: getDelegatedColorPresentation(known.color).markClassName,
+      };
+    },
+    [current, list, threadId]
+  );
   const open = useCallback(
     (childThreadId: string) => {
       const known = current?.find((child) => child.threadId === childThreadId);
@@ -139,11 +162,13 @@ export function HostChildConversations({
   );
   return (
     <SubagentConversationNavigationContext value={list ? open : null}>
-      <SubagentInvocationResolverContext value={list ? resolveInvocation : null}>
-        <SubagentLiveInvocationContext value={list ? liveInvocations : null}>
-          {children}
-        </SubagentLiveInvocationContext>
-      </SubagentInvocationResolverContext>
+      <SubagentConversationPresentationContext value={list ? presentation : null}>
+        <SubagentInvocationResolverContext value={list ? resolveInvocation : null}>
+          <SubagentLiveInvocationContext value={list ? liveInvocations : null}>
+            {children}
+          </SubagentLiveInvocationContext>
+        </SubagentInvocationResolverContext>
+      </SubagentConversationPresentationContext>
     </SubagentConversationNavigationContext>
   );
 }

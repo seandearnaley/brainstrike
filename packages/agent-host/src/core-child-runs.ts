@@ -11,6 +11,7 @@ import {
   describeHostChildLedger,
   type HostChildLedgerState,
 } from './child-delivery.js';
+import { hostChildCallSign, hostChildColors } from './child-presentation.js';
 import {
   deriveHostChildAdmission,
   type HostChildResult,
@@ -383,14 +384,33 @@ export class HostChildRuns {
   /** A thread's direct children, in the order their origins were committed. */
   listed(
     threadId: string,
-    threads: ReadonlySet<string>
+    threads: ReadonlySet<string>,
+    presentations: { read(threadId: string): { readonly color?: string | undefined } }
   ): HostResults['thread/children']['children'] {
     if (!threads.has(threadId)) {
       throw new Error('Unknown thread');
     }
-    return [...this.origins].flatMap(([child, origin]) =>
-      origin.parentThreadId === threadId ? [{ origin, threadId: child }] : []
+    const root = this.rootThread(threadId);
+    // Colours are allocated across the whole root tree, in creation order.
+    const colors = hostChildColors(
+      root,
+      presentations.read(root).color,
+      [...this.origins].flatMap(([child, origin]) =>
+        this.rootThread(child) === root
+          ? [{ parentThreadId: origin.parentThreadId, threadId: child }]
+          : []
+      )
     );
+    return [...this.origins].flatMap(([child, origin]) => {
+      const color = colors.get(child);
+      if (origin.parentThreadId !== threadId) {
+        return [];
+      }
+      if (!color) {
+        throw new Error('A child conversation has no family colour.');
+      }
+      return [{ callSign: hostChildCallSign(child), color, origin, threadId: child }];
+    });
   }
 
   /** A committed run.started's delivery advances the watermark. */

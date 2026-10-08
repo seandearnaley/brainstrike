@@ -5,9 +5,11 @@
  * run it starts, and undelivered results reach the next user turn exactly once.
  */
 import { randomUUID } from 'node:crypto';
+import { createAgentFamilyColor } from '@brainstrike/types/agent-color';
 import type { ModelMessage } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
+import { hostChildCallSign } from '../src/child-presentation.js';
 import { withHostDelegationTools } from '../src/child-runs.js';
 import type { HostClientOrigin, HostRunAdmissionRequest } from '../src/ports.js';
 import type { HostLogRow } from '../src/protocol.js';
@@ -296,6 +298,24 @@ test('a thread lists its direct child threads in delegation order with their ori
       persona: 'explore',
     });
   }
+  // Each child presents the shipped call sign and a family colour near its root's.
+  const [first, second] = children;
+  expect(children.map(({ callSign }) => callSign)).toEqual(
+    children.map(({ threadId }) => hostChildCallSign(threadId))
+  );
+  expect(first?.callSign).toMatch(/^[A-Z][a-z]+-[a-f0-9]{6}$/u);
+  const firstColor = createAgentFamilyColor('blue', first?.threadId ?? '', [], ['blue']);
+  expect(first?.color).toBe(firstColor);
+  expect(second?.color).toBe(
+    createAgentFamilyColor('blue', second?.threadId ?? '', [firstColor], ['blue', firstColor])
+  );
+  // The colours follow the root's committed colour; nothing about a child is stored.
+  await harness
+    .core()
+    .updateThread({ color: 'emerald', commandId: randomUUID(), threadId: harness.threadId });
+  expect(harness.core().listChildren(harness.threadId)[0]?.color).toBe(
+    createAgentFamilyColor('emerald', first?.threadId ?? '', [], ['emerald'])
+  );
   // A leaf child has none; an unknown thread is refused, never an empty list.
   expect(harness.core().listChildren(children[0]?.threadId ?? '')).toEqual([]);
   expect(() => harness.core().listChildren(randomUUID())).toThrow('Unknown thread');

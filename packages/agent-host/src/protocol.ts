@@ -451,8 +451,16 @@ export const HOST_RESULT_SCHEMAS = {
   'run/start': z.strictObject({ runId: Id }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
   'thread/children': z.strictObject({
-    // Delegation order: each child with the origin its thread.started committed.
-    children: z.array(z.strictObject({ ...Thread, origin: HostChildOriginSchema })),
+    // Delegation order: each child with the origin its thread.started committed,
+    // and its call sign and family colour, derived from the tree on every read.
+    children: z.array(
+      z.strictObject({
+        ...Thread,
+        callSign: z.string().min(1),
+        color: z.string().min(1),
+        origin: HostChildOriginSchema,
+      })
+    ),
   }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),
   'thread/list': z.strictObject({

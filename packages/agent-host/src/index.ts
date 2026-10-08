@@ -28,6 +28,7 @@ export {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
 } from './adapters/state-store-host-memory.js';
+export { hostChildCallSign } from './child-presentation.js';
 export {
   type HostCliDefaults,
   type HostCliOutput,

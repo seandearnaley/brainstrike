@@ -10,6 +10,8 @@ const TASK = 'EXPLORE_TASK_5A: list what the notes say.';
 const LEDGER = 'Background invocations of this turn';
 const FOLLOW_UP = 'FOLLOW_UP_5B: anything else in the notes?';
 const CONTINUATION = '<child_continuation_result>';
+const CALL_SIGN = /^[A-Z][a-z]+-[a-f0-9]{6}$/u;
+const CALL_SIGN_CONVERSATION = /^Open [A-Z][a-z]+-[a-f0-9]{6} conversation$/u;
 
 /** A thread's committed runs as a spec reads them: how each was admitted and how it ended. */
 function committedRuns(rows: readonly HostLogRow[]) {
@@ -142,11 +144,15 @@ test('a host thread delegates to a background persona child, wakes with its resu
   // The card opens the child's own host thread in a workspace tab.
   const root = window.getByRole('region', { exact: true, name: 'Assistant' });
   await root.getByRole('button', { exact: true, name: 'Expand activity' }).first().click();
-  await root.getByRole('button', { exact: true, name: 'Open Explorer conversation' }).click();
-  await expect(
-    window.getByRole('tablist', { name: 'Workspace tabs' }).getByRole('tab', { selected: true })
-  ).toHaveText('Explorer');
-  const childView = window.getByRole('region', { exact: true, name: 'Explorer' });
+  // The child presents its shipped call sign on the card, its tab and its view.
+  await root.getByRole('button', { name: CALL_SIGN_CONVERSATION }).click();
+  const childTab = window
+    .getByRole('tablist', { name: 'Workspace tabs' })
+    .getByRole('tab', { selected: true });
+  await expect(childTab).toHaveText(CALL_SIGN);
+  await expect(childTab).toHaveAttribute('data-agent-color', /^family:\d+:\d+$/u);
+  const callSign = (await childTab.innerText()).trim();
+  const childView = window.getByRole('region', { exact: true, name: callSign });
   await expect(childView.getByText(TASK, { exact: true })).toBeVisible();
   await expect(childView.getByText('Child finding 5A.', { exact: true })).toBeVisible();
 
@@ -190,5 +196,19 @@ test('a host thread delegates to a background persona child, wakes with its resu
     );
   expect(continued).toHaveLength(1);
   expect(JSON.stringify(continued[0]?.messages)).toContain('Child follow-up 5B.');
+
+  // A reload restores the child tab from its address, authorized by the host,
+  // and shows its committed conversation without a model call.
+  const settledRequests = modelProvider.requests().length;
+  await window.reload();
+  await ensureAssistantShellVisible(window);
+  await expect(
+    window.getByRole('tablist', { name: 'Workspace tabs' }).getByRole('tab', { name: callSign })
+  ).toBeVisible({ timeout: E2E_TIMEOUTS.messageVisibility });
+  await expect(childView.getByText('Child follow-up 5B.', { exact: true })).toBeVisible({
+    timeout: E2E_TIMEOUTS.messageVisibility,
+  });
+  await expect(childView.getByText(TASK, { exact: true })).toBeVisible();
+  expect(modelProvider.requests()).toHaveLength(settledRequests);
   expect(modelProvider.refusals()).toEqual([]);
 });

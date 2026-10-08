@@ -33,6 +33,10 @@ export interface AssistantThreadHistoryHit {
 
 /** BST-1932: one child thread a host delegation started, as its origin committed it. */
 export interface AssistantThreadHostChild {
+  /** The child's call sign, as the host derives it ("Cedar-1a2b3c"). */
+  readonly callSign: string;
+  /** The child's family colour, as the host derives it from the tree. */
+  readonly color: string;
   /** The parent run whose tool call started this child. */
   readonly parentRunId: string;
   readonly persona: string;
@@ -64,6 +68,12 @@ export interface AssistantThreadHostCapability {
     isVisible: boolean,
     onRunningChange?: (threadId: string, running: boolean) => void
   ): ReactNode | undefined;
+  /**
+   * BST-1932: a child thread as its committed origin names it, so a restored
+   * tab address is authorized by the host before it mounts. Rejects for any
+   * thread that is not a host child.
+   */
+  resolveChildThread?(threadId: string): Promise<AssistantThreadHostChild>;
   /** Omitted by a host that reports no run state; its threads then show none. */
   readonly runs?: AssistantThreadHostRuns;
   /** Ranked committed text across the host's current threads; omitted by a host without one. */
