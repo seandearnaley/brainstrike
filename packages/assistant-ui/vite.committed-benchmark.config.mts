@@ -11,11 +11,17 @@
  * and writes the raw samples plus source, runtime and build identities:
  *
  *   cd packages/assistant-ui
- *   pnpm exec node vite.committed-benchmark.config.mts --out <dir> [--runs <n>]
+ *   pnpm exec node vite.committed-benchmark.config.mts --out <dir> [--runs <n>] [--mode <mode>]
  *
- * Exit code: 0 when every run measured with full coverage and met the gate,
- * 1 when a run's p95 missed the gate, 2 when a run failed or its coverage was
- * incomplete (no gate verdict is drawn from such a run).
+ * Modes: `qualification` (default) measures; `controls` runs only the in-page
+ * harness controls; `negative-control` also injects one uncaught page error,
+ * which must fail the verdict; `source` prints the worktree identity only.
+ *
+ * Qualification exit code: 0 when every run measured with full coverage, no
+ * captured execution error and a met gate; 1 when a run's p95 missed the gate;
+ * 2 when a run failed, captured an execution error, had incomplete coverage, or
+ * the worktree is not exactly the committed source (no gate verdict is drawn
+ * then). The control modes exit 0 only when they observe what they must.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -77,7 +83,13 @@ export default defineConfig({
 
 // ---- Runner (only when this file is executed directly) ----
 
+type Mode = 'controls' | 'negative-control' | 'qualification' | 'source';
+const MODES: readonly Mode[] = ['controls', 'negative-control', 'qualification', 'source'];
+/** Must match the page's injected error (committed-assistant-production-benchmark.tsx). */
+const NEGATIVE_CONTROL_ERROR = 'BST-1929 negative control: injected execution error';
+
 interface Args {
+  readonly mode: Mode;
   readonly out: string;
   readonly runs: number;
 }
@@ -87,15 +99,19 @@ function parseArgs(argv: readonly string[]): Args {
     const index = argv.indexOf(flag);
     return index < 0 ? undefined : argv[index + 1];
   };
+  const mode = (value('--mode') ?? 'qualification') as Mode;
   const out = value('--out');
   const runs = Number(value('--runs') ?? '1');
+  if (!MODES.includes(mode)) {
+    throw new Error(`--mode must be one of ${MODES.join(', ')}.`);
+  }
   if (!out) {
     throw new Error('Pass --out <dir> for the raw results.');
   }
   if (!(Number.isInteger(runs) && runs > 0)) {
     throw new Error('--runs must be a positive integer.');
   }
-  return { out: resolve(out), runs };
+  return { mode, out: resolve(out), runs: mode === 'qualification' ? runs : 1 };
 }
 
 const sha256 = (data: Buffer | string): string => createHash('sha256').update(data).digest('hex');
@@ -107,11 +123,23 @@ async function sourceIdentity() {
   for (const file of SOURCE_FILES) {
     files[file] = sha256(await readFile(resolve(PACKAGE_DIR, file)));
   }
+  // The whole worktree, not just this package: the build resolves every
+  // `@brainstrike/*` import to workspace source. Porcelain lines keep their
+  // leading status column, so only the trailing newline is trimmed.
+  const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+    cwd: PACKAGE_DIR,
+    encoding: 'utf8',
+  }).trimEnd();
+  const dirtyPaths = status === '' ? [] : status.split('\n');
   return {
     commit: git('rev-parse', 'HEAD'),
-    dirty: git('status', '--porcelain', '--', '.') !== '',
+    dirty: dirtyPaths.length > 0,
+    dirtyPaths,
+    /** True only when the entire worktree has no change against `commit`. */
+    exact: dirtyPaths.length === 0,
     files,
     tree: git('rev-parse', 'HEAD^{tree}'),
+    worktree: git('rev-parse', '--show-toplevel'),
   };
 }
 
@@ -142,7 +170,7 @@ async function bundleIdentity() {
 interface PageState {
   readonly error?: string;
   readonly result?: {
-    readonly summary: Record<
+    readonly summary?: Record<
       string,
       { p50: number; p95: number; max: number } & Record<string, number>
     >;
@@ -150,10 +178,17 @@ interface PageState {
   readonly status: 'done' | 'failed' | 'running';
 }
 
+interface RunRecord {
+  readonly loadavg: number[];
+  readonly pageErrors: string[];
+  readonly startedAt: string;
+  readonly state: PageState;
+}
+
 async function measureRuns(url: string, runs: number) {
   const { chromium } = await import('playwright');
   const browser = await chromium.launch();
-  const results: unknown[] = [];
+  const results: RunRecord[] = [];
   try {
     for (let index = 0; index < runs; index += 1) {
       const context = await browser.newContext({ viewport: VIEWPORT });
@@ -191,30 +226,86 @@ async function measureRuns(url: string, runs: number) {
   }
 }
 
-type Verdict = 'failed' | 'incomplete-coverage' | 'missed' | 'met';
+type Verdict = 'controls-passed' | 'failed' | 'incomplete-coverage' | 'met' | 'missed';
+interface Judgement {
+  readonly line: string;
+  readonly reason: 'controls-only' | 'coverage' | 'execution-error' | 'gate' | 'page-failed';
+  readonly verdict: Verdict;
+}
 
-function verdictOf(state: PageState | undefined): { line: string; verdict: Verdict } {
-  if (state?.status !== 'done' || !state.result) {
-    return { line: `failed: ${state?.error ?? 'no result'}`, verdict: 'failed' };
+function verdictOf(run: RunRecord): Judgement {
+  const { state } = run;
+  // Any captured execution error fails qualification; the details stay in the raw run.
+  if (run.pageErrors.length > 0) {
+    return {
+      line: `failed: ${run.pageErrors.length} captured execution error(s): ${run.pageErrors.join(' | ')}`,
+      reason: 'execution-error',
+      verdict: 'failed',
+    };
+  }
+  if (state.status !== 'done' || !state.result) {
+    return {
+      line: `failed: ${state.error ?? 'no result'}`,
+      reason: 'page-failed',
+      verdict: 'failed',
+    };
+  }
+  const { summary } = state.result;
+  if (!summary) {
+    return { line: 'controls passed', reason: 'controls-only', verdict: 'controls-passed' };
   }
   const parts: string[] = [];
   let complete = true;
-  for (const [key, row] of Object.entries(state.result.summary)) {
+  for (const [key, row] of Object.entries(summary)) {
     complete &&= row['commitsCovered'] === row['commitsTotal'];
     parts.push(
       `${key}: p50 ${row.p50.toFixed(2)} p95 ${row.p95.toFixed(2)} max ${row.max.toFixed(2)} ms, commits covered ${row['commitsCovered']}/${row['commitsTotal']}`
     );
   }
-  const gate = state.result.summary['unwrapped text-delta'];
+  const gate = summary['unwrapped text-delta'];
   if (!(complete && gate)) {
-    return { line: parts.join('\n  '), verdict: 'incomplete-coverage' };
+    return { line: parts.join('\n  '), reason: 'coverage', verdict: 'incomplete-coverage' };
   }
-  return { line: parts.join('\n  '), verdict: gate.p95 <= GATE_MS ? 'met' : 'missed' };
+  return {
+    line: parts.join('\n  '),
+    reason: 'gate',
+    verdict: gate.p95 <= GATE_MS ? 'met' : 'missed',
+  };
+}
+
+/** What each mode must observe; anything else is a harness failure (exit 2). */
+function exitCodeOf(
+  mode: Mode,
+  runs: readonly RunRecord[],
+  judgements: readonly Judgement[]
+): number {
+  if (mode === 'controls') {
+    return judgements.every(({ verdict }) => verdict === 'controls-passed') ? 0 : 2;
+  }
+  if (mode === 'negative-control') {
+    const caught = runs.every((run, index) => {
+      const judgement = judgements[index];
+      return (
+        judgement?.verdict === 'failed' &&
+        judgement.reason === 'execution-error' &&
+        run.pageErrors.some((error) => error.includes(NEGATIVE_CONTROL_ERROR))
+      );
+    });
+    return caught ? 0 : 2;
+  }
+  if (judgements.some(({ verdict }) => verdict !== 'met' && verdict !== 'missed')) {
+    return 2;
+  }
+  return judgements.every(({ verdict }) => verdict === 'met') ? 0 : 1;
 }
 
 async function runBenchmark(): Promise<number> {
   const args = parseArgs(process.argv.slice(2));
   const source = await sourceIdentity();
+  if (args.mode === 'source') {
+    process.stdout.write(`${JSON.stringify(source, null, 2)}\n`);
+    return source.exact ? 0 : 2;
+  }
   await build({ configFile: import.meta.filename, mode: 'production' });
   const bundle = await bundleIdentity();
   const server = await preview({ configFile: import.meta.filename, mode: 'production' });
@@ -223,11 +314,15 @@ async function runBenchmark(): Promise<number> {
     throw new Error('vite preview did not report a local URL.');
   }
   try {
-    const measured = await measureRuns(new URL(ENTRY, base).href, args.runs);
+    const hash = args.mode === 'qualification' ? '' : `#${args.mode}`;
+    const measured = await measureRuns(`${new URL(ENTRY, base).href}${hash}`, args.runs);
+    const judgements = measured.results.map(verdictOf);
     const require = createRequire(import.meta.url);
     const report = {
       build: { ...bundle, mode: 'production', vite: viteVersion },
       gate: { metric: 'unwrapped text-delta reactMs p95', thresholdMs: GATE_MS },
+      judgements,
+      mode: args.mode,
       runs: measured.results,
       runtime: {
         browser: measured.browserVersion,
@@ -244,20 +339,20 @@ async function runBenchmark(): Promise<number> {
     await mkdir(args.out, { recursive: true });
     const file = join(
       args.out,
-      `committed-benchmark-${new Date().toISOString().replaceAll(':', '-')}.json`
+      `committed-benchmark-${args.mode}-${new Date().toISOString().replaceAll(':', '-')}.json`
     );
     await writeFile(file, `${JSON.stringify(report, null, 2)}\n`);
-    const verdicts = measured.results.map((run) => verdictOf((run as { state?: PageState }).state));
-    const lines = verdicts.map(
-      ({ line, verdict }, index) => `run ${index + 1} [${verdict}]\n  ${line}`
+    const code = exitCodeOf(args.mode, measured.results, judgements);
+    // Exact committed-source identity is a precondition of a qualification verdict.
+    const qualified = args.mode !== 'qualification' || source.exact;
+    const lines = judgements.map(
+      ({ line, reason, verdict }, index) =>
+        `run ${index + 1} [${verdict}, ${reason}] errors ${measured.results[index]?.pageErrors.length}\n  ${line}`
     );
     process.stdout.write(
-      `${lines.join('\n')}\nbundle ${bundle.digest}\nsource ${source.commit} tree ${source.tree} dirty=${source.dirty}\nraw ${file}\n`
+      `mode ${args.mode} exit ${qualified ? code : 2}${qualified ? '' : ' (source is not exactly committed)'}\n${lines.join('\n')}\nbundle ${bundle.digest}\nsource ${source.commit} tree ${source.tree} exact=${source.exact} dirty ${source.dirtyPaths.length}\nraw ${file}\n`
     );
-    if (verdicts.some(({ verdict }) => verdict === 'failed' || verdict === 'incomplete-coverage')) {
-      return 2;
-    }
-    return verdicts.every(({ verdict }) => verdict === 'met') ? 0 : 1;
+    return qualified ? code : 2;
   } finally {
     await server.close();
   }

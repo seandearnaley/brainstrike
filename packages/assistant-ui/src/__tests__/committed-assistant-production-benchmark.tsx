@@ -72,6 +72,9 @@ interface Slice {
 }
 
 interface ProbeState {
+  /** Always-on activity revisions for settling, recorded or not (not timed samples). */
+  activityRevision: number;
+  commitRevision: number;
   commitTimes: number[];
   depth: number;
   recording: boolean;
@@ -80,6 +83,8 @@ interface ProbeState {
 }
 
 const probe: ProbeState = {
+  activityRevision: 0,
+  commitRevision: 0,
   commitTimes: [],
   depth: 0,
   recording: false,
@@ -101,6 +106,7 @@ function closeAfterHops(slice: Slice): void {
     }
     slice.end = now();
     probe.slices.push(slice);
+    probe.activityRevision += 1;
   };
   nativeQueueMicrotask(hop);
 }
@@ -108,6 +114,9 @@ function closeAfterHops(slice: Slice): void {
 /** Times one asynchronous callback; nested (synchronously dispatched) ones belong to their parent. */
 function timed<T>(source: SliceSource, port: number | undefined, run: () => T): T {
   if (!probe.recording || probe.depth > 0) {
+    if (probe.depth === 0) {
+      probe.activityRevision += 1;
+    }
     probe.depth += 1;
     try {
       return run();
@@ -170,6 +179,7 @@ function installInstrumentation(): void {
     checkDCE: () => undefined,
     inject: (renderer: unknown): number => probe.renderers.push(renderer),
     onCommitFiberRoot: (): void => {
+      probe.commitRevision += 1;
       if (probe.recording) {
         probe.commitTimes.push(now());
       }
@@ -310,14 +320,17 @@ async function waitForQuiescence(): Promise<void> {
         sources[key] = (sources[key] ?? 0) + 1;
       }
       throw new Error(
-        `A publication never went quiet; no sample was taken. Last slices: ${JSON.stringify(sources)}, commits ${probe.commitTimes.length}.`
+        `A publication never went quiet; no sample was taken. Last slices: ${JSON.stringify(sources)}, commits ${probe.commitRevision}.`
       );
     }
-    const commits = probe.commitTimes.length;
-    const slices = probe.slices.length;
+    // Revisions, not the recorded samples: settling outside a sample (the
+    // pre-token child drain) must still see commits and wrapped callbacks.
+    // While recording they advance exactly when a commit or slice is recorded.
+    const commits = probe.commitRevision;
+    const activity = probe.activityRevision;
     await nextFrame();
     await yieldTask();
-    quiet = probe.commitTimes.length === commits && probe.slices.length === slices ? quiet + 1 : 0;
+    quiet = probe.commitRevision === commits && probe.activityRevision === activity ? quiet + 1 : 0;
   }
 }
 
@@ -393,18 +406,28 @@ export interface Sample {
   readonly commitsInUnchargedCallbacks: number;
   /** In no wrapped callback at all. */
   readonly commitsUnmeasured: number;
+  /** Absolute `performance.now()` times of every commit in the interval (see `timeOrigin`). */
+  readonly commitTimes: readonly number[];
+  /** Absolute end of the interval: the second quiet frame. */
+  readonly end: number;
   readonly messageChannelTasks: number;
   readonly otherMessageChannelMs: number;
+  /** Absolute end of the publication window (after the drain). */
+  readonly publishEnd: number;
   readonly publishSyncMs: number;
   /** The gated value: publication window + every MessageChannel slice. */
   readonly reactMs: number;
   readonly schedulerMs: number;
   readonly schedulerTasks: number;
   readonly slices: readonly {
+    readonly end: number;
     readonly ms: number;
     readonly port?: number;
     readonly source: SliceSource;
+    readonly start: number;
   }[];
+  /** Absolute start of the interval: the publication call. */
+  readonly start: number;
   readonly unchargedCallbackMs: Readonly<Record<string, number>>;
   /** Wrapped-callback time outside every charged window (not in `reactMs`). */
   readonly unchargedExclusiveMs: number;
@@ -421,6 +444,7 @@ async function measurePublication(publish: () => void): Promise<Sample> {
   await drainMicrotasks();
   const publishEnd = now();
   await waitForQuiescence();
+  const end = now();
   probe.recording = false;
   const slices = [...probe.slices];
   const commitTimes = [...probe.commitTimes];
@@ -448,17 +472,23 @@ async function measurePublication(publish: () => void): Promise<Sample> {
     commitsCovered: covered,
     commitsInUnchargedCallbacks: inUncharged,
     commitsUnmeasured: commitTimes.length - covered - inUncharged,
+    commitTimes,
+    end,
     messageChannelTasks: channel.length,
     otherMessageChannelMs: chargedMessageChannelMs - sum(scheduler),
+    publishEnd,
     publishSyncMs: publishEnd - start,
     reactMs: publishEnd - start + chargedMessageChannelMs,
     schedulerMs: sum(scheduler),
     schedulerTasks: scheduler.length,
     slices: slices.map((slice) => ({
+      end: slice.end,
       ms: duration(slice),
       source: slice.source,
+      start: slice.start,
       ...(slice.port === undefined ? {} : { port: slice.port }),
     })),
+    start,
     unchargedCallbackMs: bySource,
     unchargedExclusiveMs: exclusiveMs(uncharged, charged),
   };
@@ -710,6 +740,44 @@ async function coverageControls(workload: Workload): Promise<CoverageControls> {
   return controls;
 }
 
+interface SettlingControl {
+  readonly commitFrames: number;
+  /** Commit frames that had run when settling returned; must equal `commitFrames`. */
+  readonly settledAfter: number;
+}
+
+/**
+ * Control for the pre-token child drain, which settles while not recording:
+ * commits made outside a sample must still hold off quiescence.
+ */
+async function settlingControl(workload: Workload): Promise<SettlingControl> {
+  const container = mountContainer();
+  const root = workload.createRoot(container);
+  const commitFrames = 6;
+  let rendered = 0;
+  const commitNextFrame = (): void => {
+    nativeRequestAnimationFrame(() => {
+      rendered += 1;
+      workload.flushSync(() => root.render(<span>{rendered}</span>));
+      if (rendered < commitFrames) {
+        commitNextFrame();
+      }
+    });
+  };
+  commitNextFrame();
+  await waitForQuiescence();
+  const settledAfter = rendered;
+  await waitFor(() => rendered === commitFrames, 'the settling control frames');
+  root.unmount();
+  container.remove();
+  if (settledAfter !== commitFrames) {
+    throw new Error(
+      `Settling returned after ${settledAfter} of ${commitFrames} pre-measurement commit frames.`
+    );
+  }
+  return { commitFrames, settledAfter };
+}
+
 async function mountTrial(workload: Workload, fullRecording: boolean) {
   const source = new RecordedPrefix();
   source.publish(fullRecording ? committedRows.length : TEXT_ROW['text-start']);
@@ -745,21 +813,39 @@ async function mountTrial(workload: Workload, fullRecording: boolean) {
   };
 }
 
+/**
+ * `#controls` runs only the harness controls; `#negative-control` also injects
+ * one uncaught execution error, which the runner must turn into a failed
+ * verdict. No hash is the measured qualification.
+ */
+type Mode = 'controls' | 'negative-control' | 'qualification';
+const MODE: Mode =
+  location.hash === '#controls'
+    ? 'controls'
+    : location.hash === '#negative-control'
+      ? 'negative-control'
+      : 'qualification';
+const NEGATIVE_CONTROL_ERROR = 'BST-1929 negative control: injected execution error';
+
 interface Result {
   readonly config: Record<string, unknown>;
   readonly coverageControls: CoverageControls;
+  readonly mode: Mode;
   readonly react: {
     readonly actExported: boolean;
     readonly build: string;
     readonly version: string;
   };
-  readonly samples: Record<Variant, Record<TextKind, Sample[]>>;
+  readonly samples?: Record<Variant, Record<TextKind, Sample[]>>;
   readonly schedulerPort: number;
-  readonly summary: Record<string, unknown>;
+  readonly settlingControl: SettlingControl;
+  readonly summary?: Record<string, unknown>;
+  /** `performance.timeOrigin`: absolute sample times are relative to it. */
+  readonly timeOrigin: number;
   readonly userAgent: string;
 }
 
-function summarize(samples: Result['samples']) {
+function summarize(samples: NonNullable<Result['samples']>) {
   const summary: Record<string, unknown> = {};
   for (const variant of VARIANTS) {
     for (const kind of TEXT_KINDS) {
@@ -804,6 +890,28 @@ async function run(): Promise<Result> {
   }
   schedulerPort = await identifySchedulerPort(workload);
   const controls = await coverageControls(workload);
+  const settling = await settlingControl(workload);
+  const config = {
+    drainHops: DRAIN_HOPS,
+    gateMs: GATE_MS,
+    quietFrames: QUIET_FRAMES,
+    trialsPerVariant: TRIALS,
+    viewport: { height: window.innerHeight, width: window.innerWidth },
+    warmUp: true,
+  };
+  const identity = {
+    config,
+    coverageControls: controls,
+    mode: MODE,
+    react,
+    schedulerPort,
+    settlingControl: settling,
+    timeOrigin: performance.timeOrigin,
+    userAgent: navigator.userAgent,
+  };
+  if (MODE !== 'qualification') {
+    return identity;
+  }
 
   // Unmeasured warm-up: resolve the lazily loaded markdown renderer once.
   const warm = await mountTrial(workload, true);
@@ -816,7 +924,7 @@ async function run(): Promise<Result> {
   const samples = {
     flushSync: { 'text-delta': [], 'text-end': [], 'text-start': [] },
     unwrapped: { 'text-delta': [], 'text-end': [], 'text-start': [] },
-  } as Result['samples'];
+  } as NonNullable<Result['samples']>;
   // Interleaved so drift lands on both variants equally.
   for (let trial = 0; trial < TRIALS * VARIANTS.length; trial += 1) {
     const variant = VARIANTS[trial % VARIANTS.length] ?? 'unwrapped';
@@ -840,22 +948,7 @@ async function run(): Promise<Result> {
     }
     handles.unmount();
   }
-  return {
-    config: {
-      drainHops: DRAIN_HOPS,
-      gateMs: GATE_MS,
-      quietFrames: QUIET_FRAMES,
-      trialsPerVariant: TRIALS,
-      viewport: { height: window.innerHeight, width: window.innerWidth },
-      warmUp: true,
-    },
-    coverageControls: controls,
-    react,
-    samples,
-    schedulerPort,
-    summary: summarize(samples),
-    userAgent: navigator.userAgent,
-  };
+  return { ...identity, samples, summary: summarize(samples) };
 }
 
 type BenchmarkState =
@@ -877,6 +970,12 @@ function settle(state: BenchmarkState): void {
 }
 
 settle({ status: 'running' });
+if (MODE === 'negative-control') {
+  // Deterministic and uncaught: the page itself still completes.
+  setTimeout(() => {
+    throw new Error(NEGATIVE_CONTROL_ERROR);
+  }, 0);
+}
 run().then(
   (result) => settle({ result, status: 'done' }),
   (error: unknown) =>
