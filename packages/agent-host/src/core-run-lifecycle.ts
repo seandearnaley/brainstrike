@@ -224,6 +224,31 @@ export function finishHostRun(
   return run.completion;
 }
 
+type FinishedOutcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
+
+/**
+ * Stop and Close set their own fact before they abort. A watchdog that
+ * cancelled a still-running tool aborts the run too, and that run failed.
+ */
+function joinedSdkOutcome(
+  run: HostRunState,
+  closing: boolean,
+  failed: string | undefined,
+  interrupted: boolean
+): FinishedOutcome {
+  const aborted = run.controller.signal.aborted;
+  if (run.stopped) {
+    return 'stopped';
+  }
+  if ((aborted && closing) || interrupted) {
+    return 'interrupted';
+  }
+  if (failed !== undefined) {
+    return 'failed';
+  }
+  return aborted ? 'stopped' : 'completed';
+}
+
 /** Core supplies the existing completion writer after the SDK stream joins. */
 export async function finishHostSdkLoop(
   run: HostRunState,
@@ -243,14 +268,5 @@ export async function finishHostSdkLoop(
     await Promise.allSettled([...run.effects]);
     return;
   }
-  const outcome = run.controller.signal.aborted
-    ? closing
-      ? 'interrupted'
-      : 'stopped'
-    : interrupted
-      ? 'interrupted'
-      : failed === undefined
-        ? 'completed'
-        : 'failed';
-  await finish(outcome, failed);
+  await finish(joinedSdkOutcome(run, closing, failed, interrupted), failed);
 }

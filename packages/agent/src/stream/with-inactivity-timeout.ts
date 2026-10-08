@@ -242,6 +242,51 @@ export class StreamStalledError extends Error {
   }
 }
 
+/**
+ * The user-visible stall text. Local runtimes keep their runner-specific
+ * remedy; every other provider gets a message that names WHICH silence fired.
+ * `toolHooks` says whether tool-lifecycle hooks run around a guarded tool in
+ * this runtime, so the tool-executing text never claims hooks that do not exist.
+ */
+export function describeStreamStall(
+  error: StreamStalledError,
+  runtime: {
+    readonly model?: string | undefined;
+    readonly provider?: string | undefined;
+    readonly toolHooks: boolean;
+  }
+): string {
+  const provider = runtime.provider?.trim().toLowerCase();
+  const localRuntimeName =
+    provider === 'ollama' ? 'Ollama' : provider === 'lmstudio' ? 'LM Studio' : null;
+  if (error.phase === 'tool-executing') {
+    // Blaming the model or the runner here would send the user to fix the
+    // wrong thing — the provider already answered with a `tool-call`. But the
+    // message must not assert the opposite either: every GUARD window is below
+    // `toolExecutingMs` by construction, while tool-lifecycle hooks compose
+    // OUTSIDE the guard (`tool-pipeline.ts`) and are deliberately not capped in
+    // aggregate, so this silence is `preHooks + guard + postHooks` and a slow
+    // hook chain can reach the backstop with a perfectly working guard. State
+    // what is known, and why this is terminal rather than retried.
+    return runtime.toolHooks
+      ? `A tool call was still running after ${error.inactivityMs}ms, including its lifecycle hooks. The turn was ended rather than retried, because re-running the step could start a second execution of a command that may still be alive. If no PreToolUse/PostToolUse hook is slow, please report it with a debug bundle.`
+      : `A tool call was still running after ${error.inactivityMs}ms. The turn was ended rather than retried, because re-running the step could start a second execution of a command that may still be alive. Please report it with a debug bundle.`;
+  }
+  if (localRuntimeName && runtime.model) {
+    return `${localRuntimeName} model "${runtime.model}" produced no stream output for ${error.inactivityMs}ms. Verify the ${localRuntimeName} server and model runner, then retry.`;
+  }
+  if (error.phase === 'awaiting-output') {
+    return `The model produced no output within ${error.inactivityMs}ms of the request starting.`;
+  }
+  if (error.phase === 'reasoning') {
+    // "stalled without output" would be actively wrong here: the model WAS
+    // producing output — reasoning — and then stopped mid-thought. Naming the
+    // phase also points at the one setting that changes this outcome.
+    return `The model stopped mid-reasoning, producing nothing further for ${error.inactivityMs}ms. Retry, or lower the reasoning effort if it recurs.`;
+  }
+  return `The model stream stalled after ${error.inactivityMs}ms without output.`;
+}
+
 function resolveWindowMs(phase: StreamStallPhase, windows: StreamInactivityWindows): number {
   if (phase === 'tool-executing') {
     return windows.toolExecutingMs;

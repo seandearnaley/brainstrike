@@ -1,9 +1,13 @@
 import {
   describeEmptyModelResponse,
+  describeStreamStall,
+  describeToolCallInputTimeout,
   getAbnormalFinishMessage,
   outputLimitContextFor,
   type RuntimeData,
   resolveProviderError,
+  StreamStalledError,
+  ToolCallInputStreamingTimeoutError,
 } from '@brainstrike/agent/provider-runtime';
 import type { FinishReason, TextStreamPart, ToolSet } from 'ai';
 
@@ -62,9 +66,22 @@ export class HostRunOutcome {
     }
   }
 
-  /** A provider or local error, classified once at this choke point (401 carries its remedy). */
+  /**
+   * A watchdog expiry, provider or local error, classified once at this choke
+   * point (a provider 401 carries its remedy). The host runs no tool-lifecycle
+   * hooks, so a tool-executing stall never names them.
+   */
   fail(cause: unknown): void {
-    this.failure = resolveProviderError(cause, this.configuration).detail;
+    this.failure =
+      cause instanceof StreamStalledError
+        ? describeStreamStall(cause, {
+            model: this.configuration?.model ?? this.modelId,
+            provider: this.configuration?.provider,
+            toolHooks: false,
+          })
+        : cause instanceof ToolCallInputStreamingTimeoutError
+          ? describeToolCallInputTimeout(cause)
+          : resolveProviderError(cause, this.configuration).detail;
   }
 
   /** The visible failure detail, or undefined when the loop completed truthfully. */

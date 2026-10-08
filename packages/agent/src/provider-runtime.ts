@@ -4,6 +4,10 @@
  * Credentials remain direct parameters, outside durable runtime configuration.
  */
 
+export {
+  type AssistantResilienceConfig,
+  resolveAssistantResilienceConfig,
+} from './config/resilience-config';
 export { resolveProviderError } from './mastra/mastra-chunk-decoding';
 export {
   type BilledCostReading,
@@ -31,4 +35,14 @@ export {
   getAbnormalFinishMessage,
   outputLimitContextFor,
 } from './stream/abnormal-finish';
+export {
+  describeStreamStall,
+  StreamStalledError,
+  withInactivityTimeout,
+} from './stream/with-inactivity-timeout';
+export {
+  describeToolCallInputTimeout,
+  ToolCallInputStreamingTimeoutError,
+  withToolCallInputTimeout,
+} from './stream/with-tool-call-input-timeout';
 export type { RuntimeData } from './types';
