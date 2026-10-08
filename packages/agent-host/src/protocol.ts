@@ -13,11 +13,10 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // and the explicit branch links they commit on `run.started`), and thread
 // presentation (`thread/update`, `thread.updated`: title, colour and icon, also
 // in `thread/list`), withheld observational memory, tool catalog IDs on
-// committed tool events, and image attachments on a user message (`run/start`
-// and `run.started`).
-// 12: `mcp.tools.unavailable`, committed with `run.started` for each configured
-// MCP server whose tools the run proceeds without.
-export const AGENT_HOST_PROTOCOL_VERSION = 12;
+// committed tool events, image attachments on a user message (`run/start`
+// and `run.started`), and `mcp.tools.unavailable`, committed with `run.started`
+// for each configured MCP server whose tools the run proceeds without.
+export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
