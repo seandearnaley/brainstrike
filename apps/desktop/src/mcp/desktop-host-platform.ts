@@ -70,20 +70,15 @@ let mainOAuthStore: McpOAuthStore | undefined;
 
 /**
  * Main's MCP stores for the Node host's runtime (BST-1930 c1 interim): the
- * safeStorage credentials and OAuth records, the PGlite Tasks tables and
- * Electron's external opener. One OAuth store serves every host fork, so the
+ * safeStorage OAuth records, the PGlite Tasks tables and Electron's external
+ * opener. Bearer references live in the profile store the host reads itself. One OAuth store serves every host fork, so the
  * "clear all secrets" purge reaches the same registered store.
  */
 export function createDesktopMcpPlatformCapabilities(
   runtime: RemoteMcpRuntime
 ): DesktopMcpPlatformCapabilities {
   mainOAuthStore ??= createDefaultOAuthStore();
-  const secrets = async () => {
-    const { getSecretsService } = await import('../secrets');
-    return getSecretsService();
-  };
   return {
-    listCredentials: async () => await (await secrets()).listProviders(),
     oauth: mainOAuthStore,
     openExternal: openExternalWithElectron,
     queryTasks: async (sql, params) => {
@@ -91,7 +86,6 @@ export function createDesktopMcpPlatformCapabilities(
       const result = await (await getDatabase()).query(sql, [...params]);
       return { rows: [...result.rows] };
     },
-    readCredential: async (key) => await (await secrets()).getKey(key),
     runtime,
   };
 }

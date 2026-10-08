@@ -32,8 +32,8 @@ export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools
 export interface DesktopPlatformCapabilities {
   /** Join Main-owned Root borrowers before Core releases its canonical writer. */
   closeRootCapabilities?(): Promise<void>;
-  /** The Node host's MCP runtime reaches Main's remaining MCP stores through these. */
-  readonly mcp?: DesktopMcpPlatformCapabilities;
+  /** The Node host always composes its MCP runtime, which reaches Main's remaining MCP stores through these. */
+  readonly mcp: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
   readPermissionPolicy(
     threadId?: string
@@ -156,7 +156,7 @@ export function serveDesktopPlatform(
   const admissions = new Set<string>();
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
-  const mcpStores = capabilities.mcp ? serveMainMcpStores(connection, capabilities.mcp) : undefined;
+  const mcpStores = serveMainMcpStores(connection, capabilities.mcp);
   let closing: Promise<void> | undefined;
   const execute = <T>(
     token: CancellationToken,
@@ -413,7 +413,7 @@ export function serveDesktopPlatform(
       while (pending.size > 0) {
         await Promise.allSettled([...pending]);
       }
-      mcpStores?.close();
+      mcpStores.close();
       const results = await Promise.allSettled(
         [...selections.values()].map((value) => value.selection.close())
       );

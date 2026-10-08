@@ -82,7 +82,7 @@ function fixture() {
   };
   connect.mockResolvedValue(client);
   return {
-    capability: createWindowThreadCapability((host, threadId) => (host ? threadId : undefined)),
+    capability: createWindowThreadCapability(({ host, threadId }) => (host ? threadId : undefined)),
     request,
   };
 }
@@ -116,8 +116,8 @@ test('a key the host does not own is refused visibly before any request', async 
   await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
   const calls = request.mock.calls.length;
   await expect(
-    capability.updateThreadBinding(thread, { color: 'emerald', forgePrWatch: true })
-  ).rejects.toThrow(/\bcolor\b/u);
+    capability.updateThreadBinding(thread, { color: 'emerald', forgePrWatch: true, model: 'gpt-5' })
+  ).rejects.toThrow(/\bmodel\b/u);
   await expect(
     capability.updateThreadBinding(thread, { operatingRootId: 'root-repo' })
   ).rejects.toThrow();

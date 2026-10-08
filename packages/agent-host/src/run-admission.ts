@@ -1,5 +1,5 @@
 import { resolvePermissionDecision } from '@brainstrike/assistant-contract';
-import type { ToolSet } from 'ai';
+import type { StepResult, ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import type { HostRunState } from './core-state.js';
 import { canonical, jsonValue } from './json-value.js';
@@ -121,6 +121,7 @@ export async function acquireHostRunAdmission(
     }
     selected = {
       configuration: {},
+      ...(platform.generatesThreadTitles ? { generatesThreadTitle: true } : {}),
       model: await resolveModel.call(platform, request.modelId),
       snapshot: {
         configuration: {},
@@ -224,6 +225,35 @@ export function hostRunTools(run: HostRunState): HostRunAdmission['tools'] {
   return run.admission.tools;
 }
 
+/** A finished step's answerable approval requests, each bound to its registered tool. */
+export function hostStepInteractions(
+  run: HostRunState,
+  content: StepResult<ToolSet>['content']
+): Extract<HostEvent, { type: 'interaction.requested' }>[] {
+  return content.flatMap((part) => {
+    if (part.type !== 'tool-approval-request' || part.isAutomatic === true) {
+      return [];
+    }
+    const registered = hostRunTools(run)[part.toolCall.toolName];
+    if (!registered) {
+      throw new Error('Approval references an unknown tool');
+    }
+    return [
+      {
+        input: jsonValue(part.toolCall.input),
+        interactionId: part.approvalId,
+        kind: registered.interaction?.kind ?? 'approval',
+        runId: run.id,
+        ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
+        toolCallId: part.toolCall.toolCallId,
+        toolId: part.toolCall.toolName,
+        toolIdentity: registered.identity,
+        type: 'interaction.requested',
+      },
+    ];
+  });
+}
+
 /** Keep revocation live while taking risk and executor identity from admission. */
 export async function hostRunToolDecision(
   platform: HostPlatform,
@@ -291,6 +321,7 @@ export async function decideHostSdkApproval(
   const action: Extract<HostEvent, { type: 'effect.started' }> = {
     input: jsonValue(call.input),
     runId: run.id,
+    ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
     toolCallId: call.toolCallId,
     toolId: call.toolName,
     toolIdentity: registered.identity,

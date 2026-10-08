@@ -25,6 +25,8 @@ import {
   serveDesktopPlatform,
 } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
+import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
+import { RemoteMcpRuntime } from '../mcp/remote-runtime';
 
 /** Actual Node ports expose the same MessageEvent contract as the utility transport. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -69,6 +71,8 @@ test('actual Core binding commands reach the live Main owner over the private pl
     }
   );
   const capabilities = {
+    // Production's Main MCP stores; this scenario configures no MCP server.
+    mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
     readConfiguration: async (): Promise<DesktopPlatformSelection> => ({
       close: async () => undefined,
       configuration: { model: 'gpt-4o-mini', provider: 'openai' },

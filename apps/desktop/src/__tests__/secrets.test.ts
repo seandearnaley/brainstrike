@@ -1,17 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const safeStorageMock = vi.hoisted(() => ({
   decryptString: vi.fn<(buf: Buffer) => string>(),
-  encryptString: vi.fn<(value: string) => Buffer>(),
   getSelectedStorageBackend: vi.fn<() => string>(),
   isEncryptionAvailable: vi.fn<() => boolean>(),
 }));
 
 vi.mock('electron', () => ({
+  app: { getPath: () => '/unused-in-these-tests' },
   safeStorage: safeStorageMock,
 }));
-
-vi.mock('electron-store', () => ({ default: class {} }));
 
 import {
   matchSecretReadError,
@@ -19,85 +20,38 @@ import {
   SECRET_READ_ERROR_CODES,
 } from '@brainstrike/assistant-contract';
 import { getSecretReadErrorPayload } from '@brainstrike/assistant-service/secret-errors';
-import { createSecretsService, SecretReadError } from '../secrets';
-
-interface FakeStore {
-  get: (key: string) => unknown;
-  set: (key: string, value: unknown) => void;
-}
-
-function fakeStore(initial: Record<string, string> = {}): FakeStore {
-  const data: { secrets: Record<string, string> } = { secrets: { ...initial } };
-  return {
-    get: (key: string) => (key === 'secrets' ? data.secrets : undefined),
-    set: (key: string, value: unknown) => {
-      if (key === 'secrets') {
-        data.secrets = value as Record<string, string>;
-      }
-    },
-  };
-}
-
-const service = (store: FakeStore) =>
-  createSecretsService(store as unknown as Parameters<typeof createSecretsService>[0]);
-
-describe('secrets getKey failure surfacing (BST-574)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
-    safeStorageMock.getSelectedStorageBackend.mockReturnValue('keychain');
-  });
-
-  it('resolves null when the provider has no stored secret', async () => {
-    await expect(service(fakeStore()).getKey('openai')).resolves.toBeNull();
-  });
-
-  it('decrypts a stored secret on the happy path', async () => {
-    safeStorageMock.decryptString.mockReturnValue('sk-test');
-    const stored = Buffer.from('ciphertext').toString('base64');
-
-    await expect(service(fakeStore({ openai: stored })).getKey('openai')).resolves.toBe('sk-test');
-  });
-
-  it('throws a typed decrypt_failed error for a corrupt stored secret (never null)', async () => {
-    safeStorageMock.decryptString.mockImplementation(() => {
-      throw new Error('bad ciphertext');
-    });
-    const stored = Buffer.from('garbage').toString('base64');
-
-    const attempt = service(fakeStore({ openai: stored })).getKey('openai');
-    await expect(attempt).rejects.toBeInstanceOf(SecretReadError);
-    await expect(service(fakeStore({ openai: stored })).getKey('openai')).rejects.toMatchObject({
-      code: 'decrypt_failed',
-      provider: 'openai',
-    });
-  });
-
-  it('throws a typed encryption_unavailable error when a secret exists but the backend is unusable', async () => {
-    safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
-    const stored = Buffer.from('ciphertext').toString('base64');
-
-    await expect(
-      service(fakeStore({ anthropic: stored })).getKey('anthropic')
-    ).rejects.toMatchObject({
-      code: 'encryption_unavailable',
-      provider: 'anthropic',
-    });
-  });
-
-  it('still resolves null (not a throw) when encryption is unusable but nothing is stored', async () => {
-    safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
-
-    await expect(service(fakeStore()).getKey('openai')).resolves.toBeNull();
-  });
-});
+import {
+  createHostCredentials,
+  migrateLegacySecrets,
+} from '@brainstrike/host-capabilities/credentials';
+import {
+  createSecretsMcpBearerCredentialAuthority,
+  mcpBearerCredentialStorageKey,
+} from '@brainstrike/host-capabilities/mcp/bearer-credential';
+import {
+  createSafeStorageLegacySecretSource,
+  desktopCredentialStoreSelection,
+  SecretReadError,
+} from '../secrets';
 
 /**
- * Wires the safeStorage mock as a reversible fake so values round-trip:
- * encryptString prefixes plaintext, decryptString strips the prefix.
+ * The retired electron-store file inside a disposable profile, in its shipped
+ * shape. `undefined` leaves the profile without one (a fresh install).
  */
+async function legacyFile(secrets?: Record<string, string>): Promise<string> {
+  const file = join(await disposableProfile(), 'brainstrike-secrets.json');
+  if (secrets) {
+    await writeFile(file, JSON.stringify({ secrets, unrelated: 'kept' }));
+  }
+  return file;
+}
+
+/** What the retired safeStorage service wrote: base64 of the encrypted plaintext. */
+function legacyCiphertext(plaintext: string): string {
+  return Buffer.from(`enc:${plaintext}`).toString('base64');
+}
+
 function useRoundTripSafeStorage(): void {
-  safeStorageMock.encryptString.mockImplementation((value: string) => Buffer.from(`enc:${value}`));
   safeStorageMock.decryptString.mockImplementation((buf: Buffer) => {
     const text = buf.toString('utf8');
     if (!text.startsWith('enc:')) {
@@ -107,31 +61,141 @@ function useRoundTripSafeStorage(): void {
   });
 }
 
-describe('typed provider credentials (BST-1348)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
-    safeStorageMock.getSelectedStorageBackend.mockReturnValue('keychain');
-    useRoundTripSafeStorage();
+const profiles: string[] = [];
+
+async function disposableProfile(): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), 'bs-desktop-secrets-'));
+  profiles.push(directory);
+  return directory;
+}
+
+/** The desktop secrets service over an isolated profile's private file store. */
+async function desktopSecrets() {
+  const credentials = createHostCredentials({
+    selection: desktopCredentialStoreSelection(await disposableProfile(), true),
+  });
+  return { credentials, svc: credentials.secrets() };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
+  safeStorageMock.getSelectedStorageBackend.mockReturnValue('keychain');
+  useRoundTripSafeStorage();
+});
+
+afterEach(async () => {
+  for (const directory of profiles.splice(0)) {
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+describe('desktop credential store selection', () => {
+  it('keeps isolated test profiles on a private file inside the profile', () => {
+    expect(desktopCredentialStoreSelection('/profiles/e2e-1', true)).toEqual({
+      kind: 'file',
+      path: '/profiles/e2e-1/brainstrike-credentials.json',
+    });
   });
 
+  it('scopes the production keyring service to the profile', () => {
+    expect(desktopCredentialStoreSelection('/Users/me/Library/Brainstrike', false)).toEqual({
+      kind: 'keyring',
+      service: 'brainstrike-desktop:/Users/me/Library/Brainstrike',
+    });
+  });
+});
+
+describe('retired safeStorage source failure surfacing (BST-574)', () => {
+  it('reads an empty store as no entries, even when encryption is unusable', async () => {
+    safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
+    await expect(
+      createSafeStorageLegacySecretSource(await legacyFile(), safeStorageMock).entries()
+    ).resolves.toEqual([]);
+  });
+
+  it('decrypts every entry under its existing account name', async () => {
+    const source = createSafeStorageLegacySecretSource(
+      await legacyFile({
+        anthropic: legacyCiphertext('{"key":"sk-ant","type":"api_key"}'),
+        openai: legacyCiphertext('sk-test'),
+      }),
+      safeStorageMock
+    );
+    await expect(source.entries()).resolves.toEqual([
+      { account: 'anthropic', value: '{"key":"sk-ant","type":"api_key"}' },
+      { account: 'openai', value: 'sk-test' },
+    ]);
+  });
+
+  it('throws a typed decrypt_failed error for a corrupt stored secret (never skipped)', async () => {
+    const source = createSafeStorageLegacySecretSource(
+      await legacyFile({ openai: Buffer.from('garbage').toString('base64') }),
+      safeStorageMock
+    );
+    const attempt = source.entries();
+    await expect(attempt).rejects.toBeInstanceOf(SecretReadError);
+    await expect(attempt).rejects.toMatchObject({ code: 'decrypt_failed', provider: 'openai' });
+  });
+
+  it.each(['basic_text', 'unavailable'])(
+    'throws a typed encryption_unavailable error when a secret exists but the backend is %s',
+    async (backend) => {
+      if (backend === 'basic_text') {
+        safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
+      } else {
+        safeStorageMock.isEncryptionAvailable.mockReturnValue(false);
+      }
+      const source = createSafeStorageLegacySecretSource(
+        await legacyFile({ anthropic: legacyCiphertext('sk') }),
+        safeStorageMock
+      );
+      await expect(source.entries()).rejects.toMatchObject({
+        code: 'encryption_unavailable',
+        provider: 'anthropic',
+      });
+    }
+  );
+
+  it('retires the legacy store only through the migration, after the copy is verified', async () => {
+    const legacy = await legacyFile({ openai: legacyCiphertext('sk-legacy-raw') });
+    const { credentials, svc } = await desktopSecrets();
+    await expect(
+      migrateLegacySecrets({
+        destination: credentials.store(),
+        source: createSafeStorageLegacySecretSource(legacy, safeStorageMock),
+      })
+    ).resolves.toEqual({ alreadyPresent: 0, migrated: 1 });
+    expect(JSON.parse(await readFile(legacy, 'utf8'))).toEqual({ secrets: {}, unrelated: 'kept' });
+    await expect(svc.getKey('openai')).resolves.toBe('sk-legacy-raw');
+    await credentials.close();
+  });
+});
+
+describe('typed provider credentials (BST-1348)', () => {
   describe('legacy bare-string compatibility', () => {
-    it('reads a pre-change raw stored value identically through getKey AND getCredential', async () => {
+    it('reads a migrated pre-change raw value identically through getKey AND getCredential', async () => {
       // Fixture: exactly what the pre-BST-1348 saveKey wrote — the encrypted
-      // bare string, base64-encoded. No JSON anywhere.
-      const preChangeStored = Buffer.from('enc:sk-legacy-raw').toString('base64');
-      const svc = service(fakeStore({ openai: preChangeStored }));
+      // bare string. No JSON anywhere.
+      const { credentials, svc } = await desktopSecrets();
+      await migrateLegacySecrets({
+        destination: credentials.store(),
+        source: createSafeStorageLegacySecretSource(
+          await legacyFile({ openai: legacyCiphertext('sk-legacy-raw') }),
+          safeStorageMock
+        ),
+      });
 
       await expect(svc.getKey('openai')).resolves.toBe('sk-legacy-raw');
       await expect(svc.getCredential('openai')).resolves.toEqual({
         key: 'sk-legacy-raw',
         type: 'api_key',
       });
+      await credentials.close();
     });
 
     it('getKey on a value saved through the string saveKey keeps returning the raw string', async () => {
-      const store = fakeStore();
-      const svc = service(store);
+      const { credentials, svc } = await desktopSecrets();
       await svc.saveKey('anthropic', 'sk-ant-raw');
 
       await expect(svc.getKey('anthropic')).resolves.toBe('sk-ant-raw');
@@ -139,15 +203,12 @@ describe('typed provider credentials (BST-1348)', () => {
         key: 'sk-ant-raw',
         type: 'api_key',
       });
+      await credentials.close();
     });
 
     it('saveKey round-trips a string that IS a JSON object with an unrecognized type (GCP service-account JSON)', async () => {
-      // saveKey stores the api_key JSON ENVELOPE (single write path via
-      // setCredential), so a pasted GCP service-account JSON — which carries
-      // "type":"service_account" — must come back verbatim instead of
-      // hard-failing the tagged-credential validation on read.
       const gcpServiceAccountJson = '{"type":"service_account","project_id":"p","private_key":"k"}';
-      const svc = service(fakeStore());
+      const { credentials, svc } = await desktopSecrets();
 
       await expect(svc.saveKey('vertex', gcpServiceAccountJson)).resolves.toBe(true);
       await expect(svc.getKey('vertex')).resolves.toBe(gcpServiceAccountJson);
@@ -155,17 +216,18 @@ describe('typed provider credentials (BST-1348)', () => {
         key: gcpServiceAccountJson,
         type: 'api_key',
       });
+      await credentials.close();
     });
 
     it('saveKey rejects an empty key through the same validator as setCredential', async () => {
-      await expect(service(fakeStore()).saveKey('openai', '')).rejects.toThrow(
-        /malformed|invalid/i
-      );
+      const { credentials, svc } = await desktopSecrets();
+      await expect(svc.saveKey('openai', '')).rejects.toThrow(/malformed|invalid/i);
+      await credentials.close();
     });
   });
 
   describe('setCredential / getCredential round-trips', () => {
-    const credentials: readonly ProviderCredential[] = [
+    const typed: readonly ProviderCredential[] = [
       { key: 'sk-typed', metadata: { org: 'org-1' }, type: 'api_key' },
       {
         access: 'at-1',
@@ -178,86 +240,56 @@ describe('typed provider credentials (BST-1348)', () => {
       { mode: 'profile_chain', profile: 'work', region: 'eu-west-1', type: 'aws' },
     ];
 
-    it.each(credentials.map((credential) => [credential.type, credential] as const))(
+    it.each(typed.map((credential) => [credential.type, credential] as const))(
       'round-trips a %s credential through the store',
       async (_type, credential) => {
-        const store = fakeStore();
-        const svc = service(store);
-
+        const { credentials, svc } = await desktopSecrets();
         await expect(svc.setCredential('anthropic', credential)).resolves.toBe(true);
         await expect(svc.getCredential('anthropic')).resolves.toEqual(credential);
+        await credentials.close();
       }
     );
 
     it('resolves null (not a throw) when no credential is stored', async () => {
-      await expect(service(fakeStore()).getCredential('openai')).resolves.toBeNull();
+      const { credentials, svc } = await desktopSecrets();
+      await expect(svc.getCredential('openai')).resolves.toBeNull();
+      await credentials.close();
     });
 
     it('setCredential rejects a malformed credential object instead of storing it', async () => {
-      const store = fakeStore();
-      const svc = service(store);
+      const { credentials, svc } = await desktopSecrets();
       const invalid = { type: 'oauth' } as unknown as ProviderCredential;
 
       await expect(svc.setCredential('anthropic', invalid)).rejects.toThrow(/malformed|invalid/i);
       await expect(svc.getCredential('anthropic')).resolves.toBeNull();
-    });
-
-    it('setCredential surfaces encryption_unavailable instead of storing plaintext', async () => {
-      safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
-      const svc = service(fakeStore());
-
-      await expect(svc.setCredential('anthropic', { key: 'sk', type: 'api_key' })).rejects.toThrow(
-        'encryption_unavailable'
-      );
+      await credentials.close();
     });
   });
 
   describe('read-path failures stay typed (never coerced)', () => {
-    it('getCredential throws SecretReadError(malformed_credential) for a stored unrecognized type', async () => {
-      const stored = Buffer.from('enc:{"type":"gcp","key":"x"}').toString('base64');
-      const attempt = service(fakeStore({ openai: stored })).getCredential('openai');
+    it.each([
+      ['a stored unrecognized type', '{"type":"gcp","key":"x"}'],
+      ['a recognized type with missing fields', '{"type":"oauth"}'],
+    ])('getCredential and getKey throw malformed_credential for %s', async (_case, raw) => {
+      const { credentials, svc } = await desktopSecrets();
+      await credentials.store().write('openai', raw);
 
-      await expect(attempt).rejects.toBeInstanceOf(SecretReadError);
-      await expect(
-        service(fakeStore({ openai: stored })).getCredential('openai')
-      ).rejects.toMatchObject({ code: 'malformed_credential', provider: 'openai' });
-    });
-
-    it('getCredential throws SecretReadError(malformed_credential) for a recognized type with missing fields', async () => {
-      const stored = Buffer.from('enc:{"type":"oauth"}').toString('base64');
-
-      await expect(
-        service(fakeStore({ openai: stored })).getCredential('openai')
-      ).rejects.toMatchObject({ code: 'malformed_credential', provider: 'openai' });
-    });
-
-    it('getKey ALSO surfaces malformed_credential for a tagged-but-invalid stored value', async () => {
-      const stored = Buffer.from('enc:{"type":"gcp","key":"x"}').toString('base64');
-
-      await expect(service(fakeStore({ openai: stored })).getKey('openai')).rejects.toMatchObject({
+      await expect(svc.getCredential('openai')).rejects.toBeInstanceOf(SecretReadError);
+      await expect(svc.getCredential('openai')).rejects.toMatchObject({
         code: 'malformed_credential',
         provider: 'openai',
       });
-    });
-
-    it('getCredential preserves the decrypt_failed / encryption_unavailable distinction', async () => {
-      const undecryptable = Buffer.from('garbage-not-prefixed').toString('base64');
-      await expect(
-        service(fakeStore({ openai: undecryptable })).getCredential('openai')
-      ).rejects.toMatchObject({ code: 'decrypt_failed', provider: 'openai' });
-
-      safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
-      const stored = Buffer.from('enc:whatever').toString('base64');
-      await expect(
-        service(fakeStore({ anthropic: stored })).getCredential('anthropic')
-      ).rejects.toMatchObject({ code: 'encryption_unavailable', provider: 'anthropic' });
+      await expect(svc.getKey('openai')).rejects.toMatchObject({
+        code: 'malformed_credential',
+        provider: 'openai',
+      });
+      await credentials.close();
     });
   });
 
   describe('getKey on a non-api_key credential stays inside the SecretReadError contract', () => {
     it('throws SecretReadError(credential_type_unsupported), never a stringified credential', async () => {
-      const store = fakeStore();
-      const svc = service(store);
+      const { credentials, svc } = await desktopSecrets();
       await svc.setCredential('anthropic', {
         access: 'at-1',
         expires: 1,
@@ -270,13 +302,10 @@ describe('typed provider credentials (BST-1348)', () => {
         code: 'credential_type_unsupported',
         provider: 'anthropic',
       });
+      await credentials.close();
     });
 
     it('credential_type_unsupported flows through the HTTP payload shaping as api_key_unreadable', () => {
-      // Consequence (b) of the SecretReadError contract: the assistant server's
-      // secret-error responder classifies structurally via matchSecretReadError,
-      // so a typed-credential read through getKey must produce the structured
-      // api_key_unreadable 400 instead of an unclassified 500.
       const payload = getSecretReadErrorPayload(
         new SecretReadError('credential_type_unsupported', 'anthropic')
       );
@@ -288,38 +317,18 @@ describe('typed provider credentials (BST-1348)', () => {
     });
 
     it('returns the bare key for a stored typed api_key credential', async () => {
-      const svc = service(fakeStore());
+      const { credentials, svc } = await desktopSecrets();
       await svc.setCredential('openai', { key: 'sk-typed', type: 'api_key' });
 
       await expect(svc.getKey('openai')).resolves.toBe('sk-typed');
+      await credentials.close();
     });
   });
 
   describe('factory reset coverage', () => {
-    it('clearAll wipes a stored oauth credential (guards factory-reset divergence)', async () => {
-      const store = fakeStore();
-      const svc = service(store);
-      await svc.setCredential('anthropic', {
-        access: 'at-1',
-        expires: 1,
-        refresh: 'rt-1',
-        type: 'oauth',
-      });
-      await expect(svc.getCredential('anthropic')).resolves.toMatchObject({ type: 'oauth' });
-
-      await expect(svc.clearAll()).resolves.toBe(true);
-
-      await expect(svc.getCredential('anthropic')).resolves.toBeNull();
-      await expect(svc.listProviders()).resolves.toEqual([]);
-    });
-
     it('clearAll wipes an ENGINE-written oauth credential (BST-1355: factory reset covers the OAuth engine)', async () => {
-      // Persist through the engine's own credential projection so this guard
-      // tracks the exact shape the OAuth engine writes (including accountId),
-      // not a hand-rolled approximation.
       const { toStoredOAuthCredential } = await import('../provider-auth/oauth-flow');
-      const store = fakeStore();
-      const svc = service(store);
+      const { credentials, svc } = await desktopSecrets();
       const credential = toStoredOAuthCredential(
         {
           accessToken: 'engine-access-token',
@@ -336,6 +345,23 @@ describe('typed provider credentials (BST-1348)', () => {
 
       await expect(svc.getCredential('fake-oauth-provider')).resolves.toBeNull();
       await expect(svc.listProviders()).resolves.toEqual([]);
+      await credentials.close();
+    });
+
+    it('clearAll removes MCP bearer credentials from the shared authority', async () => {
+      const reference = {
+        id: '00000000-0000-4000-8000-000000000001',
+        store: 'mcp-credentials',
+      } as const;
+      const { credentials, svc } = await desktopSecrets();
+      const authority = createSecretsMcpBearerCredentialAuthority(svc);
+
+      await svc.saveKey(mcpBearerCredentialStorageKey(reference), 'factory-reset-secret');
+      await expect(authority.inspect(reference)).resolves.toEqual({ state: 'stored' });
+
+      await expect(svc.clearAll()).resolves.toBe(true);
+      await expect(authority.inspect(reference)).resolves.toEqual({ state: 'missing' });
+      await credentials.close();
     });
   });
 });
@@ -344,17 +370,11 @@ describe('SecretReadError structural conformance (BST-972 A3)', () => {
   // MONEY TEST for the cross-package contract: server modules classify these
   // failures via assistant-contract's STRUCTURAL matchSecretReadError instead
   // of instanceof. A rename of `name`/`code`/`provider` on the class would
-  // compile fine and silently stop every classifier from matching — this is
-  // the test that goes red instead. Driven per code because the constructor's
-  // detail branch treats the codes asymmetrically.
+  // compile fine and silently stop every classifier from matching.
   it.each(SECRET_READ_ERROR_CODES)(
     'the real class matches assistant-contract matchSecretReadError (%s)',
     (code) => {
       const error = new SecretReadError(code, 'openai');
-      // The matcher keys on the `name` OWN property — `this.name = ...` in the
-      // constructor. Asserted directly because it is the field most likely to
-      // be dropped by an unrelated refactor (constructor.name does NOT cover
-      // it after minification).
       expect(error.name).toBe('SecretReadError');
       expect(matchSecretReadError(error)).toEqual({
         code,

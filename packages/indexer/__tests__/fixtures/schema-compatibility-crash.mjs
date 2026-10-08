@@ -32,6 +32,9 @@ if (isMainThread) {
         JSON.stringify({ added, inTransaction: this.inTransaction, version })
       );
       process.kill(process.pid, 'SIGKILL');
+      // The signal can land after kill() returns; returning here let the stamp and
+      // COMMIT race it, so a "crashed" upgrade sometimes committed. Never return.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
     }
     return prepare.call(this, sql);
   };

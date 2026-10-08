@@ -6,16 +6,15 @@ import { z } from 'zod';
  * Node host (BST-1930 stage c1). Two interim groups, each with a removal point:
  *
  * - Node → Main `platform/mcp/*` store adapters: the decrypted config, Electron
- *   `shell.openExternal`, the PGlite Tasks tables and the safeStorage MCP
- *   credentials. Each goes when its store moves to Node (keyring migration,
- *   host-owned Tasks storage, host-owned config).
+ *   `shell.openExternal`, the PGlite Tasks tables and the safeStorage MCP OAuth
+ *   records. Each goes when its store moves to Node (OAuth records to the shared
+ *   credential store, host-owned Tasks storage, host-owned config). Bearer
+ *   references already live in the profile credential store Node reads directly.
  * - Main → Node `mcp-runtime/*`: Main's renderer surfaces (settings, status,
  *   tasks, elicitation, Apps, content) reach that runtime. They go in c5, when
  *   the renderer calls public host-protocol methods instead.
  */
 export const MCP_STORE_METHODS = {
-  credentialList: 'platform/mcp/credential/list',
-  credentialRead: 'platform/mcp/credential/read',
   oauthClear: 'platform/mcp/oauth/clear',
   oauthClearAll: 'platform/mcp/oauth/clear-all',
   oauthRead: 'platform/mcp/oauth/read',
@@ -48,10 +47,6 @@ export const MCP_RUNTIME_NOTIFICATIONS = {
   tasksChanged: 'mcp-runtime/tasks/changed',
   watch: 'mcp-runtime/watch',
 } as const;
-
-/** Only bearer references in the MCP credential store cross this adapter. */
-export const MCP_CREDENTIAL_KEY_PREFIX = 'mcp-credentials:';
-export const McpCredentialKeySchema = z.string().startsWith(MCP_CREDENTIAL_KEY_PREFIX).max(256);
 
 export const McpOAuthIdentitySchema = z.strictObject({
   resourceUrl: z.string().min(1),

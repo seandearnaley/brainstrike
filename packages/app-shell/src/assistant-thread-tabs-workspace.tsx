@@ -200,6 +200,21 @@ export function AssistantThreadTabsWorkspace({
     repository,
     resourceId,
   });
+  // Host threads commit titles (a rename or an auto-title) in the host log,
+  // which no history query sees.
+  useEffect(() => {
+    if (!(repository && host?.subscribeTitleChanges)) {
+      return;
+    }
+    return host.subscribeTitleChanges(() => {
+      refreshResourceThreads(repository, resourceId).catch((error: unknown) => {
+        logger.warn('Failed to refresh assistant threads after a host title change', {
+          error,
+          resourceId,
+        });
+      });
+    });
+  }, [host, refreshResourceThreads, repository, resourceId]);
 
   // A failed projection reports an empty set. The strip says so, as the Threads
   // panel does, rather than let every tab read as idle.
@@ -526,7 +541,11 @@ function ThreadPanels({
           >
             {/* No resetKey: inside key={threadId} it could never change; "Reload tab" resets. */}
             <TabPanelBoundary label={threadById.get(threadId)?.title ?? threadId}>
-              {host?.renderThread(threadId, isOpen && threadId === activeThreadId) ?? (
+              {host?.renderThread(
+                threadId,
+                isOpen && threadId === activeThreadId,
+                onRunningChange
+              ) ?? (
                 <AssistantUiPanelWrapper
                   isVisible={isOpen && threadId === activeThreadId}
                   {...(fixedProviderModels ? { fixedProviderModels } : {})}

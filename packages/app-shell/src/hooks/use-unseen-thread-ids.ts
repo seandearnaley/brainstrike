@@ -10,6 +10,10 @@
 import type { AssistantMemoryThread, AssistantThreadRunStatus } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { useEffect, useMemo } from 'react';
+import {
+  type AssistantThreadHostRun,
+  useAssistantThreadHostRuns,
+} from '../assistant-thread-host-context';
 
 /** Run states that produce something for the user to come back to. */
 const TERMINAL_RUN_STATUSES: ReadonlySet<AssistantThreadRunStatus> = new Set([
@@ -25,6 +29,8 @@ export interface UnseenThreadIds {
 }
 
 export interface UnseenThreadIdsArgs {
+  /** Agent-host threads' latest committed runs; they have no `latestRun` row. */
+  readonly hostRuns?: ReadonlyMap<string, AssistantThreadHostRun>;
   readonly lastViewedAtByThreadId: Readonly<Record<string, number>>;
   /**
    * The thread whose transcript is on screen right now (see
@@ -53,6 +59,7 @@ export interface UnseenThreadIdsArgs {
  * claims to report.
  */
 export function deriveUnseenThreadIds({
+  hostRuns,
   lastViewedAtByThreadId,
   onScreenThreadId,
   threads,
@@ -61,7 +68,7 @@ export function deriveUnseenThreadIds({
   const unseen = new Set<string>();
   const failedUnseen = new Set<string>();
   for (const thread of threads) {
-    const latestRun = thread.latestRun;
+    const latestRun = hostRuns?.get(thread.id) ?? thread.latestRun;
     if (!(latestRun && TERMINAL_RUN_STATUSES.has(latestRun.status))) {
       continue;
     }
@@ -82,17 +89,19 @@ export function deriveUnseenThreadIds({
 }
 
 /** {@link deriveUnseenThreadIds}, memoized on its inputs. */
-export function useUnseenThreadIds(args: UnseenThreadIdsArgs): UnseenThreadIds {
+export function useUnseenThreadIds(args: Omit<UnseenThreadIdsArgs, 'hostRuns'>): UnseenThreadIds {
   const { lastViewedAtByThreadId, onScreenThreadId, threads, unseenBaselineAt } = args;
+  const hostRuns = useAssistantThreadHostRuns();
   return useMemo(
     () =>
       deriveUnseenThreadIds({
+        hostRuns,
         lastViewedAtByThreadId,
         onScreenThreadId,
         threads,
         unseenBaselineAt,
       }),
-    [lastViewedAtByThreadId, onScreenThreadId, threads, unseenBaselineAt]
+    [hostRuns, lastViewedAtByThreadId, onScreenThreadId, threads, unseenBaselineAt]
   );
 }
 
@@ -124,16 +133,19 @@ export function useMarkOnScreenThreadViewed({
   readonly threads: readonly AssistantMemoryThread[];
 }): void {
   const markThreadViewed = useAssistantThreadStore((state) => state.markThreadViewed);
+  const hostRuns = useAssistantThreadHostRuns();
   const completedAtMs = useMemo(() => {
     if (onScreenThreadId === null) {
       return null;
     }
-    const latestRun = threads.find((thread) => thread.id === onScreenThreadId)?.latestRun;
+    const latestRun =
+      hostRuns.get(onScreenThreadId) ??
+      threads.find((thread) => thread.id === onScreenThreadId)?.latestRun;
     if (!(latestRun && TERMINAL_RUN_STATUSES.has(latestRun.status) && latestRun.completedAt)) {
       return null;
     }
     return latestRun.completedAt.getTime();
-  }, [onScreenThreadId, threads]);
+  }, [hostRuns, onScreenThreadId, threads]);
 
   useEffect(() => {
     if (onScreenThreadId === null || completedAtMs === null) {

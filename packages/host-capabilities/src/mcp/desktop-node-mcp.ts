@@ -1,5 +1,6 @@
 import { collectCombinedTools } from '@brainstrike/agent/mcp-client';
 import type { HostStartupContext } from '@brainstrike/agent-host';
+import type { SecretsService } from '@brainstrike/agent-host/credential-contract';
 import { parseMcpExtensionEnablement } from '@brainstrike/assistant-contract';
 import { parseMcpConfigValue } from '@brainstrike/assistant-contract/mcp-config';
 import type { McpTaskDatabase } from '@brainstrike/db';
@@ -60,7 +61,9 @@ function remoteTaskDatabase(request: Request): McpTaskDatabase {
 export async function createDesktopNodeMcpHost(
   connection: MessageConnection,
   request: Request,
-  startup: Pick<HostStartupContext, 'signal'>
+  startup: Pick<HostStartupContext, 'signal'>,
+  /** The profile credential store Main and this host share (MCP bearer references). */
+  secrets: () => Pick<SecretsService, 'getKey' | 'listProviders'>
 ): Promise<{ readonly services: McpHostServices; close(): Promise<void> }> {
   const state = McpDesiredStateSchema.parse(await request(MCP_STORE_METHODS.state, {}));
   const services = await createMcpHostServices({
@@ -68,13 +71,8 @@ export async function createDesktopNodeMcpHost(
     // Main asks for local presentation explicitly; until then local input fails closed.
     attachElicitationPresenter: () => () => undefined,
     bearerCredentialAuthority: createSecretsMcpBearerCredentialAuthority({
-      getKey: async (key) =>
-        z
-          .string()
-          .nullable()
-          .parse(await request(MCP_STORE_METHODS.credentialRead, { key })),
-      listProviders: async () =>
-        z.array(z.string()).parse(await request(MCP_STORE_METHODS.credentialList, {})),
+      getKey: (key) => secrets().getKey(key),
+      listProviders: () => secrets().listProviders(),
     }),
     collectCombinedTools,
     extensionPreferences: parseMcpExtensionEnablement(state.extensionPreferences),

@@ -27,6 +27,7 @@ import {
   DESKTOP_NATIVE_TOOLS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
+  findProviderDefinition,
   resolveAutoObservationalMemoryModelTarget,
   resolveToolRiskCategory,
   type SupportedProvider,
@@ -468,7 +469,7 @@ export function productionDesktopCapabilities(
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
   workspaceAuthority?: DesktopWorkspaceBindingAuthority
-): DesktopPlatformCapabilities {
+): Omit<DesktopPlatformCapabilities, 'mcp'> {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   const readConfiguration = async (
     request: HostRunAdmissionRequest,
@@ -636,9 +637,14 @@ export function productionDesktopCapabilities(
           : (captured ?? { policies: DEFAULT_PERMISSION_POLICIES, yolo: false })
       );
     },
+    // The Node host resolves every other provider itself; Main lends only the
+    // interactive subscription OAuth engine it still owns.
     resolveProviderAuth: async (provider) => {
-      if (!isSupportedProvider(provider)) {
-        throw new Error('Unsupported provider credential request');
+      if (
+        !isSupportedProvider(provider) ||
+        findProviderDefinition(provider)?.authType !== 'oauth_subscription'
+      ) {
+        throw new Error('Main lends only subscription OAuth credentials to the host');
       }
       return deriveAssistantTurnAuthInput({ provider }, await readProviderCredential(provider));
     },

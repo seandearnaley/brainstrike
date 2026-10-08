@@ -6,7 +6,7 @@ import {
   type AgentHostAdapterCapabilities,
   createAgentHostAdapterServicesFactory,
 } from '@brainstrike/host-capabilities/mcp/adapter-services';
-import { createProviderCredentialReader } from '../provider-credential-boundary';
+import { createProviderCredentialReader } from '@brainstrike/host-capabilities/provider-credentials';
 
 /** Bind the existing collector and credential policy once for the root composition. */
 export function createProductionAgentHostAdapterServicesFactory(

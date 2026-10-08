@@ -6,7 +6,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import type { ElectronHarness } from './fixtures/electron-harness';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 
@@ -24,6 +24,17 @@ test('reload restores an approval continuation and dispatches Next Up once', asy
   await assertLiveReload(electron, testInfo, true);
 });
 
+const ROOT_PROMPT = 'Read evidence.txt for the reload regression.';
+
+function lastUserMessage(messages: readonly unknown[]): unknown {
+  return messages
+    .filter(
+      (message) =>
+        message && typeof message === 'object' && 'role' in message && message.role === 'user'
+    )
+    .at(-1);
+}
+
 async function assertLiveReload(
   electron: ElectronHarness,
   testInfo: TestInfo,
@@ -38,13 +49,7 @@ async function assertLiveReload(
     if (toolNames.length === 0) {
       return { finalText: 'Reload regression' };
     }
-    const lastUser = messages
-      .filter(
-        (message) =>
-          message && typeof message === 'object' && 'role' in message && message.role === 'user'
-      )
-      .at(-1);
-    if (JSON.stringify(lastUser).includes('RELOAD_NEXT_UP')) {
+    if (JSON.stringify(lastUserMessage(messages)).includes('RELOAD_NEXT_UP')) {
       return { finalText: 'RELOAD_NEXT_UP_COMPLETE' };
     }
     entered.resolve();
@@ -67,26 +72,32 @@ async function assertLiveReload(
   process.env['BRAINSTRIKE_OPENROUTER_API_KEY'] = 'isolated-reload-provider-key';
   try {
     const window = await electron.ensureWindow();
-    const assistantPosts: string[] = [];
-    window.on('request', (request) => {
-      if (new URL(request.url()).pathname === '/assistant' && request.method() === 'POST') {
-        assistantPosts.push(request.postData() ?? '');
-      }
-    });
+    // Provider turns at the real external boundary: the root's own turns, and
+    // the queued follow-up's, told apart by the latest user message each carries.
+    const turnsFor = (prompt: string) =>
+      provider
+        .requests()
+        .filter(
+          ({ messages, toolNames }) =>
+            toolNames.length > 0 && JSON.stringify(lastUserMessage(messages)).includes(prompt)
+        );
+    const rootTurns = () => turnsFor(ROOT_PROMPT);
+    const nextUpTurns = () => turnsFor('RELOAD_NEXT_UP');
     await ensureMockWorkspaceOpen(window);
     await configureAssistantProvider(window, {
       compositeModelKey: 'openrouter::openai/gpt-5.4',
       provider: 'openrouter',
     });
+    await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
     await new HomePage(window).openSettings();
     await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
     await window
       .getByRole('combobox', { exact: true, name: 'Read permission' })
       .selectOption(approval ? 'ask' : 'allow');
     await ensureAssistantShellVisible(window);
-    const panel = window.getByTestId('chat-panel');
+    const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
     const input = panel.getByRole('textbox', { name: 'Message input' });
-    await input.fill('Read evidence.txt for the reload regression.');
+    await input.fill(ROOT_PROMPT);
     await panel.getByRole('button', { exact: true, name: 'Send' }).click();
     await entered.promise;
     if (approval) {
@@ -95,8 +106,9 @@ async function assertLiveReload(
         .click();
       await actionEntered.promise;
     }
-    const admittedPosts = approval ? 2 : 1;
-    await expect.poll(() => assistantPosts.length).toBe(admittedPosts);
+    // One turn calls the tool; an approved read adds the turn that carries its result.
+    const admittedTurns = approval ? 2 : 1;
+    await expect.poll(() => rootTurns().length).toBe(admittedTurns);
     if (approval) {
       const graph = await window.evaluate(async () => {
         const query = (
@@ -115,29 +127,32 @@ async function assertLiveReload(
       });
     }
     await window.evaluate(() => window.sessionStorage.clear());
-    const replay = window.waitForRequest(
-      (request) => new URL(request.url()).pathname === '/assistant/resume'
-    );
     await window.reload();
     await ensureAssistantShellVisible(window);
-    await replay;
     // Reinstall the fixture's renderer-only provider availability override.
     await configureAssistantProvider(window, {
       compositeModelKey: 'openrouter::openai/gpt-5.4',
       provider: 'openrouter',
     });
+    await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
     await expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toBeVisible();
-    expect(assistantPosts).toHaveLength(admittedPosts);
+    // Reload reattaches to the live root; it never re-executes it.
+    expect(rootTurns()).toHaveLength(admittedTurns);
     await input.fill('RELOAD_NEXT_UP');
     await panel
       .getByRole('button', { exact: true, name: 'Queue message to send after this run' })
       .click();
-    expect(assistantPosts).toHaveLength(admittedPosts);
+    expect(rootTurns()).toHaveLength(admittedTurns);
+    expect(nextUpTurns()).toHaveLength(0);
     release.resolve();
     await expect(panel.getByText('RELOAD_ROOT_COMPLETE', { exact: true })).toBeVisible();
     await expect(panel.getByText('RELOAD_NEXT_UP_COMPLETE', { exact: true })).toBeVisible();
     await expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
-    expect(assistantPosts).toHaveLength(admittedPosts + 1);
+    // The root ran once (tool call, then its result) and Next Up dispatched once,
+    // carrying the root's history.
+    expect(rootTurns()).toHaveLength(2);
+    expect(nextUpTurns()).toHaveLength(1);
+    expect(JSON.stringify(nextUpTurns()[0]?.messages)).toContain('RELOAD_READ_EVIDENCE');
     await expect(panel.getByText(/awaiting stream reattachment/)).toHaveCount(0);
     await window.screenshot({ path: testInfo.outputPath('recovered-root-next-up.png') });
   } finally {
