@@ -1,12 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { StateStore } from '@brainstrike/state-store';
-import {
-  type LanguageModel,
-  type ModelMessage,
-  modelMessageSchema,
-  stepCountIs,
-  streamText,
-} from 'ai';
+import { type LanguageModel, type ModelMessage, stepCountIs, streamText } from 'ai';
 import {
   ApprovalInputReconstructionError,
   rebuildApprovedRuntimeMessages,
@@ -17,6 +11,7 @@ import {
   hostDeliveryPosition,
   reportHostChildWakeFailure,
 } from './core-child-runs.js';
+import { commitHostModelStep } from './core-model-step.js';
 import { reportRetiredHostOutcomes } from './core-retirement.js';
 import {
   abortHostThreadRuns,
@@ -64,7 +59,6 @@ import {
   ensureHostRunAdmission,
   hostRunToolDecision,
   hostRunTools,
-  hostStepInteractions,
   prepareHostProviderStep,
 } from './run-admission.js';
 import {
@@ -537,7 +531,7 @@ export class HostCore {
     const output = registered.delegation
       ? await this.children.delegate(
           { action, admission, input, persona: registered.delegation, run },
-          this.childRunPort(run)
+          this.childRunPort(run, action)
         )
       : await performHostToolEffect(run, action, registered, input, resumeData, {
           admit: (perform) => this.admit(run.threadId, perform, run.controller.signal),
@@ -560,7 +554,7 @@ export class HostCore {
   }
 
   /** BST-1932: HostChildRuns orchestrates a delegation; Core lends its sole writer and loop. */
-  private childRunPort(run: Run): HostChildRunPort {
+  private childRunPort(run: Run, action: Action): HostChildRunPort {
     return {
       commit: async ({ child, items, threadId }) => {
         await this.appendAcross(items, 'full');
@@ -568,6 +562,11 @@ export class HostCore {
         this.runs.set(child.id, child);
         recordHostConversationId(this.conversationIds, threadId);
         recordHostConversationId(this.conversationIds, child.id);
+      },
+      commitEffect: () => this.append(run.threadId, [action]).then(() => undefined),
+      expire: (child, detail) => {
+        child.deadline = detail;
+        child.controller.abort(new Error(detail));
       },
       loop: (child, model) => this.loop(child, model),
       retainRun: this.retainRun,
@@ -639,34 +638,10 @@ export class HostCore {
           // https://github.com/vercel/ai/blob/main/packages/ai/src/util/notify.ts
           // Remove this capture if the public step callback propagates failures.
           try {
-            const event: HostEvent = {
-              messages: step.response.messages.map((message) =>
-                jsonValue(modelMessageSchema.parse(message))
-              ),
-              model: jsonValue(step.model),
-              runId: run.id,
-              stepNumber: run.steps,
-              type: 'model.step',
-              usage: jsonValue(step.usage),
-            };
-            const interactions = hostStepInteractions(run, step.content);
-            // The complete public SDK context and its answerable interactions
-            // share one SQLite commit, including when the provider stream is interrupted.
-            const rows = await this.append(
-              run.threadId,
-              [event, ...interactions],
-              'full',
-              (committed) => {
-                for (const row of committed) {
-                  this.fold(row);
-                }
-              }
+            const recorded = await commitHostModelStep(run, step, (events) =>
+              this.append(run.threadId, events, 'full', this.foldRows)
             );
-            const row = rows[0];
-            if (!row) {
-              throw new Error('Model step was not committed');
-            }
-            recordedInputLength += step.response.messages.length;
+            recordedInputLength += recorded;
             await owner?.commitHostStep?.();
           } catch (cause) {
             checkpointFailure = cause;
@@ -699,6 +674,7 @@ export class HostCore {
             messages: memory?.messages ?? prepared,
             modelId: run.modelId,
             signal: run.controller.signal,
+            stepNumber: run.steps,
           });
           return prepareHostProviderStep(provider, memory?.system, owner);
         },

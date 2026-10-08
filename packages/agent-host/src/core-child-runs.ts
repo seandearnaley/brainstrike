@@ -10,7 +10,9 @@ import {
   hostChildResult,
   hostChildStarted,
   hostDelegationRunsInBackground,
+  hostInvocationLimitText,
 } from './child-runs.js';
+import { HostChildWorkQueue } from './child-work-queue.js';
 import type { HostRunState } from './core-state.js';
 import type { HostDelegation, HostRunAdmission } from './ports.js';
 import type {
@@ -31,6 +33,10 @@ const logger = createLogger('AgentHost');
 export interface HostChildRunPort {
   /** Commit `items` in one transaction, then register the child thread and run. */
   commit(prepared: HostPreparedChild): Promise<void>;
+  /** Commit only the parent's effect: a refused delegation starts no child. */
+  commitEffect(): Promise<void>;
+  /** End a child's execution as failed with `detail` (its deadline expired). */
+  expire(child: HostRunState, detail: string): void;
   loop(child: HostRunState, model: LanguageModel): Promise<void>;
   retainRun(): () => void;
   stop(child: HostRunState, reason: unknown): void;
@@ -54,6 +60,7 @@ export interface HostPreparedChild {
   readonly model: LanguageModel;
   readonly origin: HostChildOrigin;
   readonly persona: AssistantPersonaDefinition;
+  readonly settings: HostDelegation['settings'];
   readonly settled: Promise<void>;
   readonly threadId: string;
 }
@@ -136,6 +143,8 @@ export class HostChildRuns {
   /** Child runs whose outcome reached the parent's model (the durable watermark). */
   private readonly delivered = new Set<string>();
   private readonly settlements = new Map<string, PromiseWithResolvers<void>>();
+  /** C4: one work queue per root turn, shared by every descendant. */
+  private readonly queues = new Map<string, HostChildWorkQueue>();
 
   isChild(threadId: string): boolean {
     return this.origins.has(threadId);
@@ -231,30 +240,47 @@ export class HostChildRuns {
    */
   async delegate(request: HostDelegationRequest, port: HostChildRunPort): Promise<HostChildResult> {
     const prepared = this.prepare(request, port.taken);
+    if (typeof prepared === 'string') {
+      await port.commitEffect();
+      request.run.started.add(request.action.toolCallId);
+      return { status: 'rejected', text: prepared };
+    }
     const release = port.retainRun();
     prepared.child.release = release;
     try {
       await port.commit(prepared);
     } catch (cause) {
       this.settlements.delete(prepared.child.id);
+      this.origins.delete(prepared.threadId);
       release();
       throw cause;
     }
     request.run.started.add(request.action.toolCallId);
-    this.origins.set(prepared.threadId, prepared.origin);
     this.invocations.set(prepared.threadId, prepared.child.id);
+    const start = (): Promise<void> => this.execute(prepared, port);
     if (prepared.origin.background) {
       this.settlements.delete(prepared.child.id);
-      prepared.child.task = port.loop(prepared.child, prepared.model);
+      prepared.child.task = start();
       prepared.child.task.catch(() => undefined);
       return hostChildStarted(prepared.threadId, request.action.toolId);
     }
-    return this.join(
-      prepared,
-      request.run.controller.signal,
-      () => port.loop(prepared.child, prepared.model),
-      (reason) => port.stop(prepared.child, reason)
+    return this.join(prepared, request.run.controller.signal, start, (reason) =>
+      port.stop(prepared.child, reason)
     );
+  }
+
+  /** One child execution, bounded by the user's `maxChildRuntimeMs` deadline when set. */
+  private async execute(prepared: HostPreparedChild, port: HostChildRunPort): Promise<void> {
+    const limit = prepared.settings.maxChildRuntimeMs;
+    const timer =
+      limit === null
+        ? undefined
+        : setTimeout(() => port.expire(prepared.child, `Task timed out after ${limit}ms`), limit);
+    try {
+      await port.loop(prepared.child, prepared.model);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -338,7 +364,7 @@ export class HostChildRuns {
   private prepare(
     { action, admission, input, persona, run }: HostDelegationRequest,
     taken: (id: string) => boolean
-  ): HostPreparedChild {
+  ): HostPreparedChild | string {
     const delegation = admission.delegation;
     if (!delegation) {
       throw new Error('Run has no admitted delegation capability');
@@ -347,6 +373,12 @@ export class HostChildRuns {
       throw new Error(`Persona "${persona.id}" pins a model, which host threads cannot run yet`);
     }
     const parsed = HostDelegationInputSchema.parse(input);
+    const turnId = hostRunTurnId(run);
+    // Counted before any await, so parallel calls in one step cannot overshoot.
+    const invoked = [...this.origins.values()].filter((origin) => origin.turnId === turnId);
+    if (invoked.length >= delegation.settings.maxInvocations) {
+      return hostInvocationLimitText(delegation.settings);
+    }
     const origin: HostChildOrigin = {
       background: hostDelegationRunsInBackground(parsed, run.origin !== undefined),
       depth: (run.origin?.depth ?? 0) + 1,
@@ -354,9 +386,14 @@ export class HostChildRuns {
       parentThreadId: run.threadId,
       persona: persona.id,
       toolCallId: action.toolCallId,
-      turnId: hostRunTurnId(run),
+      turnId,
     };
-    const childAdmission = deriveHostChildAdmission(admission, persona, delegation.settings);
+    let queue = this.queues.get(turnId);
+    if (!queue) {
+      queue = new HostChildWorkQueue(delegation.settings.maxConcurrentWork);
+      this.queues.set(turnId, queue);
+    }
+    const childAdmission = deriveHostChildAdmission(admission, persona, delegation.settings, queue);
     const threadId = randomUUID();
     const started: Started = {
       modelId: run.modelId,
@@ -380,6 +417,8 @@ export class HostChildRuns {
     child.admission = childAdmission;
     const settled = Promise.withResolvers<void>();
     this.settlements.set(child.id, settled);
+    // Reserves the invocation; an uncommitted delegation releases it.
+    this.origins.set(threadId, origin);
     return {
       child,
       items: [
@@ -390,6 +429,7 @@ export class HostChildRuns {
       model: childAdmission.model,
       origin,
       persona,
+      settings: delegation.settings,
       settled: settled.promise,
       threadId,
     };

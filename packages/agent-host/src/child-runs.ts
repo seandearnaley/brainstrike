@@ -15,6 +15,7 @@ import {
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ModelMessage } from 'ai';
 import { z } from 'zod';
+import { type HostChildWorkQueue, hostPermitModel } from './child-work-queue.js';
 import { canonical, jsonValue } from './json-value.js';
 import type { HostDelegation, HostRunAdmission, HostTool } from './ports.js';
 import type { HostEvent } from './protocol.js';
@@ -56,7 +57,8 @@ export function hostDelegationRunsInBackground(
 }
 
 export const HostChildResultSchema = z.strictObject({
-  childThreadId: z.string().min(1),
+  /** Absent only for a refused delegation, which starts no child. */
+  childThreadId: z.string().min(1).optional(),
   status: z.enum([
     'started',
     'completed',
@@ -76,6 +78,11 @@ function personaIdentity(persona: AssistantPersonaDefinition, settings: RuntimeS
     .digest('hex')
     .slice(0, 16);
   return `delegation:${persona.id}:${digest}`;
+}
+
+/** The shipped refusal when a turn's invocation budget is spent (BST-1751). */
+export function hostInvocationLimitText(settings: RuntimeSubagentSettings): string {
+  return `[Delegation Rejected] Delegation invocation limit reached (${settings.maxInvocations} per original turn).`;
 }
 
 /**
@@ -144,16 +151,53 @@ export function narrowHostChildTools(
 }
 
 /**
+ * The shipped wrap-up feedback (packages/agent/src/mastra/build-persona-subagents.ts,
+ * removed with BST-1935): a child's last step is reserved for its summary.
+ */
+export const CHILD_WRAP_UP_FEEDBACK =
+  'You are at your step limit and this is your final turn — no further tool calls will run. ' +
+  'Using ONLY what you already found above, write your summary now: what you looked for, ' +
+  'what you found, and the concrete file paths. If you covered only part of the task, say ' +
+  'exactly which part you covered and which you did not.';
+
+/** Each child tool execution holds one permit of the turn's work queue (C4). */
+function queuedHostTools(
+  tools: Readonly<Record<string, HostTool>>,
+  queue: HostChildWorkQueue
+): Record<string, HostTool> {
+  return Object.fromEntries(
+    Object.entries(tools).map(([id, tool]): [string, HostTool] => [
+      id,
+      {
+        ...tool,
+        execute: async (input, context) => {
+          const release = await queue.acquire(context.signal);
+          try {
+            return await tool.execute(input, context);
+          } finally {
+            release();
+          }
+        },
+      },
+    ])
+  );
+}
+
+/**
  * A child admission derived from its parent's: same model and provider
  * request hygiene, the persona's instructions ahead of the parent's host
  * system context, narrowed tools, and the persona's enforced step budget.
+ * Every model step and tool execution queues on the turn's work queue, each
+ * step's output is capped, and the last step is a tool-free summary.
  */
 export function deriveHostChildAdmission(
   parent: HostRunAdmission,
   persona: AssistantPersonaDefinition,
-  settings: RuntimeSubagentSettings
+  settings: RuntimeSubagentSettings,
+  queue: HostChildWorkQueue
 ): HostRunAdmission {
   const tools = narrowHostChildTools(parent.tools, persona);
+  const maxSteps = effectiveChildStepBudget(persona, settings);
   const system = (provided: string | undefined): string =>
     [persona.instructions, provided].filter(Boolean).join('\n\n');
   const provider = parent.provider;
@@ -162,20 +206,35 @@ export function deriveHostChildAdmission(
     model: parent.model,
     provider: {
       prepare: async (request) => {
-        if (!provider) {
-          return {
-            messages: [...request.messages],
-            model: parent.model,
-            system: system(undefined),
-          };
+        const prepared = provider
+          ? await provider.prepare(request)
+          : { messages: [...request.messages], model: parent.model };
+        if (typeof prepared.model === 'string') {
+          throw new Error('A child step requires a resolved model instance');
         }
-        const prepared = await provider.prepare(request);
-        return { ...prepared, system: system(prepared.system) };
+        const synthesis = maxSteps >= 2 && (request.stepNumber ?? 0) >= maxSteps - 1;
+        const cap = synthesis ? settings.synthesisOutputTokens : settings.maxStepOutputTokens;
+        return {
+          ...prepared,
+          maxOutputTokens: Math.min(prepared.maxOutputTokens ?? cap, cap),
+          model: hostPermitModel(prepared.model, queue, request.signal),
+          system: system(prepared.system),
+          ...(synthesis
+            ? {
+                activeTools: [],
+                messages: [
+                  ...prepared.messages,
+                  { content: CHILD_WRAP_UP_FEEDBACK, role: 'user' as const },
+                ],
+                toolChoice: 'none' as const,
+              }
+            : {}),
+        };
       },
     },
     snapshot: {
       configuration: parent.snapshot.configuration,
-      maxSteps: effectiveChildStepBudget(persona, settings),
+      maxSteps,
       toolIdentities: Object.fromEntries(
         Object.entries(tools).map(([id, tool]) => [id, tool.identity])
       ),
@@ -183,7 +242,7 @@ export function deriveHostChildAdmission(
         ? { workspaceBinding: parent.snapshot.workspaceBinding }
         : {}),
     },
-    tools,
+    tools: queuedHostTools(tools, queue),
   };
 }
 

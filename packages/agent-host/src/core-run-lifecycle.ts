@@ -373,6 +373,11 @@ export async function finishHostSdkLoop(
     await Promise.allSettled([...run.effects]);
     return;
   }
+  if (run.deadline !== undefined && !run.stopped && !closing) {
+    // BST-1932: an expired child deadline is a failure, never a user stop (G19).
+    await finish('failed', run.deadline);
+    return;
+  }
   const outcome = run.controller.signal.aborted
     ? closing
       ? 'interrupted'

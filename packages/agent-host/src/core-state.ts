@@ -176,6 +176,8 @@ export interface HostRunState {
   readonly checkpointedResults: Set<string>;
   completion?: Promise<void>;
   readonly controller: AbortController;
+  /** Set when a child's execution deadline expired; it ends failed, not stopped. */
+  deadline?: string;
   /** The committed run.finished detail, once terminal. */
   detail?: string;
   readonly effects: Set<Promise<unknown>>;

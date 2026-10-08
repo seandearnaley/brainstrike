@@ -11,6 +11,7 @@ import {
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
 } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import { type AppendItem, StateStore } from '@brainstrike/state-store';
 import { type MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { expect } from 'vitest';
@@ -111,10 +112,17 @@ export function blocked(options: StreamOptions) {
   };
 }
 
-export function fixturePlatform(model: MockLanguageModelV4, writes: string[] = []): HostPlatform {
+export function fixturePlatform(
+  model: MockLanguageModelV4,
+  writes: string[] = [],
+  settings: Partial<RuntimeSubagentSettings> = {}
+): HostPlatform {
   return {
     close: async () => undefined,
-    delegation: { personas: [explorer], settings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS },
+    delegation: {
+      personas: [explorer],
+      settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, ...settings },
+    },
     maxSteps: 4,
     readPermissionPolicy: () => ({
       policies: { ...DEFAULT_PERMISSION_POLICIES, edit: 'allow', read: 'allow' },
@@ -146,7 +154,8 @@ export function fixturePlatform(model: MockLanguageModelV4, writes: string[] = [
 /** `cleanup` receives the harness teardown; the caller runs it after the test. */
 export async function setupChildRunHost(
   model: MockLanguageModelV4,
-  cleanup: (() => Promise<void>)[]
+  cleanup: (() => Promise<void>)[],
+  settings: Partial<RuntimeSubagentSettings> = {}
 ) {
   const root = await mkdtemp(join(tmpdir(), 'bs-m4-child-runs-'));
   const store = await StateStore.open(root);
@@ -171,7 +180,7 @@ export async function setupChildRunHost(
   };
   let current = writer();
   const writes: string[] = [];
-  const platform = fixturePlatform(model, writes);
+  const platform = fixturePlatform(model, writes, settings);
   let core = await HostCore.open(current.port, platform, () => () => undefined);
   const crashed: HostCore[] = [];
   cleanup.push(async () => {

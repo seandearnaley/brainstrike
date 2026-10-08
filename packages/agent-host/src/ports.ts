@@ -95,13 +95,18 @@ export interface HostProviderRequest {
   readonly messages: readonly ModelMessage[];
   readonly modelId: string;
   readonly signal: AbortSignal;
+  /** The run's step about to start; a child reserves its last step for a summary. */
+  readonly stepNumber?: number;
 }
 
 export interface HostPreparedModelRequest extends LanguageModelCallOptions {
+  /** A step may withhold every tool, as a child's summary step does. */
+  readonly activeTools?: string[];
   readonly messages: ModelMessage[];
   readonly model: LanguageModel;
   readonly providerOptions?: NonNullable<Parameters<typeof streamText>[0]['providerOptions']>;
   readonly system?: string;
+  readonly toolChoice?: 'none';
 }
 
 /** Shipped provider selection and request hygiene, with no second agent loop. */
