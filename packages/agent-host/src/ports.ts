@@ -201,6 +201,13 @@ export interface HostRunHooks {
 export interface HostToolDiscovery {
   /** The tools the run's next step offers: eager, discovery and loaded, from its committed steps. */
   activeTools(run: { readonly runId: string; readonly threadId: string }): Promise<string[]>;
+  /**
+   * Its own tools (`search_tools`, `load_tool`, `list_available_tools`). Like
+   * legacy's processor-added tools, which joined after the permission gate and
+   * so were never in its ask set, they are outside the permission catalog:
+   * no policy decision, no prompt and no lifecycle hook.
+   */
+  readonly toolIds: ReadonlySet<string>;
 }
 
 /** One immutable selection retained across approval legs, never re-read from Settings. */
