@@ -36,6 +36,7 @@ describe('AssistantUiPanelWrapper — forge writer routing', () => {
       deleteThread: vi.fn(),
       listThreads: vi.fn(async () => []),
       ownsThread: vi.fn(async (threadId: string) => threadId === 'host-thread'),
+      renameThread: vi.fn(),
       renderThread: vi.fn(),
       updateThreadBinding,
       workspaceRepository: (repository) => repository,

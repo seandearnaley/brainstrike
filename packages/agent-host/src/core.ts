@@ -26,6 +26,7 @@ import {
 import {
   createHostRunContext,
   foldHostAcceptedCommand,
+  foldHostInteraction,
   HostCommandLedger,
   hasHostInteractionResponse,
   type HostRunState as Run,
@@ -75,6 +76,7 @@ import {
   finishApprovedHostResults,
   resolveHostApprovalInput,
 } from './run-continuation.js';
+import { HostThreadTitleState } from './thread-title-state.js';
 import { HostThreadWorkspaceState } from './workspace-state.js';
 
 export { jsonValue } from './json-value.js';
@@ -91,6 +93,16 @@ export class HostCore {
   private readonly commands = new HostCommandLedger();
   private readonly mcpInputs = new HostMcpInputState();
   private readonly threads = new Set<string>();
+  private readonly titles = new HostThreadTitleState((params, event) =>
+    this.accept(
+      params.threadId,
+      'thread/rename',
+      params,
+      { accepted: true },
+      [event],
+      this.foldRows
+    )
+  );
   private readonly workspaces = new HostThreadWorkspaceState((method, params, event, durability) =>
     this.accept(
       params.threadId,
@@ -170,6 +182,7 @@ export class HostCore {
 
   private fold(row: HostLogRow): void {
     this.mcpInputs.fold(row);
+    this.titles.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
     switch (event.type) {
@@ -184,30 +197,10 @@ export class HostCore {
       case 'model.messages':
         foldHostConversationMessages(this.runs, event);
         break;
-      case 'interaction.requested': {
-        const run = this.runs.get(event.runId);
-        if (!run) {
-          throw new Error('Interaction references an unknown run');
-        }
-        const runtimeInput = run.liveInputs.get(event.toolCallId);
-        run.approvals.set(event.interactionId, {
-          event,
-          ...(runtimeInput ? { runtimeInput } : {}),
-        });
-        run.paused = true;
+      case 'interaction.requested':
+      case 'interaction.responded':
+        foldHostInteraction(this.runs, event);
         break;
-      }
-      case 'interaction.responded': {
-        const approval = this.runs.get(event.runId)?.approvals.get(event.interactionId);
-        if (approval) {
-          if ('decision' in event) {
-            approval.decision = event.decision;
-          } else {
-            approval.resumeData = event.resumeData;
-          }
-        }
-        break;
-      }
       case 'effect.started':
         this.runs.get(event.runId)?.started.add(event.toolCallId);
         break;
@@ -253,8 +246,12 @@ export class HostCore {
     return () => this.listeners.delete(listener);
   }
 
-  listThreads(): { threadId: string }[] {
-    return [...this.threads].map((threadId) => ({ threadId }));
+  listThreads(): HostResults['thread/list']['threads'] {
+    return [...this.threads].map((threadId) => ({ threadId, ...this.titles.read(threadId) }));
+  }
+
+  renameThread(params: HostParams<'thread/rename'>): Promise<{ accepted: true }> {
+    return this.command('thread/rename', params, () => this.titles.rename(params));
   }
 
   read(threadId: string, fromSeq: number): Promise<HostLogRow[]> {
@@ -385,6 +382,7 @@ export class HostCore {
         this.conversationIds.delete(commandId);
       }
       this.threads.delete(params.threadId);
+      this.titles.forget(params.threadId);
       this.workspaces.forget(params.threadId);
       this.mcpInputs.forgetThread(params.threadId);
       for (const run of runs) {
