@@ -32,6 +32,8 @@ export type HostPlatformFactory = (
 export interface HostProcessParent {
   listen(cancel: () => void): () => void;
   report(message: StartupMessage): Promise<void>;
+  /** The launching parent may bind private client transports once Core is open. */
+  started?(host: AgentHost): void;
 }
 
 const Factory = z.custom<HostPlatformFactory>((value: unknown) => typeof value === 'function');
@@ -197,6 +199,7 @@ export async function runAgentHostProcess(
       socket.pipe(process.stdout);
     }
     controller.signal.throwIfAborted();
+    parent?.started?.(acquired);
     ready = true;
     await publish({ event: 'ready' });
     await host.closed;

@@ -36,7 +36,7 @@ import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-sto
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
-import type { HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
+import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
 import {
   type HostEvent,
   type HostLogRow,
@@ -51,6 +51,7 @@ import {
   createAdmittedHostSdkTools,
   decideHostSdkApproval,
   ensureHostRunAdmission,
+  hostRunCommandRequest,
   hostRunToolDecision,
   hostRunTools,
   hostStepInteractions,
@@ -67,6 +68,7 @@ import {
   hostRegeneratePosition,
   hostRunAncestors,
   hostRunContext,
+  hostStartCommandRecord,
   hostStartPosition,
 } from './run-branch.js';
 
@@ -419,16 +421,26 @@ export class HostCore {
     });
   }
 
-  startRun(params: HostParams<'run/start'>): Promise<{ runId: string }> {
-    return this.command('run/start', params, () =>
-      this.admitRun('run/start', params, () => hostStartPosition(this.runs.values(), params))
+  startRun(params: HostParams<'run/start'>, origin?: HostClientOrigin): Promise<{ runId: string }> {
+    const record = hostStartCommandRecord(params);
+    return this.command('run/start', record, () =>
+      this.admitRun(
+        'run/start',
+        params,
+        origin,
+        () => hostStartPosition(this.runs.values(), params),
+        record
+      )
     );
   }
 
   /** A new answer to an existing committed user message, on a sibling branch. */
-  regenerateRun(params: HostParams<'run/regenerate'>): Promise<{ runId: string }> {
+  regenerateRun(
+    params: HostParams<'run/regenerate'>,
+    origin?: HostClientOrigin
+  ): Promise<{ runId: string }> {
     return this.command('run/regenerate', params, () =>
-      this.admitRun('run/regenerate', params, () =>
+      this.admitRun('run/regenerate', params, origin, () =>
         hostRegeneratePosition(this.runs.values(), params)
       )
     );
@@ -438,7 +450,9 @@ export class HostCore {
   private async admitRun(
     method: 'run/start' | 'run/regenerate',
     params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
-    position: () => HostRunPosition
+    origin: HostClientOrigin | undefined,
+    position: () => HostRunPosition,
+    record: { readonly commandId: string } = params
   ): Promise<{ runId: string }> {
     assertHostRunAdmissible(this.threads, this.runs.values(), this.conversationIds, params);
     const selected = position();
@@ -448,11 +462,7 @@ export class HostCore {
     let release: (() => void) | undefined;
     try {
       admission = await acquireHostRunAdmission(this.platform, {
-        ...(params.configuration ? { configuration: params.configuration } : {}),
-        modelId: params.modelId,
-        prompt: selected.prompt,
-        signal: controller.signal,
-        threadId: params.threadId,
+        ...hostRunCommandRequest(params, origin, selected.prompt, controller.signal),
         ...this.workspaces.admissionBinding(params.threadId),
       });
       controller.signal.throwIfAborted();
@@ -470,7 +480,7 @@ export class HostCore {
       }
       run.release = release;
       const result = { runId: run.id };
-      await this.accept(params.threadId, method, params, result, [started]);
+      await this.accept(params.threadId, method, record, result, [started]);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);

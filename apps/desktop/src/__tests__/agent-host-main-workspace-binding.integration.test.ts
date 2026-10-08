@@ -13,6 +13,7 @@ import {
   DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
 } from '@brainstrike/assistant-contract';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
+import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
 import { RootLock, StateStore } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
 import {
@@ -27,6 +28,7 @@ import {
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { desktopCredentialStoreSelection } from '../secrets';
 
 /** Actual Node ports expose the same MessageEvent contract as the utility transport. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -119,6 +121,12 @@ test('actual Core binding commands reach the live Main owner over the private pl
   let core: HostCore | undefined;
   try {
     store = await StateStore.open(root);
+    // Production launches the host on the profile credential store Settings writes
+    // (a private file in test mode); the provider key resolves there, in Node.
+    const credentialStore = desktopCredentialStoreSelection(root, true);
+    const settings = createHostCredentials({ selection: credentialStore });
+    await settings.secrets().saveKey('openai', 'synthetic-main-binding-key');
+    await settings.close();
     expect(
       installParentPlatformPort({ data: { event: 'platform-capabilities' }, ports: [nodePort] })
     ).toBe(true);
@@ -130,7 +138,8 @@ test('actual Core binding commands reach the live Main owner over the private pl
         },
         signal: new AbortController().signal,
         store,
-      }
+      },
+      { credentialStore }
     );
     core = await HostCore.open(store, platform, () => () => undefined);
     const { threadId } = await core.startThread({ commandId: randomUUID() });

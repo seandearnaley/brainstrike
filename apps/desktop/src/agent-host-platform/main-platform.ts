@@ -32,7 +32,7 @@ export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools
 export interface DesktopPlatformCapabilities {
   /** Join Main-owned Root borrowers before Core releases its canonical writer. */
   closeRootCapabilities?(): Promise<void>;
-  /** The Node host always composes its MCP runtime, which reaches Main's remaining MCP stores through these. */
+  /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
   readPermissionPolicy(

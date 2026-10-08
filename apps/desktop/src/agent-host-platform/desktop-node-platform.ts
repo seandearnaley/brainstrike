@@ -158,6 +158,14 @@ export async function createHostPlatform(
         if (findProviderDefinition(selectedProvider)?.authType !== 'oauth_subscription') {
           return await host.resolveProviderAuth(selectedProvider);
         }
+        // Signed legal gate, constraint 4: subscription auth only for a run a
+        // visible desktop client admitted. CLI and other socket clients, and
+        // restart recovery with no live client, fail closed.
+        if (admission.origin !== 'desktop-ui') {
+          throw new Error(
+            'The ChatGPT subscription provider is available only to runs started from an interactive desktop window.'
+          );
+        }
         const response = await request(
           'platform/auth',
           { provider: selectedProvider, threadId: admission.threadId },
@@ -336,6 +344,7 @@ export async function createHostPlatform(
       throw new Error('Desktop provider auth requires an admitted thread selection');
     },
     startup,
+    storeProviderCredential: host.storeProviderCredential,
     validateWorkspaceBinding: async ({ binding, signal, threadId }) => {
       z.strictObject({ accepted: z.literal(true) }).parse(
         await request('platform/workspace/validate', { binding, threadId }, signal)

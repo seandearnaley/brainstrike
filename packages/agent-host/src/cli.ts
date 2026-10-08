@@ -8,7 +8,7 @@ import { attachAgentHost, type HostClient } from './client.js';
 import { createAgentHostSpawner } from './launcher.js';
 import type { HostPlatformLaunchOptions } from './platform-launch-options.js';
 import { isProcessEntrypoint } from './process-entrypoint.js';
-import { HOST_METHOD_SCHEMAS } from './protocol.js';
+import { HOST_METHOD_SCHEMAS, type HostLoginCredential, type HostParams } from './protocol.js';
 import {
   type CliWorkspaceRunInput,
   CliWorkspaceRunInputSchema,
@@ -21,7 +21,7 @@ export interface HostCliOutput {
 export interface HostCliDefaults {
   readonly platformModule?: string;
 }
-function required(value: string | undefined, name: string): string {
+function required<T>(value: T | undefined, name: string): T {
   if (!value) {
     throw new Error(`Missing --${name}`);
   }
@@ -29,6 +29,7 @@ function required(value: string | undefined, name: string): string {
 }
 
 type CliStringOption =
+  | 'aws-profile'
   | 'command-id'
   | 'credential-file'
   | 'credential-service'
@@ -40,6 +41,8 @@ type CliStringOption =
   | 'model'
   | 'platform'
   | 'prompt'
+  | 'provider'
+  | 'region'
   | 'resume-data'
   | 'root'
   | 'run'
@@ -63,6 +66,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
     allowPositionals: true,
     args,
     options: {
+      'aws-profile': { type: 'string' },
       'command-id': { type: 'string' },
       'credential-file': { type: 'string' },
       'credential-service': { type: 'string' },
@@ -78,6 +82,8 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'non-interactive': { type: 'boolean' },
       platform: { type: 'string' },
       prompt: { type: 'string' },
+      provider: { type: 'string' },
+      region: { type: 'string' },
       'resume-data': { type: 'string' },
       root: { type: 'string' },
       run: { type: 'string' },
@@ -107,6 +113,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'interaction respond',
       'interaction resume',
       'log follow',
+      'auth login',
     ].includes(command)
   ) {
     throw new Error('Unknown host command');
@@ -175,6 +182,49 @@ function assertCredentialAuthority(spawned: boolean, values: HostCliArguments['v
   }
 }
 
+async function readCliSecret(input: NodeJS.ReadableStream): Promise<string> {
+  let text = '';
+  for await (const chunk of input) {
+    text += String(chunk);
+  }
+  const secret = text.trim();
+  if (!secret) {
+    throw new Error('auth login reads the secret from stdin, and stdin was empty');
+  }
+  return secret;
+}
+
+async function readCliLogin(
+  command: string,
+  values: HostCliArguments['values'],
+  input: NodeJS.ReadableStream
+): Promise<HostParams<'auth/login'> | undefined> {
+  if (command !== 'auth login') {
+    return;
+  }
+  const provider = required(values.provider, 'provider');
+  return { credential: await readCliLoginCredential(values, input), provider };
+}
+
+async function readCliLoginCredential(
+  values: HostCliArguments['values'],
+  input: NodeJS.ReadableStream
+): Promise<HostLoginCredential> {
+  const region = values.region;
+  if (values['aws-profile']) {
+    return {
+      mode: 'profile_chain',
+      profile: values['aws-profile'],
+      region: required(region, 'region'),
+      type: 'aws',
+    };
+  }
+  const secret = await readCliSecret(input);
+  return region
+    ? { bearerKey: secret, mode: 'bearer', region, type: 'aws' }
+    : { key: secret, type: 'api_key' };
+}
+
 function cliWorkspaceConfiguration(input: CliWorkspaceRunInput | undefined): {
   configuration?: CliWorkspaceRunInput;
 } {
@@ -203,6 +253,10 @@ run stop --thread <id> --run <id>
 interaction respond --thread <id> --run <id> --interaction <id> --decision approve|deny
 interaction resume --thread <id> --run <id> --interaction <id> --resume-data <json>
 log follow --thread <id> [--from-seq <n>]
+auth login --provider <id> [--region <aws region> [--aws-profile <name>]]
+
+auth login reads the API key or AWS bearer key from stdin, never from arguments.
+--aws-profile stores a named AWS profile chain and reads no secret.
 
 Question answers use {"answer":"text"} or {"answer":["choice 1","choice 2"]}.
 Plan decisions use {"action":"approved"} or {"action":"rejected","feedback":"reason"}.
@@ -225,6 +279,8 @@ Run signals stop and join its execution; attach signals detach.
 `);
     return;
   }
+  // The secret is read before any host starts, so empty input never spawns one.
+  const login = await readCliLogin(command, values, process.stdin);
   let spawned = false;
   const attachment = await launchHost(
     resolve(required(values['data-root'] ?? values.root, 'data-root')),
@@ -257,6 +313,10 @@ Run signals stop and join its execution; attach signals detach.
   try {
     assertCredentialAuthority(spawned, values);
     switch (command) {
+      case 'auth login': {
+        print(await client.request('auth/login', required(login, 'provider')));
+        break;
+      }
       case 'host start':
       case 'host status': {
         const { hostVersion, pid, protocolVersion, start } = client.record;
