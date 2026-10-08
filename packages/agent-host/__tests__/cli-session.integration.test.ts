@@ -19,6 +19,7 @@ import {
   removeFixtureRoot,
 } from './fixtures/cooperative-host-fixture.js';
 import {
+  FixtureOutput,
   observeFixtureChild,
   recordFixtureEvent,
   startFixtureConsole,
@@ -195,6 +196,22 @@ async function cli(dataRoot: string, args: string[]): Promise<unknown> {
   }
 }
 
+async function waitForWindowsOwnerVerification(
+  output: FixtureOutput,
+  ownerRecord: Pick<HostRecord, 'pid' | 'start'>
+): Promise<void> {
+  // A pipe chunk can end anywhere in the JSON; only the newline frames a record.
+  // The existing enclosing test deadline and output failure still bound this wait.
+  await output.waitFor('stdout', '\n');
+  const stdout = output.stdout();
+  const record = stdout.slice(0, stdout.indexOf('\n'));
+  expect(WindowsOwnerJoinMessage.parse(JSON.parse(record))).toEqual({
+    event: 'owner-handle-verified',
+    pid: ownerRecord.pid,
+    start: ownerRecord.start,
+  });
+}
+
 async function pinWindowsOwner(ownerRecord: HostRecord): Promise<PinnedWindowsOwner> {
   const powershell = process.env['M3_WINDOWS_POWERSHELL'] ?? 'pwsh.exe';
   const child = spawn(
@@ -247,10 +264,7 @@ async function pinWindowsOwner(ownerRecord: HostRecord): Promise<PinnedWindowsOw
   void pinned.joined.catch(() => undefined);
   // Pin and verify the real owner before SIGINT can make an unpinned StartTime
   // query race its exit. The existing enclosing test owns the deadline.
-  await observed.output.waitFor('stdout', '"event":"owner-handle-verified"');
-  expect(
-    WindowsOwnerJoinMessage.parse(JSON.parse(observed.output.stdout().trim().split('\n')[0]!))
-  ).toEqual({ event: 'owner-handle-verified', pid: ownerRecord.pid, start: ownerRecord.start });
+  await waitForWindowsOwnerVerification(observed.output, ownerRecord);
   recordFixtureEvent('sigint-owner-handle-pinned', {
     identity: { executable: process.execPath, pid: ownerRecord.pid, start: ownerRecord.start },
   });
@@ -329,6 +343,43 @@ afterEach(async (context) => {
   observations.clear();
   windowsOwnerJoins.clear();
 });
+
+test.each(['before closing brace', 'before newline'] as const)(
+  'Windows owner verification waits for a newline-terminated record (%s)',
+  async (split) => {
+    // Captured from the existing real handle observer; split transport delivery,
+    // preserving the payload and its exact PID/FILETIME verification assertion.
+    const ownerRecord = { pid: 39_756, start: '134358926786937682' };
+    const record = '{"start":"134358926786937682","pid":39756,"event":"owner-handle-verified"}';
+    const output = new FixtureOutput();
+    let state: 'pending' | 'verified' | 'failed' = 'pending';
+    const verification = waitForWindowsOwnerVerification(output, ownerRecord).then(
+      () => {
+        state = 'verified';
+      },
+      (cause: unknown) => {
+        state = 'failed';
+        throw cause;
+      }
+    );
+    void verification.catch(() => undefined);
+    try {
+      const splitAt = split === 'before closing brace' ? record.length - 1 : record.length;
+      output.accept('stdout', record.slice(0, splitAt));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(state).toBe('pending');
+      output.accept('stdout', record.slice(splitAt));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(state).toBe('pending');
+      output.accept('stdout', '\r\n');
+      await verification;
+      expect(state).toBe('verified');
+    } finally {
+      output.fail(new Error('Split-record fixture observation finished'));
+      await verification.catch(() => undefined);
+    }
+  }
+);
 
 test.each(['approve', 'deny'] as const)(
   'ordinary run and attach share the committed CLI decision (%s)',
