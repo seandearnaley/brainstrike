@@ -4,7 +4,12 @@ import {
   parseMcpUpdateTaskParams,
   type TaskStatus,
 } from '@brainstrike/mcp-tasks-extension';
-import type { ElicitRequest, ElicitResult, JSONObject } from '@modelcontextprotocol/client';
+import {
+  type ElicitRequest,
+  type ElicitResult,
+  type JSONObject,
+  ProtocolError,
+} from '@modelcontextprotocol/client';
 import {
   fulfillMcpElicitationRequest,
   type McpClientHandlerContext,
@@ -76,13 +81,41 @@ class McpTaskInputWithdrawnError extends Error {
   }
 }
 
+/**
+ * A dispatched `tasks/update` for this input ended with neither the server's
+ * acknowledgement nor its error response, so the server may have applied it.
+ * The answer is never sent again automatically (pinned ext-tasks 2026-07-28,
+ * tasks.md L377: the ack is eventually consistent, so a poll that still lists
+ * the key proves nothing; L379: ignoring an answered key is only a SHOULD).
+ */
+export class McpTaskInputDeliveryUnknownError extends Error {
+  constructor(
+    readonly taskId: string,
+    readonly inputKey: string
+  ) {
+    super(
+      `MCP task "${taskId}" input "${inputKey}" has an unknown delivery outcome; it is not resent.`
+    );
+    this.name = 'McpTaskInputDeliveryUnknownError';
+  }
+}
+
+/**
+ * - `pending`: no acknowledgement yet. Nothing was sent, or every send drew a
+ *   JSON-RPC error response, so a later observation may send the same answer.
+ * - `acknowledged`: the server returned the empty-result ack (L377). Only that
+ *   positive response sets it, never a later task status.
+ * - `unknown`: a send ended without either response. It is terminal for the key.
+ */
+type InputDelivery = 'acknowledged' | 'pending' | 'unknown';
+
 interface InputOperation {
-  acknowledged: boolean;
   readonly controller: AbortController;
   readonly decision: Promise<ElicitResult>;
   delivery: Promise<void> | undefined;
   readonly fingerprint: string;
   readonly inputKey: string;
+  outcome: InputDelivery;
   retired: boolean;
   readonly taskId: string;
 }
@@ -331,7 +364,8 @@ export class McpTaskInteraction {
    * calls this when its sole poller for the task ends while the session stays
    * open: nothing can observe the outcome of a late answer, so none may be
    * delivered. The durable handle stays recoverable, and a recovered poller
-   * that observes the same input key presents it afresh.
+   * that observes the same input key presents it afresh, unless an answer to
+   * that key was already sent with an unknown outcome.
    */
   withdraw(taskId: string): void {
     this.requireOpen();
@@ -356,7 +390,7 @@ export class McpTaskInteraction {
     return Object.freeze({
       activeCancellations: this.cancellations.size,
       activeInputs: [...this.inputs.values()].filter(
-        (operation) => !(operation.acknowledged || operation.retired)
+        (operation) => operation.outcome === 'pending' && !operation.retired
       ).length,
       inputKeys: this.inputs.size,
       subscriptionActive: this.subscription !== undefined,
@@ -371,10 +405,10 @@ export class McpTaskInteraction {
     const identity = inputIdentity(taskId, inputKey);
     const fingerprint = canonicalJson(request);
     let operation = this.inputs.get(identity);
-    if (operation?.retired) {
-      // A superseded request was withdrawn by the server; re-requesting the
-      // key restarts the exactly-once cycle with a fresh operation. The
-      // retired one was already aborted and settles on its own.
+    if (operation?.retired && operation.outcome !== 'unknown') {
+      // A superseded or withdrawn request that was never possibly delivered:
+      // re-requesting the key starts a fresh operation. The retired one was
+      // already aborted and settles on its own. An unknown delivery stays fenced.
       this.inputs.delete(identity);
       operation = undefined;
     }
@@ -388,12 +422,12 @@ export class McpTaskInteraction {
       const controller = new AbortController();
       const decision = this.resolveInput(taskId, inputKey, request, controller.signal);
       const created: InputOperation = {
-        acknowledged: false,
         controller,
         decision,
         delivery: undefined,
         fingerprint,
         inputKey,
+        outcome: 'pending',
         retired: false,
         taskId,
       };
@@ -401,29 +435,27 @@ export class McpTaskInteraction {
       this.inputs.set(identity, operation);
       void decision.catch(() => undefined);
     }
-    if (operation.acknowledged) {
+    if (operation.outcome === 'acknowledged') {
       return;
+    }
+    if (operation.outcome === 'unknown') {
+      throw new McpTaskInputDeliveryUnknownError(taskId, inputKey);
     }
     if (operation.delivery) {
       return await operation.delivery;
     }
     let delivery: Promise<void>;
-    delivery = this.deliverInput(taskId, inputKey, operation.decision, operation.controller.signal)
-      .then(
-        () => {
-          operation.acknowledged = true;
-        },
-        (error: unknown) => {
-          // A withdrawal by this coordinator's own cancel() finishes the
-          // observation; cancel() reports the cancellation outcome. Decide on
-          // our own state, not the error: a transport's abort listener can
-          // reject an in-flight tasks/update first with its own error.
-          const { signal } = operation.controller;
-          if (!(signal.aborted && signal.reason instanceof McpTaskInputWithdrawnError)) {
-            throw error;
-          }
+    delivery = this.deliverInput(operation)
+      .catch((error: unknown) => {
+        // A withdrawal by this coordinator's own cancel() finishes the
+        // observation; cancel() reports the cancellation outcome. Decide on
+        // our own state, not the error: a transport's abort listener can
+        // reject an in-flight tasks/update first with its own error.
+        const { signal } = operation.controller;
+        if (!(signal.aborted && signal.reason instanceof McpTaskInputWithdrawnError)) {
+          throw error;
         }
-      )
+      })
       .finally(() => {
         if (operation.delivery === delivery) {
           operation.delivery = undefined;
@@ -458,26 +490,36 @@ export class McpTaskInteraction {
     );
   }
 
-  private async deliverInput(
-    taskId: string,
-    inputKey: string,
-    decision: Promise<ElicitResult>,
-    inputSignal: AbortSignal
-  ): Promise<void> {
+  private async deliverInput(operation: InputOperation): Promise<void> {
+    const { controller, decision, inputKey, taskId } = operation;
     const taskController = this.taskControllers.get(taskId);
     if (!taskController) {
       throw new Error(`MCP task "${taskId}" has no live interaction scope.`);
     }
-    const signal = AbortSignal.any([this.controller.signal, taskController.signal, inputSignal]);
+    const signal = AbortSignal.any([
+      this.controller.signal,
+      taskController.signal,
+      controller.signal,
+    ]);
     const response = await raceAbort(decision, signal);
-    await raceAbort(
-      this.client.requestExtension(
-        MCP_TASKS_UPDATE_REQUEST_CONTRACT,
-        parseMcpUpdateTaskParams({ inputResponses: { [inputKey]: response }, taskId }),
-        { signal }
-      ),
-      signal
-    );
+    const params = parseMcpUpdateTaskParams({ inputResponses: { [inputKey]: response }, taskId });
+    try {
+      await raceAbort(
+        this.client.requestExtension(MCP_TASKS_UPDATE_REQUEST_CONTRACT, params, { signal }),
+        signal
+      );
+    } catch (error) {
+      // On an outbound request the SDK raises ProtocolError only for the
+      // server's JSON-RPC error response: a definite answer that is not the
+      // ack. The key stays pending, so a later observation may resend the same
+      // answer, as before. A lost response, transport failure, timeout or abort
+      // after the send may have been applied, so the key is fenced as unknown.
+      if (!ProtocolError.isInstance(error)) {
+        operation.outcome = 'unknown';
+      }
+      throw error;
+    }
+    operation.outcome = 'acknowledged';
   }
 
   private async runCancellation(
@@ -534,7 +576,7 @@ export class McpTaskInteraction {
 
   private withdrawInputs(taskId: string): void {
     for (const operation of this.inputs.values()) {
-      if (operation.taskId !== taskId || operation.acknowledged || operation.retired) {
+      if (operation.taskId !== taskId || operation.outcome !== 'pending' || operation.retired) {
         continue;
       }
       operation.retired = true;
