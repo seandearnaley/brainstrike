@@ -17,7 +17,6 @@ import {
 } from '@brainstrike/agent-host';
 import {
   CliWorkspaceRootsSchema,
-  materializeCliWorkspaceIntent,
   readCliWorkspaceRunInput,
   revalidateCliWorkspaceRoots,
   selectCliWorkspaceRoots,
@@ -37,6 +36,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-repository';
+import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
 import { z } from 'zod';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
 import {
@@ -47,6 +47,7 @@ import { deriveAssistantTurnAuthInput } from '../assistant-server/provider-auth-
 import { prepareRequestSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
+import { readWorkspaceTextFile } from '../assistant-server/workspace-text-file-reader';
 import { getDatabase } from '../db-main';
 import { readDesktopMcpHostSnapshot } from '../ipc-mcp';
 import { getDesktopMcpHostRuntime } from '../mcp/host-runtime';
@@ -68,6 +69,13 @@ interface DesktopCatalogSelection {
 
 function desktopSystemFields(system: string | undefined): { readonly system?: string } {
   return system === undefined ? {} : { system };
+}
+
+function desktopContextReaderFields(
+  restricted: boolean,
+  readWorkspaceFile: WorkspaceFileReader
+): { readonly readWorkspaceFile?: WorkspaceFileReader } {
+  return restricted ? { readWorkspaceFile } : {};
 }
 
 function desktopDurableConfiguration(
@@ -155,13 +163,15 @@ async function readDesktopIntent(
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>
 ): Promise<z.output<typeof PlatformClientConfigurationSchema>> {
   const workspaceInput = readCliWorkspaceRunInput(request.configuration);
-  if (workspaceInput && request.snapshot) {
-    throw new Error('CLI workspace input cannot replace a committed recovery intent');
+  if (workspaceInput) {
+    // BST-1943: a subset envelope replaced admitted settings with construction
+    // defaults. The existing full-intent owner must supply this capability.
+    throw new Error(
+      '[ERR_CLI_WORKSPACE_OWNER_INTENT_UNAVAILABLE] CLI workspace reduction requires the existing full intent owner'
+    );
   }
-  const captured = workspaceInput
-    ? undefined
-    : (request.configuration ?? request.snapshot?.configuration['intent']);
-  const owner = PlatformClientConfigurationSchema.parse(
+  const captured = request.configuration ?? request.snapshot?.configuration['intent'];
+  return PlatformClientConfigurationSchema.parse(
     captured ?? {
       enabledNativeToolIds: DESKTOP_NATIVE_TOOLS.map((tool) => tool.id),
       memoryOptions: {
@@ -177,11 +187,6 @@ async function readDesktopIntent(
       workspaceInstructionsPreference: { masterEnabled: true, oversizedOptInByRootId: {} },
     }
   );
-  return workspaceInput
-    ? PlatformClientConfigurationSchema.parse(
-        materializeCliWorkspaceIntent(owner, workspaceInput.workspace)
-      )
-    : owner;
 }
 
 function resolveDesktopMemorySettings(
@@ -218,6 +223,26 @@ function resolveDesktopMemorySettings(
   return { memorySettings, observerTarget };
 }
 
+function desktopContextReader(
+  request: HostRunAdmissionRequest,
+  readRoots: () => Promise<NonNullable<RuntimeData['workspaceRoots']>>,
+  restricted: boolean
+): WorkspaceFileReader {
+  // BST-1943: final context validation allowed a later read after revocation.
+  return async (args) => {
+    request.signal.throwIfAborted();
+    const currentRoots = await readRoots();
+    if (restricted && !currentRoots.some((root) => root.path === args.rootPath)) {
+      throw new Error('Context reader root is outside the admitted workspace selection');
+    }
+    request.signal.throwIfAborted();
+    const result = await readWorkspaceTextFile(args);
+    await readRoots();
+    request.signal.throwIfAborted();
+    return result;
+  };
+}
+
 async function createDesktopNativeTools(
   db: Awaited<ReturnType<typeof getDatabase>>,
   configuration: z.output<typeof PlatformModelConfigurationSchema>,
@@ -226,6 +251,7 @@ async function createDesktopNativeTools(
   budget: ReturnType<typeof resolveScaledToolResultBudget>,
   request: HostRunAdmissionRequest
 ): Promise<{
+  readonly readWorkspaceFile: WorkspaceFileReader;
   readonly revalidateWorkspace: () => Promise<void>;
   readonly runtime: RuntimeData;
   readonly tools: Record<string, import('@brainstrike/agent-host').HostTool>;
@@ -254,6 +280,7 @@ async function createDesktopNativeTools(
   const revalidateWorkspace = async (): Promise<void> => {
     await freshRoots();
   };
+  const readWorkspaceFile = desktopContextReader(request, freshRoots, selection !== undefined);
   const focused = roots.find((root) => root.rootId === intent.selectionFolderId);
   if (intent.selectionFolderId && !focused) {
     throw new Error('The selected workspace root is no longer mounted');
@@ -356,7 +383,13 @@ async function createDesktopNativeTools(
       },
     ])
   );
-  return { revalidateWorkspace, runtime, tools, ...(workspaceSkills ? { workspaceSkills } : {}) };
+  return {
+    readWorkspaceFile,
+    revalidateWorkspace,
+    runtime,
+    tools,
+    ...(workspaceSkills ? { workspaceSkills } : {}),
+  };
 }
 
 /** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
@@ -468,6 +501,10 @@ export function productionDesktopCapabilities(
         policies.set(request.threadId, permissionPolicy);
         const system = await readDesktopHostSystemContext({
           inputTokenLimit,
+          ...desktopContextReaderFields(
+            intent.cliWorkspace !== undefined,
+            native.readWorkspaceFile
+          ),
           request,
           runtime: native.runtime,
           tools,
