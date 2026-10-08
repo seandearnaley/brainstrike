@@ -122,3 +122,104 @@ test('an allowed provider search runs in one step with no host decision or dispa
     await rm(root, { force: true, recursive: true });
   }
 });
+
+test('a PreToolUse hook matching web search keeps the catalog tool, so the hook blocks the call', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-native-web-search-hook-'));
+  const store = await StateStore.open(root);
+  const tavily = vi.fn(async () => ({ results: [] }));
+  const reason = 'Web search is disabled by a hook';
+  const offered: { readonly name: string; readonly type: string }[][] = [];
+  const model = new MockLanguageModelV4({
+    doStream: async (options) => {
+      offered.push((options.tools ?? []).map(({ name, type }) => ({ name, type })));
+      const answered = options.prompt.some((message) => message.role === 'tool');
+      const chunks: Chunk[] = answered
+        ? [
+            { type: 'stream-start', warnings: [] },
+            { id: 'text-1', type: 'text-start' },
+            { delta: 'Search was blocked.', id: 'text-1', type: 'text-delta' },
+            { id: 'text-1', type: 'text-end' },
+            { finishReason: { raw: 'stop', unified: 'stop' }, type: 'finish', usage },
+          ]
+        : [
+            { type: 'stream-start', warnings: [] },
+            {
+              input: JSON.stringify({ query: 'brainstrike' }),
+              toolCallId: 'client-search',
+              toolName: WEB_SEARCH,
+              type: 'tool-call',
+            },
+            { finishReason: { raw: 'tool_calls', unified: 'tool-calls' }, type: 'finish', usage },
+          ];
+      return {
+        stream: simulateReadableStream({ chunkDelayInMs: null, chunks, initialDelayInMs: null }),
+      };
+    },
+  });
+  const nativeWebSearch = createProviderNativeWebSearchTool(
+    'anthropic',
+    apiKeyAuthInput('fixture-provider-key')
+  ) as unknown as Tool;
+  const preToolUse = vi.fn(async () => ({ blocked: true as const, reason }));
+  const platform: HostPlatform = {
+    admitRun: async () => ({
+      configuration: { provider: 'anthropic' },
+      hooks: {
+        matchesPreToolUse: (toolName: string) => toolName === WEB_SEARCH_TOOL_ID,
+        preToolUse,
+      },
+      model,
+      nativeWebSearch,
+      snapshot: { configuration: {}, maxSteps: 3, toolIdentities: { [WEB_SEARCH]: 'tavily' } },
+      tools: {
+        [WEB_SEARCH]: {
+          description: 'Search the web',
+          execute: tavily,
+          identity: 'tavily',
+          inputSchema: z.object({ query: z.string() }),
+          permissionToolId: WEB_SEARCH_TOOL_ID,
+          risk: 'read',
+        },
+      },
+    }),
+    close: async () => undefined,
+    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
+  };
+  const core = await HostCore.open(store, platform, () => () => undefined);
+  try {
+    const { threadId } = await core.startThread({ commandId: randomUUID() });
+    await core.startRun({
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Search',
+      threadId,
+    });
+    let events: Record<string, unknown>[] = [];
+    await expect
+      .poll(async () => {
+        events = (await core.read(threadId, 0)).map((row) => row.event);
+        return events.find((event) => event['type'] === 'run.finished');
+      })
+      .toMatchObject({ outcome: 'completed' });
+    // The execute-backed catalog tool was offered, never the provider's own search.
+    expect(offered[0]).toEqual([{ name: WEB_SEARCH, type: 'function' }]);
+    expect(preToolUse).toHaveBeenCalledWith({
+      input: { query: 'brainstrike' },
+      toolName: WEB_SEARCH_TOOL_ID,
+    });
+    expect(tavily).not.toHaveBeenCalled();
+    expect(
+      events.filter(
+        (event) =>
+          event['type'] === 'stream.chunk' &&
+          JSON.stringify(event['chunk']).includes('"type":"tool-approval-response"')
+      )
+    ).toEqual([
+      expect.objectContaining({ chunk: expect.objectContaining({ approved: false, reason }) }),
+    ]);
+  } finally {
+    await core.close();
+    await store.close();
+    await rm(root, { force: true, recursive: true });
+  }
+});
