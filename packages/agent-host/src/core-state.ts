@@ -111,6 +111,32 @@ export function hasHostInteractionResponse(pending: PendingInteraction): boolean
     ? pending.decision !== undefined
     : Object.hasOwn(pending, 'resumeData');
 }
+
+/** Folds a committed interaction request or response into its run's pending set. */
+export function foldHostInteraction(
+  runs: ReadonlyMap<string, HostRunState>,
+  event: Extract<HostEvent, { type: 'interaction.requested' | 'interaction.responded' }>
+): void {
+  const run = runs.get(event.runId);
+  if (event.type === 'interaction.requested') {
+    if (!run) {
+      throw new Error('Interaction references an unknown run');
+    }
+    const runtimeInput = run.liveInputs.get(event.toolCallId);
+    run.approvals.set(event.interactionId, { event, ...(runtimeInput ? { runtimeInput } : {}) });
+    run.paused = true;
+    return;
+  }
+  const approval = run?.approvals.get(event.interactionId);
+  if (!approval) {
+    return;
+  }
+  if ('decision' in event) {
+    approval.decision = event.decision;
+  } else {
+    approval.resumeData = event.resumeData;
+  }
+}
 /** A run's committed position in the thread's conversation tree. */
 export interface HostRunBranch {
   /** The committed run its user message follows; null is the thread root. */

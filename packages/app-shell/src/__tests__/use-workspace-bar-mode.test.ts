@@ -77,6 +77,7 @@ function renderComposition() {
   return renderHook(() =>
     useWorkspaceBarMode({
       checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
+      foldersPending: false,
       onHandOffToLocal: vi.fn(),
       onSelectWorktree: vi.fn(),
       primaryRootId: 'r-1',
@@ -104,6 +105,7 @@ describe('useWorkspaceBarMode branch escape', () => {
     renderHook(() =>
       useWorkspaceBarMode({
         checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+        foldersPending: false,
         onHandOffToLocal: vi.fn(),
         onSelectWorktree: vi.fn(),
         primaryRootId: 'r-1',
@@ -130,6 +132,7 @@ describe('useWorkspaceBarMode branch escape', () => {
     renderHook(() =>
       useWorkspaceBarMode({
         checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+        foldersPending: false,
         onHandOffToLocal: vi.fn(),
         onSelectWorktree: vi.fn(),
         primaryRootId: 'r-1',
@@ -188,6 +191,7 @@ describe('useWorkspaceBarMode worktree map checkout intent', () => {
   const onSelectWorktree = vi.fn(() => Promise.resolve());
   const args = {
     checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
+    foldersPending: false,
     onHandOffToLocal,
     onSelectWorktree,
     primaryRootId: 'r-1',
@@ -228,6 +232,30 @@ describe('useWorkspaceBarMode worktree map checkout intent', () => {
 
     rerender();
     expect(onSelectWorktree).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for the selected thread's folders before binding a published worktree", async () => {
+    useWorktreeCheckoutIntentStore.getState().publish({
+      branch: 'bs/bright-fox',
+      path: '/wt',
+      threadId: 'thread-1',
+      worktreeId: 'wt-1',
+    });
+
+    // A freshly mounted bar resolves the thread's primary folder asynchronously;
+    // binding before it settles derives from no primary at all.
+    const { rerender } = renderHook(
+      ({ foldersPending }: { foldersPending: boolean }) =>
+        useWorkspaceBarMode({ ...args, foldersPending, primaryRootId: undefined }),
+      { initialProps: { foldersPending: true } }
+    );
+    await Promise.resolve();
+    expect(onSelectWorktree).not.toHaveBeenCalled();
+    expect(useWorktreeCheckoutIntentStore.getState().pending).not.toBeNull();
+
+    rerender({ foldersPending: false });
+    await waitFor(() => expect(onSelectWorktree).toHaveBeenCalledTimes(1));
+    expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
   });
 
   it('hands off to Local when the intent carries a null worktree id', async () => {

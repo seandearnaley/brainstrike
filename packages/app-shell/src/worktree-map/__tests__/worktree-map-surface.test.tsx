@@ -508,6 +508,7 @@ describe('WorktreeMapSurface', () => {
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       ownsThread: vi.fn(),
+      renameThread: vi.fn(),
       renderThread: vi.fn(),
       updateThreadBinding: vi.fn(),
       workspaceRepository: (repository) => repository,
