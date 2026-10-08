@@ -1,4 +1,5 @@
 import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
+import { noopObserve } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import type { LanguageModelMiddleware, LanguageModelUsage } from 'ai';
 import type { HostRunContext, HostRunOwner } from '../ports.js';
@@ -252,6 +253,33 @@ export class HostMemory implements HostRunOwner {
     return this.admit(() =>
       this.memory.updateWorkingMemory({ ...this.identifiers(), workingMemory })
     );
+  }
+
+  /**
+   * Execute one of the native Memory's own model-facing tools (`listTools`:
+   * working memory, OM recall) with this run's identities, as Mastra's agent
+   * runtime supplies them. The vendor tool validates its own input.
+   */
+  executeTool(name: string, input: unknown, toolCallId: string): Promise<unknown> {
+    return this.admit(async () => {
+      const tool = this.memory.listTools()[name];
+      if (!tool?.execute) {
+        throw new Error(`Native Memory offers this run no ${name} tool`);
+      }
+      const context: Parameters<typeof tool.execute>[1] & { readonly memory: Memory } = {
+        abortSignal: this.identity.signal,
+        agent: {
+          agentId: '',
+          messages: [],
+          ...this.identifiers(),
+          suspend: () => Promise.reject(new Error('Native Memory tools cannot suspend a host run')),
+          toolCallId,
+        },
+        memory: this.memory,
+        observe: noopObserve,
+      };
+      return tool.execute(input, context);
+    });
   }
 
   recordPrompt(request: ProviderRequest): Promise<void> {

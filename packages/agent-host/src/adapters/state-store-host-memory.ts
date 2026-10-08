@@ -117,6 +117,16 @@ export class StateStoreHostMemory implements HostRunOwner {
     return new StateStoreObservationVector(options);
   }
 
+  /** A run's captured bridge: the observation route when OM retrieves by vector. */
+  static createRunVectorBridge(
+    native: StateStoreHostMemoryOptions['native'],
+    options: StateStoreObservationVectorOptions
+  ): StateStoreMemoryVector {
+    return retrievesObservationVectors(native)
+      ? new StateStoreObservationVector(options)
+      : new StateStoreMemoryVector(options);
+  }
+
   static async open(
     context: HostRunContext,
     options: StateStoreHostMemoryOptions
@@ -126,13 +136,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     const resourceRecall =
       semanticRecall && !(typeof recall === 'object' && recall.scope === 'thread');
     const vectorBridge = options.vectorBridge;
-    const observation = options.native.options?.observationalMemory;
-    const observationVectors =
-      observation &&
-      typeof observation === 'object' &&
-      observation.enabled !== false &&
-      typeof observation.retrieval === 'object' &&
-      observation.retrieval.vector === true;
+    const observationVectors = retrievesObservationVectors(options.native);
     if (vectorBridge) {
       vectorBridge.assertOwner(options.resourceId, context.threadId, context.signal);
       if (options.native.vector !== vectorBridge) {
@@ -479,6 +483,16 @@ export class StateStoreHostMemory implements HostRunOwner {
     })();
     return this.closing;
   }
+}
+
+function retrievesObservationVectors(native: StateStoreHostMemoryOptions['native']): boolean {
+  const observation = native.options?.observationalMemory;
+  return (
+    typeof observation === 'object' &&
+    observation.enabled !== false &&
+    typeof observation.retrieval === 'object' &&
+    observation.retrieval.vector === true
+  );
 }
 
 function committedVectorIdentities(

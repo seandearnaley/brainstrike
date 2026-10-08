@@ -11,13 +11,17 @@ import {
 } from '@brainstrike/agent/provider-runtime';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
+import type { VectorProfile } from '@brainstrike/indexer';
 import type { LanguageModel } from 'ai';
 import { z } from 'zod';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
+import type { HostMemory } from './adapters/memory.js';
+import { hostMemoryTools } from './adapters/memory-tools.js';
 import {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
 } from './adapters/state-store-host-memory.js';
+import type { StateStoreMemoryVector } from './adapters/state-store-memory-vector.js';
 import { type HostStateIndex, openHostStateIndex } from './host-state-index.js';
 import { materializeHostProviderModel } from './model-router-sdk.js';
 import type {
@@ -39,7 +43,16 @@ export interface ProductionHostRunConfiguration {
   readonly configuration: RuntimeData;
   readonly durableConfiguration: HostRunSnapshot['configuration'];
   readonly maxSteps: number;
-  readonly memory: Omit<StateStoreHostMemoryOptions, 'store' | 'providerRequestContext'>;
+  readonly memory: Omit<
+    StateStoreHostMemoryOptions,
+    'store' | 'providerRequestContext' | 'vectorBridge'
+  > & {
+    /** Recall/vector-OM embedder and its profile; the host's own state index stores the vectors. */
+    readonly vectors?: {
+      readonly embedder: NonNullable<StateStoreHostMemoryOptions['native']['embedder']>;
+      readonly profile: VectorProfile;
+    };
+  };
   readonly providerRequestContext: ProviderRequestContext;
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
   /** Captured admission auth closure; never part of durable configuration. */
@@ -56,6 +69,8 @@ export interface ProductionHostPlatformOptions {
   readonly forgetThread?: HostPlatform['forgetThread'];
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
+  /** Memory resources whose recall/observation vectors the host's state index stores. */
+  readonly memoryResourceIds?: readonly string[];
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
   readPermissionPolicy(
     threadId?: string
@@ -107,6 +122,22 @@ async function closeMcpAdmission(
   if (failures.length > 0) {
     throw new AggregateError(failures, 'Production MCP admission cleanup failed');
   }
+}
+
+/** Native catalog, MCP and native Memory tools share one identity namespace. */
+function mergeToolCatalogs(
+  ...catalogs: readonly Readonly<Record<string, HostTool>>[]
+): Record<string, HostTool> {
+  const merged: Record<string, HostTool> = {};
+  for (const catalog of catalogs) {
+    for (const [id, binding] of Object.entries(catalog)) {
+      if (Object.hasOwn(merged, id)) {
+        throw new Error(`Host tool catalogs collide on ${id}`);
+      }
+      merged[id] = binding;
+    }
+  }
+  return merged;
 }
 
 /** Node-only production composition; Core remains the sole dispatcher and event writer. */
@@ -180,8 +211,24 @@ export async function createProductionHostPlatform(
   // Register ownership before the first provider, Memory, MCP or index side effect.
   await options.startup.register(close);
   // The host owns its derived state index: thread deletion, purge and blob GC need it.
-  stateIndex = openHostStateIndex(options.startup.store.root);
-  const { indexer } = await stateIndex;
+  stateIndex = openHostStateIndex(options.startup.store.root, options.memoryResourceIds);
+  const index = await stateIndex;
+  // One run's captured vector bridge over the host's own state index.
+  const runVectorBridge = (
+    selected: ProductionHostRunConfiguration,
+    threadId: string,
+    signal: AbortSignal
+  ): StateStoreMemoryVector | undefined => {
+    const vectors = selected.memory.vectors;
+    return vectors
+      ? StateStoreHostMemory.createRunVectorBridge(selected.memory.native, {
+          port: index.vectors,
+          profile: vectors.profile,
+          scope: { resourceId: selected.memory.resourceId, rootId: index.rootId, threadId },
+          signal,
+        })
+      : undefined;
+  };
   return {
     ...(options.validateWorkspaceBinding
       ? { validateWorkspaceBinding: options.validateWorkspaceBinding }
@@ -230,13 +277,30 @@ export async function createProductionHostPlatform(
           : rootModel(selected.configuration, auth);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
-        const authoredTools = { ...selected.tools };
-        for (const [id, binding] of Object.entries(acquired?.mcp.tools ?? {})) {
-          if (Object.hasOwn(authoredTools, id)) {
-            throw new Error('Native and MCP catalog identities collide');
+        let opened: Promise<StateStoreHostMemory> | undefined;
+        const runMemory = async (runId: string): Promise<HostMemory> => {
+          const owner = await opened;
+          if (owner?.memory.identity.runId !== runId) {
+            throw new Error('Memory tool call has no Memory owner for its run');
           }
-          authoredTools[id] = binding;
-        }
+          return owner.memory;
+        };
+        const { vectors, ...memory } = selected.memory;
+        const nativeMemory = (
+          bridge: StateStoreMemoryVector | undefined
+        ): StateStoreHostMemoryOptions['native'] =>
+          bridge && vectors
+            ? { ...memory.native, embedder: vectors.embedder, vector: bridge }
+            : memory.native;
+        const authoredTools = mergeToolCatalogs(
+          selected.tools,
+          acquired?.mcp.tools ?? {},
+          // Declarations only: this admission-scoped bridge is never called.
+          hostMemoryTools(
+            nativeMemory(runVectorBridge(selected, request.threadId, request.signal)),
+            runMemory
+          )
+        );
         // One run-bound registry supplies SDK declarations and approval/restart
         // validation against the concrete resolved model, including MCP opt-out.
         const tools = await prepareHostProviderTools(model, authoredTools);
@@ -247,12 +311,17 @@ export async function createProductionHostPlatform(
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
           model,
-          openRun: (context) =>
-            StateStoreHostMemory.open(context, {
-              ...selected.memory,
+          openRun: (context) => {
+            const bridge = runVectorBridge(selected, context.threadId, context.signal);
+            opened = StateStoreHostMemory.open(context, {
+              ...memory,
+              native: nativeMemory(bridge),
               providerRequestContext: () => selected.providerRequestContext,
               store: options.startup.store,
-            }),
+              ...(bridge ? { vectorBridge: bridge } : {}),
+            });
+            return opened;
+          },
           provider: {
             prepare: async ({ configuration, messages, signal }) => {
               signal.throwIfAborted();
@@ -299,7 +368,7 @@ export async function createProductionHostPlatform(
     readPermissionPolicy: options.readPermissionPolicy,
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
-    stateIndexer: indexer,
+    stateIndexer: index.indexer,
     ...(options.storeProviderCredential
       ? { storeProviderCredential: options.storeProviderCredential }
       : {}),
