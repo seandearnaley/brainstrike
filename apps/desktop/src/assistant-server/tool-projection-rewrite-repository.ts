@@ -9,6 +9,10 @@ import { isNativeToolId, NATIVE_TOOL_ID, type NativeToolId } from '@brainstrike/
 import {
   decodedWorkspaceTextModelOutputChars,
   escapeProjectionPathLineBreaks,
+  type GrepToolResult,
+  grepProjectionHeaderPrefix,
+  parseGrepToolResult,
+  projectGrepSearchModelOutput,
   projectReadWorkspaceFileModelOutput,
   readProjectionHeaderPrefix,
   readStateScope,
@@ -22,11 +26,6 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { getDatabase } from '../db-main';
 import {
-  type GrepToolResult,
-  grepProjectionHeaderPrefix,
-  parseGrepToolResult,
-} from './grep-search-result-contract';
-import {
   decodedPersistedModelOutputChars,
   type RecencyPruneInvocation,
   selectRecencyPruneCandidates,
@@ -37,7 +36,6 @@ import {
   type PersistedToolInvocation,
   type ProjectionRewriteDatabaseProvider,
 } from './tool-projection-rewrite-store';
-import { projectGrepSearchModelOutput } from './workspace-search-model-projections';
 
 const logger = createLogger('ToolProjectionRewriteRepository');
 

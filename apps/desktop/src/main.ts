@@ -1038,7 +1038,12 @@ const nativeIndexActivation = createNativeIndexActivation({
       });
       return createDesktopPlatformPort({
         ...productionDesktopCapabilities(
-          { embeddingHostManager, nativeIndexSearch },
+          {
+            embeddingHostManager,
+            nativeIndexSearch,
+            resolveForgeService: () => forgeService ?? null,
+            resolveWorktreeService: () => worktreeService,
+          },
           async () => {
             const stored = await storage.getItem('permission-policy.v1');
             if (!stored) {

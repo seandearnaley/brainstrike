@@ -15,7 +15,8 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isWithinRoot } from '@brainstrike/host-capabilities/native-tools';
+import type { EditDiagnostic, LspUnavailableReason } from './ports.js';
+import { isWithinRoot } from './workspace-path.js';
 
 /** Overall budget for diagnostics to arrive after opening/updating a file. */
 export const DIAGNOSTIC_TIMEOUT_MS = 6000;
@@ -216,4 +217,27 @@ export function toQueryFailure(raw: RawQueryFailure): LspQueryFailure {
     query: raw.query,
     reason: raw.reason,
   };
+}
+
+/**
+ * Result of an `lspInspect` call (report R2 Phase B). Mirrors core's tool
+ * contract: hover / line diagnostics / definition / implementation groups.
+ * `available:false` carries an honest reason exactly like the diagnostics path.
+ */
+export interface LspInspectionResult {
+  available: boolean;
+  definition?: InspectLocation[];
+  diagnostics?: EditDiagnostic[];
+  hover?: string;
+  implementation?: InspectLocation[];
+  language?: string;
+  message?: string;
+  /**
+   * Legs that did not answer (BST-1614). Present only when non-empty. Any
+   * group named here is UNKNOWN: its omission above is the absence of an
+   * answer, never a verified "there are none". A partial failure deliberately
+   * does NOT flip `available` — a hover that worked is still worth returning.
+   */
+  queryFailures?: LspQueryFailure[];
+  reason?: LspUnavailableReason;
 }

@@ -6,7 +6,6 @@
  */
 import {
   createRunPythonTool,
-  type ExecuteCommandInput,
   type InspectCommandSessionsInput,
   type ManageCommandSessionInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
@@ -34,63 +33,17 @@ import {
   runInspectCommandSessions,
   runManageCommandSession,
 } from './command-session-tools';
-import { runExecuteCommandWithShellCorrelation } from './execute-command-correlation';
-import { projectExecuteCommandModelOutput } from './execute-command-model-projection';
 import { executorGroup } from './native-tool-executor-context';
+import { executeCommandExecutor } from './native-tool-executors-shell';
 import { runQueryDiagnostics } from './query-diagnostics-tool';
 import { projectQuerySelfModelOutput } from './query-self-model-projection';
 import { runQuerySelf, toQuerySelfInputError } from './query-self-tool';
 import { runSkillScript } from './run-skill-script-tool';
 
 export const EXECUTION_TOOL_EXECUTORS = executorGroup({
-  // Arbitrary shell execution is registered like every other native tool and
-  // gated by the permission engine. With enforce-on-by-default, its 'execute'
-  // risk bucket resolves to 'ask', so the run SUSPENDS for per-call approval
-  // before the command runs (approve → execute, decline → skip). A user can set
-  // execute to 'allow'/yolo to run it unprompted, or 'deny' to omit it — that is
-  // the permission gate's job now, not a registration-time conditional.
-  [NATIVE_TOOL_ID.executeCommand]: ({
-    dependencies,
-    resolveActiveDomainCharBudget,
-    runtimeData,
-  }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.executeCommand],
-    // The second arg carries the Mastra ToolExecutionContext, whose abortSignal
-    // we thread into the run so a cancelled run kills the process tree, and whose
-    // stream writer + tool-call id we use to stream incremental stdout/stderr to
-    // the live tool card. Mastra hands a DIFFERENT context shape to a plain tool
-    // object (raw `outputWriter` fn + top-level `toolCallId`) vs a `createTool`
-    // instance (`writer.custom` + `agent.toolCallId`); we accept both.
-    // `resolveShellOutputStreamer` returns undefined when neither is present, so
-    // the command still runs and returns its full captured result — only the
-    // live slices are skipped (capability presence, not a policy fallback).
-    execute: async (input: ToolExecuteInput<ExecuteCommandInput>, options?: ToolExecuteContext) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.executeCommand],
-        input
-      );
-      const stream = resolveShellOutputStreamer(options, (error) => {
-        logToolFailure('executeCommand output streaming failed', error, resolvedInput);
-      });
-      try {
-        // Mis-attribution guard (BST-1392 review) lives in
-        // execute-command-correlation.ts.
-        return await runExecuteCommandWithShellCorrelation(
-          resolvedInput,
-          runtimeData,
-          { signal: resolveGuardedToolSignal(options), ...(stream ? { stream } : {}) },
-          dependencies
-        );
-      } catch (error) {
-        logToolFailure('executeCommand failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.executeCommand,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.executeCommand],
-    toModelOutput: (output: unknown) =>
-      projectExecuteCommandModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
+  // Main correlates a legacy thread's commands through its own worktree/forge services.
+  [NATIVE_TOOL_ID.executeCommand]: (context) =>
+    executeCommandExecutor(() => context.dependencies)(context),
   // Skill execution is capability-gated by the trusted per-request scan
   // engine: no resolver, no tool (the enabled-id filter in assistant-tools.ts
   // treats that omission as the explicit capability result).

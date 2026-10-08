@@ -1,7 +1,7 @@
 import type { RuntimeData } from '@brainstrike/agent';
+import { projectGrepSearchModelOutput } from '@brainstrike/host-capabilities/native-tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { runGrepSearch } from '../../assistant-server/grep-search-tool';
-import { projectGrepSearchModelOutput } from '../../assistant-server/workspace-search-model-projections';
 
 const queryMock = vi.fn();
 const { loggerErrorMock } = vi.hoisted(() => ({

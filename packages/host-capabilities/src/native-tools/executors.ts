@@ -22,6 +22,7 @@ import {
   type WriteWorkspaceFileInput,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import { SEARCH_NATIVE_TOOL_EXECUTORS } from './executors-search.js';
 import {
   runDeleteWorkspaceFile,
   runRenameWorkspaceFile,
@@ -75,6 +76,8 @@ export interface NativeToolBuildContext {
 export const SHARED_NATIVE_TOOL_IDS = [
   NATIVE_TOOL_ID.askUser,
   NATIVE_TOOL_ID.deleteWorkspaceFile,
+  NATIVE_TOOL_ID.findWorkspaceSymbol,
+  NATIVE_TOOL_ID.globWorkspace,
   NATIVE_TOOL_ID.manageCanvas,
   NATIVE_TOOL_ID.manageTaskList,
   NATIVE_TOOL_ID.readWorkspaceDirectory,
@@ -91,6 +94,7 @@ export type SharedNativeToolExecutors = {
 };
 
 export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
+  ...SEARCH_NATIVE_TOOL_EXECUTORS,
   [NATIVE_TOOL_ID.readWorkspaceFile]: ({
     readFileCursorRegistry,
     resolveActiveDomainCharBudget,

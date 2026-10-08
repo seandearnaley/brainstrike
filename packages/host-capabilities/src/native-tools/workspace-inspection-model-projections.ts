@@ -3,9 +3,11 @@ import {
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
 import type {
-  EditDiagnostic,
-  LspUnavailableReason,
-} from '@brainstrike/host-capabilities/native-tools';
+  InspectLocation,
+  LspInspectionResult,
+  LspQueryFailure,
+} from './lsp-inspection-shapes.js';
+import type { EditDiagnostic, LspUnavailableReason } from './ports.js';
 import {
   clipProjectionEnd as clipEnd,
   clipProjectionMiddle,
@@ -16,8 +18,7 @@ import {
   makeWorkspaceTextModelOutput as makeTextModelOutput,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
-} from '@brainstrike/host-capabilities/native-tools';
-import type { InspectLocation, LspInspectionResult, LspQueryFailure } from './lsp-diagnostics';
+} from './workspace-model-projection-helpers.js';
 
 export type WorkspaceInspectionTextModelOutput = WorkspaceTextModelOutput;
 

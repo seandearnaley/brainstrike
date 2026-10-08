@@ -168,7 +168,11 @@ export const PlatformClientConfigurationSchema = z.strictObject({
 export const PlatformNativeRuntimeSchema = z.strictObject({
   boundWorkspaceRootId: Id.optional(),
   provider: Id,
+  /** The focused root's curated files, for the host's workspace-context reads. */
+  selectionFilePaths: z.array(z.string()).optional(),
   selectionFolderId: Id.optional(),
+  /** The request's curated context selection, as Main admitted it. */
+  workspaceContext: PlatformWorkspaceContextSchema.optional(),
   workspaceRootPath: Id.optional(),
   workspaceRoots: CliWorkspaceRootsSchema,
 });

@@ -27,6 +27,7 @@ import {
   DESKTOP_NATIVE_TOOLS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
+  NATIVE_TOOL_ID,
   resolveAutoObservationalMemoryModelTarget,
   resolveToolRiskCategory,
   type SupportedProvider,
@@ -44,20 +45,27 @@ import {
   buildDesktopAssistantTools,
   type DesktopAssistantToolDependencies,
 } from '../assistant-server/assistant-tools';
+import { pgliteGrepIndex } from '../assistant-server/grep-search-tool';
 import { prepareRequestSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
+import {
+  type DesktopWorktreeServices,
+  desktopWorktreeToolDependencies,
+} from '../assistant-server/worktree-tool-dependencies';
 import { getDatabase } from '../db-main';
 import { desktopPlanModeTools, readDesktopHostSystemContext } from './desktop-host-context';
 import type {
   DesktopWorkspaceBindingAuthority,
   DesktopWorkspaceBindingBorrow,
 } from './desktop-workspace-binding';
+import type { DesktopShellCorrelation } from './host-tool-services';
 import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
 import { resolveDesktopMemoryVectors } from './memory-vector-selection';
 import {
   PlatformClientConfigurationSchema,
   PlatformModelConfigurationSchema,
+  PlatformWorkspaceContextSchema,
   platformPermissionPolicy,
 } from './platform-wire';
 
@@ -328,7 +336,7 @@ async function createDesktopNativeTools(
   db: Awaited<ReturnType<typeof getDatabase>>,
   configuration: z.output<typeof PlatformModelConfigurationSchema>,
   intent: z.output<typeof PlatformClientConfigurationSchema>,
-  dependencies: DesktopAssistantToolDependencies,
+  { resolveForgeService, resolveWorktreeService, ...dependencies }: DesktopHostToolServices,
   budget: ReturnType<typeof resolveScaledToolResultBudget>,
   request: HostRunAdmissionRequest,
   workspace?: DesktopWorkspaceBindingBorrow
@@ -444,6 +452,10 @@ async function createDesktopNativeTools(
           },
           {
             ...dependencies,
+            ...desktopWorktreeToolDependencies(
+              { resolveForgeService, resolveWorktreeService },
+              { runId: context?.runId, threadId: context?.threadId }
+            ),
             ...desktopRetrievalScopeFields(
               selection !== undefined || workspace !== undefined,
               currentRoots
@@ -457,7 +469,7 @@ async function createDesktopNativeTools(
     });
   const native = build();
   const tools = Object.fromEntries(
-    Object.entries(native.tools).map(([name, tool]) => [
+    advertisedNativeTools(native.tools, resolveWorktreeService).map(([name, tool]) => [
       name,
       {
         ...tool,
@@ -489,6 +501,26 @@ async function createDesktopNativeTools(
   };
 }
 
+/** Main's tool services for host threads, resolved per run (the worktree services lazily). */
+export type DesktopHostToolServices = DesktopAssistantToolDependencies & DesktopWorktreeServices;
+
+const WORKTREE_TOOL_IDS: ReadonlySet<string> = new Set([
+  NATIVE_TOOL_ID.listWorktrees,
+  NATIVE_TOOL_ID.manageWorktree,
+]);
+
+/** A worktree tool without Main's worktree service cannot run, so it is not advertised. */
+function advertisedNativeTools(
+  tools: Readonly<Record<string, HostTool>>,
+  resolveWorktreeService: DesktopWorktreeServices['resolveWorktreeService']
+): [string, HostTool][] {
+  const entries = Object.entries(tools);
+  if (resolveWorktreeService?.()) {
+    return entries;
+  }
+  return entries.filter(([, tool]) => !WORKTREE_TOOL_IDS.has(tool.permissionToolId ?? ''));
+}
+
 /** What the host's shared native tools need from this admission; roots come back per call. */
 function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['nativeRuntime'] {
   if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
@@ -497,7 +529,11 @@ function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['n
   return {
     ...(runtime.boundWorkspaceRootId ? { boundWorkspaceRootId: runtime.boundWorkspaceRootId } : {}),
     provider: runtime.provider,
+    ...(runtime.selectionFilePaths ? { selectionFilePaths: [...runtime.selectionFilePaths] } : {}),
     ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
+    ...(runtime.workspaceContext
+      ? { workspaceContext: PlatformWorkspaceContextSchema.parse(runtime.workspaceContext) }
+      : {}),
     ...(runtime.workspaceRootPath ? { workspaceRootPath: runtime.workspaceRootPath } : {}),
     workspaceRoots: runtime.workspaceRoots.map(({ displayName, path, rootId }) => ({
       displayName,
@@ -506,8 +542,6 @@ function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['n
     })),
   };
 }
-
-/** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
 
 /** Plan mode admits only the plan-mode tool set; the built-in local provider has no plan mode. */
 function desktopRunTools(
@@ -533,8 +567,35 @@ async function readSavedLocalEmbeddingSelection(
   return await read();
 }
 
+/** Main's worktree/forge correlation of host commands, over the same services as legacy threads. */
+function desktopShellCorrelation(services: DesktopWorktreeServices): DesktopShellCorrelation {
+  return {
+    completed: ({ command, precedingWorktreePaths, rootId, runId, threadId }) => {
+      desktopWorktreeToolDependencies(services, {
+        runId,
+        threadId,
+      }).shellCorrelation?.onCommandCompleted({
+        command,
+        precedingWorktreePaths: precedingWorktreePaths
+          ? new Set(precedingWorktreePaths)
+          : undefined,
+        rootId,
+      });
+    },
+    worktreePaths: async () => {
+      const service = services.resolveWorktreeService?.();
+      if (!service) {
+        return null;
+      }
+      const listed = await service.list();
+      return listed.ok ? listed.value.map((entry) => entry.path) : null;
+    },
+  };
+}
+
+/** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
 export function productionDesktopCapabilities(
-  dependencies: DesktopAssistantToolDependencies,
+  dependencies: DesktopHostToolServices,
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
   workspaceAuthority?: DesktopWorkspaceBindingAuthority,
@@ -644,6 +705,7 @@ export function productionDesktopCapabilities(
     ...(workspaceAuthority
       ? { validateWorkspaceBinding: workspaceAuthority.validateWorkspaceBinding }
       : {}),
+    hostTools: { grepIndex: pgliteGrepIndex, shell: desktopShellCorrelation(dependencies) },
     readConfiguration: async (request) => {
       let workspace: DesktopWorkspaceBindingBorrow | undefined;
       if (request.workspaceBinding && changesThreadWorkspaceScope(request.workspaceBinding)) {

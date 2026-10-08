@@ -10,10 +10,11 @@ import {
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
-import { isSharedNativeToolId } from '@brainstrike/host-capabilities/native-tools';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { isHostExecutedNativeToolId } from './host-executed-tools';
+import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
@@ -42,6 +43,8 @@ export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools
 export interface DesktopPlatformCapabilities {
   /** Join Main-owned Root borrowers before Core releases its canonical writer. */
   closeRootCapabilities?(): Promise<void>;
+  /** Main-owned stores and services the agent host's own tools read (cap-tools). */
+  readonly hostTools?: HostToolServiceCapabilities;
   /** ADR-0007: Main's hidden embedding host, borrowed by a thread's admitted local recall. */
   readonly localEmbedding?: Pick<EmbeddingHostManager, 'queryEmbedding'>;
   /** ADR-0007: Main's hidden llm-host, borrowed by a thread's admitted local observer. */
@@ -262,6 +265,7 @@ export function serveDesktopPlatform(
       return await capabilities.resolveWorkspaceRoot(rootId);
     })
   );
+  serveHostToolServices(connection, execute, selection, capabilities.hostTools);
   connection.onRequest('platform/workspace/roots', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);
@@ -347,8 +351,8 @@ export function serveDesktopPlatform(
         if (!tool) {
           throw new Error('Platform executor is not admitted');
         }
-        if (isSharedNativeToolId(tool.permissionToolId ?? request.toolId)) {
-          throw new Error('Shared native tools execute in the agent host');
+        if (isHostExecutedNativeToolId(tool.permissionToolId ?? request.toolId)) {
+          throw new Error('Host-executed native tools run in the agent host');
         }
         const output = await tool.execute(request.input, {
           ...(request.resumeData === undefined ? {} : { resumeData: request.resumeData }),
