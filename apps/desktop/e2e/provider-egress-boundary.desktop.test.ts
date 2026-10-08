@@ -12,6 +12,7 @@
  * way an inherited shell value arrives: through the provider's base-URL knob in
  * the worker environment. Nothing here can contact a real endpoint.
  */
+import { readFile } from 'node:fs/promises';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Page } from '@playwright/test';
@@ -303,6 +304,36 @@ test.describe('Provider egress boundary (desktop)', () => {
     } finally {
       await electron.dispose();
     }
+  });
+
+  test('OpenRouter model metadata is served only for its recorded identity', async ({
+    modelProvider,
+  }) => {
+    // G1 E2E side: the metadata service's request after its origin moves to
+    // OPENROUTER_BASE_URL (#3543 6054095971). The fixture is the recorded one.
+    const recorded = await readFile(
+      new URL(
+        '../src/__tests__/fixtures/openrouter-sonnet-4-6-model-metadata.json',
+        import.meta.url
+      )
+    );
+    const base = modelProvider.baseUrlFor('OPENROUTER_BASE_URL');
+    const headers = { accept: 'application/json', authorization: 'Bearer e2e-fixture-key' };
+    const served = await fetch(`${base}/model/anthropic/claude-sonnet-4.6`, { headers });
+    expect(served.status).toBe(200);
+    expect(served.headers.get('content-type')).toContain('application/json');
+    expect(Buffer.from(await served.arrayBuffer()).equals(recorded)).toBe(true);
+
+    const unrecorded = await fetch(`${base}/model/openai/gpt-5.4`, { headers });
+    expect(unrecorded.status).toBe(403);
+    expect(modelProvider.refusals()).toEqual([
+      expect.objectContaining({
+        knob: 'OPENROUTER_BASE_URL',
+        method: 'GET',
+        reason: 'unrecorded-model-metadata',
+        route: '/model/openai/gpt-5.4',
+      }),
+    ]);
   });
 
   test('a credential for a provider with no redirect knob refuses the launch', async ({

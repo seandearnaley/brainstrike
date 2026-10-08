@@ -10,7 +10,9 @@
  *
  * - `OPENROUTER_BASE_URL`: Mastra's models.dev gateway (`ModelsDevGateway.buildUrl`,
  *   `${PROVIDER}_BASE_URL`) and openrouter-strict-content.ts's `buildUrl()`
- *   (`qwen/*`). Served wire: chat completions (`POST /chat/completions`).
+ *   (`qwen/*`). Served wire: chat completions (`POST /chat/completions`). The
+ *   OpenRouter model-metadata lookup (`GET /model/<provider>/<model>`) is served
+ *   only for the one recorded fixture's exact model identity.
  * - `OPENAI_BASE_URL`: `@ai-sdk/openai`'s `createOpenAI`. Served wire: the
  *   OpenAI Responses API (`POST /responses`).
  * - `ANTHROPIC_BASE_URL`: `@ai-sdk/anthropic`'s `createAnthropic`. No Anthropic
@@ -28,6 +30,7 @@
  */
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { AWS_CHAIN_ACTIVATION_ENV_NAMES } from '@brainstrike/assistant-contract';
 import {
@@ -116,8 +119,11 @@ export interface ModelProviderRefusal {
   /** The knob whose boundary path received it, when it arrived through one. */
   readonly knob: ProviderBaseUrlKnob | null;
   readonly method: string;
-  /** `unscripted`: no script is set. `unsupported-route`: no scripted wire serves it. */
-  readonly reason: 'unscripted' | 'unsupported-route';
+  /**
+   * `unscripted`: no script is set. `unsupported-route`: no scripted wire serves
+   * it. `unrecorded-model-metadata`: model metadata with no recorded fixture.
+   */
+  readonly reason: 'unscripted' | 'unsupported-route' | 'unrecorded-model-metadata';
   readonly requestIndex: number;
   readonly route: string;
 }
@@ -132,6 +138,8 @@ export interface ModelProviderShim {
   readonly requestCount: () => number;
   /** Every scripted request, oldest first, with its parsed wire payload. */
   readonly requests: () => readonly ModelProviderRequest[];
+  /** Model identities whose recorded OpenRouter metadata was served, oldest first. */
+  readonly servedMetadata: () => readonly string[];
   /** Configure what the next tool-call/follow-up cycle returns. */
   readonly setScript: (script: ModelProviderScript | ModelProviderScriptSelector) => void;
   /** Every decided request, oldest first — failure diagnostics only. */
@@ -691,6 +699,60 @@ function parseRequestPath(url: string | undefined): {
   return { knob, route: `/${(knob ? rest : segments).join('/')}` };
 }
 
+/** The recorded OpenRouter model-metadata response (G1, #3543 6054095971). */
+const RECORDED_OPENROUTER_METADATA = new URL(
+  '../../src/__tests__/fixtures/openrouter-sonnet-4-6-model-metadata.json',
+  import.meta.url
+);
+let recordedMetadata: { readonly body: Buffer; readonly id: string } | undefined;
+
+/** The fixture's own `data.id` is its only identity: it is never relabelled. */
+function readRecordedMetadata(): { readonly body: Buffer; readonly id: string } {
+  if (recordedMetadata) {
+    return recordedMetadata;
+  }
+  const body = readFileSync(RECORDED_OPENROUTER_METADATA);
+  const parsed: unknown = JSON.parse(body.toString('utf8'));
+  const id = isRecord(parsed) && isRecord(parsed['data']) ? parsed['data']['id'] : undefined;
+  if (typeof id !== 'string') {
+    throw new Error('The recorded OpenRouter metadata fixture has no data.id.');
+  }
+  recordedMetadata = { body, id };
+  return recordedMetadata;
+}
+
+/**
+ * The model a `GET /model/<provider>/<model>` metadata request names, through
+ * the OpenRouter knob or a spec shim root; `null` when malformed, `undefined`
+ * when the request is not a metadata lookup.
+ */
+function openRouterMetadataIdentity(
+  method: string | undefined,
+  knob: ProviderBaseUrlKnob | null,
+  route: string
+): string | null | undefined {
+  const segments = route.split('/').filter(Boolean);
+  if (
+    method !== 'GET' ||
+    segments[0] !== 'model' ||
+    !(knob === null || knob === 'OPENROUTER_BASE_URL')
+  ) {
+    return;
+  }
+  if (segments.length !== 3) {
+    return null;
+  }
+  try {
+    return segments
+      .slice(1)
+      .map((segment) => decodeURIComponent(segment))
+      .join('/');
+  } catch {
+    // A malformed escape names no model; the caller refuses and records it.
+    return null;
+  }
+}
+
 function wireForRoute(method: string | undefined, route: string): ModelProviderWire | null {
   if (method !== 'POST') {
     return null;
@@ -701,12 +763,20 @@ function wireForRoute(method: string | undefined, route: string): ModelProviderW
   return route === '/responses' ? 'responses' : null;
 }
 
-function writeRefusal(response: ServerResponse, refusal: ModelProviderRefusal): void {
+function refusalMessage(refusal: ModelProviderRefusal): string {
   const request = `${refusal.method} ${refusal.route}${refusal.knob ? ` via ${refusal.knob}` : ''}`;
-  const message =
-    refusal.reason === 'unscripted'
-      ? `E2E egress boundary refused an unscripted provider request: ${request}. Script it through the canonical model-provider shim.`
-      : `E2E egress boundary refused a provider request no scripted wire serves: ${request}.`;
+  switch (refusal.reason) {
+    case 'unscripted':
+      return `E2E egress boundary refused an unscripted provider request: ${request}. Script it through the canonical model-provider shim.`;
+    case 'unrecorded-model-metadata':
+      return `E2E egress boundary refused OpenRouter model metadata with no recorded fixture: ${request}.`;
+    case 'unsupported-route':
+      return `E2E egress boundary refused a provider request no scripted wire serves: ${request}.`;
+  }
+}
+
+function writeRefusal(response: ServerResponse, refusal: ModelProviderRefusal): void {
+  const message = refusalMessage(refusal);
   // 403 is non-retryable for every provider SDK. The body satisfies each
   // SDK's error parser: OpenAI/OpenRouter read `error.message`; Anthropic
   // reads `{ type: 'error', error: { type, message } }`.
@@ -727,6 +797,7 @@ export async function startModelProviderShim(
   const transcript: ModelProviderTurnRecord[] = [];
   const refusals: ModelProviderRefusal[] = [];
   const requests: ModelProviderRequest[] = [];
+  const servedMetadata: string[] = [];
 
   const server: Server = createServer((request, response) => {
     requestCount += 1;
@@ -734,19 +805,35 @@ export async function startModelProviderShim(
     // which time concurrent requests may have advanced the counter.
     const requestOrdinal = requestCount;
     const { knob, route } = parseRequestPath(request.url);
-    const wire = wireForRoute(request.method, route);
-    const activeScript = script;
-    if (!(wire && activeScript)) {
+    const refuse = (reason: ModelProviderRefusal['reason']): void => {
       const refusal: ModelProviderRefusal = {
         knob,
         method: request.method ?? 'UNKNOWN',
-        reason: activeScript ? 'unsupported-route' : 'unscripted',
+        reason,
         requestIndex: requestOrdinal,
         route,
       };
       refusals.push(refusal);
       request.resume();
       writeRefusal(response, refusal);
+    };
+    const metadataIdentity = openRouterMetadataIdentity(request.method, knob, route);
+    if (metadataIdentity !== undefined) {
+      const recorded = readRecordedMetadata();
+      if (metadataIdentity !== recorded.id) {
+        refuse('unrecorded-model-metadata');
+        return;
+      }
+      servedMetadata.push(recorded.id);
+      request.resume();
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(recorded.body);
+      return;
+    }
+    const wire = wireForRoute(request.method, route);
+    const activeScript = script;
+    if (!(wire && activeScript)) {
+      refuse(activeScript ? 'unsupported-route' : 'unscripted');
       return;
     }
 
@@ -828,6 +915,7 @@ export async function startModelProviderShim(
     refusals: () => [...refusals],
     requestCount: () => requestCount,
     requests: () => [...requests],
+    servedMetadata: () => [...servedMetadata],
     setScript: (nextScript) => {
       script = nextScript;
     },
