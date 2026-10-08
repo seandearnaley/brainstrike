@@ -9,6 +9,7 @@ import type { GlobalCommandHandlers } from '@brainstrike/context-actions/command
 import type { DbHandle } from '@brainstrike/db/react';
 import { useTheme } from '@brainstrike/ui';
 import { useCallback, useMemo } from 'react';
+import { useAssistantThreadHost, withAssistantThreadHost } from './assistant-thread-host-context';
 import { useQuickOpenStore } from './stores/quick-open-store';
 import { useConnectFolder } from './workspace-connect/use-connect-folder';
 
@@ -39,9 +40,12 @@ export function useGlobalCommandHandlers(db: DbHandle | null): GlobalCommandHand
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const openQuickOpen = useQuickOpenStore((state) => state.open);
 
+  // A new thread is created by the host's existing thread owner when the app
+  // has one; with no host the history repository is unchanged.
+  const host = useAssistantThreadHost();
   const repository = useMemo<AssistantThreadRepository | null>(
-    () => (db ? createPgliteAssistantThreadRepository(db) : null),
-    [db]
+    () => (db ? withAssistantThreadHost(createPgliteAssistantThreadRepository(db), host) : null),
+    [db, host]
   );
 
   // Bound only when the repository exists, so the closure captures a non-null

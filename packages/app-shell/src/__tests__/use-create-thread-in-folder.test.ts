@@ -1,5 +1,10 @@
 import { renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  type AssistantThreadHostCapability,
+  AssistantThreadHostContext,
+} from '../assistant-thread-host-context';
 import { useCreateThreadInFolder } from '../hooks/use-create-thread-in-folder';
 
 const {
@@ -116,6 +121,53 @@ describe('useCreateThreadInFolder', () => {
       })
     );
     expect(updateThreadMetadataMock).toHaveBeenCalledOnce();
+  });
+
+  it('creates through the host and reports a refused host binding without a legacy fallback', async () => {
+    const history = { createThread: vi.fn(), updateThreadMetadata: vi.fn() };
+    createPgliteAssistantThreadRepositoryMock.mockReturnValue(history);
+    createThreadMock.mockImplementation(
+      (owner: { createThread: (resourceId: string) => Promise<{ id: string }> }, resourceId) =>
+        owner.createThread(resourceId)
+    );
+    updateThreadMetadataMock.mockImplementation(
+      (
+        owner: { updateThreadMetadata: (id: string, metadata: unknown) => Promise<void> },
+        _resourceId: string,
+        threadId: string,
+        metadata: unknown
+      ) => owner.updateThreadMetadata(threadId, metadata)
+    );
+    const refusal = new Error('This host has no live thread workspace binding capability');
+    const host: AssistantThreadHostCapability = {
+      createThread: vi.fn(async (resourceId: string) => ({
+        createdAt: new Date('2026-10-08T00:00:00Z'),
+        id: 'host-thread-1',
+        resourceId,
+        title: 'New Thread',
+        updatedAt: new Date('2026-10-08T00:00:00Z'),
+      })),
+      deleteThread: vi.fn(),
+      listThreads: vi.fn(),
+      ownsThread: vi.fn(async (threadId: string) => threadId === 'host-thread-1'),
+      renderThread: vi.fn(),
+      updateThreadBinding: vi.fn(async () => {
+        throw refusal;
+      }),
+      workspaceRepository: (repository) => repository,
+    };
+    const wrapper = ({ children }: { readonly children: ReactNode }) =>
+      createElement(AssistantThreadHostContext.Provider, { value: host }, children);
+    const { result } = renderHook(() => useCreateThreadInFolder(), { wrapper });
+
+    result.current?.({ displayName: 'brainstrike', path: '/repo', rootId: 'root-1' });
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledOnce());
+    expect(host.createThread).toHaveBeenCalledExactlyOnceWith('workspace-memory');
+    expect(history.createThread).not.toHaveBeenCalled();
+    expect(history.updateThreadMetadata).not.toHaveBeenCalled();
+    expect(toastMock.mock.calls[0]?.[0]).toMatchObject({ variant: 'destructive' });
+    expect(String(toastMock.mock.calls[0]?.[0]?.description)).toContain(refusal.message);
   });
 
   it('surfaces a rejected thread creation without writing metadata', async () => {
