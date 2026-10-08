@@ -20,7 +20,17 @@ import {
   type AssistantContextBreakdownState,
   parseAssistantContextBreakdown,
 } from '@brainstrike/assistant-contract/context-breakdown';
+import {
+  createDeclinedToolCallResult,
+  TOOL_CALL_BLOCKED_MESSAGE,
+  TOOL_CALL_DECLINED_MESSAGE,
+} from '@brainstrike/assistant-contract/tool-approval';
+import {
+  isToolRiskCategory,
+  type ToolRiskCategory,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
+import { committedApprovalOptions } from './committed-approval-options';
 import type { ThreadTokenUsage } from './context-usage-store';
 
 /** Structural consumer boundary for the owner's validated HostLogRow, not a wire schema. */
@@ -50,6 +60,10 @@ export interface CommittedAssistantLogProjectionOptions {
 export interface CommittedAssistantPendingInteraction {
   readonly interactionId: string;
   readonly kind?: 'approval' | 'question' | 'plan';
+  /** The tool a per-tool grant names: its catalog ID, else its recorded ID. */
+  readonly permissionToolId: string;
+  /** A permission approval's risk category, which its session grant names. */
+  readonly risk?: ToolRiskCategory;
   readonly runId: string;
   readonly threadId: string;
   readonly toolCallId: string;
@@ -85,6 +99,8 @@ interface ProjectedRun {
   readonly authoritativeInputs: Set<string>;
   readonly authoritativeResults: Set<string>;
   readonly createdAt: Date;
+  /** A refused call's reason, from its approval response, until its denial settles it. */
+  readonly denialReasons: Map<string, string>;
   readonly messageId: string;
   readonly partIndexes: Map<string, number>;
   readonly runId: string;
@@ -294,6 +310,32 @@ function projectToolPart(
     toolName,
     type: 'tool-call',
   };
+}
+
+/** The ID a permission names a tool by: its catalog ID, else its recorded tool ID. */
+function committedToolCatalogId(event: Readonly<Record<string, unknown>>): string {
+  return typeof event['toolCatalogId'] === 'string'
+    ? event['toolCatalogId']
+    : requiredString(event, 'toolId');
+}
+
+/** A permission approval answers with its grant options; a question or plan with text. */
+function interactionAnswers(
+  kind: 'approval' | 'question' | 'plan',
+  risk: ToolRiskCategory | undefined
+): Pick<NonNullable<ToolPart['approval']>, 'allowFreeform' | 'display' | 'options'> {
+  if (kind !== 'approval') {
+    return { allowFreeform: true, display: 'text' };
+  }
+  return risk ? { options: committedApprovalOptions(risk) } : {};
+}
+
+/** A refusal's reason rides its approval response; the denial chunk that follows has none. */
+function recordDenialReason(run: ProjectedRun, chunk: Readonly<Record<string, unknown>>): void {
+  const call = record(chunk['toolCall']);
+  if (chunk['approved'] === false && call && typeof chunk['reason'] === 'string') {
+    run.denialReasons.set(requiredString(call, 'toolCallId'), chunk['reason']);
+  }
 }
 
 function incompleteReason(outcome: unknown): 'cancelled' | 'error' | 'other' {
@@ -514,6 +556,26 @@ export class CommittedAssistantLogProjection {
     });
   }
 
+  /**
+   * The SDK settles a refused call with `tool-output-denied`. A call that held a
+   * host interaction was the user's decline; any other was refused by the host
+   * (a policy deny or a PreToolUse hook) before it could run.
+   */
+  private settleDenied(run: ProjectedRun, id: string): void {
+    if (run.authoritativeResults.has(id)) {
+      return;
+    }
+    const reason = run.denialReasons.get(id);
+    this.updateTool(run, id, (part) => ({
+      ...part,
+      isError: false,
+      result: createDeclinedToolCallResult(
+        reason,
+        part.approval ? TOOL_CALL_DECLINED_MESSAGE : TOOL_CALL_BLOCKED_MESSAGE
+      ),
+    }));
+  }
+
   private start(row: CommittedAssistantLogRow): void {
     const runId = requiredString(row.event, 'runId');
     if (this.runs.has(runId)) {
@@ -562,6 +624,7 @@ export class CommittedAssistantLogProjection {
       authoritativeInputs: new Set(),
       authoritativeResults: new Set(),
       createdAt: identity.createdAt,
+      denialReasons: new Map(),
       messageId: message.id,
       partIndexes: new Map(),
       runId,
@@ -577,6 +640,32 @@ export class CommittedAssistantLogProjection {
       observationWithheld: undefined,
       repository: { ...this.view.repository, headId: message.id },
     };
+  }
+
+  private textPart(
+    run: ProjectedRun,
+    type: string,
+    chunk: Readonly<Record<string, unknown>>
+  ): void {
+    const partType = type.startsWith('reasoning') ? 'reasoning' : 'text';
+    const key = JSON.stringify([run.step, partType, chunk['id'] ?? null]);
+    this.part(run, key, (part) => {
+      const prior = part?.type === partType ? part : undefined;
+      const delta = typeof chunk['text'] === 'string' ? chunk['text'] : '';
+      const metadata = mergeProviderMetadata(
+        prior?.providerMetadata,
+        providerMetadata(chunk['providerMetadata'])
+      );
+      return {
+        ...prior,
+        type: partType,
+        ...(metadata ? { providerMetadata: metadata } : {}),
+        status: type.endsWith('-end')
+          ? { type: 'complete' }
+          : (prior?.status ?? { type: 'running' }),
+        text: (prior?.text ?? '') + (type.endsWith('-delta') ? delta : ''),
+      };
+    });
   }
 
   /**
@@ -626,6 +715,9 @@ export class CommittedAssistantLogProjection {
       this.data(run, row, chunk['data'], chunk['name']);
       return;
     }
+    if (type === 'tool-approval-response') {
+      recordDenialReason(run, chunk);
+    }
     if (type === 'start-step') {
       run.step += 1;
       this.warned(run, row, chunk['warnings']);
@@ -637,25 +729,7 @@ export class CommittedAssistantLogProjection {
       type === 'reasoning-delta' ||
       type === 'reasoning-end'
     ) {
-      const partType = type.startsWith('reasoning') ? 'reasoning' : 'text';
-      const key = JSON.stringify([run.step, partType, chunk['id'] ?? null]);
-      this.part(run, key, (part) => {
-        const prior = part?.type === partType ? part : undefined;
-        const delta = typeof chunk['text'] === 'string' ? chunk['text'] : '';
-        const metadata = mergeProviderMetadata(
-          prior?.providerMetadata,
-          providerMetadata(chunk['providerMetadata'])
-        );
-        return {
-          ...prior,
-          type: partType,
-          ...(metadata ? { providerMetadata: metadata } : {}),
-          status: type.endsWith('-end')
-            ? { type: 'complete' }
-            : (prior?.status ?? { type: 'running' }),
-          text: (prior?.text ?? '') + (type.endsWith('-delta') ? delta : ''),
-        };
-      });
+      this.textPart(run, type, chunk);
       return;
     } else if (type === 'tool-input-start') {
       this.tool(run, { ...chunk, toolCallId: chunk['id'] });
@@ -685,6 +759,9 @@ export class CommittedAssistantLogProjection {
           result: type === 'tool-error' ? chunk['error'] : chunk['output'],
         }));
       }
+      return;
+    } else if (type === 'tool-output-denied') {
+      this.settleDenied(run, requiredString(chunk, 'toolCallId'));
       return;
     }
     // SDK approval IDs are intentionally never native decision identities.
@@ -746,6 +823,54 @@ export class CommittedAssistantLogProjection {
     };
   }
 
+  /** A committed interaction request becomes its tool's approval and a pending interaction. */
+  private request(
+    run: ProjectedRun,
+    row: CommittedAssistantLogRow,
+    event: Readonly<Record<string, unknown>>,
+    runId: string
+  ): void {
+    const id = this.tool(run, event, true);
+    const interactionId = requiredString(event, 'interactionId');
+    const kind = event['kind'];
+    if (kind !== 'approval' && kind !== 'question' && kind !== 'plan') {
+      throw new Error('Committed interaction has an unsupported kind.');
+    }
+    const risk = isToolRiskCategory(event['risk']) ? event['risk'] : undefined;
+    this.updateTool(run, id, (part) => ({
+      ...part,
+      approval: {
+        id: interactionId,
+        ...interactionAnswers(kind, risk),
+      },
+      ...(kind === 'approval'
+        ? {}
+        : {
+            providerMetadata: {
+              ...part.providerMetadata,
+              brainstrike: { ...part.providerMetadata?.['brainstrike'], interactionKind: kind },
+            },
+          }),
+    }));
+    this.view = {
+      ...this.view,
+      pendingInteractions: [
+        ...this.view.pendingInteractions,
+        {
+          interactionId,
+          kind,
+          permissionToolId: committedToolCatalogId(event),
+          ...(risk ? { risk } : {}),
+          runId,
+          threadId: row.threadId,
+          toolCallId: id,
+          toolIdentity: requiredString(event, 'toolIdentity'),
+        },
+      ],
+    };
+    this.publishRunStatus(run, runId);
+  }
+
   private apply(row: CommittedAssistantLogRow): void {
     const event = row.event;
     if (event['type'] === 'run.started') {
@@ -780,42 +905,7 @@ export class CommittedAssistantLogProjection {
       }
       this.data(run, row, event, 'brainstrike.host-event');
     } else if (event['type'] === 'interaction.requested') {
-      const id = this.tool(run, event, true);
-      const interactionId = requiredString(event, 'interactionId');
-      const kind = event['kind'];
-      if (kind !== 'approval' && kind !== 'question' && kind !== 'plan') {
-        throw new Error('Committed interaction has an unsupported kind.');
-      }
-      this.updateTool(run, id, (part) => ({
-        ...part,
-        approval: {
-          id: interactionId,
-          ...(kind === 'approval' ? {} : { allowFreeform: true, display: 'text' as const }),
-        },
-        ...(kind === 'approval'
-          ? {}
-          : {
-              providerMetadata: {
-                ...part.providerMetadata,
-                brainstrike: { ...part.providerMetadata?.['brainstrike'], interactionKind: kind },
-              },
-            }),
-      }));
-      this.view = {
-        ...this.view,
-        pendingInteractions: [
-          ...this.view.pendingInteractions,
-          {
-            interactionId,
-            kind,
-            runId: event['runId'],
-            threadId: row.threadId,
-            toolCallId: id,
-            toolIdentity: requiredString(event, 'toolIdentity'),
-          },
-        ],
-      };
-      this.publishRunStatus(run, event['runId']);
+      this.request(run, row, event, event['runId']);
     } else if (event['type'] === 'interaction.responded') {
       const interaction = this.view.pendingInteractions.find(
         (item) => item.runId === event['runId'] && item.interactionId === event['interactionId']

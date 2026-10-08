@@ -63,7 +63,8 @@ export function readDesktopHostConfiguration(
   // The raw settings map contains transport credentials in some integrations;
   // only the existing generation-option projection belongs in the event log.
   const { providerSettings: _providerSettings, ...modelConfiguration } = draft;
-  const permission = getPermissionToolGateSnapshotInput();
+  // Session grants on host threads are host facts, never captured from this store.
+  const { sessionGrants: _sessionGrants, ...permission } = getPermissionToolGateSnapshotInput();
   const instructions = useWorkspaceInstructionsPreferencesStore.getState();
   const workspaceContext = toRuntimeWorkspaceContext(
     useWorkspaceContextCurationStore.getState().contextSnapshot,

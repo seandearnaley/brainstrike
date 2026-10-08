@@ -18,8 +18,11 @@
 
 import { realpathSync } from 'node:fs';
 import { isAbsolute, resolve, sep } from 'node:path';
-import { getProjectHooksPath, readProjectHookConfig } from './assistant-server/hooks/config';
-import { sha256OfBuffer } from './assistant-server/hooks/trust';
+import {
+  getProjectHooksPath,
+  readProjectHookConfig,
+  sha256OfBuffer,
+} from '@brainstrike/host-capabilities/hooks';
 
 const HOOKS_READ_ERROR = 'hooks.json could not be read';
 

@@ -25,6 +25,7 @@ import {
   foldHostAcceptedCommand,
   foldHostInteraction,
   HostCommandLedger,
+  type HostThreadGrants,
   hasHostInteractionResponse,
   type HostRunState as Run,
   recordHostConversationId,
@@ -62,6 +63,7 @@ import {
 } from './run-branch.js';
 
 import {
+  approvedHostPlan,
   commitHostInteractionResponse,
   commitHostModelMessages,
   createHostApprovalResponses,
@@ -113,6 +115,8 @@ export class HostCore {
     )
   );
   private readonly runs = new Map<string, Run>();
+  /** Each thread's approval grants, for this process only; replay never restores them. */
+  private readonly grants = new Map<string, HostThreadGrants>();
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
   private readonly listeners = new Set<(row: HostLogRow) => void>();
@@ -190,7 +194,14 @@ export class HostCore {
         foldHostRunAdmission(this.admittedRuns, this.conversationIds, event);
         break;
       case 'run.started':
-        foldHostStartedRun(this.admittedRuns, this.conversationIds, this.runs, row.threadId, event);
+        foldHostStartedRun(
+          this.admittedRuns,
+          this.conversationIds,
+          this.runs,
+          row.threadId,
+          event,
+          this.threadGrants(row.threadId)
+        );
         break;
       case 'model.step':
       case 'model.messages':
@@ -390,6 +401,7 @@ export class HostCore {
       this.workspaces.forget(params.threadId);
       this.mcpInputs.forgetThread(params.threadId);
       this.records.forgetThread(params.threadId, this.platform);
+      this.grants.delete(params.threadId);
       for (const run of runs) {
         this.runs.delete(run.id);
         this.conversationIds.delete(run.id);
@@ -464,8 +476,17 @@ export class HostCore {
       release = this.retainRun();
       const { run, started } = admittedHostRun(
         this.runs.values(),
-        { ...params, method, runId: randomUUID() },
+        {
+          ...params,
+          input: {
+            ...(params.configuration ? { configuration: params.configuration } : {}),
+            ...(origin ? { origin } : {}),
+          },
+          method,
+          runId: randomUUID(),
+        },
         selected,
+        this.threadGrants(params.threadId),
         admission.snapshot,
         controller
       );
@@ -610,28 +631,35 @@ export class HostCore {
     this.mcpInputs.releaseClient(client);
   }
 
+  private threadGrants(threadId: string): HostThreadGrants {
+    let grants = this.grants.get(threadId);
+    if (!grants) {
+      grants = { categories: new Set(), tools: new Set() };
+      this.grants.set(threadId, grants);
+    }
+    return grants;
+  }
+
   respond(params: HostParams<'interaction/respond'>): Promise<{ accepted: true }> {
-    return this.command('interaction/respond', params, () =>
-      commitHostInteractionResponse(
-        this.run(params.threadId, params.runId),
-        this.platform,
-        params,
-        (event) =>
-          this.accept(params.threadId, 'interaction/respond', params, { accepted: true }, [event]),
-        () => this.continueRun(this.run(params.threadId, params.runId))
-      )
-    );
+    return this.answer('interaction/respond', params);
   }
 
   resume(params: HostParams<'interaction/resume'>): Promise<{ accepted: true }> {
-    return this.command('interaction/resume', params, () =>
+    return this.answer('interaction/resume', params);
+  }
+
+  private answer(
+    method: 'interaction/respond' | 'interaction/resume',
+    params: HostParams<'interaction/respond'> | HostParams<'interaction/resume'>
+  ): Promise<{ accepted: true }> {
+    const run = () => this.run(params.threadId, params.runId);
+    return this.command(method, params, () =>
       commitHostInteractionResponse(
-        this.run(params.threadId, params.runId),
+        run(),
         this.platform,
         params,
-        (event) =>
-          this.accept(params.threadId, 'interaction/resume', params, { accepted: true }, [event]),
-        () => this.continueRun(this.run(params.threadId, params.runId))
+        (events) => this.accept(params.threadId, method, params, { accepted: true }, events),
+        () => this.continueRun(run())
       )
     );
   }
@@ -680,6 +708,12 @@ export class HostCore {
         run,
         responses.length > 0 ? [{ content: responses, role: 'tool' }] : []
       );
+      const plan = approvedHostPlan(run);
+      if (plan) {
+        await this.finish(run, 'completed');
+        await this.startApprovedPlanRun(run, plan);
+        return;
+      }
       if (run.steps >= admission.snapshot.maxSteps) {
         await this.finishApprovedCalls(run);
         return;
@@ -786,6 +820,51 @@ export class HostCore {
     return run.ownerClose;
   }
 
+  /**
+   * An approved plan ends its plan-mode run; the thread's next run carries it
+   * out without plan mode. A next run that cannot start is committed as failed,
+   * with its cause, so an approval never ends silently.
+   */
+  private async startApprovedPlanRun(
+    run: Run,
+    plan: { readonly feedback?: string }
+  ): Promise<void> {
+    const params: HostParams<'run/start'> = {
+      commandId: randomUUID(),
+      ...(run.input?.configuration ? { configuration: run.input.configuration } : {}),
+      modelId: run.modelId,
+      parentMessageId: run.id,
+      prompt: plan.feedback ? `Approved the plan.\n\n${plan.feedback}` : 'Approved the plan.',
+      threadId: run.threadId,
+    };
+    try {
+      await this.startRun(params, run.input?.origin);
+    } catch (cause) {
+      const runId = randomUUID();
+      await this.accept(
+        params.threadId,
+        'run/start',
+        params,
+        { runId },
+        [
+          {
+            ...hostStartPosition(this.runs.values(), params),
+            modelId: params.modelId,
+            runId,
+            type: 'run.started',
+          },
+          {
+            detail: cause instanceof Error ? cause.message : String(cause),
+            outcome: 'failed',
+            runId,
+            type: 'run.finished',
+          },
+        ],
+        this.foldRows
+      );
+    }
+  }
+
   private finish(
     run: Run,
     outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
@@ -805,9 +884,7 @@ export class HostCore {
       (event, commit) =>
         this.append(run.threadId, [event], 'full', (rows) => {
           commit();
-          for (const row of rows) {
-            this.fold(row);
-          }
+          this.foldRows(rows);
         })
     ).then(() => this.presentations.settle(run));
   }

@@ -237,6 +237,8 @@ export function isRediscoveredToolApproval(value: unknown): value is Rediscovere
 export const DECLINED_TOOL_RESULT_KIND = 'declined';
 export const TOOL_CALL_DECLINED_MESSAGE =
   'The user declined this tool call, so it was not executed.';
+/** The host refused the call itself (a policy deny or a PreToolUse hook), with no user decision. */
+export const TOOL_CALL_BLOCKED_MESSAGE = 'This tool call was blocked, so it was not executed.';
 
 export interface DeclinedToolCallResult {
   readonly kind: typeof DECLINED_TOOL_RESULT_KIND;
@@ -250,10 +252,13 @@ export interface DeclinedToolCallResult {
 }
 
 /** The same visible decision for live denial chunks and native persisted denials. */
-export function createDeclinedToolCallResult(reason?: string): DeclinedToolCallResult {
+export function createDeclinedToolCallResult(
+  reason?: string,
+  message: string = TOOL_CALL_DECLINED_MESSAGE
+): DeclinedToolCallResult {
   return {
     kind: DECLINED_TOOL_RESULT_KIND,
-    message: TOOL_CALL_DECLINED_MESSAGE,
+    message,
     ...(reason ? { reason } : {}),
   };
 }

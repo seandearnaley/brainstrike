@@ -142,6 +142,7 @@ export function hostRunCommandRequest(
   params: {
     readonly configuration?: HostRunAdmissionRequest['configuration'] | undefined;
     readonly modelId: string;
+    readonly planMode?: true | undefined;
     readonly threadId: string;
   },
   origin: HostClientOrigin | undefined,
@@ -152,6 +153,7 @@ export function hostRunCommandRequest(
     ...(params.configuration ? { configuration: params.configuration } : {}),
     modelId: params.modelId,
     ...(origin ? { origin } : {}),
+    ...(params.planMode ? { planMode: true } : {}),
     prompt,
     signal,
     threadId: params.threadId,
@@ -275,6 +277,7 @@ export async function ensureHostRunAdmission(
 ): Promise<HostRunAdmission> {
   const request: HostRunAdmissionRequest = {
     modelId: run.modelId,
+    ...(run.planMode ? { planMode: true } : {}),
     signal: run.controller.signal,
     ...(run.snapshot ? { snapshot: run.snapshot } : {}),
     ...(run.snapshot?.workspaceBinding ? { workspaceBinding: run.snapshot.workspaceBinding } : {}),
@@ -316,6 +319,7 @@ export function hostStepInteractions(
         input: jsonValue(part.toolCall.input),
         interactionId: part.approvalId,
         kind: registered.interaction?.kind ?? 'approval',
+        ...(registered.interaction ? {} : { risk: registered.risk }),
         runId: run.id,
         ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
         toolCallId: part.toolCall.toolCallId,
@@ -346,12 +350,16 @@ export async function hostRunToolDecision(
   ) {
     return 'deny';
   }
+  // The run's own committed grants add to the saved policy; deny already won.
   return resolvePermissionDecision({
+    perToolOverrides: {
+      ...snapshot.perToolOverrides,
+      ...Object.fromEntries([...run.grants.tools].map((tool) => [tool, 'allow' as const])),
+    },
     policies: snapshot.policies,
     riskCategory: registered.risk,
+    sessionGrants: new Set([...(snapshot.sessionGrants ?? []), ...run.grants.categories]),
     toolId: permissionToolId,
-    ...(snapshot.perToolOverrides ? { perToolOverrides: snapshot.perToolOverrides } : {}),
-    sessionGrants: new Set(snapshot.sessionGrants ?? []),
     yolo: snapshot.yolo,
   });
 }
@@ -385,7 +393,7 @@ export async function decideHostSdkApproval(
   run: HostRunState,
   platform: HostPlatform,
   call: { toolName: string; toolCallId: string; input: unknown }
-): Promise<'approved' | 'denied' | 'user-approval'> {
+): Promise<'approved' | 'denied' | 'user-approval' | { type: 'denied'; reason: string }> {
   run.controller.signal.throwIfAborted();
   const registered = hostRunTools(run)[call.toolName];
   if (!registered) {
@@ -407,6 +415,18 @@ export async function decideHostSdkApproval(
   );
   if (decision === 'deny' || prior?.decision === 'deny') {
     return 'denied';
+  }
+  // A PreToolUse hook refines a decision the policy allows or asks about; it
+  // runs once per call, before any approval request.
+  if (!prior && run.admission?.hooks) {
+    const hooked = await run.admission.hooks.preToolUse({
+      input: call.input,
+      toolName: registered.permissionToolId ?? call.toolName,
+    });
+    run.controller.signal.throwIfAborted();
+    if (hooked.blocked) {
+      return { reason: hooked.reason, type: 'denied' };
+    }
   }
   if (registered.interaction) {
     run.liveInputs.set(call.toolCallId, { value: call.input });

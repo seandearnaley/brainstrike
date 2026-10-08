@@ -10,7 +10,7 @@ import {
   DEFAULT_AGENT_MAX_STEPS,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent/tool-runtime';
-import type { HostRunAdmissionRequest, HostToolContext } from '@brainstrike/agent-host';
+import type { HostRunAdmissionRequest, HostTool, HostToolContext } from '@brainstrike/agent-host';
 import {
   CliWorkspaceRootsSchema,
   materializeCliWorkspaceIntent,
@@ -48,7 +48,7 @@ import { prepareRequestSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
 import { getDatabase } from '../db-main';
-import { readDesktopHostSystemContext } from './desktop-host-context';
+import { desktopPlanModeTools, readDesktopHostSystemContext } from './desktop-host-context';
 import type {
   DesktopWorkspaceBindingAuthority,
   DesktopWorkspaceBindingBorrow,
@@ -508,6 +508,31 @@ function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['n
 }
 
 /** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
+
+/** Plan mode admits only the plan-mode tool set; the built-in local provider has no plan mode. */
+function desktopRunTools(
+  tools: Readonly<Record<string, HostTool>>,
+  request: HostRunAdmissionRequest,
+  provider: string
+): Readonly<Record<string, HostTool>> {
+  if (!request.planMode) {
+    return tools;
+  }
+  if (provider === 'local') {
+    throw new Error('Plan mode is unavailable for the built-in local provider');
+  }
+  return desktopPlanModeTools(tools);
+}
+
+async function readSavedLocalEmbeddingSelection(
+  read: (() => Promise<SelectedEmbeddingRequestPlan | undefined>) | undefined
+): Promise<SelectedEmbeddingRequestPlan | undefined> {
+  if (!read) {
+    throw new Error('Local Memory vectors require the saved local execution selection');
+  }
+  return await read();
+}
+
 export function productionDesktopCapabilities(
   dependencies: DesktopAssistantToolDependencies,
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
@@ -542,12 +567,7 @@ export function productionDesktopCapabilities(
     );
     const memoryVectors = await resolveDesktopMemoryVectors(memorySettings, {
       readDimensions: (provider, modelId) => readEmbeddingDimensions(db, provider, modelId),
-      readLocalSelection: async () => {
-        if (!readLocalEmbeddingSelection) {
-          throw new Error('Local Memory vectors require the saved local execution selection');
-        }
-        return await readLocalEmbeddingSelection();
-      },
+      readLocalSelection: () => readSavedLocalEmbeddingSelection(readLocalEmbeddingSelection),
     });
     request.signal.throwIfAborted();
     const budget = resolveScaledToolResultBudget(definition.contextWindow);
@@ -560,7 +580,7 @@ export function productionDesktopCapabilities(
       request,
       workspace
     );
-    const { tools } = native;
+    const tools = desktopRunTools(native.tools, request, configuration.provider);
     const resilience = resolveAssistantResilienceConfig();
     // MCP tools are composed and executed by the Node host's own MCP runtime.
     const close = (): Promise<void> => {
@@ -577,6 +597,7 @@ export function productionDesktopCapabilities(
           intent.cliWorkspace !== undefined || workspace !== undefined,
           native.readWorkspaceFile
         ),
+        planMode: request.planMode === true,
         request,
         runtime: native.runtime,
         tools,
@@ -690,14 +711,12 @@ export function productionDesktopCapabilities(
     readPermissionPolicy: async (threadId) => {
       const captured = threadId ? policies.get(threadId) : undefined;
       const persisted = await readPersistedPolicy?.();
-      return platformPermissionPolicy(
-        persisted
-          ? {
-              ...persisted,
-              ...(captured?.sessionGrants ? { sessionGrants: captured.sessionGrants } : {}),
-            }
-          : (captured ?? { policies: DEFAULT_PERMISSION_POLICIES, yolo: false })
+      // A host thread's session grants are the host's own (permission.granted);
+      // no renderer store reaches its decisions.
+      const { sessionGrants: _sessionGrants, ...policy } = platformPermissionPolicy(
+        persisted ?? captured ?? { policies: DEFAULT_PERMISSION_POLICIES, yolo: false }
       );
+      return policy;
     },
     ...(dependencies.embeddingHostManager
       ? { localEmbedding: dependencies.embeddingHostManager }

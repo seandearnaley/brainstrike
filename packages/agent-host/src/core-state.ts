@@ -1,13 +1,15 @@
+import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
 import type { ModelMessage } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
-import type { HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
+import type { HostClientOrigin, HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
 import {
   HOST_METHOD_SCHEMAS,
   type HostEvent,
   type HostImageAttachment,
   type HostParams,
+  type HostPermissionGrant,
   HostPromptBreakdownSchema,
   type HostRunSnapshot,
 } from './protocol.js';
@@ -114,6 +116,29 @@ export function hasHostInteractionResponse(pending: PendingInteraction): boolean
     : Object.hasOwn(pending, 'resumeData');
 }
 
+/** What a run was started with that its plan's follow-up run starts with again. */
+export interface HostRunInput {
+  readonly configuration?: HostParams<'run/start'>['configuration'];
+  readonly origin?: HostClientOrigin;
+}
+
+/**
+ * A thread's grants, kept by Core for its process lifetime. Only live
+ * acceptance adds to them; replay after a restart never restores a grant.
+ */
+export interface HostThreadGrants {
+  readonly categories: Set<ToolRiskCategory>;
+  readonly tools: Set<string>;
+}
+
+export function applyHostPermissionGrant(run: HostRunState, grant: HostPermissionGrant): void {
+  if (grant.scope === 'session') {
+    run.grants.categories.add(grant.category);
+  } else {
+    run.grants.tools.add(grant.toolId);
+  }
+}
+
 /** Folds a committed interaction request or response into its run's pending set. */
 export function foldHostInteraction(
   runs: ReadonlyMap<string, HostRunState>,
@@ -159,7 +184,14 @@ export interface HostRunState {
   completion?: Promise<void>;
   readonly controller: AbortController;
   readonly effects: Set<Promise<unknown>>;
+  /** Its thread's grants for this host process, shared with the thread's other runs. */
+  readonly grants: HostThreadGrants;
   readonly id: string;
+  /**
+   * The input its thread's next run repeats when this plan-mode run's plan is
+   * approved: the admitting configuration, and the live client's origin.
+   */
+  input?: HostRunInput;
   readonly liveInputs: Map<string, { readonly value: unknown }>;
   mcpInputPersistenceFailures?: HostMcpInputPersistenceError[];
   /** Positions of this run's own messages in its selected-path context. */
@@ -175,6 +207,8 @@ export interface HostRunState {
   ownerFailure?: unknown;
   paused: boolean;
   readonly permits: Map<string, Action>;
+  /** Committed on run.started: it reads and proposes a plan, and approval ends it. */
+  planMode?: true;
   readonly rawInputs: Map<string, Json>;
   release?: (() => void) | undefined;
   readonly responses: Set<string>;
@@ -195,6 +229,7 @@ export function createHostRunState(
   id: string,
   modelId: string,
   branch: HostRunBranch,
+  grants: HostThreadGrants,
   snapshot?: HostRunSnapshot,
   controller = new AbortController()
 ): HostRunState {
@@ -204,6 +239,7 @@ export function createHostRunState(
     checkpointedResults: new Set(),
     controller,
     effects: new Set(),
+    grants,
     id,
     liveInputs: new Map(),
     messageIndexes: new Set(),

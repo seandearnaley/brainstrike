@@ -30,6 +30,7 @@ import type {
   HostPlatform,
   HostRunAdmission,
   HostRunAdmissionRequest,
+  HostRunHooks,
   HostTool,
 } from './ports.js';
 import type { HostRunSnapshot } from './protocol.js';
@@ -42,6 +43,8 @@ export interface ProductionHostRunConfiguration {
   readonly close?: () => Promise<void>;
   readonly configuration: RuntimeData;
   readonly durableConfiguration: HostRunSnapshot['configuration'];
+  /** The run's lifecycle hooks, when the composition loaded any. */
+  readonly hooks?: HostRunHooks;
   readonly maxSteps: number;
   readonly memory: Omit<
     StateStoreHostMemoryOptions,
@@ -317,6 +320,7 @@ export async function createProductionHostPlatform(
           configuration: selected.configuration,
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
+          hooks: selected.hooks,
           model,
           openRun: (context) => {
             const bridge = runVectorBridge(selected, context.threadId, context.signal);

@@ -62,11 +62,13 @@ function HostThread({
   readonly threadId: string;
 }): ReactElement {
   const explorer = useFileExplorerStoreContext();
-  const { readConfiguration, ...presentation } = useDesktopHostPresentation(threadId);
+  const { readConfiguration, readPlanMode, ...presentation } = useDesktopHostPresentation(threadId);
   const configuration = useRef(readConfiguration);
+  const planMode = useRef(readPlanMode);
   useLayoutEffect(() => {
     configuration.current = readConfiguration;
-  }, [readConfiguration]);
+    planMode.current = readPlanMode;
+  }, [readConfiguration, readPlanMode]);
   const [conversation, setConversation] = useState<CommittedHostConversation>();
   useEffect(() => {
     // Commit-time view ownership survives StrictMode render replay without
@@ -77,6 +79,7 @@ function HostThread({
       onTitleCommitted,
       readConfiguration: () => configuration.current(explorer.getState().currentFolderId),
       readModelId: () => readDesktopHostModel(threadId),
+      readPlanMode: () => planMode.current(),
       threadId,
     });
     setConversation(current);

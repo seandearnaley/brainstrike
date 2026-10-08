@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 
 it('opens project hook configs nonblocking so a FIFO cannot pin Electron main', async () => {
-  const { readProjectHookConfig } = await import('../../../assistant-server/hooks/config');
+  const { readProjectHookConfig } = await import('../../src/hooks/config.js');
   readProjectHookConfig('/workspace/.brainstrike/hooks.json');
 
   expect(fsMocks.openSync).toHaveBeenCalledWith(

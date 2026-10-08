@@ -147,6 +147,21 @@ export interface HostProviderPort {
   prepare(request: HostProviderRequest): Promise<HostPreparedModelRequest>;
 }
 
+/** A lifecycle hook's verdict on one tool call; hooks refine a permitted decision, never widen it. */
+export type HostPreToolUseVerdict =
+  | { readonly blocked: false }
+  | { readonly blocked: true; readonly reason: string };
+
+/** The run's user-authored lifecycle hooks, from the composition's hooks configuration. */
+export interface HostRunHooks {
+  /** Before a tool the policy would allow or ask about: a hook may block it, with a reason. */
+  preToolUse(call: {
+    readonly input: unknown;
+    /** The tool's catalog ID (`brainstrike.readWorkspaceFile`), which hook matchers name. */
+    readonly toolName: string;
+  }): Promise<HostPreToolUseVerdict>;
+}
+
 /** One immutable selection retained across approval legs, never re-read from Settings. */
 export interface HostRunAdmission {
   /** Join resources selected before the run is committed, including failed admission. */
@@ -154,6 +169,8 @@ export interface HostRunAdmission {
   readonly configuration: Readonly<RuntimeData>;
   /** Title an untitled thread's first completed run through this run's model. */
   readonly generatesThreadTitle?: boolean;
+  /** Present only when the composition loaded at least one hook for this run. */
+  readonly hooks?: HostRunHooks | undefined;
   readonly model: LanguageModel;
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   readonly provider?: HostProviderPort;
@@ -204,6 +221,8 @@ export interface HostRunAdmissionRequest {
   readonly modelId: string;
   /** The admitting client's transport; capabilities bound to an origin refuse others. */
   readonly origin?: HostClientOrigin;
+  /** Plan mode: admit only what reads and proposes a plan, and say so to the model. */
+  readonly planMode?: true;
   readonly prompt?: string;
   readonly signal: AbortSignal;
   /** Reopen the committed selection, rejecting changed executors rather than substituting. */

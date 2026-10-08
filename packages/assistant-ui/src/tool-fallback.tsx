@@ -1,4 +1,4 @@
-import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
+import type { ToolApprovalOption, ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { Button } from '@brainstrike/ui';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
@@ -59,6 +59,30 @@ function useDisplayToolArguments(
  *   a decline, a stopped run_python) — muted, never destructive chrome
  * - `failed`: shows the error message inline in red under the row
  */
+type ApprovalOptions = readonly ToolApprovalOption[] | undefined;
+
+/**
+ * A decision's buttons: the request's own options when it carries them (the
+ * host's grants), else the plain Approve / Decline pair.
+ */
+function approvalDecisions(options: ApprovalOptions): readonly {
+  readonly approved: boolean;
+  readonly label: string;
+  readonly optionId?: string;
+}[] {
+  if (!options?.length) {
+    return [
+      { approved: true, label: 'Approve' },
+      { approved: false, label: 'Decline' },
+    ];
+  }
+  return options.map((option) => ({
+    approved: !option.kind.startsWith('reject'),
+    label: option.label ?? option.id,
+    optionId: option.id,
+  }));
+}
+
 export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   const {
     toolCallId,
@@ -168,20 +192,19 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
       props.approval.approved === undefined &&
       props.approval.resolution === undefined &&
       (props.approval.display ?? 'decision') === 'decision' &&
-      !props.approval.options?.length &&
       !props.approval.allowFreeform ? (
         <fieldset
           aria-label={`Tool approval ${toolName}`}
           className="flex flex-col gap-2 px-3 pb-3"
           ref={decisionRef}
         >
-          <div className="flex gap-2">
-            {([true, false] as const).map((approved) => (
+          <div className="flex flex-wrap gap-2">
+            {approvalDecisions(props.approval.options).map(({ approved, label, optionId }) => (
               <Button
                 aria-disabled={responding || undefined}
-                aria-label={`${approved ? 'Approve' : 'Decline'} ${toolName}`}
+                aria-label={`${label} ${toolName}`}
                 className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
-                key={String(approved)}
+                key={optionId ?? String(approved)}
                 // aria-disabled, not `disabled`: a disabled button drops the
                 // keyboard focus it holds. While the decision is pending the
                 // pressed control keeps focus and the guard refuses a repeat.
@@ -193,14 +216,18 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
                   setApprovalError(undefined);
                   // The public runtime routes the exact committed interaction.
                   // Only the host's publication resolves or removes this card.
-                  void props.respondToApproval({ approved }).catch((cause: unknown) => {
-                    setApprovalError(cause instanceof Error ? cause.message : String(cause));
-                    setResponding(false);
-                  });
+                  void props
+                    .respondToApproval(
+                      optionId === undefined ? { approved } : { approved, optionId }
+                    )
+                    .catch((cause: unknown) => {
+                      setApprovalError(cause instanceof Error ? cause.message : String(cause));
+                      setResponding(false);
+                    });
                 }}
-                variant={approved ? 'default' : 'outline'}
+                variant={optionId === undefined && approved ? 'default' : 'outline'}
               >
-                {approved ? 'Approve' : 'Decline'}
+                {label}
               </Button>
             ))}
           </div>
