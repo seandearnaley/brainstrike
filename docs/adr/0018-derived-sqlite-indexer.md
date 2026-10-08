@@ -56,8 +56,18 @@ revision/dtype/token-cap where defined. Store Float32 vectors by chunk/profile, 
 other profiles across selection changes. Dimension-specific vec0 binary tables partition
 by full profile hash; an authorized integer vector-ID predicate applies before top100,
 followed by exact cosine rerank. Unsupported metrics/dimensions reject explicitly. This
-storage extension qualifies no new model inference or retrieval-quality policy. Prior
-derived schemas require explicit rebuilding; opening preserves their files and PG data.
+storage extension qualifies no new model inference or retrieval-quality policy. Unknown
+derived layouts require explicit rebuilding; refusal preserves their files and PG data.
+
+The M3 owner accepted a bounded additive schema 8/9-to-10 upgrade in
+[the milestone decision](https://github.com/seandearnaley/brainstrike/pull/3543#issuecomment-6049877807).
+Only the acquired existing derived writer upgrades exact known definitions after native
+integrity, retained vector-byte, profile, Root/projection and resource-grant validation.
+The same immediate transaction adds the new empty tables and retirement fences, then
+stamps the version last. Existing rows, identities, grants and vector bytes survive.
+A schema 8 index has no saved resource grant; only its empty grant can be retained.
+Read-only metadata readers never stamp a version or perform DDL. This component upgrade
+does not qualify a production profile's capability admission or new inference.
 
 ## Consequences
 

@@ -8,6 +8,7 @@ import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { z } from 'zod';
 import type { HostPlatform, HostTool } from '../../src/ports.js';
 import { startAgentHost } from '../../src/runtime.js';
+import { recordFixtureEvent } from './owned-fixture-process.js';
 
 type Chunk =
   Awaited<ReturnType<MockLanguageModelV4['doStream']>>['stream'] extends ReadableStream<infer C>
@@ -152,8 +153,9 @@ async function main(): Promise<void> {
     inputSchema: z.object({ text: z.string() }),
     risk: mode === 'approval' ? 'edit' : 'read',
   };
+  let captureDrainedHistory = async (): Promise<void> => undefined;
   const platform: HostPlatform = {
-    close: async () => undefined,
+    close: () => captureDrainedHistory(),
     maxSteps: 3,
     readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
     resolveModel: async (modelId) => {
@@ -165,6 +167,24 @@ async function main(): Promise<void> {
     tools: { owned_effect: tool },
   };
   const host = await startAgentHost({ lifetime: 'persistent', root }, platform);
+  captureDrainedHistory = async (): Promise<void> => {
+    // Core calls platform.close only after its captured SDK tasks and owners join;
+    // runtime closes this same StateStore afterward. Keep every committed row.
+    for (const { threadId } of host.core.listThreads()) {
+      const rows = await host.core.read(threadId, 0);
+      await writeFile(
+        join(root, `drained-history-${process.pid}-${threadId}.json`),
+        JSON.stringify(rows)
+      );
+      recordFixtureEvent('windows-drained-history-captured', {
+        identity: { executable: process.execPath, pid: host.record.pid, start: host.record.start },
+        root,
+        rows: rows.length,
+        threadId,
+        watermark: rows.at(-1)?.seq,
+      });
+    }
+  };
   try {
     process.send?.({
       event: 'ready',

@@ -9,6 +9,8 @@ import { createNodeHostSpawner } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
 import { startAgentHost } from '../src/runtime.js';
+import { observeFixtureStartup, removeFixtureRoot } from './fixtures/cooperative-host-fixture.js';
+import { recordFixtureEvent } from './fixtures/owned-fixture-process.js';
 
 test('a synchronous platform close failure still joins a registered physical startup child', async () => {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-sync-close-'));
@@ -94,33 +96,116 @@ test('cancellation before acquisition constructs no platform and leaves no root 
   }
 });
 
-test.each(['initializer rejection', 'launcher cancellation', 'missing startup report'] as const)(
+const startupModes = [
+  'initializer rejection',
+  'launcher cancellation',
+  'missing startup report',
+  'early child exit',
+  'readiness watchdog abort',
+] as const;
+
+test.for(startupModes)(
   'a registered partial startup child joins before root reuse after %s',
-  async (mode) => {
+  async (mode, context) => {
     const root = await mkdtemp(join(tmpdir(), 'bs-m3-partial-startup-'));
     const modulePath = join(root, 'platform.mjs');
-    // The same real root-writing descendant shape as the retained failure repro.
-    const program =
-      "const fs=require('node:fs');const path=process.argv[1];fs.appendFileSync(path,'owned\\n');process.send({ready:true});setInterval(()=>fs.appendFileSync(path,'owned\\n'),50);";
-    await writeFile(
-      modulePath,
-      `import {spawn} from 'node:child_process';
+    const controller = new AbortController();
+    const watchdog = new AbortController();
+    const signal = AbortSignal.any([context.signal, controller.signal, watchdog.signal]);
+    const observer = await observeFixtureStartup(root, signal);
+    let starting: Promise<void> | undefined;
+    let ownerPid: number | undefined;
+    let ownerStart: string | undefined;
+    let childPid: number | undefined;
+    try {
+      // The same real root-writing descendant shape as the retained failure repro.
+      const program =
+        mode === 'early child exit'
+          ? "process.stderr.write('Recorded child exit before readiness');process.exit(23);"
+          : `const fs=require('node:fs');const path=process.argv[1];fs.appendFileSync(path,'owned\\n');${mode === 'readiness watchdog abort' ? '' : 'process.send({ready:true});'}setInterval(()=>fs.appendFileSync(path,'owned\\n'),50);`;
+      await writeFile(
+        modulePath,
+        `import {spawn} from 'node:child_process';
+import {once} from 'node:events';
 import {writeFile} from 'node:fs/promises';
+import {createConnection} from 'node:net';
 import {join} from 'node:path';
 export async function createHostPlatform(options, context) {
   let child;
   let exited;
+  let stream;
+  let streamClosed;
+  let stderr='';
   await context.register(async()=>{
-    if(!child) return;
-    if(child && child.exitCode===null && child.signalCode===null) child.kill('SIGTERM');
-    await exited;
-    await writeFile(join(options.root,'joined'),String(child.pid));
+    if(child) {
+      if(child.exitCode===null && child.signalCode===null) child.kill('SIGTERM');
+      await exited;
+      await writeFile(join(options.root,'joined'),String(child.pid));
+      if(stream?.writable) stream.end(JSON.stringify({event:'joined',pid:child.pid})+'\\n');
+    } else stream?.end();
+    await streamClosed;
   });
   context.signal.throwIfAborted();
-  child=spawn(process.execPath,['-e',${JSON.stringify(program)},join(options.root,'root-writing-child')],{detached:true,stdio:['ignore','ignore','ignore','ipc']});
+  stream=createConnection(${JSON.stringify(observer.endpoint)});
+  streamClosed=new Promise(resolve=>stream.once('close',resolve));
+  await once(stream,'connect',{signal:context.signal});
+  context.signal.throwIfAborted();
+  child=spawn(process.execPath,['-e',${JSON.stringify(program)},join(options.root,'root-writing-child')],{detached:true,stdio:['ignore','ignore','pipe','ipc']});
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data',value=>{stderr+=value});
   exited=new Promise((resolve,reject)=>{child.once('close',resolve);child.once('error',reject)});
-  await new Promise((resolve,reject)=>{child.once('message',resolve);child.once('error',reject)});
+  exited.catch(()=>{});
+  stream.write(JSON.stringify({event:'spawned',pid:child.pid})+'\\n');
+  try {
+    await new Promise((resolve,reject)=>{
+      const cleanup=()=>{
+        child.off('message',ready);
+        child.off('error',failed);
+        child.off('close',closed);
+        context.signal.removeEventListener('abort',aborted);
+      };
+      const failed=cause=>{cleanup();reject(cause)};
+      const ready=message=>{
+        if(message.ready===true) {cleanup();resolve()}
+      };
+      const closed=(code,signal)=>failed(new Error('Recorded descendant exited before readiness ('+(code??signal)+'): '+stderr));
+      const aborted=()=>failed(context.signal.reason);
+      child.once('message',ready);
+      child.once('error',failed);
+      child.once('close',closed);
+      context.signal.addEventListener('abort',aborted,{once:true});
+      if(context.signal.aborted) aborted();
+    });
+  } catch(cause) {
+    stream.write(JSON.stringify({event:'failed',message:cause.message})+'\\n');
+    throw cause;
+  }
   await writeFile(join(options.root,'child-pid'),String(child.pid));
+  // Emit only at the original marker stage, after Root/writer acquisition and child IPC readiness.
+  await new Promise((resolve,reject)=>{
+    let response='';
+    const cleanup=()=>{
+      stream.off('data',accepted);
+      stream.off('error',failed);
+      stream.off('close',closed);
+      context.signal.removeEventListener('abort',aborted);
+    };
+    const failed=cause=>{cleanup();reject(cause)};
+    const accepted=value=>{
+      response+=value.toString();
+      if(!response.includes('\\n')) return;
+      if(response!=='accepted\\n') failed(new Error('Fixture readiness was not accepted'));
+      else {cleanup();resolve()}
+    };
+    const closed=()=>failed(new Error('Fixture readiness stream closed before acceptance'));
+    const aborted=()=>failed(context.signal.reason);
+    stream.on('data',accepted);
+    stream.once('error',failed);
+    stream.once('close',closed);
+    context.signal.addEventListener('abort',aborted,{once:true});
+    if(context.signal.aborted) {aborted();return}
+    stream.write(JSON.stringify({event:'ready',pid:child.pid})+'\\n');
+  });
   if(${JSON.stringify(mode)}==='missing startup report') {
     const send=process.send.bind(process);
     process.send=(message,...args)=>{
@@ -142,33 +227,32 @@ export async function createHostPlatform(options, context) {
   throw new Error('Recorded partial initializer rejection');
 }
 `
-    );
-    let ownerPid: number | undefined;
-    let ownerStart: string | undefined;
-    let childPid: number | undefined;
-    const controller = new AbortController();
-    try {
+      );
       const spawnHost = createNodeHostSpawner({
         entryArgs: [modulePath],
         entrypoint: fileURLToPath(new URL('../dist/process-entry.js', import.meta.url)),
         output: 'ignore',
       });
-      const starting = spawnHost({ lifetime: 'persistent', root }, controller.signal);
-      starting.catch(() => undefined);
-      if (mode !== 'initializer rejection') {
-        await expect
-          .poll(async () => {
-            try {
-              childPid = Number(await readFile(join(root, 'child-pid'), 'utf8'));
-              return childPid > 0;
-            } catch {
-              return false;
-            }
-          })
-          .toBe(true);
-        const owner = RootLock.inspect(root)?.owner;
-        ownerPid = owner?.pid;
-        ownerStart = owner?.start;
+      starting = spawnHost({ lifetime: 'persistent', root }, signal);
+      void starting.then(
+        () => observer.fail(new Error('Host starter completed without the fixture marker')),
+        observer.fail
+      );
+      childPid = await observer.spawned;
+      const owner = RootLock.inspect(root)?.owner;
+      ownerPid = owner?.pid;
+      ownerStart = owner?.start;
+      expect(ownerPid).toBeGreaterThan(0);
+      expect(owner?.released).not.toBe(true);
+      if (mode === 'readiness watchdog abort') {
+        const failure = new Error('Recorded readiness watchdog abort');
+        watchdog.abort(failure);
+        await expect(observer.ready).rejects.toBe(failure);
+      } else if (mode === 'early child exit') {
+        await expect(observer.ready).rejects.toThrow('Recorded child exit before readiness');
+      } else {
+        expect(await observer.ready).toBe(childPid);
+        expect(Number(await readFile(join(root, 'child-pid'), 'utf8'))).toBe(childPid);
         if (mode === 'launcher cancellation') {
           controller.abort(new Error('Recorded launcher cancellation'));
         }
@@ -178,9 +262,13 @@ export async function createHostPlatform(options, context) {
           ? 'Recorded launcher cancellation'
           : mode === 'missing startup report'
             ? 'did not become ready'
-            : 'partial initializer rejection'
+            : mode === 'early child exit'
+              ? 'Recorded child exit before readiness'
+              : mode === 'readiness watchdog abort'
+                ? 'Recorded readiness watchdog abort'
+                : 'partial initializer rejection'
       );
-      childPid = Number(await readFile(join(root, 'child-pid'), 'utf8'));
+      expect(await observer.joined).toBe(childPid);
       await expect
         .poll(async () => {
           try {
@@ -198,26 +286,25 @@ export async function createHostPlatform(options, context) {
       const reopened = await StateStore.open(root);
       await reopened.append([{ event: { type: 'thread.started' }, threadId: randomUUID() }]);
       await reopened.close();
-      await writeFile(
-        `/tmp/brainstrike-m3-partial-startup-${mode.replaceAll(' ', '-')}.json`,
-        JSON.stringify(
-          { childJoined: true, childPid, ownerPid, ownerStart, rootReusedAfterJoin: true },
-          null,
-          2
-        )
-      );
+      recordFixtureEvent('partial-startup-physically-joined', {
+        childJoined: true,
+        childPid,
+        mode,
+        ownerPid,
+        ownerStart,
+        rootReusedAfterJoin: true,
+      });
     } finally {
       controller.abort(new Error('Fixture teardown'));
-      // Only fixture-owned descendants/owners are touched, after causal assertions.
-      if (childPid && processStartTime(childPid) !== null) {
-        process.kill(childPid, 'SIGTERM');
-        await expect.poll(() => processStartTime(childPid ?? 0)).toBeNull();
+      await starting?.catch(() => undefined);
+      try {
+        if (childPid) {
+          await observer.joined;
+        }
+      } finally {
+        await observer.close();
       }
-      if (ownerPid && ownerStart && processStartTime(ownerPid) === ownerStart) {
-        process.kill(ownerPid, 'SIGKILL');
-        await expect.poll(() => processStartTime(ownerPid ?? 0)).not.toBe(ownerStart);
-      }
-      await rm(root, { force: true, recursive: true });
+      await removeFixtureRoot(root);
     }
   }
 );

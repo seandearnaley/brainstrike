@@ -13,11 +13,13 @@ import {
 } from './contracts.js';
 
 export const INDEX_SCHEMA_VERSION = 10;
+const supportedSchemaVersion = Schema.Literals([8, 9, INDEX_SCHEMA_VERSION]);
+export type IndexSchemaVersion = typeof supportedSchemaVersion.Type;
 const metadataSchema = Schema.Struct({
   indexMode: Schema.Literals(['text-only', 'vector-configured']),
   profileHash: Schema.NullOr(Schema.String),
   profileJson: Schema.NullOr(Schema.String),
-  schemaVersion: Schema.Int,
+  schemaVersion: supportedSchemaVersion,
   storeId: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u)),
 });
 export function configuredEmbedding(
@@ -51,9 +53,6 @@ export function freshIdentity(options: IndexerOptions): IndexerIdentity {
 export function decodeIndexIdentityRow(input: unknown): IndexerIdentity {
   try {
     const row = decoder(metadataSchema)(input);
-    if (row.schemaVersion !== INDEX_SCHEMA_VERSION) {
-      throw new Error('Derived schema changed.');
-    }
     if (row.indexMode === 'text-only') {
       if (row.profileJson !== null || row.profileHash !== null) {
         throw new Error('Text identity has unexpected vector metadata.');
@@ -72,6 +71,19 @@ export function decodeIndexIdentityRow(input: unknown): IndexerIdentity {
     throw new IndexerError(
       'rebuild-required',
       `Existing index metadata is invalid: ${error instanceof Error ? error.message : String(error)}; explicitly rebuild in a new index file.`
+    );
+  }
+}
+/** Common read metadata is compatible; only the acquired writer upgrades known layouts. */
+export function readIndexSchemaVersion(db: Database.Database): IndexSchemaVersion {
+  try {
+    return decoder(supportedSchemaVersion)(
+      db.prepare('SELECT schema_version FROM index_metadata WHERE singleton=1').pluck().get()
+    );
+  } catch (error) {
+    throw new IndexerError(
+      'rebuild-required',
+      `Unsupported derived schema: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 }

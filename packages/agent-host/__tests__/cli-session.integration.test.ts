@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { decodeHostRecord, type HostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
+import { z } from 'zod';
 import { attachAgentHost, type HostClient } from '../src/client.js';
 import { readHostRow } from '../src/event-storage.js';
 import { HOST_RESULT_SCHEMAS, HostLogRowSchema } from '../src/protocol.js';
@@ -18,6 +19,7 @@ import {
   removeFixtureRoot,
 } from './fixtures/cooperative-host-fixture.js';
 import {
+  FixtureOutput,
   observeFixtureChild,
   recordFixtureEvent,
   startFixtureConsole,
@@ -41,6 +43,24 @@ const consoles: ReturnType<typeof startFixtureConsole>[] = [];
 const controls = new Map<string, FixtureCloseControl>();
 const ownerControls = new Map<string, FixtureCloseControl>();
 const observations = new Map<ChildProcess, ReturnType<typeof observeFixtureChild>>();
+interface PinnedWindowsOwner {
+  interruptRequested: boolean;
+  readonly joined: Promise<void>;
+}
+const windowsOwnerJoins = new Map<string, PinnedWindowsOwner>();
+const WindowsOwnerJoinMessage = z.discriminatedUnion('event', [
+  z.strictObject({
+    event: z.literal('owner-handle-verified'),
+    pid: z.number().int().positive(),
+    start: z.string().regex(/^\d+$/),
+  }),
+  z.strictObject({
+    event: z.literal('owner-physically-joined'),
+    exitCode: z.number().int(),
+    pid: z.number().int().positive(),
+    start: z.string().regex(/^\d+$/),
+  }),
+]);
 
 function environment(dataRoot: string): NodeJS.ProcessEnv {
   const control = controls.get(dataRoot);
@@ -176,7 +196,99 @@ async function cli(dataRoot: string, args: string[]): Promise<unknown> {
   }
 }
 
+async function waitForWindowsOwnerVerification(
+  output: FixtureOutput,
+  ownerRecord: Pick<HostRecord, 'pid' | 'start'>
+): Promise<void> {
+  // A pipe chunk can end anywhere in the JSON; only the newline frames a record.
+  // The existing enclosing test deadline and output failure still bound this wait.
+  await output.waitFor('stdout', '\n');
+  const stdout = output.stdout();
+  const record = stdout.slice(0, stdout.indexOf('\n'));
+  expect(WindowsOwnerJoinMessage.parse(JSON.parse(record))).toEqual({
+    event: 'owner-handle-verified',
+    pid: ownerRecord.pid,
+    start: ownerRecord.start,
+  });
+}
+
+async function pinWindowsOwner(ownerRecord: HostRecord): Promise<PinnedWindowsOwner> {
+  const powershell = process.env['M3_WINDOWS_POWERSHELL'] ?? 'pwsh.exe';
+  const child = spawn(
+    powershell,
+    [
+      '-NoLogo',
+      '-NoProfile',
+      '-File',
+      fileURLToPath(new URL('./fixtures/windows-owner-join.ps1', import.meta.url)),
+      '-OwnedPid',
+      String(ownerRecord.pid),
+      '-ExpectedStart',
+      ownerRecord.start,
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }
+  );
+  children.push(child);
+  const observed = observeFixtureChild(child, (pid) => {
+    const start = processStartTime(pid);
+    if (!start) {
+      throw new Error('Cannot identify the owned Windows handle observer');
+    }
+    return { executable: powershell, pid, start };
+  });
+  observations.set(child, observed);
+  const pinned: PinnedWindowsOwner = {
+    interruptRequested: false,
+    joined: observed.done.then((result) => {
+      expect(result).toEqual({ code: 0, signal: null });
+      const messages = observed.output
+        .stdout()
+        .trim()
+        .split('\n')
+        .map((line) => WindowsOwnerJoinMessage.parse(JSON.parse(line)));
+      expect(messages).toEqual([
+        { event: 'owner-handle-verified', pid: ownerRecord.pid, start: ownerRecord.start },
+        {
+          event: 'owner-physically-joined',
+          exitCode: 0,
+          pid: ownerRecord.pid,
+          start: ownerRecord.start,
+        },
+      ]);
+      recordFixtureEvent('sigint-owner-physically-joined', {
+        identity: { executable: process.execPath, pid: ownerRecord.pid, start: ownerRecord.start },
+      });
+    }),
+  };
+  windowsOwnerJoins.set(`${ownerRecord.pid}:${ownerRecord.start}`, pinned);
+  void pinned.joined.catch(() => undefined);
+  // Pin and verify the real owner before SIGINT can make an unpinned StartTime
+  // query race its exit. The existing enclosing test owns the deadline.
+  await waitForWindowsOwnerVerification(observed.output, ownerRecord);
+  recordFixtureEvent('sigint-owner-handle-pinned', {
+    identity: { executable: process.execPath, pid: ownerRecord.pid, start: ownerRecord.start },
+  });
+  return pinned;
+}
+
 async function stop(ownerRecord: HostRecord): Promise<void> {
+  const pinned =
+    process.platform === 'win32'
+      ? windowsOwnerJoins.get(`${ownerRecord.pid}:${ownerRecord.start}`)
+      : undefined;
+  if (pinned) {
+    if (!pinned.interruptRequested) {
+      // A failed assertion before the planned interrupt still cooperatively closes
+      // its known fixture owner and joins the observer's already-verified handle.
+      const control = ownerControls.get(`${ownerRecord.pid}:${ownerRecord.start}`);
+      if (!control) {
+        throw new Error('Missing owned Windows CLI host fixture control');
+      }
+      await closeFixtureHost(ownerRecord, control);
+    }
+    await pinned.joined;
+    return;
+  }
   if (processStartTime(ownerRecord.pid) === ownerRecord.start) {
     if (process.platform === 'win32') {
       const control = ownerControls.get(`${ownerRecord.pid}:${ownerRecord.start}`);
@@ -229,7 +341,45 @@ afterEach(async (context) => {
   controls.clear();
   ownerControls.clear();
   observations.clear();
+  windowsOwnerJoins.clear();
 });
+
+test.each(['before closing brace', 'before newline'] as const)(
+  'Windows owner verification waits for a newline-terminated record (%s)',
+  async (split) => {
+    // Captured from the existing real handle observer; split transport delivery,
+    // preserving the payload and its exact PID/FILETIME verification assertion.
+    const ownerRecord = { pid: 39_756, start: '134358926786937682' };
+    const record = '{"start":"134358926786937682","pid":39756,"event":"owner-handle-verified"}';
+    const output = new FixtureOutput();
+    let state: 'pending' | 'verified' | 'failed' = 'pending';
+    const verification = waitForWindowsOwnerVerification(output, ownerRecord).then(
+      () => {
+        state = 'verified';
+      },
+      (cause: unknown) => {
+        state = 'failed';
+        throw cause;
+      }
+    );
+    void verification.catch(() => undefined);
+    try {
+      const splitAt = split === 'before closing brace' ? record.length - 1 : record.length;
+      output.accept('stdout', record.slice(0, splitAt));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(state).toBe('pending');
+      output.accept('stdout', record.slice(splitAt));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(state).toBe('pending');
+      output.accept('stdout', '\r\n');
+      await verification;
+      expect(state).toBe('verified');
+    } finally {
+      output.fail(new Error('Split-record fixture observation finished'));
+      await verification.catch(() => undefined);
+    }
+  }
+);
 
 test.each(['approve', 'deny'] as const)(
   'ordinary run and attach share the committed CLI decision (%s)',
@@ -319,6 +469,7 @@ test('ordinary run SIGINT joins its real native child before the CLI exits', asy
   );
   await run.waitForPrompt();
   const record = await owner(dataRoot);
+  const pinnedOwner = process.platform === 'win32' ? await pinWindowsOwner(record) : undefined;
   run.write('approve\n');
   let childPid = 0;
   await expect
@@ -331,6 +482,9 @@ test('ordinary run SIGINT joins its real native child before the CLI exits', asy
   recordFixtureEvent('owned-native-effect-child', {
     identity: { executable: process.execPath, pid: childPid, start: processStartTime(childPid) },
   });
+  if (pinnedOwner) {
+    pinnedOwner.interruptRequested = true;
+  }
   run.interrupt();
   expect(await run.done).toBe(0);
   expect(() => process.kill(childPid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));
@@ -343,6 +497,12 @@ test('ordinary run SIGINT joins its real native child before the CLI exits', asy
   expect(rows.at(-1)?.event).toMatchObject({ outcome: 'stopped', type: 'run.finished' });
   await stop(record);
   expect(RootLock.inspect(dataRoot)?.owner.released).toBe(true);
+  if (pinnedOwner) {
+    recordFixtureEvent('sigint-root-release-observed-after-owner-join', {
+      identity: { executable: process.execPath, pid: record.pid, start: record.start },
+      root: dataRoot,
+    });
+  }
 });
 
 test('terminal EOF leaves its unanswered approval owned by the host for reconnection', async () => {
