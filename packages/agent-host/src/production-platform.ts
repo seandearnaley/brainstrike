@@ -261,6 +261,7 @@ export async function createProductionHostPlatform(
       }
     },
     close,
+    ...(options.mcp?.input ? { mcpInput: options.mcp.input } : {}),
     readPermissionPolicy: options.readPermissionPolicy,
   };
 }

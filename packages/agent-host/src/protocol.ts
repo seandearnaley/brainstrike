@@ -1,7 +1,8 @@
+import { McpElicitationPresentationWireSchema } from '@brainstrike/assistant-contract';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 
-export const AGENT_HOST_PROTOCOL_VERSION = 8;
+export const AGENT_HOST_PROTOCOL_VERSION = 9;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
@@ -66,6 +67,13 @@ export const HOST_METHOD_SCHEMAS = {
     protocolVersion: z.number().int().positive(),
     token: z.string().regex(/^[a-f0-9]{64}$/),
   }),
+  /**
+   * Answers committed MCP server input with an `McpElicitationSettlement`
+   * (parsed by `parseMcpElicitationSettlement`). The presenter's settle() is
+   * the only settlement writer and idempotency authority, so this method has
+   * no command identity and commits no content.
+   */
+  'input/settle': z.strictObject({ ...Run, settlement: z.json(), toolCallId: Id }),
   'interaction/respond': z.strictObject({
     ...Command,
     ...Run,
@@ -171,6 +179,22 @@ export const HostEventSchema = z.union([
     interactionId: Id,
     resumeData: z.json(),
   }),
+  /** Answerable MCP server input, committed before any client displays it. */
+  z.strictObject({
+    type: z.literal('input.requested'),
+    ...RunFields,
+    inputId: Id,
+    presentation: McpElicitationPresentationWireSchema,
+    toolCallId: Id,
+  }),
+  /** The presenter's finalization of that input (McpElicitationRetiredWire). */
+  z.strictObject({
+    type: z.literal('input.retired'),
+    ...RunFields,
+    code: Id,
+    inputId: Id,
+    toolCallId: Id,
+  }),
   z.strictObject({ type: z.literal('effect.started'), ...Action }),
   z.strictObject({
     type: z.literal('effect.finished'),
@@ -202,6 +226,7 @@ export const HOST_RESULT_SCHEMAS = {
     protocolVersion: z.number().int().positive(),
     start: Id,
   }),
+  'input/settle': z.strictObject({ accepted: z.literal(true) }),
   'interaction/respond': z.strictObject({ accepted: z.literal(true) }),
   'interaction/resume': z.strictObject({ accepted: z.literal(true) }),
   'log/subscribe': z.strictObject({ rows: z.array(HostLogRowSchema) }),

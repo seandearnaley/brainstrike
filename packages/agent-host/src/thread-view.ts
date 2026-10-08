@@ -2,8 +2,11 @@ import type { HostClient } from './client-connection.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 
 export type PendingHostApproval = Extract<HostEvent, { type: 'interaction.requested' }>;
+export type PendingHostInput = Extract<HostEvent, { type: 'input.requested' }>;
 export interface HostRunView {
   readonly approvals: readonly PendingHostApproval[];
+  /** Committed MCP server input; only its committed retirement removes it. */
+  readonly inputs: readonly PendingHostInput[];
   readonly results: readonly Extract<HostEvent, { type: 'effect.finished' }>[];
   readonly runId: string;
   readonly status: 'running' | Extract<HostEvent, { type: 'run.finished' }>['outcome'];
@@ -22,6 +25,35 @@ function textDelta(
   return undefined;
 }
 
+/** One committed run event applied to its run view. */
+function foldRunEvent(run: HostRunView, event: HostEvent): HostRunView {
+  switch (event.type) {
+    case 'stream.chunk': {
+      const text = textDelta(event.chunk);
+      return text === undefined ? run : { ...run, text: run.text + text };
+    }
+    case 'interaction.requested':
+      return { ...run, approvals: [...run.approvals, event] };
+    case 'interaction.responded':
+      return {
+        ...run,
+        approvals: run.approvals.filter(
+          (approval) => approval.interactionId !== event.interactionId
+        ),
+      };
+    case 'input.requested':
+      return { ...run, inputs: [...run.inputs, event] };
+    case 'input.retired':
+      return { ...run, inputs: run.inputs.filter((input) => input.inputId !== event.inputId) };
+    case 'effect.finished':
+      return { ...run, results: [...run.results, event] };
+    case 'run.finished':
+      return { ...run, approvals: [], status: event.outcome };
+    default:
+      return run;
+  }
+}
+
 /** Consumers fold the committed log; none of these values have another writer. */
 export function foldHostRuns(rows: readonly HostLogRow[]): HostRunView[] {
   const runs = new Map<string, HostRunView>();
@@ -29,6 +61,7 @@ export function foldHostRuns(rows: readonly HostLogRow[]): HostRunView[] {
     if (event.type === 'run.started') {
       runs.set(event.runId, {
         approvals: [],
+        inputs: [],
         results: [],
         runId: event.runId,
         status: 'running',
@@ -36,31 +69,9 @@ export function foldHostRuns(rows: readonly HostLogRow[]): HostRunView[] {
       });
       continue;
     }
-    if (!('runId' in event)) {
-      continue;
-    }
-    const run = runs.get(event.runId);
-    if (!run) {
-      continue;
-    }
-    if (event.type === 'stream.chunk') {
-      const text = textDelta(event.chunk);
-      if (text !== undefined) {
-        runs.set(run.runId, { ...run, text: run.text + text });
-      }
-    } else if (event.type === 'interaction.requested') {
-      runs.set(run.runId, { ...run, approvals: [...run.approvals, event] });
-    } else if (event.type === 'interaction.responded') {
-      runs.set(run.runId, {
-        ...run,
-        approvals: run.approvals.filter(
-          (approval) => approval.interactionId !== event.interactionId
-        ),
-      });
-    } else if (event.type === 'effect.finished') {
-      runs.set(run.runId, { ...run, results: [...run.results, event] });
-    } else if (event.type === 'run.finished') {
-      runs.set(run.runId, { ...run, approvals: [], status: event.outcome });
+    const run = 'runId' in event ? runs.get(event.runId) : undefined;
+    if (run) {
+      runs.set(run.runId, foldRunEvent(run, event));
     }
   }
   return [...runs.values()];

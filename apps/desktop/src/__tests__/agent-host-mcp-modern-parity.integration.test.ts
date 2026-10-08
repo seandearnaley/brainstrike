@@ -552,15 +552,22 @@ function expectedTaskInput(
   };
 }
 
-/** Restart on the same Root and Tasks writer; the public authority port reconnects. */
-async function reopenAndRecover(previous: ModernHost, lab: LabProcess) {
+// Restart on the same Root and Tasks writer; the public authority port reconnects. Recovered
+// input names no host caller: Core refuses it and the still-pending task is fenced (M4 answers it).
+async function reopenAndRecover(previous: ModernHost, lab: LabProcess, handle: McpTaskHandle) {
   const host = await openTasksHost(lab, { storage: previous.storage });
+  const tasks = new Observed<McpTaskPresentation>();
+  const unsubscribe = host.services.runtime.taskHost.subscribe((task) => tasks.push(task));
+  owned.push(async () => unsubscribe());
   // Recovery runs when the server's next connection opens its Tasks session.
   await host.services.mcp.authority.control({
     action: 'connect',
     configuredServerId: parseConfiguredMcpServerId(TASKS_SERVER),
   });
-  return { host, recovered: await host.presentations.until((items) => items[0]) };
+  const refused = await host.finalized.until((items) => items[0]);
+  const fenced = await tasks.until((items) => items.find((task) => task.recovery !== 'live'));
+  expect(fenced).toMatchObject({ handle, recovery: 'restart_required', status: 'input_required' });
+  return { host, refused };
 }
 
 describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', () => {
@@ -858,36 +865,26 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     });
     const atShutdown = fenced();
 
-    const { host: second, recovered } = await reopenAndRecover(first, lab);
+    const { host: second, refused } = await reopenAndRecover(first, lab, handle);
     const reopened = (await second.client.request('thread/read', { fromSeq: 0, threadId })).rows;
     expect(eventOf(reopened, 'effect.started')).toEqual(effect);
     expect(eventOf(reopened, 'effect.finished')).toBeUndefined();
     expect(eventOf(reopened, 'run.finished')).toMatchObject({ outcome: 'interrupted', runId });
-    expect(recovered).toEqual(
-      expectedTaskInput(liveServer(second.services).generation, { type: 'tools/call' }, handle)
+    // Acceptance changed (M4 answers recovered input): refused visibly, never displayed or committed.
+    expect(refused).toEqual({ code: 'mcp-elicitation-origin-unbound', id: expect.any(String) });
+    expect(second.presentations.items).toEqual([]);
+    const input = { inputId: presentation.id, runId, toolCallId: effect.toolCallId };
+    const inputs = reopened.flatMap(({ event }) =>
+      event.type.startsWith('input.') ? [event] : []
     );
-    const settled = new Observed<McpTaskPresentation>();
-    const unsubscribe = second.services.runtime.taskHost.subscribe((task) => settled.push(task));
-    owned.push(async () => {
-      unsubscribe();
-    });
-    second.settle(answerFor(recovered, 'accept'));
-    expect(
-      await settled.until((items) => items.find(({ status }) => status === 'completed'))
-    ).toMatchObject({ handle, recovery: 'terminal', status: 'completed' });
-    const record = await durableTask(second.storage, handle);
-    expect(record).toMatchObject({
-      ...handle,
-      resultMetadata: { result: { content: [{ text: 'done', type: 'text' }] } },
-      status: 'completed',
-    });
-    expect(record.history.map(({ status }) => status)).toEqual([
-      'working',
-      'working',
-      'input_required',
-      'input_required',
-      'completed',
+    expect(inputs).toEqual([
+      { ...input, presentation, type: 'input.requested' },
+      { ...input, code: 'mcp-elicitation-caller-aborted', type: 'input.retired' },
     ]);
+    const record = await durableTask(second.storage, handle);
+    expect(record).toMatchObject({ ...handle, resultMetadata: null, status: 'input_required' });
+    const statuses = record.history.map(({ status }) => status);
+    expect(statuses).toEqual(['working', 'working', 'input_required', 'input_required']);
     expect(await lab.close()).toEqual({
       exit: { code: 0, signal: null },
       pid: lab.ready.pid,
@@ -970,9 +967,8 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     });
     await first.client.request('host/stop', {});
     await first.host.closed;
-    // Nothing reached the server: a restarted host still recovers the input.
-    const { recovered } = await reopenAndRecover(first, lab);
-    expect(recovered.provenance.taskHandle).toEqual(handle);
+    // Nothing reached the server: after restart it still asks (answering recovered input is M4).
+    await reopenAndRecover(first, lab, handle);
   });
 
   // RED (PR #3543 correction): the lifecycle persists `input_required`, then awaits the parked

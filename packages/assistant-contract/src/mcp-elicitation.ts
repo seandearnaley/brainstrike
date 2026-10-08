@@ -21,11 +21,12 @@ import { z } from 'zod';
 import {
   type ConfiguredMcpServerId,
   type McpHostCaller,
+  McpHostCallerSchema,
   type McpHostOperation,
   parseConfiguredMcpServerId,
 } from './mcp-host.js';
 import type { McpConfiguredProtocol, McpStatusTransport } from './mcp-status.js';
-import type { McpTaskHandle } from './mcp-task-presentation.js';
+import { type McpTaskHandle, McpTaskHandleSchema } from './mcp-task-presentation.js';
 
 export const MCP_ELICITATION_PRESENTATION_ID_MAX_LENGTH = 256;
 export const MCP_ELICITATION_REQUEST_ID_MAX_LENGTH = 256;
@@ -144,6 +145,143 @@ export interface McpElicitationRetiredWire {
   readonly code: string;
   readonly id: string;
 }
+
+const MCP_ELICITATION_OPERATION_TYPES = [
+  'completion/complete',
+  'prompts/get',
+  'prompts/list',
+  'resources/list',
+  'resources/read',
+  'resources/subscribe',
+  'resources/templates/list',
+  'resources/unsubscribe',
+  'tools/call',
+  'tools/list',
+] as const satisfies readonly McpHostOperation['type'][];
+// Two-way exhaustiveness: a new host operation type must be named above.
+const operationTypesCovered: Exclude<
+  McpHostOperation['type'],
+  (typeof MCP_ELICITATION_OPERATION_TYPES)[number]
+> extends never
+  ? true
+  : never = true;
+void operationTypesCovered;
+
+const SchemaBaseWire = { description: z.string().optional(), title: z.string().optional() };
+const OptionalNumber = z.number().optional();
+const TitledOptionWire = z.looseObject({ const: z.string(), title: z.string() });
+// Server-authored schema objects keep members this contract does not name;
+// the named members are typed. The host-authored envelope below is strict.
+const McpElicitationPrimitiveSchemaWireSchema = z.union([
+  z.looseObject({ ...SchemaBaseWire, default: z.boolean().optional(), type: z.literal('boolean') }),
+  z.looseObject({
+    ...SchemaBaseWire,
+    default: z.number().optional(),
+    maximum: OptionalNumber,
+    minimum: OptionalNumber,
+    type: z.enum(['integer', 'number']),
+  }),
+  z.looseObject({
+    ...SchemaBaseWire,
+    default: z.string().optional(),
+    enum: z.array(z.string()),
+    enumNames: z.array(z.string()).optional(),
+    type: z.literal('string'),
+  }),
+  z.looseObject({
+    ...SchemaBaseWire,
+    default: z.string().optional(),
+    oneOf: z.array(TitledOptionWire),
+    type: z.literal('string'),
+  }),
+  z.looseObject({
+    ...SchemaBaseWire,
+    default: z.string().optional(),
+    format: z.enum(MCP_ELICITATION_STRING_FORMATS).optional(),
+    maxLength: OptionalNumber,
+    minLength: OptionalNumber,
+    type: z.literal('string'),
+  }),
+  z.looseObject({
+    ...SchemaBaseWire,
+    default: z.array(z.string()).optional(),
+    items: z.looseObject({ enum: z.array(z.string()), type: z.literal('string') }),
+    maxItems: OptionalNumber,
+    minItems: OptionalNumber,
+    type: z.literal('array'),
+  }),
+  z.looseObject({
+    ...SchemaBaseWire,
+    default: z.array(z.string()).optional(),
+    items: z.looseObject({ anyOf: z.array(TitledOptionWire) }),
+    maxItems: OptionalNumber,
+    minItems: OptionalNumber,
+    type: z.literal('array'),
+  }),
+]);
+const SafeIntegerWire = z
+  .number()
+  .int()
+  .refine((value) => Number.isSafeInteger(value), 'must be a safe integer');
+const McpElicitationProvenanceWireSchema = z.strictObject({
+  caller: McpHostCallerSchema.exactOptional(),
+  configuredProtocol: z.enum(['2026-07-28', 'auto', 'legacy']),
+  configuredServerId: z.string().transform((value, ctx): ConfiguredMcpServerId => {
+    try {
+      return parseConfiguredMcpServerId(value);
+    } catch {
+      ctx.addIssue({ code: 'custom', message: 'must be a configured MCP server id' });
+      return z.NEVER;
+    }
+  }),
+  generation: SafeIntegerWire,
+  invocationId: z.string().min(1),
+  negotiatedRevision: z.string().min(1),
+  operation: z.strictObject({
+    target: z.string().exactOptional(),
+    type: z.enum(MCP_ELICITATION_OPERATION_TYPES),
+  }),
+  requestId: z.union([z.string().max(MCP_ELICITATION_REQUEST_ID_MAX_LENGTH), SafeIntegerWire]),
+  serverIdentity: z
+    .strictObject({
+      name: z.string(),
+      title: z.string().exactOptional(),
+      version: z.string(),
+      websiteOrigin: z.string().exactOptional(),
+    })
+    .exactOptional(),
+  taskHandle: McpTaskHandleSchema.exactOptional(),
+  transport: z.enum(['sse', 'stdio', 'streamable-http']),
+});
+const PresentationBase = {
+  id: z.string().min(1).max(MCP_ELICITATION_PRESENTATION_ID_MAX_LENGTH),
+  message: z.string(),
+  provenance: McpElicitationProvenanceWireSchema,
+};
+/**
+ * Validates an `McpElicitationPresentationWire` as the agent host commits it
+ * to the run log for its clients. The host-authored envelope and provenance
+ * are strict; the server-authored requested schema keeps unnamed members.
+ */
+export const McpElicitationPresentationWireSchema = z.discriminatedUnion('mode', [
+  z.strictObject({
+    ...PresentationBase,
+    mode: z.literal('form'),
+    requestedSchema: z.looseObject({
+      properties: z.record(z.string(), McpElicitationPrimitiveSchemaWireSchema),
+      required: z.array(z.string()).optional(),
+      type: z.literal('object'),
+    }),
+  }),
+  z.strictObject({ ...PresentationBase, mode: z.literal('url'), url: z.string().min(1) }),
+]);
+// The committed shape is the browser-safe wire the consent dialog renders.
+const presentationWireAssignable: z.output<
+  typeof McpElicitationPresentationWireSchema
+> extends McpElicitationPresentationWire
+  ? true
+  : never = true;
+void presentationWireAssignable;
 
 /** Accepted form values mirror the SDK's `ElicitResult['content']` primitive set. */
 export type McpElicitationContentValue = boolean | number | string | string[];

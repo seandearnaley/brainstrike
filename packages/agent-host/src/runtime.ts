@@ -87,6 +87,9 @@ export async function startAgentHost(
     get maxSteps(): number | undefined {
       return currentPlatform().maxSteps;
     },
+    get mcpInput(): HostPlatform['mcpInput'] {
+      return currentPlatform().mcpInput;
+    },
     readPermissionPolicy: (threadId) => currentPlatform().readPermissionPolicy(threadId),
     resolveModel: (modelId) => {
       const platform = currentPlatform();

@@ -4,10 +4,49 @@ import { z } from 'zod';
 import type { HostCliOutput } from './cli.js';
 import type { HostClient } from './client.js';
 import type { HostLogRow } from './protocol.js';
-import { CommittedThreadView, foldHostRuns, type PendingHostApproval } from './thread-view.js';
+import {
+  CommittedThreadView,
+  foldHostRuns,
+  type PendingHostApproval,
+  type PendingHostInput,
+} from './thread-view.js';
 
 function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+const INPUT_ANSWER = /^(accept|decline|cancel)(?:\s+(.+))?$/su;
+
+/**
+ * A terminal answer to committed MCP input, as the presenter's settlement:
+ * `accept {...}` (form content), `accept` (URL), `decline` or `cancel`.
+ */
+export function hostInputSettlement(input: PendingHostInput, answer: string): unknown {
+  const match = INPUT_ANSWER.exec(answer.trim());
+  const action = match?.[1];
+  const content = match?.[2];
+  const { presentation } = input;
+  if (!action) {
+    throw new Error('Enter accept, decline, cancel, or stop.');
+  }
+  if (action !== 'accept' && content !== undefined) {
+    throw new Error(`${action} takes no content.`);
+  }
+  if (action === 'accept' && (presentation.mode === 'form') !== (content !== undefined)) {
+    throw new Error(
+      presentation.mode === 'form'
+        ? 'accept needs the form content as a JSON object.'
+        : 'A URL request takes no content.'
+    );
+  }
+  return {
+    action,
+    configuredServerId: presentation.provenance.configuredServerId,
+    ...(content === undefined ? {} : { content: JSON.parse(content) as unknown }),
+    generation: presentation.provenance.generation,
+    id: presentation.id,
+    requestId: presentation.provenance.requestId,
+  };
 }
 
 export class HostCliExitError extends Error {
@@ -54,6 +93,28 @@ function displayRow(row: HostLogRow, output: HostCliOutput, json: boolean): void
   }
 }
 
+/** Sends a terminal answer to committed MCP input; nothing when the answer is unusable. */
+function settleHostInput(
+  client: HostClient,
+  threadId: string,
+  input: PendingHostInput,
+  answer: string
+): Promise<unknown> | undefined {
+  let settlement: unknown;
+  try {
+    settlement = hostInputSettlement(input, answer);
+  } catch (cause) {
+    process.stderr.write(`${errorText(cause)}\n`);
+    return;
+  }
+  return client.request('input/settle', {
+    runId: input.runId,
+    settlement: z.json().parse(settlement),
+    threadId,
+    toolCallId: input.toolCallId,
+  });
+}
+
 /** The terminal observes committed rows and sends decisions to the same host owner. */
 export async function runHostCliSession(options: HostCliSessionOptions): Promise<void> {
   const { client, threadId, output } = options;
@@ -69,6 +130,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
   let stopping: Promise<void> | undefined;
   let displayedApproval: string | undefined;
   let pending: PendingHostApproval | undefined;
+  let pendingInput: PendingHostInput | undefined;
   let stopRequested = false;
   let connectionClosed = false;
   const finish = (cause?: unknown): void => {
@@ -119,6 +181,29 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
       );
     }
   };
+  const showInput = (input: PendingHostInput): void => {
+    if (!terminal) {
+      finish(
+        new HostCliExitError(
+          'Run awaits committed MCP server input; attach interactively or use input settle.',
+          2
+        )
+      );
+      return;
+    }
+    if (input.inputId === displayedApproval) {
+      return;
+    }
+    displayedApproval = input.inputId;
+    const { presentation } = input;
+    process.stderr.write(
+      `\nMCP server ${presentation.provenance.configuredServerId} asks: ${presentation.message}\n${
+        presentation.mode === 'url'
+          ? `${presentation.url}\nAccept, decline, cancel, or stop? `
+          : `${JSON.stringify(presentation.requestedSchema)}\nAnswer with accept {"field":value}, decline, cancel, or stop: `
+      }`
+    );
+  };
   const update = (): void => {
     if (!(initialized && !finished)) {
       return;
@@ -129,8 +214,11 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     const run = runs.find((item) => item.runId === runId);
     printRows(rows);
     pending = run?.approvals[0];
+    pendingInput = pending ? undefined : run?.inputs[0];
     if (pending) {
       showApproval(pending);
+    } else if (pendingInput) {
+      showInput(pendingInput);
     }
     if (run && run.status !== 'running') {
       finish(
@@ -157,6 +245,31 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
       .request('run/stop', { commandId: randomUUID(), runId, threadId })
       .then(() => finish(), finish);
   };
+  const respond = (request: Promise<unknown>): void => {
+    responding = request
+      .then(
+        () => undefined,
+        (cause: unknown) => {
+          process.stderr.write(`Interaction rejected: ${errorText(cause)}\n`);
+          displayedApproval = undefined;
+        }
+      )
+      .finally(() => {
+        responding = undefined;
+        update();
+      });
+  };
+  /** Committed MCP server input is answered when no approval is pending. */
+  const answerInput = (answer: string): boolean => {
+    if (!pendingInput || pending || responding) {
+      return false;
+    }
+    const request = settleHostInput(client, threadId, pendingInput, answer);
+    if (request) {
+      respond(request);
+    }
+    return true;
+  };
   const line = (answer: string): void => {
     const decision = answer.trim().toLowerCase();
     if (decision === 'stop') {
@@ -167,6 +280,9 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
       stopping ??= client
         .request('run/stop', { commandId: randomUUID(), runId, threadId })
         .then(() => finish(), finish);
+      return;
+    }
+    if (answerInput(answer)) {
       return;
     }
     if (!(pending && runId) || responding) {
@@ -202,18 +318,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
         threadId,
       });
     }
-    responding = request
-      .then(
-        () => undefined,
-        (cause: unknown) => {
-          process.stderr.write(`Interaction rejected: ${errorText(cause)}\n`);
-          displayedApproval = undefined;
-        }
-      )
-      .finally(() => {
-        responding = undefined;
-        update();
-      });
+    respond(request);
   };
   const eof = (): void => {
     finish(

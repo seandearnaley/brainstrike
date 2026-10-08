@@ -88,6 +88,7 @@ export function bindHostConnection(
   handle('run/stop', (params) => core.stop(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));
+  handle('input/settle', (params) => core.settleInput(params));
   handle('log/subscribe', async (params) => {
     subscriptions.set(params.threadId, params.fromSeq);
     try {

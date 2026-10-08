@@ -1,4 +1,4 @@
-import type { HostRunState } from './core-state.js';
+import { type HostRunState, hasHostInteractionResponse } from './core-state.js';
 import type { HostRunAdmission } from './ports.js';
 import type { HostEvent } from './protocol.js';
 import { HostRunAdmissionCleanupError } from './run-admission.js';
@@ -156,4 +156,50 @@ export function finishHostRun(
     );
   })();
   return run.completion;
+}
+
+/** Startup reconciliation of each committed run an earlier process left open. */
+export async function reconcileOpenedHostRuns(
+  runs: Iterable<HostRunState>,
+  owner: {
+    readonly continueRun: (run: HostRunState) => Promise<void>;
+    readonly finish: (
+      run: HostRunState,
+      outcome: 'interrupted' | 'stopped',
+      detail?: string
+    ) => Promise<void>;
+    readonly retainRun: () => () => void;
+  }
+): Promise<void> {
+  for (const run of runs) {
+    if (run.terminal) {
+      continue;
+    }
+    if (run.stopped) {
+      await owner.finish(run, 'stopped');
+      continue;
+    }
+    const uncertain = [...run.started].some(
+      (id) => !(run.outputs.has(id) || run.checkpointedResults.has(id))
+    );
+    if (uncertain) {
+      await owner.finish(
+        run,
+        'interrupted',
+        'Host restarted with an uncertain external effect; it was not replayed'
+      );
+    } else if (run.approvals.size > 0) {
+      run.release = owner.retainRun();
+      if ([...run.approvals.values()].every(hasHostInteractionResponse)) {
+        run.task = owner.continueRun(run);
+        run.task.catch(() => undefined);
+      }
+    } else {
+      await owner.finish(
+        run,
+        'interrupted',
+        'Host restarted outside a committed decision boundary'
+      );
+    }
+  }
 }

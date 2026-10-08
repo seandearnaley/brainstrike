@@ -31,7 +31,9 @@ type CliStringOption =
   | 'resume-data'
   | 'root'
   | 'run'
-  | 'thread';
+  | 'settlement'
+  | 'thread'
+  | 'tool-call';
 type CliBooleanOption = 'help' | 'interactive' | 'json' | 'non-interactive';
 interface HostCliArguments {
   readonly command: string;
@@ -60,7 +62,9 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'resume-data': { type: 'string' },
       root: { type: 'string' },
       run: { type: 'string' },
+      settlement: { type: 'string' },
       thread: { type: 'string' },
+      'tool-call': { type: 'string' },
     },
     strict: true,
   });
@@ -82,6 +86,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'run stop',
       'interaction respond',
       'interaction resume',
+      'input settle',
       'log follow',
     ].includes(command)
   ) {
@@ -120,13 +125,16 @@ run start --thread <id> --model <id> --prompt <text>
 run stop --thread <id> --run <id>
 interaction respond --thread <id> --run <id> --interaction <id> --decision approve|deny
 interaction resume --thread <id> --run <id> --interaction <id> --resume-data <json>
+input settle --thread <id> --run <id> --tool-call <id> --settlement <json>
 log follow --thread <id> [--from-seq <n>]
 
 Question answers use {"answer":"text"} or {"answer":["choice 1","choice 2"]}.
 Plan decisions use {"action":"approved"} or {"action":"rejected","feedback":"reason"}.
+MCP server input settles with its committed presentation's configuredServerId, generation,
+id and requestId plus {"action":"accept","content":{...}}, {"action":"decline"} or {"action":"cancel"}.
 Starting a host currently requires its configured --platform module.
 Unanswered noninteractive decisions exit 2 and remain available for attach.
-An interactive terminal prompts for approvals, question answers, and plan decisions. EOF detaches.
+An interactive terminal prompts for approvals, question answers, plan decisions and MCP server input. EOF detaches.
 Run signals stop and join its execution; attach signals detach.
 `);
     return;
@@ -258,6 +266,17 @@ Run signals stop and join its execution; attach signals detach.
         print(await client.request('interaction/resume', params));
         break;
       }
+      case 'input settle': {
+        const settlement: unknown = JSON.parse(required(values.settlement, 'settlement'));
+        const params = HOST_METHOD_SCHEMAS['input/settle'].parse({
+          runId: runId(),
+          settlement,
+          threadId: threadId(),
+          toolCallId: required(values['tool-call'], 'tool-call'),
+        });
+        print(await client.request('input/settle', params));
+        break;
+      }
       case 'log follow': {
         const selected = threadId();
         const rows = new Map<number, unknown>();
@@ -295,7 +314,7 @@ Run signals stop and join its execution; attach signals detach.
       }
       default:
         throw new Error(
-          'Expected host start/status/stop, thread start/read, run start/stop, interaction respond/resume, or log follow'
+          'Expected host start/status/stop, thread start/read, run start/stop, interaction respond/resume, input settle, or log follow'
         );
     }
   } finally {
