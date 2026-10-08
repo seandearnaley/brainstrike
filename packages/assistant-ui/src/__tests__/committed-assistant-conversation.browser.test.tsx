@@ -694,12 +694,14 @@ describe('refused dispatch and unavailable capabilities', () => {
         true
       );
       const committed = store.getSnapshot().repository;
-      const previous = surface.ui.getByRole('button', { name: 'Previous branch' });
+      const controls = () =>
+        surface.ui.queryAllByRole('button', { name: /^(Previous|Next) branch$/ });
       if (withdrawn) {
+        expect(controls()).toHaveLength(2); // Non-vacuous: offered while the port is supplied.
         await act(async () => source.setConnection(false));
       }
-      expect.soft(previous, reason).toBeDisabled();
-      await press(previous);
+      // Capability-gated (ADR-0008): omitted like unsupported Edit/Regenerate, never disabled.
+      expect.soft(controls(), reason).toEqual([]);
       await settleFrames();
       expect(setMessages).not.toHaveBeenCalled();
       expect(surface.ui.getByText(recordedPrompt)).toBeVisible();
