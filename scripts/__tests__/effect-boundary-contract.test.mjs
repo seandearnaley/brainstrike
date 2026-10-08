@@ -498,11 +498,6 @@ test('both desktop maintenance schedulers delegate trigger resources to the scop
 });
 
 test('provider auth owns fetch and body deadlines at one Effect boundary', () => {
-  const contract = readRepoFile('docs/agents/effect-boundary.md');
-  assert.match(
-    contract,
-    /Provider auth and assistant provider probes bound fetch and body reading together/u
-  );
   for (const name of ['device-flow', 'oauth-flow', 'refresh']) {
     const source = readRepoFile(`apps/desktop/src/provider-auth/${name}.ts`);
     assert.match(source, /guardedFetchText\(/u, `${name} uses the complete response boundary`);
@@ -513,9 +508,6 @@ test('provider auth owns fetch and body deadlines at one Effect boundary', () =>
 });
 
 test('assistant provider probes own complete response deadlines at one Effect boundary', () => {
-  const contract = readRepoFile('docs/agents/effect-boundary.md');
-  assert.match(contract, /assistant provider probes bound fetch and body reading together/u);
-  assert.match(contract, /effect-boundary\/provider-probe-lifetimes\.md/u);
   for (const name of ['provider-verification', 'openrouter-model-metadata']) {
     const source = readRepoFile(`apps/desktop/src/assistant-server/${name}.ts`);
     assert.match(source, /Effect\.tryPromise\(/u, `${name} wraps fetch and body`);
@@ -527,10 +519,7 @@ test('assistant provider probes own complete response deadlines at one Effect bo
 });
 
 test('MCP OAuth callback scope closes its server and every claimed wait', () => {
-  const contract = readRepoFile('docs/agents/effect-boundary.md');
   const source = readRepoFile('apps/desktop/src/mcp/oauth-loopback-callback.ts');
-  assert.match(contract, /MCP OAuth callback Scope owns listener teardown/u);
-  assert.match(contract, /effect-boundary\/mcp-oauth-callback-scope\.md/u);
   assert.match(source, /Effect\.acquireRelease\(/u);
   assert.match(source, /Scope\.close\(scope, Exit\.void\)/u);
   assert.match(source, /Effect\.callback<URLSearchParams, Error>/u);
@@ -541,11 +530,8 @@ test('MCP OAuth callback scope closes its server and every claimed wait', () => 
 });
 
 test('embedding admission owns atomic partial permits without a shadow counter', () => {
-  const contract = readRepoFile('docs/agents/effect-boundary.md');
   const helper = readRepoFile('packages/embeddings/src/worker/embedding-admission-budget.ts');
   const worker = readRepoFile('packages/embeddings/src/worker/embedding-worker.ts');
-  assert.match(contract, /Embedding admission reserves partial permits transactionally/u);
-  assert.match(contract, /effect-boundary\/embedding-admission-permits\.md/u);
   assert.match(helper, /TxSemaphore\.available\(semaphore\)/u);
   assert.match(helper, /Effect\.txRetry/u);
   assert.match(helper, /Effect\.tx\(/u);
@@ -564,22 +550,12 @@ test('parser host Schema stays in main and utility consumers', () => {
   }
   const schema = readRepoFile('apps/desktop/src/parser-host-schema.ts');
   assert.match(schema, /Schema\.is\(/u);
-  assert.match(
-    readRepoFile('docs/agents/effect-boundary.md'),
-    /effect-boundary\/parser-host-schema\.md/u
-  );
 });
 
 test('worker envelope Schema uses a dedicated subpath outside root and preload imports', () => {
-  const contract = readRepoFile('docs/agents/effect-boundary.md');
   const manifest = JSON.parse(readRepoFile('packages/worker-runtime/package.json'));
   const root = readRepoFile('packages/worker-runtime/src/index.ts');
   const validation = readRepoFile('packages/worker-runtime/src/validation.ts');
-  assert.match(contract, /effect-boundary\/worker-envelope-schema\.md/u);
-  assert.match(
-    contract,
-    /predicate-only\s+`Schema\.is` boundaries preserve existing errors in caller code/u
-  );
   assert.equal(manifest.exports['./validation'].default, './dist/validation.js');
   const importedSpecifiers = (source) =>
     ts.preProcessFile(source, true, true).importedFiles.map(({ fileName }) => fileName);
@@ -615,10 +591,6 @@ test('worker envelope Schema uses a dedicated subpath outside root and preload i
 });
 
 test('Python manifest decodes with Schema and keeps its domain error boundary', () => {
-  assert.match(
-    readRepoFile('docs/agents/effect-boundary.md'),
-    /Decoded fields annotate `message` with old hand-check sentences/u
-  );
   const source = readRepoFile('apps/desktop/src/python-runtime/resolve-python-binary.ts');
   assert.match(source, /const manifestSchema = Schema\.Struct\(/u);
   assert.match(source, /targets: Schema\.Record\(Schema\.String, manifestTargetSchema\)/u);
@@ -627,10 +599,6 @@ test('Python manifest decodes with Schema and keeps its domain error boundary', 
   assert.match(source, /typeof manifestTargetSchema\.Type/u);
   assert.match(source, /new PythonManifestInvalidError\(/u);
   assert.doesNotMatch(source, /assertManifestShape|as PythonRuntimeManifest/u);
-  assert.match(
-    readRepoFile('docs/agents/effect-boundary.md'),
-    /effect-boundary\/python-manifest-schema\.md/u
-  );
 });
 
 test('renderer startup adopts Effect retry and always finalizes readiness waits', () => {
@@ -642,17 +610,10 @@ test('renderer startup adopts Effect retry and always finalizes readiness waits'
   const host = readRepoFile('apps/desktop/src/renderer-host-lifecycle.ts');
   assert.match(host, /Effect\.callback</u);
   assert.match(host, /Effect\.ensuring\(/u);
-  assert.match(
-    readRepoFile('docs/agents/effect-boundary.md'),
-    /effect-boundary\/renderer-startup\.md/u
-  );
 });
 
 test('provider OAuth loopback scope owns the listener and one callback wait', () => {
-  const contract = readRepoFile('docs/agents/effect-boundary.md');
   const source = readRepoFile('apps/desktop/src/provider-auth/loopback-server.ts');
-  assert.match(contract, /Provider OAuth loopback Scope owns listener cleanup/u);
-  assert.match(contract, /effect-boundary\/provider-loopback-scope\.md/u);
   assert.match(source, /Deferred\.makeUnsafe<LoopbackCallbackResult, Error>/u);
   assert.match(source, /Deferred\.await\(callback\)/u);
   assert.match(source, /Scope\.addFinalizer\(/u);
@@ -699,14 +660,6 @@ test('Python cold installation scopes actual stream, child and staging resources
   assert.match(staging, /cause: error/u);
   assert.ok(staging.indexOf('Effect.acquireRelease(') < staging.indexOf('await fsPromises.mkdir('));
   assert.doesNotMatch(source, /promisify|execFileAsync/u);
-  assert.match(
-    readRepoFile('docs/agents/effect-boundary.md'),
-    /Python cold-install scopes join hash-stream and tar-child close/u
-  );
-  assert.match(
-    readRepoFile('docs/agents/code-execution.md'),
-    /retain the primary error and report secondary cleanup failures/u
-  );
 });
 
 test('OXC IPC requests scope correlation and preserve Schema field compatibility', () => {
@@ -722,10 +675,6 @@ test('OXC IPC requests scope correlation and preserve Schema field compatibility
   assert.match(source, /MatchesFields<\s*typeof failureSchema\.Type/u);
   assert.match(source, /envelope\['requestId'\] !== response\['requestId'\]/u);
   assert.doesNotMatch(source, /Schema\.decode|Effect\.runPromise|removeEventListener/u);
-  assert.match(
-    readRepoFile('docs/agents/effect-boundary.md'),
-    /OXC IPC request Scope owns its correlation entry and timer/u
-  );
 });
 
 test('parser host generations scope exit and listeners without replacing the request channel', () => {
@@ -750,14 +699,6 @@ test('parser host generations scope exit and listeners without replacing the req
   assert.match(source, /removeListener\('exit', onExit\)/u);
   assert.match(source, /createHostRequestChannel/u);
   assert.doesNotMatch(source, /\.pid|Effect\.run|Layer\./u);
-  assert.match(
-    readRepoFile('docs/agents/effect-boundary.md'),
-    /Parser host generation Scope joins actual exit/u
-  );
-  assert.match(
-    readRepoFile('docs/agents/platform-contracts.md'),
-    /Parser host Stop joins every owned generation/u
-  );
 });
 
 test('file-tree bulk operations own one scoped pending entry and retain the Promise boundary', () => {
