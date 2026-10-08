@@ -96,17 +96,28 @@ describe('configured-server MCP authority with injected Node platform', () => {
           result: { tools: [expect.objectContaining({ name: 'host_lifecycle_probe' })] },
           type: 'tools/list',
         });
+        // A host run's execution capability reaches the presenter's operation authority.
+        const runWithOperation = vi.spyOn(runtime.elicitationPresenter, 'runWithOperation');
+        const execution = { bindTask: vi.fn(), requestInput: vi.fn() };
         await expect(
-          runtime.host.invoke({
-            arguments: {},
-            configuredServerId,
-            toolName: 'host_lifecycle_probe',
-            type: 'tools/call',
-          })
+          runtime.host.invoke(
+            {
+              arguments: {},
+              configuredServerId,
+              toolName: 'host_lifecycle_probe',
+              type: 'tools/call',
+            },
+            { execution }
+          )
         ).resolves.toMatchObject({
           result: { content: [{ text: 'ok', type: 'text' }] },
           type: 'tools/call',
         });
+        expect(runWithOperation).toHaveBeenLastCalledWith(
+          expect.objectContaining({ toolName: 'host_lifecycle_probe', type: 'tools/call' }),
+          expect.any(Function),
+          execution
+        );
         expect(runtime.host.snapshot().servers[0]).toMatchObject({
           extensions: { apps: appUi === 'rich', tasks: true },
           generation: 1,
