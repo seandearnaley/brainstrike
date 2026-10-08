@@ -205,7 +205,9 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
     expect(respond).toHaveBeenCalledWith(
       expect.objectContaining({ approvalId: requested.event.interactionId, approved: true })
     );
-    expect(approve).toBeDisabled();
+    expect(approve).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(approve);
+    expect(respond).toHaveBeenCalledOnce();
     expect(
       selectCommittedAssistantTool(
         bridge.getSnapshot(),
@@ -217,7 +219,9 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
       response.resolve();
       await response.promise;
     });
-    expect(approve).toBeDisabled();
+    expect(approve).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(approve);
+    expect(respond).toHaveBeenCalledOnce();
     await act(async () => {
       source.fold.accept(rows.slice(request + 1));
     });

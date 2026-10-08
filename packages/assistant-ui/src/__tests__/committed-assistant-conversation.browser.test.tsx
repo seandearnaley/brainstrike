@@ -435,8 +435,10 @@ describe('keyboard approval and errors', () => {
     await settleFrames();
     expect(store.getSnapshot().repository).toBe(committed);
     expect(card).toBeInTheDocument();
-    expect(within(card).getByRole('button', { name: APPROVE })).toBeDisabled();
-    expect(within(card).getByRole('button', { name: DECLINE })).toBeDisabled();
+    // Pending controls keep focus: aria-disabled, never the focus-dropping `disabled`.
+    for (const name of [APPROVE, DECLINE]) {
+      expect(within(card).getByRole('button', { name })).toHaveAttribute('aria-disabled', 'true');
+    }
 
     await act(async () => source.publishPrefix(respondedLength));
     await waitFor(() => expect(card).not.toBeInTheDocument());

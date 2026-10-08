@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { useCallback, useRef, useState, useSyncExternalStore } from 'react';
 import {
   AssistantConversationPanel,
   type AssistantConversationPanelProps,
@@ -34,6 +34,7 @@ function BoundCommittedAssistantConversation({
   ...presentation
 }: CommittedAssistantConversationProps): ReactElement {
   const [commandError, setCommandError] = useState<string | undefined>();
+  const rootRef = useRef<HTMLDivElement>(null);
   const reportCommandError = useCallback(
     (cause: unknown): void => {
       setCommandError(cause instanceof Error ? cause.message : String(cause));
@@ -48,9 +49,16 @@ function BoundCommittedAssistantConversation({
     store,
   });
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const dismissCommandError = (): void => {
+    // Dismiss leaves with its alert. Before it unmounts, hand focus to the
+    // composer: the conversation's stable input, where the next command
+    // (including a refused send's restored draft) is written.
+    rootRef.current?.querySelector<HTMLElement>('.aui-composer-input')?.focus();
+    setCommandError(undefined);
+  };
   const unavailable = snapshot.connection !== 'connected' || snapshot.error !== undefined;
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col" ref={rootRef}>
       {snapshot.error === undefined ? (
         snapshot.connection === 'connected' ? null : (
           <div aria-live="polite" role="status">
@@ -69,7 +77,7 @@ function BoundCommittedAssistantConversation({
       {commandError === undefined ? null : (
         <div aria-label="Agent command error" role="alert">
           {commandError}
-          <button onClick={() => setCommandError(undefined)} type="button">
+          <button onClick={dismissCommandError} type="button">
             Dismiss
           </button>
         </div>
