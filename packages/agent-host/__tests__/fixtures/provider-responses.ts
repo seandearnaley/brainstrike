@@ -1,14 +1,15 @@
 /**
- * Successful streaming provider responses for offline HTTP tests. The frames
- * are the recorded in-repo shapes: OpenAI Responses from
+ * Successful provider responses for offline HTTP tests, in the recorded
+ * in-repo shapes: OpenAI Responses from
  * packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts
- * (`responsesApiStream`), Anthropic Messages from
- * packages/agent/src/__tests__/anthropic-prompt-caching-wire.integration.spec.ts.
+ * (`responsesApiStream`); Anthropic Messages streaming from
+ * packages/agent/src/__tests__/anthropic-prompt-caching-wire.integration.spec.ts
+ * and non-streaming from packages/agent/src/__tests__/sampling-params-wire.spec.ts.
  */
 
 const SSE_HEADERS = { 'content-type': 'text/event-stream' };
 
-export function openAIResponsesText(model: string, text: string): Response {
+function openAIResponse(model: string, text: string) {
   const itemId = 'msg_offline_1';
   const part = { annotations: [], text, type: 'output_text' };
   const item = {
@@ -27,6 +28,16 @@ export function openAIResponsesText(model: string, text: string): Response {
     status: 'completed',
     usage: { input_tokens: 42, output_tokens: 9, total_tokens: 51 },
   };
+  return { item, itemId, part, response };
+}
+
+/** A completed non-streaming Responses API answer. */
+export function openAIResponsesJson(model: string, text: string): Response {
+  return Response.json(openAIResponse(model, text).response);
+}
+
+export function openAIResponsesText(model: string, text: string): Response {
+  const { item, itemId, part, response } = openAIResponse(model, text);
   const position = { content_index: 0, item_id: itemId, output_index: 0 };
   const frames = [
     { response: { ...response, output: [], status: 'in_progress' }, type: 'response.created' },
@@ -85,4 +96,18 @@ export function anthropicMessagesText(model: string, text: string): Response {
     }) +
     sseEvent('message_stop', { type: 'message_stop' });
   return new Response(events, { headers: SSE_HEADERS, status: 200 });
+}
+
+/** A completed non-streaming Messages API answer. */
+export function anthropicMessageJson(model: string, text: string): Response {
+  return Response.json({
+    content: [{ text, type: 'text' }],
+    id: 'msg_offline_title',
+    model,
+    role: 'assistant',
+    stop_reason: 'end_turn',
+    stop_sequence: null,
+    type: 'message',
+    usage: { input_tokens: 1, output_tokens: 1 },
+  });
 }

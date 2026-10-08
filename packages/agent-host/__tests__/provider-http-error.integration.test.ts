@@ -15,7 +15,13 @@ import {
   type ProductionHostRunConfiguration,
 } from '../src/production-platform.js';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
-import { anthropicMessagesText, openAIResponsesText } from './fixtures/provider-sse.js';
+import { TITLE_INSTRUCTIONS } from '../src/thread-presentation-state.js';
+import {
+  anthropicMessageJson,
+  anthropicMessagesText,
+  openAIResponsesJson,
+  openAIResponsesText,
+} from './fixtures/provider-responses.js';
 
 type Provider = 'openai' | 'anthropic';
 type Finished = Extract<HostEvent, { type: 'run.finished' }>;
@@ -38,17 +44,21 @@ const TERMINAL_POLL = { interval: 50, timeout: 30_000 };
 
 /**
  * Run one production-platform host turn whose provider HTTP exchange is
- * answered offline by `respond` (call number from 1). No native network fetch
- * or environment credential is read.
+ * answered offline: the run's own requests by `respond` (call number from 1),
+ * and a thread title request, identified by its instructions, with a title.
+ * No native network fetch or environment credential is read.
  */
 async function runAgainstProviderHttp(
   provider: Provider,
-  respond: (call: number) => Response
+  respond: (call: number) => Response,
+  options: { readonly awaitTitle?: boolean } = {}
 ): Promise<{
   readonly fetch: ReturnType<typeof vi.fn<typeof globalThis.fetch>>;
   readonly rows: readonly HostLogRow[];
+  readonly runRequests: number;
   readonly sdkErrors: readonly SdkError[];
   readonly terminal: Finished;
+  readonly titleRequests: number;
 }> {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-provider-http-error-'));
   const modelId = provider === 'openai' ? 'gpt-4.1-mini-2025-04-14' : 'claude-haiku-4-5-20251001';
@@ -58,6 +68,7 @@ async function runAgainstProviderHttp(
     provider,
   };
   let calls = 0;
+  let titleRequests = 0;
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const url =
       typeof input === 'string' || input instanceof URL ? new URL(input) : new URL(input.url);
@@ -67,6 +78,11 @@ async function runAgainstProviderHttp(
         : 'https://api.anthropic.com/v1/messages'
     );
     expect(init?.method).toBe('POST');
+    if (typeof init?.body === 'string' && init.body.includes(TITLE_INSTRUCTIONS)) {
+      titleRequests += 1;
+      const title = provider === 'openai' ? openAIResponsesJson : anthropicMessageJson;
+      return title('offline-model', 'Offline title');
+    }
     calls += 1;
     return respond(calls);
   });
@@ -121,9 +137,6 @@ async function runAgainstProviderHttp(
       }
       return {
         ...selected,
-        // Only the run's own provider requests are under test; a thread title
-        // request would share the same offline fetch.
-        generatesThreadTitle: false,
         openRun: async (context) => {
           const owner = await openRun.call(selected, context);
           return {
@@ -191,7 +204,25 @@ async function runAgainstProviderHttp(
     if (!terminal) {
       throw new Error('Run did not finish');
     }
-    return { fetch, rows: await opened.read(threadId, 0), sdkErrors, terminal };
+    if (options.awaitTitle) {
+      await expect
+        .poll(
+          async () =>
+            (await opened.read(threadId, 0)).some(
+              (row) => row.event.type === 'thread.updated' && row.event.title !== undefined
+            ),
+          TERMINAL_POLL
+        )
+        .toBe(true);
+    }
+    return {
+      fetch,
+      rows: await opened.read(threadId, 0),
+      runRequests: calls,
+      sdkErrors,
+      terminal,
+      titleRequests,
+    };
   } finally {
     await core?.close();
     await store.close();
@@ -214,7 +245,7 @@ test.each(cases)('%s HTTP 400 (%s) commits a failed run', async (provider, messa
       : provider === 'anthropic'
         ? { error: { message, type: 'invalid_request_error' }, type: 'error' }
         : { error: { code: 'fixture_error', message, param: null, type: 'invalid_request_error' } };
-  const { fetch, rows, sdkErrors, terminal } = await runAgainstProviderHttp(
+  const { rows, runRequests, sdkErrors, terminal, titleRequests } = await runAgainstProviderHttp(
     provider,
     () =>
       new Response(JSON.stringify(envelope), {
@@ -223,7 +254,7 @@ test.each(cases)('%s HTTP 400 (%s) commits a failed run', async (provider, messa
         statusText: messageCase === 'malformed-empty-status' ? '' : 'Bad Request',
       })
   );
-  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(runRequests).toBe(1);
   expect(sdkErrors).toEqual([{ message, name: 'AI_APICallError', statusCode: 400 }]);
   expect(errorChunks(rows)).toContainEqual(
     expect.objectContaining({
@@ -234,6 +265,8 @@ test.each(cases)('%s HTTP 400 (%s) commits a failed run', async (provider, messa
   expect(rows.some((row) => row.event.type === 'model.step')).toBe(false);
   expect(rows.some((row) => row.event.type === 'effect.started')).toBe(false);
   expect(terminal.outcome).toBe('failed');
+  // A failed run makes no thread title request.
+  expect(titleRequests).toBe(0);
 });
 
 // The providers' documented rejected-key envelopes.
@@ -261,7 +294,7 @@ test.each(['openai', 'anthropic'] as const)(
   '%s HTTP 401 fails at once with the credential remedy first',
   async (provider) => {
     const expected = rejectedKey[provider];
-    const { fetch, terminal } = await runAgainstProviderHttp(
+    const { runRequests, terminal, titleRequests } = await runAgainstProviderHttp(
       provider,
       () =>
         new Response(JSON.stringify(expected.body), {
@@ -271,13 +304,14 @@ test.each(['openai', 'anthropic'] as const)(
         })
     );
     // A rejected credential is not transient: exactly one request.
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(runRequests).toBe(1);
     expect(terminal.outcome).toBe('failed');
     expect(terminal.detail).toBe(
       `${expected.displayName} rejected the API key (HTTP 401) — it is invalid or was revoked. ` +
         'Update the key in Settings → Providers, or verify it in the provider dashboard. ' +
         `Provider response: ${expected.providerMessage}`
     );
+    expect(titleRequests).toBe(0);
   }
 );
 
@@ -334,12 +368,18 @@ test.each(transient)(
   '%s HTTP %d before the stream opens is retried and the run completes',
   async (provider, status, body) => {
     const success = provider === 'openai' ? openAIResponsesText : anthropicMessagesText;
-    const { fetch, rows, terminal } = await runAgainstProviderHttp(provider, (call) =>
-      call === 1
-        ? jsonError(status, body, { 'retry-after': '0' })
-        : success('offline-model', 'Recovered answer.')
+    const { fetch, rows, runRequests, terminal, titleRequests } = await runAgainstProviderHttp(
+      provider,
+      (call) =>
+        call === 1
+          ? jsonError(status, body, { 'retry-after': '0' })
+          : success('offline-model', 'Recovered answer.'),
+      { awaitTitle: true }
     );
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(runRequests).toBe(2);
+    // The completed run's thread title is its one other provider request.
+    expect(titleRequests).toBe(1);
+    expect(fetch).toHaveBeenCalledTimes(3);
     expect(terminal.outcome).toBe('completed');
     expect(committedText(rows)).toBe('Recovered answer.');
     // The failed request never reached the log; each attempt left its receipt.
@@ -352,12 +392,14 @@ test('a provider that stays unavailable fails visibly after the bounded retries'
   const body = {
     error: { code: null, message: 'Service unavailable.', param: null, type: 'server_error' },
   };
-  const { fetch, rows, terminal } = await runAgainstProviderHttp('openai', () =>
-    jsonError(503, body, { 'retry-after': '0' })
+  const { rows, runRequests, terminal, titleRequests } = await runAgainstProviderHttp(
+    'openai',
+    () => jsonError(503, body, { 'retry-after': '0' })
   );
   // One request plus the SDK's two retries.
-  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(runRequests).toBe(3);
   expect(preparedReceipts(rows)).toBe(3);
   expect(terminal.outcome).toBe('failed');
   expect(terminal.detail).toContain('Service unavailable.');
+  expect(titleRequests).toBe(0);
 });

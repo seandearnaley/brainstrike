@@ -10,7 +10,8 @@ type Updated = Extract<HostEvent, { type: 'thread.updated' }>;
 /** A thread's committed presentation: its title, colour and icon. */
 export type HostThreadPresentation = Omit<Updated, 'type'>;
 
-const TITLE_INSTRUCTIONS =
+/** The system instructions of a thread title request. */
+export const TITLE_INSTRUCTIONS =
   "Write a short title, at most eight words, for a conversation that starts with the user's message. Reply with the title only: no quotes and no trailing punctuation.";
 
 /** The model's first line, without wrapping quotes; empty output is no title. */
