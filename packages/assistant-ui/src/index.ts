@@ -35,6 +35,10 @@ export {
   committedApprovalOptions,
 } from './committed-approval-options';
 export {
+  CommittedApprovalStrip,
+  type CommittedPendingApproval,
+} from './committed-approval-strip';
+export {
   CommittedAssistantConversation,
   type CommittedAssistantConversationProps,
 } from './committed-assistant-conversation';

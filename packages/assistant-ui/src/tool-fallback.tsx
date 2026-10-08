@@ -1,8 +1,9 @@
-import type { ToolApprovalOption, ToolCallMessagePartComponent } from '@assistant-ui/react';
+import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { Button } from '@brainstrike/ui';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
+import { approvalDecisions } from './committed-approval-options';
 import { CommittedHumanInteraction } from './committed-human-interaction';
 import { useRememberedToolArguments } from './tool-argument-context';
 import { shouldUseRememberedToolArguments, type ToolArguments } from './tool-arguments';
@@ -59,29 +60,6 @@ function useDisplayToolArguments(
  *   a decline, a stopped run_python) — muted, never destructive chrome
  * - `failed`: shows the error message inline in red under the row
  */
-type ApprovalOptions = readonly ToolApprovalOption[] | undefined;
-
-/**
- * A decision's buttons: the request's own options when it carries them (the
- * host's grants), else the plain Approve / Decline pair.
- */
-function approvalDecisions(options: ApprovalOptions): readonly {
-  readonly approved: boolean;
-  readonly label: string;
-  readonly optionId?: string;
-}[] {
-  if (!options?.length) {
-    return [
-      { approved: true, label: 'Approve' },
-      { approved: false, label: 'Decline' },
-    ];
-  }
-  return options.map((option) => ({
-    approved: !option.kind.startsWith('reject'),
-    label: option.label ?? option.id,
-    optionId: option.id,
-  }));
-}
 
 export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   const {

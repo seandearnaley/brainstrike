@@ -8,7 +8,9 @@ export type CommittedApprovalGrant =
   | { readonly scope: 'tool'; readonly toolId: string };
 
 const GRANT_TOOL = 'grant-tool';
-const GRANT_SESSION = 'grant-session';
+/** The option that grants the approval's risk category for the session. */
+export const COMMITTED_SESSION_GRANT_OPTION = 'grant-session';
+const GRANT_SESSION = COMMITTED_SESSION_GRANT_OPTION;
 
 /**
  * A committed permission approval's answers, as the vendor's approval options:
@@ -42,4 +44,31 @@ export function committedApprovalGrant(
     throw new Error('A session grant needs its approval’s risk category');
   }
   return { category: interaction.risk, scope: 'session' };
+}
+
+/** A decision as its button offers it: the approval it gives and the option it names. */
+export interface ApprovalDecision {
+  readonly approved: boolean;
+  readonly label: string;
+  readonly optionId?: string;
+}
+
+/**
+ * A decision's buttons: the request's own options when it carries them (the
+ * host's grants), else the plain Approve / Decline pair.
+ */
+export function approvalDecisions(
+  options: readonly ToolApprovalOption[] | undefined
+): readonly ApprovalDecision[] {
+  if (!options?.length) {
+    return [
+      { approved: true, label: 'Approve' },
+      { approved: false, label: 'Decline' },
+    ];
+  }
+  return options.map((option) => ({
+    approved: !option.kind.startsWith('reject'),
+    label: option.label ?? option.id,
+    optionId: option.id,
+  }));
 }
