@@ -21,6 +21,13 @@ export interface MemoryThreadBinding {
   readonly resourceId: string;
   readonly threadId: string;
 }
+/** Existing native OM row, with its relational owner checked before projection. */
+export interface MemoryObservationRecord {
+  readonly id: string;
+  readonly payload: Readonly<Record<string, unknown>>;
+  readonly resourceId: string;
+  readonly threadId: string | null;
+}
 
 interface Row {
   readonly crc: number;
@@ -155,6 +162,52 @@ export class SqliteReader {
         throw new Error('State Memory thread/resource binding is invalid');
       }
       return { resourceId: row.resourceId, threadId: row.threadId };
+    });
+  }
+
+  /** Read existing native OM witnesses; no caller metadata can change their relational owner. */
+  memoryObservations(resourceId: string): readonly MemoryObservationRecord[] {
+    const db = this.conn();
+    if (!db) {
+      throw new Error('State truth database does not exist');
+    }
+    const rows = db
+      .prepare(`
+      SELECT id,thread_id AS threadId,resource_id AS resourceId,payload
+      FROM brainstrike_memory_entities WHERE kind='observation' AND resource_id=? ORDER BY id
+    `)
+      .all(resourceId) as Array<{
+      id: string;
+      threadId: string | null;
+      resourceId: string;
+      payload: string;
+    }>;
+    const threads = new Set(this.memoryThreads(resourceId).map((row) => row.threadId));
+    return rows.map((row) => {
+      const payload: unknown = JSON.parse(row.payload);
+      if (
+        typeof payload !== 'object' ||
+        payload === null ||
+        Array.isArray(payload) ||
+        !('id' in payload) ||
+        payload.id !== row.id ||
+        !('resourceId' in payload) ||
+        payload.resourceId !== row.resourceId ||
+        !('threadId' in payload) ||
+        payload.threadId !== row.threadId ||
+        !('scope' in payload) ||
+        payload.scope !== (row.threadId === null ? 'resource' : 'thread') ||
+        row.resourceId !== resourceId ||
+        (row.threadId !== null && !threads.has(row.threadId))
+      ) {
+        throw new Error('State Memory observation/resource binding is invalid');
+      }
+      return {
+        id: row.id,
+        payload: payload as Readonly<Record<string, unknown>>,
+        resourceId: row.resourceId,
+        threadId: row.threadId,
+      };
     });
   }
 

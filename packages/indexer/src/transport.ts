@@ -46,6 +46,12 @@ import {
   stateMessageQuerySchema,
   stateMessageUpsertResultSchema,
   stateMessageUpsertSchema,
+  stateObservationHitSchema,
+  stateObservationPlanSchema,
+  stateObservationPrepareSchema,
+  stateObservationPurgeSchema,
+  stateObservationQuerySchema,
+  stateObservationUpsertSchema,
   stateStatsSchema,
   stateThreadsSchema,
   textCommitSchema,
@@ -57,6 +63,7 @@ import type {
   ScopedIndexerPort,
   StateIndexerPort,
   StateMessageVectorPort,
+  StateObservationVectorPort,
 } from './index.js';
 import { RpcClient } from './rpc-client.js';
 import { validateStateModule } from './state-projection.js';
@@ -139,6 +146,7 @@ export interface IndexerConnection {
       ScopedIndexerPort &
       StateIndexerPort &
       StateMessageVectorPort &
+      StateObservationVectorPort &
       CoverageAuthorityPort
   >;
 }
@@ -303,6 +311,7 @@ export function createIndexerConnection(
     ScopedIndexerPort &
     StateIndexerPort &
     StateMessageVectorPort &
+    StateObservationVectorPort &
     CoverageAuthorityPort = {
     catchUpState: async (threads) => {
       await call('state-catch-up', decoder(stateThreadsSchema)(threads), decoder(Schema.Boolean));
@@ -370,6 +379,12 @@ export function createIndexerConnection(
         decoder(stateMessagePrepareSchema)(request),
         decoder(stateMessagePlanSchema)
       ),
+    prepareStateObservationVectors: async (request) =>
+      call(
+        'state-observation-prepare',
+        decoder(stateObservationPrepareSchema)(request),
+        decoder(stateObservationPlanSchema)
+      ),
     purgeFile: async (identity) =>
       call('purge-file', decoder(identitySchema)(identity), decoder(Schema.Boolean)),
     purgeStateMessageVectors: async (request) =>
@@ -378,11 +393,23 @@ export function createIndexerConnection(
         decoder(stateMessagePurgeSchema)(request),
         decoder(Schema.Boolean)
       ),
+    purgeStateObservationVectors: async (request) =>
+      call(
+        'state-observation-purge',
+        decoder(stateObservationPurgeSchema)(request),
+        decoder(Schema.Boolean)
+      ),
     queryStateMessageVectors: async (request) =>
       call(
         'state-message-query',
         decoder(stateMessageQuerySchema)(request),
         decoder(Schema.Array(stateMessageHitSchema))
+      ),
+    queryStateObservationVectors: async (request) =>
+      call(
+        'state-observation-query',
+        decoder(stateObservationQuerySchema)(request),
+        decoder(Schema.Array(stateObservationHitSchema))
       ),
     rebuildState: async (threadId) => {
       await call(
@@ -431,6 +458,12 @@ export function createIndexerConnection(
         'state-message-upsert',
         decoder(stateMessageUpsertSchema)(request),
         decoder(stateMessageUpsertResultSchema)
+      ),
+    upsertStateObservationVectors: async (request) =>
+      call(
+        'state-observation-upsert',
+        decoder(stateObservationUpsertSchema)(request),
+        decoder(Schema.Array(Schema.String))
       ),
     verifyManifest: async (request) =>
       call(

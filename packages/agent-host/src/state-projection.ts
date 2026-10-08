@@ -13,6 +13,8 @@ import { committedRowAddress, committedRunSource } from './committed-identities.
 import { decodeStoredHostEvent, hostEventSpool } from './event-storage.js';
 import { type HostEvent, HostEventSchema, type HostLogRow, HostLogRowSchema } from './protocol.js';
 
+export { observationChunks, observations } from './observation-projection.js';
+
 type DecodedHostEvent = (HostEvent & { readonly seq: number }) | Purged | Unreadable;
 const sequence = z.number().int().positive();
 const fields = z.record(z.string(), z.unknown());
