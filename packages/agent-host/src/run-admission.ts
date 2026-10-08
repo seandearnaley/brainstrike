@@ -1,5 +1,7 @@
+import { resolveRunPythonExecutionContext } from '@brainstrike/agent/tool-runtime';
 import {
   isPermissionDenied,
+  NATIVE_TOOL_ID,
   type PermissionToolGateSnapshot,
   resolvePermissionDecision,
 } from '@brainstrike/assistant-contract';
@@ -349,8 +351,14 @@ export function hostStepInteractions(
     if (!registered) {
       throw new Error('Approval references an unknown tool');
     }
+    // As the legacy approval chunk did: run_python's card shows host facts.
+    const executionContext =
+      registered.permissionToolId === NATIVE_TOOL_ID.runPython
+        ? resolveRunPythonExecutionContext(part.toolCall.input)
+        : undefined;
     return [
       {
+        ...(executionContext ? { executionContext: jsonValue(executionContext) } : {}),
         input: jsonValue(part.toolCall.input),
         interactionId: part.approvalId,
         kind: registered.interaction?.kind ?? 'approval',

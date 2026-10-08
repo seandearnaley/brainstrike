@@ -472,6 +472,13 @@ export const HostEventSchema = z.union([
   z.strictObject({
     type: z.literal('interaction.requested'),
     ...Action,
+    /**
+     * A code-execution approval's host-computed sandbox facts (reach, scratch
+     * folder, reads, timeout), which the tool's arguments cannot carry. Shape:
+     * assistant-contract's CodeExecutionApprovalContext; a consumer validates
+     * it with isCodeExecutionApprovalContext before showing it.
+     */
+    executionContext: z.json().optional(),
     interactionId: Id,
     kind: z.enum(['approval', 'question', 'plan']),
     /** A permission approval's risk category, which its session grant names. */
