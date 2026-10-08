@@ -56,7 +56,9 @@ export async function createDesktopHostMemoryConfiguration(
       scope: observation.scope,
       ...(observation.retrievalMode === 'messages'
         ? { retrieval: { scope: observation.scope } }
-        : {}),
+        : observation.retrievalMode === 'vector'
+          ? { retrieval: { scope: observation.scope, vector: true } }
+          : {}),
       observation: { messageTokens: observation.messageTokens },
       reflection: { observationTokens: observation.observationTokens },
     };

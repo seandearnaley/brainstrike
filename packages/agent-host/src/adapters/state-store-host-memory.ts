@@ -26,6 +26,11 @@ import {
   StateStoreMemoryVector,
   type StateStoreMemoryVectorOptions,
 } from './state-store-memory-vector.js';
+import { StateStoreObservationMemory } from './state-store-observation-memory.js';
+import {
+  StateStoreObservationVector,
+  type StateStoreObservationVectorOptions,
+} from './state-store-observation-vector.js';
 
 export interface StateStoreHostMemoryOptions {
   readonly native: Omit<HostMemoryCapabilities['native'], 'storage'>;
@@ -41,6 +46,7 @@ export interface StateStoreHostMemoryOptions {
 /** The existing run owner encloses public Memory and its borrowed writer domain. */
 export class StateStoreHostMemory implements HostRunOwner {
   private closing: Promise<void> | undefined;
+  private preparedProviderHistory: readonly MastraDBMessage[] | undefined;
 
   private constructor(
     readonly memory: HostMemory,
@@ -58,6 +64,12 @@ export class StateStoreHostMemory implements HostRunOwner {
     return new StateStoreMemoryVector(options);
   }
 
+  static createObservationVectorBridge(
+    options: StateStoreObservationVectorOptions
+  ): StateStoreObservationVector {
+    return new StateStoreObservationVector(options);
+  }
+
   static async open(
     context: HostRunContext,
     options: StateStoreHostMemoryOptions
@@ -67,11 +79,27 @@ export class StateStoreHostMemory implements HostRunOwner {
     const resourceRecall =
       semanticRecall && !(typeof recall === 'object' && recall.scope === 'thread');
     const vectorBridge = options.vectorBridge;
+    const observation = options.native.options?.observationalMemory;
+    const observationVectors =
+      observation &&
+      typeof observation === 'object' &&
+      observation.enabled !== false &&
+      typeof observation.retrieval === 'object' &&
+      observation.retrieval.vector === true;
     if (vectorBridge) {
       vectorBridge.assertOwner(options.resourceId, context.threadId, context.signal);
       if (options.native.vector !== vectorBridge) {
         throw new Error('Native Memory must use its captured prepared vector bridge');
       }
+    }
+    if (
+      observationVectors &&
+      (!(vectorBridge instanceof StateStoreObservationVector && options.native.embedder) ||
+        typeof options.native.embedder === 'string')
+    ) {
+      throw new Error(
+        'Observational vector retrieval requires its captured canonical observation bridge and concrete embedder'
+      );
     }
     if (
       semanticRecall &&
@@ -99,6 +127,12 @@ export class StateStoreHostMemory implements HostRunOwner {
       id: options.resourceId,
     });
     const memory = new HostMemory(identity, {
+      ...(vectorBridge instanceof StateStoreObservationVector
+        ? {
+            createNativeMemory: (native: HostMemoryCapabilities['native']) =>
+              new StateStoreObservationMemory(native, vectorBridge),
+          }
+        : {}),
       native: { ...options.native, storage },
       recordObserverUsage: async (current, receipt) => {
         if (!context.recordObserverUsage) {
@@ -170,10 +204,13 @@ export class StateStoreHostMemory implements HostRunOwner {
       throw new Error('Host provider preparation requires the selected concrete model');
     }
     const middleware = createProviderRequestMiddleware({
-      context: async () => ({
-        ...selected,
-        history: committedMemoryTranscript(await this.readRows(), this.identity.resourceId),
-      }),
+      context: async () => {
+        const history = this.preparedProviderHistory;
+        if (history === undefined) {
+          throw new Error('Provider request requires its prepared Memory selection');
+        }
+        return { ...selected, history };
+      },
       onPrepared: async (prepared) => {
         if (!this.identity.recordProviderRequest) {
           throw new Error('Provider preparation requires the host-owned receipt writer');
@@ -217,6 +254,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     readonly messages: readonly ModelMessage[];
     readonly stepNumber: number;
   }): Promise<{ messages: ModelMessage[]; system?: string }> {
+    this.preparedProviderHistory = undefined;
     const currentUser = request.messages.findLastIndex((message) => message.role === 'user');
     const current = request.messages[currentUser];
     if (current?.role !== 'user') {
@@ -234,6 +272,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     }
     const rows = await this.readRows();
     const historical: ModelMessage[] = [];
+    const historicalIds = new Set<string>();
     for (const started of rows) {
       if (
         (!this.resourceRecall && started.threadId !== this.identity.threadId) ||
@@ -260,6 +299,7 @@ export class StateStoreHostMemory implements HostRunOwner {
         continue;
       }
       historical.push({ content: started.event.prompt, role: 'user' });
+      historicalIds.add(previous.userMessageId);
       if (
         !rows.some(
           (row) =>
@@ -272,11 +312,15 @@ export class StateStoreHostMemory implements HostRunOwner {
       }
       const occurrence = rows.flatMap((row) => {
         const event = row.event;
-        return row.threadId === started.threadId &&
+        if (
+          row.threadId === started.threadId &&
           (event.type === 'model.step' || event.type === 'model.messages') &&
           event.runId === previousRunId
-          ? event.messages.map((message) => modelMessageSchema.parse(message))
-          : [];
+        ) {
+          historicalIds.add(committedRowAddress(row));
+          return event.messages.map((message) => modelMessageSchema.parse(message));
+        }
+        return [];
       });
       const interrupted = rows.some((row) => {
         const event = row.event;
@@ -314,6 +358,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     if (step.context.continuationMessage) {
       continuation.add([step.context.continuationMessage], 'memory');
     }
+    this.captureProviderHistory(rows, historicalIds, continuation.get.all.db());
     return {
       messages: [
         ...historical,
@@ -322,6 +367,34 @@ export class StateStoreHostMemory implements HostRunOwner {
       ],
       ...(system ? { system } : {}),
     };
+  }
+
+  private captureProviderHistory(
+    rows: readonly HostLogRow[],
+    historicalIds: ReadonlySet<string>,
+    continuation: readonly MastraDBMessage[]
+  ): void {
+    // Provenance borrows the exact committed occurrences emitted above. A
+    // resource-wide queue can lose a selected known call when an omitted
+    // unknown turn reuses its SDK ID. The active SDK suffix includes this run's
+    // committed continuations; historical truth and native recall stay intact.
+    const currentIds = new Set<string>();
+    currentIds.add(committedRunIdentity(rows, this.identity.runId).userMessageId);
+    for (const row of rows) {
+      if (
+        row.threadId === this.identity.threadId &&
+        'runId' in row.event &&
+        row.event.runId === this.identity.runId
+      ) {
+        currentIds.add(committedRowAddress(row));
+      }
+    }
+    const native = committedMemoryTranscript(rows, this.identity.resourceId);
+    this.preparedProviderHistory = [
+      ...native.filter((message) => historicalIds.has(message.id)),
+      ...continuation,
+      ...native.filter((message) => currentIds.has(message.id)),
+    ];
   }
 
   async commitHostStep(): Promise<void> {

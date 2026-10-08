@@ -3,6 +3,7 @@ import { parseSemanticRecallEmbeddingModelTarget } from '@brainstrike/assistant-
 import {
   type StateMessageScope,
   type StateMessageVectorPort,
+  type StateObservationVectorPort,
   type VectorProfile,
   vectorProfileHash,
 } from '@brainstrike/indexer';
@@ -14,7 +15,7 @@ type NativeOptions = NonNullable<MemoryConfiguration['native']['options']>;
 /** Borrowed run capabilities; acquisition, inference and lifecycle stay with Root. */
 export interface DesktopHostMemoryVectorCapabilities {
   readonly embedder: Exclude<NonNullable<MemoryConfiguration['native']['embedder']>, string>;
-  readonly port: StateMessageVectorPort;
+  readonly port: StateMessageVectorPort & Partial<StateObservationVectorPort>;
   readonly profile: VectorProfile;
   readonly scope: StateMessageScope;
   readonly signal: AbortSignal;
@@ -74,14 +75,6 @@ export function createDesktopHostMemoryVectorConfiguration(
   ) {
     throw new Error('Memory vector capability differs from the admitted embedding model target');
   }
-  if (observationVectors) {
-    // Memory 1.32.1 indexObservation uses observation-group IDs, not committed
-    // message IDs. Root must supply their canonical authority before activation.
-    // https://github.com/mastra-ai/mastra/tree/main/packages/memory
-    throw new Error(
-      'Observational vector retrieval requires canonical observation-group authority; the borrowed message vector capability is insufficient.'
-    );
-  }
   return {
     embedder: vectors.embedder,
     semanticRecall: semanticRecall.enabled
@@ -91,11 +84,45 @@ export function createDesktopHostMemoryVectorConfiguration(
           topK: semanticRecall.topK,
         }
       : false,
-    vectorBridge: StateStoreHostMemory.createVectorBridge({
+    vectorBridge: createCapturedVectorBridge(vectors, observationVectors),
+  };
+}
+
+function createCapturedVectorBridge(
+  vectors: DesktopHostMemoryVectorCapabilities,
+  observationVectors: boolean
+): NonNullable<MemoryConfiguration['vectorBridge']> {
+  if (!observationVectors) {
+    return StateStoreHostMemory.createVectorBridge({
       port: vectors.port,
       profile: vectors.profile,
       scope: vectors.scope,
       signal: vectors.signal,
-    }),
-  };
+    });
+  }
+  if (!hasObservationAuthority(vectors.port)) {
+    // Memory 1.32.1 indexObservation uses observation-group IDs, not committed
+    // message IDs. Root must supply their canonical authority before activation.
+    // https://github.com/mastra-ai/mastra/tree/main/packages/memory
+    throw new Error(
+      'Observational vector retrieval requires canonical observation-group authority; the borrowed message vector capability is insufficient.'
+    );
+  }
+  return StateStoreHostMemory.createObservationVectorBridge({
+    port: vectors.port,
+    profile: vectors.profile,
+    scope: vectors.scope,
+    signal: vectors.signal,
+  });
+}
+
+function hasObservationAuthority(
+  port: DesktopHostMemoryVectorCapabilities['port']
+): port is StateMessageVectorPort & StateObservationVectorPort {
+  return (
+    typeof port.prepareStateObservationVectors === 'function' &&
+    typeof port.upsertStateObservationVectors === 'function' &&
+    typeof port.queryStateObservationVectors === 'function' &&
+    typeof port.purgeStateObservationVectors === 'function'
+  );
 }
