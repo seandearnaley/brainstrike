@@ -15,7 +15,7 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isWithinRoot } from './workspace-path';
+import { isWithinRoot } from '@brainstrike/host-capabilities/native-tools';
 
 /** Overall budget for diagnostics to arrive after opening/updating a file. */
 export const DIAGNOSTIC_TIMEOUT_MS = 6000;

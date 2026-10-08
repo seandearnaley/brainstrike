@@ -25,6 +25,7 @@ vi.mock('@brainstrike/db', async (original) => ({
 }));
 
 import { runHybridSearch } from '../../assistant-server/hybrid-search-tool';
+import { legacyNativeToolPorts } from '../../assistant-server/legacy-native-tool-ports';
 import { SEARCH_TOOL_EXECUTORS } from '../../assistant-server/native-tool-executors-search';
 import { runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
 
@@ -235,6 +236,7 @@ it('composes production tools with the scoped SQLite writer and real separate qu
     const entry = SEARCH_TOOL_EXECUTORS[NATIVE_TOOL_ID.hybridSearch]({
       dependencies,
       isLocalProvider: false,
+      ports: legacyNativeToolPorts(undefined),
       readFileCursorRegistry: {} as never,
       resolveActiveDomainCharBudget: () => 6000,
       resolvedDomainCharBudget: 6000,

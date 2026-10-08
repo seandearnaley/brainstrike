@@ -11,12 +11,15 @@ import {
   requireNativeToolExecutionBudget,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
+import type { ShellOutputStreamer } from '@brainstrike/host-capabilities/native-tools';
+import {
+  isWithinRoot,
+  withWorkspaceMutationLease,
+} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { createCredentialIsolatedChildEnvironment } from '../desktop-env';
-import { withWorkspaceMutationLease } from './workspace-mutation-lease';
-import { isWithinRoot } from './workspace-path';
 import {
   describeOpenRootTopology,
   type OpenRootTopology,
@@ -63,24 +66,6 @@ const STREAM_TRUNCATION_NOTICE =
  * reaped by the follow-up SIGKILL.
  */
 const KILL_GRACE_MS = 2000;
-
-/** One incremental slice of live subprocess output. */
-export interface ShellOutputStreamPart {
-  /** The incremental text (ANSI stripped, same as the final captured result). */
-  readonly chunk: string;
-  /** Which pipe the slice came from. */
-  readonly stream: 'stdout' | 'stderr';
-  /** True only on the single terminal notice emitted when the cap is hit. */
-  readonly truncated?: boolean;
-}
-
-/**
- * Sink for live, incremental subprocess output. Invoked in emission order as the
- * child writes; the LAST call (when the streaming cap is hit) carries
- * `truncated: true`. Streaming is best-effort observability — a throwing sink
- * must never break command execution, so the caller wraps it defensively.
- */
-export type ShellOutputStreamer = (part: ShellOutputStreamPart) => void;
 
 /**
  * Resolve the shell + argument convention for the current platform.

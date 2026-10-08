@@ -1,10 +1,9 @@
 import { CANVAS_HTML_MAX_BYTES } from '@brainstrike/assistant-contract';
+import { CANVAS_LIST_LIMIT, type CanvasSummary } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
 import {
   applyUpdate,
-  CANVAS_LIST_LIMIT,
   type CanvasDatabase,
-  type CanvasSummary,
   type CanvasVersion,
   createCanvas,
   getLatestVersionForThread,

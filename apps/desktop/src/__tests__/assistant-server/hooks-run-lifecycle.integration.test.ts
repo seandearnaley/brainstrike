@@ -56,8 +56,9 @@ vi.mock('@brainstrike/agent/pglite-mastra-memory', async () =>
 vi.mock('../../assistant-server/assistant-tools', async () =>
   (await mocks()).makeAssistantToolsMock()
 );
-vi.mock('../../assistant-server/workspace-text-file-reader', async () =>
-  (await mocks()).makeWorkspaceTextFileReaderMock()
+vi.mock(
+  '../../../../../packages/host-capabilities/src/native-tools/workspace-text-file-reader',
+  async () => (await mocks()).makeWorkspaceTextFileReaderMock()
 );
 vi.mock('../../db-main', async () => (await mocks()).makeDbMainMock());
 

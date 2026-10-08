@@ -15,23 +15,24 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
   createLogger: vi.fn(() => logger),
 }));
 
-vi.mock('../../assistant-server/read-workspace-file-model-projection', async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import('../../assistant-server/read-workspace-file-model-projection')
-    >();
-  return {
-    ...actual,
-    projectReadWorkspaceFileModelOutput: vi.fn(actual.projectReadWorkspaceFileModelOutput),
-  };
-});
+vi.mock(
+  '../../../../../packages/host-capabilities/src/native-tools/read-workspace-file-model-projection',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import('@brainstrike/host-capabilities/native-tools')>();
+    return {
+      ...actual,
+      projectReadWorkspaceFileModelOutput: vi.fn(actual.projectReadWorkspaceFileModelOutput),
+    };
+  }
+);
 
 import {
   APPROX_CHARS_PER_TOKEN,
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
 } from '@brainstrike/agent';
-import { projectReadWorkspaceFileModelOutput } from '../../assistant-server/read-workspace-file-model-projection';
+import { projectReadWorkspaceFileModelOutput } from '@brainstrike/host-capabilities/native-tools';
 
 // The UNMOCKED projector, for building fixtures: production persists the
 // PROJECTED model output, so fixtures must too (review finding — a raw-JSON
@@ -39,8 +40,10 @@ import { projectReadWorkspaceFileModelOutput } from '../../assistant-server/read
 // throws, so budget regressions would pass trivially). Using the actual
 // avoids polluting the mocked projector's call counts.
 const { projectReadWorkspaceFileModelOutput: actualProjectRead } = await vi.importActual<
-  typeof import('../../assistant-server/read-workspace-file-model-projection')
->('../../assistant-server/read-workspace-file-model-projection');
+  typeof import('@brainstrike/host-capabilities/native-tools')
+>(
+  '../../../../../packages/host-capabilities/src/native-tools/read-workspace-file-model-projection'
+);
 
 import {
   buildRecencyPruneMarker,

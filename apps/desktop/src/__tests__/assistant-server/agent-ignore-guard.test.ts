@@ -8,11 +8,11 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
 import {
   assertNotAgentIgnored,
   createAgentIgnoreGuard,
-} from '../../assistant-server/agent-ignore-guard';
+} from '@brainstrike/host-capabilities/native-tools';
+import { afterEach, describe, expect, it } from 'vitest';
 
 const createdRoots: string[] = [];
 

@@ -8,11 +8,11 @@ import {
 } from '@brainstrike/agent/tool-runtime';
 import type { HostRunAdmissionRequest, HostTool } from '@brainstrike/agent-host';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
+import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import { z } from 'zod';
 import { injectReferencedFilesContext } from '../assistant-server/referenced-files-context';
 import { injectActivatedSkillsContext } from '../assistant-server/skills-activation-context';
 import { injectWorkspaceInstructionsContext } from '../assistant-server/workspace-instructions-context';
-import { readWorkspaceTextFile } from '../assistant-server/workspace-text-file-reader';
 
 /** Existing readers and public vendor formatting; this creates no transcript or loop. */
 export async function readDesktopHostSystemContext(options: {

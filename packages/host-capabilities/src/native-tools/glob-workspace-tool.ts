@@ -5,15 +5,15 @@ import {
   type RuntimeWorkspaceRoot,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import { processFilter } from '@brainstrike/utils';
-import { Minimatch } from 'minimatch';
-import { walkWorkspaceRoot } from './workspace-file-walk';
 import {
   describeOpenRootTopology,
   getWorkspaceRoots,
   type OpenRootTopology,
   resolveOptionalWorkspaceRoot,
-} from './workspace-roots';
+} from '@brainstrike/assistant-service/node-workspace-services';
+import { processFilter } from '@brainstrike/utils';
+import { Minimatch } from 'minimatch';
+import { walkWorkspaceRoot } from './workspace-file-walk.js';
 
 export const GLOB_WORKSPACE_TOOL_ID = NATIVE_TOOL_ID.globWorkspace;
 

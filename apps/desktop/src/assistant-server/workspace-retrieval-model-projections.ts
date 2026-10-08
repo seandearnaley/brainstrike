@@ -13,7 +13,7 @@ import {
   makeWorkspaceTextModelOutput as output,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
-} from './workspace-model-projection-helpers';
+} from '@brainstrike/host-capabilities/native-tools';
 
 export type WorkspaceRetrievalTextModelOutput = WorkspaceTextModelOutput;
 

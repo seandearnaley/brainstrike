@@ -54,6 +54,16 @@ export function forgetKnownFile(scope: string, canonicalPath: string): void {
   knownMtimes.delete(toKey(scope, canonicalPath));
 }
 
+/** Drop every observation one scope (thread) made; its thread was deleted. */
+export function forgetFileReadScope(scope: string): void {
+  const prefix = toKey(scope, '');
+  for (const key of [...knownMtimes.keys()]) {
+    if (key.startsWith(prefix)) {
+      knownMtimes.delete(key);
+    }
+  }
+}
+
 /** Clear all observations (test isolation). */
 export function resetFileReadState(): void {
   knownMtimes.clear();

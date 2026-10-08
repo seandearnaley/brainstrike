@@ -6,6 +6,19 @@ import {
   type ToolProjectionRewriteEntry,
 } from '@brainstrike/agent';
 import { isNativeToolId, NATIVE_TOOL_ID, type NativeToolId } from '@brainstrike/assistant-contract';
+import {
+  decodedWorkspaceTextModelOutputChars,
+  escapeProjectionPathLineBreaks,
+  projectReadWorkspaceFileModelOutput,
+  readProjectionHeaderPrefix,
+  readStateScope,
+  readToolCallId,
+  redactToolErrorForLog,
+  resetToolCallLoopGuards,
+  resolveReadWorkspaceFileRootLabel,
+  resolveToolExecuteInputCandidate,
+  type ToolExecuteRunContext,
+} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import { getDatabase } from '../db-main';
 import {
@@ -13,18 +26,6 @@ import {
   grepProjectionHeaderPrefix,
   parseGrepToolResult,
 } from './grep-search-result-contract';
-import {
-  projectReadWorkspaceFileModelOutput,
-  resolveReadWorkspaceFileRootLabel,
-} from './read-workspace-file-model-projection';
-import { readProjectionHeaderPrefix } from './read-workspace-file-result-contract';
-import { resetToolCallLoopGuards } from './tool-call-loop-guards';
-import {
-  readToolCallId,
-  redactToolErrorForLog,
-  resolveToolExecuteInputCandidate,
-  type ToolExecuteRunContext,
-} from './tool-execute-support';
 import {
   decodedPersistedModelOutputChars,
   type RecencyPruneInvocation,
@@ -36,11 +37,6 @@ import {
   type PersistedToolInvocation,
   type ProjectionRewriteDatabaseProvider,
 } from './tool-projection-rewrite-store';
-import { readStateScope } from './workspace-file-staleness';
-import {
-  decodedWorkspaceTextModelOutputChars,
-  escapeProjectionPathLineBreaks,
-} from './workspace-model-projection-helpers';
 import { projectGrepSearchModelOutput } from './workspace-search-model-projections';
 
 const logger = createLogger('ToolProjectionRewriteRepository');

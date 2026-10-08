@@ -14,9 +14,12 @@ vi.mock('../../assistant-server/reindex-edited-file', async (importOriginal) => 
   reindexEditedFile: reindexEditedFileMock,
   statMtimeMs: vi.fn(async () => 1),
 }));
-vi.mock('../../assistant-server/workspace-text-file-reader', () => ({
-  readWorkspaceTextFile: readWorkspaceTextFileMock,
-}));
+vi.mock(
+  '../../../../../packages/host-capabilities/src/native-tools/workspace-text-file-reader',
+  () => ({
+    readWorkspaceTextFile: readWorkspaceTextFileMock,
+  })
+);
 
 import {
   triggerEditedFileReindex,
