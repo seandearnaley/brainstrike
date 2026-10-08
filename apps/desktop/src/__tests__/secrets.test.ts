@@ -352,7 +352,7 @@ describe("Main's view of the host-owned profile store", () => {
     userData.path = await disposableProfile();
     vi.resetModules();
     const secrets = await import('../secrets');
-    await secrets.migrateDesktopLegacySecrets();
+    await secrets.importDesktopLegacySecrets();
     // The host's own handle on the same profile store.
     const host = createHostCredentials({
       selection: secrets.desktopCredentialStoreSelection(userData.path, true),
@@ -424,6 +424,75 @@ describe("Main's view of the host-owned profile store", () => {
     expect(writer.deleteCredential).toHaveBeenCalledWith('openai');
     expect(writer.clear).toHaveBeenCalledOnce();
     await host.close();
+  });
+});
+
+describe('the retired safeStorage store imports through the host', () => {
+  /** Main's module over a disposable profile whose legacy file holds `secrets`. */
+  async function profileWithLegacy(secrets?: Record<string, string>) {
+    const legacy = await legacyFile(secrets);
+    userData.path = join(legacy, '..');
+    vi.resetModules();
+    return { legacy, module: await import('../secrets') };
+  }
+
+  it('decrypts in Main, imports through the host, then retires the legacy copy', async () => {
+    const { legacy, module } = await profileWithLegacy({
+      openai: legacyCiphertext('{"key":"sk-legacy","type":"api_key"}'),
+    });
+    await expect(module.desktopLegacySecretsPending()).resolves.toBe(true);
+    const importer = vi.fn(async () => {
+      // The legacy copy survives until the host's verified import returns.
+      expect(JSON.parse(await readFile(legacy, 'utf8')).secrets).not.toEqual({});
+      return { alreadyPresent: 0, migrated: 1 };
+    });
+    module.installDesktopLegacyImporter(importer);
+
+    await expect(module.importDesktopLegacySecrets()).resolves.toEqual({
+      alreadyPresent: 0,
+      migrated: 1,
+    });
+    expect(importer).toHaveBeenCalledWith({
+      entries: [{ account: 'openai', value: '{"key":"sk-legacy","type":"api_key"}' }],
+    });
+    expect(JSON.parse(await readFile(legacy, 'utf8'))).toEqual({ secrets: {}, unrelated: 'kept' });
+    await expect(module.desktopLegacySecretsPending()).resolves.toBe(false);
+    // Joined, never repeated, within one host's life.
+    await module.importDesktopLegacySecrets();
+    expect(importer).toHaveBeenCalledOnce();
+  });
+
+  it('reports an unreadable store to the host and keeps the legacy copy', async () => {
+    const { legacy, module } = await profileWithLegacy({ openai: 'not-ciphertext' });
+    const importer = vi.fn(async () => {
+      throw new Error('The retired credential store could not be read: decrypt_failed');
+    });
+    module.installDesktopLegacyImporter(importer);
+
+    await expect(module.importDesktopLegacySecrets()).rejects.toMatchObject({
+      code: 'decrypt_failed',
+    });
+    expect(importer).toHaveBeenCalledWith({ unavailable: expect.stringContaining('decrypt') });
+    expect(JSON.parse(await readFile(legacy, 'utf8')).secrets).toEqual({
+      openai: 'not-ciphertext',
+    });
+    // A relaunched host is told again.
+    await expect(module.importDesktopLegacySecrets({ afterHostLaunch: true })).rejects.toThrow();
+    expect(importer).toHaveBeenCalledTimes(2);
+  });
+
+  it('never reaches the host when there is nothing to import', async () => {
+    const { module } = await profileWithLegacy();
+    await expect(module.desktopLegacySecretsPending()).resolves.toBe(false);
+    await expect(module.importDesktopLegacySecrets()).resolves.toEqual({
+      alreadyPresent: 0,
+      migrated: 0,
+    });
+  });
+
+  it('refuses visibly when entries exist but no host importer is installed', async () => {
+    const { module } = await profileWithLegacy({ openai: legacyCiphertext('sk-legacy') });
+    await expect(module.importDesktopLegacySecrets()).rejects.toThrow('agent host');
   });
 });
 

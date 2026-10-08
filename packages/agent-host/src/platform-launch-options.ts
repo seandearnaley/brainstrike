@@ -19,6 +19,12 @@ export const HostPlatformLaunchOptionsSchema = z.strictObject({
     ])
     .optional(),
   /**
+   * The launching desktop still holds a retired encrypted store it will import
+   * over `auth/import-legacy` once this host is ready; credential use waits
+   * for that import to settle.
+   */
+  legacyImportPending: z.literal(true).optional(),
+  /**
    * The isolated E2E launch's stand-in for the OpenAI Codex sign-in issuer,
    * inside its provider egress boundary. A shipped launch never sets it.
    */

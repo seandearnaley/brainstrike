@@ -22,7 +22,9 @@ function expiredSignIn(): string {
   );
 }
 
-function hostAuthority(options: { readonly failWritesAfterSeed?: boolean } = {}) {
+function hostAuthority(
+  options: { readonly failWritesAfterSeed?: boolean; readonly legacyImportPending?: true } = {}
+) {
   const memory = memoryCredentialBackend({ [PROVIDER]: expiredSignIn() });
   let writable = true;
   const backend: KeyringCredentialBackend = {
@@ -61,7 +63,12 @@ function hostAuthority(options: { readonly failWritesAfterSeed?: boolean } = {})
     createNativeBackend: () => backend,
     selection: { kind: 'keyring', service: 'brainstrike-test-disposable' },
   });
-  const auth = createHostAuthority({ credentials, env: {}, fetchFn });
+  const auth = createHostAuthority({
+    credentials,
+    env: {},
+    fetchFn,
+    ...(options.legacyImportPending ? { legacyImportPending: true } : {}),
+  });
   return { auth, credentials, memory, tokenRequests };
 }
 
@@ -114,6 +121,65 @@ test('Settings writes go through the host authority and a subscription login is 
     await expect(auth.connect(PROVIDER, undefined, 'public-socket')).rejects.toThrow(
       /interactive/i
     );
+  } finally {
+    await credentials.close();
+  }
+});
+
+/** Settles on the next macrotask with whether `promise` is still pending. */
+async function stillPending(promise: Promise<unknown>): Promise<boolean> {
+  let settled = false;
+  promise.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    }
+  );
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  return !settled;
+}
+
+const LEGACY_KEY = JSON.stringify({ key: 'sk-legacy-openrouter', type: 'api_key' });
+
+test("a pending legacy import holds credential use until the desktop's import lands", async () => {
+  const { auth, credentials, memory } = hostAuthority({ legacyImportPending: true });
+  try {
+    const run = auth.resolveProviderAuth('openrouter', 'desktop-ui');
+    const status = auth.status(PROVIDER);
+    expect(await stillPending(run)).toBe(true);
+    expect(await stillPending(status)).toBe(true);
+
+    await expect(
+      auth.importLegacy({ entries: [{ account: 'openrouter', value: LEGACY_KEY }] })
+    ).resolves.toEqual({ alreadyPresent: 0, migrated: 1 });
+
+    await expect(run).resolves.toEqual({ apiKey: 'sk-legacy-openrouter', kind: 'api_key' });
+    await expect(status).resolves.toMatchObject({ state: expect.any(String) });
+    expect(memory.entries.get('openrouter')).toBe(LEGACY_KEY);
+    // A repeated import (a relaunched host) changes nothing.
+    await expect(
+      auth.importLegacy({ entries: [{ account: 'openrouter', value: LEGACY_KEY }] })
+    ).resolves.toEqual({ alreadyPresent: 1, migrated: 0 });
+  } finally {
+    await credentials.close();
+  }
+});
+
+test('an unreadable legacy store fails credential use visibly and factory reset still works', async () => {
+  const { auth, credentials, memory } = hostAuthority({ legacyImportPending: true });
+  try {
+    const status = auth.status(PROVIDER);
+    await expect(auth.importLegacy({ unavailable: 'decrypt_failed' })).rejects.toThrow(
+      'decrypt_failed'
+    );
+    await expect(status).rejects.toThrow('decrypt_failed');
+    await expect(auth.resolveProviderAuth('openrouter', 'desktop-ui')).rejects.toThrow(
+      'decrypt_failed'
+    );
+    await expect(auth.clear()).resolves.toBe(true);
+    expect(memory.entries.size).toBe(0);
   } finally {
     await credentials.close();
   }
