@@ -51,7 +51,10 @@ function parts(message: ModelMessage) {
 }
 
 /** Calls with a committed result, in branch order, plus the current turn's call IDs. */
-function branchInvocations(messages: readonly ModelMessage[]): {
+function branchInvocations(
+  messages: readonly ModelMessage[],
+  outputs: ReadonlyMap<string, unknown>
+): {
   readonly currentTurnToolCallIds: Set<string>;
   readonly invocations: HostToolInvocation[];
 } {
@@ -69,7 +72,12 @@ function branchInvocations(messages: readonly ModelMessage[]): {
       }
       const call = part.type === 'tool-result' ? calls.get(part.toolCallId) : undefined;
       if (part.type === 'tool-result' && call) {
-        invocations.push({ ...call, modelOutput: part.output, toolCallId: part.toolCallId });
+        invocations.push({
+          ...call,
+          modelOutput: part.output,
+          output: outputs.get(part.toolCallId),
+          toolCallId: part.toolCallId,
+        });
       }
     }
   });
@@ -115,20 +123,22 @@ export function applyProjectionRewrites(
 }
 
 /**
- * Before the first provider request of a run: ask the platform's rewrite
- * policy about the branch's unrewritten calls, commit what it selects, and
- * return the branch with every committed rewrite applied.
+ * Before each provider request of a run: ask the platform's rewrite policy
+ * about the branch's unrewritten calls, commit what it selects, and return
+ * the messages with every committed rewrite applied.
  */
 export async function prepareProjectionRewrites(input: {
   readonly commit: (event: Rewritten) => Promise<void>;
   readonly existing: ReadonlyMap<string, HostProjectionRewrite>;
   readonly messages: readonly ModelMessage[];
+  /** Raw committed effect outputs of the branch's runs, by tool call. */
+  readonly outputs: ReadonlyMap<string, unknown>;
   readonly runId: string;
   readonly select: HostPlatform['selectProjectionRewrites'];
 }): Promise<ModelMessage[]> {
   const rewrites = new Map(input.existing);
   if (input.select) {
-    const branch = branchInvocations(input.messages);
+    const branch = branchInvocations(input.messages, input.outputs);
     const selected = input.select({
       currentTurnToolCallIds: branch.currentTurnToolCallIds,
       invocations: branch.invocations.filter(({ toolCallId }) => !rewrites.has(toolCallId)),

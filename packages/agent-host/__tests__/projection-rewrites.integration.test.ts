@@ -6,12 +6,15 @@ import { apiKeyAuthInput, type RuntimeData } from '@brainstrike/agent/provider-r
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { StateStore } from '@brainstrike/state-store';
+import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest';
+import { z } from 'zod';
 import { HostCore } from '../src/core.js';
 import { storedHostEvent } from '../src/event-storage.js';
-import type { HostPlatform, HostProjectionRewriteRequest } from '../src/ports.js';
+import type { HostPlatform, HostProjectionRewriteRequest, HostTool } from '../src/ports.js';
 import { createProductionHostPlatform } from '../src/production-platform.js';
 import type { HostEvent } from '../src/protocol.js';
+import { scriptedToolSequence } from '../src/test-fixtures/scripted-model.js';
 
 const candidate = join(import.meta.dirname, '../../..');
 const provider = 'openai';
@@ -86,7 +89,12 @@ function grepTurn(threadId: string, index: number, result: string): HostEvent[] 
 
 async function grepThreadHost(
   results: readonly string[],
-  selectProjectionRewrites: HostPlatform['selectProjectionRewrites']
+  selectProjectionRewrites: HostPlatform['selectProjectionRewrites'],
+  scripted?: {
+    readonly maxSteps: number;
+    readonly model: MockLanguageModelV4;
+    readonly tools: Readonly<Record<string, HostTool>>;
+  }
 ) {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-projection-rewrites-'));
   const store = await StateStore.open(root, {
@@ -115,7 +123,7 @@ async function grepThreadHost(
     readConfiguration: async () => ({
       configuration,
       durableConfiguration: { model: modelId, provider },
-      maxSteps: 1,
+      maxSteps: scripted?.maxSteps ?? 1,
       memory: {
         native: {
           options: {
@@ -130,10 +138,11 @@ async function grepThreadHost(
       },
       providerRequestContext: { inputTokenLimit: 100_000, provider, runtimeData: configuration },
       resolvedToolResultBudget: resolveScaledToolResultBudget(100_000),
-      tools: {},
+      tools: scripted?.tools ?? {},
       toolTimeoutMs: 1000,
     }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
+    ...(scripted ? { resolveModel: async () => scripted.model } : {}),
     resolveProviderAuth: async () => apiKeyAuthInput('offline-rewrite-fixture-key'),
     selectProjectionRewrites,
     startup: { register: async () => undefined, signal: new AbortController().signal, store },
@@ -221,4 +230,71 @@ test('a committed tool-output rewrite replaces that result in the next request, 
   expect(requests).toHaveLength(2);
   expect(requests[1]).toContain(MARKER);
   expect(requests[1]).not.toContain('old-grep-output');
+});
+
+test('a stale read is superseded within the run once the run edits that file, using the raw committed output', async () => {
+  const marker = 'read repo:src/a.ts lines 1-2000/2000 [superseded — file was modified]';
+  const prompts: string[] = [];
+  const source = scriptedToolSequence([{ input: { path: 'src/a.ts' }, toolId: 'edit' }]);
+  const model = new MockLanguageModelV4({
+    doStream: (options) => {
+      prompts.push(JSON.stringify(options.prompt));
+      return source.doStream(options);
+    },
+    modelId,
+    provider: 'openai.responses',
+  });
+  const edit: HostTool = {
+    description: 'Recorded edit tool',
+    execute: async () => ({ path: 'src/a.ts', rootName: 'repo' }),
+    identity: 'edit-fixture-binding',
+    inputSchema: z.object({ path: z.string() }),
+    risk: 'read',
+  };
+  const asked: HostProjectionRewriteRequest[] = [];
+  const run = await grepThreadHost(
+    ['stale-read-body '.repeat(50)],
+    (request) => {
+      asked.push(request);
+      const write = request.invocations.find((invocation) => invocation.toolName === 'edit');
+      return write
+        ? [
+            {
+              kind: 'supersession' as const,
+              markerText: marker,
+              supersededByToolCallId: write.toolCallId,
+              toolCallId: 'call-grep-0',
+            },
+          ]
+        : [];
+    },
+    { maxSteps: 2, model, tools: { edit } }
+  );
+  const events = await run('Edit src/a.ts');
+
+  expect(events.at(-1)).toMatchObject({ outcome: 'completed', type: 'run.finished' });
+  expect(prompts).toHaveLength(2);
+  expect(prompts[0]).toContain('stale-read-body');
+  expect(prompts[1]).toContain(marker);
+  expect(prompts[1]).not.toContain('stale-read-body');
+  // The second step's policy request carries the run's own call and its raw output.
+  expect(asked).toHaveLength(2);
+  expect(asked[1]?.currentTurnToolCallIds).toEqual(new Set(['recorded-call-1']));
+  expect(asked[1]?.invocations.at(-1)).toMatchObject({
+    output: { path: 'src/a.ts', rootName: 'repo' },
+    toolCallId: 'recorded-call-1',
+    toolName: 'edit',
+  });
+  expect(events.filter((event) => event.type === 'tool.projection.rewritten')).toEqual([
+    expect.objectContaining({
+      rewrites: [
+        {
+          kind: 'supersession',
+          markerText: marker,
+          supersededByToolCallId: 'recorded-call-1',
+          toolCallId: 'call-grep-0',
+        },
+      ],
+    }),
+  ]);
 });

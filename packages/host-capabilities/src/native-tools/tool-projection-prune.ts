@@ -5,10 +5,7 @@ import {
   type ToolProjectionRewriteEntry,
   toJsonSafe,
 } from '@brainstrike/agent';
-import type { HostProjectionRewrite, HostProjectionRewriteRequest } from '@brainstrike/agent-host';
 import {
-  denormalizeNativeToolName,
-  isNativeToolId,
   type NativeToolId,
   RECENCY_PRUNABLE_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
@@ -201,42 +198,4 @@ export function selectRecencyPruneCandidates(args: {
     0
   );
   return reclaimableChars >= TOOL_PROJECTION_PRUNE_MIN_RECLAIM_CHARS ? candidates : [];
-}
-
-const PROJECTED_OUTPUT_TYPES: ReadonlySet<unknown> = new Set(['content', 'json', 'text']);
-
-/**
- * The host's rewrite policy port: legacy recency pruning over a branch's
- * committed native-tool invocations. A call counts only with object input
- * and a successful text/content/json projection, as legacy persisted ones.
- */
-export function selectHostProjectionRewrites(
-  request: HostProjectionRewriteRequest
-): HostProjectionRewrite[] {
-  const invocations: RecencyPruneInvocation[] = [];
-  for (const invocation of request.invocations) {
-    const toolName = denormalizeNativeToolName(invocation.toolName);
-    if (
-      isNativeToolId(toolName) &&
-      isRecord(invocation.args) &&
-      isRecord(invocation.modelOutput) &&
-      PROJECTED_OUTPUT_TYPES.has(invocation.modelOutput['type'])
-    ) {
-      invocations.push({
-        args: invocation.args,
-        modelOutput: invocation.modelOutput,
-        toolCallId: invocation.toolCallId,
-        toolName,
-      });
-    }
-  }
-  return selectRecencyPruneCandidates({
-    currentTurnToolCallIds: request.currentTurnToolCallIds,
-    invocations,
-  }).map(({ kind, markerText, supersededByToolCallId, toolCallId }) => ({
-    kind,
-    markerText,
-    supersededByToolCallId,
-    toolCallId,
-  }));
 }

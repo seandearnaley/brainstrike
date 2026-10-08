@@ -35,7 +35,9 @@ import {
 import {
   buildRecencyPruneMarker,
   projectReadWorkspaceFileModelOutput,
+  resetMalformedProjectionMemoForTests,
   selectRecencyPruneCandidates,
+  setMalformedWarnMemoCapForTests,
   TOOL_PROJECTION_PRUNE_MIN_RECLAIM_TOKENS,
   TOOL_PROJECTION_PRUNE_PROTECT_WINDOW_TOKENS,
 } from '@brainstrike/host-capabilities/native-tools';
@@ -54,9 +56,7 @@ const { projectReadWorkspaceFileModelOutput: actualProjectRead } = await vi.impo
 import {
   applyToolProjectionRewriteRecording,
   recordSuccessfulToolProjection,
-  resetMalformedProjectionMemoForTests,
   runRecencyPruneScan,
-  setMalformedWarnMemoCapForTests,
   toRecencyPruneInvocation,
 } from '../../assistant-server/tool-projection-rewrite-repository';
 

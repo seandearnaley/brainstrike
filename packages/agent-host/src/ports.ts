@@ -35,6 +35,8 @@ export type HostProjectionRewrite = Extract<
 export interface HostToolInvocation {
   readonly args: unknown;
   readonly modelOutput: unknown;
+  /** The raw committed `effect.finished` output; absent when no effect committed one. */
+  readonly output: unknown;
   readonly toolCallId: string;
   readonly toolName: string;
 }

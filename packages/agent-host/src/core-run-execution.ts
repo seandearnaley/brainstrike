@@ -147,6 +147,23 @@ async function commitContextEvent(
   await ports.append(run.threadId, [event], 'full', (rows) => ports.foldRows(rows));
 }
 
+/** Committed tool-output rewrites, plus the policy's new ones, on this step's messages. */
+function rewriteRunContext(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  ancestors: readonly Run[],
+  messages: readonly ModelMessage[]
+): Promise<ModelMessage[]> {
+  return prepareProjectionRewrites({
+    commit: (event) => commitContextEvent(ports, run, event),
+    existing: ports.rewrites.read(run.threadId),
+    messages,
+    outputs: new Map([...ancestors, run].flatMap((turn) => [...turn.outputs])),
+    runId: run.id,
+    select: ports.platform.selectProjectionRewrites?.bind(ports.platform),
+  });
+}
+
 /**
  * The run's first request context: heal interrupted history, apply committed
  * tool-output rewrites (and the policy's new ones), then the compaction
@@ -160,13 +177,7 @@ async function prepareRunContext(
   messages: readonly ModelMessage[]
 ): Promise<{ readonly messages: ModelMessage[]; readonly note?: string }> {
   const healed = healInterruptedRunHistory(messages, ancestors, run.threadId);
-  const rewritten = await prepareProjectionRewrites({
-    commit: (event) => commitContextEvent(ports, run, event),
-    existing: ports.rewrites.read(run.threadId),
-    messages: healed,
-    runId: run.id,
-    select: ports.platform.selectProjectionRewrites?.bind(ports.platform),
-  });
+  const rewritten = await rewriteRunContext(ports, run, ancestors, healed);
   return await prepareCompactedContext({
     chain: [...ancestors, run],
     commit: (event) => commitContextEvent(ports, run, event),
@@ -252,7 +263,11 @@ export async function runHostSdkLoop(
           recordedInputLength = messages.length;
         }
         let prepared = messages;
-        if (!historyPrepared) {
+        if (historyPrepared) {
+          // Stale reads and old outputs are rewritten within the run, as legacy
+          // rewrote them after each tracked tool.
+          prepared = await rewriteRunContext(ports, run, ancestors, messages);
+        } else {
           historyPrepared = true;
           const overlay = await prepareRunContext(ports, run, ancestors, admission, messages);
           prepared = overlay.messages;
