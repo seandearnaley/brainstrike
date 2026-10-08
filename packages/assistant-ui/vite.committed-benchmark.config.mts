@@ -16,8 +16,8 @@
  * Modes:
  * - `qualification` (the default) measures.
  * - `controls` runs only the in-page harness controls. Add `--inject-contention`
- *   to start a harmless dummy whose argv matches a lint command mid-run (the
- *   contention control).
+ *   to start, mid-run, an idle dummy whose executable name is a classified
+ *   lint tool (the contention control).
  * - `negative-control` also injects one uncaught page error, which must fail
  *   the verdict.
  * - `source` prints the worktree identity only.
@@ -26,13 +26,20 @@
  *   page's renderer (never the measured page) busy for 3 s; the sampler must
  *   see that renderer's CPU time advance by at least 1 s.
  *
- * `qualification` (and `guard`) refuse to start, before building, when other
- * build, lint or test work is observed. The control modes measure no gate:
- * they record what the guard saw and proceed. Every page run starts the
- * out-of-page host sampler (`committed-benchmark-sampler.mts`) at the lowest
- * priority, and stops and joins it before reporting. Contention seen by the
- * sampler marks the run contended, and work absent at the guard check is
- * reported as `midRun`. The measured page and its instrumentation are
+ * Failure controls, for `controls` and `sampler-control` only:
+ * `--inject-failure <startup|work|dummy-cleanup|sampler-crash|sampler-hang>`
+ * fails that step. Every one must still stop and join the sampler and leave no
+ * process behind, and must exit 2.
+ *
+ * `qualification` (and `guard`) refuse to start, before building, when
+ * classified build, lint or test work is observed. The control modes measure
+ * no gate: they record what the guard saw and proceed. Every page run starts
+ * the out-of-page host sampler (`committed-benchmark-sampler.mts`) at the
+ * lowest priority, and stops and joins it before reporting. Classified work
+ * seen by the sampler marks the run contended, and work absent at the guard
+ * check is reported as `midRun`. Unknown tool hosts (`node`, `tsgo`,
+ * `Electron`) are the guard's blind spot: every guard result and report states
+ * their count and CPU. The measured page and its instrumentation are
  * unchanged.
  *
  * Exit codes:
@@ -40,32 +47,50 @@
  *   contention and a met gate.
  * - 1: a run's p95 missed the gate.
  * - 2: a run failed, captured an execution error, had incomplete coverage, the
- *   sampler failed, or the worktree is not exactly the committed source. No
- *   gate verdict is drawn.
- * - 3: the guard refused to start because other build, lint or test work was
- *   running.
+ *   sampler failed (no clean exit, no confirmed join, or no sample through the
+ *   end of the work), a cleanup failed, or the worktree is not exactly the
+ *   committed source. No gate verdict is drawn.
+ * - 3: the guard refused to start because classified build, lint or test work
+ *   was running.
  * - 4: such work appeared mid-run, so the run is contended. Its verdict is
  *   reported but not counted, nothing is retried and no trial is discarded.
  *
  * The control modes exit 0 only when they observe what they must; the
  * contention control exits 4.
  */
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { once } from 'node:events';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { cpus, getPriority, loadavg, release, setPriority } from 'node:os';
+import { cpus, loadavg, release } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import tailwindcss from '@tailwindcss/vite';
+import type { Browser } from 'playwright';
 import { build, defineConfig, preview, version as viteVersion } from 'vite';
 import {
-  type ContentionMatch,
+  blindSpot,
+  contentionSummary,
+  coverThrough,
+  describeMatch,
+  joinedCleanly,
+  joinSampler,
+  parseSnapshots,
+  rendererCpu,
+  samplerOverhead,
+  spawnSampler,
+  startContentionDummy,
+  startSampling,
+  stopDummy,
+} from './committed-benchmark-host.mts';
+import {
+  BLIND_SPOT,
   CPU_TIME_RESOLUTION_SECONDS,
   contentionIn,
   readProcesses,
   SAMPLE_INTERVAL_MS,
+  unknownIn,
+  unknownSummary,
 } from './committed-benchmark-sampler.mts';
 
 const PACKAGE_DIR = import.meta.dirname;
@@ -73,13 +98,15 @@ const BENCHMARK_DIR = resolve(PACKAGE_DIR, 'src/__tests__');
 const ENTRY = 'committed-assistant-production-benchmark.html';
 /** Gitignored: build output never lands in the source tree. */
 const OUT_DIR = resolve(PACKAGE_DIR, 'node_modules/.committed-benchmark/dist');
-const SAMPLER_FILE = resolve(PACKAGE_DIR, 'committed-benchmark-sampler.mts');
+/** Gitignored: the contention control's Node clone, named after a lint tool. */
+const CONTROL_BIOME = resolve(PACKAGE_DIR, 'node_modules/.committed-benchmark/control-bin/biome');
 const VIEWPORT = { height: 800, width: 900 } as const;
 const GATE_MS = 8;
 const RUN_TIMEOUT_MS = 20 * 60_000;
 const SOURCE_FILES = [
   'vite.committed-benchmark.config.mts',
   'committed-benchmark-sampler.mts',
+  'committed-benchmark-host.mts',
   'src/__tests__/committed-assistant-production-benchmark.html',
   'src/__tests__/committed-assistant-production-benchmark.tsx',
   'src/__tests__/fixtures/committed-approved-host-run.json',
@@ -139,13 +166,47 @@ const MODES: readonly Mode[] = [
 const SAMPLER_CONTROL_BUSY_MS = 3000;
 /** Must match the page's injected error (committed-assistant-production-benchmark.tsx). */
 const NEGATIVE_CONTROL_ERROR = 'BST-1929 negative control: injected execution error';
-const MIDRUN_CONTROL_ARGV = ['biome', 'check', '--bst1929-midrun-contention-control'];
+
+type InjectedFailure = 'dummy-cleanup' | 'sampler-crash' | 'sampler-hang' | 'startup' | 'work';
+const INJECTED_FAILURES: readonly InjectedFailure[] = [
+  'dummy-cleanup',
+  'sampler-crash',
+  'sampler-hang',
+  'startup',
+  'work',
+];
+const injectedFailure = (point: InjectedFailure): string =>
+  `BST-1929 control: injected ${point} failure`;
 
 interface Args {
   readonly injectContention: boolean;
+  readonly injectFailure: InjectedFailure | undefined;
   readonly mode: Mode;
   readonly out: string;
   readonly runs: number;
+}
+
+/** Control flags never reach a measurement. */
+function checkControlFlags(
+  mode: Mode,
+  injectContention: boolean,
+  injectFailure: string | undefined
+): void {
+  if (injectContention && mode !== 'controls') {
+    throw new Error('--inject-contention is a control and only runs with --mode controls.');
+  }
+  if (injectFailure === undefined) {
+    return;
+  }
+  if (!INJECTED_FAILURES.includes(injectFailure as InjectedFailure)) {
+    throw new Error(`--inject-failure must be one of ${INJECTED_FAILURES.join(', ')}.`);
+  }
+  if (mode !== 'controls' && mode !== 'sampler-control') {
+    throw new Error('--inject-failure only runs with --mode controls or sampler-control.');
+  }
+  if (injectFailure === 'dummy-cleanup' && !injectContention) {
+    throw new Error('--inject-failure dummy-cleanup needs --inject-contention.');
+  }
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -157,6 +218,7 @@ function parseArgs(argv: readonly string[]): Args {
   const out = value('--out');
   const runs = Number(value('--runs') ?? '1');
   const injectContention = argv.includes('--inject-contention');
+  const injectFailure = value('--inject-failure');
   if (!MODES.includes(mode)) {
     throw new Error(`--mode must be one of ${MODES.join(', ')}.`);
   }
@@ -166,11 +228,10 @@ function parseArgs(argv: readonly string[]): Args {
   if (!(Number.isInteger(runs) && runs > 0)) {
     throw new Error('--runs must be a positive integer.');
   }
-  if (injectContention && mode !== 'controls') {
-    throw new Error('--inject-contention is a control and only runs with --mode controls.');
-  }
+  checkControlFlags(mode, injectContention, injectFailure);
   return {
     injectContention,
+    injectFailure: injectFailure as InjectedFailure | undefined,
     mode,
     out: resolve(out),
     runs: mode === 'qualification' ? runs : 1,
@@ -230,156 +291,6 @@ async function bundleIdentity() {
   return { digest, files };
 }
 
-// ---- Out-of-page host sampler: start at the lowest priority, stop and join ----
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
-  }
-}
-
-async function startSampler(out: string) {
-  const child = spawn(process.execPath, [SAMPLER_FILE, out, String(process.pid)], {
-    stdio: ['ignore', 'ignore', 'inherit'],
-  });
-  const { pid } = child;
-  if (pid === undefined) {
-    throw new Error('The host sampler did not start.');
-  }
-  setPriority(pid, 19);
-  // Sampling must be under way before anything it is meant to observe.
-  for (let waited = 0; ; waited += 50) {
-    const text = await readFile(out, 'utf8').catch(() => '');
-    if (text.includes('\n')) {
-      break;
-    }
-    if (waited > 10_000 || child.exitCode !== null) {
-      throw new Error('The host sampler produced no snapshot.');
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return { child, pid, priority: getPriority(pid), startedAt: Date.now() };
-}
-
-type Sampler = Awaited<ReturnType<typeof startSampler>>;
-
-/** SIGTERM, then wait for the exit event and confirm the pid is gone (the physical join). */
-async function joinSampler({ child, pid }: Sampler) {
-  const exited =
-    child.exitCode === null && child.signalCode === null
-      ? once(child, 'exit')
-      : Promise.resolve([child.exitCode, child.signalCode]);
-  child.kill('SIGTERM');
-  const [code, signal] = (await exited) as [number | null, NodeJS.Signals | null];
-  return { code, joinedAt: Date.now(), pid, signal, stillRunning: isAlive(pid) };
-}
-
-interface Snapshot {
-  readonly chromium: readonly {
-    readonly cpuSeconds: number;
-    readonly pid: number;
-    readonly type: string;
-  }[];
-  readonly contention: readonly ContentionMatch[];
-  readonly loadavg: readonly number[];
-  readonly samplerCpuMs: number;
-  readonly t: number;
-  readonly tEnd: number;
-}
-
-/** Nearest-rank median and the maximum. */
-function spread(values: readonly number[]) {
-  const sorted = [...values].sort((left, right) => left - right);
-  return { max: sorted.at(-1), median: sorted[Math.ceil(sorted.length / 2) - 1] };
-}
-
-/**
- * The sampler's own cost over its steady window (first to last snapshot, so
- * Node's startup is excluded) and its achieved spacing. Its `ps` children's
- * CPU is not visible to it, so their wall time is reported as an upper bound.
- */
-function samplerOverhead(snapshots: readonly Snapshot[]) {
-  const first = snapshots[0];
-  const last = snapshots.at(-1);
-  if (!(first && last && snapshots.length > 1)) {
-    return { snapshots: snapshots.length };
-  }
-  const wallMs = last.tEnd - first.tEnd;
-  const psWallMs = snapshots.map((snapshot) => snapshot.tEnd - snapshot.t);
-  const share = (ms: number): number => Number((ms / wallMs).toFixed(4));
-  return {
-    psWallMs: spread(psWallMs),
-    psWallShareUpperBound: share(psWallMs.slice(1).reduce((total, ms) => total + ms, 0)),
-    samplerCpuShare: share(last.samplerCpuMs - first.samplerCpuMs),
-    snapshots: snapshots.length,
-    spacingMs: spread(
-      snapshots.slice(1).map((snapshot, index) => snapshot.t - (snapshots[index]?.t ?? 0))
-    ),
-    wallSeconds: wallMs / 1000,
-  };
-}
-
-/** Cumulative CPU of each renderer across the run; proves the sampler sees it advance. */
-function rendererCpu(snapshots: readonly Snapshot[]) {
-  const byPid = new Map<
-    number,
-    { first: Snapshot; firstCpu: number; last: Snapshot; lastCpu: number; samples: number }
-  >();
-  for (const snapshot of snapshots) {
-    for (const process_ of snapshot.chromium.filter((entry) => entry.type === 'renderer')) {
-      const seen = byPid.get(process_.pid);
-      byPid.set(process_.pid, {
-        first: seen?.first ?? snapshot,
-        firstCpu: seen?.firstCpu ?? process_.cpuSeconds,
-        last: snapshot,
-        lastCpu: process_.cpuSeconds,
-        samples: (seen?.samples ?? 0) + 1,
-      });
-    }
-  }
-  return [...byPid].map(([pid, entry]) => ({
-    cpuSecondsAdvanced: Number((entry.lastCpu - entry.firstCpu).toFixed(2)),
-    fromT: entry.first.t,
-    pid,
-    samples: entry.samples,
-    toT: entry.last.t,
-  }));
-}
-
-/** `atStart`: the guard's own observation, so work that appeared mid-run is told apart. */
-function contentionSummary(snapshots: readonly Snapshot[], atStart: readonly ContentionMatch[]) {
-  const startPids = new Set(atStart.map((match) => match.pid));
-  const contended = snapshots.filter((snapshot) => snapshot.contention.length > 0);
-  const matches = new Map<number, ContentionMatch>();
-  for (const snapshot of contended) {
-    for (const match of snapshot.contention) {
-      matches.set(match.pid, match);
-    }
-  }
-  return {
-    contended: contended.length > 0,
-    contendedSnapshots: contended.length,
-    firstT: contended[0]?.t,
-    lastT: contended.at(-1)?.t,
-    matches: [...matches.values()],
-    midRun: [...matches.values()].filter((match) => !startPids.has(match.pid)),
-  };
-}
-
-/** Identity only: never argv. */
-function describeMatch(match: ContentionMatch): string {
-  return `  pid ${match.pid} ${match.pattern} executable ${match.executable} worktree ${match.worktree ?? '-'}`;
-}
-
-/** A harmless, idle dummy whose argv reads like a lint run; reparented away from the runner. */
-function startContentionDummy(): number {
-  const launcher = `const c=require('node:child_process').spawn(process.execPath,['-e','setTimeout(()=>{},120000)',...${JSON.stringify(MIDRUN_CONTROL_ARGV)}],{detached:true,stdio:'ignore'});c.unref();process.stdout.write(String(c.pid));`;
-  return Number(execFileSync(process.execPath, ['-e', launcher], { encoding: 'utf8' }));
-}
-
 // ---- Page runs and verdicts ----
 
 interface PageState {
@@ -396,8 +307,29 @@ interface PageState {
 interface RunRecord {
   readonly loadavg: number[];
   readonly pageErrors: string[];
+  readonly processes: readonly ChromiumProcess[];
   readonly startedAt: string;
   readonly state: PageState;
+}
+
+interface ChromiumProcess {
+  readonly pid: number;
+  readonly type: string;
+}
+
+/**
+ * Chromium's own process list (CDP `SystemInfo.getProcessInfo`), asked only
+ * after the page has reported its result. It names each process's type, so
+ * no argv is read to find the renderer.
+ */
+async function chromiumProcesses(browser: Browser): Promise<ChromiumProcess[]> {
+  const session = await browser.newBrowserCDPSession();
+  try {
+    const { processInfo } = await session.send('SystemInfo.getProcessInfo');
+    return processInfo.map(({ id, type }) => ({ pid: id, type }));
+  } finally {
+    await session.detach();
+  }
 }
 
 async function measureRuns(url: string, runs: number) {
@@ -432,7 +364,8 @@ async function measureRuns(url: string, runs: number) {
       const startedAt = new Date().toISOString();
       await page.goto(url);
       const state = await finished.promise.finally(() => clearTimeout(timeout));
-      results.push({ loadavg: loadavg(), pageErrors, startedAt, state });
+      const processes = await chromiumProcesses(browser);
+      results.push({ loadavg: loadavg(), pageErrors, processes, startedAt, state });
       await context.close();
     }
     return { browserVersion: browser.version(), results };
@@ -526,20 +459,26 @@ async function writeReport(out: string, name: string, report: unknown): Promise<
 }
 
 /**
- * Guard: a measurement (`qualification`) refuses to start when other build,
- * lint or test work is observed, before it builds anything; so does `guard`,
- * which only evaluates it. The control modes measure no gate: they record what
- * the guard saw and still mark any contention, but proceed.
+ * Guard: a measurement (`qualification`) refuses to start when classified
+ * build, lint or test work is observed, before it builds anything; so does
+ * `guard`, which only evaluates it. The control modes measure no gate: they
+ * record what the guard saw and still mark any contention, but proceed. Every
+ * result states the blind spot: unknown tool hosts never refuse.
  */
 async function guardOrRefuse(args: Args, source: Awaited<ReturnType<typeof sourceIdentity>>) {
+  const rows = await readProcesses();
   const guard = {
+    blindSpot: { note: BLIND_SPOT, ...unknownSummary(unknownIn(rows, process.pid)) },
     checkedAt: Date.now(),
-    matches: contentionIn(await readProcesses(), process.pid),
+    matches: contentionIn(rows, process.pid),
   };
+  const blind = `blind spot: ${guard.blindSpot.count} unknown node/tsgo/Electron processes, summed pcpu ${guard.blindSpot.pcpu}. ${BLIND_SPOT}`;
   const enforced = args.mode === 'qualification' || args.mode === 'guard';
   if (guard.matches.length === 0 || !enforced) {
     if (args.mode === 'guard') {
-      process.stdout.write('mode guard exit 0 (no other build/lint/test work observed)\n');
+      process.stdout.write(
+        `mode guard exit 0 (no classified build/lint/test work observed)\n${blind}\n`
+      );
     }
     return { guard, refused: false } as const;
   }
@@ -549,7 +488,7 @@ async function guardOrRefuse(args: Args, source: Awaited<ReturnType<typeof sourc
     source,
   });
   process.stdout.write(
-    `mode ${args.mode} exit 3 (refused: other build/lint/test work is running)\n${guard.matches.map(describeMatch).join('\n')}\nraw ${file}\n`
+    `mode ${args.mode} exit 3 (refused: classified build/lint/test work is running)\n${guard.matches.map(describeMatch).join('\n')}\n${blind}\nraw ${file}\n`
   );
   return { guard, refused: true } as const;
 }
@@ -591,24 +530,45 @@ async function busyRendererControl() {
       }
       return performance.now() - start;
     }, SAMPLER_CONTROL_BUSY_MS);
+    const processes = await chromiumProcesses(browser);
     await context.close();
-    return { browserVersion: browser.version(), busyMs };
+    return { browserVersion: browser.version(), busyMs, processes };
   } finally {
     await browser.close();
   }
 }
 
-/** The sampler runs from before the build until after the browser closes, then is joined. */
+function samplerFault(failure: InjectedFailure | undefined) {
+  if (failure === 'sampler-crash') {
+    return 'crash';
+  }
+  return failure === 'sampler-hang' ? 'hang' : undefined;
+}
+
+/**
+ * The sampler's ownership is registered the moment it is spawned. Whatever
+ * fails afterwards (its startup, the work, the dummy's cleanup), each owner is
+ * still released on its own, and the sampler is always covered to the end of
+ * the work and joined.
+ */
 async function sampledRun(args: Args) {
   await mkdir(args.out, { recursive: true });
   const samplesFile = join(args.out, `host-samples-${args.mode}-${stamp()}.jsonl`);
-  const sampler = await startSampler(samplesFile);
+  const owner = spawnSampler(samplesFile, process.pid, samplerFault(args.injectFailure));
+  let started: Awaited<ReturnType<typeof startSampling>> | undefined;
   let dummy: number | undefined;
   let outcome: Awaited<ReturnType<typeof buildAndMeasure>> | undefined;
   let busy: Awaited<ReturnType<typeof busyRendererControl>> | undefined;
   let failure: unknown;
   try {
-    dummy = args.injectContention ? startContentionDummy() : undefined;
+    if (args.injectFailure === 'startup') {
+      throw new Error(injectedFailure('startup'));
+    }
+    started = await startSampling(owner);
+    dummy = args.injectContention ? startContentionDummy(CONTROL_BIOME) : undefined;
+    if (args.injectFailure === 'work') {
+      throw new Error(injectedFailure('work'));
+    }
     if (args.mode === 'sampler-control') {
       busy = await busyRendererControl();
     } else {
@@ -616,20 +576,41 @@ async function sampledRun(args: Args) {
     }
   } catch (error) {
     failure = error;
-  } finally {
-    if (dummy !== undefined && isAlive(dummy)) {
-      process.kill(dummy, 'SIGTERM');
-    }
   }
-  const joined = await joinSampler(sampler);
-  const snapshots = (await readFile(samplesFile, 'utf8'))
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as Snapshot);
-  return { busy, dummy, failure, joined, outcome, sampler, samplesFile, snapshots };
+  const dummyCleanup =
+    dummy === undefined
+      ? undefined
+      : await stopDummy(
+          dummy,
+          args.injectFailure === 'dummy-cleanup'
+            ? new Error(injectedFailure('dummy-cleanup'))
+            : undefined
+        );
+  const coverage = await coverThrough(owner, Date.now());
+  const joined = await joinSampler(owner);
+  const snapshots = parseSnapshots(await readFile(samplesFile, 'utf8'));
+  return {
+    busy,
+    coverage,
+    dummyCleanup,
+    failure,
+    joined,
+    outcome,
+    samplerPid: owner.pid,
+    samplesFile,
+    snapshots,
+    started,
+  };
 }
 
 type SampledRun = Awaited<ReturnType<typeof sampledRun>>;
+
+function cleanupFailed(run: SampledRun): boolean {
+  return (
+    run.dummyCleanup !== undefined &&
+    (run.dummyCleanup.error !== undefined || run.dummyCleanup.stillRunning)
+  );
+}
 
 function exitCodeFor(
   args: Args,
@@ -640,22 +621,22 @@ function exitCodeFor(
   contended: boolean
 ): number {
   if (args.mode === 'sampler-control') {
-    return run.failure === undefined && samplerOk ? 0 : 2;
+    return run.failure === undefined && samplerOk && !cleanupFailed(run) ? 0 : 2;
   }
   const measured = run.outcome?.measured;
   const measuredCode =
     run.failure === undefined && measured ? exitCodeOf(args.mode, measured.results, judgements) : 2;
-  if (!(qualified && samplerOk) || measuredCode === 2) {
+  if (!(qualified && samplerOk) || cleanupFailed(run) || measuredCode === 2) {
     return 2;
   }
   return contended ? 4 : measuredCode;
 }
 
 /**
- * The sampler must always be joined after a clean exit: a crash would leave
- * the rest of the run unsampled. Where a renderer runs long enough to be
- * sampled it must also be seen advancing; the short control pages only have
- * to be joined.
+ * Healthy only when the sampler exited cleanly, was joined with its group
+ * confirmed gone, and sampled through the end of the work: a collector that
+ * crashed after early progress is not healthy. Where a renderer runs long
+ * enough to be sampled it must also be seen advancing.
  */
 function samplerOkFor(
   mode: Mode,
@@ -664,11 +645,37 @@ function samplerOkFor(
 ): boolean {
   const minimumAdvance = mode === 'sampler-control' ? 1 : mode === 'qualification' ? 0.01 : 0;
   return (
-    run.joined.code === 0 &&
-    !run.joined.stillRunning &&
+    joinedCleanly(run.joined) &&
+    run.coverage.covered &&
     (minimumAdvance === 0 ||
       renderers.some((renderer) => renderer.cpuSecondsAdvanced >= minimumAdvance))
   );
+}
+
+function rendererPidsOf(run: SampledRun): Set<number> {
+  const processes = [
+    ...(run.outcome?.measured.results.flatMap((result) => result.processes) ?? []),
+    ...(run.busy?.processes ?? []),
+  ];
+  return new Set(processes.filter(({ type }) => type === 'renderer').map(({ pid }) => pid));
+}
+
+function summaryLines(run: SampledRun, samplerOk: boolean): string[] {
+  const { joined } = run;
+  const blind = blindSpot(run.snapshots);
+  return [
+    `sampler pid ${run.samplerPid} priority ${run.started?.priority} snapshots ${run.snapshots.length} ok=${samplerOk}`,
+    `  join closed=${joined.closed} code=${joined.code} signal=${joined.signal} escalated=${joined.escalated} group=${joined.group}${joined.error ? ` error=${joined.error}` : ''}`,
+    `  coverage through end boundary ${run.coverage.boundary}: ${run.coverage.covered}${run.coverage.error ? ` error=${run.coverage.error}` : ''}`,
+    joined.stderr === ''
+      ? ''
+      : `  sampler stderr: ${joined.stderr.split('\n').find((line) => /\bError\b/.test(line)) ?? joined.stderr.split('\n')[0]}`,
+    `sampler overhead ${JSON.stringify(samplerOverhead(run.snapshots))} interval ${SAMPLE_INTERVAL_MS} ms, cpu time resolution ${CPU_TIME_RESOLUTION_SECONDS} s`,
+    `blind spot: unknown node/tsgo/Electron per snapshot ${JSON.stringify(blind.count)}, summed pcpu ${JSON.stringify(blind.pcpu)}, CPU advanced >= ${blind.cpuSecondsAdvancedLowerBound} s. ${BLIND_SPOT}`,
+    run.dummyCleanup === undefined
+      ? ''
+      : `dummy pid ${run.dummyCleanup.pid} stillRunning=${run.dummyCleanup.stillRunning}${run.dummyCleanup.error ? ` cleanup error=${run.dummyCleanup.error}` : ''}`,
+  ].filter((line) => line !== '');
 }
 
 async function runBenchmark(): Promise<number> {
@@ -688,8 +695,7 @@ async function runBenchmark(): Promise<number> {
   const run = await sampledRun(args);
   const measured = run.outcome?.measured;
   const contention = contentionSummary(run.snapshots, guard.matches);
-  const renderers = rendererCpu(run.snapshots);
-  const overhead = samplerOverhead(run.snapshots);
+  const renderers = rendererCpu(run.snapshots, rendererPidsOf(run));
   const samplerOk = samplerOkFor(args.mode, run, renderers);
   const judgements = measured?.results.map(verdictOf) ?? [];
   const qualified = args.mode !== 'qualification' || source.exact;
@@ -704,6 +710,7 @@ async function runBenchmark(): Promise<number> {
     failure: run.failure === undefined ? undefined : String(run.failure),
     gate: { metric: 'unwrapped text-delta reactMs p95', thresholdMs: GATE_MS },
     guard: { ...guard, refused: false },
+    injectedFailure: args.injectFailure,
     judgements,
     mode: args.mode,
     runs: measured?.results ?? [],
@@ -718,20 +725,21 @@ async function runBenchmark(): Promise<number> {
       reactDom: (require('react-dom/package.json') as { version: string }).version,
     },
     sampler: {
+      blindSpot: blindSpot(run.snapshots),
       contention,
+      coverage: run.coverage,
       cpuTimeResolutionSeconds: CPU_TIME_RESOLUTION_SECONDS,
-      dummy:
-        run.dummy === undefined ? undefined : { pid: run.dummy, stillRunning: isAlive(run.dummy) },
+      dummy: run.dummyCleanup,
       file: run.samplesFile,
       intervalMs: SAMPLE_INTERVAL_MS,
       join: run.joined,
       ok: samplerOk,
-      overhead,
-      pid: run.sampler.pid,
-      priority: run.sampler.priority,
+      overhead: samplerOverhead(run.snapshots),
+      pid: run.samplerPid,
+      priority: run.started?.priority,
       renderers,
       snapshots: run.snapshots,
-      startedAt: run.sampler.startedAt,
+      startedAt: run.started?.startedAt,
     },
     source,
   });
@@ -742,8 +750,7 @@ async function runBenchmark(): Promise<number> {
         ({ line, reason, verdict }, index) =>
           `run ${index + 1} [${verdict}, ${reason}] errors ${measured?.results[index]?.pageErrors.length}\n  ${line}`
       ),
-      `sampler pid ${run.sampler.pid} priority ${run.sampler.priority} snapshots ${run.snapshots.length} joined code=${run.joined.code} signal=${run.joined.signal} stillRunning=${run.joined.stillRunning}`,
-      `sampler overhead ${JSON.stringify(overhead)} interval ${SAMPLE_INTERVAL_MS} ms, cpu time resolution ${CPU_TIME_RESOLUTION_SECONDS} s`,
+      ...summaryLines(run, samplerOk),
       `renderers ${JSON.stringify(renderers)}`,
       `busy control ${run.busy ? `${run.busy.busyMs.toFixed(0)} ms` : 'not run'}`,
       `contention atStart ${guard.matches.length}, seen in ${contention.contendedSnapshots}/${run.snapshots.length} snapshots, midRun ${contention.midRun.length}${contention.midRun.map((match) => `\n  midRun${describeMatch(match)}`).join('')}`,

@@ -1,85 +1,111 @@
 /**
  * BST-1929 out-of-page host sampler and contention guard for the committed
- * production benchmark (`vite.committed-benchmark.config.mts`).
+ * production benchmark (`vite.committed-benchmark.config.mts`). This file is
+ * the sampler process and the process classification the guard shares with
+ * it; the runner's ownership of the process, and the analysis of its samples,
+ * are in `committed-benchmark-host.mts`.
  *
- * It never touches the measured page. The runner spawns this file as a
- * separate, lowest-priority child process. Every 500 ms it appends one JSON
- * line with:
- * - epoch-ms times at ps start and ps end, and the sampler's own cumulative
- *   CPU (its overhead);
+ * The sampler never touches the measured page. It runs as a separate,
+ * lowest-priority process that leads its own process group. Every 500 ms it
+ * appends one JSON line with:
+ * - epoch-ms times at `ps` start and end, and the sampler's own cumulative CPU;
  * - `vm.loadavg`, via `os.loadavg()`;
+ * - every process under the runner, with its cumulative CPU time;
  * - the top 15 processes by CPU;
- * - the cumulative CPU time of every Chromium process under the runner,
- *   especially each `--type=renderer`;
- * - any other build, lint or test work observed on the machine.
+ * - classified build, lint or test work, and unknown tool hosts.
  *
- * The runner stops it with SIGTERM and joins it before reporting.
+ * Privacy (6053016662, 6053174447): no process's argv or environment is read,
+ * not even in memory. `ps` is asked only for pid, ppid, pcpu, time and `ucomm`.
+ * `ucomm` is the kernel's name for the executable file (at most 16
+ * characters). A process cannot rewrite it, unlike `comm`, which on macOS is
+ * argv[0]: npm, for example, sets it to its whole command line.
  *
- * Privacy: argv is read in memory only, to match contention and classify the
- * runner's Chromium processes. Nothing persisted carries argv, environment or
- * user content. A process is recorded only by pid, CPU and timing, its
- * executable name (`ps` `ucomm`, at most 16 characters), and the
- * `.claude/worktrees/<name>` it runs from. A contention match adds the
- * pattern it matched.
+ * Classification and its blind spot: only an executable whose own name
+ * identifies build, lint or test work is classified, and only those make the
+ * guard refuse. Some hosts cannot be told apart without argv:
+ * - tools hosted by `node` (vitest, tsc, vite, eslint, pnpm);
+ * - `tsgo` (a type check, or an editor's language server);
+ * - `Electron` (the desktop app under test, or an installed IDE that ships its
+ *   binary under that name).
+ *
+ * They are reported as unknown with their CPU and never refuse. A slot's
+ * quietness still rests mainly on the coordinator's quiet-machine procedure.
  *
  * Resolution: samples are 500 ms apart, and `ps` reports CPU time to 10 ms. A
- * cumulative sample cannot resolve a single token trial, or millisecond CPU per
- * token. Use it only for windows that hold many samples. More CPU time per
- * unit of work does not uniquely prove CPU frequency or core placement.
+ * job that starts and ends between two samples can be missed. A cumulative
+ * sample cannot resolve a single token trial or millisecond CPU per token, so
+ * use it only for windows that hold many samples. More CPU time per unit of
+ * work does not uniquely prove CPU frequency or core placement.
  */
 import { execFile } from 'node:child_process';
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 export const SAMPLE_INTERVAL_MS = 500;
 /** `ps -o time` resolution. */
 export const CPU_TIME_RESOLUTION_SECONDS = 0.01;
+/** Every field the sampler and guard ask `ps` for: identity, CPU and timing, never argv. */
+export const PS_ARGS = ['-Ao', 'pid=,ppid=,pcpu=,time=,ucomm='] as const;
+/**
+ * Bounds one `ps` call. Measured: about 40 ms of CPU, and 50–118 ms wall time
+ * inside contended runs, so this is a liveness bound, not a budget.
+ */
+export const PS_TIMEOUT_MS = 5000;
 const TOP_PROCESSES = 15;
-/** `ps` pads `ucomm` (the kernel's MAXCOMLEN executable name) to exactly this width. */
-const UCOMM_WIDTH = 16;
-const PS_ROW = new RegExp(
-  `^\\s*(\\d+)\\s+(\\d+)\\s+([\\d.]+)\\s+(\\S+) (.{${UCOMM_WIDTH}}) ?(.*)$`
-);
-const WORKTREE = /\.claude\/worktrees\/([\w.-]+)/;
+/** Snapshots written before the injected `crash` control throws. */
+const CRASH_AFTER_SNAPSHOTS = 7;
 
+export const BLIND_SPOT =
+  'Tools hosted by node (vitest, tsc, vite, eslint, pnpm), tsgo and Electron cannot be classified without argv; they are reported as unknown with their CPU and never make the guard refuse. Jobs shorter than one 500 ms interval can be missed. A slot is quiet mainly by the coordinator’s quiet-machine procedure.';
+
+export type Workload = 'build' | 'lint' | 'test-browser';
+
+/** Executable names (`ucomm`, truncated to 16 characters) that identify their workload. */
+export const CLASSIFIED_EXECUTABLES: ReadonlyMap<string, Workload> = new Map([
+  ['biome', 'lint'],
+  ['oxlint', 'lint'],
+  ['esbuild', 'build'],
+  ['turbo', 'build'],
+  ['cargo', 'build'],
+  ['rustc', 'build'],
+  ['make', 'build'],
+  ['clang', 'build'],
+  ['clang++', 'build'],
+  ['ld', 'build'],
+  ['xcodebuild', 'build'],
+  ['swift-frontend', 'build'],
+  // Playwright's chrome-headless-shell and Chrome for Testing (the user's own
+  // Google Chrome is `Google Chrome` / `Google Chrome He` and is not matched).
+  ['chrome-headless-', 'test-browser'],
+  ['Google Chrome fo', 'test-browser'],
+]);
+
+/**
+ * Hosts whose workload cannot be told without argv: reported, never refused
+ * on. `Electron` is here because installed apps also ship under that name
+ * (`/Applications/Antigravity IDE.app/Contents/MacOS/Electron`, observed
+ * resident since login).
+ */
+export const UNKNOWN_EXECUTABLES: ReadonlySet<string> = new Set([
+  'node',
+  'tsgo',
+  'Electron',
+  'Electron Helper',
+]);
+
+/** Everything persisted about a process: identity, CPU and nothing else. */
 export interface ProcessRow {
-  /** In memory only: never persisted. */
-  readonly args: string;
   /** Cumulative CPU seconds (`ps -o time`, centisecond resolution). */
   readonly cpuSeconds: number;
-  /** The executable name (`ps -o ucomm`). */
+  /** The executable's name (`ps -o ucomm`). */
   readonly executable: string;
   readonly pcpu: number;
   readonly pid: number;
   readonly ppid: number;
 }
-
-/**
- * Other build, lint or test work. Matched on argv in memory. The runner's own
- * ancestors and descendants are always excluded, so its own `pnpm exec`,
- * Playwright browser and Vite workers never count.
- */
-export const CONTENTION_PATTERNS: readonly RegExp[] = [
-  /\bbiome\b/i,
-  /\bultracite\b/i,
-  /\btsc\b/,
-  /\btsgo\b(?!.*--lsp)/,
-  /\bvitest\b/i,
-  /\bplaywright\b/i,
-  /\bturbo\b/,
-  /\bpnpm\b/,
-  /\beslint\b/,
-  /\boxlint\b/,
-  /\bjest\b/,
-  /\bknip\b/,
-  /\breact-doctor\b/,
-  /\bnode-gyp\b/,
-  /\bvite\b/,
-  /\bxcodebuild\b/,
-  /\bcargo\b/,
-];
 
 /** `[[dd-]hh:]mm:ss.cs` to seconds. */
 export function parseCpuTime(value: string): number {
@@ -91,35 +117,26 @@ export function parseCpuTime(value: string): number {
 
 /** Throws on a row it cannot parse: a dropped row could hide contention. */
 export async function readProcesses(): Promise<readonly ProcessRow[]> {
-  const { stdout } = await run('ps', ['-Ao', 'pid=,ppid=,pcpu=,time=,ucomm=,args=', '-ww'], {
-    maxBuffer: 64 * 1024 * 1024,
+  const { stdout } = await run('ps', PS_ARGS, {
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: PS_TIMEOUT_MS,
   });
   return stdout
     .split('\n')
     .filter((line) => line !== '')
     .map((line) => {
-      const match = PS_ROW.exec(line);
+      const match = /^\s*(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s+(.+?)\s*$/.exec(line);
       if (!match) {
         throw new Error(`Unparseable ps row for pid ${/^\s*(\d+)/.exec(line)?.[1] ?? '?'}.`);
       }
       return {
-        args: match[6] ?? '',
         cpuSeconds: parseCpuTime(match[4] ?? '0'),
-        executable: (match[5] ?? '').trimEnd(),
+        executable: match[5] ?? '',
         pcpu: Number(match[3]),
         pid: Number(match[1]),
         ppid: Number(match[2]),
       };
     });
-}
-
-/** The persisted identity of a process: never its argv. */
-export function identityOf(row: ProcessRow) {
-  return {
-    executable: row.executable,
-    pid: row.pid,
-    worktree: WORKTREE.exec(row.args)?.[1],
-  };
 }
 
 /** The runner's descendants (its browser, workers and this sampler), the runner itself. */
@@ -151,81 +168,94 @@ export function ownTree(rows: readonly ProcessRow[], runnerPid: number): Set<num
   return own;
 }
 
-export interface ContentionMatch {
-  readonly executable: string;
-  readonly pattern: string;
-  readonly pid: number;
-  readonly worktree: string | undefined;
+export interface ContentionMatch extends ProcessRow {
+  readonly workload: Workload;
 }
 
 export function contentionIn(rows: readonly ProcessRow[], runnerPid: number): ContentionMatch[] {
   const own = ownTree(rows, runnerPid);
   const matches: ContentionMatch[] = [];
   for (const row of rows) {
-    const pattern = own.has(row.pid)
-      ? undefined
-      : CONTENTION_PATTERNS.find((candidate) => candidate.test(row.args));
-    if (pattern) {
-      matches.push({ ...identityOf(row), pattern: String(pattern) });
+    const workload = own.has(row.pid) ? undefined : CLASSIFIED_EXECUTABLES.get(row.executable);
+    if (workload) {
+      matches.push({ ...row, workload });
     }
   }
   return matches;
 }
 
-/** Chromium processes under the runner, classified by their `--type=`. */
-function chromiumUnder(rows: readonly ProcessRow[], runnerPid: number) {
-  const tree = descendantsOf(rows, runnerPid);
-  return rows
-    .filter((row) => tree.has(row.pid) && row.pid !== runnerPid && /chrom/i.test(row.args))
-    .map((row) => ({
-      cpuSeconds: row.cpuSeconds,
-      pid: row.pid,
-      ppid: row.ppid,
-      type: /--type=([\w-]+)/.exec(row.args)?.[1] ?? 'browser',
-    }));
+export function unknownIn(rows: readonly ProcessRow[], runnerPid: number): ProcessRow[] {
+  const own = ownTree(rows, runnerPid);
+  return rows.filter((row) => !own.has(row.pid) && UNKNOWN_EXECUTABLES.has(row.executable));
+}
+
+/** The blind spot's size at one instant: how many unknown hosts, and their CPU. */
+export function unknownSummary(rows: readonly ProcessRow[]) {
+  return {
+    count: rows.length,
+    cpuSeconds: Number(rows.reduce((total, row) => total + row.cpuSeconds, 0).toFixed(2)),
+    pcpu: Number(rows.reduce((total, row) => total + row.pcpu, 0).toFixed(1)),
+  };
 }
 
 async function snapshot(runnerPid: number) {
   const t = Date.now();
   const rows = await readProcesses();
   const tEnd = Date.now();
-  const top = [...rows]
-    .sort((left, right) => right.pcpu - left.pcpu)
-    .slice(0, TOP_PROCESSES)
-    .map((row) => ({ ...identityOf(row), cpuSeconds: row.cpuSeconds, pcpu: row.pcpu }));
-  const runner = rows.find((row) => row.pid === runnerPid);
+  const tree = descendantsOf(rows, runnerPid);
   const own = process.cpuUsage();
   return {
-    chromium: chromiumUnder(rows, runnerPid),
     contention: contentionIn(rows, runnerPid),
     loadavg: loadavg(),
-    runnerCpuSeconds: runner?.cpuSeconds,
+    runnerCpuSeconds: rows.find((row) => row.pid === runnerPid)?.cpuSeconds,
+    /** The runner's descendants: its build workers, browser, this sampler and its `ps`. */
+    runnerTree: rows.filter((row) => tree.has(row.pid) && row.pid !== runnerPid),
     /** This sampler's own cumulative CPU; its `ps` children's cost is bounded by `tEnd - t`. */
     samplerCpuMs: (own.user + own.system) / 1000,
     t,
     tEnd,
-    top,
+    top: [...rows].sort((left, right) => right.pcpu - left.pcpu).slice(0, TOP_PROCESSES),
+    unknown: unknownIn(rows, runnerPid),
   };
 }
 
-async function sample(out: string, runnerPid: number): Promise<void> {
+/** One JSONL line, exactly as the sampler writes it. */
+export type Snapshot = Awaited<ReturnType<typeof snapshot>>;
+
+// ---- The sampler process ----
+
+/** Controls only: `crash` throws after a few valid snapshots; `hang` ignores SIGTERM. */
+export type SamplerFault = 'crash' | 'hang';
+
+async function sample(out: string, runnerPid: number, fault: SamplerFault | undefined) {
   writeFileSync(out, '');
   const started = Date.now();
+  const parent = process.ppid;
   let stopping = false;
   process.on('SIGTERM', () => {
-    stopping = true;
+    stopping = fault !== 'hang';
   });
   for (let tick = 0; !stopping; tick += 1) {
+    if (fault === 'crash' && tick === CRASH_AFTER_SNAPSHOTS) {
+      throw new Error('BST-1929 control: injected sampler crash');
+    }
     appendFileSync(out, `${JSON.stringify(await snapshot(runnerPid))}\n`);
+    if (fault === 'hang' && tick === 0) {
+      // An in-flight child that never finishes: only the owner's group kill ends it.
+      await run(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
+    }
+    if (process.ppid !== parent) {
+      return; // Orphaned: the runner died without joining this sampler.
+    }
     const next = started + (tick + 1) * SAMPLE_INTERVAL_MS;
-    await new Promise((resolve) => setTimeout(resolve, Math.max(0, next - Date.now())));
+    await delay(Math.max(0, next - Date.now()));
   }
 }
 
 if (import.meta.main) {
-  const [out, runnerPid] = process.argv.slice(2);
-  if (!(out && runnerPid)) {
-    throw new Error('usage: committed-benchmark-sampler.mts <out.jsonl> <runner-pid>');
+  const [out, runnerPid, fault] = process.argv.slice(2);
+  if (!(out && runnerPid) || (fault !== undefined && fault !== 'crash' && fault !== 'hang')) {
+    throw new Error('usage: committed-benchmark-sampler.mts <out.jsonl> <runner-pid> [crash|hang]');
   }
-  await sample(out, Number(runnerPid));
+  await sample(out, Number(runnerPid), fault);
 }
