@@ -102,6 +102,19 @@ export const stateGcSchema = Schema.Struct({
   threads: stateThreadsSchema,
 });
 export const stateMatchSchema = Schema.Struct({ query: nonblank, threadId: nonblank });
+/** Plain user text over the requested threads; every whitespace-separated word is a literal term. */
+export const stateSearchSchema = Schema.Struct({
+  limit: positive.check(Schema.isLessThanOrEqualTo(100)),
+  query: nonblank,
+  threads: stateThreadsSchema,
+});
+export type StateSearchRequest = typeof stateSearchSchema.Type;
+export const stateSearchHitSchema = Schema.Struct({
+  seq: positive,
+  snippet: Schema.String,
+  threadId: nonblank,
+});
+export type StateSearchHit = typeof stateSearchHitSchema.Type;
 export const stateHealthSchema = Schema.Struct({ indexerErrors: Schema.Array(Schema.String) });
 export const stateCountsSchema = Schema.Record(Schema.String, nonnegative);
 export const stateStatsSchema = Schema.Struct({
