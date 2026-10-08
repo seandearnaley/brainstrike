@@ -444,6 +444,46 @@ describe('McpTaskInteraction', () => {
     await interaction.close();
   });
 
+  it('exposes each answer receipt: the ack resolves it, any other send outcome rejects it', async () => {
+    const fake = createClient();
+    fake.requestExtension.mockImplementationOnce(async () => ({ resultType: 'complete' }));
+    fake.requestExtension.mockImplementationOnce(async () => {
+      throw new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
+    });
+    const handle = vi.fn(async (): Promise<ElicitResult> => approved);
+    const { interaction, observationPort } = createRecordedInteraction(fake, handle);
+    await interaction.start(['task-1', 'task-2']);
+    await expect(interaction.acknowledgement('task-1', 'approval')).rejects.toThrow(
+      /has no input "approval"/u
+    );
+    await observationPort.publish(inputRequiredTask('task-1'));
+    await expect(interaction.acknowledgement('task-1', 'approval')).resolves.toBeUndefined();
+    await observationPort.publish(inputRequiredTask('task-2'));
+    await expect(interaction.acknowledgement('task-2', 'approval')).rejects.toMatchObject({
+      name: 'McpTaskInputDeliveryUnknownError',
+    });
+    await interaction.close();
+  });
+
+  it('rejects an answer receipt when its input is withdrawn before any send', async () => {
+    const fake = createClient();
+    const { interaction, observationPort } = createRecordedInteraction(
+      fake,
+      () => new Promise<ElicitResult>(() => undefined)
+    );
+    await interaction.start(['task-1']);
+    const parked = observationPort.publish(inputRequiredTask('task-1'));
+    await vi.waitFor(() =>
+      expect(interaction.snapshot()).toMatchObject({ activeInputs: 1, inputKeys: 1 })
+    );
+    const receipt = interaction.acknowledgement('task-1', 'approval');
+    interaction.withdraw('task-1');
+    await expect(receipt).rejects.toMatchObject({ name: 'McpTaskInputWithdrawnError' });
+    await parked;
+    expect(fake.requestExtension).not.toHaveBeenCalled();
+    await interaction.close();
+  });
+
   it('rejects changed lifetime-key reuse without presenting the request again', async () => {
     const decision = deferred<ElicitResult>();
     const handle = vi.fn(async () => await decision.promise);

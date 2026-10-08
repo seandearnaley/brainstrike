@@ -1,4 +1,5 @@
 import {
+  type McpHostExecution,
   type McpHostPort,
   parseConfiguredMcpServerId,
   parseMcpHostOperation,
@@ -68,10 +69,15 @@ export interface McpRuntimeClient {
   listToolsetsWithErrors: () => Promise<McpToolsetsWithErrors>;
 }
 
+/** A host invocation carries its execution capability; it never reaches the server request. */
+type HostCallToolOptions = ExplicitHttpMcpRequestOptions & {
+  readonly execution?: McpHostExecution;
+};
+
 interface OfficialSdkMcpClientLike {
   callTool: (
     params: ExplicitHttpMcpCallToolParams,
-    options?: ExplicitHttpMcpRequestOptions
+    options?: HostCallToolOptions
   ) => Promise<ExplicitHttpMcpCallToolResult>;
   close: () => Promise<void>;
   listTools: (options?: ExplicitHttpMcpRequestOptions) => Promise<ExplicitHttpMcpListToolsResult>;
@@ -122,7 +128,8 @@ function createHostClient(
     throw lease.signal.reason;
   }
   let closed = false;
-  const requestOptions = (options?: ExplicitHttpMcpRequestOptions) => ({
+  const requestOptions = (options?: HostCallToolOptions) => ({
+    ...(options?.execution ? { execution: options.execution } : {}),
     ...(options?.onprogress ? { onProgress: options.onprogress } : {}),
     signal: options?.signal ? AbortSignal.any([lease.signal, options.signal]) : lease.signal,
   });
@@ -386,8 +393,34 @@ function createDocumentationOnlyMcpOutputSchema(
  * verified at 1.55.0), alongside the doc's per-version surface checks.
  */
 type McpExecuteContext = Pick<ToolExecutionContext, 'agent' | 'writer' | 'abortSignal'> & {
+  /** The agent host's canonical tool context names its MCP execution capability here. */
+  brainstrikeMcp?: unknown;
   requestContext?: unknown;
 };
+
+/**
+ * The admitting agent-host tool call's MCP execution capability, read only
+ * from the host's canonical tool context (`brainstrikeMcp`). Absent outside an
+ * agent-host run; a present but malformed value fails the call.
+ */
+function readHostExecution(context: McpExecuteContext): {
+  readonly execution?: McpHostExecution;
+} {
+  const value = context.brainstrikeMcp;
+  if (value === undefined) {
+    return {};
+  }
+  const candidate = value as Partial<Record<keyof McpHostExecution, unknown>> | null;
+  if (
+    typeof candidate !== 'object' ||
+    candidate === null ||
+    typeof candidate.bindTask !== 'function' ||
+    typeof candidate.requestInput !== 'function'
+  ) {
+    throw new Error('The agent host supplied a malformed MCP execution capability');
+  }
+  return { execution: value as McpHostExecution };
+}
 
 async function executeMcpTool(
   { client, server, taskTracking }: TransportOwnedServerClient,
@@ -397,6 +430,7 @@ async function executeMcpTool(
   context: McpExecuteContext
 ): Promise<unknown> {
   const serverName = server.name;
+  const host = readHostExecution(context);
   const appResourceUri = readMcpAppToolResourceUri(definitionMeta);
   const appOrigin = appResourceUri
     ? { resourceUri: appResourceUri, serverId: serverName, toolName }
@@ -463,6 +497,7 @@ async function executeMcpTool(
         ...(requestMeta ? { _meta: requestMeta } : {}),
       },
       {
+        ...host,
         ...(callSignal ? { signal: callSignal } : {}),
         ...(onprogress ? { onprogress } : {}),
       }
@@ -482,7 +517,9 @@ async function executeMcpTool(
     // App-originated call: the MCP App client expects the canonical
     // CreateTaskResult (its frame bridge bounds inbound requests at 10 s, far
     // under the settlement wait). The host still takes ownership of the task
-    // through `track`; nothing awaits settlement here.
+    // through `track`; nothing awaits settlement here. It carries no host
+    // execution capability: this call returns before the task's input can
+    // arrive, so a capability scoped to it would already be stale.
     if (!taskTracking) {
       throw new Error(
         `MCP tool "${serverName}.${toolName}" returned a task but this host has no task tracking capability`
@@ -500,6 +537,7 @@ async function executeMcpTool(
       // exposes `configuredServerId` and createMcpRuntimeClient maps it to
       // `name` verbatim, so this matches McpTaskHandle.serverId on the host.
       configuredServerId: serverName,
+      ...host,
       result: createdTask,
       ...(context.abortSignal ? { signal: context.abortSignal } : {}),
       toolName,

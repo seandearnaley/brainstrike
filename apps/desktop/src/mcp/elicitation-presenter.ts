@@ -9,6 +9,9 @@ import {
 } from '@brainstrike/agent/mcp-client';
 import type {
   ConfiguredMcpServerId,
+  McpElicitationSettlement,
+  McpHostExecution,
+  McpHostInputCapability,
   McpHostOperation,
   McpHostServerSnapshot,
   McpServerIdentity,
@@ -31,6 +34,7 @@ export type McpElicitationPresenterErrorCode =
   | 'mcp-elicitation-already-settled'
   | 'mcp-elicitation-authority-retired'
   | 'mcp-elicitation-caller-aborted'
+  | 'mcp-elicitation-host-owned'
   | 'mcp-elicitation-origin-unbound'
   | 'mcp-elicitation-id-collision'
   | 'mcp-elicitation-pending-limit'
@@ -45,6 +49,7 @@ const ERROR_MESSAGES = {
   'mcp-elicitation-already-settled': 'MCP elicitation was already settled',
   'mcp-elicitation-authority-retired': 'MCP elicitation authority was retired',
   'mcp-elicitation-caller-aborted': 'MCP elicitation caller aborted',
+  'mcp-elicitation-host-owned': 'MCP elicitation is answered through the agent host',
   'mcp-elicitation-id-collision': 'MCP elicitation presentation id collided',
   'mcp-elicitation-origin-unbound': 'MCP elicitation has no originating host operation',
   'mcp-elicitation-pending-limit': 'MCP elicitation pending limit was reached',
@@ -103,6 +108,8 @@ export type McpElicitationPresentation =
   | McpUrlElicitationPresentation;
 interface PendingPresentation {
   readonly cleanup: () => void;
+  /** Core owns this input: only its capability may settle it. */
+  readonly hostOwned: boolean;
   readonly invocation: InvocationAuthority;
   readonly presentation: McpElicitationPresentation;
   readonly reject: (cause: McpElicitationPresenterError) => void;
@@ -115,9 +122,21 @@ interface InvocationAuthority {
     readonly generation: number;
   };
   readonly configuredServerId: ConfiguredMcpServerId;
+  readonly host?: McpHostInputOwner;
   readonly id: string;
   readonly operation: McpElicitationOperationProjection;
   readonly taskHandle?: McpTaskHandle;
+}
+/**
+ * The admitting agent-host tool call's input owner. With it, presentations go
+ * to Core's `requestInput`, never to the local listener, and only Core settles.
+ */
+export interface McpHostInputOwner {
+  /** Server ack of the task update carrying an input's answer; task bindings only. */
+  readonly acknowledged?: (inputKey: string) => Promise<void>;
+  /** Core's commit of the task binding; presentation waits for it. Task bindings only. */
+  readonly bound?: () => Promise<void>;
+  readonly execution: McpHostExecution;
 }
 /**
  * Task-scoped elicitation origin (BST-1566). A durable MCP task raises
@@ -128,6 +147,7 @@ interface InvocationAuthority {
 export interface McpTaskElicitationBinding {
   readonly configuredServerId: ConfiguredMcpServerId;
   readonly generation: number;
+  readonly host?: McpHostInputOwner;
   readonly operation: McpElicitationOperationProjection;
   readonly taskHandle: McpTaskHandle;
 }
@@ -144,6 +164,14 @@ export interface McpElicitationPresenterAuthorityOptions {
   ) => McpHostServerSnapshot | undefined;
 }
 type PresentationListener = (presentation: McpElicitationPresentation) => void;
+interface McpElicitationSettlementInput {
+  readonly action: ElicitResult['action'];
+  readonly configuredServerId: ConfiguredMcpServerId;
+  readonly content?: ElicitResult['content'];
+  readonly generation: number;
+  readonly id?: string;
+  readonly requestId: number | string;
+}
 export interface McpElicitationFinalizedEvent {
   readonly code: McpElicitationPresenterErrorCode;
   readonly id: string;
@@ -259,9 +287,14 @@ export class McpElicitationPresenterAuthority {
     };
   }
 
-  async runWithOperation<T>(operation: McpHostOperation, run: () => Promise<T>): Promise<T> {
+  async runWithOperation<T>(
+    operation: McpHostOperation,
+    run: () => Promise<T>,
+    execution?: McpHostExecution
+  ): Promise<T> {
     const authority = {
       configuredServerId: operation.configuredServerId,
+      ...(execution ? { host: { execution } } : {}),
       id: `${this.processNonce}:${++this.invocationSequence}`,
       operation: projectOperation(operation),
     } satisfies InvocationAuthority;
@@ -285,6 +318,7 @@ export class McpElicitationPresenterAuthority {
     const authority: InvocationAuthority = {
       binding: { configuredServerId: binding.configuredServerId, generation: binding.generation },
       configuredServerId: binding.configuredServerId,
+      ...(binding.host ? { host: binding.host } : {}),
       id: `${this.processNonce}:task:${++this.invocationSequence}`,
       operation: { ...binding.operation },
       taskHandle,
@@ -311,14 +345,19 @@ export class McpElicitationPresenterAuthority {
     };
   }
 
-  settle(input: {
-    readonly action: ElicitResult['action'];
-    readonly configuredServerId: ConfiguredMcpServerId;
-    readonly content?: ElicitResult['content'];
-    readonly generation: number;
-    readonly id?: string;
-    readonly requestId: number | string;
-  }): void {
+  settle(input: McpElicitationSettlementInput): void {
+    const prepared = this.prepare(input);
+    if (prepared.pending.hostOwned) {
+      throw new McpElicitationPresenterError('mcp-elicitation-host-owned');
+    }
+    this.complete(input, prepared);
+  }
+
+  /** Every settlement check, with no side effect: nothing resolves, finishes or is sent. */
+  private prepare(input: McpElicitationSettlementInput): {
+    readonly pending: PendingPresentation;
+    readonly result: ElicitResult;
+  } {
     if (!(input.id && typeof input.id === 'string')) {
       throw new McpElicitationPresenterError('mcp-elicitation-settlement-invalid');
     }
@@ -358,12 +397,66 @@ export class McpElicitationPresenterAuthority {
     } catch {
       throw new McpElicitationPresenterError('mcp-elicitation-settlement-invalid');
     }
+    return { pending, result };
+  }
+
+  private complete(
+    input: McpElicitationSettlementInput,
+    { pending, result }: { readonly pending: PendingPresentation; readonly result: ElicitResult }
+  ): void {
     if (pending.presentation.mode === 'url' && input.action === 'accept') {
       const grants = this.urlGrants.get(pending.invocation) ?? new Map();
       grants.set(input.requestId, pending.presentation.url);
       this.urlGrants.set(pending.invocation, grants);
     }
-    this.finish(input.id, 'mcp-elicitation-already-settled', () => pending.resolve(result));
+    this.finish(pending.presentation.id, 'mcp-elicitation-already-settled', () =>
+      pending.resolve(result)
+    );
+  }
+
+  /**
+   * Core's capability for one host-owned presentation. Validation is pure; settle
+   * finalizes locally, and for task input waits for the server's ack of the update
+   * that carries the answer, so a receipt is never inferred from later task state.
+   */
+  private hostInput(
+    pending: PendingPresentation,
+    signal: AbortSignal,
+    isCurrent: () => void
+  ): McpHostInputCapability {
+    const { presentation } = pending;
+    const owned = (answer: McpElicitationSettlement) => {
+      if (answer.id !== presentation.id) {
+        throw new McpElicitationPresenterError('mcp-elicitation-stale-authority');
+      }
+      const prepared = this.prepare(answer);
+      if (prepared.pending !== pending) {
+        throw new McpElicitationPresenterError('mcp-elicitation-stale-authority');
+      }
+      return prepared;
+    };
+    return {
+      assertCurrent: async () => {
+        if (this.closed || this.pending.get(presentation.id) !== pending) {
+          throw new McpElicitationPresenterError('mcp-elicitation-stale-authority');
+        }
+        isCurrent();
+      },
+      presentation: structuredClone(presentation),
+      settle: async (answer) => {
+        this.complete(answer, owned(answer));
+        const acknowledged = pending.invocation.host?.acknowledged;
+        if (!acknowledged) {
+          return 'local-finalized';
+        }
+        await acknowledged(String(presentation.provenance.requestId));
+        return 'remote-acknowledged';
+      },
+      signal,
+      validate: async (answer) => {
+        owned(answer);
+      },
+    };
   }
 
   retireServer(configuredServerId: ConfiguredMcpServerId, generation: number): void {
@@ -402,20 +495,24 @@ export class McpElicitationPresenterAuthority {
     } catch {
       return Promise.reject(new McpElicitationPresenterError('mcp-elicitation-request-invalid'));
     }
-    const listener = this.listener;
-    if (this.closed || !listener) {
-      return Promise.reject(
-        new McpElicitationPresenterError(
-          this.closed ? 'mcp-elicitation-presenter-closed' : 'mcp-elicitation-presenter-unavailable'
-        )
-      );
+    if (this.closed) {
+      return Promise.reject(new McpElicitationPresenterError('mcp-elicitation-presenter-closed'));
     }
+    const listener = this.listener;
     let invocation: InvocationAuthority;
     let provenance: McpElicitationProvenance;
     try {
       ({ invocation, provenance } = this.resolveAuthority(context, resolveInvocation));
     } catch (cause) {
-      return Promise.reject(cause);
+      // Without a listener the unavailable presenter is reported first, as before.
+      return Promise.reject(
+        listener ? cause : new McpElicitationPresenterError('mcp-elicitation-presenter-unavailable')
+      );
+    }
+    if (!(invocation.host || listener)) {
+      return Promise.reject(
+        new McpElicitationPresenterError('mcp-elicitation-presenter-unavailable')
+      );
     }
     const id = this.createPresentationId();
     const deferred = Promise.withResolvers<ElicitResult>();
@@ -444,8 +541,47 @@ export class McpElicitationPresenterAuthority {
         requestedSchema: structuredClone(params.requestedSchema),
       };
     }
-    this.publish(presentation, request, invocation, deferred, context.signal, listener);
+    // The exact invocation (or live task binding) on the same connected generation.
+    const isCurrent = (): void => {
+      const live = invocation.taskHandle
+        ? resolveInvocation(context) === invocation
+        : this.invocations.has(invocation);
+      if (!live) {
+        throw new McpElicitationPresenterError('mcp-elicitation-authority-retired');
+      }
+      const server = this.options.resolveServer(invocation.configuredServerId);
+      if (server?.state !== 'connected' || server.generation !== provenance.generation) {
+        throw new McpElicitationPresenterError('mcp-elicitation-stale-authority');
+      }
+    };
+    this.publish(presentation, request, invocation, deferred, context.signal, (pending) =>
+      this.deliver(pending, context.signal, isCurrent, listener)
+    );
     return deferred.promise;
+  }
+
+  /** Host-owned input goes only to Core; otherwise the single local listener sees it. */
+  private deliver(
+    pending: PendingPresentation,
+    signal: AbortSignal,
+    isCurrent: () => void,
+    listener: PresentationListener | undefined
+  ): void {
+    const host = pending.invocation.host;
+    if (!host) {
+      listener?.(structuredClone(pending.presentation));
+      return;
+    }
+    const refuse = (): void =>
+      this.finish(pending.presentation.id, 'mcp-elicitation-origin-unbound', () =>
+        pending.reject(new McpElicitationPresenterError('mcp-elicitation-origin-unbound'))
+      );
+    Promise.resolve()
+      .then(async () => {
+        await host.bound?.();
+        await host.execution.requestInput(this.hostInput(pending, signal, isCurrent));
+      })
+      .catch(refuse);
   }
 
   private async openUrl(
@@ -480,7 +616,7 @@ export class McpElicitationPresenterAuthority {
     invocation: InvocationAuthority,
     deferred: PromiseWithResolvers<ElicitResult>,
     signal: AbortSignal,
-    listener: PresentationListener
+    deliver: (pending: PendingPresentation) => void
   ): void {
     const onAbort = () => {
       const pending = this.pending.get(presentation.id);
@@ -503,16 +639,18 @@ export class McpElicitationPresenterAuthority {
       return;
     }
     signal.addEventListener('abort', onAbort, { once: true });
-    this.pending.set(presentation.id, {
+    const pending: PendingPresentation = {
       cleanup: () => signal.removeEventListener('abort', onAbort),
+      hostOwned: invocation.host !== undefined,
       invocation,
       presentation,
       reject: deferred.reject,
       request: structuredClone(request),
       resolve: deferred.resolve,
-    });
+    };
+    this.pending.set(presentation.id, pending);
     try {
-      listener(structuredClone(presentation));
+      deliver(pending);
     } catch {
       this.finish(presentation.id, 'mcp-elicitation-presenter-unavailable', () =>
         deferred.reject(new McpElicitationPresenterError('mcp-elicitation-presenter-unavailable'))

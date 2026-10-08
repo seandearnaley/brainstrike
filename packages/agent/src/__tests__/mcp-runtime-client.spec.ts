@@ -831,6 +831,47 @@ describe('MCP runtime client', () => {
       }
     );
 
+    it('forwards the host tool call execution capability to the invocation and the tracking request', async () => {
+      const remote = createTaskServer(createdTask as unknown as ExplicitHttpMcpCallToolResult);
+      const mcpTaskTracking: McpTaskTrackingCapability = {
+        awaitSettlement: vi.fn(async () => ({ settled: true as const, task: settled })),
+        track: vi.fn(async () => live),
+      };
+      const { host } = createTestHost({ remote });
+      const runtimeClient = await createMcpRuntimeClient({
+        config: undefined,
+        host,
+        mcpTaskTracking,
+        toolTimeoutMs: 60_000,
+      });
+      const discovered = await runtimeClient?.listToolsetsWithErrors();
+      const tool = requireExecutableTool(discovered?.toolsets['remote']?.['export']);
+      const execution = { bindTask: vi.fn(), requestInput: vi.fn() };
+      const abortController = new AbortController();
+      // The agent host's canonical tool context: top-level identities and `brainstrikeMcp`.
+      await tool.execute(
+        {},
+        {
+          abortSignal: abortController.signal,
+          brainstrikeMcp: execution,
+          runId: 'run-1',
+          threadId: 'thread-1',
+          toolCallId: 'call-1',
+        }
+      );
+      expect(host.invoke).toHaveBeenCalledWith(
+        expect.objectContaining({ toolName: 'export', type: 'tools/call' }),
+        expect.objectContaining({ execution })
+      );
+      expect(mcpTaskTracking.track).toHaveBeenCalledWith(
+        { configuredServerId: 'remote', execution, result: createdTask, toolName: 'export' },
+        abortController.signal
+      );
+      await expect(tool.execute({}, { brainstrikeMcp: { bindTask: 'no' } })).rejects.toThrow(
+        'The agent host supplied a malformed MCP execution capability'
+      );
+    });
+
     it('throws for an app-originated task on a host without task tracking', async () => {
       const remote = createTaskServer(createdTask as unknown as ExplicitHttpMcpCallToolResult);
       const { host } = createTestHost({ remote });
