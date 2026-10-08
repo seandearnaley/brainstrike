@@ -2,7 +2,6 @@ import { homedir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
 import {
   createAssistantSkillTools,
-  isSupportedProvider,
   type RuntimeData,
   resolveAssistantResilienceConfig,
 } from '@brainstrike/agent';
@@ -27,6 +26,7 @@ import {
   DESKTOP_NATIVE_TOOLS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
+  isSupportedProvider,
   NATIVE_TOOL_ID,
   resolveAutoObservationalMemoryModelTarget,
   resolveToolRiskCategory,
@@ -49,7 +49,10 @@ import { mainBrowserToolRunner } from '../assistant-server/browser-agent-tools';
 import { pgliteGrepIndex } from '../assistant-server/grep-search-tool';
 import { mainDiagnosticsReader } from '../assistant-server/query-diagnostics-tool';
 import { mainQuerySelfRead } from '../assistant-server/query-self-tool';
-import { prepareRequestSkills } from '../assistant-server/request-skills';
+import {
+  type PreparedAdmittedSkills,
+  prepareAdmittedSkills,
+} from '../assistant-server/request-skills';
 import { pgliteRetrievalStore } from '../assistant-server/retrieval-store-pglite';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { mainWorkspaceContextBroadcaster } from '../assistant-server/workspace-context-broadcast';
@@ -68,6 +71,7 @@ import type { DesktopShellCorrelation, HostToolServiceCapabilities } from './hos
 import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
 import { resolveDesktopMemoryVectors } from './memory-vector-selection';
 import {
+  PlatformAdmittedSkillSchema,
   PlatformClientConfigurationSchema,
   PlatformModelConfigurationSchema,
   PlatformWorkspaceContextSchema,
@@ -346,6 +350,8 @@ async function createDesktopNativeTools(
   request: HostRunAdmissionRequest,
   workspace?: DesktopWorkspaceBindingBorrow
 ): Promise<{
+  /** The enabled skills of the run's one scan, admitted to the host. */
+  readonly admittedSkills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined;
   readonly freshRoots: () => Promise<NonNullable<RuntimeData['workspaceRoots']>>;
   /** Retrieval is admitted to the thread's own roots (a CLI selection or a binding). */
   readonly retrievalRootsOnly: boolean;
@@ -416,16 +422,12 @@ async function createDesktopNativeTools(
       : {}),
     ...(intent.skillsPreference ? { skillsPreference: intent.skillsPreference } : {}),
   };
-  if (selection && (intent.skillsPreference?.masterEnabled ?? true)) {
-    throw new Error('CLI Skills require an explicit existing home-tier read authority');
-  }
-  const { workspaceSkills } = selection
-    ? {}
-    : prepareRequestSkills({
-        fs: createSecureSkillsFs([...roots.map((root) => root.path), homedir()]),
-        homedir,
-        runtimeData: runtime,
-      });
+  const { skills: admittedSkills, workspaceSkills } = desktopRunSkills(
+    selection !== undefined,
+    intent,
+    runtime,
+    roots
+  );
   const skillTools = workspaceSkills ? createAssistantSkillTools(workspaceSkills) : {};
   const nativeBindings = Object.fromEntries(
     [
@@ -493,6 +495,7 @@ async function createDesktopNativeTools(
     ])
   );
   return {
+    admittedSkills,
     freshRoots,
     readWorkspaceFile,
     retrievalRootsOnly,
@@ -501,6 +504,26 @@ async function createDesktopNativeTools(
     tools,
     ...(workspaceSkills ? { workspaceSkills } : {}),
   };
+}
+
+/** A CLI selection runs without skills; otherwise one scan feeds the prompt and the host's skill tools. */
+function desktopRunSkills(
+  cliSelection: boolean,
+  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  runtime: RuntimeData,
+  roots: readonly { readonly path: string }[]
+): PreparedAdmittedSkills {
+  if (!cliSelection) {
+    return prepareAdmittedSkills({
+      fs: createSecureSkillsFs([...roots.map((root) => root.path), homedir()]),
+      homedir,
+      runtimeData: runtime,
+    });
+  }
+  if (intent.skillsPreference?.masterEnabled ?? true) {
+    throw new Error('CLI Skills require an explicit existing home-tier read authority');
+  }
+  return {};
 }
 
 /** Main's tool services for host threads, resolved per run (the worktree services lazily). */
@@ -526,7 +549,8 @@ function advertisedNativeTools(
 /** What the host's shared native tools need from this admission; roots come back per call. */
 function desktopNativeRuntime(
   runtime: RuntimeData,
-  retrievalRootsOnly: boolean
+  retrievalRootsOnly: boolean,
+  skills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined
 ): DesktopPlatformSelection['nativeRuntime'] {
   if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
     throw new Error('Desktop admission has no native tool runtime');
@@ -537,6 +561,7 @@ function desktopNativeRuntime(
     ...(retrievalRootsOnly ? { retrievalRootsOnly: true as const } : {}),
     ...(runtime.selectionFilePaths ? { selectionFilePaths: [...runtime.selectionFilePaths] } : {}),
     ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
+    ...(skills ? { skills: z.array(PlatformAdmittedSkillSchema).parse(skills) } : {}),
     ...(runtime.workspaceContext
       ? { workspaceContext: PlatformWorkspaceContextSchema.parse(runtime.workspaceContext) }
       : {}),
@@ -715,7 +740,11 @@ export function productionDesktopCapabilities(
           ...(memoryVectors ? { vectorProfile: memoryVectors.profile } : {}),
         },
         ...(memoryVectors?.local ? { localEmbedding: memoryVectors.local } : {}),
-        nativeRuntime: desktopNativeRuntime(native.runtime, native.retrievalRootsOnly),
+        nativeRuntime: desktopNativeRuntime(
+          native.runtime,
+          native.retrievalRootsOnly,
+          native.admittedSkills
+        ),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         ...desktopSystemFields(system),
         tools,

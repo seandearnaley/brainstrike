@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import {
   NATIVE_TOOL_ID,
   scanShellCommandForGitSignals,
@@ -28,6 +29,10 @@ import { retrievalToolExecutors } from '../assistant-server/native-tool-executor
 import { selfInspectionExecutors } from '../assistant-server/native-tool-executors-self';
 import { commandSessionExecutors } from '../assistant-server/native-tool-executors-sessions';
 import { executeCommandExecutor } from '../assistant-server/native-tool-executors-shell';
+import {
+  runSkillScriptExecutor,
+  skillToolExecutors,
+} from '../assistant-server/native-tool-executors-skills';
 import { worktreeToolExecutors } from '../assistant-server/native-tool-executors-worktree';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
 import {
@@ -35,6 +40,8 @@ import {
   type QuerySelfRead,
   type QuerySelfResult,
 } from '../assistant-server/query-self-core';
+import { admittedWorkspaceSkills } from '../assistant-server/request-skills';
+import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import type { WorkspaceContextBroadcaster } from '../assistant-server/workspace-context-tools';
 import type { WorktreeToolCapability } from '../assistant-server/worktree-tools';
 import { resolvePythonBinary } from '../python-runtime/resolve-python-binary';
@@ -56,6 +63,7 @@ import {
   WorktreeListResultSchema,
   WorktreePathsResultSchema,
 } from './host-tool-wire';
+import type { PlatformSelection } from './platform-wire';
 
 const logger = createLogger('DesktopHostTools');
 
@@ -80,6 +88,10 @@ const DESKTOP_HOST_TOOL_IDS: ReadonlySet<string> = new Set([
   NATIVE_TOOL_ID.runPython,
   NATIVE_TOOL_ID.inspectCommandSessions,
   NATIVE_TOOL_ID.manageCommandSession,
+  NATIVE_TOOL_ID.runSkillScript,
+  'skill',
+  'skill_read',
+  'skill_search',
 ]);
 
 /** Main admits these but never executes them for a host thread. */
@@ -252,15 +264,44 @@ function hostCodeExecution(appPaths: HostAppPaths): CodeExecutionHost {
   };
 }
 
+/**
+ * The skills Main admitted for this run, never rescanned here: their
+ * references, scripts and assets are read through this host's own secure fs.
+ */
+function hostSkillExecutors(
+  native: PlatformSelection['nativeRuntime'],
+  appPaths: HostAppPaths | undefined
+): Readonly<Record<string, NativeToolExecutor>> {
+  if (!native.skills) {
+    return {};
+  }
+  const skills = admittedWorkspaceSkills(
+    native.skills,
+    createSecureSkillsFs([...native.workspaceRoots.map((root) => root.path), homedir()])
+  );
+  return {
+    ...skillToolExecutors(skills),
+    ...(appPaths
+      ? {
+          [NATIVE_TOOL_ID.runSkillScript]: runSkillScriptExecutor(
+            skills,
+            hostCodeExecution(appPaths).resolvePythonExecutable
+          ),
+        }
+      : {}),
+  };
+}
+
 /** The desktop host's own executors, bound to its Main connection and thread. */
 export function desktopHostToolExecutors(
   request: MainRequest,
   threadId: string,
-  /** Main admitted retrieval to the thread's own roots (a CLI selection or a workspace binding). */
-  retrievalRootsOnly: boolean,
+  /** The run's admitted native runtime: its roots, retrieval scope and skills. */
+  native: PlatformSelection['nativeRuntime'],
   /** Absent without a launching desktop; then run_python has no interpreter here. */
   appPaths?: HostAppPaths
 ): Readonly<Record<string, NativeToolExecutor>> {
+  const retrievalRootsOnly = native.retrievalRootsOnly === true;
   const nativeIndexSearch = hostIndexSearch(request, threadId);
   const embeddingHostManager = hostQueryEmbedding(request, threadId);
   const store = hostRetrievalStore(request, threadId);
@@ -298,6 +339,7 @@ export function desktopHostToolExecutors(
     ...(appPaths
       ? { [NATIVE_TOOL_ID.runPython]: runPythonExecutor(hostCodeExecution(appPaths)) }
       : {}),
+    ...hostSkillExecutors(native, appPaths),
     [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor(({ runtimeData }) =>
       hostShellCorrelation(request, threadId, runtimeData?.memory?.runId)
     ),

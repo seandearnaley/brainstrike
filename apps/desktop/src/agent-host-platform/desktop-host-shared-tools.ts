@@ -72,7 +72,7 @@ export function desktopHostSharedTools(options: {
     executors: desktopHostToolExecutors(
       options.request,
       options.threadId,
-      selected.nativeRuntime.retrievalRootsOnly === true,
+      selected.nativeRuntime,
       options.appPaths
     ),
     freshRoots: async (signal) =>

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HostToolContext } from '@brainstrike/agent-host';
@@ -9,6 +9,8 @@ import type { GitResult, WorktreeCreateResult, WorktreeListEntry } from '@brains
 import { afterEach, expect, test, vi } from 'vitest';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
 import { PlatformSelectionSchema } from '../agent-host-platform/platform-wire';
+import { prepareAdmittedSkills } from '../assistant-server/request-skills';
+import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -676,4 +678,116 @@ test('the desktop host runs run_python against the bundled runtime its launch ap
   expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
     new Set(['platform/workspace/roots'])
   );
+});
+
+async function skillWorkspace(): Promise<{ readonly home: string; readonly root: string }> {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-skills-')));
+  const home = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-skills-home-')));
+  directories.push(root, home);
+  const skill = join(root, '.brainstrike', 'skills', 'demo-skill');
+  await mkdir(join(skill, 'references'), { recursive: true });
+  await mkdir(join(skill, 'scripts'), { recursive: true });
+  await writeFile(
+    join(skill, 'SKILL.md'),
+    '---\nname: demo-skill\ndescription: Says hello from a skill.\n---\nRun scripts/hello.sh to greet.\n'
+  );
+  await writeFile(join(skill, 'references', 'notes.md'), 'skill reference notes\n');
+  await writeFile(join(skill, 'scripts', 'hello.sh'), 'printf hello-from-skill\n');
+  return { home, root };
+}
+
+function admitSkills(root: string, home: string, provider: string) {
+  return prepareAdmittedSkills({
+    fs: createSecureSkillsFs([root, home]),
+    homedir: () => home,
+    runtimeData: {
+      provider,
+      workspaceRoots: [{ displayName: 'A', path: root, rootId: 'root-a' }],
+    },
+  });
+}
+
+test('the desktop host activates, reads and runs the skills Main admitted, reading their files itself', async () => {
+  const { home, root } = await skillWorkspace();
+  // Main's one scan for this run: its enabled skills are what the host may use.
+  const { skills } = admitSkills(root, home, 'openai');
+  expect(skills?.map((skill) => skill.name)).toEqual(['demo-skill']);
+  const request = vi.fn(async (method: string) => {
+    if (method !== 'platform/workspace/roots') {
+      throw new Error(`Unexpected Main request ${method}`);
+    }
+    return [{ displayName: 'A', path: root, rootId: 'root-a' }];
+  });
+  const selected = selection(root, { skills });
+  for (const [id, risk] of [
+    ['skill', 'read'],
+    ['skill_read', 'read'],
+    [NATIVE_TOOL_ID.runSkillScript, 'execute'],
+  ] as const) {
+    selected.tools[id.replace('.', '_')] = {
+      description: id,
+      identity: id,
+      inputSchema: { type: 'object' },
+      permissionToolId: id,
+      risk,
+    };
+  }
+  const tools = desktopHostSharedTools({
+    appPaths: { isPackaged: true, resourcesPath: home, userDataPath: home },
+    readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+    request,
+    selected,
+    threadId: 'host-thread',
+  });
+  const activate = tools['skill'];
+  const read = tools['skill_read'];
+  const run = tools['brainstrike_runSkillScript'];
+  if (!(activate && read && run)) {
+    throw new Error('The skill tools were not built for the host');
+  }
+  expect(JSON.stringify(await activate.execute({ name: 'demo-skill' }, execution()))).toContain(
+    'Run scripts/hello.sh to greet.'
+  );
+  expect(
+    JSON.stringify(
+      await read.execute({ path: 'references/notes.md', skillName: 'demo-skill' }, execution())
+    )
+  ).toContain('skill reference notes');
+  await expect(
+    run.execute(
+      {
+        cwd: '.',
+        root: 'root-a',
+        runtime: 'bash',
+        scriptPath: 'scripts/hello.sh',
+        skillName: 'demo-skill',
+      },
+      execution()
+    )
+  ).resolves.toMatchObject({ exitCode: 0, stdout: 'hello-from-skill' });
+  expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
+    new Set(['platform/workspace/roots'])
+  );
+});
+
+test('a run on the built-in local provider is admitted without workspace skills', async () => {
+  const { home, root } = await skillWorkspace();
+  expect(admitSkills(root, home, 'local')).toEqual({});
+  // With nothing admitted, the host builds no skill tool even if a descriptor names one.
+  const selected = selection(root);
+  selected.tools['skill'] = {
+    description: 'skill',
+    identity: 'skill',
+    inputSchema: { type: 'object' },
+    permissionToolId: 'skill',
+    risk: 'read',
+  };
+  expect(() =>
+    desktopHostSharedTools({
+      readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+      request: vi.fn(),
+      selected,
+      threadId: 'host-thread',
+    })
+  ).toThrow('No host executor is registered for native tool skill');
 });

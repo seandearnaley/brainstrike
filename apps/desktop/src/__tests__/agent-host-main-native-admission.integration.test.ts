@@ -12,7 +12,13 @@ const owner = vi.hoisted(() => ({
   credential: vi.fn(() => {
     throw new Error('Unexpected credential access in worktree tool control');
   }),
+  // The skills scan's home tier, kept inside the test's own directory.
+  home: '',
   query: vi.fn(),
+}));
+vi.mock('node:os', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:os')>()),
+  homedir: () => owner.home,
 }));
 vi.mock('@brainstrike/file-explorer-ui/preview', () => ({
   useWorkspaceContextCurationStore: { getState: () => ({ contextSnapshot: null }) },
@@ -33,9 +39,11 @@ let directory = '';
 beforeEach(async () => {
   directory = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'bs-m3-worktree-tools-')));
   await fs.mkdir(join(directory, 'a'));
-  owner.query.mockImplementation(async (sql: string) => {
+  owner.home = join(directory, 'home');
+  await fs.mkdir(owner.home);
+  owner.query.mockImplementation(async (sql: string, params: readonly unknown[]) => {
     if (sql.includes('FROM models')) {
-      return { rows: [{ isEnabled: true, providerId: 'openai' }] };
+      return { rows: [{ isEnabled: true, providerId: params[1] }] };
     }
     if (sql.includes('FROM roots')) {
       return { rows: [{ displayName: 'A', id: 'root-a', path: join(directory, 'a') }] };
@@ -51,7 +59,11 @@ afterEach(async () => {
 
 function request(
   enabledNativeToolIds: readonly string[],
-  selection: Record<string, unknown> = {}
+  selection: Record<string, unknown> = {},
+  model: { readonly model: string; readonly provider: string } = {
+    model: 'gpt-6-sol',
+    provider: 'openai',
+  }
 ): HostRunAdmissionRequest {
   const configuration = PlatformClientConfigurationSchema.parse({
     ...selection,
@@ -78,14 +90,15 @@ function request(
         topK: 2,
       },
     },
-    modelConfiguration: { model: 'gpt-6-sol', provider: 'openai' },
+    modelConfiguration: model,
     permissionPolicy: { policies: DEFAULT_PERMISSION_POLICIES, yolo: false },
     skillsPreference: { disabledSkillKeys: [], masterEnabled: false },
+    ...selection,
     workspaceInstructionsPreference: { masterEnabled: false, oversizedOptInByRootId: {} },
   });
   return {
     configuration: z.record(z.string(), z.json()).parse(configuration),
-    modelId: 'openai::gpt-6-sol',
+    modelId: `${model.provider}::${model.model}`,
     signal: new AbortController().signal,
     threadId: 'host-thread',
   };
@@ -211,4 +224,36 @@ test('Main reconciles a host command’s worktrees under the host run’s identi
     })
   );
   expect(service.repositoryContextForRoot).toHaveBeenCalledWith('root-a');
+});
+
+test('Main admits one scan’s enabled skills to a host run, and none to the built-in local provider', async () => {
+  const skill = join(directory, 'a', '.brainstrike', 'skills', 'demo-skill');
+  await fs.mkdir(skill, { recursive: true });
+  await fs.writeFile(
+    join(skill, 'SKILL.md'),
+    '---\nname: demo-skill\ndescription: Says hello from a skill.\n---\nGreet the user.\n'
+  );
+  const skills = { skillsPreference: { disabledSkillKeys: [], masterEnabled: true } };
+  const admit = async (model: { readonly model: string; readonly provider: string }) => {
+    const captured = await productionDesktopCapabilities({}).readConfiguration(
+      request([], skills, model)
+    );
+    try {
+      return {
+        admitted: captured.nativeRuntime.skills?.map((entry) => entry.name),
+        tools: Object.values(captured.tools).map((tool) => tool.permissionToolId),
+      };
+    } finally {
+      await captured.close();
+    }
+  };
+
+  const hosted = await admit({ model: 'gpt-6-sol', provider: 'openai' });
+  expect(hosted.admitted).toEqual(['demo-skill']);
+  expect(hosted.tools).toEqual(expect.arrayContaining(['skill', 'skill_read', 'skill_search']));
+
+  const local = await admit({ model: 'onnx-community/gemma-4-E2B-it-ONNX', provider: 'local' });
+  expect(local.admitted).toBeUndefined();
+  expect(local.tools).not.toEqual(expect.arrayContaining(['skill']));
+  expect(local.tools.filter((id) => id?.startsWith('skill'))).toEqual([]);
 });
