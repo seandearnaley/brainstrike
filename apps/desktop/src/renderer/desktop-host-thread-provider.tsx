@@ -1,4 +1,5 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
+import { useAssistantRunNotifications } from '@brainstrike/app-shell';
 import { AssistantThreadHostContext } from '@brainstrike/app-shell/assistant-thread-host-context';
 import { CommittedAssistantConversation } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
@@ -18,13 +19,18 @@ import { CommittedHostMcpInputView } from './committed-host-mcp-input-view';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
+import type { HostThreadRuns } from './host-thread-runs';
 import { useDesktopHostPresentation } from './use-desktop-host-presentation';
 
 function HostThread({
   client,
+  onRunningChange,
+  runs,
   threadId,
 }: {
   readonly client: HostClient;
+  readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
+  readonly runs: HostThreadRuns;
   readonly threadId: string;
 }): ReactElement {
   const explorer = useFileExplorerStoreContext();
@@ -47,6 +53,13 @@ function HostThread({
     setConversation(current);
     return () => current.close();
   }, [client, explorer, threadId]);
+  // Badges and OS notifications read this view's committed run state.
+  const { onRunNotification } = useAssistantRunNotifications();
+  useEffect(
+    () =>
+      conversation ? runs.observe(threadId, conversation.source, onRunNotification) : undefined,
+    [conversation, onRunNotification, runs, threadId]
+  );
   return conversation ? (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
@@ -54,6 +67,7 @@ function HostThread({
           {...presentation}
           commands={conversation.commands}
           label="Assistant"
+          onRunningChange={onRunningChange}
           store={conversation.store}
           workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
         />
@@ -67,14 +81,18 @@ function HostThread({
 }
 
 // One lazy client capability per actual renderer frame, independent of React replay.
-const windowThreadCapability = createWindowThreadCapability((host, threadId, catalogLoaded) => {
-  // Persisted tabs render before catalog hydration. The observed legacy
-  // Mastra initialization for these SQLite-owned IDs must not claim them.
-  if (!(host || catalogLoaded)) {
-    return <div role="status">Loading assistant threads…</div>;
+const windowThreadCapability = createWindowThreadCapability(
+  ({ catalogLoaded, host, onRunningChange, runs, threadId }) => {
+    // Persisted tabs render before catalog hydration. The observed legacy
+    // Mastra initialization for these SQLite-owned IDs must not claim them.
+    if (!(host || catalogLoaded)) {
+      return <div role="status">Loading assistant threads…</div>;
+    }
+    return host ? (
+      <HostThread client={host} onRunningChange={onRunningChange} runs={runs} threadId={threadId} />
+    ) : undefined;
   }
-  return host ? <HostThread client={host} threadId={threadId} /> : undefined;
-});
+);
 
 /** New roots hydrate from the committed host; existing history keeps its original owner. */
 export function DesktopHostThreadProvider({

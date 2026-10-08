@@ -1,0 +1,158 @@
+import { type HostLogRow, HostLogRowSchema } from '@brainstrike/agent-host/protocol';
+import approvedRecording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
+import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
+import { expect, test, vi } from 'vitest';
+import { type CommittedHostRunSource, HostThreadRuns } from '../renderer/host-thread-runs';
+// Ordinary app-owned SQLite rows: the runtime shape carries a commit `ts` on every row.
+import appOwnedRecording from './fixtures/committed-app-owned-host-thread.json';
+
+const approved = approvedRecording.map((row) => HostLogRowSchema.parse(row));
+const rich = richRecording.map((row) => HostLogRowSchema.parse(row));
+const committedAt = HostLogRowSchema.parse(appOwnedRecording[0]).ts;
+const threadId = approved[0]?.threadId;
+if (!(threadId && committedAt !== undefined)) {
+  throw new Error('Recorded host rows are required');
+}
+
+function indexOf(rows: readonly HostLogRow[], type: string): number {
+  const index = rows.findIndex((row) => row.event.type === type);
+  if (index < 0) {
+    throw new Error(`The recording has no ${type}`);
+  }
+  return index;
+}
+
+/** A recording whose last terminal row carries `outcome` and a commit time, as Core commits it. */
+function finishedAs(
+  outcome: 'completed' | 'failed' | 'interrupted' | 'stopped',
+  rows: readonly HostLogRow[] = approved
+): HostLogRow[] {
+  const last = rows.findLastIndex((row) => row.event.type === 'run.finished');
+  return rows.map((row, index) =>
+    index === last && row.event.type === 'run.finished'
+      ? { ...row, event: { ...row.event, outcome }, ts: committedAt }
+      : row
+  );
+}
+
+/** The session's published view, driven explicitly. */
+class Source implements CommittedHostRunSource {
+  private snapshot: ReturnType<CommittedHostRunSource['getSnapshot']> = {
+    isLoading: true,
+    replayedThrough: undefined,
+    rows: [],
+  };
+  private readonly listeners = new Set<() => void>();
+  readonly getSnapshot = () => this.snapshot;
+  readonly subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+  replay(rows: readonly HostLogRow[]): void {
+    this.publish({ isLoading: false, replayedThrough: rows.at(-1)?.seq ?? 0, rows });
+  }
+  live(rows: readonly HostLogRow[]): void {
+    this.publish({ ...this.snapshot, rows });
+  }
+  private publish(snapshot: ReturnType<CommittedHostRunSource['getSnapshot']>): void {
+    this.snapshot = snapshot;
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+}
+
+test('a committed log reads as its latest root run: running until its own finish', () => {
+  const runs = new HostThreadRuns();
+  runs.accept(threadId, approved.slice(0, indexOf(approved, 'run.finished')));
+  expect(runs.getSnapshot().get(threadId)).toEqual({ completedAt: null, status: 'running' });
+  runs.accept(threadId, approved);
+  // The recording predates commit timestamps: no finish time is invented.
+  expect(runs.getSnapshot().get(threadId)).toEqual({ completedAt: null, status: 'completed' });
+});
+
+test('the latest of several runs decides; its finish time is the committed row time', () => {
+  const runs = new HostThreadRuns();
+  const second = rich.findLastIndex((row) => row.event.type === 'run.started');
+  runs.accept(threadId, rich.slice(0, second + 1));
+  expect(runs.getSnapshot().get(threadId)?.status).toBe('running');
+  runs.accept(threadId, finishedAs('failed', rich));
+  expect(runs.getSnapshot().get(threadId)).toEqual({
+    completedAt: new Date(committedAt),
+    status: 'failed',
+  });
+});
+
+test('outcomes read as the legacy run statuses: Stop is cancelled, an interruption failed', () => {
+  for (const [outcome, status] of [
+    ['stopped', 'cancelled'],
+    ['interrupted', 'failed'],
+  ] as const) {
+    const runs = new HostThreadRuns();
+    runs.accept(threadId, finishedAs(outcome));
+    expect(runs.getSnapshot().get(threadId)?.status).toBe(status);
+  }
+});
+
+test('an older catalog read never replaces a newer observed run state', () => {
+  const runs = new HostThreadRuns();
+  runs.accept(threadId, approved);
+  const finished = runs.getSnapshot();
+  runs.accept(threadId, approved.slice(0, indexOf(approved, 'run.finished')));
+  expect(runs.getSnapshot()).toBe(finished);
+  runs.delete(threadId);
+  expect(runs.getSnapshot().has(threadId)).toBe(false);
+});
+
+test('only rows committed after the replay notify; a replayed approval never does', () => {
+  const source = new Source();
+  const runs = new HostThreadRuns();
+  const onNotification = vi.fn();
+  const stop = runs.observe(threadId, source, onNotification);
+  expect(runs.getSnapshot().has(threadId)).toBe(false);
+
+  // Replayed through the approval request; the run is still active.
+  source.replay(approved.slice(0, indexOf(approved, 'interaction.requested') + 1));
+  expect(runs.getSnapshot().get(threadId)).toEqual({ completedAt: null, status: 'running' });
+  expect(onNotification).not.toHaveBeenCalled();
+
+  source.live(finishedAs('completed'));
+  expect(runs.getSnapshot().get(threadId)).toEqual({
+    completedAt: new Date(committedAt),
+    status: 'completed',
+  });
+  const started = approved[indexOf(approved, 'run.started')]?.event;
+  expect(onNotification.mock.calls).toEqual([
+    [{ kind: 'runFinished', runId: started && 'runId' in started ? started.runId : undefined }],
+  ]);
+  stop();
+});
+
+test('a live approval request and failed run notify once each; a Stop does not', () => {
+  const started = approved[indexOf(approved, 'run.started')]?.event;
+  const requested = approved[indexOf(approved, 'interaction.requested')]?.event;
+  if (!(started?.type === 'run.started' && requested?.type === 'interaction.requested')) {
+    throw new Error('The recording has no approved run');
+  }
+  for (const [outcome, expected] of [
+    ['failed', { kind: 'runFailed', runId: started.runId }],
+    ['interrupted', { kind: 'runFailed', runId: started.runId }],
+    ['stopped', undefined],
+  ] as const) {
+    const source = new Source();
+    const onNotification = vi.fn();
+    new HostThreadRuns().observe(threadId, source, onNotification);
+    source.replay(approved.slice(0, indexOf(approved, 'run.started') + 1));
+    source.live(finishedAs(outcome));
+    expect(onNotification.mock.calls).toEqual([
+      [
+        {
+          decisionKey: requested.interactionId,
+          kind: 'toolApprovalRequired',
+          runId: started.runId,
+        },
+      ],
+      ...(expected ? [[expected]] : []),
+    ]);
+  }
+});
