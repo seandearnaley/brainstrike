@@ -1,13 +1,16 @@
 import { createHash } from 'node:crypto';
 import { prepareProviderRequest } from '@brainstrike/agent/provider-request';
+import { RootLock } from '@brainstrike/state-store';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import type { StateStoreHostMemoryOptions } from '../src/adapters/state-store-host-memory.js';
 import type { HostLogRow } from '../src/protocol.js';
 import {
+  AccountingFixtureDiagnostics,
   finalPromptAccountingHost,
   HISTORY_FACT,
   OBSERVATION_FACT,
+  preserveAccountingFixturePrimary,
   WORKING_FACT,
 } from './fixtures/final-prompt-accounting-host.js';
 
@@ -72,7 +75,7 @@ function withoutSystemFact(request: Request, fact: string): Request {
 
 test('actual production final-prompt accounting includes public observations and working memory without counting observer usage as chat', async () => {
   const f = await finalPromptAccountingHost('observations');
-  try {
+  await f.within(async () => {
     const { threadId } = await f.startThread();
     await f.run(threadId, 'Paris coding source facts. '.repeat(100));
     f.enableObservations();
@@ -146,14 +149,12 @@ test('actual production final-prompt accounting includes public observations and
         threadId,
       })
     );
-  } finally {
-    await f.close();
-  }
+  });
 });
 
 test('actual production final-prompt accounting includes a real SQLite cross-thread recall beyond the native history window', async () => {
   const f = await finalPromptAccountingHost('recall');
-  try {
+  await f.within(async () => {
     const source = await f.startThread();
     const before = await f.run(source.threadId, HISTORY_FACT);
     const target = await f.startThread();
@@ -205,14 +206,12 @@ test('actual production final-prompt accounting includes a real SQLite cross-thr
         threadId: target.threadId,
       })
     );
-  } finally {
-    await f.close();
-  }
+  });
 });
 
 test('actual production accounting measures the final native token-limited input while preserving committed history', async () => {
   const f = await finalPromptAccountingHost('observations');
-  try {
+  await f.within(async () => {
     const { threadId } = await f.startThread();
     const oldContext = 'Paris old selected context. '.repeat(1000);
     const before = await f.run(threadId, oldContext);
@@ -252,7 +251,109 @@ test('actual production accounting measures the final native token-limited input
         threadId,
       })
     );
-  } finally {
-    await f.close();
+  });
+});
+
+test('fixture preserves an injected original primary and all separate nested cleanup causes', async () => {
+  const primary = new Error('Injected primary');
+  const leaf = new Error('Injected cleanup leaf', { cause: primary });
+  const sibling = new Error('Injected independent cleanup sibling');
+  const cleanup = new AggregateError(
+    [leaf, new AggregateError([sibling, leaf], 'nested cleanup')],
+    'outer cleanup'
+  );
+  const oldFinally = async () => {
+    try {
+      await Promise.reject(primary);
+    } finally {
+      await Promise.reject(cleanup);
+    }
+  };
+  await expect(oldFinally()).rejects.toBe(cleanup);
+  const diagnostics = new AccountingFixtureDiagnostics();
+  diagnostics.identities.push((cause) => ({
+    isOriginalLeaf: cause === leaf,
+    isOriginalPrimary: cause === primary,
+    isOriginalSibling: cause === sibling,
+  }));
+  await expect(
+    preserveAccountingFixturePrimary(
+      () => Promise.reject(primary),
+      () => Promise.reject(cleanup),
+      diagnostics
+    )
+  ).rejects.toBe(primary);
+  expect(diagnostics.originalFailures).toEqual([
+    { cause: primary, owner: 'test', phase: 'primary' },
+    { cause: cleanup, owner: 'test', phase: 'cleanup' },
+  ]);
+  expect(diagnostics.nodes).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        identities: [expect.objectContaining({ isOriginalPrimary: true })],
+      }),
+      expect.objectContaining({ identities: [expect.objectContaining({ isOriginalLeaf: true })] }),
+      expect.objectContaining({
+        identities: [expect.objectContaining({ isOriginalSibling: true })],
+      }),
+    ])
+  );
+  console.error('Accounting injected-primary receipt:', JSON.stringify(diagnostics.snapshot()));
+});
+
+test('captures original polling failure at the real production Memory checkpoint with actual indexer joins', async () => {
+  const f = await finalPromptAccountingHost('recall', {
+    interruptBeforeCommit: true,
+    retainRoot: true,
+  });
+  const { threadId } = await f.startThread();
+  let primary: unknown;
+  try {
+    await f.within(() => f.runWithOriginalPolling(threadId, HISTORY_FACT));
+  } catch (cause) {
+    primary = cause;
   }
+  expect(primary).toBeInstanceOf(Error);
+  const original = f.diagnostics.originalFailures.find((failure) => failure.phase === 'primary');
+  expect(original?.cause).toBe(primary);
+  expect(f.diagnostics.nodes).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ message: 'Matcher did not succeed in time.' }),
+      expect.objectContaining({
+        identities: [
+          expect.objectContaining({ equalsRunAbort: true, ownedMemoryCancellation: false }),
+        ],
+        message: 'Host is closing',
+      }),
+    ])
+  );
+  const abort = f.diagnostics.originalFailures.find((failure) => failure.owner === 'run.signal');
+  const checkpointFailure = f.diagnostics.originalFailures.find(
+    (failure) => failure.owner === 'run.checkpoint'
+  );
+  expect(checkpointFailure?.cause).toBe(abort?.cause);
+  expect(
+    f.diagnostics.originalFailures.some(
+      (failure) => failure.owner === 'test' && failure.phase === 'cleanup'
+    )
+  ).toBe(true);
+  expect(f.diagnostics.events).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ owner: 'run.checkpoint', phase: 'started' }),
+      expect.objectContaining({ owner: 'public-memory.close', phase: 'fulfilled' }),
+      expect.objectContaining({ owner: 'run.owner.close', phase: 'fulfilled' }),
+      expect.objectContaining({ owner: 'indexer.close', phase: 'fulfilled' }),
+      expect.objectContaining({
+        detail: expect.objectContaining({ code: 0, ipcDisconnected: true }),
+        owner: 'indexer.process',
+        phase: 'transport-joined',
+      }),
+    ])
+  );
+  expect(
+    f.diagnostics.events.some(
+      (event) => event.owner === 'state-store.close' && event.phase === 'started'
+    )
+  ).toBe(false);
+  expect(RootLock.inspect(f.root)?.owner.released).not.toBe(true);
 });
