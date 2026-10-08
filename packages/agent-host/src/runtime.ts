@@ -122,6 +122,13 @@ export async function startAgentHost(
       }
       return platform.resolveModel(modelId);
     },
+    searchHistory: (request) => {
+      const platform = currentPlatform();
+      if (!platform.searchHistory) {
+        throw new Error('This host platform owns no history search index');
+      }
+      return platform.searchHistory(request);
+    },
     get tools(): HostPlatform['tools'] {
       return currentPlatform().tools;
     },

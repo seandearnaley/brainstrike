@@ -52,6 +52,8 @@ import {
   stateObservationPurgeSchema,
   stateObservationQuerySchema,
   stateObservationUpsertSchema,
+  stateSearchHitSchema,
+  stateSearchSchema,
   stateStatsSchema,
   stateThreadsSchema,
   textCommitSchema,
@@ -443,6 +445,12 @@ export function createIndexerConnection(
         'search-scopes',
         decoder(scopedSearchSchema)(request),
         decoder(scopedSearchResultSchema)
+      ),
+    searchState: (request) =>
+      call(
+        'state-search',
+        decoder(stateSearchSchema)(request),
+        decoder(Schema.Array(stateSearchHitSchema))
       ),
     stateBlobCounts: (threads, hashes) =>
       call(

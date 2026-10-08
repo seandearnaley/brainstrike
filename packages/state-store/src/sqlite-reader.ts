@@ -8,7 +8,8 @@ import { type Db, openRo } from './sqlite.js';
 
 /** What a reader yields: a verified record, or an explicit gap where records could not be verified. */
 export type ReadItem =
-  | { readonly kind: 'event'; readonly seq: number; readonly raw: string }
+  /** `ts` is the row's committed run_events time, written by the canonical writer. */
+  | { readonly kind: 'event'; readonly seq: number; readonly raw: string; readonly ts: number }
   | {
       readonly kind: 'gap';
       readonly fromSeq: number;
@@ -33,6 +34,7 @@ interface Row {
   readonly crc: number;
   readonly payload: string;
   readonly seq: number;
+  readonly ts: number;
 }
 
 /** Rows per `read` call. Bounded so that no read transaction stays open while a caller awaits between calls. */
@@ -96,7 +98,7 @@ export class SqliteReader {
     try {
       const it = db
         .prepare(
-          'SELECT seq, payload, crc FROM run_events WHERE thread_id = ? AND seq >= ? AND seq <= ? ORDER BY seq LIMIT ?'
+          'SELECT seq, payload, crc, created_at AS ts FROM run_events WHERE thread_id = ? AND seq >= ? AND seq <= ? ORDER BY seq LIMIT ?'
         )
         .iterate(id, expected, toSeq, READ_LIMIT) as IterableIterator<Row>;
       for (const r of it) {
@@ -118,7 +120,7 @@ export class SqliteReader {
         };
       }
       if (verified(r)) {
-        yield { kind: 'event', raw: r.payload, seq: r.seq };
+        yield { kind: 'event', raw: r.payload, seq: r.seq, ts: r.ts };
       } else {
         yield { fromSeq: r.seq, kind: 'gap', reason: 'row crc mismatch', toSeq: r.seq };
       }

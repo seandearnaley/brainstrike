@@ -18,6 +18,7 @@ import {
   stateMessageUpsertResultSchema,
   stateObservationHitSchema,
   stateObservationPlanSchema,
+  stateSearchHitSchema,
   stateStatsSchema,
 } from './contracts.js';
 import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.js';
@@ -168,6 +169,13 @@ export async function runIndexerProcess(
               request.op,
               request.payload,
               decoder(Schema.Array(Schema.Int.check(Schema.isGreaterThan(0))))
+            );
+            break;
+          case 'state-search':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(Schema.Array(stateSearchHitSchema))
             );
             break;
           case 'state-rebuild':

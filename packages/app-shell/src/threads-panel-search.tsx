@@ -14,6 +14,9 @@ function roleLabel(role: string): string {
   if (role === 'user') {
     return 'You';
   }
+  if (role === 'history') {
+    return 'History';
+  }
   if (role === 'assistant') {
     return 'Assistant';
   }

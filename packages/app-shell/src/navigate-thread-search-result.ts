@@ -1,5 +1,6 @@
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { ThreadSearchRepository } from '@brainstrike/db';
+import type { AssistantThreadHostCapability } from './assistant-thread-host-context';
 import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
 import { useThreadSearchStore } from './thread-search-store';
 import { threadWorkspaceNavigation } from './thread-workspace/live-thread-workspace-navigation';
@@ -9,10 +10,18 @@ export async function navigateThreadSearchResult(
   repository: ThreadSearchRepository | null,
   ownerResourceId: string,
   threadId: string,
-  messageId?: string
+  messageId?: string,
+  host?: Pick<AssistantThreadHostCapability, 'ownsThread'>
 ): Promise<void> {
   const requestId = useThreadSearchStore.getState().beginNavigation();
   try {
+    // Only the host knows its threads; they have no history row or message target.
+    if (host && (await host.ownsThread(threadId))) {
+      if (useThreadSearchStore.getState().navigationRevision === requestId) {
+        useAssistantThreadStore.getState().selectThread(ownerResourceId, threadId);
+      }
+      return;
+    }
     if (!repository) {
       throw new Error('Conversation storage is not ready.');
     }
