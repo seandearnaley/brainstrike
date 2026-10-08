@@ -7,6 +7,7 @@ import {
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
+import { CommittedHostMcpInput } from './committed-host-mcp-input';
 
 const logger = createLogger('CommittedHostConversation');
 
@@ -14,6 +15,7 @@ export interface CommittedHostConversation {
   /** Release this view's subscription; the client/root host belongs to its caller. */
   close(): void;
   readonly commands: CommittedAssistantCommands;
+  readonly mcpInput: CommittedHostMcpInput;
   readonly store: CommittedAssistantLogStore;
 }
 
@@ -27,6 +29,7 @@ export function createCommittedHostConversation(options: {
 }): CommittedHostConversation {
   const { client, modelId, threadId } = options;
   const source = new CommittedThreadSession(client, threadId);
+  const mcpInput = new CommittedHostMcpInput(client, source, threadId);
   const store = new CommittedAssistantLogStore({
     identifyRun: (row) => {
       const runId = row.event['runId'];
@@ -105,6 +108,7 @@ export function createCommittedHostConversation(options: {
   const disconnect = source.connect();
   return {
     close: () => {
+      mcpInput.close();
       // The client outlives this view, so the unsubscribe is not joined here;
       // its refusal is reported, never swallowed.
       disconnect().catch((error: unknown) => {
@@ -113,6 +117,7 @@ export function createCommittedHostConversation(options: {
       store.dispose();
     },
     commands,
+    mcpInput,
     store,
   };
 }

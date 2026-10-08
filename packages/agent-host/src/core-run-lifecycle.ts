@@ -149,19 +149,30 @@ export async function joinHostClosingRun(
   run: HostRunState,
   closeOwner: (run: HostRunState) => Promise<void>,
   finish: (run: HostRunState) => Promise<void>
-): Promise<void> {
+): Promise<readonly unknown[]> {
   const task = await Promise.allSettled([run.task ?? Promise.resolve()]);
+  // A public SDK task can reject after committing its transcript checkpoint.
+  // Join its actual effects and resource owners before separating that outcome
+  // from an unproved cleanup. Never classify by abort identity or error text.
+  const effects = await Promise.allSettled([...run.effects]);
   const owner = await Promise.allSettled([closeOwner(run)]);
-  const failures = [...task, ...owner].filter((result) => result.status === 'rejected');
+  const outcomes = [...task, ...effects]
+    .filter((result) => result.status === 'rejected')
+    .map((result) => result.reason);
+  const failures = owner
+    .filter((result) => result.status === 'rejected')
+    .map((result) => result.reason);
+  if (failures.length === 0 && !run.terminal && run.approvals.size === 0) {
+    try {
+      await finish(run);
+    } catch (cause) {
+      failures.push(cause);
+    }
+  }
   if (failures.length > 0) {
-    throw new AggregateError(
-      failures.map((result) => result.reason),
-      'Run cleanup failed'
-    );
+    throw new AggregateError([...outcomes, ...failures], 'Run cleanup failed');
   }
-  if (!run.terminal && run.approvals.size === 0) {
-    await finish(run);
-  }
+  return outcomes;
 }
 
 /** Terminal admission uses Core's existing full publisher and run-owned completion. */
