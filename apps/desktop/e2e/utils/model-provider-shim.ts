@@ -221,9 +221,8 @@ export function resolveProviderEgressEnvironment(
       continue;
     }
     if (supplied !== undefined) {
-      console.warn(
-        `[provider-egress] ${knob}=${supplied} is not a live model-provider shim; the E2E egress boundary replaces it.`
-      );
+      // The name only: a replaced URL may carry userinfo or query credentials.
+      console.warn(`[provider-egress] replaced ${knob} with the E2E egress boundary.`);
     }
     environment[knob] = boundary.baseUrlFor(knob);
   }

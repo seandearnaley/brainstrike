@@ -71,6 +71,28 @@ async function startLoopbackSentinel(): Promise<LoopbackSentinel> {
   };
 }
 
+/** Records this worker's stdout and stderr writes until `restore` returns them. */
+function recordWorkerOutput(): { restore(): string } {
+  const chunks: string[] = [];
+  const streams = [process.stdout, process.stderr] as const;
+  const originals = streams.map((stream) => stream.write);
+  for (const stream of streams) {
+    const write = stream.write.bind(stream);
+    stream.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+      chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+      return (write as (...args: unknown[]) => boolean)(chunk, ...rest);
+    }) as typeof stream.write;
+  }
+  return {
+    restore: () => {
+      streams.forEach((stream, index) => {
+        stream.write = originals[index] as typeof stream.write;
+      });
+      return chunks.join('');
+    },
+  };
+}
+
 /** Sets worker environment for the next launch and restores it afterwards. */
 async function withWorkerEnvironment<T>(
   values: Readonly<Record<string, string>>,
@@ -255,6 +277,31 @@ test.describe('Provider egress boundary (desktop)', () => {
       } finally {
         await specShim.close();
       }
+    }
+  });
+
+  test('a replaced base URL value never reaches worker or app output', async ({ electron }) => {
+    test.setTimeout(120_000);
+    // Synthetic only: userinfo and a query key, the shapes a real one could carry.
+    const replaced = 'https://e2e-user:e2e-pass-SENTINEL@sentinel.invalid/v1?key=SENTINEL-QUERY';
+    const worker = recordWorkerOutput();
+    let workerOutput = '';
+    try {
+      await withWorkerEnvironment({ ['OPENAI_BASE_URL']: replaced }, async () => {
+        await electron.ensureWindow();
+      });
+    } finally {
+      workerOutput = worker.restore();
+    }
+    try {
+      const { getBufferedElectronOutput } = await loadElectronHelpers();
+      const app = await getBufferedElectronOutput((await electron.ensureContext()).app);
+      const written = [workerOutput, ...app.stdout, ...app.stderr].join('\n');
+      expect(written.includes('SENTINEL'), 'the replaced URL value must not be written').toBe(
+        false
+      );
+    } finally {
+      await electron.dispose();
     }
   });
 
