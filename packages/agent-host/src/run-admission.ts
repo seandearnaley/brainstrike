@@ -133,6 +133,7 @@ export async function acquireHostRunAdmission(
     };
   }
   try {
+    await validateHostRunWorkspaceBinding(platform, request);
     const admission = captureHostRunAdmission(bindHostRunWorkspace(selected, request));
     const { snapshot, tools } = admission;
     if (
@@ -194,20 +195,22 @@ export async function closeHostRunResources(run: HostRunState): Promise<void> {
   }
 }
 
-export function ensureHostRunAdmission(
+export async function ensureHostRunAdmission(
   platform: HostPlatform,
   run: HostRunState
 ): Promise<HostRunAdmission> {
-  if (run.admission) {
-    return Promise.resolve(run.admission);
-  }
-  run.admissionTask ??= acquireHostRunAdmission(platform, {
+  const request: HostRunAdmissionRequest = {
     modelId: run.modelId,
     signal: run.controller.signal,
     ...(run.snapshot ? { snapshot: run.snapshot } : {}),
     ...(run.snapshot?.workspaceBinding ? { workspaceBinding: run.snapshot.workspaceBinding } : {}),
     threadId: run.threadId,
-  }).then((admission) => {
+  };
+  if (run.admission) {
+    await validateHostRunWorkspaceBinding(platform, request);
+    return run.admission;
+  }
+  run.admissionTask ??= acquireHostRunAdmission(platform, request).then((admission) => {
     run.admission = admission;
     return admission;
   });

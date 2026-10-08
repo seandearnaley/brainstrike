@@ -502,6 +502,7 @@ export class HostCore {
       throw new Error('Tool permission was revoked');
     }
     run.controller.signal.throwIfAborted();
+    await ensureHostRunAdmission(this.platform, run);
     await this.append(run.threadId, [action]);
     run.started.add(action.toolCallId);
     run.controller.signal.throwIfAborted();

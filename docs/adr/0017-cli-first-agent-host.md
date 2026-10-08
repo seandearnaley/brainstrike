@@ -64,7 +64,9 @@ worktree and local-return hints in the same commit.
 
 The live platform validates scope changes before committing them. Each admitted
 run captures the Core-owned binding in its existing run snapshot, and recovery
-revalidates that capture against the current owners. `roots.id` and
+revalidates that capture against the current owners. The same capture is checked
+after asynchronous selection, for cached interaction responses, and before effect
+dispatch after the live permission read. Later thread bindings do not replace it. `roots.id` and
 `brainstrike_worktrees.id` are authority; saved paths and workspace view state
 are not. Missing live capabilities refuse. This protocol prerequisite does not
 qualify Desktop catalog/worktree, pinned-mount or GUI acceptance by itself.
