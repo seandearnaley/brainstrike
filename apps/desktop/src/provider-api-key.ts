@@ -6,8 +6,6 @@ import {
   type ProviderCredential,
   type ProviderKeySource,
 } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/logging';
-import { getAgentProviderEnvKeys, listAgentProviders } from './agent-client-loader';
 import {
   createProviderCredentialReader,
   isBearerCredential,
@@ -15,11 +13,15 @@ import {
   normalizeStoredCredential,
   type ResolvedDesktopProviderCredential,
   resolveAwsEnvChainCredential,
-} from './provider-credential-boundary';
+} from '@brainstrike/host-capabilities/provider-credentials';
+import { createLogger } from '@brainstrike/logging';
+import { getAgentProviderEnvKeys, listAgentProviders } from './agent-client-loader';
 import { getSecretsService, SecretReadError, type SecretReadErrorCode } from './secrets';
 
-export type { ResolvedDesktopProviderCredential } from './provider-credential-boundary';
-export { resolveAwsEnvChainCredential } from './provider-credential-boundary';
+export {
+  type ResolvedDesktopProviderCredential,
+  resolveAwsEnvChainCredential,
+} from '@brainstrike/host-capabilities/provider-credentials';
 
 const logger = createLogger('ProviderApiKey');
 
