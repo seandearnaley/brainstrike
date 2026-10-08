@@ -5,7 +5,8 @@
  * It never touches the measured page. The runner spawns this file as a
  * separate, lowest-priority child process. Every 500 ms it appends one JSON
  * line with:
- * - epoch-ms times, at ps start and ps end;
+ * - epoch-ms times at ps start and ps end, and the sampler's own cumulative
+ *   CPU (its overhead);
  * - `vm.loadavg`, via `os.loadavg()`;
  * - the top 15 processes by CPU;
  * - the cumulative CPU time of every Chromium process under the runner,
@@ -14,8 +15,16 @@
  *
  * The runner stops it with SIGTERM and joins it before reporting.
  *
- * Resolution: a 500 ms cumulative CPU sample cannot resolve a single token
- * trial. Use it only for windows that hold many samples. More CPU time per
+ * Privacy: argv is read in memory only, to match contention and classify the
+ * runner's Chromium processes. Nothing persisted carries argv, environment or
+ * user content. A process is recorded only by pid, CPU and timing, its
+ * executable name (`ps` `ucomm`, at most 16 characters), and the
+ * `.claude/worktrees/<name>` it runs from. A contention match adds the
+ * pattern it matched.
+ *
+ * Resolution: samples are 500 ms apart, and `ps` reports CPU time to 10 ms. A
+ * cumulative sample cannot resolve a single token trial, or millisecond CPU per
+ * token. Use it only for windows that hold many samples. More CPU time per
  * unit of work does not uniquely prove CPU frequency or core placement.
  */
 import { execFile } from 'node:child_process';
@@ -25,20 +34,30 @@ import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 export const SAMPLE_INTERVAL_MS = 500;
+/** `ps -o time` resolution. */
+export const CPU_TIME_RESOLUTION_SECONDS = 0.01;
 const TOP_PROCESSES = 15;
-const ARGS_CHARS = 240;
+/** `ps` pads `ucomm` (the kernel's MAXCOMLEN executable name) to exactly this width. */
+const UCOMM_WIDTH = 16;
+const PS_ROW = new RegExp(
+  `^\\s*(\\d+)\\s+(\\d+)\\s+([\\d.]+)\\s+(\\S+) (.{${UCOMM_WIDTH}}) ?(.*)$`
+);
+const WORKTREE = /\.claude\/worktrees\/([\w.-]+)/;
 
 export interface ProcessRow {
+  /** In memory only: never persisted. */
   readonly args: string;
   /** Cumulative CPU seconds (`ps -o time`, centisecond resolution). */
   readonly cpuSeconds: number;
+  /** The executable name (`ps -o ucomm`). */
+  readonly executable: string;
   readonly pcpu: number;
   readonly pid: number;
   readonly ppid: number;
 }
 
 /**
- * Other build, lint or test work. Matched on full argv. The runner's own
+ * Other build, lint or test work. Matched on argv in memory. The runner's own
  * ancestors and descendants are always excluded, so its own `pnpm exec`,
  * Playwright browser and Vite workers never count.
  */
@@ -70,24 +89,37 @@ export function parseCpuTime(value: string): number {
   return Number(days) * 86_400 + seconds;
 }
 
+/** Throws on a row it cannot parse: a dropped row could hide contention. */
 export async function readProcesses(): Promise<readonly ProcessRow[]> {
-  const { stdout } = await run('ps', ['-Ao', 'pid=,ppid=,pcpu=,time=,args=', '-ww'], {
+  const { stdout } = await run('ps', ['-Ao', 'pid=,ppid=,pcpu=,time=,ucomm=,args=', '-ww'], {
     maxBuffer: 64 * 1024 * 1024,
   });
-  const rows: ProcessRow[] = [];
-  for (const line of stdout.split('\n')) {
-    const match = /^\s*(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s+(.*)$/.exec(line);
-    if (match) {
-      rows.push({
-        args: match[5] ?? '',
+  return stdout
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => {
+      const match = PS_ROW.exec(line);
+      if (!match) {
+        throw new Error(`Unparseable ps row for pid ${/^\s*(\d+)/.exec(line)?.[1] ?? '?'}.`);
+      }
+      return {
+        args: match[6] ?? '',
         cpuSeconds: parseCpuTime(match[4] ?? '0'),
+        executable: (match[5] ?? '').trimEnd(),
         pcpu: Number(match[3]),
         pid: Number(match[1]),
         ppid: Number(match[2]),
-      });
-    }
-  }
-  return rows;
+      };
+    });
+}
+
+/** The persisted identity of a process: never its argv. */
+export function identityOf(row: ProcessRow) {
+  return {
+    executable: row.executable,
+    pid: row.pid,
+    worktree: WORKTREE.exec(row.args)?.[1],
+  };
 }
 
 /** The runner's descendants (its browser, workers and this sampler), the runner itself. */
@@ -120,9 +152,10 @@ export function ownTree(rows: readonly ProcessRow[], runnerPid: number): Set<num
 }
 
 export interface ContentionMatch {
-  readonly args: string;
+  readonly executable: string;
   readonly pattern: string;
   readonly pid: number;
+  readonly worktree: string | undefined;
 }
 
 export function contentionIn(rows: readonly ProcessRow[], runnerPid: number): ContentionMatch[] {
@@ -133,7 +166,7 @@ export function contentionIn(rows: readonly ProcessRow[], runnerPid: number): Co
       ? undefined
       : CONTENTION_PATTERNS.find((candidate) => candidate.test(row.args));
     if (pattern) {
-      matches.push({ args: row.args.slice(0, ARGS_CHARS), pattern: String(pattern), pid: row.pid });
+      matches.push({ ...identityOf(row), pattern: String(pattern) });
     }
   }
   return matches;
@@ -159,18 +192,16 @@ async function snapshot(runnerPid: number) {
   const top = [...rows]
     .sort((left, right) => right.pcpu - left.pcpu)
     .slice(0, TOP_PROCESSES)
-    .map((row) => ({
-      args: row.args.slice(0, ARGS_CHARS),
-      cpuSeconds: row.cpuSeconds,
-      pcpu: row.pcpu,
-      pid: row.pid,
-    }));
+    .map((row) => ({ ...identityOf(row), cpuSeconds: row.cpuSeconds, pcpu: row.pcpu }));
   const runner = rows.find((row) => row.pid === runnerPid);
+  const own = process.cpuUsage();
   return {
     chromium: chromiumUnder(rows, runnerPid),
     contention: contentionIn(rows, runnerPid),
     loadavg: loadavg(),
     runnerCpuSeconds: runner?.cpuSeconds,
+    /** This sampler's own cumulative CPU; its `ps` children's cost is bounded by `tEnd - t`. */
+    samplerCpuMs: (own.user + own.system) / 1000,
     t,
     tEnd,
     top,

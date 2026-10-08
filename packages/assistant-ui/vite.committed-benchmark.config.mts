@@ -62,6 +62,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { build, defineConfig, preview, version as viteVersion } from 'vite';
 import {
   type ContentionMatch,
+  CPU_TIME_RESOLUTION_SECONDS,
   contentionIn,
   readProcesses,
   SAMPLE_INTERVAL_MS,
@@ -284,8 +285,41 @@ interface Snapshot {
   }[];
   readonly contention: readonly ContentionMatch[];
   readonly loadavg: readonly number[];
+  readonly samplerCpuMs: number;
   readonly t: number;
   readonly tEnd: number;
+}
+
+/** Nearest-rank median and the maximum. */
+function spread(values: readonly number[]) {
+  const sorted = [...values].sort((left, right) => left - right);
+  return { max: sorted.at(-1), median: sorted[Math.ceil(sorted.length / 2) - 1] };
+}
+
+/**
+ * The sampler's own cost over its steady window (first to last snapshot, so
+ * Node's startup is excluded) and its achieved spacing. Its `ps` children's
+ * CPU is not visible to it, so their wall time is reported as an upper bound.
+ */
+function samplerOverhead(snapshots: readonly Snapshot[]) {
+  const first = snapshots[0];
+  const last = snapshots.at(-1);
+  if (!(first && last && snapshots.length > 1)) {
+    return { snapshots: snapshots.length };
+  }
+  const wallMs = last.tEnd - first.tEnd;
+  const psWallMs = snapshots.map((snapshot) => snapshot.tEnd - snapshot.t);
+  const share = (ms: number): number => Number((ms / wallMs).toFixed(4));
+  return {
+    psWallMs: spread(psWallMs),
+    psWallShareUpperBound: share(psWallMs.slice(1).reduce((total, ms) => total + ms, 0)),
+    samplerCpuShare: share(last.samplerCpuMs - first.samplerCpuMs),
+    snapshots: snapshots.length,
+    spacingMs: spread(
+      snapshots.slice(1).map((snapshot, index) => snapshot.t - (snapshots[index]?.t ?? 0))
+    ),
+    wallSeconds: wallMs / 1000,
+  };
 }
 
 /** Cumulative CPU of each renderer across the run; proves the sampler sees it advance. */
@@ -333,6 +367,11 @@ function contentionSummary(snapshots: readonly Snapshot[], atStart: readonly Con
     matches: [...matches.values()],
     midRun: [...matches.values()].filter((match) => !startPids.has(match.pid)),
   };
+}
+
+/** Identity only: never argv. */
+function describeMatch(match: ContentionMatch): string {
+  return `  pid ${match.pid} ${match.pattern} executable ${match.executable} worktree ${match.worktree ?? '-'}`;
 }
 
 /** A harmless, idle dummy whose argv reads like a lint run; reparented away from the runner. */
@@ -510,7 +549,7 @@ async function guardOrRefuse(args: Args, source: Awaited<ReturnType<typeof sourc
     source,
   });
   process.stdout.write(
-    `mode ${args.mode} exit 3 (refused: other build/lint/test work is running)\n${guard.matches.map((match) => `  pid ${match.pid} ${match.pattern} ${match.args}`).join('\n')}\nraw ${file}\n`
+    `mode ${args.mode} exit 3 (refused: other build/lint/test work is running)\n${guard.matches.map(describeMatch).join('\n')}\nraw ${file}\n`
   );
   return { guard, refused: true } as const;
 }
@@ -613,7 +652,8 @@ function exitCodeFor(
 }
 
 /**
- * The sampler must always be joined. Where a renderer runs long enough to be
+ * The sampler must always be joined after a clean exit: a crash would leave
+ * the rest of the run unsampled. Where a renderer runs long enough to be
  * sampled it must also be seen advancing; the short control pages only have
  * to be joined.
  */
@@ -624,6 +664,7 @@ function samplerOkFor(
 ): boolean {
   const minimumAdvance = mode === 'sampler-control' ? 1 : mode === 'qualification' ? 0.01 : 0;
   return (
+    run.joined.code === 0 &&
     !run.joined.stillRunning &&
     (minimumAdvance === 0 ||
       renderers.some((renderer) => renderer.cpuSecondsAdvanced >= minimumAdvance))
@@ -648,6 +689,7 @@ async function runBenchmark(): Promise<number> {
   const measured = run.outcome?.measured;
   const contention = contentionSummary(run.snapshots, guard.matches);
   const renderers = rendererCpu(run.snapshots);
+  const overhead = samplerOverhead(run.snapshots);
   const samplerOk = samplerOkFor(args.mode, run, renderers);
   const judgements = measured?.results.map(verdictOf) ?? [];
   const qualified = args.mode !== 'qualification' || source.exact;
@@ -677,12 +719,14 @@ async function runBenchmark(): Promise<number> {
     },
     sampler: {
       contention,
+      cpuTimeResolutionSeconds: CPU_TIME_RESOLUTION_SECONDS,
       dummy:
         run.dummy === undefined ? undefined : { pid: run.dummy, stillRunning: isAlive(run.dummy) },
       file: run.samplesFile,
       intervalMs: SAMPLE_INTERVAL_MS,
       join: run.joined,
       ok: samplerOk,
+      overhead,
       pid: run.sampler.pid,
       priority: run.sampler.priority,
       renderers,
@@ -699,9 +743,10 @@ async function runBenchmark(): Promise<number> {
           `run ${index + 1} [${verdict}, ${reason}] errors ${measured?.results[index]?.pageErrors.length}\n  ${line}`
       ),
       `sampler pid ${run.sampler.pid} priority ${run.sampler.priority} snapshots ${run.snapshots.length} joined code=${run.joined.code} signal=${run.joined.signal} stillRunning=${run.joined.stillRunning}`,
+      `sampler overhead ${JSON.stringify(overhead)} interval ${SAMPLE_INTERVAL_MS} ms, cpu time resolution ${CPU_TIME_RESOLUTION_SECONDS} s`,
       `renderers ${JSON.stringify(renderers)}`,
       `busy control ${run.busy ? `${run.busy.busyMs.toFixed(0)} ms` : 'not run'}`,
-      `contention atStart ${guard.matches.length}, seen in ${contention.contendedSnapshots}/${run.snapshots.length} snapshots, midRun ${contention.midRun.length}${contention.midRun.map((match) => `\n  midRun pid ${match.pid} ${match.pattern} ${match.args.slice(0, 120)}`).join('')}`,
+      `contention atStart ${guard.matches.length}, seen in ${contention.contendedSnapshots}/${run.snapshots.length} snapshots, midRun ${contention.midRun.length}${contention.midRun.map((match) => `\n  midRun${describeMatch(match)}`).join('')}`,
       `bundle ${run.outcome?.bundle.digest}`,
       `source ${source.commit} tree ${source.tree} exact=${source.exact} dirty ${source.dirtyPaths.length}`,
       `raw ${file}`,
