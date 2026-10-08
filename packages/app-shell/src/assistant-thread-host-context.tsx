@@ -70,6 +70,9 @@ export function useAssistantThreadHostRuns(): ReadonlyMap<string, AssistantThrea
   return useSyncExternalStore(runs?.subscribe ?? subscribeNoHostRuns, read, read);
 }
 
+export const LEGACY_READ_ONLY_MESSAGE =
+  'This conversation was started before the agent host and is read-only; it cannot be renamed or changed.';
+
 /** Keep old history in its existing repository and read new roots from their actual owner. */
 export function withAssistantThreadHost<Repository extends AssistantThreadRepository>(
   repository: Repository,
@@ -86,25 +89,26 @@ export function withAssistantThreadHost<Repository extends AssistantThreadReposi
   const deleteHistoryThreads = repository.deleteThreads?.bind(repository);
   // A host identity has no history row: a history write would update nothing
   // and report success, so a host-owned id never falls through to it.
+  // A legacy (non-host) thread is read-only (BST-1934): its title and metadata
+  // are refused visibly and never written to the legacy tables.
   const updateThreadMetadata = async (
     threadId: string,
     metadata: AssistantThreadMetadata
   ): Promise<void> => {
-    if (await host.ownsThread(threadId)) {
-      await host.updateThreadBinding(threadId, metadata);
-      return;
+    if (!(await host.ownsThread(threadId))) {
+      throw new Error(LEGACY_READ_ONLY_MESSAGE);
     }
-    await repository.updateThreadMetadata(threadId, metadata);
+    await host.updateThreadBinding(threadId, metadata);
   };
   // A history UPDATE would match no host row and report success, so an owned
   // title commits through the host; a refusal rejects before history.
   const renameThread = async (threadId: string, title: string): Promise<void> => {
-    if (await host.ownsThread(threadId)) {
-      await host.renameThread(threadId, title);
-      return;
+    if (!(await host.ownsThread(threadId))) {
+      throw new Error(LEGACY_READ_ONLY_MESSAGE);
     }
-    await repository.renameThread(threadId, title);
+    await host.renameThread(threadId, title);
   };
+  const updateHistoryThreadsMetadata = repository.updateThreadsMetadata?.bind(repository);
   // The bulk path stays with history: it already refuses, before any write,
   // any id without a history row (assertAllBulkThreadsFound).
   return {
@@ -113,6 +117,22 @@ export function withAssistantThreadHost<Repository extends AssistantThreadReposi
     deleteThread,
     renameThread,
     updateThreadMetadata,
+    ...(updateHistoryThreadsMetadata
+      ? {
+          // Bulk stays with history, which already refuses any host id before
+          // a write; a legacy id is refused here, so nothing reaches it.
+          updateThreadsMetadata: async (
+            threadIds: readonly string[],
+            metadata: AssistantThreadMetadata
+          ): Promise<void> => {
+            const owned = await Promise.all(threadIds.map((id) => host.ownsThread(id)));
+            if (owned.includes(false)) {
+              throw new Error(LEGACY_READ_ONLY_MESSAGE);
+            }
+            await updateHistoryThreadsMetadata(threadIds, metadata);
+          },
+        }
+      : {}),
     ...(deleteHistoryThreads
       ? {
           deleteThreads: async (threadIds: readonly string[]): Promise<void> => {

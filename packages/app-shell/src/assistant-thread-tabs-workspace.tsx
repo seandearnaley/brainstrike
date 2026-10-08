@@ -27,12 +27,16 @@ import {
   type TabStripItem,
 } from '@brainstrike/ui';
 import { Plus, TriangleAlert } from 'lucide-react';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
-import { useAssistantThreadHost, withAssistantThreadHost } from './assistant-thread-host-context';
+import {
+  type AssistantThreadHostCapability,
+  useAssistantThreadHost,
+  withAssistantThreadHost,
+} from './assistant-thread-host-context';
 import {
   getAssistantThreadColorSurface,
   resolveThreadRowStatusState,
@@ -43,6 +47,7 @@ import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
 import { usePublishOnScreenThreadId } from './hooks/use-on-screen-thread';
 import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approval';
 import { useMarkOnScreenThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
+import { LegacyThreadReadOnlyPanel } from './legacy-thread-read-only-panel';
 import { ThreadIdentityMark } from './thread-identity-mark';
 import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
 import { useAssistantThreadRunCompletionSync } from './use-assistant-thread-run-completion-sync';
@@ -541,11 +546,15 @@ function ThreadPanels({
           >
             {/* No resetKey: inside key={threadId} it could never change; "Reload tab" resets. */}
             <TabPanelBoundary label={threadById.get(threadId)?.title ?? threadId}>
-              {host?.renderThread(
-                threadId,
-                isOpen && threadId === activeThreadId,
-                onRunningChange
-              ) ?? (
+              {host ? (
+                <HostRoutedThreadPanel
+                  host={host}
+                  isVisible={isOpen && threadId === activeThreadId}
+                  onRunningChange={onRunningChange}
+                  resourceId={resourceId}
+                  threadId={threadId}
+                />
+              ) : (
                 <AssistantUiPanelWrapper
                   isVisible={isOpen && threadId === activeThreadId}
                   {...(fixedProviderModels ? { fixedProviderModels } : {})}
@@ -562,6 +571,31 @@ function ThreadPanels({
         );
       })}
     </>
+  );
+}
+
+/**
+ * With an agent host, a thread it does not own is legacy and opens read-only
+ * (BST-1934): the interactive legacy chat, the last writer of the legacy
+ * tables, is reachable only without a host (web).
+ */
+function HostRoutedThreadPanel({
+  host,
+  isVisible,
+  onRunningChange,
+  resourceId,
+  threadId,
+}: {
+  readonly host: AssistantThreadHostCapability;
+  readonly isVisible: boolean;
+  readonly onRunningChange: (threadId: string, running: boolean) => void;
+  readonly resourceId: string;
+  readonly threadId: string;
+}): ReactNode {
+  return (
+    host.renderThread(threadId, isVisible, onRunningChange) ?? (
+      <LegacyThreadReadOnlyPanel resourceId={resourceId} threadId={threadId} />
+    )
   );
 }
 

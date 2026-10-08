@@ -1,6 +1,9 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
-import type { AssistantThreadHostCapability } from '@brainstrike/app-shell/assistant-thread-host-context';
+import {
+  type AssistantThreadHostCapability,
+  LEGACY_READ_ONLY_MESSAGE,
+} from '@brainstrike/app-shell/assistant-thread-host-context';
 import { DEFAULT_THREAD_TITLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   type ThreadWorkspaceBinding,
@@ -277,7 +280,9 @@ export function createWindowThreadCapability(
         setThreadWorkspace: async (threadId, resourceId, snapshot) => {
           const host = await threadClient(threadId);
           if (!host) {
-            return history.setThreadWorkspace(threadId, resourceId, snapshot);
+            // A legacy thread is read-only (BST-1934): its snapshot is never
+            // written to the legacy table; the coordinator logs the refusal.
+            throw new Error(LEGACY_READ_ONLY_MESSAGE);
           }
           if (resourceId !== WORKSPACE_MEMORY_RESOURCE_ID) {
             throw new Error('The host thread belongs to the workspace resource');

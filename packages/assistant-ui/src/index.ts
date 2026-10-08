@@ -120,6 +120,7 @@ export {
   RewindComposerBridge,
   selectRewindComposerText,
 } from './message-rewind-action';
+export { ReadOnlyAssistantConversation } from './read-only-assistant-conversation';
 export {
   type RewindComposerState,
   useRewindComposerStore,
