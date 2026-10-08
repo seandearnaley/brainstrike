@@ -20,9 +20,8 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
-const { runQuerySelf, toQuerySelfInputError } = await import(
-  '../../assistant-server/query-self-tool'
-);
+const { runQuerySelf } = await import('../../assistant-server/query-self-tool');
+const { toQuerySelfInputError } = await import('../../assistant-server/query-self-core');
 
 interface FakeQueryResult {
   fields?: { name: string }[];

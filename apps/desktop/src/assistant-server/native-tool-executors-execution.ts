@@ -9,8 +9,6 @@ import {
   type InspectCommandSessionsInput,
   type ManageCommandSessionInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
-  type QueryDiagnosticsInput,
-  type QuerySelfInput,
   type RunSkillScriptInput,
   readToolExecutionThreadId,
   resolveGuardedToolSignal,
@@ -34,10 +32,10 @@ import {
   runManageCommandSession,
 } from './command-session-tools';
 import { executorGroup } from './native-tool-executor-context';
+import { selfInspectionExecutors } from './native-tool-executors-self';
 import { executeCommandExecutor } from './native-tool-executors-shell';
-import { runQueryDiagnostics } from './query-diagnostics-tool';
-import { projectQuerySelfModelOutput } from './query-self-model-projection';
-import { runQuerySelf, toQuerySelfInputError } from './query-self-tool';
+import { mainDiagnosticsReader } from './query-diagnostics-tool';
+import { mainQuerySelfRead } from './query-self-tool';
 import { runSkillScript } from './run-skill-script-tool';
 
 export const EXECUTION_TOOL_EXECUTORS = executorGroup({
@@ -203,50 +201,5 @@ export const EXECUTION_TOOL_EXECUTORS = executorGroup({
           inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCommandSession],
           transform: MANAGE_COMMAND_SESSION_TRANSFORM,
         },
-  [NATIVE_TOOL_ID.querySelf]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.querySelf],
-    execute: async (input: ToolExecuteInput<QuerySelfInput>, options?: ToolExecuteContext) => {
-      // Schema validation is INSIDE the try on purpose. For every other tool a
-      // malformed call is a bug; for this one the model is authoring the input
-      // freehand, so an opaque `tool_failed` leaves it no way to correct and it
-      // simply retries the same call. Observed live: a rejected input produced
-      // "The tool did not complete successfully" and the model gave up after
-      // two identical attempts. `toToolInputError` turns the validation
-      // message into text the model can act on.
-      let resolvedInput: QuerySelfInput | undefined;
-      try {
-        resolvedInput = parseToolExecuteInput(
-          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.querySelf],
-          input
-        );
-        return await runQuerySelf(resolvedInput, runtimeData, {
-          signal: resolveGuardedToolSignal(options),
-        });
-      } catch (error) {
-        logToolFailure('querySelf failed', error, resolvedInput ?? {});
-        throw resolvedInput === undefined ? toQuerySelfInputError(error) : error;
-      }
-    },
-    id: NATIVE_TOOL_ID.querySelf,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.querySelf],
-    toModelOutput: (output: unknown) =>
-      projectQuerySelfModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
-  [NATIVE_TOOL_ID.queryDiagnostics]: () => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.queryDiagnostics],
-    execute: async (input: ToolExecuteInput<QueryDiagnosticsInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryDiagnostics],
-        input
-      );
-      try {
-        return await runQueryDiagnostics(resolvedInput);
-      } catch (error) {
-        logToolFailure('queryDiagnostics failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.queryDiagnostics,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryDiagnostics],
-  }),
+  ...selfInspectionExecutors(mainQuerySelfRead(), mainDiagnosticsReader),
 });

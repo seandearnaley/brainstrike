@@ -3,8 +3,9 @@ import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HostToolContext } from '@brainstrike/agent-host';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
+import type { GitResult, WorktreeCreateResult, WorktreeListEntry } from '@brainstrike/types';
 import { afterEach, expect, test, vi } from 'vitest';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
 import { PlatformSelectionSchema } from '../agent-host-platform/platform-wire';
@@ -53,6 +54,20 @@ function selection(root: string, native: Record<string, unknown> = {}) {
     },
     resourceId: 'workspace',
     tools: {
+      brainstrike_browserNavigate: {
+        description: 'Open a page',
+        identity: NATIVE_TOOL_ID.browserNavigate,
+        inputSchema: { type: 'object' },
+        permissionToolId: NATIVE_TOOL_ID.browserNavigate,
+        risk: 'read',
+      },
+      brainstrike_browserReadPage: {
+        description: 'Read the page tree',
+        identity: NATIVE_TOOL_ID.browserReadPage,
+        inputSchema: { type: 'object' },
+        permissionToolId: NATIVE_TOOL_ID.browserReadPage,
+        risk: 'read',
+      },
       brainstrike_executeCommand: {
         description: 'Shell command',
         identity: NATIVE_TOOL_ID.executeCommand,
@@ -67,11 +82,39 @@ function selection(root: string, native: Record<string, unknown> = {}) {
         permissionToolId: NATIVE_TOOL_ID.grepSearch,
         risk: 'read',
       },
+      brainstrike_listWorktrees: {
+        description: 'List worktrees',
+        identity: NATIVE_TOOL_ID.listWorktrees,
+        inputSchema: { type: 'object' },
+        permissionToolId: NATIVE_TOOL_ID.listWorktrees,
+        risk: 'read',
+      },
       brainstrike_lspInspect: {
         description: 'Language-server inspection',
         identity: NATIVE_TOOL_ID.lspInspect,
         inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.lspInspect,
+        risk: 'read',
+      },
+      brainstrike_manageWorktree: {
+        description: 'Manage worktrees',
+        identity: NATIVE_TOOL_ID.manageWorktree,
+        inputSchema: { type: 'object' },
+        permissionToolId: NATIVE_TOOL_ID.manageWorktree,
+        risk: 'execute',
+      },
+      brainstrike_queryDiagnostics: {
+        description: 'Diagnostics',
+        identity: NATIVE_TOOL_ID.queryDiagnostics,
+        inputSchema: { type: 'object' },
+        permissionToolId: NATIVE_TOOL_ID.queryDiagnostics,
+        risk: 'read',
+      },
+      brainstrike_querySelf: {
+        description: 'Self query',
+        identity: NATIVE_TOOL_ID.querySelf,
+        inputSchema: { type: 'object' },
+        permissionToolId: NATIVE_TOOL_ID.querySelf,
         risk: 'read',
       },
       brainstrike_readWorkspaceContext: {
@@ -80,6 +123,13 @@ function selection(root: string, native: Record<string, unknown> = {}) {
         inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.readWorkspaceContext,
         risk: 'read',
+      },
+      brainstrike_updateWorkspaceContextSelection: {
+        description: 'Select context files',
+        identity: NATIVE_TOOL_ID.updateWorkspaceContextSelection,
+        inputSchema: { type: 'object' },
+        permissionToolId: NATIVE_TOOL_ID.updateWorkspaceContextSelection,
+        risk: 'edit',
       },
     },
     toolTimeoutMs: 5000,
@@ -290,4 +340,300 @@ test('the desktop host greps in its own process, reading only the indexed half f
   expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
     new Set(['platform/workspace/roots', 'desktop-read/grep-index'])
   );
+});
+
+test('the desktop host runs the worktree tools in its own process over Main’s worktree calls, under the host run’s identity', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-worktree-')));
+  directories.push(root);
+  const primary = {
+    branch: 'main',
+    containment: ['root-a'],
+    createdAt: null,
+    detached: false,
+    disabledReason: null,
+    externalTool: null,
+    id: null,
+    lockedReason: null,
+    managed: false,
+    name: 'repo',
+    path: root,
+    primary: true,
+    provenance: 'scanned',
+    remedy: null,
+    repoCommonDir: `${root}/.git`,
+    repositoryRoot: root,
+    rootId: 'root-a',
+    rootIdIsExactMount: true,
+    setupReason: null,
+    setupStatus: 'none',
+    trust: 'validated',
+    trustReason: null,
+    usable: true,
+  } satisfies WorktreeListEntry;
+  const listed: GitResult<readonly WorktreeListEntry[]> = { ok: true, value: [primary] };
+  const created: GitResult<WorktreeCreateResult> = {
+    ok: true,
+    value: {
+      setup: {
+        copiedPaths: [],
+        output: '',
+        reason: null,
+        skippedCopies: [],
+        status: 'none',
+        truncated: false,
+      },
+      worktree: {
+        archivedAt: null,
+        archiveSnapshotRef: null,
+        baseRef: 'HEAD',
+        branch: 'bs/fox',
+        createdAt: '2026-10-08T00:00:00.000Z',
+        createdBy: 'agent',
+        id: 'wt-9',
+        path: '/managed/fox',
+        repoCommonDir: `${root}/.git`,
+        runId: 'host-run',
+        setupOutput: null,
+        setupReason: null,
+        setupStatus: 'none',
+        threadId: 'host-thread',
+      },
+    },
+  };
+  const request = vi.fn(async (method: string, _input: unknown) => {
+    switch (method) {
+      case 'platform/workspace/roots':
+        return [{ displayName: 'A', path: root, rootId: 'root-a' }];
+      case 'platform/worktree/list':
+        return listed;
+      case 'platform/worktree/create':
+        return created;
+      default:
+        throw new Error(`Unexpected Main request ${method}`);
+    }
+  });
+  const tools = desktopHostSharedTools({
+    readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+    request,
+    selected: selection(root),
+    threadId: 'host-thread',
+  });
+  const list = tools['brainstrike_listWorktrees'];
+  const manage = tools['brainstrike_manageWorktree'];
+  if (!(list && manage)) {
+    throw new Error('The worktree tools were not built for the host');
+  }
+  await expect(list.execute({ root: 'root-a' }, execution())).resolves.toEqual({
+    worktrees: [
+      {
+        branch: 'main',
+        detached: false,
+        disabledReason: null,
+        externalTool: null,
+        managed: false,
+        name: 'repo',
+        path: root,
+        primary: true,
+        provenance: 'scanned',
+        repositoryRoot: root,
+        usable: true,
+        worktreeId: null,
+      },
+    ],
+  });
+  await expect(
+    manage.execute({ action: 'create', branch: 'bs/fox', root: 'root-a' }, execution())
+  ).resolves.toEqual({
+    action: 'create',
+    branch: 'bs/fox',
+    path: '/managed/fox',
+    setupReason: null,
+    setupStatus: 'none',
+    worktreeId: 'wt-9',
+  });
+  // The run identity is the host run's, never tool input; Main stamps it on the ledger row.
+  expect(request).toHaveBeenCalledWith('platform/worktree/list', { threadId: 'host-thread' });
+  expect(request).toHaveBeenCalledWith('platform/worktree/create', {
+    params: { baseRef: 'HEAD', branch: 'bs/fox', name: 'fox', rootId: 'root-a' },
+    runId: 'host-run',
+    threadId: 'host-thread',
+  });
+});
+
+test('the desktop host runs the browser tools, asking Main to drive the window-bound pane', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-browser-')));
+  directories.push(root);
+  const request = vi.fn(async (method: string, _input: unknown, _signal?: AbortSignal) => {
+    switch (method) {
+      case 'platform/workspace/roots':
+        return [{ displayName: 'A', path: root, rootId: 'root-a' }];
+      case 'platform/browser/navigate':
+        return { ok: true, title: 'Example', url: 'https://example.com/' };
+      case 'platform/browser/read-page':
+        return {
+          error: 'browser_unavailable',
+          hint: 'The embedded browser pane is not available (no app window is open).',
+          ok: false,
+        };
+      default:
+        throw new Error(`Unexpected Main request ${method}`);
+    }
+  });
+  const tools = desktopHostSharedTools({
+    readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+    request,
+    selected: selection(root),
+    threadId: 'host-thread',
+  });
+  const navigate = tools['brainstrike_browserNavigate'];
+  const readPage = tools['brainstrike_browserReadPage'];
+  if (!(navigate && readPage)) {
+    throw new Error('The browser tools were not built for the host');
+  }
+  await expect(navigate.execute({ url: 'https://example.com' }, execution())).resolves.toEqual({
+    ok: true,
+    title: 'Example',
+    url: 'https://example.com/',
+  });
+  // A structured failure is the model's feedback, never a throw.
+  await expect(readPage.execute({}, execution())).resolves.toMatchObject({
+    error: 'browser_unavailable',
+    ok: false,
+  });
+  // The host parsed the input (defaults applied) and passed its call signal to Main.
+  expect(request).toHaveBeenCalledWith(
+    'platform/browser/navigate',
+    { input: { url: 'https://example.com' }, threadId: 'host-thread' },
+    expect.any(AbortSignal)
+  );
+  expect(request).toHaveBeenCalledWith(
+    'platform/browser/read-page',
+    { input: { filter: 'interactive', maxChars: 6000 }, threadId: 'host-thread' },
+    expect.any(AbortSignal)
+  );
+});
+
+test('the desktop host validates a context selection in its own process and asks Main only to deliver it', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-select-')));
+  directories.push(root);
+  await writeFile(join(root, 'notes.txt'), 'notes\n');
+  const request = vi.fn(async (method: string, _input: unknown) => {
+    switch (method) {
+      case 'platform/workspace/roots':
+        return [{ displayName: 'A', path: root, rootId: 'root-a' }];
+      case 'platform/workspace-context/selection':
+        return { notifiedWindowCount: 1 };
+      default:
+        throw new Error(`Unexpected Main request ${method}`);
+    }
+  });
+  const tools = desktopHostSharedTools({
+    readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+    request,
+    selected: selection(root, { selectionFolderId: 'folder-a', workspaceRootPath: root }),
+    threadId: 'host-thread',
+  });
+  const tool = tools['brainstrike_updateWorkspaceContextSelection'];
+  if (!tool) {
+    throw new Error('updateWorkspaceContextSelection was not built for the host');
+  }
+  await expect(
+    tool.execute({ filePaths: ['notes.txt', 'missing.txt'] }, execution())
+  ).resolves.toMatchObject({
+    appliedCount: 1,
+    folderId: 'folder-a',
+    notifiedWindowCount: 1,
+    selectedFiles: ['notes.txt'],
+    skippedFiles: [{ path: 'missing.txt', reason: 'missing' }],
+  });
+  // Only the validated selection crosses to Main, for delivery to the visible windows.
+  expect(request).toHaveBeenCalledWith('platform/workspace-context/selection', {
+    payload: { filePaths: ['notes.txt'], folderId: 'folder-a', mode: 'add' },
+    threadId: 'host-thread',
+  });
+});
+
+test('the desktop host runs querySelf and queryDiagnostics, reading only Main’s databases through typed reads', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-self-')));
+  directories.push(root);
+  const event = {
+    causeChainJson: null,
+    causeChainTruncated: false,
+    code: 'E_FIXTURE',
+    contextJson: null,
+    contextTruncated: false,
+    fingerprint: 'fp-1',
+    id: 'event-1',
+    message: 'fixture failure',
+    messageTruncated: false,
+    occurredAt: 1_760_000_000_000,
+    resourceId: null,
+    rootId: null,
+    runId: 'run-1',
+    scope: 'assistant',
+    sessionId: 'session-1',
+    severity: 'error',
+    source: 'main',
+    stack: null,
+    stackTruncated: false,
+    threadId: 'host-thread',
+  };
+  const request = vi.fn(async (method: string, input: unknown, _signal?: AbortSignal) => {
+    switch (method) {
+      case 'platform/workspace/roots':
+        return [{ displayName: 'A', path: root, rootId: 'root-a' }];
+      case 'desktop-read/query-self': {
+        const sql = (input as { request: { input: { sql?: string } } }).request.input.sql;
+        return sql === 'SELECT 1'
+          ? {
+              ok: true,
+              result: {
+                columns: ['?column?'],
+                kind: 'rows',
+                rowCount: 1,
+                rows: [{ cells: ['1'] }],
+                target: 'app',
+                truncated: false,
+              },
+            }
+          : { error: 'input', message: 'syntax error at or near "SELEC"', ok: false };
+      }
+      case 'desktop-read/diagnostics/events':
+        return [event];
+      default:
+        throw new Error(`Unexpected Main request ${method}`);
+    }
+  });
+  const tools = desktopHostSharedTools({
+    readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+    request,
+    selected: selection(root),
+    threadId: 'host-thread',
+  });
+  const querySelf = tools['brainstrike_querySelf'];
+  const diagnostics = tools['brainstrike_queryDiagnostics'];
+  if (!(querySelf && diagnostics)) {
+    throw new Error('The self-inspection tools were not built for the host');
+  }
+  await expect(
+    querySelf.execute({ mode: 'query', sql: 'SELECT 1', target: 'app' }, execution())
+  ).resolves.toMatchObject({ kind: 'rows', rows: [{ cells: ['1'] }], target: 'app' });
+  // The engine's own message reaches the model as a correctable input error.
+  await expect(
+    querySelf.execute({ mode: 'query', sql: 'SELEC 1', target: 'app' }, execution())
+  ).rejects.toBeInstanceOf(ToolInputError);
+  // A local input error never reaches Main.
+  request.mockClear();
+  await expect(
+    querySelf.execute({ analyze: true, mode: 'query', sql: 'SELECT 1', target: 'app' }, execution())
+  ).rejects.toBeInstanceOf(ToolInputError);
+  expect(request.mock.calls.map(([method]) => method)).not.toContain('desktop-read/query-self');
+
+  await expect(
+    diagnostics.execute({ mode: 'events', severity: 'error' }, execution())
+  ).resolves.toMatchObject({ items: [event], kind: 'events', returned: 1 });
+  expect(request).toHaveBeenCalledWith('desktop-read/diagnostics/events', {
+    filter: { limit: 50, severity: 'error' },
+    threadId: 'host-thread',
+  });
 });

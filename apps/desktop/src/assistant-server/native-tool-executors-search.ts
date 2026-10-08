@@ -5,9 +5,6 @@
  * exhaustive map.
  */
 import {
-  type BrowserGetPageTextInput,
-  type BrowserNavigateInput,
-  type BrowserReadPageInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   type WebExtractInput,
   type WebSearchInput,
@@ -19,14 +16,10 @@ import {
   parseToolExecuteInput,
   type ToolExecuteInput,
 } from '@brainstrike/host-capabilities/native-tools';
-import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
-import {
-  runBrowserGetPageText,
-  runBrowserNavigate,
-  runBrowserReadPage,
-} from './browser-agent-tools';
+import { mainBrowserToolRunner } from './browser-agent-tools';
 import { pgliteGrepIndex } from './grep-search-tool';
 import { type DesktopToolBuildContext, executorGroup } from './native-tool-executor-context';
+import { browserToolExecutors } from './native-tool-executors-browser';
 import { grepSearchExecutor } from './native-tool-executors-grep';
 import { retrievalToolExecutors } from './native-tool-executors-retrieval';
 import { pgliteRetrievalStore } from './retrieval-store-pglite';
@@ -98,58 +91,5 @@ export const SEARCH_TOOL_EXECUTORS = executorGroup({
   [NATIVE_TOOL_ID.queryEmbeddingSpace]: mainRetrieval(NATIVE_TOOL_ID.queryEmbeddingSpace),
   [NATIVE_TOOL_ID.hybridSearch]: mainRetrieval(NATIVE_TOOL_ID.hybridSearch),
   [NATIVE_TOOL_ID.listEmbeddingSpaces]: mainRetrieval(NATIVE_TOOL_ID.listEmbeddingSpaces),
-  // Browser pane read tools (BST-1176 PR2). The active pane host is resolved
-  // PER CALL from the registry — a window opened after the stream started
-  // still serves, and a closed window returns the structured
-  // browser_unavailable failure instead of a stale handle. Omitted for the
-  // built-in local provider (same WebGPU-prefill reasoning as the task-list
-  // tool and the plan-mode gate).
-  [NATIVE_TOOL_ID.browserGetPageText]: ({ isLocalProvider }) =>
-    isLocalProvider
-      ? undefined
-      : {
-          description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserGetPageText],
-          execute: (input: ToolExecuteInput<BrowserGetPageTextInput>) =>
-            runBrowserGetPageText(
-              parseToolExecuteInput(
-                NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserGetPageText],
-                input
-              ),
-              getActiveBrowserPaneHost()
-            ),
-          id: NATIVE_TOOL_ID.browserGetPageText,
-          inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserGetPageText],
-        },
-  [NATIVE_TOOL_ID.browserNavigate]: ({ isLocalProvider }) =>
-    isLocalProvider
-      ? undefined
-      : {
-          description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserNavigate],
-          execute: (input: ToolExecuteInput<BrowserNavigateInput>) =>
-            runBrowserNavigate(
-              parseToolExecuteInput(
-                NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserNavigate],
-                input
-              ),
-              getActiveBrowserPaneHost()
-            ),
-          id: NATIVE_TOOL_ID.browserNavigate,
-          inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserNavigate],
-        },
-  [NATIVE_TOOL_ID.browserReadPage]: ({ isLocalProvider }) =>
-    isLocalProvider
-      ? undefined
-      : {
-          description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserReadPage],
-          execute: (input: ToolExecuteInput<BrowserReadPageInput>) =>
-            runBrowserReadPage(
-              parseToolExecuteInput(
-                NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserReadPage],
-                input
-              ),
-              getActiveBrowserPaneHost()
-            ),
-          id: NATIVE_TOOL_ID.browserReadPage,
-          inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserReadPage],
-        },
+  ...browserToolExecutors(mainBrowserToolRunner),
 });

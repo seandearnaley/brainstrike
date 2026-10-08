@@ -45,10 +45,14 @@ import {
   buildDesktopAssistantTools,
   type DesktopAssistantToolDependencies,
 } from '../assistant-server/assistant-tools';
+import { mainBrowserToolRunner } from '../assistant-server/browser-agent-tools';
 import { pgliteGrepIndex } from '../assistant-server/grep-search-tool';
+import { mainDiagnosticsReader } from '../assistant-server/query-diagnostics-tool';
+import { mainQuerySelfRead } from '../assistant-server/query-self-tool';
 import { prepareRequestSkills } from '../assistant-server/request-skills';
 import { pgliteRetrievalStore } from '../assistant-server/retrieval-store-pglite';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
+import { mainWorkspaceContextBroadcaster } from '../assistant-server/workspace-context-broadcast';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
 import {
   type DesktopWorktreeServices,
@@ -558,8 +562,14 @@ function desktopHostToolServices(
           queryEmbedding: (payload, signal) => embeddings.queryEmbedding(payload, { signal }),
         }
       : {}),
+    browser: mainBrowserToolRunner,
+    contextDelivery: mainWorkspaceContextBroadcaster,
+    diagnostics: mainDiagnosticsReader,
+    querySelf: mainQuerySelfRead(),
     retrievalStore: pgliteRetrievalStore(),
     shell: desktopShellCorrelation(dependencies),
+    worktrees: ({ runId, threadId }) =>
+      desktopWorktreeToolDependencies(dependencies, { runId, threadId }).worktreeTools,
   };
 }
 

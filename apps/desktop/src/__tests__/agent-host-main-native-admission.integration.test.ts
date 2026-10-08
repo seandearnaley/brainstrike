@@ -2,7 +2,7 @@
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { HostRunAdmissionRequest, HostTool, HostToolContext } from '@brainstrike/agent-host';
+import type { HostRunAdmissionRequest } from '@brainstrike/agent-host';
 import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
@@ -91,22 +91,7 @@ function request(
   };
 }
 
-function admitted(tools: Record<string, HostTool>, toolId: string): HostTool {
-  const tool = Object.values(tools).find((candidate) => candidate.permissionToolId === toolId);
-  if (!tool) {
-    throw new Error(`${toolId} was not admitted`);
-  }
-  return tool;
-}
-
-const execution: HostToolContext = {
-  runId: 'host-run',
-  signal: new AbortController().signal,
-  threadId: 'host-thread',
-  toolCallId: 'worktree-call',
-};
-
-test('a host thread’s worktree tools run through Main’s worktree service under the host run identity', async () => {
+test('Main serves a host run’s worktree calls through its worktree service under the host run identity', async () => {
   const service = {
     archive: vi.fn(),
     create: vi.fn(async () => ({
@@ -118,33 +103,27 @@ test('a host thread’s worktree tools run through Main’s worktree service und
     })),
     list: vi.fn(async () => ({ ok: true as const, value: [] })),
   };
-  const captured = await productionDesktopCapabilities({
+  const worktrees = productionDesktopCapabilities({
     resolveForgeService: () => null,
     resolveWorktreeService: () => service as never,
-  }).readConfiguration(request(WORKTREE_TOOL_IDS));
-  try {
-    await expect(
-      admitted(captured.tools, NATIVE_TOOL_ID.listWorktrees).execute({}, execution)
-    ).resolves.toMatchObject({ worktrees: [] });
-    await expect(
-      admitted(captured.tools, NATIVE_TOOL_ID.manageWorktree).execute(
-        { action: 'create', branch: 'bs/fox', root: 'root-a' },
-        execution
-      )
-    ).resolves.toMatchObject({ action: 'create', worktreeId: 'wt-9' });
-    // Provenance comes from the host run, never from tool input.
-    expect(service.create).toHaveBeenCalledWith({
-      baseRef: 'HEAD',
-      branch: { name: 'bs/fox' },
-      createdBy: 'agent',
-      name: 'fox',
-      rootId: 'root-a',
-      runId: 'host-run',
-      threadId: 'host-thread',
-    });
-  } finally {
-    await captured.close();
+  }).hostTools?.worktrees?.({ runId: 'host-run', threadId: 'host-thread' });
+  if (!worktrees) {
+    throw new Error('Main served no worktree calls');
   }
+  await expect(worktrees.list()).resolves.toEqual({ ok: true, value: [] });
+  await expect(
+    worktrees.create({ baseRef: 'HEAD', branch: 'bs/fox', name: 'fox', rootId: 'root-a' })
+  ).resolves.toMatchObject({ ok: true, value: { worktree: { id: 'wt-9' } } });
+  // Provenance comes from the host run, never from tool input.
+  expect(service.create).toHaveBeenCalledWith({
+    baseRef: 'HEAD',
+    branch: { name: 'bs/fox' },
+    createdBy: 'agent',
+    name: 'fox',
+    rootId: 'root-a',
+    runId: 'host-run',
+    threadId: 'host-thread',
+  });
 });
 
 test('a host thread is not offered worktree tools while Main has no worktree service', async () => {
