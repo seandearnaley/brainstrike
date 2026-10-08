@@ -111,6 +111,8 @@ export type McpElicitationPresentation =
   | McpUrlElicitationPresentation;
 interface PendingPresentation {
   readonly cleanup: () => void;
+  /** Aborts when this presentation finalizes for any reason; Core's capability sees it. */
+  readonly finalized: AbortSignal;
   /** Core owns this input: only its capability may settle it. */
   readonly hostOwned: boolean;
   readonly invocation: InvocationAuthority;
@@ -455,7 +457,8 @@ export class McpElicitationPresenterAuthority {
         await acknowledged(String(presentation.provenance.requestId));
         return 'remote-acknowledged';
       },
-      signal,
+      // Withdrawn input (a cancelled task, a server withdrawal) retires in Core too.
+      signal: AbortSignal.any([signal, pending.finalized]),
       validate: async (answer) => {
         owned(answer);
       },
@@ -645,8 +648,13 @@ export class McpElicitationPresenterAuthority {
       return;
     }
     signal.addEventListener('abort', onAbort, { once: true });
+    const finalized = new AbortController();
     const pending: PendingPresentation = {
-      cleanup: () => signal.removeEventListener('abort', onAbort),
+      cleanup: () => {
+        signal.removeEventListener('abort', onAbort);
+        finalized.abort(new McpElicitationPresenterError('mcp-elicitation-authority-retired'));
+      },
+      finalized: finalized.signal,
       hostOwned: invocation.host !== undefined,
       invocation,
       presentation,

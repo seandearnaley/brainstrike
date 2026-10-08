@@ -19,25 +19,25 @@ import {
   DEFAULT_PERMISSION_POLICIES,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
-import { StateStore } from '@brainstrike/state-store';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
 import {
   type AgentHostMcpCollection,
   createAgentHostAdapterServicesFactory,
   createFileCredentialBackend,
   isMcpOAuthCredentialAccount,
-} from '../agent-host-platform/adapter-services';
-import { writePrivateCredentialFile } from '../agent-host-platform/private-credential-file';
-import { createProductionAgentHostAdapterServicesFactory } from '../agent-host-platform/production-adapter-services';
-import { mcpBearerCredentialStorageKey } from '../mcp/bearer-credential';
-import { createCredentialMcpOAuthStore } from '../mcp/credential-oauth-store';
+} from '@brainstrike/host-capabilities/mcp/adapter-services';
+import { mcpBearerCredentialStorageKey } from '@brainstrike/host-capabilities/mcp/bearer-credential';
+import { createCredentialMcpOAuthStore } from '@brainstrike/host-capabilities/mcp/credential-oauth-store';
 import {
   createMcpOAuthStoreIdentity,
   identityKey,
   parseRecords,
   purgeMcpOAuthRuntimeState,
-} from '../mcp/oauth-client-provider';
+} from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import { StateStore } from '@brainstrike/state-store';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
+import { writePrivateCredentialFile } from '../agent-host-platform/private-credential-file';
+import { createProductionAgentHostAdapterServicesFactory } from '../agent-host-platform/production-adapter-services';
 import { fixtureCapabilities, fixtureToolRequest } from './fixtures/agent-host-adapter-fixture';
 
 const roots = new Set<string>();

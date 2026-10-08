@@ -1,6 +1,5 @@
 import { getEventListeners } from 'node:events';
 import { createServer } from 'node:net';
-import { describe, expect, it, vi } from 'vitest';
 import {
   createInMemoryMcpOAuthStore,
   createLazySafeStorageMcpOAuthStore,
@@ -11,7 +10,8 @@ import {
   purgeMcpOAuthRuntimeState,
   readMcpOAuthAuthProjection,
   registerMcpOAuthStore,
-} from '../../mcp/oauth-client-provider';
+} from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import { describe, expect, it, vi } from 'vitest';
 
 const identity = {
   resourceUrl: 'https://mcp.example.test/mcp',

@@ -3,16 +3,16 @@ import {
   type McpNegotiatedStatus,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
-import { ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
-import { describe, expect, it, vi } from 'vitest';
-import { McpBearerCredentialFailure } from '../../mcp/bearer-credential';
-import { McpLifecycleFailure } from '../../mcp/lifecycle-errors';
+import { McpBearerCredentialFailure } from '@brainstrike/host-capabilities/mcp/bearer-credential';
+import { McpLifecycleFailure } from '@brainstrike/host-capabilities/mcp/lifecycle-errors';
 import {
   McpServerActor,
   type McpServerActorClient,
   McpServerActorClientCleanupError,
   type McpServerActorClientFactory,
-} from '../../mcp/server-actor';
+} from '@brainstrike/host-capabilities/mcp/server-actor';
+import { ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
+import { describe, expect, it, vi } from 'vitest';
 
 const linearId = parseConfiguredMcpServerId('linear');
 const githubId = parseConfiguredMcpServerId('github');

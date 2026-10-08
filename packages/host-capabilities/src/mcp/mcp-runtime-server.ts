@@ -9,14 +9,14 @@ import {
 import { parseMcpConfigValue } from '@brainstrike/assistant-contract/mcp-config';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
-import type { McpHostRuntime } from '../mcp/node-host-runtime';
 import {
   MCP_RUNTIME_METHODS,
   MCP_RUNTIME_NOTIFICATIONS,
   type McpToolRegistryState,
   McpToolRegistryStateSchema,
   respond,
-} from './mcp-runtime-wire';
+} from './mcp-runtime-wire.js';
+import type { McpHostRuntime } from './node-host-runtime.js';
 
 function tokenSignal(token: CancellationToken): { signal: AbortSignal; dispose(): void } {
   const controller = new AbortController();
