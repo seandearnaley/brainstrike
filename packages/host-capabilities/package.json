@@ -9,7 +9,15 @@
   "engines": { "node": ">=24.20.0 <25 || >=26.8.2 <27" },
   "exports": {
     ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./canvas-state": {
+      "types": "./dist/native-tools/canvas-state.d.ts",
+      "default": "./dist/native-tools/canvas-state.js"
+    },
     "./credentials": { "types": "./dist/credentials.d.ts", "default": "./dist/credentials.js" },
+    "./native-tools": {
+      "types": "./dist/native-tools/index.d.ts",
+      "default": "./dist/native-tools/index.js"
+    },
     "./platform": { "types": "./dist/platform.d.ts", "default": "./dist/platform.js" },
     "./mcp/*": { "types": "./dist/mcp/*.d.ts", "default": "./dist/mcp/*.js" },
     "./provider-credentials": {
@@ -34,11 +42,14 @@
     "@brainstrike/assistant-service": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/effect-kit": "workspace:*",
+    "@brainstrike/file-system": "workspace:*",
     "@brainstrike/host-lease": "workspace:*",
     "@brainstrike/logging": "workspace:*",
+    "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@modelcontextprotocol/client": "catalog:",
     "effect": "catalog:",
+    "minimatch": "catalog:",
     "strip-ansi": "7.2.0",
     "vscode-jsonrpc": "catalog:",
     "zod": "catalog:"

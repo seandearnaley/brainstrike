@@ -54,6 +54,8 @@ export interface ProductionHostPlatformOptions {
   /** The host's credential authority, where this host owns a credential store. */
   readonly auth?: HostPlatform['auth'];
   close(): Promise<void>;
+  /** Purge process-local caches of a deleted thread. */
+  readonly forgetThread?: HostPlatform['forgetThread'];
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
@@ -66,6 +68,8 @@ export interface ProductionHostPlatformOptions {
     auth: ProviderAuthInput | undefined
   ) => Promise<Exclude<LanguageModel, string>>;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
+  /** The live root owner checkpoint revert revalidates against. */
+  readonly resolveWorkspaceRoot?: HostPlatform['resolveWorkspaceRoot'];
   readonly startup: HostStartupContext;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
@@ -301,6 +305,8 @@ export async function createProductionHostPlatform(
     },
     close,
     readPermissionPolicy: options.readPermissionPolicy,
+    ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
+    ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
     stateIndexer: indexer,
     ...(options.auth ? { auth: options.auth } : {}),
   };

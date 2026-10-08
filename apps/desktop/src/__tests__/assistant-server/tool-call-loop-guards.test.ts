@@ -1,4 +1,3 @@
-import { beforeEach, describe, expect, it } from 'vitest';
 import {
   checkUnchangedReadWindow,
   commitRepeatedToolCall,
@@ -11,7 +10,8 @@ import {
   resetEditFailureStreak,
   resetToolCallLoopGuards,
   stableNormalizedArgsKey,
-} from '../../assistant-server/tool-call-loop-guards';
+} from '@brainstrike/host-capabilities/native-tools';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 beforeEach(() => {
   resetToolCallLoopGuards();

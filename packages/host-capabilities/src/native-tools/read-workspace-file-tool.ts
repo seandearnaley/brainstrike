@@ -19,27 +19,30 @@ import {
   recordKnownFileMtime,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
+import {
+  describeOpenRootTopology,
+  resolveWorkspaceRoot,
+} from '@brainstrike/assistant-service/node-workspace-services';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
-import { assertNotAgentIgnored } from './agent-ignore-guard';
+import { assertNotAgentIgnored } from './agent-ignore-guard.js';
 import {
   READ_WORKSPACE_FILE_CURSOR_HANDLE_LENGTH,
   type ReadWorkspaceFileCursorRegistry,
   type ReadWorkspaceFileCursorScope,
   type ReadWorkspaceFileCursorState,
-} from './read-workspace-file-cursor-registry';
-import { buildReadWorkspaceFileProjectionText } from './read-workspace-file-model-projection';
+} from './read-workspace-file-cursor-registry.js';
+import { buildReadWorkspaceFileProjectionText } from './read-workspace-file-model-projection.js';
 import {
   buildRepeatedCallRefusalResult,
   checkUnchangedReadWindow,
   type LoopGuardRefusalResult,
   readWindowKey,
   UNCHANGED_READ_STUB_MESSAGE,
-} from './tool-call-loop-guards';
-import { readStateScope } from './workspace-file-staleness';
-import { decodedWorkspaceTextModelOutputChars } from './workspace-model-projection-helpers';
-import { withStableWorkspaceFileLock } from './workspace-path-resolution';
-import { describeOpenRootTopology, resolveWorkspaceRoot } from './workspace-roots';
-import { MAX_READ_WORKSPACE_FILE_BYTES } from './workspace-text-file-reader';
+} from './tool-call-loop-guards.js';
+import { readStateScope } from './workspace-file-staleness.js';
+import { decodedWorkspaceTextModelOutputChars } from './workspace-model-projection-helpers.js';
+import { withStableWorkspaceFileLock } from './workspace-path-resolution.js';
+import { MAX_READ_WORKSPACE_FILE_BYTES } from './workspace-text-file-reader.js';
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
 const READ_WORKSPACE_FILE_CHUNK_BYTES = 64 * 1024;

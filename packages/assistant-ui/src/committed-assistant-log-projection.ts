@@ -9,6 +9,10 @@ import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type AssistantRunEvent,
 } from '@brainstrike/assistant-contract';
+import {
+  type AssistantContextBreakdownState,
+  parseAssistantContextBreakdown,
+} from '@brainstrike/assistant-contract/context-breakdown';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
 import type { ThreadTokenUsage } from './context-usage-store';
 
@@ -45,9 +49,13 @@ export interface CommittedAssistantPendingInteraction {
 
 export interface CommittedAssistantLogView {
   readonly activeRunId: string | undefined;
+  /** Latest prepared provider prompt's composition, for the context popover. */
+  readonly contextBreakdown?: AssistantContextBreakdownState | undefined;
   /** Latest chat provider step, never aggregate billing or observer usage. */
   readonly contextUsage?: ThreadTokenUsage | undefined;
   readonly isRunning: boolean;
+  /** The latest run received no observational memory, and why. */
+  readonly observationWithheld?: 'branched-thread' | undefined;
   readonly pendingInteractions: readonly CommittedAssistantPendingInteraction[];
   readonly repository: ExportedMessageRepository;
 }
@@ -431,8 +439,42 @@ export class CommittedAssistantLogProjection {
       ...this.view,
       activeRunId: runId,
       isRunning: true,
+      // A withheld reason belongs to the run that committed it.
+      observationWithheld: undefined,
       repository: { ...this.view.repository, headId: message.id },
     };
+  }
+
+  /**
+   * A host event with no message part of its own: a withheld memory reason
+   * becomes thread view state, anything else stays as host-event data.
+   */
+  private other(run: ProjectedRun, row: CommittedAssistantLogRow): void {
+    const event = row.event;
+    if (event['type'] === 'mcp.tools.unavailable') {
+      const notice = mcpToolsUnavailableNotice(
+        event,
+        row,
+        requiredString(event, 'runId'),
+        this.message(run).createdAt.toISOString()
+      );
+      this.data(run, row, notice, ASSISTANT_RUN_EVENT_DATA_NAME);
+      return;
+    }
+    if (event['type'] === 'provider.request.prepared' && event['breakdown'] !== undefined) {
+      this.view = {
+        ...this.view,
+        contextBreakdown: parseAssistantContextBreakdown(event['breakdown']),
+      };
+    }
+    if (event['type'] !== 'memory.observation.withheld') {
+      this.data(run, row, event, 'brainstrike.host-event');
+      return;
+    }
+    if (event['reason'] !== 'branched-thread') {
+      throw new Error('Committed withheld memory has an unsupported reason.');
+    }
+    this.view = { ...this.view, observationWithheld: event['reason'] };
   }
 
   private stream(run: ProjectedRun, row: CommittedAssistantLogRow): void {
@@ -664,26 +706,7 @@ export class CommittedAssistantLogProjection {
     } else if (event['type'] === 'run.finished') {
       this.finish(run, event);
     } else {
-      this.hostEvent(run, row, event);
+      this.other(run, row);
     }
-  }
-
-  /** Other committed events stay data; an unavailable MCP server becomes a run notice. */
-  private hostEvent(
-    run: ProjectedRun,
-    row: CommittedAssistantLogRow,
-    event: Readonly<Record<string, unknown>>
-  ): void {
-    if (event['type'] !== 'mcp.tools.unavailable') {
-      this.data(run, row, event, 'brainstrike.host-event');
-      return;
-    }
-    const notice = mcpToolsUnavailableNotice(
-      event,
-      row,
-      requiredString(event, 'runId'),
-      this.message(run).createdAt.toISOString()
-    );
-    this.data(run, row, notice, ASSISTANT_RUN_EVENT_DATA_NAME);
   }
 }

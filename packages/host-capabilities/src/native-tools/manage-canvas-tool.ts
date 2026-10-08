@@ -1,36 +1,22 @@
-import type { ManageCanvasInput, RuntimeData } from '@brainstrike/agent';
+import type { ManageCanvasInput } from '@brainstrike/agent';
 import { CANVAS_HTML_MAX_BYTES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import { isEmptyCanvasDocument } from './canvas-document-content';
-import {
-  applyUpdate,
-  type CanvasDatabase,
-  type CanvasListResult,
-  type CanvasMutationResult,
-  createCanvas,
-  listCanvasesForThread,
-  rewriteCanvas,
-} from './canvas-repository';
-
-export type { CanvasDatabase } from './canvas-repository';
+import { isEmptyCanvasDocument } from './canvas-document-content.js';
+import type {
+  CanvasListResult,
+  CanvasMutationResult,
+  CanvasRepositoryFailure,
+  CanvasStore,
+  CanvasVersion,
+} from './ports.js';
 
 export const MANAGE_CANVAS_TOOL_ID = NATIVE_TOOL_ID.manageCanvas;
 
 const logger = createLogger('AssistantCanvas');
 
-export interface ManageCanvasDependencies {
-  /** Injected DB handle for tests; production resolves the main-process handle. */
-  database?: CanvasDatabase;
-}
-
-async function resolveDesktopDatabase(): Promise<CanvasDatabase> {
-  const { getDatabase } = await import('../db-main');
-  return getDatabase();
-}
-
 /**
  * Closed failure vocabulary: the tool adds exactly one failure of its own
- * (`no_active_thread`) on top of the repository's — consumers narrowing on
+ * (`no_active_thread`) on top of the store's — consumers narrowing on
  * `result.error` keep exhaustiveness checking.
  */
 export interface ManageCanvasNoThreadFailure {
@@ -40,8 +26,8 @@ export interface ManageCanvasNoThreadFailure {
 }
 
 /**
- * The repository's `too_large`, carrying the recovery the model needs. Declared
- * here rather than in the repository because the hint is tool-facing prose, the
+ * The store's `too_large`, carrying the recovery the model needs. Declared
+ * here rather than in the store because the hint is tool-facing prose, the
  * same reason `no_active_thread` lives here.
  */
 export interface ManageCanvasTooLargeFailure {
@@ -52,8 +38,8 @@ export interface ManageCanvasTooLargeFailure {
 
 /**
  * A `create` whose document is empty (see `isEmptyCanvasDocument`). Tool-level
- * because it is policy about WHEN to create, not storage: the repository
- * happily stores an empty version 1, and `rewrite` may still produce one.
+ * because it is policy about WHEN to create, not storage: a store happily
+ * keeps an empty version 1, and `rewrite` may still produce one.
  * Live-app verifier runs 6 and 7 (2026-09-15): the root created a shell 25 s
  * into the turn and wrote the report behind a second approval; the user
  * reads card → approve → document appears, and the empty pre-create breaks
@@ -69,7 +55,7 @@ export const EMPTY_CANVAS_DOCUMENT_HINT =
   'Nothing was created: the document has no content. Create the canvas when the content is ready — there is nothing to prepare. One create call carrying the finished document is the deliverable, and the only approval the user should see for it.';
 
 /**
- * `too_large` is deliberately EXCLUDED from the repository shape here and
+ * `too_large` is deliberately EXCLUDED from the store shape here and
  * re-admitted only in its hinted form, so a future call site cannot return the
  * bare code and silently drop the recovery the model depends on.
  */
@@ -81,7 +67,7 @@ export type ManageCanvasToolResult =
   | ManageCanvasTooLargeFailure;
 
 /**
- * `too_large` is the one repository failure a model cannot recover from by
+ * `too_large` is the one store failure a model cannot recover from by
  * retrying — the same edit fails identically forever — so it is the one that has
  * to arrive with instructions. Every other member of the union either describes
  * a state the model can inspect (`no_match`, `ambiguous_match`, `not_found`) or
@@ -97,14 +83,42 @@ function withSizeHint(result: CanvasMutationResult): ManageCanvasToolResult {
     : result;
 }
 
+/** One unique `oldString` match in the latest version, replaced; the store enforces the ceiling. */
+export function applyCanvasUpdate(
+  latest: CanvasVersion,
+  oldString: string,
+  newString: string
+): string | CanvasRepositoryFailure {
+  const firstMatch = latest.html.indexOf(oldString);
+  if (firstMatch === -1) {
+    return { error: 'no_match', ok: false };
+  }
+  const secondMatch = latest.html.indexOf(oldString, firstMatch + 1);
+  if (secondMatch !== -1) {
+    return { error: 'ambiguous_match', ok: false };
+  }
+  // Reject the clearly-oversized composition BEFORE materialising it. UTF-8
+  // bytes >= UTF-16 units, so a unit count over the ceiling is over it in bytes
+  // too — sparing a ~14 MB intermediate on exactly the hostile path the byte
+  // predicate goes to some length not to allocate for. Anything below this
+  // bound still gets the store's exact check.
+  if (latest.html.length - oldString.length + newString.length > CANVAS_HTML_MAX_BYTES) {
+    return { error: 'too_large', ok: false };
+  }
+  return `${latest.html.slice(0, firstMatch)}${newString}${latest.html.slice(
+    firstMatch + oldString.length
+  )}`;
+}
+
+/**
+ * Canvas mutations are hard-scoped to the calling thread by its store: a canvas
+ * of another thread resolves to the same uniform `not_found` as a missing one.
+ */
 export async function runManageCanvas(
   input: ManageCanvasInput,
-  runtimeData: RuntimeData | undefined,
-  dependencies: ManageCanvasDependencies = {}
+  store: CanvasStore | undefined
 ): Promise<ManageCanvasToolResult> {
-  const threadId = runtimeData?.memory?.threadId;
-  const resourceId = runtimeData?.memory?.resourceId;
-  if (!(threadId && resourceId)) {
+  if (!store) {
     logger.warn('manageCanvas called without an active memory thread');
     return {
       error: 'no_active_thread',
@@ -112,33 +126,28 @@ export async function runManageCanvas(
       ok: false,
     };
   }
-
-  const db = dependencies.database ?? (await resolveDesktopDatabase());
   switch (input.action) {
     case 'create':
-      // Refused BEFORE any DB call: an empty version 1 must never exist, and
+      // Refused BEFORE any store call: an empty version 1 must never exist, and
       // the refusal must cost the model no approval.
       if (isEmptyCanvasDocument(input.html)) {
-        logger.info('manageCanvas create refused: empty document', { threadId });
+        logger.info('manageCanvas create refused: empty document');
         return { error: 'empty_document', hint: EMPTY_CANVAS_DOCUMENT_HINT, ok: false };
       }
       return withSizeHint(
-        await createCanvas(db, {
-          createdBy: 'assistant',
-          html: input.html,
-          resourceId,
-          threadId,
-          title: input.title,
-        })
+        await store.create({ createdBy: 'assistant', html: input.html, title: input.title })
       );
     case 'update':
-      // threadId comes from runtime memory, NEVER from model input: mutations
-      // are hard-scoped to the calling thread (cross-thread ids resolve to the
-      // same uniform not_found as nonexistent ids).
-      return withSizeHint(await applyUpdate(db, { ...input, threadId }));
+      return withSizeHint(
+        await store.revise(input.canvasId, (latest) =>
+          applyCanvasUpdate(latest, input.oldString, input.newString)
+        )
+      );
     case 'rewrite':
-      return withSizeHint(await rewriteCanvas(db, { ...input, threadId }));
+      return withSizeHint(await store.revise(input.canvasId, () => input.html));
     case 'list':
-      return await listCanvasesForThread(db, threadId);
+      return await store.list();
+    default:
+      throw new Error('Unknown manageCanvas action');
   }
 }

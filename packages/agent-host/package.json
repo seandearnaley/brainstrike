@@ -37,6 +37,10 @@
     "./test-fixtures/cooperative-host": "./__tests__/fixtures/cooperative-host-fixture.ts",
     "./test-fixtures/process-platform": "./__tests__/fixtures/process-platform.mjs",
     "./thread-view": { "types": "./dist/thread-view.d.ts", "default": "./dist/thread-view.js" },
+    "./edit-checkpoint-view": {
+      "types": "./dist/edit-checkpoint-view.d.ts",
+      "default": "./dist/edit-checkpoint-view.js"
+    },
     "./standalone-workspace-input": {
       "types": "./dist/standalone-workspace-input.d.ts",
       "default": "./dist/standalone-workspace-input.js"

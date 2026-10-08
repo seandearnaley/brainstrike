@@ -7,13 +7,13 @@
  */
 
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
+import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import type { WorkspaceFileReader } from './assistant-server/workspace-instructions-context';
 import {
   scanWorkspaceContextFiles,
   type WorkspaceContextFileStatus,
 } from './assistant-server/workspace-instructions-scan';
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
-import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
 import { getDatabase } from './db-main';
 
 export interface ContextFilesScanDeps {

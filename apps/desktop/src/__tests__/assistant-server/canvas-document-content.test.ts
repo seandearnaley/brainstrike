@@ -1,5 +1,5 @@
+import { isEmptyCanvasDocument } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
-import { isEmptyCanvasDocument } from '../../assistant-server/canvas-document-content';
 
 describe('isEmptyCanvasDocument', () => {
   it.each([

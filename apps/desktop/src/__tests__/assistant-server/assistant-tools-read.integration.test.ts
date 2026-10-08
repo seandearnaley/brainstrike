@@ -20,6 +20,14 @@ import {
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract';
 import { encodeToolOutputArtifactCursor } from '@brainstrike/assistant-contract/tool-output-artifact';
+import {
+  decodedWorkspaceTextModelOutputChars,
+  ReadWorkspaceFileCursorRegistry,
+  type ReadWorkspaceFileResult,
+  resetToolCallLoopGuards,
+  runReadWorkspaceFile,
+  UNCHANGED_READ_STUB_MESSAGE,
+} from '@brainstrike/host-capabilities/native-tools';
 import type { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -28,16 +36,6 @@ import {
   COMMAND_SESSION_TOOL_RESULT_MAX_UTF8_BYTES,
   type CommandSessionPayloadTransform,
 } from '../../assistant-server/command-session-tools';
-import { ReadWorkspaceFileCursorRegistry } from '../../assistant-server/read-workspace-file-cursor-registry';
-import {
-  type ReadWorkspaceFileResult,
-  runReadWorkspaceFile,
-} from '../../assistant-server/read-workspace-file-tool';
-import {
-  resetToolCallLoopGuards,
-  UNCHANGED_READ_STUB_MESSAGE,
-} from '../../assistant-server/tool-call-loop-guards';
-import { decodedWorkspaceTextModelOutputChars } from '../../assistant-server/workspace-model-projection-helpers';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,

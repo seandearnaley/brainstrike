@@ -16,6 +16,11 @@ import {
   invalidateManagedCacheEntriesByIdentity,
   isBackgroundDatabaseWorkAdmitted,
 } from '@brainstrike/db';
+import {
+  REDACTED_PATH_LOG_VALUE,
+  readWorkspaceTextFile,
+  redactToolErrorForLog,
+} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import {
   containDatabaseIntegrityError,
@@ -25,8 +30,6 @@ import {
 import { getDatabase } from '../db-main';
 import { getDesktopDatabaseWorkScheduler } from '../platform/desktop-database-work-scheduler';
 import { type ReindexDatabaseHandle, reindexEditedFile, statMtimeMs } from './reindex-edited-file';
-import { REDACTED_PATH_LOG_VALUE, redactToolErrorForLog } from './tool-execute-support';
-import { readWorkspaceTextFile } from './workspace-text-file-reader';
 
 const logger = createLogger('DesktopAssistantTools');
 

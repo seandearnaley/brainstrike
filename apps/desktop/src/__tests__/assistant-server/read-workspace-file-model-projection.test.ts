@@ -2,9 +2,11 @@ import {
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent';
+import {
+  decodedWorkspaceTextModelOutputChars,
+  projectReadWorkspaceFileModelOutput,
+} from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
-import { projectReadWorkspaceFileModelOutput } from '../../assistant-server/read-workspace-file-model-projection';
-import { decodedWorkspaceTextModelOutputChars } from '../../assistant-server/workspace-model-projection-helpers';
 
 describe('projectReadWorkspaceFileModelOutput replay', () => {
   it('replays a stored projection above the resolved floor budget but below the ceiling', () => {

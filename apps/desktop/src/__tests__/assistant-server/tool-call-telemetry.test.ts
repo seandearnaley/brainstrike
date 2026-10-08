@@ -3,8 +3,8 @@ import {
   type GrepSearchInput,
   readToolCallTelemetryMetadata,
 } from '@brainstrike/agent';
+import type { GlobWorkspaceToolResult } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
-import type { GlobWorkspaceToolResult } from '../../assistant-server/glob-workspace-tool';
 import type { GrepToolResult } from '../../assistant-server/grep-search-result-contract';
 import {
   attachGlobWorkspaceTelemetry,

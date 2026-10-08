@@ -76,6 +76,15 @@ export class ReadWorkspaceFileCursorRegistry {
     this.#entries.clear();
   }
 
+  /** Drop every handle a deleted thread issued. */
+  forgetThread(threadId: string): void {
+    for (const [handle, entry] of this.#entries) {
+      if (entry.scope.threadId === threadId) {
+        this.#entries.delete(handle);
+      }
+    }
+  }
+
   issue(scope: ReadWorkspaceFileCursorScope, state: ReadWorkspaceFileCursorState): string {
     const now = this.#now();
     this.#deleteExpired(now);

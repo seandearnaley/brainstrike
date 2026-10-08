@@ -2,6 +2,7 @@ import {
   createProviderRequestMiddleware,
   healInterruptedModelMessages,
   type ProviderRequestContext,
+  preparedPromptBreakdown,
 } from '@brainstrike/agent/provider-request';
 import { createLogger } from '@brainstrike/logging';
 import type { StateStore } from '@brainstrike/state-store';
@@ -263,6 +264,7 @@ export class StateStoreHostMemory implements HostRunOwner {
         }
         await this.identity.recordProviderRequest({
           accounting: prepared.accounting,
+          breakdown: preparedPromptBreakdown(prepared),
           modelId: model.modelId,
           provider: selected.provider,
         });

@@ -1,21 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import type { StateStore } from '@brainstrike/state-store';
-import {
-  type LanguageModel,
-  type ModelMessage,
-  modelMessageSchema,
-  stepCountIs,
-  streamText,
-} from 'ai';
-import {
-  ApprovalInputReconstructionError,
-  rebuildApprovedRuntimeMessages,
-} from './approval-input.js';
+import type { BlobContent, StateStore } from '@brainstrike/state-store';
+import type { LanguageModel, ModelMessage } from 'ai';
+import { ApprovalInputReconstructionError } from './approval-input.js';
 import { hostRunClosingOutcomes, reportRetiredHostOutcomes } from './core-retirement.js';
+import {
+  type HostRunAction as Action,
+  executeHostAction,
+  type HostRunExecutionPorts,
+  runHostSdkLoop,
+} from './core-run-execution.js';
 import {
   abortHostThreadRuns,
   assertHostAdmissionCleanup,
-  finishHostSdkLoop,
   joinHostClosingRun,
   joinHostRunOwner,
   joinHostThreadDeletion,
@@ -33,7 +29,6 @@ import {
   recordHostConversationId,
 } from './core-state.js';
 import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
-import { healInterruptedRunHistory } from './interrupted-history.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
@@ -48,15 +43,9 @@ import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics
 import {
   acquireHostRunAdmission,
   closeHostRunResources,
-  createAdmittedHostSdkTools,
-  decideHostSdkApproval,
   ensureHostRunAdmission,
   hostMcpUnavailableEvents,
   hostRunCommandRequest,
-  hostRunToolDecision,
-  hostRunTools,
-  hostStepInteractions,
-  prepareHostProviderStep,
 } from './run-admission.js';
 import {
   admittedHostRun,
@@ -67,8 +56,6 @@ import {
   type HostRunAdmissionCommand,
   type HostRunPosition,
   hostRegeneratePosition,
-  hostRunAncestors,
-  hostRunContext,
   hostStartCommandRecord,
   hostStartPosition,
 } from './run-branch.js';
@@ -78,14 +65,14 @@ import {
   commitHostModelMessages,
   createHostApprovalResponses,
   finishApprovedHostResults,
-  resolveHostApprovalInput,
 } from './run-continuation.js';
 import { HostThreadPresentationState } from './thread-presentation-state.js';
+import { HostToolRecords } from './tool-records.js';
+import { revertHostRunEdits } from './workspace-edits.js';
 import { HostThreadWorkspaceState } from './workspace-state.js';
 
 export { jsonValue } from './json-value.js';
 
-type Action = Extract<HostEvent, { type: 'effect.started' }>;
 export type HostEventStore = Pick<
   StateStore,
   'append' | 'read' | 'root' | 'syncBoundary' | 'threads'
@@ -95,6 +82,7 @@ export type HostEventStore = Pick<
 export class HostCore {
   private readonly commands = new HostCommandLedger();
   private readonly mcpInputs = new HostMcpInputState();
+  private readonly records = new HostToolRecords();
   private readonly threads = new Set<string>();
   private readonly presentations = new HostThreadPresentationState({
     admit: (threadId, perform) => this.admit(threadId, perform),
@@ -190,6 +178,7 @@ export class HostCore {
 
   private fold(row: HostLogRow): void {
     this.mcpInputs.fold(row);
+    this.records.fold(row);
     this.presentations.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
@@ -232,10 +221,12 @@ export class HostCore {
     threadId: string,
     events: readonly HostEvent[],
     durability: 'normal' | 'full' = 'normal',
-    beforePublish?: (rows: readonly HostLogRow[]) => void
+    beforePublish?: (rows: readonly HostLogRow[]) => void,
+    /** Blobs an event names in `blobRefs` (storedHostEvent matches them per event). */
+    referenced?: readonly BlobContent[]
   ): Promise<HostLogRow[]> {
     const committed = await this.store.append(
-      events.map((event) => storedHostEvent(threadId, event)),
+      events.map((event) => storedHostEvent(threadId, event, referenced)),
       undefined,
       durability
     );
@@ -396,6 +387,7 @@ export class HostCore {
       this.presentations.forget(params.threadId);
       this.workspaces.forget(params.threadId);
       this.mcpInputs.forgetThread(params.threadId);
+      this.records.forgetThread(params.threadId, this.platform);
       for (const run of runs) {
         this.runs.delete(run.id);
         this.conversationIds.delete(run.id);
@@ -504,72 +496,26 @@ export class HostCore {
     }
   }
 
-  private async execute(
-    run: Run,
-    action: Action,
-    input: unknown,
-    resumeData?: unknown
-  ): Promise<unknown> {
-    const registered = hostRunTools(run)[action.toolId];
-    const permitted = run.permits.get(action.toolCallId);
-    if (!registered || registered.identity !== action.toolIdentity || permitted !== action) {
-      throw new Error('Tool execution lacks its exact host permission decision');
-    }
-    run.permits.delete(action.toolCallId);
-    run.controller.signal.throwIfAborted();
-    if ((await hostRunToolDecision(this.platform, run, action.toolId)) === 'deny') {
-      throw new Error('Tool permission was revoked');
-    }
-    run.controller.signal.throwIfAborted();
-    await ensureHostRunAdmission(this.platform, run);
-    await this.append(run.threadId, [action]);
-    run.started.add(action.toolCallId);
-    run.controller.signal.throwIfAborted();
-    // The public SDK already validated/transformed this exact admitted input.
-    // Revalidating a canonical value can transform it a second time.
-    const output = await registered.execute(input, {
-      ...(resumeData === undefined ? {} : { resumeData }),
-      mcp: this.mcpInputs.execution(run, action, registered, {
-        admit: (perform) => this.admit(run.threadId, perform, run.controller.signal),
-        append: (events, beforePublish) =>
-          this.append(run.threadId, events, 'full', (rows) => {
-            for (const row of rows) {
-              this.fold(row);
-            }
-            beforePublish?.();
-          }),
-        assertCurrent: () => {
-          if (
-            this.closing ||
-            this.deletions.has(run.threadId) ||
-            hostRunTools(run)[action.toolId] !== registered
-          ) {
-            throw new Error('MCP execution authority retired');
-          }
-        },
-        retain: (work) => retainHostRunWork(run, work),
-      }),
-      runId: run.id,
-      signal: run.controller.signal,
-      threadId: run.threadId,
-      toolCallId: action.toolCallId,
-      write: async (chunk: unknown): Promise<void> => {
-        run.controller.signal.throwIfAborted();
-        await this.append(run.threadId, [
-          { chunk: jsonValue(chunk), runId: run.id, type: 'stream.chunk' },
-        ]);
-      },
-    });
-    await this.append(run.threadId, [
-      {
-        output: jsonValue(output),
-        runId: run.id,
-        toolCallId: action.toolCallId,
-        type: 'effect.finished',
-      },
-    ]);
-    run.outputs.set(action.toolCallId, jsonValue(output));
-    return output;
+  /** Core's single-writer seams for the moved run execution path. */
+  private executionPorts(): HostRunExecutionPorts {
+    return {
+      admit: (threadId, perform, signal) => this.admit(threadId, perform, signal),
+      append: (threadId, events, durability, beforePublish, referenced) =>
+        this.append(threadId, events, durability, beforePublish, referenced),
+      closing: () => this.closing,
+      commitMessages: (run, messages) => this.commitMessages(run, messages),
+      dispatch: (run, action, input) => this.dispatch(run, action, input),
+      finish: (run, outcome, detail) => this.finish(run, outcome, detail),
+      fold: (row) => this.fold(row),
+      foldRows: this.foldRows,
+      mcpInputs: this.mcpInputs,
+      openRun: (run) => this.openRun(run),
+      platform: this.platform,
+      records: this.records,
+      retired: (threadId) => this.closing || this.deletions.has(threadId),
+      runs: this.runs,
+      syncBoundary: (threadId) => this.store.syncBoundary(threadId),
+    };
   }
 
   private dispatch(
@@ -578,7 +524,7 @@ export class HostCore {
     input: unknown,
     resumeData?: unknown
   ): Promise<unknown> {
-    const effect = this.execute(run, action, input, resumeData);
+    const effect = executeHostAction(this.executionPorts(), run, action, input, resumeData);
     run.effects.add(effect);
     const joined = (): void => {
       run.effects.delete(effect);
@@ -587,132 +533,8 @@ export class HostCore {
     return effect;
   }
 
-  private async loop(run: Run, model: LanguageModel): Promise<void> {
-    let failed: string | undefined;
-    let interrupted = false;
-    let checkpointFailure: unknown;
-    run.paused = false;
-    const initialMessages = hostRunContext(this.runs, run);
-    const ancestors = hostRunAncestors(this.runs, run);
-    let recordedInputLength = initialMessages.length;
-    let historyPrepared = false;
-    try {
-      const owner = await this.openRun(run);
-      const admission = await ensureHostRunAdmission(this.platform, run);
-      this.presentations.request(run, admission, this.runs.values());
-      const result = streamText({
-        abortSignal: run.controller.signal,
-        maxRetries: 0,
-        messages: await rebuildApprovedRuntimeMessages({
-          approvals: [...run.approvals.values()],
-          checkpointedResults: run.checkpointedResults,
-          inputBinding: (event) => {
-            const input = run.approvals.get(event.interactionId)?.runtimeInput;
-            if (!input) {
-              throw new Error('Approved runtime input was not acquired');
-            }
-            return input;
-          },
-          messageIndexes: run.messageIndexes,
-          messages: initialMessages,
-          resolveInput: (event) => resolveHostApprovalInput(run, event),
-        }),
-        model: owner?.prepareHostModel?.(model) ?? model,
-        onStepFinish: async (step) => {
-          // AI SDK notify() catches callback errors; keep storage failures on the host's failure path.
-          // https://github.com/vercel/ai/blob/main/packages/ai/src/util/notify.ts
-          // Remove this capture if the public step callback propagates failures.
-          try {
-            const event: HostEvent = {
-              messages: step.response.messages.map((message) =>
-                jsonValue(modelMessageSchema.parse(message))
-              ),
-              model: jsonValue(step.model),
-              runId: run.id,
-              stepNumber: run.steps,
-              type: 'model.step',
-              usage: jsonValue(step.usage),
-            };
-            const interactions = hostStepInteractions(run, step.content);
-            // The complete public SDK context and its answerable interactions
-            // share one SQLite commit, including when the provider stream is interrupted.
-            const rows = await this.append(
-              run.threadId,
-              [event, ...interactions],
-              'full',
-              (committed) => {
-                for (const row of committed) {
-                  this.fold(row);
-                }
-              }
-            );
-            const row = rows[0];
-            if (!row) {
-              throw new Error('Model step was not committed');
-            }
-            recordedInputLength += step.response.messages.length;
-            await owner?.commitHostStep?.();
-          } catch (cause) {
-            checkpointFailure = cause;
-            run.controller.abort(cause);
-          }
-        },
-        prepareStep: async ({ messages }) => {
-          // Resolved approval tool results precede the first model call in the SDK.
-          // Commit those public SDK messages before the provider sees them.
-          if (messages.length > recordedInputLength) {
-            await this.commitMessages(run, messages.slice(recordedInputLength));
-            recordedInputLength = messages.length;
-          }
-          let prepared = messages;
-          if (!historyPrepared) {
-            historyPrepared = true;
-            prepared = healInterruptedRunHistory(messages, ancestors, run.threadId);
-            recordedInputLength = prepared.length;
-          }
-          const memory = await owner?.prepareHostStep?.({
-            messages: prepared,
-            stepNumber: run.steps,
-          });
-          recordedInputLength = memory?.messages.length ?? prepared.length;
-          if (!admission.provider) {
-            return memory ?? { messages: prepared };
-          }
-          const provider = await admission.provider.prepare({
-            configuration: admission.configuration,
-            messages: memory?.messages ?? prepared,
-            modelId: run.modelId,
-            signal: run.controller.signal,
-          });
-          return prepareHostProviderStep(provider, memory?.system, owner);
-        },
-        stopWhen: stepCountIs(admission.snapshot.maxSteps - run.steps),
-        toolApproval: ({ toolCall }) => decideHostSdkApproval(run, this.platform, toolCall),
-        tools: createAdmittedHostSdkTools(run, (action, input) =>
-          this.dispatch(run, action, input)
-        ),
-      });
-      for await (const chunk of result.fullStream) {
-        if (chunk.type === 'error') {
-          failed = chunk.error instanceof Error ? chunk.error.message : String(chunk.error);
-        }
-        await this.append(run.threadId, [
-          { chunk: jsonValue(chunk), runId: run.id, type: 'stream.chunk' },
-        ]);
-        if (chunk.type === 'finish-step') {
-          await this.store.syncBoundary(run.threadId);
-        }
-      }
-    } catch (cause) {
-      interrupted = cause instanceof ApprovalInputReconstructionError;
-      failed = cause instanceof Error ? cause.message : String(cause);
-    }
-    if (checkpointFailure !== undefined) {
-      throw checkpointFailure;
-    }
-    await finishHostSdkLoop(run, this.closing, failed, interrupted, (outcome, detail) =>
-      this.finish(run, outcome, detail)
-    );
+  private loop(run: Run, model: LanguageModel): Promise<void> {
+    return runHostSdkLoop(this.executionPorts(), run, model);
   }
 
   private run(threadId: string, runId: string): Run {
@@ -721,6 +543,24 @@ export class HostCore {
       throw new Error('Unknown run for this thread');
     }
     return run;
+  }
+
+  /** Restore a finished run's edits to their baselines; the outcome joins the thread's log. */
+  revertCheckpoint(
+    params: HostParams<'checkpoint/revert'>
+  ): Promise<HostResults['checkpoint/revert']> {
+    const method = 'checkpoint/revert';
+    return this.command(method, params, async () => {
+      this.run(params.threadId, params.runId);
+      const { event, result } = await revertHostRunEdits(this.records.edits, params, {
+        pending: this.pendingAdmissions,
+        platform: this.platform,
+        runs: this.runs.values(),
+        storeRoot: this.store.root,
+      });
+      await this.accept(params.threadId, method, params, result, [event], this.foldRows, 'full');
+      return result;
+    });
   }
 
   readMcpInput(input: HostParams<'mcp/input/read'>): Promise<HostResults['mcp/input/read']> {
@@ -933,12 +773,16 @@ export class HostCore {
     outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
     detail?: string
   ): Promise<void> {
+    // A completed run asks for its thread's title while its admission is still live.
+    const titling =
+      outcome === 'completed' ? this.presentations.request(run, this.runs.values()) : undefined;
     return finishHostRunWithProviderBilling(
       run,
       outcome,
       detail,
       () => this.closing,
-      (owned) => this.closeRunOwner(owned),
+      (owned) =>
+        titling ? titling.then(() => this.closeRunOwner(owned)) : this.closeRunOwner(owned),
       () => this.read(run.threadId, 0),
       (event, commit) =>
         this.append(run.threadId, [event], 'full', (rows) => {

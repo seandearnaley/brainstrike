@@ -84,6 +84,7 @@ test.each(['openai', 'anthropic', 'google', 'openrouter'] as const)(
           },
         },
       },
+      nativeRuntime: { provider: 'anthropic', workspaceRoots: [] },
       resourceId: 'workspace-fixture',
       tools: {},
       toolTimeoutMs: 5000,
