@@ -15,10 +15,7 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act, cleanup, render } from '@testing-library/react';
 import type { ComponentProps, ReactElement } from 'react';
 import { afterEach, expect, test, vi } from 'vitest';
-import {
-  CommittedWorkspaceControls,
-  HOST_THREAD_SCOPE_UNVALIDATED_REASON,
-} from '../renderer/committed-workspace-controls';
+import { CommittedWorkspaceControls } from '../renderer/committed-workspace-controls';
 
 type HostProps = ComponentProps<typeof WorkspaceBarHost>;
 
@@ -100,10 +97,10 @@ test('binds the bar to the committed host thread through the host-routed reposit
     database: DATABASE,
     memoryResourceId: WORKSPACE_MEMORY_RESOURCE_ID,
     selectedMemoryThreadId: HOST_THREAD,
-    // Scope-changing actions stay gated before their side effects until the
-    // desktop platform validates bindings; non-scope writes still commit.
-    threadFoldersUnavailableReason: HOST_THREAD_SCOPE_UNVALIDATED_REASON,
   });
+  // Main validates scope-changing bindings before Core commits them, so the
+  // folder and worktree actions are live on the committed path.
+  expect(hosted.props).not.toHaveProperty('threadFoldersUnavailableReason');
   // A folder/checkout write for this host thread commits through the host's
   // binding owner and never reaches the history repository (no row there).
   const patch = { secondaryRootIds: ['root-other'] };
