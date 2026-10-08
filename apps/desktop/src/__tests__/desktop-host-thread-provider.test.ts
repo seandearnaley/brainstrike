@@ -8,11 +8,11 @@ import {
   type HostResults,
 } from '@brainstrike/agent-host/protocol';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
+import questionRecording from '@brainstrike/test-utils/fixtures/committed-host-question.json';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createWindowThreadCapability } from '../renderer/desktop-host-thread-provider';
 // Original thread creation rows from the ordinary app-owned SQLite GUI receipt.
 import richRecording from './fixtures/committed-app-owned-host-thread.json';
-import questionRecording from './fixtures/committed-host-question.json';
 
 const connect = vi.hoisted(() => vi.fn<() => Promise<HostClient>>());
 vi.mock('../renderer/agent-host-client', () => ({ connectDesktopAgentHost: connect }));

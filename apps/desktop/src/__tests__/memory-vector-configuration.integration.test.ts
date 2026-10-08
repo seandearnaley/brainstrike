@@ -22,6 +22,7 @@ import {
   type VectorProfile,
 } from '@brainstrike/indexer';
 import { StateStore } from '@brainstrike/state-store';
+import captured from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { createDesktopHostMemoryConfiguration } from '../agent-host-platform/memory-model-configuration';
@@ -30,7 +31,6 @@ import {
   type PlatformSelection,
   PlatformSelectionSchema,
 } from '../agent-host-platform/platform-wire';
-import captured from './fixtures/committed-rich-host-runs.json';
 
 const require = createRequire(import.meta.url);
 const hostDirectory = dirname(require.resolve('@brainstrike/agent-host'));

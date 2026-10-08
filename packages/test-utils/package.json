@@ -31,6 +31,9 @@
     "./vitest-provided-context": "./src/vitest-provided-context.ts",
     "./async-util-timeout-proof": "./src/async-util-timeout-proof.ts",
     "./test-timeouts": "./src/test-timeouts.ts",
+    "./fixtures/committed-host-plan.json": "./fixtures/committed-host-plan.json",
+    "./fixtures/committed-host-question.json": "./fixtures/committed-host-question.json",
+    "./fixtures/committed-rich-host-runs.json": "./fixtures/committed-rich-host-runs.json",
     "./vitest.base": {
       "types": "./dist/vitest.base.d.ts",
       "default": "./vitest.base.mjs"

@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 
-const require = createRequire(new URL('../../../agent-host/package.json', import.meta.url));
+const require = createRequire(import.meta.url);
 const { Memory } = require('@mastra/memory');
 const { InMemoryStore } = require('@mastra/core/storage');
 const { wrapInObservationGroup } = require('@mastra/memory/processors');

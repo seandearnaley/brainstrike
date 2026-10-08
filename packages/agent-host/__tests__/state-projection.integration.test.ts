@@ -3,17 +3,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
 import { BLOBS_DIR, StateStore, UnknownEventError } from '@brainstrike/state-store';
+import plan from '@brainstrike/test-utils/fixtures/committed-host-plan.json' with { type: 'json' };
+import question from '@brainstrike/test-utils/fixtures/committed-host-question.json' with {
+  type: 'json',
+};
+import rich from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json' with {
+  type: 'json',
+};
 import { expect, test } from 'vitest';
 import { z } from 'zod';
-import plan from '../../../apps/desktop/src/__tests__/fixtures/committed-host-plan.json' with {
-  type: 'json',
-};
-import question from '../../../apps/desktop/src/__tests__/fixtures/committed-host-question.json' with {
-  type: 'json',
-};
-import rich from '../../../apps/desktop/src/__tests__/fixtures/committed-rich-host-runs.json' with {
-  type: 'json',
-};
 import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
 import { committedRowAddress } from '../src/committed-identities.js';
 import { readHostRow, storedHostEvent } from '../src/event-storage.js';

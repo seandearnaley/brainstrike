@@ -24,14 +24,14 @@ import {
 import { ToolFallback } from '@brainstrike/assistant-ui/tool-fallback';
 import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
 import type { ToolResultRenderer } from '@brainstrike/assistant-ui/tool-result-renderers';
+// Recorded through public HostCore + native StateStore + the pinned SDK, with a
+// local scripted model: two approved runs reuse a toolCallId, with real split
+// input, provider metadata, reasoning, tool-written child data and 48 tokens.
+import recording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { memo } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-// Recorded through public HostCore + native StateStore + the pinned SDK, with a
-// local scripted model: two approved runs reuse a toolCallId, with real split
-// input, provider metadata, reasoning, tool-written child data and 48 tokens.
-import recording from './fixtures/committed-rich-host-runs.json';
 
 const rows = recording.map((row) => HostLogRowSchema.parse(row));
 const threadId = rows[0]?.threadId;
