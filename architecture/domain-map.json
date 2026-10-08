@@ -87,6 +87,7 @@
         "@brainstrike/agent",
         "@brainstrike/agent-host",
         "@brainstrike/assistant-service",
+        "@brainstrike/host-capabilities",
         "@brainstrike/mcp-app-host",
         "@brainstrike/mcp-app-host-ui"
       ],

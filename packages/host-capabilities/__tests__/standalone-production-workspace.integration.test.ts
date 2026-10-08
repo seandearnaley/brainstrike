@@ -3,6 +3,15 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { type AgentHost, attachAgentHost, startAgentHost } from '@brainstrike/agent-host';
+import {
+  CliWorkspaceRunInputSchema,
+  materializeCliWorkspaceIntent,
+  revalidateCliWorkspaceRoots,
+  STANDALONE_WORKSPACE_CAPABILITY_ERROR,
+  selectCliWorkspaceRoots,
+} from '@brainstrike/agent-host/standalone-workspace-input';
+import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
 import {
   DEFAULT_PERMISSION_POLICIES,
   deriveSkillPreferenceKey,
@@ -10,16 +19,6 @@ import {
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
-import { attachAgentHost } from '../src/client.js';
-import { type AgentHost, startAgentHost } from '../src/runtime.js';
-import {
-  CliWorkspaceRunInputSchema,
-  materializeCliWorkspaceIntent,
-  revalidateCliWorkspaceRoots,
-  STANDALONE_WORKSPACE_CAPABILITY_ERROR,
-  selectCliWorkspaceRoots,
-} from '../src/standalone-workspace-input.js';
-import { removeFixtureRoot } from './fixtures/cooperative-host-fixture.js';
 
 const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const offline = new URL('./fixtures/standalone-production-workspace-http.mjs', import.meta.url)
