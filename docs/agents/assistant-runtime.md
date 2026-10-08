@@ -45,6 +45,14 @@ typed payload through `interaction/resume`; Core validates it before committing
 the response and executing the canonical tool. Only that committed response
 resolves the card. The view does not persist or execute an interaction.
 
+Core commits MCP input intent before native delivery. If the joined delivery's
+settlement phase cannot be committed, the live input becomes `unknown`, its
+private capability is retired, and duplicate commands never resend the answer.
+Core retains the original persistence causes on the run and reports a safe
+failure detail through its joined terminal event. This uncertainty does not
+classify physical cleanup as failed; native owners and writer shutdown still
+join through their existing lifecycle.
+
 The Core socket client's `closed` promise joins physical transport closure,
 already-admitted complete-frame decoding, dispatch and disposal. A received
 `host/stop` response after peer close must settle before disposal rejects genuinely

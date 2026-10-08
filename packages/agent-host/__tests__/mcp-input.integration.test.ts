@@ -350,6 +350,57 @@ test('a response lost after native resolution stays unknown and repeated command
   expect(delivered).toHaveLength(1);
 });
 
+test('settlement write failure is unknown live and after reopen and fails the joined run without resending', async () => {
+  const fixture = await setup();
+  const { client, delivered, host, input, root, secret, settle } = fixture;
+  const original = host.core.store.append.bind(host.core.store);
+  const fault = vi
+    .spyOn(host.core.store, 'append')
+    .mockImplementation((items, commandId, durability) => {
+      if (items.some((item) => item.event['type'] === 'mcp.input.settled')) {
+        throw new Error(secret);
+      }
+      return original(items, commandId, durability);
+    });
+  await client.request('mcp/input/stage', { ...input, content: { workspace: secret } });
+  await client.request('mcp/input/settle', settle);
+  await expect
+    .poll(async () =>
+      (await host.core.read(input.threadId, 0)).some((row) => row.event.type === 'run.finished')
+    )
+    .toBe(true);
+  const rows = await host.core.read(input.threadId, 0);
+  expect(rows.filter((row) => row.event.type === 'mcp.input.intent')).toHaveLength(1);
+  expect(rows.filter((row) => row.event.type === 'mcp.input.settled')).toHaveLength(0);
+  const finished = rows.find((row) => row.event.type === 'run.finished');
+  expect(finished?.event).toMatchObject({ outcome: 'failed', type: 'run.finished' });
+  if (finished?.event.type !== 'run.finished') {
+    throw new Error('Missing joined run outcome');
+  }
+  expect(finished.event.detail).toEqual(expect.any(String));
+  expect(JSON.stringify(rows).includes(secret)).toBe(false);
+  const live = await client.request('mcp/input/read', input);
+  expect(live.status).toBe('unknown');
+  expect(live.presentation).toBeUndefined();
+  expect((await client.request('mcp/input/settle', settle)).status).toBe('unknown');
+  await expect(
+    client.request('mcp/input/settle', { ...settle, commandId: randomUUID() })
+  ).rejects.toThrow();
+  expect(delivered).toHaveLength(1);
+  expect(await rootFilesContain(root, secret)).toBe(false);
+  fault.mockRestore();
+  await host.close();
+  const reopened = await startAgentHost({ lifetime: 'persistent', root }, fixture.platform);
+  hosts.push(reopened);
+  const reader = await attachAgentHost(reopened.record);
+  clients.push(reader);
+  const replay = await reader.request('mcp/input/read', input);
+  expect(replay.status).toBe('unknown');
+  expect(replay.presentation).toBeUndefined();
+  expect((await reader.request('mcp/input/settle', settle)).status).toBe('unknown');
+  expect(delivered).toHaveLength(1);
+});
+
 test('URL capabilities stay ephemeral while accept without form content resolves the parked native caller', async () => {
   const { client, delivered, host, input, root, secret, settle } = await setup('url');
   await client.request('mcp/input/stage', input);

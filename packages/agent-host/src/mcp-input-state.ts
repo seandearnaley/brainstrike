@@ -26,6 +26,14 @@ type Intent = Extract<HostEvent, { type: 'mcp.input.intent' }>;
 type Status = HostResults['mcp/input/read']['status'];
 type Content = HostParams<'mcp/input/stage'>['content'];
 
+/** A delivery joined, but its final phase is not a committed fact. */
+export class HostMcpInputPersistenceError extends Error {
+  constructor(cause: unknown) {
+    // The storage cause can contain private server values; only this safe detail is published.
+    super('MCP input settlement could not be committed', { cause });
+  }
+}
+
 /** Identity belongs to the authenticated transport closure, never a client-supplied ID. */
 export interface HostMcpInputClient {
   readonly closed: boolean;
@@ -345,12 +353,22 @@ export class HostMcpInputState {
       } catch {
         /* A committed intent never permits guessing or resending an uncertain answer. */
       }
-      await append({
-        interactionId: params.interactionId,
-        runId: params.runId,
-        status,
-        type: 'mcp.input.settled',
-      });
+      try {
+        await append({
+          interactionId: params.interactionId,
+          runId: params.runId,
+          status,
+          type: 'mcp.input.settled',
+        });
+      } catch (cause) {
+        // BST-1977: accepted intent is durable, but delivery's final phase is unproved.
+        // Match replay's uncertainty and retire the private capability without resending.
+        pending.status = 'unknown';
+        pending.live = undefined;
+        pending.staged = undefined;
+        pending.release?.();
+        throw new HostMcpInputPersistenceError(cause);
+      }
     });
     // Register before the first native delivery, including a synchronous presenter resolve.
     retain(delivery);

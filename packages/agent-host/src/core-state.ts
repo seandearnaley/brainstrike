@@ -1,6 +1,7 @@
 import { type ModelMessage, modelMessageSchema } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
+import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
 import type { HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
 import {
   HOST_METHOD_SCHEMAS,
@@ -120,6 +121,7 @@ export interface HostRunState {
   readonly effects: Set<Promise<unknown>>;
   readonly id: string;
   readonly liveInputs: Map<string, { readonly value: unknown }>;
+  mcpInputPersistenceFailures?: HostMcpInputPersistenceError[];
   readonly messageIndexes: Set<number>;
   readonly modelId: string;
   outcome?: Extract<HostEvent, { type: 'run.finished' }>['outcome'];

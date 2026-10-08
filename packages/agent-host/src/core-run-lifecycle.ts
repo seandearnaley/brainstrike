@@ -1,4 +1,5 @@
 import type { HostRunState } from './core-state.js';
+import { HostMcpInputPersistenceError } from './mcp-input-state.js';
 import type { HostRunAdmission } from './ports.js';
 import type { HostEvent } from './protocol.js';
 import { HostRunAdmissionCleanupError } from './run-admission.js';
@@ -45,7 +46,13 @@ export function retainHostRunWork(run: HostRunState, work: Promise<unknown>): vo
   const done = (): void => {
     run.effects.delete(work);
   };
-  work.then(done, done);
+  work.then(done, (cause: unknown) => {
+    if (cause instanceof HostMcpInputPersistenceError) {
+      run.mcpInputPersistenceFailures ??= [];
+      run.mcpInputPersistenceFailures.push(cause);
+    }
+    done();
+  });
 }
 
 export function assertHostAdmissionCleanup(
@@ -184,13 +191,16 @@ export function finishHostRun(
       ? 'stopped'
       : run.controller.signal.aborted && closing()
         ? 'interrupted'
-        : outcome;
+        : run.mcpInputPersistenceFailures?.length && outcome === 'completed'
+          ? 'failed'
+          : outcome;
+    const joinedDetail = detail ?? run.mcpInputPersistenceFailures?.[0]?.message;
     await publish(
       {
         outcome: joinedOutcome,
         runId: run.id,
         type: 'run.finished',
-        ...(detail === undefined ? {} : { detail }),
+        ...(joinedDetail === undefined ? {} : { detail: joinedDetail }),
       },
       () => {
         run.terminal = true;
