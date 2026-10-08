@@ -6,12 +6,14 @@ import {
 } from '@brainstrike/app-shell';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { useAssistantSubagentPreferencesStore } from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import { getPermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
   buildSkillsContextRequest,
   useSkillsPreferencesStore,
 } from '@brainstrike/app-state/stores/skills-preferences-store';
+import { useSubagentPersonasStore } from '@brainstrike/app-state/stores/subagent-personas-store';
 import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
 import { DESKTOP_NATIVE_TOOL_IDS, isSupportedProvider } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
@@ -65,6 +67,7 @@ export function readDesktopHostConfiguration(
   const { providerSettings: _providerSettings, ...modelConfiguration } = draft;
   // Session grants on host threads are host facts, never captured from this store.
   const { sessionGrants: _sessionGrants, ...permission } = getPermissionToolGateSnapshotInput();
+  const personas = useSubagentPersonasStore.getState();
   const instructions = useWorkspaceInstructionsPreferencesStore.getState();
   const workspaceContext = toRuntimeWorkspaceContext(
     useWorkspaceContextCurationStore.getState().contextSnapshot,
@@ -82,6 +85,11 @@ export function readDesktopHostConfiguration(
     projection,
     selectionFolderId,
     skillsPreference: buildSkillsContextRequest(useSkillsPreferencesStore.getState()),
+    subagents: {
+      delegationEnabled: personas.delegationEnabled,
+      disabledPersonaIds: [...personas.disabledPersonaIds],
+      settings: useAssistantSubagentPreferencesStore.getState().settings,
+    },
     threadDraft,
     workspaceContext,
     workspaceInstructionsPreference: {
