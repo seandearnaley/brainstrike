@@ -10,7 +10,7 @@ import {
   type HostTool,
   type HostToolContext,
 } from '@brainstrike/agent-host';
-import { resolveToolRiskCategory } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID, resolveToolRiskCategory } from '@brainstrike/assistant-contract';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import {
@@ -22,7 +22,7 @@ import {
   SHARED_NATIVE_TOOL_IDS,
   type SharedNativeToolId,
 } from './executors.js';
-import { hostCanvasStore, hostTaskListStore } from './host-stores.js';
+import { hostCanvasStore, hostTaskListNote, hostTaskListStore } from './host-stores.js';
 import type { FileMutationPorts } from './ports.js';
 import type { ReadWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry.js';
 import { resetToolCallLoopGuards } from './tool-call-loop-guards.js';
@@ -157,6 +157,7 @@ export function createSharedNativeHostTools(
     }
     tools[name] = {
       ...tool,
+      ...(id === NATIVE_TOOL_ID.manageTaskList ? { contextNote: hostTaskListNote } : {}),
       execute: async (input: unknown, context: HostToolContext): Promise<unknown> => {
         context.signal.throwIfAborted();
         const roots = options.freshRoots
