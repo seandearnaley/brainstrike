@@ -5,7 +5,8 @@ import { z } from 'zod';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), and thread
-// titles (`thread/rename`, `thread.renamed`, titles in `thread/list`).
+// titles (`thread/rename`, `thread.renamed`, titles in `thread/list`), withheld
+// observational memory, and tool catalog IDs on committed tool events.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -165,6 +166,8 @@ const Action = {
   ...RunFields,
   input: z.json(),
   toolCallId: Id,
+  /** The user-facing catalog ID (`brainstrike.readWorkspaceFile`), not the provider-sanitized name. */
+  toolCatalogId: Id.optional(),
   toolId: Id,
   toolIdentity: Id,
 };
