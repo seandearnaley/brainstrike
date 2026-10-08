@@ -53,6 +53,8 @@ export interface HostMcpExecution {
   bindTask(task: HostMcpTaskCapability): Promise<void>;
   /** Joins the safe request commit before any client is notified. */
   requestInput(input: HostMcpInputCapability): Promise<void>;
+  /** The thread whose run admitted this call; its deletion erases the call's task rows. */
+  readonly threadId: string;
 }
 
 /** One file mutation a native tool performs inside an admitted workspace root. */

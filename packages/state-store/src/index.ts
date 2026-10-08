@@ -26,6 +26,17 @@ export {
   RootLockedError,
 } from './lock.js';
 export type {
+  McpTaskDomainReply,
+  McpTaskDomainRequest,
+  McpTaskDomainRow,
+  McpTaskIdentityWire,
+  McpTaskInsertWire,
+  McpTaskLeaseWire,
+  McpTaskPatchWire,
+  McpTaskScopeWire,
+  McpTaskStatusWire,
+} from './mcp-task-types.js';
+export type {
   MemoryCalculation,
   MemoryDomainPort,
   MemoryDomainRequest,

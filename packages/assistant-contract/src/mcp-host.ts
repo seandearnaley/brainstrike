@@ -476,6 +476,8 @@ export interface McpHostExecution {
   bindTask(task: McpHostTaskCapability): Promise<void>;
   /** Joins Core's request commit before any client is notified. */
   requestInput(input: McpHostInputCapability): Promise<void>;
+  /** The host thread whose run admitted this call; its deletion erases the call's task rows. */
+  readonly threadId: string;
 }
 export interface McpHostInvokeOptions {
   /** The admitting host tool call's capability. It never reaches the server. */

@@ -8,9 +8,10 @@
 //   purge_intent  a purge in progress, replayed at open after a crash (M0-A2 src/host.ts)
 
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
+import { MCP_TASK_THREAD_SCHEMA } from './mcp-task-domain.mjs';
 import { MEMORY_SCHEMA } from './memory-domain.mjs';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const V1 = `
   CREATE TABLE IF NOT EXISTS run_events (
@@ -47,6 +48,7 @@ export const UPGRADES = [
   ALTER TABLE purge_intent ADD COLUMN memory_resources TEXT NOT NULL DEFAULT '[]'
     CHECK (json_valid(memory_resources) AND json_type(memory_resources) = 'array');
 `,
+  MCP_TASK_THREAD_SCHEMA,
 ];
 
 /**
