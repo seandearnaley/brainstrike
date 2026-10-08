@@ -248,6 +248,12 @@ export const HostEventSchema = z.union([
     modelId: Id,
     usage: z.json(),
   }),
+  /** OM keeps one merged text per thread, so a branched thread's run receives none. */
+  z.strictObject({
+    type: z.literal('memory.observation.withheld'),
+    ...RunFields,
+    reason: z.literal('branched-thread'),
+  }),
   z.strictObject({
     type: z.literal('provider.request.prepared'),
     ...RunFields,
