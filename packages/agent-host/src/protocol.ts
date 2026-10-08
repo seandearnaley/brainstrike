@@ -15,7 +15,9 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // in `thread/list`), withheld observational memory, tool catalog IDs on
 // committed tool events, and image attachments on a user message (`run/start`
 // and `run.started`).
-export const AGENT_HOST_PROTOCOL_VERSION = 11;
+// 12: `mcp.tools.unavailable`, committed with `run.started` for each configured
+// MCP server whose tools the run proceeds without.
+export const AGENT_HOST_PROTOCOL_VERSION = 12;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
@@ -263,6 +265,13 @@ export const HostEventSchema = z.union([
     interactionId: Id,
     status: z.enum(['local-finalized', 'remote-acknowledged', 'unknown', 'retired']),
     type: z.literal('mcp.input.settled'),
+  }),
+  z.strictObject({
+    ...RunFields,
+    // Already redacted and bounded by the MCP discovery diagnostics.
+    reason: z.string().min(1),
+    serverId: Id,
+    type: z.literal('mcp.tools.unavailable'),
   }),
   z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
   z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),

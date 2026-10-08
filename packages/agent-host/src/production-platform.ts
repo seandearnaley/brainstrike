@@ -84,6 +84,12 @@ function rootModel(
   return materializeHostProviderModel(model);
 }
 
+function unavailableMcpServers(
+  borrowed: HostMcpToolSelection | undefined
+): Pick<HostRunAdmission, 'unavailableMcpServers'> {
+  return borrowed?.unavailable.length ? { unavailableMcpServers: borrowed.unavailable } : {};
+}
+
 async function closeMcpAdmission(
   adapter: ReturnType<typeof createMcpHostToolAdapter>,
   borrowed: HostMcpToolSelection
@@ -276,6 +282,7 @@ export async function createProductionHostPlatform(
             toolIdentities: {},
           },
           tools,
+          ...unavailableMcpServers(acquired?.borrowed),
         };
         Object.assign(
           selection.snapshot.toolIdentities,

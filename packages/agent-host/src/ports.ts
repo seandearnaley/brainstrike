@@ -122,6 +122,8 @@ export interface HostRunAdmission {
   readonly provider?: HostProviderPort;
   readonly snapshot: HostRunSnapshot;
   readonly tools: Readonly<Record<string, HostTool>>;
+  /** Configured MCP servers this run proceeds without; committed with `run.started`. */
+  readonly unavailableMcpServers?: readonly HostMcpUnavailableServer[];
 }
 
 /**
@@ -170,11 +172,19 @@ export interface HostRunAdmissionRequest {
   readonly workspaceBinding?: ThreadWorkspaceBinding;
 }
 
+/** A configured MCP server whose tools a run proceeds without, and why. */
+export interface HostMcpUnavailableServer {
+  readonly reason: string;
+  readonly serverId: string;
+}
+
 /** The existing configured authority and its generation-qualified executors. */
 export interface HostMcpToolSelection {
   readonly bindings: Readonly<Record<string, McpHostToolBinding>>;
   /** Release this run's borrowed client after its executions and watches join. */
   close(): Promise<void>;
+  /** Servers whose discovery failed; Core commits each with the run's start. */
+  readonly unavailable: readonly HostMcpUnavailableServer[];
 }
 export interface HostMcpToolRequest {
   readonly resolvedToolResultBudget: ScaledToolResultBudget;

@@ -90,6 +90,15 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
         }
       : {}),
     configuration: immutableData(selected.configuration),
+    ...(selected.unavailableMcpServers
+      ? {
+          unavailableMcpServers: Object.freeze(
+            selected.unavailableMcpServers.map(({ reason, serverId }) =>
+              Object.freeze({ reason, serverId })
+            )
+          ),
+        }
+      : {}),
     ...(selected.provider
       ? { provider: Object.freeze({ prepare: selected.provider.prepare.bind(selected.provider) }) }
       : {}),
@@ -105,6 +114,19 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
       )
     ),
   });
+}
+
+/** The run proceeds without each unavailable MCP server; its log names each one. */
+export function hostMcpUnavailableEvents(
+  admission: HostRunAdmission,
+  runId: string
+): Extract<HostEvent, { type: 'mcp.tools.unavailable' }>[] {
+  return (admission.unavailableMcpServers ?? []).map(({ reason, serverId }) => ({
+    reason,
+    runId,
+    serverId,
+    type: 'mcp.tools.unavailable',
+  }));
 }
 
 /** A new run command's admission request; only a live client supplies an origin. */

@@ -5,6 +5,10 @@ import {
   type ThreadAssistantMessage,
   type ThreadMessage,
 } from '@assistant-ui/react';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  type AssistantRunEvent,
+} from '@brainstrike/assistant-contract';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
 import type { ThreadTokenUsage } from './context-usage-store';
 
@@ -81,6 +85,30 @@ function requiredString(value: Readonly<Record<string, unknown>>, key: string): 
     throw new Error(`Committed host event is missing ${key}.`);
   }
   return field;
+}
+
+/**
+ * A committed `mcp.tools.unavailable` as the run timeline's always-visible
+ * notice. Its key is the committed row's address, never a new identity.
+ */
+function mcpToolsUnavailableNotice(
+  event: Readonly<Record<string, unknown>>,
+  row: CommittedAssistantLogRow,
+  runId: string,
+  timestamp: string
+): AssistantRunEvent {
+  const serverName = requiredString(event, 'serverId');
+  const reason = requiredString(event, 'reason');
+  return {
+    detail: `${serverName} skipped for this request — ${reason}`,
+    id: `run-event-${row.threadId}-${row.seq}`,
+    kind: 'mcp.tools.unavailable',
+    label: 'MCP server tools unavailable',
+    metadata: { reason, scope: 'server', serverName },
+    runId,
+    status: 'failed',
+    timestamp,
+  };
 }
 
 /** A committed user message's images, as sent-message attachments. */
@@ -636,7 +664,26 @@ export class CommittedAssistantLogProjection {
     } else if (event['type'] === 'run.finished') {
       this.finish(run, event);
     } else {
-      this.data(run, row, event, 'brainstrike.host-event');
+      this.hostEvent(run, row, event);
     }
+  }
+
+  /** Other committed events stay data; an unavailable MCP server becomes a run notice. */
+  private hostEvent(
+    run: ProjectedRun,
+    row: CommittedAssistantLogRow,
+    event: Readonly<Record<string, unknown>>
+  ): void {
+    if (event['type'] !== 'mcp.tools.unavailable') {
+      this.data(run, row, event, 'brainstrike.host-event');
+      return;
+    }
+    const notice = mcpToolsUnavailableNotice(
+      event,
+      row,
+      requiredString(event, 'runId'),
+      this.message(run).createdAt.toISOString()
+    );
+    this.data(run, row, notice, ASSISTANT_RUN_EVENT_DATA_NAME);
   }
 }

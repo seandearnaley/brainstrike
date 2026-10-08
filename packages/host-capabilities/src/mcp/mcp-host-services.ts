@@ -1,8 +1,13 @@
-import { createMcpRuntimeClient, type McpRuntimeClient } from '@brainstrike/agent/mcp-client';
+import {
+  createMcpRuntimeClient,
+  type McpDiscoverySkip,
+  type McpRuntimeClient,
+} from '@brainstrike/agent/mcp-client';
 import type {
   HostMcpRuntime,
   HostMcpToolRequest,
   HostMcpToolSelection,
+  HostMcpUnavailableServer,
   HostStartupContext,
 } from '@brainstrike/agent-host';
 import { joinCredentialCleanup } from '@brainstrike/agent-host/credential-contract';
@@ -23,14 +28,6 @@ export class AgentHostAdapterClosedError extends Error {
   }
 }
 
-export class McpDiscoveryAdmissionError extends Error {
-  readonly code = 'mcp-discovery-admission-failed';
-  constructor() {
-    super('Configured MCP tools could not be admitted');
-    this.name = 'McpDiscoveryAdmissionError';
-  }
-}
-
 /** The collector and its publication policy, injected by each host composition. */
 export interface McpHostCollector<Collection extends AgentHostMcpCollection> {
   /** Bind exact questions/URL consent through the canonical dispatcher before connecting. */
@@ -45,8 +42,6 @@ export interface McpHostCollector<Collection extends AgentHostMcpCollection> {
     readonly timeoutOverrideMs: undefined;
     readonly toolNameMap: Map<string, string>;
   }) => Promise<Collection>;
-  /** Publish through the owning host dispatcher, before admission returns. */
-  readonly onMcpDiscoverySkips: (skips: Collection['mcpDiscoverySkips']) => Promise<void>;
   readonly runtimeDependencies?: McpHostRuntimeDependencies;
 }
 
@@ -72,6 +67,20 @@ export interface McpHostServices {
   close(): Promise<McpHostCloseReport>;
   readonly mcp: HostMcpRuntime;
   readonly runtime: McpHostRuntime;
+}
+
+/**
+ * A run proceeds without each server whose discovery failed. A client-wide
+ * failure names every server it covered, with the one shared reason.
+ */
+function unavailableServers(
+  skips: readonly McpDiscoverySkip[]
+): readonly HostMcpUnavailableServer[] {
+  return skips.flatMap((skip) =>
+    skip.scope === 'server'
+      ? [{ reason: skip.reason, serverId: skip.serverName }]
+      : skip.serverNames.map((serverId) => ({ reason: skip.reason, serverId }))
+  );
 }
 
 /**
@@ -198,8 +207,6 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
           toolNameMap,
         });
         ensureOpen();
-        await options.onMcpDiscoverySkips(collected.mcpDiscoverySkips);
-        ensureOpen();
         const after = runtime.host.snapshot();
         const bindings: Record<string, HostMcpToolSelection['bindings'][string]> = {};
         for (const [name, source] of Object.entries(collected.tools)) {
@@ -215,7 +222,11 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
             toolTimeoutMs,
           });
         }
-        return Object.freeze({ bindings: Object.freeze(bindings), close: closeBorrow });
+        return Object.freeze({
+          bindings: Object.freeze(bindings),
+          close: closeBorrow,
+          unavailable: unavailableServers(collected.mcpDiscoverySkips),
+        });
       })
       .catch(async (cause: unknown) => {
         if (borrowedClient) {

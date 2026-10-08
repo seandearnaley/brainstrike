@@ -7,13 +7,7 @@ import type { McpTaskDatabase } from '@brainstrike/db';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import { createSecretsMcpBearerCredentialAuthority } from './bearer-credential.js';
-import {
-  createMcpHostServices,
-  McpDiscoveryAdmissionError,
-  type McpHostServices,
-} from './mcp-host-services.js';
-
-export { McpDiscoveryAdmissionError } from './mcp-host-services.js';
+import { createMcpHostServices, type McpHostServices } from './mcp-host-services.js';
 
 import { applyMcpToolRegistryState, serveMcpRuntimeToMain } from './mcp-runtime-server.js';
 import { MCP_STORE_METHODS, McpDesiredStateSchema } from './mcp-runtime-wire.js';
@@ -77,11 +71,6 @@ export async function createDesktopNodeMcpHost(
     extensionPreferences: parseMcpExtensionEnablement(state.extensionPreferences),
     mcpConfiguration: parseMcpConfigValue(state.config).config,
     oauthStore: remoteOAuthStore(request),
-    onMcpDiscoverySkips: async (skips) => {
-      if (skips.length > 0) {
-        throw new McpDiscoveryAdmissionError();
-      }
-    },
     openExternal: async (url) => {
       await request(MCP_STORE_METHODS.openExternal, { url });
     },
