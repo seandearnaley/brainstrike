@@ -13,6 +13,7 @@ const FIRST_PROMPT = 'Start the first host run.';
 const FIRST_REPLY = 'The first host run is done.';
 const QUEUED = 'Queued while the first host run was active.';
 const SECOND_REPLY = 'The queued host run is done.';
+const ANSWERED_REPLY = 'Local it is.';
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
@@ -76,12 +77,8 @@ async function enableModel(page: Page): Promise<void> {
   }, MODEL);
 }
 
-test('a host thread queues a follow-up, badges its runs, and notifies when they finish', async ({
-  electron,
-  modelProvider,
-  window: page,
-}) => {
-  test.setTimeout(300_000);
+/** Notifications on (recorded), and the shim's model enabled. */
+async function prepare(page: Page): Promise<void> {
   await recordNotifications(page);
   await new HomePage(page).openSettings();
   const notifications = await new SettingsPage(page).openCategory(
@@ -93,6 +90,15 @@ test('a host thread queues a follow-up, badges its runs, and notifies when they 
   await expect(master).toBeChecked();
   await page.keyboard.press('Escape');
   await enableModel(page);
+}
+
+test('a host thread queues a follow-up, badges its runs, and notifies when they finish', async ({
+  electron,
+  modelProvider,
+  window: page,
+}) => {
+  test.setTimeout(300_000);
+  await prepare(page);
 
   const release = Promise.withResolvers<void>();
   modelProvider.setScript((request) =>
@@ -137,5 +143,54 @@ test('a host thread queues a follow-up, badges its runs, and notifies when they 
   expect(
     modelProvider.requests().filter((request) => JSON.stringify(request.messages).includes(QUEUED))
   ).not.toHaveLength(0);
+  expect(modelProvider.refusals()).toEqual([]);
+});
+
+test('a host question badges its thread as needing input and notifies once', async ({
+  modelProvider,
+  window: page,
+}) => {
+  test.setTimeout(300_000);
+  await prepare(page);
+  modelProvider.setScript((request) => {
+    const name = request.toolNames.find((tool) => tool.endsWith('askUser'));
+    return name
+      ? {
+          finalText: ANSWERED_REPLY,
+          toolCall: {
+            arguments: {
+              options: [{ label: 'Local' }, { label: 'Preview' }],
+              question: 'Which environment?',
+              selectionMode: 'multi_select',
+            },
+            name,
+          },
+        }
+      : { finalText: `No askUser tool offered: ${request.toolNames.join(', ')}` };
+  });
+  await ensureAssistantShellVisible(page);
+  const region = page.getByRole('region', { exact: true, name: 'Assistant' });
+  const strip = page.getByTestId('assistant-thread-tab-strip');
+  await leaveWindow(page);
+  await region.getByRole('textbox', { name: 'Message input' }).fill('Ask me which environment.');
+  await region.getByRole('button', { exact: true, name: 'Send' }).click();
+
+  const form = region.getByRole('group', { name: 'Question for you' });
+  await expect(form).toBeVisible({ timeout: 90_000 });
+  await expect(strip.getByRole('tab', { name: /, needs your input$/ })).toBeVisible();
+  await expect
+    .poll(() => readNotifications(page), { timeout: 30_000 })
+    .toEqual([{ body: 'Has a question for you.', title: 'Assistant' }]);
+
+  await form.getByRole('checkbox', { name: 'Local' }).check();
+  await form.getByRole('button', { name: 'Send answer' }).click();
+  await expect(region.getByText(ANSWERED_REPLY)).toBeVisible({ timeout: 90_000 });
+  await expect(strip.getByRole('tab', { name: /, finished$/ })).toBeVisible({ timeout: 30_000 });
+  await expect
+    .poll(() => readNotifications(page), { timeout: 30_000 })
+    .toEqual([
+      { body: 'Has a question for you.', title: 'Assistant' },
+      { body: 'Finished responding.', title: 'Assistant' },
+    ]);
   expect(modelProvider.refusals()).toEqual([]);
 });

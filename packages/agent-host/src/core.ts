@@ -71,7 +71,7 @@ import {
   finishApprovedHostResults,
   resolveHostApprovalInput,
 } from './run-continuation.js';
-import { HostThreadTitleState } from './thread-title-state.js';
+import { HostThreadPresentationState } from './thread-presentation-state.js';
 import { HostToolRecords } from './tool-records.js';
 import { revertHostRunEdits } from './workspace-edits.js';
 import { HostThreadWorkspaceState } from './workspace-state.js';
@@ -90,15 +90,15 @@ export class HostCore {
   private readonly mcpInputs = new HostMcpInputState();
   private readonly records = new HostToolRecords();
   private readonly threads = new Set<string>();
-  private readonly titles = new HostThreadTitleState({
+  private readonly presentations = new HostThreadPresentationState({
     admit: (threadId, perform) => this.admit(threadId, perform),
     append: async (threadId, event) => {
       await this.append(threadId, [event], 'normal', this.foldRows);
     },
-    rename: (params, event) =>
+    update: (params, event) =>
       this.accept(
         params.threadId,
-        'thread/rename',
+        'thread/update',
         params,
         { accepted: true },
         [event],
@@ -185,7 +185,7 @@ export class HostCore {
   private fold(row: HostLogRow): void {
     this.mcpInputs.fold(row);
     this.records.fold(row);
-    this.titles.fold(row);
+    this.presentations.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
     switch (event.type) {
@@ -228,12 +228,9 @@ export class HostCore {
     events: readonly HostEvent[],
     durability: 'normal' | 'full' = 'normal',
     beforePublish?: (rows: readonly HostLogRow[]) => void,
-    /** Blobs a single event names in `blobRefs`, durable before it commits. */
+    /** Blobs an event names in `blobRefs` (storedHostEvent matches them per event). */
     referenced?: readonly BlobContent[]
   ): Promise<HostLogRow[]> {
-    if (referenced && events.length !== 1) {
-      throw new Error('Referenced blobs belong to exactly one host event');
-    }
     const committed = await this.store.append(
       events.map((event) => storedHostEvent(threadId, event, referenced)),
       undefined,
@@ -255,11 +252,14 @@ export class HostCore {
   }
 
   listThreads(): HostResults['thread/list']['threads'] {
-    return [...this.threads].map((threadId) => ({ threadId, ...this.titles.read(threadId) }));
+    return [...this.threads].map((threadId) => ({
+      threadId,
+      ...this.presentations.read(threadId),
+    }));
   }
 
-  renameThread(params: HostParams<'thread/rename'>): Promise<{ accepted: true }> {
-    return this.command('thread/rename', params, () => this.titles.rename(params));
+  updateThread(params: HostParams<'thread/update'>): Promise<{ accepted: true }> {
+    return this.command('thread/update', params, () => this.presentations.update(params));
   }
 
   read(threadId: string, fromSeq: number): Promise<HostLogRow[]> {
@@ -390,11 +390,10 @@ export class HostCore {
         this.conversationIds.delete(commandId);
       }
       this.threads.delete(params.threadId);
-      this.titles.forget(params.threadId);
+      this.presentations.forget(params.threadId);
       this.workspaces.forget(params.threadId);
       this.mcpInputs.forgetThread(params.threadId);
-      this.records.forgetThread(params.threadId);
-      this.platform.forgetThread?.(params.threadId);
+      this.records.forgetThread(params.threadId, this.platform);
       for (const run of runs) {
         this.runs.delete(run.id);
         this.conversationIds.delete(run.id);
@@ -595,7 +594,7 @@ export class HostCore {
     try {
       const owner = await this.openRun(run);
       const admission = await ensureHostRunAdmission(this.platform, run);
-      this.titles.request(run, admission, this.runs.values());
+      this.presentations.request(run, admission, this.runs.values());
       const result = streamText({
         abortSignal: run.controller.signal,
         maxRetries: 0,
@@ -950,7 +949,7 @@ export class HostCore {
             this.fold(row);
           }
         })
-    ).then(() => this.titles.settle(run));
+    ).then(() => this.presentations.settle(run));
   }
 
   close(): Promise<void> {

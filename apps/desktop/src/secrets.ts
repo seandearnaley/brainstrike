@@ -1,16 +1,17 @@
+import { readFile, rename, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { SecretReadError, type SecretsService } from '@brainstrike/agent-host/credential-contract';
 import {
-  credentialToApiKey,
-  parseCredentialOrThrow,
-  SecretReadError,
-  type SecretsService,
-} from '@brainstrike/agent-host/credential-contract';
-import {
-  isProviderCredential,
-  MalformedCredentialError,
-  type ProviderCredential,
-} from '@brainstrike/assistant-contract';
-import { safeStorage } from 'electron';
-import ElectronStore from 'electron-store';
+  createHostCredentials,
+  type HostCredentialStoreSelection,
+  type HostCredentials,
+  type LegacySecretMigrationReport,
+  type LegacySecretSource,
+  migrateLegacySecrets,
+} from '@brainstrike/host-capabilities/credentials';
+import { app, safeStorage } from 'electron';
+import { z } from 'zod';
+import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 
 export {
   credentialStoredKeyFingerprint,
@@ -21,122 +22,128 @@ export {
 } from '@brainstrike/agent-host/credential-contract';
 export type { ProviderCredential, SecretReadErrorCode } from '@brainstrike/assistant-contract';
 
-interface SecretsSchema {
-  secrets: Record<string, string>; // base64-encoded encrypted strings
+/**
+ * The profile's credential store, shared by Main and the forked agent host.
+ * Production uses the OS keyring under a profile-scoped service; isolated test
+ * runs use a private file inside their disposable profile and never reach the
+ * OS keychain.
+ */
+export function desktopCredentialStoreSelection(
+  userData: string = app.getPath('userData'),
+  // Same isolation predicate as the Settings secrets IPC test mode.
+  isolated: boolean = isElectronE2ETestMode() || process.env['NODE_ENV'] === 'test'
+): HostCredentialStoreSelection {
+  return isolated
+    ? { kind: 'file', path: join(userData, 'brainstrike-credentials.json') }
+    : { kind: 'keyring', service: `brainstrike-desktop:${userData}` };
 }
 
-function hasUsableSafeStorageEncryption(): boolean {
-  return (
-    Boolean(safeStorage?.isEncryptionAvailable?.()) &&
-    safeStorage.getSelectedStorageBackend?.() !== 'basic_text'
-  );
+let desktopCredentials: HostCredentials | undefined;
+let legacyMigration: Promise<LegacySecretMigrationReport> | undefined;
+
+function getDesktopCredentials(): HostCredentials {
+  desktopCredentials ??= createHostCredentials({ selection: desktopCredentialStoreSelection() });
+  return desktopCredentials;
 }
 
-export function createSecretsService(store?: ElectronStore<SecretsSchema>): SecretsService {
-  const _store = store ?? new ElectronStore<SecretsSchema>({ name: 'brainstrike-secrets' });
-  // Work around ElectronStore Conf typings in TS builds
-  const secretsStore = _store as ElectronStore<SecretsSchema> & {
-    get: (key: string) => unknown;
-    set: (key: string, value: unknown) => void;
-  };
-
-  /**
-   * Decrypts the stored value for a provider and interprets it as a typed
-   * credential. Returns null strictly for "not set"; every failure throws a
-   * typed SecretReadError (NO SILENT FALLBACKS).
-   */
-  function readStoredCredential(provider: string): ProviderCredential | null {
-    const b64 = (secretsStore.get('secrets') as SecretsSchema['secrets'])?.[provider];
-    if (!b64) {
-      // Strictly "not set" — failures below throw instead of masquerading
-      // as this case (see SecretReadError).
-      return null;
-    }
-    if (!hasUsableSafeStorageEncryption()) {
-      throw new SecretReadError('encryption_unavailable', provider);
-    }
-    let raw: string;
-    try {
-      raw = safeStorage.decryptString(Buffer.from(b64, 'base64'));
-    } catch (error) {
-      throw new SecretReadError('decrypt_failed', provider, error);
-    }
-    return parseCredentialOrThrow(provider, raw);
-  }
-
-  function writeEncrypted(provider: string, plaintext: string): boolean {
-    if (!hasUsableSafeStorageEncryption()) {
-      throw new Error('encryption_unavailable');
-    }
-    const b64 = Buffer.from(safeStorage.encryptString(plaintext)).toString('base64');
-    const secrets = (secretsStore.get('secrets') as SecretsSchema['secrets']) ?? {};
-    secrets[provider] = b64;
-    secretsStore.set('secrets', secrets);
-    return true;
-  }
-
-  function writeCredential(provider: string, credential: ProviderCredential): boolean {
-    if (!isProviderCredential(credential)) {
-      // IPC payloads reach here as unknown at runtime — reject malformed
-      // input (including an empty api_key) before it is ever persisted
-      // (NO SILENT FALLBACKS).
-      throw new MalformedCredentialError(
-        'setCredential received an invalid or unrecognized credential object'
-      );
-    }
-    return writeEncrypted(provider, JSON.stringify(credential));
-  }
-
-  return {
-    async clearAll(): Promise<boolean> {
-      try {
-        secretsStore.set('secrets', {});
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    async deleteKey(provider: string): Promise<boolean> {
-      const secrets = (secretsStore.get('secrets') as SecretsSchema['secrets']) ?? {};
-      if (!Object.hasOwn(secrets, provider)) {
-        return false;
-      }
-      const next = Object.fromEntries(
-        Object.entries(secrets).filter(([key]) => key !== provider)
-      ) as SecretsSchema['secrets'];
-      secretsStore.set('secrets', next);
-      return true;
-    },
-    async getCredential(provider: string): Promise<ProviderCredential | null> {
-      return readStoredCredential(provider);
-    },
-    async getKey(provider: string): Promise<string | null> {
-      const credential = readStoredCredential(provider);
-      if (credential === null) {
-        return null;
-      }
-      return credentialToApiKey(provider, credential);
-    },
-    async listProviders(): Promise<string[]> {
-      const secrets = (secretsStore.get('secrets') as SecretsSchema['secrets']) ?? {};
-      return Object.keys(secrets);
-    },
-    async saveKey(provider: string, value: string): Promise<boolean> {
-      // Single write path: every save stores the typed JSON envelope. Legacy
-      // bare-string READS remain supported forever via parseStoredCredential.
-      return writeCredential(provider, { key: value, type: 'api_key' });
-    },
-    async setCredential(provider: string, credential: ProviderCredential): Promise<boolean> {
-      return writeCredential(provider, credential);
-    },
-  } satisfies SecretsService;
+/**
+ * The one-time move of the retired safeStorage entries into the profile's
+ * store, started once. Every credential operation in Main and the forked host
+ * waits for it; a conflict or decrypt failure keeps the legacy copy and every
+ * credential operation rejects with that failure.
+ */
+export function migrateDesktopLegacySecrets(): Promise<LegacySecretMigrationReport> {
+  legacyMigration ??= migrateLegacySecrets({
+    destination: getDesktopCredentials().store(),
+    source: createSafeStorageLegacySecretSource(),
+  });
+  return legacyMigration;
 }
 
-// Singleton accessor for consumers (e.g., assistant server) without circular DI
-let __secretsInstance: SecretsService | null = null;
+/** One Main-process authority over the selected store (Settings, OAuth engine, MCP bearer). */
 export function getSecretsService(): SecretsService {
-  if (!__secretsInstance) {
-    __secretsInstance = createSecretsService();
-  }
-  return __secretsInstance;
+  const service = getDesktopCredentials().secrets();
+  const migrated = async <T>(operation: () => Promise<T>): Promise<T> => {
+    await migrateDesktopLegacySecrets();
+    return operation();
+  };
+  return {
+    clearAll: () => migrated(() => service.clearAll()),
+    deleteKey: (provider) => migrated(() => service.deleteKey(provider)),
+    getCredential: (provider) => migrated(() => service.getCredential(provider)),
+    getKey: (provider) => migrated(() => service.getKey(provider)),
+    listProviders: () => migrated(() => service.listProviders()),
+    saveKey: (provider, value) => migrated(() => service.saveKey(provider, value)),
+    setCredential: (provider, credential) =>
+      migrated(() => service.setCredential(provider, credential)),
+  };
+}
+
+export interface LegacySafeStorage {
+  decryptString(value: Buffer): string;
+  getSelectedStorageBackend?(): string;
+  isEncryptionAvailable(): boolean;
+}
+
+/** electron-store's plain JSON file; only `secrets` (base64 ciphertext) is read. */
+const LegacySecretsFileSchema = z.looseObject({
+  secrets: z.record(z.string(), z.string()).optional(),
+});
+
+/**
+ * The retired safeStorage store (`brainstrike-secrets.json`), read only by the
+ * one-time migration. Account names and plaintext values are kept as stored;
+ * an undecryptable entry fails the whole read and is never skipped. Retiring
+ * empties its `secrets` and keeps every other key.
+ */
+export function createSafeStorageLegacySecretSource(
+  file: string = join(app.getPath('userData'), 'brainstrike-secrets.json'),
+  storage?: LegacySafeStorage
+): LegacySecretSource {
+  const read = async (): Promise<z.output<typeof LegacySecretsFileSchema> | undefined> => {
+    let content: string;
+    try {
+      content = await readFile(file, 'utf8');
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        return;
+      }
+      throw error;
+    }
+    return LegacySecretsFileSchema.parse(JSON.parse(content));
+  };
+  return {
+    entries: async () => {
+      const encrypted = Object.entries((await read())?.secrets ?? {});
+      if (encrypted.length === 0) {
+        return [];
+      }
+      // Decryption is the only Electron dependency, needed only when entries exist.
+      const decryptor = storage ?? safeStorage;
+      const usable =
+        decryptor.isEncryptionAvailable() &&
+        decryptor.getSelectedStorageBackend?.() !== 'basic_text';
+      return encrypted.map(([account, value]) => {
+        if (!usable) {
+          throw new SecretReadError('encryption_unavailable', account);
+        }
+        try {
+          return { account, value: decryptor.decryptString(Buffer.from(value, 'base64')) };
+        } catch (error) {
+          throw new SecretReadError('decrypt_failed', account, error);
+        }
+      });
+    },
+    retire: async () => {
+      const current = await read();
+      if (current) {
+        // Same-directory rename keeps the retirement atomic.
+        const next = `${file}.retired-${process.pid}`;
+        await writeFile(next, JSON.stringify({ ...current, secrets: {} }, null, '\t'), {
+          mode: 0o600,
+        });
+        await rename(next, file);
+      }
+    },
+  };
 }

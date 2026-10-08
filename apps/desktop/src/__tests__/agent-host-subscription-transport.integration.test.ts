@@ -27,6 +27,7 @@ import {
 } from '../agent-host-platform/provider-fetch-transport';
 import { createCodexFetch } from '../provider-auth/codex-fetch';
 import { CODEX_RESPONSES_ENDPOINT } from '../provider-auth/descriptors/openai-codex';
+import { emptyMainMcpCapabilities } from './fixtures/main-mcp-capabilities';
 
 const candidate = join(import.meta.dirname, '../../../..');
 
@@ -128,6 +129,7 @@ test('production Node host retains the existing subscription fetch over its priv
     return { apiKey: 'sdk-dummy-fixture-key', fetch: selectedFetch, kind: 'custom_fetch' as const };
   });
   const mainOwner = serveDesktopPlatform(server, {
+    mcp: emptyMainMcpCapabilities(),
     readConfiguration: async () => selection,
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     resolveProviderAuth: auth,

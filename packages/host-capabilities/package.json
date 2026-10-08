@@ -5,31 +5,22 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "bin": {
-    "brainstrike": "./bin/brainstrike.mjs",
-    "brainstrike-host": "./bin/brainstrike.mjs"
-  },
-  "engines": {
-    "node": ">=24.20.0 <25 || >=26.8.2 <27"
-  },
+  "bin": { "brainstrike": "./bin/brainstrike.mjs", "brainstrike-host": "./bin/brainstrike.mjs" },
+  "engines": { "node": ">=24.20.0 <25 || >=26.8.2 <27" },
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    },
-    "./platform": {
-      "types": "./dist/platform.d.ts",
-      "default": "./dist/platform.js"
-    },
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./credentials": { "types": "./dist/credentials.d.ts", "default": "./dist/credentials.js" },
     "./native-tools": {
       "types": "./dist/native-tools/index.d.ts",
       "default": "./dist/native-tools/index.js"
+    },
+    "./platform": { "types": "./dist/platform.d.ts", "default": "./dist/platform.js" },
+    "./provider-credentials": {
+      "types": "./dist/provider-credentials.d.ts",
+      "default": "./dist/provider-credentials.js"
     }
   },
-  "files": [
-    "bin",
-    "dist"
-  ],
+  "files": ["bin", "dist"],
   "scripts": {
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",

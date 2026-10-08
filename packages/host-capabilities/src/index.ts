@@ -20,4 +20,12 @@ export {
   migrateLegacySecrets,
 } from './legacy-secret-migration.js';
 export { createHostProviderAuth, type HostProviderAuthOptions } from './provider-auth.js';
+export {
+  createProviderCredentialReader,
+  isBearerCredential,
+  normalizeSecretValue,
+  normalizeStoredCredential,
+  type ResolvedDesktopProviderCredential,
+  resolveAwsEnvChainCredential,
+} from './provider-credentials.js';
 export { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.js';

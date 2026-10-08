@@ -27,6 +27,7 @@
  */
 import { type DbHandle, makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { useMemo } from 'react';
+import { useAssistantThreadHostRuns } from '../assistant-thread-host-context';
 
 /**
  * `tool.started` IS a resolution here, unlike in the run-timeline derivation
@@ -180,10 +181,17 @@ export function useThreadsAwaitingApproval({
     [liveQuery.rows]
   );
   const error = liveQuery.error ?? projection.error;
+  // Agent-host threads have no run events here: their committed log is the source.
+  const hostRuns = useAssistantThreadHostRuns();
+  const threadIds = useMemo(() => {
+    const historyIds = error ? EMPTY_THREAD_IDS : projection.threadIds;
+    const hostIds = [...hostRuns].flatMap(([threadId, run]) => (run.needsInput ? [threadId] : []));
+    return hostIds.length === 0 ? historyIds : new Set([...historyIds, ...hostIds]);
+  }, [error, hostRuns, projection.threadIds]);
 
   return {
     error,
     loading: liveQuery.loading,
-    threadIds: error ? EMPTY_THREAD_IDS : projection.threadIds,
+    threadIds,
   };
 }

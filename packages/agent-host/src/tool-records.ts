@@ -1,5 +1,5 @@
 import type { BlobContent } from '@brainstrike/state-store';
-import type { HostToolContext } from './ports.js';
+import type { HostPlatform, HostToolContext } from './ports.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 import { HostToolStates } from './tool-state.js';
 import { HostWorkspaceEdits, hostEditScope } from './workspace-edits.js';
@@ -14,9 +14,11 @@ export class HostToolRecords {
     this.states.fold(row);
   }
 
-  forgetThread(threadId: string): void {
+  /** Drop a deleted thread's folds, then let the platform purge its process-local caches. */
+  forgetThread(threadId: string, platform: Pick<HostPlatform, 'forgetThread'>): void {
     this.edits.forgetThread(threadId);
     this.states.forgetThread(threadId);
+    platform.forgetThread?.(threadId);
   }
 
   /** The Core-owned edit and state capabilities of one dispatched execution. */

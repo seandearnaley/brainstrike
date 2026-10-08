@@ -1,5 +1,6 @@
 import { type HostLogRow, HostLogRowSchema } from '@brainstrike/agent-host/protocol';
 import approvedRecording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
+import questionRecording from '@brainstrike/test-utils/fixtures/committed-host-question.json';
 import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
 import { expect, test, vi } from 'vitest';
 import { type CommittedHostRunSource, HostThreadRuns } from '../renderer/host-thread-runs';
@@ -8,6 +9,7 @@ import appOwnedRecording from './fixtures/committed-app-owned-host-thread.json';
 
 const approved = approvedRecording.map((row) => HostLogRowSchema.parse(row));
 const rich = richRecording.map((row) => HostLogRowSchema.parse(row));
+const question = questionRecording.map((row) => HostLogRowSchema.parse(row));
 const committedAt = HostLogRowSchema.parse(appOwnedRecording[0]).ts;
 const threadId = approved[0]?.threadId;
 if (!(threadId && committedAt !== undefined)) {
@@ -65,10 +67,18 @@ class Source implements CommittedHostRunSource {
 test('a committed log reads as its latest root run: running until its own finish', () => {
   const runs = new HostThreadRuns();
   runs.accept(threadId, approved.slice(0, indexOf(approved, 'run.finished')));
-  expect(runs.getSnapshot().get(threadId)).toEqual({ completedAt: null, status: 'running' });
+  expect(runs.getSnapshot().get(threadId)).toEqual({
+    completedAt: null,
+    needsInput: false,
+    status: 'running',
+  });
   runs.accept(threadId, approved);
   // The recording predates commit timestamps: no finish time is invented.
-  expect(runs.getSnapshot().get(threadId)).toEqual({ completedAt: null, status: 'completed' });
+  expect(runs.getSnapshot().get(threadId)).toEqual({
+    completedAt: null,
+    needsInput: false,
+    status: 'completed',
+  });
 });
 
 test('the latest of several runs decides; its finish time is the committed row time', () => {
@@ -79,6 +89,7 @@ test('the latest of several runs decides; its finish time is the committed row t
   runs.accept(threadId, finishedAs('failed', rich));
   expect(runs.getSnapshot().get(threadId)).toEqual({
     completedAt: new Date(committedAt),
+    needsInput: false,
     status: 'failed',
   });
 });
@@ -111,14 +122,19 @@ test('only rows committed after the replay notify; a replayed approval never doe
   const stop = runs.observe(threadId, source, onNotification);
   expect(runs.getSnapshot().has(threadId)).toBe(false);
 
-  // Replayed through the approval request; the run is still active.
+  // Replayed through the approval request; the run waits on its user.
   source.replay(approved.slice(0, indexOf(approved, 'interaction.requested') + 1));
-  expect(runs.getSnapshot().get(threadId)).toEqual({ completedAt: null, status: 'running' });
+  expect(runs.getSnapshot().get(threadId)).toEqual({
+    completedAt: null,
+    needsInput: true,
+    status: 'running',
+  });
   expect(onNotification).not.toHaveBeenCalled();
 
   source.live(finishedAs('completed'));
   expect(runs.getSnapshot().get(threadId)).toEqual({
     completedAt: new Date(committedAt),
+    needsInput: false,
     status: 'completed',
   });
   const started = approved[indexOf(approved, 'run.started')]?.event;
@@ -155,4 +171,38 @@ test('a live approval request and failed run notify once each; a Stop does not',
       ...(expected ? [[expected]] : []),
     ]);
   }
+});
+
+test('a run waiting on its user needs input until the committed response', () => {
+  const runs = new HostThreadRuns();
+  runs.accept(threadId, approved.slice(0, indexOf(approved, 'interaction.requested') + 1));
+  expect(runs.getSnapshot().get(threadId)).toEqual({
+    completedAt: null,
+    needsInput: true,
+    status: 'running',
+  });
+  runs.accept(threadId, approved.slice(0, indexOf(approved, 'interaction.responded') + 1));
+  expect(runs.getSnapshot().get(threadId)?.needsInput).toBe(false);
+});
+
+test('a live question notifies as one, in the approval notification kind', () => {
+  const requested = question[indexOf(question, 'interaction.requested')]?.event;
+  if (requested?.type !== 'interaction.requested' || requested.kind !== 'question') {
+    throw new Error('The recording has no question');
+  }
+  const source = new Source();
+  const onNotification = vi.fn();
+  new HostThreadRuns().observe(threadId, source, onNotification);
+  source.replay(question.slice(0, indexOf(question, 'run.started') + 1));
+  source.live(question.slice(0, indexOf(question, 'interaction.requested') + 1));
+  expect(onNotification.mock.calls).toEqual([
+    [
+      {
+        decisionKey: requested.interactionId,
+        input: 'question',
+        kind: 'toolApprovalRequired',
+        runId: requested.runId,
+      },
+    ],
+  ]);
 });

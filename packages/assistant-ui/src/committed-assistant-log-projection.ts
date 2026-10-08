@@ -141,7 +141,11 @@ function projectToolPart(
   authoritative: boolean,
   retainInput: boolean
 ): ToolPart {
-  const name = typeof input['toolId'] === 'string' ? input['toolId'] : input['toolName'];
+  // The user-facing catalog ID when the host committed one; older rows keep
+  // the provider-facing name they actually carry.
+  const name = [input['toolCatalogId'], input['toolId'], input['toolName']].find(
+    (value) => typeof value === 'string'
+  );
   if (typeof name !== 'string' && !prior) {
     throw new Error('Committed tool call has no tool name.');
   }

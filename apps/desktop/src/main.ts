@@ -189,6 +189,7 @@ import { startSnapshotStartupMaintenance } from './main/snapshot-lifecycle';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-shell-protocol';
+import { createDesktopMcpPlatformCapabilities } from './mcp/desktop-host-platform';
 import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { purgeMcpOAuthRuntimeState } from './mcp/oauth-client-provider';
 import { createNativeCallerRead } from './native-caller-query';
@@ -210,7 +211,11 @@ import {
   initializeProviderAuthRuntime,
   purgeProviderAuthRuntimeState,
 } from './provider-auth/provider-auth-runtime';
-import { getSecretsService } from './secrets';
+import {
+  desktopCredentialStoreSelection,
+  getSecretsService,
+  migrateDesktopLegacySecrets,
+} from './secrets';
 import { setupSecurity } from './setup-security';
 import { installIndexCallerRead, openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -1043,12 +1048,20 @@ const nativeIndexActivation = createNativeIndexActivation({
             );
           }
         },
+        // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
+        mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
       });
     },
     platformModule: resolveBundledSiblingPath(
       'Agent host platform',
       'agent-host-platform-entry.js'
     ),
+    // The host reads the same profile store Main's Settings writes, after the
+    // one-time legacy migration has settled into it.
+    platformOptions: async () => {
+      await migrateDesktopLegacySecrets();
+      return { credentialStore: desktopCredentialStoreSelection() };
+    },
   },
   application: applicationIpcDomain,
   embedding: embeddingHostManager,
@@ -1396,6 +1409,21 @@ if (singleInstanceLockAcquired) {
     registerShutdownSignalHandlers();
     try {
       emitBootMeasurementMark('app-ready', app.isPackaged);
+      // One-time move of the retired safeStorage entries into the profile's
+      // credential store. Credential operations and the host fork wait for it;
+      // a failure keeps the legacy copy and every credential read reports it.
+      migrateDesktopLegacySecrets().then(
+        (migrated) => {
+          if (migrated.migrated > 0 || migrated.alreadyPresent > 0) {
+            logger.info('Migrated legacy provider secrets into the credential store', migrated);
+          }
+        },
+        (error: unknown) => {
+          logger.error('Legacy provider secrets could not be migrated; the legacy store is kept', {
+            error: serializeDesktopError(error),
+          });
+        }
+      );
       // Validated up front (before assistant-server startup) so a malformed
       // value fails loudly and clearly here, instead of being caught by the
       // assistant-server try/catch below and mislabeled as an assistant

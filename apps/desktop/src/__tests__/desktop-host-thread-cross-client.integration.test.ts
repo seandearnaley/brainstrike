@@ -86,7 +86,7 @@ test('an id the host has never heard of is historical only after the host says s
   expect(await capability.ownsThread('historical-pglite-thread')).toBe(false);
 });
 
-test('a renamed host thread keeps its title across a reload, a second client and a host restart', async () => {
+test('a host thread keeps its title, colour and icon across a reload, a second client and a host restart', async () => {
   vi.stubGlobal('window', frame);
   root = await mkdtemp(join(tmpdir(), 'bs-m3-cross-client-rename-'));
   const platform = {
@@ -97,26 +97,35 @@ test('a renamed host thread keeps its title across a reload, a second client and
   connect.mockResolvedValueOnce(await attachAgentHost(host.record));
   const capability = createWindowThreadCapability(() => undefined);
   const renameHistory = vi.fn<AssistantThreadRepository['renameThread']>();
+  const updateHistory = vi.fn<AssistantThreadRepository['updateThreadMetadata']>();
   const repository = withAssistantThreadHost(
-    { renameThread: renameHistory } as unknown as AssistantThreadRepository,
+    {
+      renameThread: renameHistory,
+      updateThreadMetadata: updateHistory,
+    } as unknown as AssistantThreadRepository,
     capability
   );
   const created = await capability.createThread(WORKSPACE_MEMORY_RESOURCE_ID);
   await repository.renameThread(created.id, 'Release plan');
+  await repository.updateThreadMetadata(created.id, { color: 'emerald', icon: 'rocket' });
   expect(renameHistory).not.toHaveBeenCalled();
+  expect(updateHistory).not.toHaveBeenCalled();
+  const presented = expect.objectContaining({
+    id: created.id,
+    metadata: { color: 'emerald', icon: 'rocket' },
+    title: 'Release plan',
+  });
 
   // A reload: this window's client closes and a fresh window lists the catalog.
   frame.dispatchEvent(new Event('beforeunload'));
   connect.mockResolvedValueOnce(await attachAgentHost(host.record));
   const reloaded = createWindowThreadCapability(() => undefined);
-  expect(await reloaded.listThreads(WORKSPACE_MEMORY_RESOURCE_ID)).toEqual([
-    expect.objectContaining({ id: created.id, title: 'Release plan' }),
-  ]);
+  expect(await reloaded.listThreads(WORKSPACE_MEMORY_RESOURCE_ID)).toEqual([presented]);
 
   // A second client (another window or the CLI) sees the committed title.
   other = await attachAgentHost(host.record);
   expect((await other.request('thread/list', {})).threads).toEqual([
-    { threadId: created.id, title: 'Release plan' },
+    { color: 'emerald', icon: 'rocket', threadId: created.id, title: 'Release plan' },
   ]);
 
   // A host restart folds the same title from the log.
@@ -127,7 +136,5 @@ test('a renamed host thread keeps its title across a reload, a second client and
   host = await startAgentHost({ lifetime: 'persistent', root }, platform);
   connect.mockResolvedValueOnce(await attachAgentHost(host.record));
   const restarted = createWindowThreadCapability(() => undefined);
-  expect(await restarted.listThreads(WORKSPACE_MEMORY_RESOURCE_ID)).toEqual([
-    expect.objectContaining({ id: created.id, title: 'Release plan' }),
-  ]);
+  expect(await restarted.listThreads(WORKSPACE_MEMORY_RESOURCE_ID)).toEqual([presented]);
 });

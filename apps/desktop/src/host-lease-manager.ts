@@ -1,4 +1,7 @@
-import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host';
+import {
+  AGENT_HOST_PROTOCOL_VERSION,
+  type HostPlatformLaunchOptions,
+} from '@brainstrike/agent-host';
 import { attachAgentHost } from '@brainstrike/agent-host/client';
 import { runAtPromiseBoundary, runWithTimeout } from '@brainstrike/effect-kit';
 import {
@@ -38,9 +41,16 @@ export interface DesktopHostLeaseOptions {
   readonly platform?: () => { readonly port: MessagePortMain; close(): Promise<void> };
   /** Trusted Node composition module; the GUI and CLI use the same kernel. */
   readonly platformModule?: string;
+  /** Trusted launch selection for that module, such as the profile's credential store. */
+  readonly platformOptions?: () => Promise<HostPlatformLaunchOptions>;
   readonly root: string;
   readonly startupTimeoutMs?: number;
 }
+/** The app-owned agent host composition: its platform port, module and launch selection. */
+export type DesktopAgentHostPlatform = Pick<
+  DesktopHostLeaseOptions,
+  'platform' | 'platformModule' | 'platformOptions'
+>;
 export interface DesktopHostLease {
   acquire(): Promise<HostAttachment>;
   close(): Promise<void>;
@@ -168,6 +178,9 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             options.fork ??
             ((path, args) =>
               utilityProcess.fork(path, [...args], { serviceName: 'Brainstrike Host Lease' }));
+          const platformOptions =
+            options.platformModule === undefined ? undefined : await options.platformOptions?.();
+          combined.throwIfAborted();
           const platform = options.platform?.();
           if (platform) {
             await addFinalizer(scope, () => platform.close());
@@ -176,6 +189,9 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             fork(entrypoint, [
               JSON.stringify(start),
               ...(options.platformModule === undefined ? [] : [options.platformModule]),
+              ...(platformOptions === undefined
+                ? []
+                : ['--platform-options', JSON.stringify(platformOptions)]),
             ])
           );
           const ready = awaitReady(child, start.root, combined);

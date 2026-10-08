@@ -20,7 +20,6 @@ import {
   type DesktopPlatformSelection,
   serveDesktopPlatform,
 } from '../agent-host-platform/main-platform';
-import { bindNodeMcpPlatformTransport } from '../agent-host-platform/mcp-platform-transport';
 import { decodePlatformAuth } from '../agent-host-platform/platform-auth';
 import { createProviderFetchTransport } from '../agent-host-platform/provider-fetch-transport';
 
@@ -618,57 +617,6 @@ it('failed schema projection releases the selection before an admission error re
     expect(close).toHaveBeenCalledTimes(1);
     await h.owner.close();
   } finally {
-    h.destroy();
-  }
-});
-
-it('a Main-executed MCP tool reaches Node task authority through platform/execute', async () => {
-  const handle = {
-    authorityEpoch: '00000000-0000-4000-8000-000000000001',
-    principalId: 'none',
-    resource: 'http://127.0.0.1:1/mcp',
-    serverId: 'srv',
-    taskId: 'task-1',
-  };
-  const bindTask = vi.fn(async () => undefined);
-  const h = harness(async () =>
-    selected({
-      'srv.start_task': {
-        description: 'fixture',
-        execute: async (_input, context) => {
-          await context.mcp?.bindTask({ assertCurrent: async () => undefined, handle });
-          return { bound: true };
-        },
-        identity: 'canonical',
-        inputSchema: z.object({}),
-        mcpBinding: { configuredServerId: 'srv', generation: 1 },
-        risk: 'mcp',
-      },
-    })
-  );
-  const signal = new AbortController().signal;
-  const node = bindNodeMcpPlatformTransport(h.client, () => ({
-    mcp: { bindTask, requestInput: vi.fn(async () => undefined) },
-    runId: 'run',
-    signal,
-    threadId: 'thread',
-    toolCallId: 'call',
-  }));
-  try {
-    await admit(h.client);
-    await expect(
-      h.client.sendRequest('platform/execute', {
-        input: {},
-        runId: 'run',
-        threadId: 'thread',
-        toolCallId: 'call',
-        toolId: 'srv.start_task',
-      })
-    ).resolves.toEqual({ bound: true });
-    expect(bindTask).toHaveBeenCalledWith({ assertCurrent: expect.any(Function), handle });
-  } finally {
-    node.close();
-    await h.owner.close();
     h.destroy();
   }
 });

@@ -4,14 +4,16 @@ import {
   canonicalToolModelOutput,
   createProductionHostPlatform,
   type HostPlatform,
+  type HostPlatformLaunchOptions,
   type HostStartupContext,
   type HostTool,
   type HostToolContext,
   type ProductionHostRunConfiguration,
   platformToolInputSchema,
 } from '@brainstrike/agent-host';
-import type { SupportedProvider } from '@brainstrike/assistant-contract';
+import { findProviderDefinition, type SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import {
   forgetSharedNativeToolThread,
   ReadWorkspaceFileCursorRegistry,
@@ -21,7 +23,7 @@ import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
 import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
-import { bindNodeMcpPlatformTransport } from './mcp-platform-transport';
+import { createDesktopNodeMcpHost } from './desktop-node-mcp';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import { decodePlatformAuth } from './platform-auth';
@@ -77,19 +79,21 @@ function desktopRuntimeConfiguration(
 /** Electron-free production entry: Node owns the model loop, Memory and committed log. */
 export async function createHostPlatform(
   _options: HostStartOptions,
-  startup: HostStartupContext
+  startup: HostStartupContext,
+  platformOptions?: HostPlatformLaunchOptions
 ): Promise<HostPlatform> {
+  // Provider credentials resolve here, in Node, from the profile store Main's
+  // Settings writes. Only subscription OAuth still borrows Main's engine.
+  const host = await createHostCapabilities({
+    env: process.env,
+    launch: platformOptions,
+    startup,
+  });
   const port = await parentPlatformPort();
   const connection = mainPlatformConnection(port);
   const executions = new Map<string, HostToolContext & { readonly toolId: string }>();
   // One host-lifetime registry; its handles are scoped to their thread.
   const readFileCursorRegistry = new ReadWorkspaceFileCursorRegistry();
-  const mcp = bindNodeMcpPlatformTransport(connection, (origin) => {
-    const execution = executions.get(JSON.stringify([origin.runId, origin.toolCallId]));
-    return execution?.threadId === origin.threadId && execution.toolId === origin.toolId
-      ? execution
-      : undefined;
-  });
   const request = async (
     method: string,
     input: unknown,
@@ -117,15 +121,20 @@ export async function createHostPlatform(
   connection.listen();
   connection.onClose(() => connection.dispose());
   await startup.register(async () => {
-    mcp.close();
     connection.dispose();
     port.close();
   });
+  // The desktop's one MCP runtime: host-thread MCP tools run here, beside Core.
+  const mcpHost = await createDesktopNodeMcpHost(connection, request, startup);
+  await startup.register(() => mcpHost.close());
   return createProductionHostPlatform({
     close: async () => {
+      // MCP cleanup still writes through Main's stores, so it joins before Main closes.
+      await mcpHost.close();
       await request('platform/close', {});
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
+    mcp: mcpHost.services.mcp,
     readConfiguration: async (admission) => {
       const response = await request(
         'platform/admit',
@@ -151,6 +160,9 @@ export async function createHostPlatform(
       ): Promise<ProviderAuthInput | undefined> => {
         if (closing) {
           throw new Error('Private provider selection is closing');
+        }
+        if (findProviderDefinition(selectedProvider)?.authType !== 'oauth_subscription') {
+          return await host.resolveProviderAuth(selectedProvider);
         }
         const response = await request(
           'platform/auth',
@@ -243,8 +255,6 @@ export async function createHostPlatform(
                     },
                   }
                 : {}),
-              ...(descriptor.mcpAuthority ? { mcpAuthority: descriptor.mcpAuthority } : {}),
-              ...(descriptor.mcpBinding ? { mcpBinding: descriptor.mcpBinding } : {}),
               permissionToolId: descriptor.permissionToolId,
               risk: descriptor.risk,
               ...(descriptor.strict === undefined ? {} : { strict: descriptor.strict }),
@@ -270,12 +280,6 @@ export async function createHostPlatform(
                     context.signal
                   );
                 } finally {
-                  mcp.release({
-                    runId: context.runId,
-                    threadId: context.threadId,
-                    toolCallId: context.toolCallId,
-                    toolId: name,
-                  });
                   executions.delete(address);
                 }
               },

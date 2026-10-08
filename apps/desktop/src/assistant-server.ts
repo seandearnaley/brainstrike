@@ -136,8 +136,6 @@ import {
 import type { WorktreeToolCapability } from './assistant-server/worktree-tools';
 import { type DesktopDatabase, getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
-import { getMcpDesktopAppHost } from './mcp/apps-authority';
-import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { resolveDesktopPythonExecutable } from './python-runtime';
 
 const logger = desktopAssistantServerLogger;
@@ -837,14 +835,6 @@ async function handleAssistantPostOwned(
         enteredStreamInitialization = true;
         // runAssistantTurn admits this root only after its previous owner settles.
         await beginOwnedTurnLeg();
-        // Apps admission is keyed by the OWNING THREAD (review finding on
-        // BST-1572): an app mounted in thread A must never execute under a
-        // later run of thread B that knows the same server. A run without a
-        // persisted thread publishes no admission (no key to correlate on).
-        const admissionRun =
-          core.runId && core.runtimeData?.memory?.threadId
-            ? { runId: core.runId, threadId: core.runtimeData.memory.threadId }
-            : undefined;
         const result = await initializeAgentStream<DesktopAgentStreamKinds>({
           apiKey: core.apiKey,
           authInput: core.authInput,
@@ -868,24 +858,12 @@ async function handleAssistantPostOwned(
                 }),
             },
           },
+          childFollowupAction: core.childFollowupAction,
           compactionOverlayLookup,
           getDatabase,
           logger,
+          // Legacy threads carry no MCP (BST-1930): the one MCP runtime serves agent-host threads.
           mcpConfig: undefined,
-          ...(admissionRun
-            ? {
-                mcpAppAdmission: {
-                  register: (admission) => {
-                    const appHost = getMcpDesktopAppHost();
-                    appHost.registerAdmission(admissionRun, admission);
-                    return () => appHost.invalidateAdmission(admissionRun);
-                  },
-                },
-              }
-            : {}),
-          childFollowupAction: core.childFollowupAction,
-          mcpHost: getDesktopMcpHostRuntime().host,
-          mcpTaskTracking: getDesktopMcpHostRuntime().taskHost,
           messages: core.messages,
           resolveProviderApiKey,
           runId: core.runId,
