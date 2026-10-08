@@ -1,3 +1,4 @@
+import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
 import type { ModelMessage } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
@@ -8,6 +9,7 @@ import {
   type HostEvent,
   type HostImageAttachment,
   type HostParams,
+  type HostPermissionGrant,
   HostPromptBreakdownSchema,
   type HostRunSnapshot,
 } from './protocol.js';
@@ -114,12 +116,34 @@ export function hasHostInteractionResponse(pending: PendingInteraction): boolean
     : Object.hasOwn(pending, 'resumeData');
 }
 
-/** Folds a committed interaction request or response into its run's pending set. */
+/** Live acceptance and replay apply a committed grant to its run the same way. */
+export function applyHostPermissionGrant(
+  run: HostRunState | undefined,
+  grant: HostPermissionGrant
+): void {
+  if (!run) {
+    throw new Error('Permission grant references an unknown run');
+  }
+  if (grant.scope === 'session') {
+    run.grants.categories.add(grant.category);
+  } else {
+    run.grants.tools.add(grant.toolId);
+  }
+}
+
+/** Folds a committed interaction request, response or grant into its run. */
 export function foldHostInteraction(
   runs: ReadonlyMap<string, HostRunState>,
-  event: Extract<HostEvent, { type: 'interaction.requested' | 'interaction.responded' }>
+  event: Extract<
+    HostEvent,
+    { type: 'interaction.requested' | 'interaction.responded' | 'permission.granted' }
+  >
 ): void {
   const run = runs.get(event.runId);
+  if (event.type === 'permission.granted') {
+    applyHostPermissionGrant(run, event.grant);
+    return;
+  }
   if (event.type === 'interaction.requested') {
     if (!run) {
       throw new Error('Interaction references an unknown run');
@@ -159,6 +183,11 @@ export interface HostRunState {
   completion?: Promise<void>;
   readonly controller: AbortController;
   readonly effects: Set<Promise<unknown>>;
+  /** Grants committed with this run's approvals; its later decisions include them. */
+  readonly grants: {
+    readonly categories: Set<ToolRiskCategory>;
+    readonly tools: Set<string>;
+  };
   readonly id: string;
   readonly liveInputs: Map<string, { readonly value: unknown }>;
   mcpInputPersistenceFailures?: HostMcpInputPersistenceError[];
@@ -202,6 +231,7 @@ export function createHostRunState(
     checkpointedResults: new Set(),
     controller,
     effects: new Set(),
+    grants: { categories: new Set(), tools: new Set() },
     id,
     liveInputs: new Map(),
     messageIndexes: new Set(),

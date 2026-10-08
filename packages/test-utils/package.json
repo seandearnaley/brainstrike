@@ -34,6 +34,7 @@
     "./async-util-timeout-proof": "./src/async-util-timeout-proof.ts",
     "./test-timeouts": "./src/test-timeouts.ts",
     "./fixtures/committed-approved-host-run.json": "./fixtures/committed-approved-host-run.json",
+    "./fixtures/committed-host-granted-run.json": "./fixtures/committed-host-granted-run.json",
     "./fixtures/committed-host-hook-blocked.json": "./fixtures/committed-host-hook-blocked.json",
     "./fixtures/committed-host-plan.json": "./fixtures/committed-host-plan.json",
     "./fixtures/committed-host-question.json": "./fixtures/committed-host-question.json",

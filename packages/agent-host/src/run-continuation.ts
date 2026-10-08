@@ -1,6 +1,8 @@
+import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
 import { asSchema, type ModelMessage, modelMessageSchema, type ToolContent } from 'ai';
 import { validateApprovalInput } from './approval-input.js';
 import {
+  applyHostPermissionGrant,
   hasHostInteractionResponse,
   type PendingInteraction,
   type HostRunState as Run,
@@ -8,7 +10,7 @@ import {
 import { executableInputSchema } from './executable-input-schema.js';
 import { jsonValue } from './json-value.js';
 import type { HostPlatform } from './ports.js';
-import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
+import type { HostEvent, HostLogRow, HostParams, HostPermissionGrant } from './protocol.js';
 import { ensureHostRunAdmission, hostRunToolDecision, hostRunTools } from './run-admission.js';
 
 type Action = Extract<HostEvent, { type: 'effect.started' }>;
@@ -43,7 +45,7 @@ export async function commitHostInteractionResponse(
   run: Run,
   platform: HostPlatform,
   params: HostParams<'interaction/respond'> | HostParams<'interaction/resume'>,
-  accept: (event: HostEvent) => Promise<void>,
+  accept: (events: readonly HostEvent[]) => Promise<void>,
   continueRun: () => Promise<void>
 ): Promise<{ accepted: true }> {
   const pending = run.approvals.get(params.interactionId);
@@ -66,26 +68,54 @@ export async function commitHostInteractionResponse(
     if (!registered || registered.identity !== pending.event.toolIdentity) {
       throw new Error('Approval tool identity changed');
     }
-    await accept({
-      decision: params.decision,
-      interactionId: params.interactionId,
-      runId: run.id,
-      type: 'interaction.responded',
-    });
+    const grant = 'grant' in params ? params.grant : undefined;
+    if (grant) {
+      assertHostGrantMatchesCall(grant, params.decision, {
+        risk: registered.risk,
+        toolId: registered.permissionToolId ?? pending.event.toolId,
+      });
+    }
+    await accept([
+      ...(grant ? [{ grant, runId: run.id, type: 'permission.granted' as const }] : []),
+      {
+        decision: params.decision,
+        interactionId: params.interactionId,
+        runId: run.id,
+        type: 'interaction.responded',
+      },
+    ]);
+    if (grant) {
+      applyHostPermissionGrant(run, grant);
+    }
     pending.decision = params.decision;
   } else {
     await validateHostInteractionResume(run, pending, params.resumeData);
-    await accept({
-      interactionId: params.interactionId,
-      resumeData: params.resumeData,
-      runId: run.id,
-      type: 'interaction.responded',
-    });
+    await accept([
+      {
+        interactionId: params.interactionId,
+        resumeData: params.resumeData,
+        runId: run.id,
+        type: 'interaction.responded',
+      },
+    ]);
     pending.resumeData = params.resumeData;
   }
   run.task = (run.task ?? Promise.resolve()).then(continueRun);
   run.task.catch(() => undefined);
   return { accepted: true };
+}
+
+/** A grant names exactly the approved call's own risk category or tool, never another. */
+function assertHostGrantMatchesCall(
+  grant: HostPermissionGrant,
+  decision: 'approve' | 'deny',
+  call: { readonly risk: ToolRiskCategory; readonly toolId: string }
+): void {
+  const matches =
+    grant.scope === 'session' ? grant.category === call.risk : grant.toolId === call.toolId;
+  if (decision !== 'approve' || !matches) {
+    throw new Error('Permission grant does not match the approved call');
+  }
 }
 
 // Continuation calculations reuse Core's owned run and dispatch; no log writer lives here.

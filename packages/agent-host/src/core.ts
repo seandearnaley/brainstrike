@@ -197,6 +197,7 @@ export class HostCore {
         break;
       case 'interaction.requested':
       case 'interaction.responded':
+      case 'permission.granted':
         foldHostInteraction(this.runs, event);
         break;
       case 'effect.started':
@@ -609,27 +610,25 @@ export class HostCore {
   }
 
   respond(params: HostParams<'interaction/respond'>): Promise<{ accepted: true }> {
-    return this.command('interaction/respond', params, () =>
-      commitHostInteractionResponse(
-        this.run(params.threadId, params.runId),
-        this.platform,
-        params,
-        (event) =>
-          this.accept(params.threadId, 'interaction/respond', params, { accepted: true }, [event]),
-        () => this.continueRun(this.run(params.threadId, params.runId))
-      )
-    );
+    return this.answer('interaction/respond', params);
   }
 
   resume(params: HostParams<'interaction/resume'>): Promise<{ accepted: true }> {
-    return this.command('interaction/resume', params, () =>
+    return this.answer('interaction/resume', params);
+  }
+
+  private answer(
+    method: 'interaction/respond' | 'interaction/resume',
+    params: HostParams<'interaction/respond'> | HostParams<'interaction/resume'>
+  ): Promise<{ accepted: true }> {
+    const run = () => this.run(params.threadId, params.runId);
+    return this.command(method, params, () =>
       commitHostInteractionResponse(
-        this.run(params.threadId, params.runId),
+        run(),
         this.platform,
         params,
-        (event) =>
-          this.accept(params.threadId, 'interaction/resume', params, { accepted: true }, [event]),
-        () => this.continueRun(this.run(params.threadId, params.runId))
+        (events) => this.accept(params.threadId, method, params, { accepted: true }, events),
+        () => this.continueRun(run())
       )
     );
   }
@@ -803,9 +802,7 @@ export class HostCore {
       (event, commit) =>
         this.append(run.threadId, [event], 'full', (rows) => {
           commit();
-          for (const row of rows) {
-            this.fold(row);
-          }
+          this.foldRows(rows);
         })
     ).then(() => this.presentations.settle(run));
   }

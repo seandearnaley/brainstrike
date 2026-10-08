@@ -6,9 +6,12 @@ import {
   HostImageAttachmentSchema,
 } from '@brainstrike/agent-host/protocol';
 import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
+import { usePermissionPolicyStore } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
+  type CommittedApprovalGrant,
   type CommittedAssistantCommands,
   CommittedAssistantLogStore,
+  committedApprovalGrant,
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
@@ -31,6 +34,20 @@ function hostImageAttachment(
     name: attachment.name,
     type: 'image',
   });
+}
+
+/**
+ * The renderer keeps an accepted grant for this window's later runs, as the
+ * approval card's grant buttons do: a session grant until reload, a per-tool
+ * allow in the saved permission settings.
+ */
+function keepGrant(grant: CommittedApprovalGrant): void {
+  const policy = usePermissionPolicyStore.getState();
+  if (grant.scope === 'session') {
+    policy.grantSessionCategory(grant.category);
+  } else {
+    policy.setToolOverride(grant.toolId, 'allow');
+  }
 }
 
 export interface CommittedHostConversation {
@@ -153,13 +170,19 @@ export function createCommittedHostConversation(options: {
         });
         return;
       }
+      // A grant option answers this run through the host and is kept for later runs.
+      const grant = committedApprovalGrant(response.optionId, interaction);
       await client.request('interaction/respond', {
         commandId: crypto.randomUUID(),
         decision: response.approved ? 'approve' : 'deny',
+        ...(grant ? { grant } : {}),
         interactionId: interaction.interactionId,
         runId: interaction.runId,
         threadId,
       });
+      if (grant) {
+        keepGrant(grant);
+      }
     },
     // Branch selection is client view state: the vendor already moved its own
     // head over the committed tree, and nothing is written to the host.

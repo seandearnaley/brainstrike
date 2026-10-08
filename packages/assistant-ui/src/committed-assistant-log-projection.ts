@@ -14,7 +14,12 @@ import {
   TOOL_CALL_BLOCKED_MESSAGE,
   TOOL_CALL_DECLINED_MESSAGE,
 } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  isToolRiskCategory,
+  type ToolRiskCategory,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
+import { committedApprovalOptions } from './committed-approval-options';
 import type { ThreadTokenUsage } from './context-usage-store';
 
 /** Structural consumer boundary for the owner's validated HostLogRow, not a wire schema. */
@@ -42,6 +47,10 @@ export interface CommittedAssistantLogProjectionOptions {
 export interface CommittedAssistantPendingInteraction {
   readonly interactionId: string;
   readonly kind?: 'approval' | 'question' | 'plan';
+  /** The tool a per-tool grant names: its catalog ID, else its recorded ID. */
+  readonly permissionToolId: string;
+  /** A permission approval's risk category, which its session grant names. */
+  readonly risk?: ToolRiskCategory;
   readonly runId: string;
   readonly threadId: string;
   readonly toolCallId: string;
@@ -228,6 +237,24 @@ function projectToolPart(
     toolName,
     type: 'tool-call',
   };
+}
+
+/** The ID a permission names a tool by: its catalog ID, else its recorded tool ID. */
+function committedToolCatalogId(event: Readonly<Record<string, unknown>>): string {
+  return typeof event['toolCatalogId'] === 'string'
+    ? event['toolCatalogId']
+    : requiredString(event, 'toolId');
+}
+
+/** A permission approval answers with its grant options; a question or plan with text. */
+function interactionAnswers(
+  kind: 'approval' | 'question' | 'plan',
+  risk: ToolRiskCategory | undefined
+): Pick<NonNullable<ToolPart['approval']>, 'allowFreeform' | 'display' | 'options'> {
+  if (kind !== 'approval') {
+    return { allowFreeform: true, display: 'text' };
+  }
+  return risk ? { options: committedApprovalOptions(risk) } : {};
 }
 
 /** A refusal's reason rides its approval response; the denial chunk that follows has none. */
@@ -619,6 +646,54 @@ export class CommittedAssistantLogProjection {
     };
   }
 
+  /** A committed interaction request becomes its tool's approval and a pending interaction. */
+  private request(
+    run: ProjectedRun,
+    row: CommittedAssistantLogRow,
+    event: Readonly<Record<string, unknown>>,
+    runId: string
+  ): void {
+    const id = this.tool(run, event, true);
+    const interactionId = requiredString(event, 'interactionId');
+    const kind = event['kind'];
+    if (kind !== 'approval' && kind !== 'question' && kind !== 'plan') {
+      throw new Error('Committed interaction has an unsupported kind.');
+    }
+    const risk = isToolRiskCategory(event['risk']) ? event['risk'] : undefined;
+    this.updateTool(run, id, (part) => ({
+      ...part,
+      approval: {
+        id: interactionId,
+        ...interactionAnswers(kind, risk),
+      },
+      ...(kind === 'approval'
+        ? {}
+        : {
+            providerMetadata: {
+              ...part.providerMetadata,
+              brainstrike: { ...part.providerMetadata?.['brainstrike'], interactionKind: kind },
+            },
+          }),
+    }));
+    this.view = {
+      ...this.view,
+      pendingInteractions: [
+        ...this.view.pendingInteractions,
+        {
+          interactionId,
+          kind,
+          permissionToolId: committedToolCatalogId(event),
+          ...(risk ? { risk } : {}),
+          runId,
+          threadId: row.threadId,
+          toolCallId: id,
+          toolIdentity: requiredString(event, 'toolIdentity'),
+        },
+      ],
+    };
+    this.publishRunStatus(run, runId);
+  }
+
   private apply(row: CommittedAssistantLogRow): void {
     const event = row.event;
     if (event['type'] === 'run.started') {
@@ -653,42 +728,7 @@ export class CommittedAssistantLogProjection {
       }
       this.data(run, row, event, 'brainstrike.host-event');
     } else if (event['type'] === 'interaction.requested') {
-      const id = this.tool(run, event, true);
-      const interactionId = requiredString(event, 'interactionId');
-      const kind = event['kind'];
-      if (kind !== 'approval' && kind !== 'question' && kind !== 'plan') {
-        throw new Error('Committed interaction has an unsupported kind.');
-      }
-      this.updateTool(run, id, (part) => ({
-        ...part,
-        approval: {
-          id: interactionId,
-          ...(kind === 'approval' ? {} : { allowFreeform: true, display: 'text' as const }),
-        },
-        ...(kind === 'approval'
-          ? {}
-          : {
-              providerMetadata: {
-                ...part.providerMetadata,
-                brainstrike: { ...part.providerMetadata?.['brainstrike'], interactionKind: kind },
-              },
-            }),
-      }));
-      this.view = {
-        ...this.view,
-        pendingInteractions: [
-          ...this.view.pendingInteractions,
-          {
-            interactionId,
-            kind,
-            runId: event['runId'],
-            threadId: row.threadId,
-            toolCallId: id,
-            toolIdentity: requiredString(event, 'toolIdentity'),
-          },
-        ],
-      };
-      this.publishRunStatus(run, event['runId']);
+      this.request(run, row, event, event['runId']);
     } else if (event['type'] === 'interaction.responded') {
       const interaction = this.view.pendingInteractions.find(
         (item) => item.runId === event['runId'] && item.interactionId === event['interactionId']

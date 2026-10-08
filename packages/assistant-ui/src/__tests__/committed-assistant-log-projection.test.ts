@@ -4,8 +4,10 @@
 
 import { TOOL_CALL_BLOCKED_MESSAGE } from '@brainstrike/assistant-contract/tool-approval';
 import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
+import granted from '@brainstrike/test-utils/fixtures/committed-host-granted-run.json';
 import hookBlocked from '@brainstrike/test-utils/fixtures/committed-host-hook-blocked.json';
 import { describe, expect, it } from 'vitest';
+import { committedApprovalGrant, committedApprovalOptions } from '../committed-approval-options';
 import {
   CommittedAssistantLogProjection,
   type CommittedAssistantLogRow,
@@ -310,5 +312,49 @@ describe('rich committed-log presentation projection', () => {
       },
     ]);
     expect(projection.getSnapshot().observationWithheld).toBe('branched-thread');
+  });
+
+  it('offers a permission approval’s grants and maps the chosen one to the call’s category or tool', () => {
+    // Recorded from a real host run: the first edit was approved with a session grant.
+    const run: readonly CommittedAssistantLogRow[] = granted;
+    const grantedStart = run.find(({ event }) => event['type'] === 'run.started');
+    const grantedRunId = grantedStart?.event['runId'];
+    if (!grantedStart || typeof grantedRunId !== 'string') {
+      throw new Error('Missing recorded granted run.');
+    }
+    const projection = new CommittedAssistantLogProjection({
+      identifyRun: () => ({ ...identity, assistantMessageId: grantedRunId }),
+      threadId: grantedStart.threadId,
+    });
+    const tools = () =>
+      projection
+        .getSnapshot()
+        .repository.messages.find(({ message }) => message.id === grantedRunId)
+        ?.message.content.filter((part) => part.type === 'tool-call') ?? [];
+    const requested = run.findIndex(({ event }) => event['type'] === 'interaction.requested');
+    projection.acceptCommitted(run.slice(0, requested + 1));
+    expect(tools()[0]?.approval?.options).toEqual(committedApprovalOptions('edit'));
+    const [pending] = projection.getSnapshot().pendingInteractions;
+    expect(pending).toMatchObject({ permissionToolId: 'brainstrike.writeFixture', risk: 'edit' });
+    if (!pending) {
+      throw new Error('Missing pending approval.');
+    }
+    expect(committedApprovalGrant('grant-session', pending)).toEqual({
+      category: 'edit',
+      scope: 'session',
+    });
+    expect(committedApprovalGrant('grant-tool', pending)).toEqual({
+      scope: 'tool',
+      toolId: 'brainstrike.writeFixture',
+    });
+    expect(committedApprovalGrant('approve', pending)).toBeUndefined();
+
+    projection.acceptCommitted(run.slice(requested + 1));
+    const [first, second] = tools();
+    expect(first?.approval).toMatchObject({ approved: true });
+    // The granted second edit never asked.
+    expect(second?.approval).toBeUndefined();
+    expect(second?.result).toEqual(expect.objectContaining({ path: expect.any(String) }));
+    expect(projection.getSnapshot().pendingInteractions).toEqual([]);
   });
 });

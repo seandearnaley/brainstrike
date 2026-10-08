@@ -1,4 +1,8 @@
-import { isProviderCredential, type ProviderCredential } from '@brainstrike/assistant-contract';
+import {
+  isProviderCredential,
+  type ProviderCredential,
+  TOOL_RISK_CATEGORIES,
+} from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
   SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES,
@@ -15,8 +19,9 @@ import { z } from 'zod';
 // committed tool events, image attachments on a user message (`run/start`
 // and `run.started`), committed workspace edit attribution,
 // `checkpoint/revert`, per-thread tool state, the prompt breakdown on
-// `provider.request.prepared`, and `run/steer` (end the active run at its next
-// step boundary).
+// `provider.request.prepared`, `run/steer` (end the active run at its next
+// step boundary), and permission grants answered with an approval
+// (`interaction/respond` grant, `permission.granted`, the request's risk).
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -32,6 +37,17 @@ const ThreadPresentation = {
   title: ThreadTitle.optional(),
 };
 const Run = { ...Thread, runId: Id };
+const RiskCategory = z.enum(TOOL_RISK_CATEGORIES);
+/**
+ * A grant answered with an approval: the rest of that run allows the call's
+ * risk category (`session`; the client keeps it for its later runs) or the
+ * call's tool. Core accepts only the approved call's own category or tool.
+ */
+const PermissionGrant = z.discriminatedUnion('scope', [
+  z.strictObject({ category: RiskCategory, scope: z.literal('session') }),
+  z.strictObject({ scope: z.literal('tool'), toolId: Id }),
+]);
+export type HostPermissionGrant = z.infer<typeof PermissionGrant>;
 /** Task Ledger run labels (brainstrike_assistant_run_outcomes verdict/source). */
 const RunVerdict = z.enum(['failed', 'mixed', 'succeeded']);
 const RunVerdictDetail = z.string().max(2000);
@@ -197,6 +213,7 @@ export const HOST_METHOD_SCHEMAS = {
     ...Command,
     ...Run,
     decision: z.enum(['approve', 'deny']),
+    grant: PermissionGrant.optional(),
     interactionId: Id,
   }),
   'interaction/resume': z.strictObject({
@@ -404,6 +421,8 @@ export const HostEventSchema = z.union([
     ...Action,
     interactionId: Id,
     kind: z.enum(['approval', 'question', 'plan']),
+    /** A permission approval's risk category, which its session grant names. */
+    risk: RiskCategory.optional(),
   }),
   z.strictObject({
     type: z.literal('interaction.responded'),
@@ -463,6 +482,8 @@ export const HostEventSchema = z.union([
     commandId: Id,
     outcomes: z.array(HostEditRevertOutcomeSchema),
   }),
+  /** Committed with the approval that granted it; the run's later decisions include it. */
+  z.strictObject({ type: z.literal('permission.granted'), ...RunFields, grant: PermissionGrant }),
   /** Only the host commits labels; precedence is applied by projectRunVerdicts. */
   z.strictObject({
     type: z.literal('run.verdict'),

@@ -283,6 +283,7 @@ export function hostStepInteractions(
         input: jsonValue(part.toolCall.input),
         interactionId: part.approvalId,
         kind: registered.interaction?.kind ?? 'approval',
+        ...(registered.interaction ? {} : { risk: registered.risk }),
         runId: run.id,
         ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
         toolCallId: part.toolCall.toolCallId,
@@ -313,12 +314,16 @@ export async function hostRunToolDecision(
   ) {
     return 'deny';
   }
+  // The run's own committed grants add to the saved policy; deny already won.
   return resolvePermissionDecision({
+    perToolOverrides: {
+      ...snapshot.perToolOverrides,
+      ...Object.fromEntries([...run.grants.tools].map((tool) => [tool, 'allow' as const])),
+    },
     policies: snapshot.policies,
     riskCategory: registered.risk,
+    sessionGrants: new Set([...(snapshot.sessionGrants ?? []), ...run.grants.categories]),
     toolId: permissionToolId,
-    ...(snapshot.perToolOverrides ? { perToolOverrides: snapshot.perToolOverrides } : {}),
-    sessionGrants: new Set(snapshot.sessionGrants ?? []),
     yolo: snapshot.yolo,
   });
 }
