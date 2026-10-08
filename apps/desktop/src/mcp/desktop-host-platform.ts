@@ -1,4 +1,4 @@
-import { type McpTaskStorage, pgliteMcpTaskStorage } from '@brainstrike/db';
+import { type McpTaskStorage, pgliteMcpTaskStorage, readPgliteMcpTaskRows } from '@brainstrike/db';
 import {
   createSecretsMcpBearerCredentialAuthority,
   type McpBearerCredentialAuthority,
@@ -71,8 +71,9 @@ let mainOAuthStore: McpOAuthStore | undefined;
 
 /**
  * Main's MCP stores for the Node host's runtime (BST-1930 c1 interim): the
- * safeStorage OAuth records and Electron's external opener. Bearer references
- * live in the profile store the host reads itself, Tasks in its StateStore. One OAuth store serves every host fork, so the
+ * safeStorage OAuth records, Electron's external opener and a read of the
+ * legacy PGlite Tasks rows the host imports once. Bearer references live in
+ * the profile store the host reads itself, Tasks in its StateStore. One OAuth store serves every host fork, so the
  * "clear all secrets" purge reaches the same registered store.
  */
 export function createDesktopMcpPlatformCapabilities(
@@ -82,6 +83,11 @@ export function createDesktopMcpPlatformCapabilities(
   return {
     oauth: mainOAuthStore,
     openExternal: openExternalWithElectron,
+    readLegacyTasks: async () => {
+      const { getDatabase } = await import('../db-main');
+      const database = await getDatabase();
+      return await readPgliteMcpTaskRows({ query: (sql, params) => database.query(sql, params) });
+    },
     runtime,
   };
 }
