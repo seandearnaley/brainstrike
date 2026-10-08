@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -40,9 +40,10 @@ async function command(message: Command): Promise<void> {
       case 'acquire': {
         if (message.firstLink) {
           const signal = message.firstLink;
+          const lockDir = RootLock.dirOf(realpathSync(root));
           fs.linkSync = (from, to) => {
             originalLink(from, to);
-            if (dirname(String(to)) === RootLock.dirOf(root)) {
+            if (dirname(String(to)) === lockDir) {
               writeFileSync(`${signal}.linked`, 'linked');
               while (!existsSync(`${signal}.continue`)) {
                 Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
