@@ -35,7 +35,6 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assist
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { z } from 'zod';
 import { createHostCapabilities } from './capabilities.js';
-import { createCliMcpHost } from './mcp/cli-mcp-host.js';
 import {
   createSharedNativeHostTools,
   forgetSharedNativeToolThread,
@@ -144,9 +143,15 @@ export async function createHostPlatform(
     startup,
   });
   // Configured MCP servers run in this host's own MCP runtime (Tasks off for now).
+  // The MCP client stack loads only for a configured host: imported eagerly it
+  // added ~200 ms to every CLI host start, pushing cold starts past `host start`.
   const mcpConfig = platformOptions?.mcpConfig;
   const mcp = mcpConfig
-    ? await createCliMcpHost({ configPath: mcpConfig.path, credentials: host.credentials, startup })
+    ? await (await import('./mcp/cli-mcp-host.js')).createCliMcpHost({
+        configPath: mcpConfig.path,
+        credentials: host.credentials,
+        startup,
+      })
     : undefined;
   if (mcp) {
     await startup.register(async () => {
