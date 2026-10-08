@@ -420,3 +420,91 @@ test.each(['Stop', 'deletion', 'Root close'] as const)(
     }
   }
 );
+
+test.each(['Stop', 'deletion', 'Root close'] as const)(
+  'actual two-inference Core %s joins both original raw calls before acknowledgement',
+  async (operation) => {
+    const f = await observationHostLifecycle('two-inference');
+    let retirement: ReturnType<typeof watched<unknown>> | undefined;
+    try {
+      const ids = await f.start();
+      const signal = await f.enteredInference.promise;
+      expect(signal).toBe(f.contexts.at(-1)?.signal);
+      expect(f.embeddingSignals).toEqual([signal, signal]);
+      expect(f.inferenceCalls).toHaveLength(2);
+      expect(f.inferenceCalls.every((call) => call.signal === signal && !call.retired)).toBe(true);
+      expect(new Set(f.prepares).size).toBe(2);
+      retirement = watched<unknown>(
+        operation === 'Stop'
+          ? f.client.request('run/stop', { commandId: randomUUID(), ...ids })
+          : operation === 'deletion'
+            ? f.core.deleteThread({ threadId: ids.threadId })
+            : f.host.close()
+      );
+      expect(await f.aborted.promise).toBe(signal);
+      await setImmediate();
+      expect(retirement.settled()).toBe(false);
+      await expect(StateStore.open(f.root)).rejects.toBeInstanceOf(RootLockedError);
+      const [firstRelease, secondRelease] = f.inferenceReleases;
+      const [firstCompleted, secondCompleted] = f.inferenceCompleted;
+      if (!(firstRelease && secondRelease && firstCompleted && secondCompleted)) {
+        throw new Error('Two independently admitted inference controls are required');
+      }
+      firstRelease.resolve();
+      await firstCompleted.promise;
+      await setImmediate();
+      expect(f.inferenceCalls.map(({ retired }) => retired)).toEqual([true, false]);
+      expect(retirement.settled()).toBe(false);
+      await expect(StateStore.open(f.root)).rejects.toBeInstanceOf(RootLockedError);
+      secondRelease.resolve();
+      await secondCompleted.promise;
+      const outcome = await retirement.result;
+      console.error(
+        'Actual two-inference retirement receipt:',
+        JSON.stringify({
+          operation,
+          outcome,
+          prepares: f.prepares,
+          rawCalls: f.inferenceCalls.map(({ afterAbort, retired, values, signal: original }) => ({
+            afterAbort,
+            originalSignal: original === signal,
+            retired,
+            values,
+          })),
+          root: f.root,
+          writes: f.writes,
+        })
+      );
+      expect(outcome.status).toBe('fulfilled');
+      expect(f.inferenceCalls.every((call) => call.retired && call.afterAbort)).toBe(true);
+      expect(f.writes).toEqual([]);
+      if (operation === 'Stop') {
+        expect(outcome).toEqual({ status: 'fulfilled', value: { outcome: 'stopped' } });
+      }
+      if (operation === 'deletion') {
+        expect(outcome).toEqual({ status: 'fulfilled', value: { deleted: true } });
+        expect(await f.store?.threads()).not.toContain(ids.threadId);
+      }
+      await f.host.close();
+      expect(RootLock.inspect(f.root)?.owner.released).toBe(true);
+      const reopened = await StateStore.open(f.root);
+      try {
+        const before = await reopened.memory({ operation: 'read', resourceId: f.resourceId });
+        await setImmediate();
+        expect(f.inferenceCalls.every((call) => call.retired)).toBe(true);
+        expect(f.writes).toEqual([]);
+        expect(await reopened.memory({ operation: 'read', resourceId: f.resourceId })).toEqual(
+          before
+        );
+      } finally {
+        await reopened.close();
+      }
+    } finally {
+      for (const release of f.inferenceReleases) {
+        release.resolve();
+      }
+      await retirement?.result;
+      await f.close();
+    }
+  }
+);

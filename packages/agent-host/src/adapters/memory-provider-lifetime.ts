@@ -66,9 +66,55 @@ export class MemoryProviderLifetime {
     return work;
   }
 
-  /** Only this enclosure can mint an expected embedding cancellation. */
+  /** Preserve this enclosure's cancellation provenance through native joins.
+   * Incident: https://github.com/seandearnaley/brainstrike/pull/3543#issuecomment-6051062686
+   * Remove this traversal when upstream preserves cancellation ownership through
+   * its joined observation results and the original ownership controls pass.
+   */
   ownsCancellation(cause: unknown): boolean {
-    return typeof cause === 'object' && cause !== null && this.cancellations.has(cause);
+    return this.ownsCancellationMember(cause, new Set());
+  }
+
+  private ownsCancellationMember(cause: unknown, ancestors: Set<object>): boolean {
+    if (typeof cause !== 'object' || cause === null || ancestors.has(cause)) {
+      return false;
+    }
+    if (this.cancellations.has(cause)) {
+      return true;
+    }
+    try {
+      if (!(cause instanceof AggregateError)) {
+        return false;
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(cause, 'errors');
+      if (!(descriptor && 'value' in descriptor)) {
+        return false;
+      }
+      const members: unknown = descriptor.value;
+      if (!Array.isArray(members)) {
+        return false;
+      }
+      const count: unknown = Object.getOwnPropertyDescriptor(members, 'length')?.value;
+      if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) {
+        return false;
+      }
+      ancestors.add(cause);
+      // Require actual data members; sparse slots and accessors prove no ownership.
+      for (let index = 0; index < count; index++) {
+        const member = Object.getOwnPropertyDescriptor(members, String(index));
+        if (
+          !(member && 'value' in member && this.ownsCancellationMember(member.value, ancestors))
+        ) {
+          return false;
+        }
+      }
+      return true;
+    } catch {
+      // Malformed trees stay original failures at the existing caller boundary.
+      return false;
+    } finally {
+      ancestors.delete(cause);
+    }
   }
 
   private cancellation(): Error {
