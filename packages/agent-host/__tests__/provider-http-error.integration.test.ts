@@ -15,7 +15,7 @@ import {
   type ProductionHostRunConfiguration,
 } from '../src/production-platform.js';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
-import { TITLE_INSTRUCTIONS } from '../src/thread-presentation-state.js';
+import { HOST_THREAD_TITLE_INSTRUCTIONS } from '../src/thread-presentation-state.js';
 import {
   anthropicMessageJson,
   anthropicMessagesText,
@@ -78,7 +78,7 @@ async function runAgainstProviderHttp(
         : 'https://api.anthropic.com/v1/messages'
     );
     expect(init?.method).toBe('POST');
-    if (typeof init?.body === 'string' && init.body.includes(TITLE_INSTRUCTIONS)) {
+    if (typeof init?.body === 'string' && init.body.includes(HOST_THREAD_TITLE_INSTRUCTIONS)) {
       titleRequests += 1;
       const title = provider === 'openai' ? openAIResponsesJson : anthropicMessageJson;
       return title('offline-model', 'Offline title');

@@ -1,7 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { generateText } from 'ai';
 import type { HostRunState } from './core-state.js';
-import type { HostRunAdmission } from './ports.js';
 import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
 
 const logger = createLogger('AgentHost');
@@ -10,8 +9,8 @@ type Updated = Extract<HostEvent, { type: 'thread.updated' }>;
 /** A thread's committed presentation: its title, colour and icon. */
 export type HostThreadPresentation = Omit<Updated, 'type'>;
 
-/** The system instructions of a thread title request. */
-export const TITLE_INSTRUCTIONS =
+/** The system instructions of a host thread title request (one per untitled thread). */
+export const HOST_THREAD_TITLE_INSTRUCTIONS =
   "Write a short title, at most eight words, for a conversation that starts with the user's message. Reply with the title only: no quotes and no trailing punctuation.";
 
 /** The model's first line, without wrapping quotes; empty output is no title. */
@@ -65,26 +64,33 @@ export class HostThreadPresentationState {
   }
 
   /**
-   * Asks the run's own model for a title while the run's admission is live.
-   * Only an untitled thread with no completed run asks; the run joins the
-   * request before it closes its admission, and the title commits only if
-   * the run completes.
+   * At a completed finish, before the run closes its admission: the first
+   * completed run of an untitled thread asks its own model for a title. The
+   * run joins the returned promise, which never rejects, before it closes.
+   * A failed, stopped or interrupted run never asks.
    */
-  request(run: HostRunState, admission: HostRunAdmission, runs: Iterable<HostRunState>): void {
+  request(run: HostRunState, runs: Iterable<HostRunState>): Promise<void> {
+    const admission = run.admission;
     if (
-      !admission.generatesThreadTitle ||
+      !admission?.generatesThreadTitle ||
+      run.terminal ||
+      run.stopped ||
+      run.controller.signal.aborted ||
+      (run.mcpInputPersistenceFailures?.length ?? 0) > 0 ||
       this.pending.has(run.id) ||
       this.titled(run.threadId) ||
-      [...runs].some((other) => other.threadId === run.threadId && other.outcome === 'completed')
+      [...runs].some(
+        (other) => other !== run && other.threadId === run.threadId && other.outcome === 'completed'
+      )
     ) {
-      return;
+      return Promise.resolve();
     }
     const title = generateText({
       abortSignal: run.controller.signal,
       maxRetries: 0,
       model: admission.model,
       prompt: run.branch.prompt,
-      system: TITLE_INSTRUCTIONS,
+      system: HOST_THREAD_TITLE_INSTRUCTIONS,
     }).then(
       (result) => normalizeTitle(result.text),
       (cause: unknown): undefined => {
@@ -100,8 +106,7 @@ export class HostThreadPresentationState {
       }
     );
     this.pending.set(run.id, title);
-    run.effects.add(title);
-    void title.finally(() => run.effects.delete(title));
+    return title.then(() => undefined);
   }
 
   /** After a run finishes: a completed run commits its title unless a rename came first. */

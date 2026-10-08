@@ -25,7 +25,6 @@ import { hostRunAncestors, hostRunContext } from './run-branch.js';
 import { resolveHostApprovalInput } from './run-continuation.js';
 import { HostRunOutcome } from './run-outcome.js';
 import { stopHostStreamAttempt, watchHostStream } from './run-stream-watchdog.js';
-import type { HostThreadPresentationState } from './thread-presentation-state.js';
 import type { HostToolRecords } from './tool-records.js';
 
 export type HostRunAction = Extract<HostEvent, { type: 'effect.started' }>;
@@ -64,7 +63,6 @@ export interface HostRunExecutionPorts {
   readonly mcpInputs: HostMcpInputState;
   openRun(run: Run): Promise<HostRunOwner | undefined>;
   readonly platform: HostPlatform;
-  readonly presentations: HostThreadPresentationState;
   readonly records: HostToolRecords;
   /** The host is closing or the run's thread is being deleted. */
   retired(threadId: string): boolean;
@@ -166,7 +164,6 @@ export async function runHostSdkLoop(
     const attempt = new AbortController();
     const owner = await ports.openRun(run);
     const admission = await ensureHostRunAdmission(ports.platform, run);
-    ports.presentations.request(run, admission, ports.runs.values());
     const result = streamText({
       abortSignal: AbortSignal.any([run.controller.signal, attempt.signal]),
       maxRetries: HOST_PROVIDER_REQUEST_RETRIES,

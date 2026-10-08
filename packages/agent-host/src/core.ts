@@ -509,7 +509,6 @@ export class HostCore {
       mcpInputs: this.mcpInputs,
       openRun: (run) => this.openRun(run),
       platform: this.platform,
-      presentations: this.presentations,
       records: this.records,
       retired: (threadId) => this.closing || this.deletions.has(threadId),
       runs: this.runs,
@@ -772,12 +771,16 @@ export class HostCore {
     outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
     detail?: string
   ): Promise<void> {
+    // A completed run asks for its thread's title while its admission is still live.
+    const titling =
+      outcome === 'completed' ? this.presentations.request(run, this.runs.values()) : undefined;
     return finishHostRunWithProviderBilling(
       run,
       outcome,
       detail,
       () => this.closing,
-      (owned) => this.closeRunOwner(owned),
+      (owned) =>
+        titling ? titling.then(() => this.closeRunOwner(owned)) : this.closeRunOwner(owned),
       () => this.read(run.threadId, 0),
       (event, commit) =>
         this.append(run.threadId, [event], 'full', (rows) => {
