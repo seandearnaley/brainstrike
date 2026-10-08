@@ -116,14 +116,16 @@ export function hasHostInteractionResponse(pending: PendingInteraction): boolean
     : Object.hasOwn(pending, 'resumeData');
 }
 
-/** Live acceptance and replay apply a committed grant to its run the same way. */
-export function applyHostPermissionGrant(
-  run: HostRunState | undefined,
-  grant: HostPermissionGrant
-): void {
-  if (!run) {
-    throw new Error('Permission grant references an unknown run');
-  }
+/**
+ * A thread's grants, kept by Core for its process lifetime. Only live
+ * acceptance adds to them; replay after a restart never restores a grant.
+ */
+export interface HostThreadGrants {
+  readonly categories: Set<ToolRiskCategory>;
+  readonly tools: Set<string>;
+}
+
+export function applyHostPermissionGrant(run: HostRunState, grant: HostPermissionGrant): void {
   if (grant.scope === 'session') {
     run.grants.categories.add(grant.category);
   } else {
@@ -131,19 +133,12 @@ export function applyHostPermissionGrant(
   }
 }
 
-/** Folds a committed interaction request, response or grant into its run. */
+/** Folds a committed interaction request or response into its run's pending set. */
 export function foldHostInteraction(
   runs: ReadonlyMap<string, HostRunState>,
-  event: Extract<
-    HostEvent,
-    { type: 'interaction.requested' | 'interaction.responded' | 'permission.granted' }
-  >
+  event: Extract<HostEvent, { type: 'interaction.requested' | 'interaction.responded' }>
 ): void {
   const run = runs.get(event.runId);
-  if (event.type === 'permission.granted') {
-    applyHostPermissionGrant(run, event.grant);
-    return;
-  }
   if (event.type === 'interaction.requested') {
     if (!run) {
       throw new Error('Interaction references an unknown run');
@@ -183,11 +178,8 @@ export interface HostRunState {
   completion?: Promise<void>;
   readonly controller: AbortController;
   readonly effects: Set<Promise<unknown>>;
-  /** Grants committed with this run's approvals; its later decisions include them. */
-  readonly grants: {
-    readonly categories: Set<ToolRiskCategory>;
-    readonly tools: Set<string>;
-  };
+  /** Its thread's grants for this host process, shared with the thread's other runs. */
+  readonly grants: HostThreadGrants;
   readonly id: string;
   readonly liveInputs: Map<string, { readonly value: unknown }>;
   mcpInputPersistenceFailures?: HostMcpInputPersistenceError[];
@@ -222,6 +214,7 @@ export function createHostRunState(
   id: string,
   modelId: string,
   branch: HostRunBranch,
+  grants: HostThreadGrants,
   snapshot?: HostRunSnapshot,
   controller = new AbortController()
 ): HostRunState {
@@ -231,7 +224,7 @@ export function createHostRunState(
     checkpointedResults: new Set(),
     controller,
     effects: new Set(),
-    grants: { categories: new Set(), tools: new Set() },
+    grants,
     id,
     liveInputs: new Map(),
     messageIndexes: new Set(),

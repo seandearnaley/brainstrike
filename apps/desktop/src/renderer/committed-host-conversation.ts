@@ -37,16 +37,13 @@ function hostImageAttachment(
 }
 
 /**
- * The renderer keeps an accepted grant for this window's later runs, as the
- * approval card's grant buttons do: a session grant until reload, a per-tool
- * allow in the saved permission settings.
+ * "Always allow" also saves the per-tool override in the permission settings,
+ * as the approval card's button does, until that write moves to the host's
+ * settings owner. A session grant is the host's alone.
  */
-function keepGrant(grant: CommittedApprovalGrant): void {
-  const policy = usePermissionPolicyStore.getState();
-  if (grant.scope === 'session') {
-    policy.grantSessionCategory(grant.category);
-  } else {
-    policy.setToolOverride(grant.toolId, 'allow');
+function keepToolOverride(grant: CommittedApprovalGrant): void {
+  if (grant.scope === 'tool') {
+    usePermissionPolicyStore.getState().setToolOverride(grant.toolId, 'allow');
   }
 }
 
@@ -170,7 +167,7 @@ export function createCommittedHostConversation(options: {
         });
         return;
       }
-      // A grant option answers this run through the host and is kept for later runs.
+      // A grant option is committed by the host, which keeps it for the thread.
       const grant = committedApprovalGrant(response.optionId, interaction);
       await client.request('interaction/respond', {
         commandId: crypto.randomUUID(),
@@ -181,7 +178,7 @@ export function createCommittedHostConversation(options: {
         threadId,
       });
       if (grant) {
-        keepGrant(grant);
+        keepToolOverride(grant);
       }
     },
     // Branch selection is client view state: the vendor already moved its own

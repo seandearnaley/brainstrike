@@ -25,6 +25,7 @@ import {
   foldHostAcceptedCommand,
   foldHostInteraction,
   HostCommandLedger,
+  type HostThreadGrants,
   hasHostInteractionResponse,
   type HostRunState as Run,
   recordHostConversationId,
@@ -112,6 +113,8 @@ export class HostCore {
     )
   );
   private readonly runs = new Map<string, Run>();
+  /** Each thread's approval grants, for this process only; replay never restores them. */
+  private readonly grants = new Map<string, HostThreadGrants>();
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
   private readonly listeners = new Set<(row: HostLogRow) => void>();
@@ -189,7 +192,14 @@ export class HostCore {
         foldHostRunAdmission(this.admittedRuns, this.conversationIds, event);
         break;
       case 'run.started':
-        foldHostStartedRun(this.admittedRuns, this.conversationIds, this.runs, row.threadId, event);
+        foldHostStartedRun(
+          this.admittedRuns,
+          this.conversationIds,
+          this.runs,
+          row.threadId,
+          event,
+          this.threadGrants(row.threadId)
+        );
         break;
       case 'model.step':
       case 'model.messages':
@@ -197,7 +207,6 @@ export class HostCore {
         break;
       case 'interaction.requested':
       case 'interaction.responded':
-      case 'permission.granted':
         foldHostInteraction(this.runs, event);
         break;
       case 'effect.started':
@@ -390,6 +399,7 @@ export class HostCore {
       this.workspaces.forget(params.threadId);
       this.mcpInputs.forgetThread(params.threadId);
       this.records.forgetThread(params.threadId, this.platform);
+      this.grants.delete(params.threadId);
       for (const run of runs) {
         this.runs.delete(run.id);
         this.conversationIds.delete(run.id);
@@ -466,6 +476,7 @@ export class HostCore {
         this.runs.values(),
         { ...params, method, runId: randomUUID() },
         selected,
+        this.threadGrants(params.threadId),
         admission.snapshot,
         controller
       );
@@ -607,6 +618,15 @@ export class HostCore {
 
   releaseMcpInputClient(client: HostMcpInputClient): void {
     this.mcpInputs.releaseClient(client);
+  }
+
+  private threadGrants(threadId: string): HostThreadGrants {
+    let grants = this.grants.get(threadId);
+    if (!grants) {
+      grants = { categories: new Set(), tools: new Set() };
+      this.grants.set(threadId, grants);
+    }
+    return grants;
   }
 
   respond(params: HostParams<'interaction/respond'>): Promise<{ accepted: true }> {

@@ -23,7 +23,6 @@ afterEach(async () => {
 
 async function openHost() {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-permission-grant-'));
-  const store = await StateStore.open(root);
   const executed: unknown[] = [];
   const platform: HostPlatform = {
     close: async () => undefined,
@@ -51,14 +50,37 @@ async function openHost() {
       },
     },
   };
-  const core = await HostCore.open(store, platform, () => () => undefined);
+  let store = await StateStore.open(root);
+  let core = await HostCore.open(store, platform, () => () => undefined);
   cleanup.push(async () => {
     await core.close();
     await store.close();
     await rm(root, { force: true, recursive: true });
   });
   const { threadId } = await core.startThread({ commandId: randomUUID() });
-  return { core, executed, threadId };
+  const host = {
+    core,
+    executed,
+    /** A new host process over the same committed state. */
+    restart: async () => {
+      await core.close();
+      await store.close();
+      store = await StateStore.open(root);
+      core = await HostCore.open(store, platform, () => () => undefined);
+      host.core = core;
+    },
+    threadId,
+  };
+  return host;
+}
+
+function writeBoth(core: HostCore, threadId: string): Promise<{ runId: string }> {
+  return core.startRun({
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Write both fixtures.',
+    threadId,
+  });
 }
 
 async function nextRequest(
@@ -102,7 +124,7 @@ test.each([
   { category: 'edit', scope: 'session' },
   { scope: 'tool', toolId: 'brainstrike.writeFixture' },
 ] satisfies Grant[])(
-  'an approval with a $scope grant allows the rest of its run without asking again',
+  'an approval with a $scope grant allows its thread’s later calls without asking again',
   async (grant) => {
     const { core, executed, threadId } = await openHost();
     const { runId } = await core.startRun({
@@ -137,16 +159,42 @@ test.each([
       type: 'permission.granted',
     });
 
-    // A grant answers its own run; a later run asks again.
-    const later = await core.startRun({
-      commandId: randomUUID(),
-      modelId: 'scripted',
-      prompt: 'Write both fixtures again.',
-      threadId,
-    });
-    expect(await nextRequest(core, threadId, later.runId, 0)).toMatchObject({ risk: 'edit' });
+    // The host keeps the thread's grant for its lifetime: a later run there does not ask.
+    const later = await writeBoth(core, threadId);
+    const laterRows = await finished(core, threadId, later.runId);
+    expect(laterRows.filter((row) => row.event.type === 'interaction.requested')).toEqual([]);
+    expect(executed).toHaveLength(4);
   }
 );
+
+test('a grant belongs to its thread and to this host process', async () => {
+  const host = await openHost();
+  const { runId } = await writeBoth(host.core, host.threadId);
+  const request = await nextRequest(host.core, host.threadId, runId, 0);
+  await host.core.respond({
+    commandId: randomUUID(),
+    decision: 'approve',
+    grant: { category: 'edit', scope: 'session' },
+    interactionId: request.interactionId,
+    runId,
+    threadId: host.threadId,
+  });
+  await finished(host.core, host.threadId, runId);
+
+  // Another thread still asks.
+  const other = await host.core.startThread({ commandId: randomUUID() });
+  const otherRun = await writeBoth(host.core, other.threadId);
+  expect(await nextRequest(host.core, other.threadId, otherRun.runId, 0)).toMatchObject({
+    risk: 'edit',
+  });
+
+  // A restarted host replays the committed grant but does not restore it.
+  await host.restart();
+  const afterRestart = await writeBoth(host.core, host.threadId);
+  expect(await nextRequest(host.core, host.threadId, afterRestart.runId, 0)).toMatchObject({
+    risk: 'edit',
+  });
+});
 
 test.each([
   { decision: 'approve', grant: { category: 'execute', scope: 'session' } },

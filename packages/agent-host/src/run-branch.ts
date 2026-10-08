@@ -19,6 +19,7 @@ import {
   foldHostRunMessages,
   type HostRunBranch,
   type HostRunState,
+  type HostThreadGrants,
   recordHostConversationId,
 } from './core-state.js';
 import {
@@ -183,6 +184,7 @@ export function startedHostRun(
   threadId: string,
   started: Started,
   admission: HostRunAdmissionCommand,
+  grants: HostThreadGrants,
   snapshot?: HostRunSnapshot,
   controller?: AbortController
 ): HostRunState {
@@ -191,6 +193,7 @@ export function startedHostRun(
     started.runId,
     started.modelId,
     foldHostRunBranch(runs, threadId, started, admission),
+    grants,
     snapshot,
     controller
   );
@@ -257,6 +260,7 @@ export function admittedHostRun(
     readonly threadId: string;
   },
   position: HostRunPosition,
+  grants: HostThreadGrants,
   snapshot: HostRunSnapshot,
   controller: AbortController
 ): { readonly run: HostRunState; readonly started: Started } {
@@ -267,7 +271,15 @@ export function admittedHostRun(
     snapshot,
     type: 'run.started',
   };
-  const run = startedHostRun(runs, admission.threadId, started, admission, snapshot, controller);
+  const run = startedHostRun(
+    runs,
+    admission.threadId,
+    started,
+    admission,
+    grants,
+    snapshot,
+    controller
+  );
   return { run, started };
 }
 
@@ -291,7 +303,8 @@ export function foldHostStartedRun(
   conversationIds: Set<string>,
   runs: Map<string, HostRunState>,
   threadId: string,
-  event: Started
+  event: Started,
+  grants: HostThreadGrants
 ): void {
   recordHostConversationId(conversationIds, event.runId);
   const admission = admitted.get(event.runId);
@@ -299,7 +312,10 @@ export function foldHostStartedRun(
     throw new Error('Committed run start has no committed admission command');
   }
   admitted.delete(event.runId);
-  runs.set(event.runId, startedHostRun(runs.values(), threadId, event, admission, event.snapshot));
+  runs.set(
+    event.runId,
+    startedHostRun(runs.values(), threadId, event, admission, grants, event.snapshot)
+  );
 }
 
 /** A new run needs its thread, no active run there, and an unused command identity. */

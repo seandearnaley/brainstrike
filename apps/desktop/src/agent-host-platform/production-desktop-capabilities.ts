@@ -650,14 +650,12 @@ export function productionDesktopCapabilities(
     readPermissionPolicy: async (threadId) => {
       const captured = threadId ? policies.get(threadId) : undefined;
       const persisted = await readPersistedPolicy?.();
-      return platformPermissionPolicy(
-        persisted
-          ? {
-              ...persisted,
-              ...(captured?.sessionGrants ? { sessionGrants: captured.sessionGrants } : {}),
-            }
-          : (captured ?? { policies: DEFAULT_PERMISSION_POLICIES, yolo: false })
+      // A host thread's session grants are the host's own (permission.granted);
+      // no renderer store reaches its decisions.
+      const { sessionGrants: _sessionGrants, ...policy } = platformPermissionPolicy(
+        persisted ?? captured ?? { policies: DEFAULT_PERMISSION_POLICIES, yolo: false }
       );
+      return policy;
     },
     // The Node host resolves every other provider itself; Main lends only the
     // interactive subscription OAuth engine it still owns.
