@@ -60,6 +60,7 @@ import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './ma
 import {
   PlatformClientConfigurationSchema,
   PlatformModelConfigurationSchema,
+  PlatformWorkspaceContextSchema,
   platformPermissionPolicy,
 } from './platform-wire';
 
@@ -499,7 +500,11 @@ function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['n
   return {
     ...(runtime.boundWorkspaceRootId ? { boundWorkspaceRootId: runtime.boundWorkspaceRootId } : {}),
     provider: runtime.provider,
+    ...(runtime.selectionFilePaths ? { selectionFilePaths: [...runtime.selectionFilePaths] } : {}),
     ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
+    ...(runtime.workspaceContext
+      ? { workspaceContext: PlatformWorkspaceContextSchema.parse(runtime.workspaceContext) }
+      : {}),
     ...(runtime.workspaceRootPath ? { workspaceRootPath: runtime.workspaceRootPath } : {}),
     workspaceRoots: runtime.workspaceRoots.map(({ displayName, path, rootId }) => ({
       displayName,

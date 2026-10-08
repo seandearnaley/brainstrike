@@ -49,8 +49,12 @@ afterEach(async () => {
   expect(owner.credential).not.toHaveBeenCalled();
 });
 
-function request(enabledNativeToolIds: readonly string[]): HostRunAdmissionRequest {
+function request(
+  enabledNativeToolIds: readonly string[],
+  selection: Record<string, unknown> = {}
+): HostRunAdmissionRequest {
   const configuration = PlatformClientConfigurationSchema.parse({
+    ...selection,
     agentLoop: { inputTokenLimit: 7000, maxSteps: 3 },
     enabledNativeToolIds,
     memoryOptions: {
@@ -152,6 +156,41 @@ test('a host thread is not offered worktree tools while Main has no worktree ser
     expect(advertised).toContain(NATIVE_TOOL_ID.globWorkspace);
     expect(advertised).not.toContain(NATIVE_TOOL_ID.listWorktrees);
     expect(advertised).not.toContain(NATIVE_TOOL_ID.manageWorktree);
+  } finally {
+    await captured.close();
+  }
+});
+
+test('Main admits the request’s curated context selection to the host’s native runtime', async () => {
+  const workspaceContext = {
+    files: [
+      {
+        approxTokens: 3,
+        outputApproxTokens: null,
+        path: 'notes.txt',
+        ranges: [{ endLine: 1, isActive: true, startLine: 1 }],
+        rootId: 'root-a',
+      },
+    ],
+    includeProjectTree: false,
+    projectTreeApproxTokens: null,
+    projectTreeTokenCountLoading: false,
+    selectedOutputApproxTokens: null,
+    selectedSourceApproxTokens: null,
+    tokenBudget: 321,
+  };
+  const captured = await productionDesktopCapabilities({}).readConfiguration(
+    request([NATIVE_TOOL_ID.readWorkspaceContext], {
+      selectionFolderId: 'root-a',
+      workspaceContext,
+    })
+  );
+  try {
+    expect(captured.nativeRuntime).toMatchObject({
+      selectionFilePaths: ['notes.txt'],
+      selectionFolderId: 'root-a',
+      workspaceContext,
+    });
   } finally {
     await captured.close();
   }

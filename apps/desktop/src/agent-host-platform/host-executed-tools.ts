@@ -2,6 +2,7 @@ import {
   isSharedNativeToolId,
   type NativeToolExecutor,
 } from '@brainstrike/host-capabilities/native-tools';
+import { CONTEXT_TOOL_EXECUTORS } from '../assistant-server/native-tool-executors-context';
 import { INSPECTION_TOOL_EXECUTORS } from '../assistant-server/native-tool-executors-inspection';
 
 /**
@@ -9,6 +10,7 @@ import { INSPECTION_TOOL_EXECUTORS } from '../assistant-server/native-tool-execu
  * Main admits them but never executes them for a host thread.
  */
 export const DESKTOP_HOST_TOOL_EXECUTORS: Readonly<Record<string, NativeToolExecutor>> = {
+  ...CONTEXT_TOOL_EXECUTORS,
   ...INSPECTION_TOOL_EXECUTORS,
 };
 
