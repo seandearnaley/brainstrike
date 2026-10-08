@@ -59,9 +59,9 @@ export interface HostChildRunPort {
 
 export interface HostDelegationRequest {
   readonly action: Action;
+  /** The parent run's admission; the called tool names the persona. */
   readonly admission: HostRunAdmission;
   readonly input: unknown;
-  readonly persona: AssistantPersonaDefinition;
   readonly run: HostRunState;
 }
 
@@ -359,26 +359,20 @@ export class HostChildRuns {
   }
 
   /**
-   * What a new run's admission reads: a command's user-written prompt, or for a
-   * wake, which continues its turn, the committed selection of the run it
-   * follows, reopened as a restart reopens a run and never posing as a client's
-   * configuration.
+   * A wake continues its turn: its admission reopens the committed selection
+   * of the run it follows, as a restart reopens a run, never posing as a
+   * client's configuration.
    */
-  admissionInput(
-    method: string,
+  wakeSelection(
     params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
-    position: HostRunPosition,
     runs: ReadonlyMap<string, HostRunState>
-  ): { readonly prompt: string } | { readonly snapshot: HostRunSnapshot } {
-    if (method !== 'wake') {
-      return { prompt: position.prompt };
-    }
+  ): HostRunSnapshot {
     const tip = 'parentMessageId' in params ? params.parentMessageId : undefined;
     const snapshot = tip ? runs.get(tip)?.snapshot : undefined;
     if (!snapshot) {
       throw new Error('A wake requires the committed selection of the run it follows');
     }
-    return { snapshot };
+    return snapshot;
   }
 
   /** A thread's direct children, in the order their origins were committed. */
@@ -602,12 +596,16 @@ export class HostChildRuns {
 
   /** The child's identity, its admission narrowed from the parent's, and its committed rows. */
   private prepare(
-    { action, admission, input, persona, run }: HostDelegationRequest,
+    { action, admission, input, run }: HostDelegationRequest,
     taken: (id: string) => boolean
   ): HostPreparedChild | string {
     const delegation = admission.delegation;
     if (!delegation) {
       throw new Error('Run has no admitted delegation capability');
+    }
+    const persona = admission.tools[action.toolId]?.delegation;
+    if (!persona) {
+      throw new Error('Delegation tool has no admitted persona');
     }
     if (persona.model) {
       throw new Error(`Persona "${persona.id}" pins a model, which host threads cannot run yet`);
