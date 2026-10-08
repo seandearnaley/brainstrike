@@ -9,6 +9,10 @@
   "engines": { "node": ">=24.20.0 <25 || >=26.8.2 <27" },
   "exports": {
     ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./canvas-state": {
+      "types": "./dist/native-tools/canvas-state.d.ts",
+      "default": "./dist/native-tools/canvas-state.js"
+    },
     "./credentials": { "types": "./dist/credentials.d.ts", "default": "./dist/credentials.js" },
     "./native-tools": {
       "types": "./dist/native-tools/index.d.ts",

@@ -3,6 +3,8 @@ import {
   type CanvasReadDatabase,
   getCanvasVersion,
   listThreadCanvasSummaries,
+  readThreadCanvasSummaries,
+  readThreadCanvasVersion,
 } from '../canvas/canvas-read-repository';
 
 interface QueryCall {
@@ -55,5 +57,61 @@ describe('canvas read repository', () => {
 
     const empty = createFakeDatabase([]);
     await expect(getCanvasVersion(empty, 'canvas-1', 99)).resolves.toBeNull();
+  });
+
+  it('reads a host-owned thread from its host, and history only for threads the host does not own', async () => {
+    const plan = (version: number, createdAt: string) => ({
+      canvasId: 'plan',
+      createdAt,
+      createdBy: 'assistant',
+      html: `<p>plan v${version}</p>`,
+      title: `Plan v${version}`,
+      version,
+    });
+    const notes = {
+      canvasId: 'notes',
+      createdAt: '2026-10-08T10:00:00.000Z',
+      createdBy: 'user',
+      html: '<p>notes</p>',
+      title: 'Notes',
+      version: 1,
+    };
+    const host = {
+      readCanvases: async (threadId: string) =>
+        threadId === 'host-thread'
+          ? new Map([
+              ['plan', [plan(1, '2026-10-08T09:00:00.000Z'), plan(2, '2026-10-08T11:00:00.000Z')]],
+              ['notes', [notes]],
+            ])
+          : undefined,
+    };
+    const db = createFakeDatabase([]);
+
+    await expect(readThreadCanvasSummaries(db, host, 'host-thread')).resolves.toEqual([
+      {
+        canvasId: 'plan',
+        createdAt: '2026-10-08T11:00:00.000Z',
+        latestVersion: 2,
+        title: 'Plan v2',
+      },
+      {
+        canvasId: 'notes',
+        createdAt: '2026-10-08T10:00:00.000Z',
+        latestVersion: 1,
+        title: 'Notes',
+      },
+    ]);
+    await expect(readThreadCanvasVersion(db, host, 'host-thread', 'plan', 1)).resolves.toEqual({
+      createdAt: '2026-10-08T09:00:00.000Z',
+      createdBy: 'assistant',
+      html: '<p>plan v1</p>',
+      version: 1,
+    });
+    await expect(readThreadCanvasVersion(db, host, 'host-thread', 'plan', 3)).resolves.toBeNull();
+    expect(db.calls).toEqual([]);
+
+    await expect(readThreadCanvasSummaries(db, host, 'legacy-thread')).resolves.toEqual([]);
+    await expect(readThreadCanvasVersion(db, host, 'legacy-thread', 'plan', 1)).resolves.toBeNull();
+    expect(db.calls.map((call) => call.params)).toEqual([['legacy-thread'], ['plan', 1]]);
   });
 });
