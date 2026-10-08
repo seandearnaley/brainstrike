@@ -5,6 +5,7 @@ import {
 import { expect, test, vi } from 'vitest';
 import {
   type AssistantThreadHostCapability,
+  LEGACY_READ_ONLY_MESSAGE,
   withAssistantThreadHost,
 } from '../assistant-thread-host-context';
 
@@ -62,13 +63,23 @@ test('a refused host binding rejects and never falls through to history', async 
   expect(history.updateThreadMetadata).not.toHaveBeenCalled();
 });
 
-test('a historical thread keeps its existing metadata repository', async () => {
+// BST-1934: with a host, legacy threads are read-only, so their metadata
+// (colour, icon, binding) is refused visibly and never written to legacy tables.
+test('a historical thread refuses metadata changes instead of writing its legacy repository', async () => {
   const { history, host, repository } = repositories(vi.fn());
-  await repository.updateThreadMetadata('legacy-thread', { color: 'rose' });
-  expect(history.updateThreadMetadata).toHaveBeenCalledExactlyOnceWith('legacy-thread', {
-    color: 'rose',
-  });
+  await expect(repository.updateThreadMetadata('legacy-thread', { color: 'rose' })).rejects.toThrow(
+    LEGACY_READ_ONLY_MESSAGE
+  );
+  expect(history.updateThreadMetadata).not.toHaveBeenCalled();
   expect(host.updateThreadBinding).not.toHaveBeenCalled();
+});
+
+test('bulk metadata refuses any historical thread before a write', async () => {
+  const { history, repository } = repositories(vi.fn());
+  await expect(
+    repository.updateThreadsMetadata?.(['owned-thread', 'legacy-thread'], { icon: 'rocket' })
+  ).rejects.toThrow(LEGACY_READ_ONLY_MESSAGE);
+  expect(history.updateThreadsMetadata).not.toHaveBeenCalled();
 });
 
 test('renaming a host-owned thread commits its title through the host, never history', async () => {
@@ -98,10 +109,13 @@ test('a refused host rename keeps the committed title instead of an optimistic o
   expect(history.renameThread).not.toHaveBeenCalled();
 });
 
-test('renaming a historical thread keeps its existing repository', async () => {
-  const { history, repository } = repositories(vi.fn());
-  await repository.renameThread('legacy-thread', 'Renamed');
-  expect(history.renameThread).toHaveBeenCalledExactlyOnceWith('legacy-thread', 'Renamed');
+test('renaming a historical thread is refused instead of writing its legacy repository', async () => {
+  const { history, host, repository } = repositories(vi.fn());
+  await expect(repository.renameThread('legacy-thread', 'Renamed')).rejects.toThrow(
+    LEGACY_READ_ONLY_MESSAGE
+  );
+  expect(history.renameThread).not.toHaveBeenCalled();
+  expect(host.renameThread).not.toHaveBeenCalled();
 });
 
 test('thread deletion waits for its host owner and never sends a failed owned deletion to history', async () => {

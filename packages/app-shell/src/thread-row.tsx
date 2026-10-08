@@ -494,6 +494,7 @@ function ThreadRowItem({
         selected ? colorConfig.selectedClassName : colorConfig.idleClassName
       }`}
       data-testid="thread-row"
+      data-thread-id={thread.id}
     >
       {editing ? (
         <ThreadRenameForm
