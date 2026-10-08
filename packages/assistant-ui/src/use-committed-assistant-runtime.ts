@@ -49,31 +49,42 @@ export function useCommittedAssistantRuntime({
     },
     [onCommandError]
   );
-  const ports = useMemo(
-    () => bindCommittedAssistantCommands(store, commands, reportCommandError),
-    [store, commands, reportCommandError]
-  );
   // Branch selection is view state over the committed tree. The installed
   // vendor shows a switched branch only when the repository it is given heads
   // there, so an accepted selection is published as the head until the
-  // committed head moves (a new run). The owner's port admits it first; a
-  // rejection keeps the committed head.
+  // committed head moves (a new run). The owner's port admits it first: a
+  // synchronous refusal throws before anything is selected, and an
+  // asynchronous one withdraws exactly the selection it refused.
   const [selection, select] = useState<{
     readonly committedHeadId: string | null | undefined;
     readonly headId: string | null;
   }>();
-  const setMessages = useMemo(() => {
-    const owner = ports.setMessages;
-    return owner
-      ? (messages: readonly ThreadMessage[]): void => {
-          owner(messages);
-          select({
-            committedHeadId: store.getSnapshot().repository.headId,
-            headId: messages.at(-1)?.id ?? null,
-          });
-        }
-      : undefined;
-  }, [ports.setMessages, store]);
+  const selecting = useMemo((): CommittedAssistantCommands => {
+    const owner = commands.setMessages;
+    if (!owner) {
+      return commands;
+    }
+    return {
+      ...commands,
+      setMessages: (messages) => {
+        const result: unknown = owner(messages);
+        const accepted = {
+          committedHeadId: store.getSnapshot().repository.headId,
+          headId: messages.at(-1)?.id ?? null,
+        };
+        select(accepted);
+        // The bound port reports the refusal; this only withdraws the selection.
+        void Promise.resolve(result).catch(() =>
+          select((current) => (current === accepted ? undefined : current))
+        );
+        return result;
+      },
+    };
+  }, [commands, store]);
+  const ports = useMemo(
+    () => bindCommittedAssistantCommands(store, selecting, reportCommandError),
+    [store, selecting, reportCommandError]
+  );
   const selectedHeadId =
     selection && selection.committedHeadId === snapshot.repository.headId
       ? selection.headId
@@ -100,7 +111,7 @@ export function useCommittedAssistantRuntime({
     // Installed branch switching checks this port before moving its local head.
     setMessages:
       snapshot.connection === 'connected' && snapshot.error === undefined && !snapshot.isDisabled
-        ? setMessages
+        ? ports.setMessages
         : undefined,
     state: snapshot.state,
   });
