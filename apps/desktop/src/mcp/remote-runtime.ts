@@ -19,23 +19,23 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { ResolvedMcpConfig } from '@brainstrike/assistant-contract/mcp-config';
 import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
-import { createLogger } from '@brainstrike/logging';
-import { CancellationTokenSource, type Disposable, type MessageConnection } from 'vscode-jsonrpc';
-import { z } from 'zod';
+import {
+  type McpElicitationFinalizedEvent,
+  type McpElicitationPresentation,
+  McpElicitationPresenterError,
+  type McpElicitationPresenterErrorCode,
+} from '@brainstrike/host-capabilities/mcp/elicitation-presenter';
+import { McpHostRevisionPublisher } from '@brainstrike/host-capabilities/mcp/host-revision-publisher';
 import {
   decodeMcpRuntimeError,
   MCP_RUNTIME_METHODS,
   MCP_RUNTIME_NOTIFICATIONS,
   type McpDesiredState,
   type McpToolRegistryState,
-} from '../agent-host-platform/mcp-runtime-wire';
-import {
-  type McpElicitationFinalizedEvent,
-  type McpElicitationPresentation,
-  McpElicitationPresenterError,
-  type McpElicitationPresenterErrorCode,
-} from './elicitation-presenter';
-import { McpHostRevisionPublisher } from './host-revision-publisher';
+} from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
+import { createLogger } from '@brainstrike/logging';
+import { CancellationTokenSource, type Disposable, type MessageConnection } from 'vscode-jsonrpc';
+import { z } from 'zod';
 
 const logger = createLogger('DesktopRemoteMcpRuntime');
 

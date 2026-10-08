@@ -5,12 +5,12 @@ import {
 } from '@brainstrike/agent/tool-runtime';
 import {
   assertMcpAuthorityReconstruction,
+  createAgentHostToolBindings,
   type HostMcpToolSelection,
 } from '@brainstrike/agent-host';
 import type { HostRunSnapshot } from '@brainstrike/agent-host/protocol';
 import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
-import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
-import type { McpHostRuntime } from '../mcp/node-host-runtime';
+import type { McpHostRuntime } from './node-host-runtime.js';
 
 type CanonicalTools = NonNullable<RuntimeData['mastraTools']>;
 type ExecutableMcpBindings = HostMcpToolSelection['bindings'];

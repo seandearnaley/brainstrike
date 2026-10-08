@@ -66,16 +66,16 @@ import {
   type McpTaskPresentation,
   parseMcpTaskActionRequest,
 } from '@brainstrike/assistant-contract';
+import type { ResolvedMcpServer } from '@brainstrike/assistant-contract/mcp-config';
 import type { McpTaskAuthorityLease, McpTaskDatabase, McpTaskRecord } from '@brainstrike/db';
 import { McpTaskRepository } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import type { JSONObject } from '@modelcontextprotocol/client';
-import type { ResolvedMcpServer } from '../mcp-loader';
 import type {
   McpBoundTaskElicitationPresenter,
   McpElicitationPresenterAuthority,
   McpTaskElicitationBinding,
-} from './elicitation-presenter';
+} from './elicitation-presenter.js';
 
 export const MCP_TASKS_EXTENSION_ID = 'io.modelcontextprotocol/tasks';
 /** Reserved-name (RFC 2606) marker: a stdio child has no protected resource URL. */

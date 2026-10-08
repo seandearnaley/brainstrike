@@ -5,12 +5,12 @@ import { parseMcpConfigValue } from '@brainstrike/assistant-contract/mcp-config'
 import type { McpTaskDatabase } from '@brainstrike/db';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
-import { createSecretsMcpBearerCredentialAuthority } from '../mcp/bearer-credential';
-import type { McpOAuthRecords, McpOAuthStore } from '../mcp/oauth-client-provider';
-import { parseRecords } from '../mcp/oauth-client-provider';
-import { createMcpHostServices, type McpHostServices } from './mcp-host-services';
-import { applyMcpToolRegistryState, serveMcpRuntimeToMain } from './mcp-runtime-server';
-import { MCP_STORE_METHODS, McpDesiredStateSchema } from './mcp-runtime-wire';
+import { createSecretsMcpBearerCredentialAuthority } from './bearer-credential.js';
+import { createMcpHostServices, type McpHostServices } from './mcp-host-services.js';
+import { applyMcpToolRegistryState, serveMcpRuntimeToMain } from './mcp-runtime-server.js';
+import { MCP_STORE_METHODS, McpDesiredStateSchema } from './mcp-runtime-wire.js';
+import type { McpOAuthRecords, McpOAuthStore } from './oauth-client-provider.js';
+import { parseRecords } from './oauth-client-provider.js';
 
 type Request = (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
 

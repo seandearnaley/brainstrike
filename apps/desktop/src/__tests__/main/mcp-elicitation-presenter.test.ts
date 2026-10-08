@@ -5,12 +5,12 @@ import {
   type McpHostServerSnapshot,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
-import type { ElicitRequest } from '@modelcontextprotocol/client';
-import { describe, expect, it, vi } from 'vitest';
 import {
   type McpElicitationPresentation,
   McpElicitationPresenterAuthority,
-} from '../../mcp/elicitation-presenter';
+} from '@brainstrike/host-capabilities/mcp/elicitation-presenter';
+import type { ElicitRequest } from '@modelcontextprotocol/client';
+import { describe, expect, it, vi } from 'vitest';
 
 const SERVER_ID = parseConfiguredMcpServerId('team.linear.prod');
 const connectedServer = (

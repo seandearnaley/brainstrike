@@ -11,20 +11,20 @@ import type { McpClientExtensionRequestContract } from '@brainstrike/agent/mcp-t
 import type { McpTaskPresentation } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { McpTaskRepository, MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
-import type { PGlite } from '@electric-sql/pglite';
-import type { JSONObject } from '@modelcontextprotocol/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   McpBoundTaskElicitationPresenter,
   McpTaskElicitationBinding,
-} from '../../mcp/elicitation-presenter';
+} from '@brainstrike/host-capabilities/mcp/elicitation-presenter';
 import {
   deriveMcpTaskAuthorityIdentity,
   MCP_STDIO_TASK_PRINCIPAL,
   MCP_STDIO_TASK_RESOURCE,
   McpDesktopTaskHost,
   type McpTaskConnection,
-} from '../../mcp/task-host';
+} from '@brainstrike/host-capabilities/mcp/task-host';
+import type { PGlite } from '@electric-sql/pglite';
+import type { JSONObject } from '@modelcontextprotocol/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResolvedMcpServer } from '../../mcp-loader';
 
 const SERVER_ID = parseConfiguredMcpServerId('team.tasks.prod');

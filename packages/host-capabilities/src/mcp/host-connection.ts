@@ -10,18 +10,18 @@ import type {
   NegotiatedProtocolFacts,
 } from '@brainstrike/agent/mcp-client';
 import type { McpHostCloseReport } from '@brainstrike/assistant-contract';
+import type { ResolvedMcpServer } from '@brainstrike/assistant-contract/mcp-config';
 import { createLogger } from '@brainstrike/logging';
-import type { ResolvedMcpServer } from '../mcp-loader';
-import { createMcpCoreServerFeatures, type McpCoreFeatureClient } from './core-server-features';
-import { classifyMcpConnectFailure } from './lifecycle-errors';
-import type { McpOAuthClientProvider, McpOAuthCloseProof } from './oauth-client-provider';
+import { createMcpCoreServerFeatures, type McpCoreFeatureClient } from './core-server-features.js';
+import { classifyMcpConnectFailure } from './lifecycle-errors.js';
+import type { McpOAuthClientProvider, McpOAuthCloseProof } from './oauth-client-provider.js';
 import {
   type McpServerActorClient,
   McpServerActorClientCleanupError,
   type McpServerActorClientFactory,
-} from './server-actor';
-import type { McpStdioDiagnosticCollector } from './stdio-diagnostics';
-import { connectedStatus } from './types';
+} from './server-actor.js';
+import type { McpStdioDiagnosticCollector } from './stdio-diagnostics.js';
+import { connectedStatus } from './types.js';
 
 type ActorContext = Parameters<McpServerActorClientFactory>[0];
 

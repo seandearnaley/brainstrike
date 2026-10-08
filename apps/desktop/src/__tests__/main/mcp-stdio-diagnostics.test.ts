@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
 import {
   MCP_STDIO_DIAGNOSTIC_MAX_ENTRIES,
   MCP_STDIO_DIAGNOSTIC_MAX_MESSAGE_CHARS,
   MCP_STDIO_DURABLE_FAILURE_MAX_ENTRIES,
   McpStdioDiagnosticCollector,
-} from '../../mcp/stdio-diagnostics';
+} from '@brainstrike/host-capabilities/mcp/stdio-diagnostics';
+import { describe, expect, it, vi } from 'vitest';
 
 describe('McpStdioDiagnosticCollector', () => {
   it('emits bounded line-safe diagnostics with OAuth material removed', () => {

@@ -1,15 +1,15 @@
-import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
-import { z } from 'zod';
-import type { McpOAuthStore } from '../mcp/oauth-client-provider';
-import { parseRecords } from '../mcp/oauth-client-provider';
-import type { RemoteMcpRuntime } from '../mcp/remote-runtime';
 import {
   MCP_CREDENTIAL_KEY_PREFIX,
   MCP_STORE_METHODS,
   McpCredentialKeySchema,
   McpOAuthIdentitySchema,
   respond,
-} from './mcp-runtime-wire';
+} from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
+import type { McpOAuthStore } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import { parseRecords } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
+import { z } from 'zod';
+import type { RemoteMcpRuntime } from '../mcp/remote-runtime';
 
 /** Main's MCP stores that still need Electron or Main's database host (c1 interim). */
 export interface DesktopMcpPlatformCapabilities {

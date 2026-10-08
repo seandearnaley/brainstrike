@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type CredentialMcpOAuthStoreOptions,
   createCredentialMcpOAuthStore,
   type McpOAuthCredentialStorage,
-} from '../../mcp/credential-oauth-store';
+} from '@brainstrike/host-capabilities/mcp/credential-oauth-store';
 import {
   createMcpOAuthStoreIdentity,
   identityKey,
@@ -12,7 +11,8 @@ import {
   parseRecords,
   purgeMcpOAuthRuntimeState,
   readMcpOAuthAuthProjection,
-} from '../../mcp/oauth-client-provider';
+} from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const identity = createMcpOAuthStoreIdentity('fixture-server', 'https://mcp.example.test/mcp', [
   'read',

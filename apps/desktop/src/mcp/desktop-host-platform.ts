@@ -1,11 +1,14 @@
 import type { McpTaskDatabase } from '@brainstrike/db';
-import type { DesktopMcpPlatformCapabilities } from '../agent-host-platform/mcp-main-stores';
 import {
   createSecretsMcpBearerCredentialAuthority,
   type McpBearerCredentialAuthority,
-} from './bearer-credential';
-import type { McpHostRuntimePlatform } from './node-host-runtime';
-import { createLazySafeStorageMcpOAuthStore, type McpOAuthStore } from './oauth-client-provider';
+} from '@brainstrike/host-capabilities/mcp/bearer-credential';
+import type { McpHostRuntimePlatform } from '@brainstrike/host-capabilities/mcp/node-host-runtime';
+import {
+  createLazySafeStorageMcpOAuthStore,
+  type McpOAuthStore,
+} from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import type { DesktopMcpPlatformCapabilities } from '../agent-host-platform/mcp-main-stores';
 import { openExternalWithElectron } from './open-external';
 import type { RemoteMcpRuntime } from './remote-runtime';
 

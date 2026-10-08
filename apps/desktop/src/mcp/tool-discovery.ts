@@ -16,10 +16,10 @@ import {
   type McpToolPreferencesFaultKind,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
+import type { McpDiscoveredTool } from '@brainstrike/host-capabilities/mcp/types';
 import { createLogger } from '@brainstrike/logging';
 import { app } from 'electron';
 import type { McpServer, ResolvedMcpConfig, ResolvedMcpServer } from '../mcp-loader';
-import type { McpDiscoveredTool } from './types';
 
 const logger = createLogger('DesktopMcpToolDiscovery');
 const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
