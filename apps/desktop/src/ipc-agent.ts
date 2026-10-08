@@ -7,7 +7,6 @@ import {
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/logging';
 import { ipcMain } from 'electron';
-import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { readOpenAIApiKey } from './openai-api-key';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
@@ -55,8 +54,8 @@ async function runAgentChat(
   const agentModule = resolveAgentModule();
   const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtime ?? {};
 
+  // Legacy chat carries no MCP (BST-1930): the one MCP runtime serves agent-host threads.
   const maybeStream = agentModule.streamMastraAgent(messages, {
-    mcpHost: getDesktopMcpHostRuntime().host,
     runtime: {
       ...runtimeWithoutMcpConfig,
       apiKey,

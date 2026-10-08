@@ -1,16 +1,22 @@
-import { resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { buildModelSettingsOption } from '@brainstrike/agent/provider-request';
-import {
-  createAwsCredentialChain,
-  type ProviderAuthInput,
-  type RuntimeData,
-} from '@brainstrike/agent/provider-runtime';
+import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import {
   DEFAULT_AGENT_MAX_STEPS,
   resolveAssistantResilienceConfig,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent/tool-runtime';
+import {
+  createProductionHostPlatform,
+  type HostPlatform,
+  type HostPlatformLaunchOptions,
+  type HostStartupContext,
+  type ProductionHostRunConfiguration,
+} from '@brainstrike/agent-host';
+import {
+  readCliWorkspaceRunInput,
+  STANDALONE_WORKSPACE_CAPABILITY_ERROR,
+} from '@brainstrike/agent-host/standalone-workspace-input';
 import {
   CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   DEFAULT_PERMISSION_POLICIES,
@@ -20,31 +26,12 @@ import {
   findLlmModelDefinition,
   findProviderDefinition,
   isSupportedProvider,
-  providerEnvKeys,
-  resolveHostedProviderCredential,
 } from '@brainstrike/assistant-contract';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
-import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { z } from 'zod';
-import { createFileCredentialBackend } from './adapters/file-credentials.js';
-import {
-  createKeyringCredentialStore,
-  createKeyringSecretsService,
-} from './adapters/keyring-credentials.js';
-import { createKeyringCredentialBackend } from './adapters/keyring-native-worker.js';
-import type { HostPlatformLaunchOptions } from './platform-launch-options.js';
-import type { HostPlatform } from './ports.js';
-import {
-  createProductionHostPlatform,
-  type ProductionHostRunConfiguration,
-} from './production-platform.js';
-import type { HostStartupContext } from './runtime.js';
+import { createHostCapabilities } from './capabilities.js';
 import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.js';
-import {
-  readCliWorkspaceRunInput,
-  STANDALONE_WORKSPACE_CAPABILITY_ERROR,
-} from './standalone-workspace-input.js';
 
 const capabilities = {
   browserOAuth: 'unavailable',
@@ -79,7 +66,7 @@ function selection(modelId: string) {
 }
 
 /** Root and its canonical writer have already been acquired by startAgentHost. */
-export function createHostPlatform(
+export async function createHostPlatform(
   options: HostStartOptions,
   startup: HostStartupContext,
   platformOptions?: HostPlatformLaunchOptions
@@ -87,64 +74,13 @@ export function createHostPlatform(
   if (options.root !== startup.store.root) {
     throw new Error('Standalone platform must borrow its acquired canonical Root');
   }
-  let credentials: ReturnType<typeof createKeyringCredentialStore> | undefined;
-  let closing = false;
-  const secrets = () => {
-    if (closing) {
-      throw new Error('Standalone credential authority is closing');
-    }
-    const credentialSelection = platformOptions?.credentialStore;
-    if (!credentialSelection) {
-      throw new Error(
-        'Standalone keyring reads require an explicitly selected credential service; file fallback is not automatic'
-      );
-    }
-    const service =
-      credentialSelection.kind === 'file'
-        ? resolve(credentialSelection.path)
-        : credentialSelection.service;
-    credentials ??= createKeyringCredentialStore({
-      backend:
-        credentialSelection.kind === 'file'
-          ? createFileCredentialBackend(service)
-          : createKeyringCredentialBackend(service),
-      service,
-    });
-    return createKeyringSecretsService({
-      accountForProvider: (provider) => provider,
-      credentials,
-      providerForAccount: (account) => (isSupportedProvider(account) ? account : undefined),
-    });
-  };
-  const resolveAuth = async (provider: string): Promise<ProviderAuthInput | undefined> => {
-    if (!isSupportedProvider(provider)) {
-      throw new Error('Unsupported provider credential request');
-    }
-    const resolved = await resolveHostedProviderCredential({
-      envKeyNames: providerEnvKeys(provider),
-      envSources: [process.env],
-      readCredential: () => secrets().getCredential(provider),
-    });
-    if (resolved.secretReadError !== undefined) {
-      throw resolved.secretReadError;
-    }
-    if (!(resolved.credential && resolved.source)) {
-      throw new Error('The selected provider has no configured credential');
-    }
-    return providerAuthInputFromCredential(
-      provider,
-      { ...resolved.credential, source: resolved.source },
-      {
-        awsCredentialChain: createAwsCredentialChain,
-        env: process.env,
-      }
-    );
-  };
+  const host = await createHostCapabilities({
+    env: process.env,
+    launch: platformOptions,
+    startup,
+  });
   return createProductionHostPlatform({
-    close: async () => {
-      closing = true;
-      await credentials?.close();
-    },
+    close: () => host.close(),
     readConfiguration: async (request): Promise<ProductionHostRunConfiguration> => {
       request.signal.throwIfAborted();
       if (readCliWorkspaceRunInput(request.configuration)) {
@@ -228,7 +164,7 @@ export function createHostPlatform(
       };
     },
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
-    resolveProviderAuth: resolveAuth,
+    resolveProviderAuth: host.resolveProviderAuth,
     startup,
   });
 }

@@ -28,7 +28,12 @@ export {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
 } from './adapters/state-store-host-memory.js';
-export { type HostCliOutput, runHostCli } from './cli.js';
+export {
+  type HostCliDefaults,
+  type HostCliOutput,
+  runHostCli,
+  runHostCliProcess,
+} from './cli.js';
 export { attachAgentHost, authenticateHostClient, type HostClient } from './client.js';
 export {
   type CommittedRunIdentity,
