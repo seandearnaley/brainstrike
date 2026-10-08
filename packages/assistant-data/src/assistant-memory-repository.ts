@@ -2762,6 +2762,51 @@ function toHistoryRepository(
   };
 }
 
+/** BST-1934: a legacy thread converted for the committed UI, read-only. */
+export interface LegacyThreadReadOnlyHistory {
+  /** The thread's whole history, in the shape the legacy chat rendered. */
+  readonly history: AssistantHistoryLoadResult;
+  /** Pauses the one-time upgrade interrupted; they can no longer be answered. */
+  readonly interruptedDecisions: number;
+  /** Messages on branches other than the latest one, which read-only shows alone. */
+  readonly otherBranchMessages: number;
+}
+
+function countOffHeadPath(history: AssistantHistoryLoadResult): number {
+  const parentById = new Map(history.messages.map((entry) => [entry.message.id, entry.parentId]));
+  let onPath = 0;
+  for (let id = history.headId ?? null; id !== null; id = parentById.get(id) ?? null) {
+    onPath += 1;
+  }
+  return history.messages.length - onPath;
+}
+
+/**
+ * Converts a legacy (pre-host) thread with the same converter the legacy chat
+ * used, over its WHOLE history (no hydration bound) and without rediscovering
+ * suspended runs, which the upgrade interrupted. Reads only.
+ */
+export async function loadLegacyThreadReadOnly(
+  repository: AssistantThreadRepository,
+  threadId: string,
+  resourceId: string
+): Promise<LegacyThreadReadOnlyHistory> {
+  const [messages, runEvents] = await Promise.all([
+    repository.listMessages(threadId, resourceId),
+    repository.listThreadRunEvents(threadId, resourceId),
+  ]);
+  const history = toHistoryRepository(messages, runEvents);
+  return {
+    history,
+    interruptedDecisions: runEvents.filter(
+      (event) =>
+        event.kind === 'tool.resume.unsupported' &&
+        event.metadata?.['interruptedByLegacyUpgrade'] === true
+    ).length,
+    otherBranchMessages: countOffHeadPath(history),
+  };
+}
+
 function hasHostPauseEvidence(input: {
   readonly events: readonly AssistantRunEvent[];
   readonly hostRunId: string;
