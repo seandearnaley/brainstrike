@@ -124,6 +124,8 @@ export type HostChildOrigin = z.infer<typeof HostChildOriginSchema>;
 export const HostChildDeliveryEntrySchema = z.strictObject({
   childRunId: Id,
   childThreadId: Id,
+  /** A completed run typed into an idle child, not its delegated invocation. */
+  followUp: z.literal(true).optional(),
   /** What the parent's model reads in place of the dispatch acknowledgement. */
   outcome: z.string(),
   parentRunId: Id,

@@ -166,7 +166,6 @@ export class HostCore {
     for (const run of core.runs.values()) {
       const recovery = recoverHostRun(run);
       if (recovery?.kind === 'finish') {
-        // Q-2: the boot sweep never wakes a parent; its results reach the next user turn.
         await core.finish(run, recovery.outcome, recovery.detail, false);
       } else if (recovery) {
         run.release = retainRun();
@@ -376,7 +375,6 @@ export class HostCore {
     if (!erase) {
       return Promise.reject(new Error('The Root owner has no thread deletion capability'));
     }
-    // BST-1932: a thread's child threads go with it, deepest first, through this path.
     const subtree = this.children.subtree(params.threadId);
     const deletion = this.admission.then(async (): Promise<{ deleted: true }> => {
       if (this.closing) {
@@ -474,16 +472,24 @@ export class HostCore {
     this.pendingAdmissions.set(controller, params.threadId);
     let admission: HostRunAdmission | undefined;
     let release: (() => void) | undefined;
+    const root = this.children.rootThread(params.threadId);
     try {
       admission = await acquireHostRunAdmission(this.platform, {
         ...hostRunCommandRequest(
-          params,
+          { ...params, threadId: root },
           origin,
           method === 'wake' ? undefined : selected.prompt,
           controller.signal
         ),
-        ...this.workspaces.admissionBinding(params.threadId),
+        ...this.workspaces.admissionBinding(root),
       });
+      const child = await this.children.followUp(
+        params.threadId,
+        admission,
+        this.runs,
+        this.platform
+      );
+      admission = child.admission;
       controller.signal.throwIfAborted();
       release = this.retainRun();
       const { run, started } = admittedHostRun(
@@ -499,6 +505,7 @@ export class HostCore {
         controller
       );
       run.admission = admission;
+      child.adopt(run);
       if (this.conversationIds.has(run.id) || run.id === params.commandId) {
         throw new Error('Generated run collides with a committed conversation identity');
       }
@@ -589,19 +596,19 @@ export class HostCore {
       retainRun: this.retainRun,
       stop: (child, reason) => {
         if (!this.closing) {
-          retainHostRunWork(run, this.stopChildRun(child, reason));
+          retainHostRunWork(run, this.stopRun(child, reason));
         }
       },
       taken: (id) => this.threads.has(id) || this.conversationIds.has(id),
     };
   }
 
-  /** Mirrors run/stop for a child its parent no longer waits on. */
-  private async stopChildRun(child: Run, reason: unknown): Promise<void> {
-    child.stopped = true;
-    child.controller.abort(reason);
-    await joinHostRunOwner(child, (owned) => this.closeRunOwner(owned));
-    await this.finish(child, 'stopped');
+  /** A user stop of one run: abort it, join its owner, then commit `stopped`. */
+  private async stopRun(run: Run, reason: unknown): Promise<void> {
+    run.stopped = true;
+    run.controller.abort(reason);
+    await joinHostRunOwner(run, (owned) => this.closeRunOwner(owned));
+    await this.finish(run, 'stopped');
   }
 
   private dispatch(
@@ -806,9 +813,7 @@ export class HostCore {
             sibling,
             this.platform,
             interactionId,
-            async (event) => {
-              await this.append(sibling.threadId, [event]);
-            },
+            (event) => this.append(sibling.threadId, [event]),
             () => this.continueRun(sibling)
           )
         )
@@ -886,19 +891,12 @@ export class HostCore {
     const join = async (): Promise<void> => {
       const run = this.run(params.threadId, params.runId);
       const reason = new Error('Run stopped by user');
-      run.stopped = true;
-      run.controller.abort(reason);
       // Report section 4: a root Stop ends its turn's children, foreground and background.
+      const stopped = [run, ...this.children.turnChildren(run, this.runs)];
       await joinAllHostWork(
-        [
-          joinHostRunOwner(run, (owned) => this.closeRunOwner(owned)),
-          ...this.children
-            .turnChildren(run, this.runs)
-            .map((child) => this.stopChildRun(child, reason)),
-        ],
+        stopped.map((owned) => this.stopRun(owned, reason)),
         'Stop cleanup failed'
       );
-      await this.finish(run, 'stopped');
     };
     return this.command(
       'run/stop',
@@ -954,7 +952,7 @@ export class HostCore {
         })
     ).then(() => {
       this.presentations.settle(run);
-      const parent = this.children.backgroundParent(run) ?? (run.origin ? undefined : run.threadId);
+      const parent = this.children.deliveryParent(run) ?? (run.origin ? undefined : run.threadId);
       if (parent && wakes) {
         this.wake(parent);
       }

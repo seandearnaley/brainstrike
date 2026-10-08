@@ -98,7 +98,7 @@ export async function approveHostRunByPolicy(
   run: Run,
   platform: HostPlatform,
   interactionId: string,
-  append: (event: HostEvent) => Promise<void>,
+  append: (event: HostEvent) => Promise<unknown>,
   continueRun: () => Promise<void>
 ): Promise<void> {
   const pending = run.approvals.get(interactionId);
@@ -121,7 +121,9 @@ export async function approveHostRunByPolicy(
       runId: run.id,
       threadId: run.threadId,
     },
-    (event) => append({ ...event, by: 'policy' } as HostEvent),
+    async (event) => {
+      await append({ ...event, by: 'policy' } as HostEvent);
+    },
     continueRun
   );
 }

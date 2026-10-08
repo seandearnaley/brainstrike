@@ -54,15 +54,31 @@ export function describeHostChildLedger(entries: readonly HostChildLedgerEntry[]
   return lines.join('\n');
 }
 
+/**
+ * A completed follow-up typed into an idle child reaches its parent as the
+ * shipped continuation notification (packages/agent/src/mastra/child-continuation.ts,
+ * removed with BST-1935): the final completed leg's text only.
+ */
+export function describeHostChildContinuation(entry: HostChildDeliveryEntry): string {
+  const contents = JSON.stringify({
+    childThreadId: entry.childThreadId,
+    continuationId: entry.childRunId,
+    result: entry.outcome,
+    status: 'completed',
+  });
+  return `<child_continuation_result>${contents}</child_continuation_result>`;
+}
+
 /** A parent run's own messages with each delivered outcome in place of its acknowledgement. */
 export function overlayHostChildOutcomes(
   runId: string,
   messages: readonly ModelMessage[],
   entries: readonly HostChildDeliveryEntry[]
 ): ModelMessage[] {
+  // A follow-up answered no tool call; only invocation outcomes replace acknowledgements.
   const outcomes = new Map(
     entries
-      .filter((entry) => entry.parentRunId === runId)
+      .filter((entry) => entry.parentRunId === runId && !entry.followUp)
       .map((entry) => [entry.toolCallId, entry.outcome])
   );
   if (outcomes.size === 0) {

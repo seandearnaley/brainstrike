@@ -16,8 +16,14 @@ import { type AppendItem, StateStore } from '@brainstrike/state-store';
 import { type MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { expect } from 'vitest';
 import { z } from 'zod';
+import { withHostDelegationTools } from '../../src/child-runs.js';
 import { HostCore, type HostEventStore } from '../../src/core.js';
-import type { HostClientOrigin, HostPlatform, HostTool } from '../../src/ports.js';
+import type {
+  HostClientOrigin,
+  HostPlatform,
+  HostRunAdmissionRequest,
+  HostTool,
+} from '../../src/ports.js';
 import type { HostLogRow } from '../../src/protocol.js';
 
 export type Chunk =
@@ -195,6 +201,33 @@ export function fixturePlatform(
         risk: 'edit',
       },
     },
+  };
+}
+
+/**
+ * A per-run `admitRun` with the default admission's selection that records
+ * each request, as a production platform sees it.
+ */
+export function recordingAdmission(
+  requests: HostRunAdmissionRequest[]
+): (platform: HostPlatform) => HostPlatform['admitRun'] {
+  return (platform) => async (request) => {
+    requests.push(request);
+    const tools = withHostDelegationTools(platform.tools ?? {}, platform.delegation);
+    return {
+      configuration: {},
+      delegation: platform.delegation,
+      model: await (platform.resolveModel?.(request.modelId) ??
+        Promise.reject(new Error('No model'))),
+      snapshot: {
+        configuration: {},
+        maxSteps: platform.maxSteps ?? 4,
+        toolIdentities: Object.fromEntries(
+          Object.entries(tools).map(([id, tool]) => [id, tool.identity])
+        ),
+      },
+      tools,
+    };
   };
 }
 

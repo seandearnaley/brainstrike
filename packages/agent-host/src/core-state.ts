@@ -218,6 +218,8 @@ export interface HostRunState {
   task?: Promise<void>;
   terminal: boolean;
   readonly threadId: string;
+  /** A follow-up typed into an idle child starts its own turn: its ID. */
+  turnId?: string;
 }
 
 export function createHostRunState(

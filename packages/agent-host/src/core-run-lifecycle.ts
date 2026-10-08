@@ -13,6 +13,7 @@ export type HostRunRecovery =
       readonly outcome: 'interrupted' | 'stopped';
     };
 
+/** Q-2: a recovery finish never wakes a parent; its results reach the next user turn. */
 export function recoverHostRun(run: HostRunState): HostRunRecovery | undefined {
   if (run.terminal) {
     return;
