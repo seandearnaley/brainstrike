@@ -5,6 +5,10 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
+import {
+  type AssistantThreadHostCapability,
+  AssistantThreadHostContext,
+} from '../assistant-thread-host-context';
 import { ConnectedPromptManager } from '../connected-prompt-manager';
 
 const testItem: PromptItem = {
@@ -715,6 +719,45 @@ describe('ConnectedPromptManager', () => {
       useAssistantComposerCommandStore.getState().commandsByThreadId['thread-new']?.[0]
     ).toMatchObject({ mode: 'replace', text: testItem.content });
     expect(mocks.recordUsage).toHaveBeenCalledWith(testItem.id, 'new-thread');
+  });
+
+  it('creates the thread through the host and surfaces a title the host cannot store yet', async () => {
+    const user = userEvent.setup();
+    const hostCreate = vi.fn(async (resourceId: string) => ({
+      createdAt: new Date('2026-10-08T00:00:00Z'),
+      id: 'host-thread-new',
+      resourceId,
+      title: 'New Thread',
+      updatedAt: new Date('2026-10-08T00:00:00Z'),
+    }));
+    const host: AssistantThreadHostCapability = {
+      createThread: hostCreate,
+      deleteThread: vi.fn(),
+      listThreads: vi.fn(async () => []),
+      ownsThread: vi.fn(),
+      renderThread: vi.fn(),
+      updateThreadBinding: vi.fn(),
+      workspaceRepository: (repository) => repository,
+    };
+    render(
+      <AssistantThreadHostContext.Provider value={host}>
+        <ConnectedPromptManager loadEmbeddingQueue={mocks.loadEmbeddingQueue} />
+      </AssistantThreadHostContext.Provider>
+    );
+    await user.click(await screen.findByRole('button', { name: 'New thread from test item' }));
+
+    await waitFor(() =>
+      expect(useAssistantThreadStore.getState().activeThreadIdByResourceId).toMatchObject({
+        [WORKSPACE_MEMORY_RESOURCE_ID]: 'host-thread-new',
+      })
+    );
+    expect(hostCreate).toHaveBeenCalledExactlyOnceWith(WORKSPACE_MEMORY_RESOURCE_ID);
+    expect(mocks.createThread).not.toHaveBeenCalled();
+    // The requested title is never dropped silently.
+    expect(screen.getByTestId('system-error')).toHaveTextContent(testItem.title);
+    expect(
+      useAssistantComposerCommandStore.getState().commandsByThreadId['host-thread-new']?.[0]
+    ).toMatchObject({ mode: 'replace', text: testItem.content });
   });
 
   it('applies a runnable prompt model to the active thread before staging it', async () => {

@@ -1,5 +1,6 @@
 import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const usePGliteLiveQueryMock = vi.fn();
@@ -13,6 +14,10 @@ vi.mock('@brainstrike/db/react', () => ({
   usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
 }));
 
+import {
+  type AssistantThreadHostCapability,
+  AssistantThreadHostContext,
+} from '../assistant-thread-host-context';
 import { useAssistantThreadTitleSync } from '../use-assistant-thread-title-sync';
 
 const repository = {} as AssistantThreadRepository;
@@ -155,6 +160,41 @@ describe('useAssistantThreadTitleSync', () => {
     await waitFor(() => {
       expect(refreshResourceThreads).toHaveBeenCalledWith(repository, 'resource-1');
     });
+  });
+
+  it('refreshes through the host so a title update never drops host threads from the store', async () => {
+    const historyThread = { id: 'legacy-thread' };
+    const hostThread = { id: 'host-thread' };
+    const history = {
+      listThreads: vi.fn(async () => [historyThread]),
+    } as unknown as AssistantThreadRepository;
+    const host = {
+      listThreads: vi.fn(async () => [hostThread]),
+    } as unknown as AssistantThreadHostCapability;
+    const refreshResourceThreads = vi.fn().mockResolvedValue(undefined);
+    usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: false,
+      rows: [{ id: 'legacy-thread', title: 'Renamed by Mastra' }],
+    });
+    const wrapper = ({ children }: { readonly children: ReactNode }) =>
+      createElement(AssistantThreadHostContext.Provider, { value: host }, children);
+    renderHook(
+      () =>
+        useAssistantThreadTitleSync({
+          enabled: true,
+          refreshResourceThreads,
+          repository: history,
+          resourceId: 'resource-1',
+        }),
+      { wrapper }
+    );
+
+    await waitFor(() => {
+      expect(refreshResourceThreads).toHaveBeenCalledTimes(1);
+    });
+    const listed: AssistantThreadRepository = refreshResourceThreads.mock.calls[0]?.[0];
+    expect(await listed.listThreads('resource-1')).toEqual([hostThread, historyThread]);
   });
 
   it('makes the run-completion refresh a no-op without a repository', () => {

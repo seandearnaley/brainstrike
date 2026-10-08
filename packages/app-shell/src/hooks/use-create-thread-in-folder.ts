@@ -6,6 +6,7 @@ import {
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useMemo } from 'react';
+import { useAssistantThreadHost, withAssistantThreadHost } from '../assistant-thread-host-context';
 
 export interface ThreadFolderBinding {
   readonly displayName: string;
@@ -26,9 +27,16 @@ export interface ThreadFolderBinding {
 export function useCreateThreadInFolder(): ((folder: ThreadFolderBinding) => void) | null {
   const database = usePGliteDatabase();
   const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
+  // The host's existing thread owner creates the thread and commits its folder
+  // binding when the app has one. A refused binding is reported below; it never
+  // falls back to a history thread.
+  const host = useAssistantThreadHost();
   const repository = useMemo(
-    () => (database ? createPgliteAssistantThreadRepository(database) : null),
-    [database]
+    () =>
+      database
+        ? withAssistantThreadHost(createPgliteAssistantThreadRepository(database), host)
+        : null,
+    [database, host]
   );
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
