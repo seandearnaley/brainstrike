@@ -63,7 +63,11 @@ export function desktopHostSharedTools(options: {
   };
   const local = createSharedNativeHostTools({
     diagnostics: (args) => getEditDiagnostics(args),
-    executors: desktopHostToolExecutors(options.request, options.threadId),
+    executors: desktopHostToolExecutors(
+      options.request,
+      options.threadId,
+      selected.nativeRuntime.retrievalRootsOnly === true
+    ),
     freshRoots: async (signal) =>
       CliWorkspaceRootsSchema.parse(
         await options.request('platform/workspace/roots', { threadId: options.threadId }, signal)
