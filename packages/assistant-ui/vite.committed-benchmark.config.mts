@@ -13,36 +13,69 @@
  *   cd packages/assistant-ui
  *   pnpm exec node vite.committed-benchmark.config.mts --out <dir> [--runs <n>] [--mode <mode>]
  *
- * Modes: `qualification` (default) measures; `controls` runs only the in-page
- * harness controls; `negative-control` also injects one uncaught page error,
- * which must fail the verdict; `source` prints the worktree identity only.
+ * Modes:
+ * - `qualification` (the default) measures.
+ * - `controls` runs only the in-page harness controls. Add `--inject-contention`
+ *   to start a harmless dummy whose argv matches a lint command mid-run (the
+ *   contention control).
+ * - `negative-control` also injects one uncaught page error, which must fail
+ *   the verdict.
+ * - `source` prints the worktree identity only.
+ * - `guard` only evaluates the contention guard; nothing is built or measured.
  *
- * Qualification exit code: 0 when every run measured with full coverage, no
- * captured execution error and a met gate; 1 when a run's p95 missed the gate;
- * 2 when a run failed, captured an execution error, had incomplete coverage, or
- * the worktree is not exactly the committed source (no gate verdict is drawn
- * then). The control modes exit 0 only when they observe what they must.
+ * `qualification` (and `guard`) refuse to start, before building, when other
+ * build, lint or test work is observed. The control modes measure no gate:
+ * they record what the guard saw and proceed. Every page run starts the
+ * out-of-page host sampler (`committed-benchmark-sampler.mts`) at the lowest
+ * priority, and stops and joins it before reporting. Contention seen by the
+ * sampler marks the run contended, and work absent at the guard check is
+ * reported as `midRun`. The measured page and its instrumentation are
+ * unchanged.
+ *
+ * Exit codes:
+ * - 0: every run measured with full coverage, no captured execution error, no
+ *   contention and a met gate.
+ * - 1: a run's p95 missed the gate.
+ * - 2: a run failed, captured an execution error, had incomplete coverage, the
+ *   sampler failed, or the worktree is not exactly the committed source. No
+ *   gate verdict is drawn.
+ * - 3: the guard refused to start because other build, lint or test work was
+ *   running.
+ * - 4: such work appeared mid-run, so the run is contended. Its verdict is
+ *   reported but not counted, nothing is retried and no trial is discarded.
+ *
+ * The control modes exit 0 only when they observe what they must; the
+ * contention control exits 4.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { cpus, loadavg, release } from 'node:os';
+import { cpus, getPriority, loadavg, release, setPriority } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import tailwindcss from '@tailwindcss/vite';
 import { build, defineConfig, preview, version as viteVersion } from 'vite';
+import {
+  type ContentionMatch,
+  contentionIn,
+  readProcesses,
+  SAMPLE_INTERVAL_MS,
+} from './committed-benchmark-sampler.mts';
 
 const PACKAGE_DIR = import.meta.dirname;
 const BENCHMARK_DIR = resolve(PACKAGE_DIR, 'src/__tests__');
 const ENTRY = 'committed-assistant-production-benchmark.html';
 /** Gitignored: build output never lands in the source tree. */
 const OUT_DIR = resolve(PACKAGE_DIR, 'node_modules/.committed-benchmark/dist');
+const SAMPLER_FILE = resolve(PACKAGE_DIR, 'committed-benchmark-sampler.mts');
 const VIEWPORT = { height: 800, width: 900 } as const;
 const GATE_MS = 8;
 const RUN_TIMEOUT_MS = 20 * 60_000;
 const SOURCE_FILES = [
   'vite.committed-benchmark.config.mts',
+  'committed-benchmark-sampler.mts',
   'src/__tests__/committed-assistant-production-benchmark.html',
   'src/__tests__/committed-assistant-production-benchmark.tsx',
   'src/__tests__/fixtures/committed-approved-host-run.json',
@@ -83,12 +116,14 @@ export default defineConfig({
 
 // ---- Runner (only when this file is executed directly) ----
 
-type Mode = 'controls' | 'negative-control' | 'qualification' | 'source';
-const MODES: readonly Mode[] = ['controls', 'negative-control', 'qualification', 'source'];
+type Mode = 'controls' | 'guard' | 'negative-control' | 'qualification' | 'source';
+const MODES: readonly Mode[] = ['controls', 'guard', 'negative-control', 'qualification', 'source'];
 /** Must match the page's injected error (committed-assistant-production-benchmark.tsx). */
 const NEGATIVE_CONTROL_ERROR = 'BST-1929 negative control: injected execution error';
+const MIDRUN_CONTROL_ARGV = ['biome', 'check', '--bst1929-midrun-contention-control'];
 
 interface Args {
+  readonly injectContention: boolean;
   readonly mode: Mode;
   readonly out: string;
   readonly runs: number;
@@ -102,6 +137,7 @@ function parseArgs(argv: readonly string[]): Args {
   const mode = (value('--mode') ?? 'qualification') as Mode;
   const out = value('--out');
   const runs = Number(value('--runs') ?? '1');
+  const injectContention = argv.includes('--inject-contention');
   if (!MODES.includes(mode)) {
     throw new Error(`--mode must be one of ${MODES.join(', ')}.`);
   }
@@ -111,7 +147,15 @@ function parseArgs(argv: readonly string[]): Args {
   if (!(Number.isInteger(runs) && runs > 0)) {
     throw new Error('--runs must be a positive integer.');
   }
-  return { mode, out: resolve(out), runs: mode === 'qualification' ? runs : 1 };
+  if (injectContention && mode !== 'controls') {
+    throw new Error('--inject-contention is a control and only runs with --mode controls.');
+  }
+  return {
+    injectContention,
+    mode,
+    out: resolve(out),
+    runs: mode === 'qualification' ? runs : 1,
+  };
 }
 
 const sha256 = (data: Buffer | string): string => createHash('sha256').update(data).digest('hex');
@@ -166,6 +210,120 @@ async function bundleIdentity() {
   );
   return { digest, files };
 }
+
+// ---- Out-of-page host sampler: start at the lowest priority, stop and join ----
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+async function startSampler(out: string) {
+  const child = spawn(process.execPath, [SAMPLER_FILE, out, String(process.pid)], {
+    stdio: ['ignore', 'ignore', 'inherit'],
+  });
+  const { pid } = child;
+  if (pid === undefined) {
+    throw new Error('The host sampler did not start.');
+  }
+  setPriority(pid, 19);
+  // Sampling must be under way before anything it is meant to observe.
+  for (let waited = 0; ; waited += 50) {
+    const text = await readFile(out, 'utf8').catch(() => '');
+    if (text.includes('\n')) {
+      break;
+    }
+    if (waited > 10_000 || child.exitCode !== null) {
+      throw new Error('The host sampler produced no snapshot.');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return { child, pid, priority: getPriority(pid), startedAt: Date.now() };
+}
+
+type Sampler = Awaited<ReturnType<typeof startSampler>>;
+
+/** SIGTERM, then wait for the exit event and confirm the pid is gone (the physical join). */
+async function joinSampler({ child, pid }: Sampler) {
+  const exited =
+    child.exitCode === null && child.signalCode === null
+      ? once(child, 'exit')
+      : Promise.resolve([child.exitCode, child.signalCode]);
+  child.kill('SIGTERM');
+  const [code, signal] = (await exited) as [number | null, NodeJS.Signals | null];
+  return { code, joinedAt: Date.now(), pid, signal, stillRunning: isAlive(pid) };
+}
+
+interface Snapshot {
+  readonly chromium: readonly {
+    readonly cpuSeconds: number;
+    readonly pid: number;
+    readonly type: string;
+  }[];
+  readonly contention: readonly ContentionMatch[];
+  readonly loadavg: readonly number[];
+  readonly t: number;
+  readonly tEnd: number;
+}
+
+/** Cumulative CPU of each renderer across the run; proves the sampler sees it advance. */
+function rendererCpu(snapshots: readonly Snapshot[]) {
+  const byPid = new Map<
+    number,
+    { first: Snapshot; firstCpu: number; last: Snapshot; lastCpu: number; samples: number }
+  >();
+  for (const snapshot of snapshots) {
+    for (const process_ of snapshot.chromium.filter((entry) => entry.type === 'renderer')) {
+      const seen = byPid.get(process_.pid);
+      byPid.set(process_.pid, {
+        first: seen?.first ?? snapshot,
+        firstCpu: seen?.firstCpu ?? process_.cpuSeconds,
+        last: snapshot,
+        lastCpu: process_.cpuSeconds,
+        samples: (seen?.samples ?? 0) + 1,
+      });
+    }
+  }
+  return [...byPid].map(([pid, entry]) => ({
+    cpuSecondsAdvanced: Number((entry.lastCpu - entry.firstCpu).toFixed(2)),
+    fromT: entry.first.t,
+    pid,
+    samples: entry.samples,
+    toT: entry.last.t,
+  }));
+}
+
+/** `atStart`: the guard's own observation, so work that appeared mid-run is told apart. */
+function contentionSummary(snapshots: readonly Snapshot[], atStart: readonly ContentionMatch[]) {
+  const startPids = new Set(atStart.map((match) => match.pid));
+  const contended = snapshots.filter((snapshot) => snapshot.contention.length > 0);
+  const matches = new Map<number, ContentionMatch>();
+  for (const snapshot of contended) {
+    for (const match of snapshot.contention) {
+      matches.set(match.pid, match);
+    }
+  }
+  return {
+    contended: contended.length > 0,
+    contendedSnapshots: contended.length,
+    firstT: contended[0]?.t,
+    lastT: contended.at(-1)?.t,
+    matches: [...matches.values()],
+    midRun: [...matches.values()].filter((match) => !startPids.has(match.pid)),
+  };
+}
+
+/** A harmless, idle dummy whose argv reads like a lint run; reparented away from the runner. */
+function startContentionDummy(): number {
+  const launcher = `const c=require('node:child_process').spawn(process.execPath,['-e','setTimeout(()=>{},120000)',...${JSON.stringify(MIDRUN_CONTROL_ARGV)}],{detached:true,stdio:'ignore'});c.unref();process.stdout.write(String(c.pid));`;
+  return Number(execFileSync(process.execPath, ['-e', launcher], { encoding: 'utf8' }));
+}
+
+// ---- Page runs and verdicts ----
 
 interface PageState {
   readonly error?: string;
@@ -299,6 +457,110 @@ function exitCodeOf(
   return judgements.every(({ verdict }) => verdict === 'met') ? 0 : 1;
 }
 
+function stamp(): string {
+  return new Date().toISOString().replaceAll(':', '-');
+}
+
+async function writeReport(out: string, name: string, report: unknown): Promise<string> {
+  await mkdir(out, { recursive: true });
+  const file = join(out, `committed-benchmark-${name}-${stamp()}.json`);
+  await writeFile(file, `${JSON.stringify(report, null, 2)}\n`);
+  return file;
+}
+
+/**
+ * Guard: a measurement (`qualification`) refuses to start when other build,
+ * lint or test work is observed, before it builds anything; so does `guard`,
+ * which only evaluates it. The control modes measure no gate: they record what
+ * the guard saw and still mark any contention, but proceed.
+ */
+async function guardOrRefuse(args: Args, source: Awaited<ReturnType<typeof sourceIdentity>>) {
+  const guard = {
+    checkedAt: Date.now(),
+    matches: contentionIn(await readProcesses(), process.pid),
+  };
+  const enforced = args.mode === 'qualification' || args.mode === 'guard';
+  if (guard.matches.length === 0 || !enforced) {
+    if (args.mode === 'guard') {
+      process.stdout.write('mode guard exit 0 (no other build/lint/test work observed)\n');
+    }
+    return { guard, refused: false } as const;
+  }
+  const file = await writeReport(args.out, `${args.mode}-refused`, {
+    guard: { ...guard, refused: true },
+    mode: args.mode,
+    source,
+  });
+  process.stdout.write(
+    `mode ${args.mode} exit 3 (refused: other build/lint/test work is running)\n${guard.matches.map((match) => `  pid ${match.pid} ${match.pattern} ${match.args}`).join('\n')}\nraw ${file}\n`
+  );
+  return { guard, refused: true } as const;
+}
+
+async function buildAndMeasure(args: Args) {
+  await build({ configFile: import.meta.filename, mode: 'production' });
+  const bundle = await bundleIdentity();
+  const server = await preview({ configFile: import.meta.filename, mode: 'production' });
+  try {
+    const base = server.resolvedUrls?.local[0];
+    if (!base) {
+      throw new Error('vite preview did not report a local URL.');
+    }
+    const hash = args.mode === 'qualification' ? '' : `#${args.mode}`;
+    return {
+      bundle,
+      measured: await measureRuns(`${new URL(ENTRY, base).href}${hash}`, args.runs),
+    };
+  } finally {
+    await server.close();
+  }
+}
+
+/** The sampler runs from before the build until after the browser closes, then is joined. */
+async function sampledRun(args: Args) {
+  await mkdir(args.out, { recursive: true });
+  const samplesFile = join(args.out, `host-samples-${args.mode}-${stamp()}.jsonl`);
+  const sampler = await startSampler(samplesFile);
+  let dummy: number | undefined;
+  let outcome: Awaited<ReturnType<typeof buildAndMeasure>> | undefined;
+  let failure: unknown;
+  try {
+    dummy = args.injectContention ? startContentionDummy() : undefined;
+    outcome = await buildAndMeasure(args);
+  } catch (error) {
+    failure = error;
+  } finally {
+    if (dummy !== undefined && isAlive(dummy)) {
+      process.kill(dummy, 'SIGTERM');
+    }
+  }
+  const joined = await joinSampler(sampler);
+  const snapshots = (await readFile(samplesFile, 'utf8'))
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Snapshot);
+  return { dummy, failure, joined, outcome, sampler, samplesFile, snapshots };
+}
+
+type SampledRun = Awaited<ReturnType<typeof sampledRun>>;
+
+function exitCodeFor(
+  args: Args,
+  run: SampledRun,
+  judgements: readonly Judgement[],
+  qualified: boolean,
+  samplerOk: boolean,
+  contended: boolean
+): number {
+  const measured = run.outcome?.measured;
+  const measuredCode =
+    run.failure === undefined && measured ? exitCodeOf(args.mode, measured.results, judgements) : 2;
+  if (!(qualified && samplerOk) || measuredCode === 2) {
+    return 2;
+  }
+  return contended ? 4 : measuredCode;
+}
+
 async function runBenchmark(): Promise<number> {
   const args = parseArgs(process.argv.slice(2));
   const source = await sourceIdentity();
@@ -306,56 +568,77 @@ async function runBenchmark(): Promise<number> {
     process.stdout.write(`${JSON.stringify(source, null, 2)}\n`);
     return source.exact ? 0 : 2;
   }
-  await build({ configFile: import.meta.filename, mode: 'production' });
-  const bundle = await bundleIdentity();
-  const server = await preview({ configFile: import.meta.filename, mode: 'production' });
-  const base = server.resolvedUrls?.local[0];
-  if (!base) {
-    throw new Error('vite preview did not report a local URL.');
+  const { guard, refused } = await guardOrRefuse(args, source);
+  if (refused) {
+    return 3;
   }
-  try {
-    const hash = args.mode === 'qualification' ? '' : `#${args.mode}`;
-    const measured = await measureRuns(`${new URL(ENTRY, base).href}${hash}`, args.runs);
-    const judgements = measured.results.map(verdictOf);
-    const require = createRequire(import.meta.url);
-    const report = {
-      build: { ...bundle, mode: 'production', vite: viteVersion },
-      gate: { metric: 'unwrapped text-delta reactMs p95', thresholdMs: GATE_MS },
-      judgements,
-      mode: args.mode,
-      runs: measured.results,
-      runtime: {
-        browser: measured.browserVersion,
-        cpu: cpus()[0]?.model,
-        cpus: cpus().length,
-        node: process.versions.node,
-        os: release(),
-        playwright: (require('playwright/package.json') as { version: string }).version,
-        react: (require('react/package.json') as { version: string }).version,
-        reactDom: (require('react-dom/package.json') as { version: string }).version,
-      },
-      source,
-    };
-    await mkdir(args.out, { recursive: true });
-    const file = join(
-      args.out,
-      `committed-benchmark-${args.mode}-${new Date().toISOString().replaceAll(':', '-')}.json`
-    );
-    await writeFile(file, `${JSON.stringify(report, null, 2)}\n`);
-    const code = exitCodeOf(args.mode, measured.results, judgements);
-    // Exact committed-source identity is a precondition of a qualification verdict.
-    const qualified = args.mode !== 'qualification' || source.exact;
-    const lines = judgements.map(
-      ({ line, reason, verdict }, index) =>
-        `run ${index + 1} [${verdict}, ${reason}] errors ${measured.results[index]?.pageErrors.length}\n  ${line}`
-    );
-    process.stdout.write(
-      `mode ${args.mode} exit ${qualified ? code : 2}${qualified ? '' : ' (source is not exactly committed)'}\n${lines.join('\n')}\nbundle ${bundle.digest}\nsource ${source.commit} tree ${source.tree} exact=${source.exact} dirty ${source.dirtyPaths.length}\nraw ${file}\n`
-    );
-    return qualified ? code : 2;
-  } finally {
-    await server.close();
+  if (args.mode === 'guard') {
+    return 0;
   }
+  const run = await sampledRun(args);
+  const measured = run.outcome?.measured;
+  const contention = contentionSummary(run.snapshots, guard.matches);
+  const renderers = rendererCpu(run.snapshots);
+  const samplerOk =
+    !run.joined.stillRunning && renderers.some((renderer) => renderer.cpuSecondsAdvanced > 0);
+  const judgements = measured?.results.map(verdictOf) ?? [];
+  const qualified = args.mode !== 'qualification' || source.exact;
+  const code = exitCodeFor(args, run, judgements, qualified, samplerOk, contention.contended);
+  const require = createRequire(import.meta.url);
+  const file = await writeReport(args.out, args.mode, {
+    build: run.outcome
+      ? { ...run.outcome.bundle, mode: 'production', vite: viteVersion }
+      : undefined,
+    exitCode: code,
+    failure: run.failure === undefined ? undefined : String(run.failure),
+    gate: { metric: 'unwrapped text-delta reactMs p95', thresholdMs: GATE_MS },
+    guard: { ...guard, refused: false },
+    judgements,
+    mode: args.mode,
+    runs: measured?.results ?? [],
+    runtime: {
+      browser: measured?.browserVersion,
+      cpu: cpus()[0]?.model,
+      cpus: cpus().length,
+      node: process.versions.node,
+      os: release(),
+      playwright: (require('playwright/package.json') as { version: string }).version,
+      react: (require('react/package.json') as { version: string }).version,
+      reactDom: (require('react-dom/package.json') as { version: string }).version,
+    },
+    sampler: {
+      contention,
+      dummy:
+        run.dummy === undefined ? undefined : { pid: run.dummy, stillRunning: isAlive(run.dummy) },
+      file: run.samplesFile,
+      intervalMs: SAMPLE_INTERVAL_MS,
+      join: run.joined,
+      ok: samplerOk,
+      pid: run.sampler.pid,
+      priority: run.sampler.priority,
+      renderers,
+      snapshots: run.snapshots,
+      startedAt: run.sampler.startedAt,
+    },
+    source,
+  });
+  process.stdout.write(
+    [
+      `mode ${args.mode} exit ${code}${qualified ? '' : ' (source is not exactly committed)'}${contention.contended ? ' CONTENDED' : ''}`,
+      ...judgements.map(
+        ({ line, reason, verdict }, index) =>
+          `run ${index + 1} [${verdict}, ${reason}] errors ${measured?.results[index]?.pageErrors.length}\n  ${line}`
+      ),
+      `sampler pid ${run.sampler.pid} priority ${run.sampler.priority} snapshots ${run.snapshots.length} joined code=${run.joined.code} signal=${run.joined.signal} stillRunning=${run.joined.stillRunning}`,
+      `renderers ${JSON.stringify(renderers)}`,
+      `contention ${contention.contended ? `${contention.contendedSnapshots} snapshots: ${contention.matches.map((match) => `pid ${match.pid} ${match.pattern} ${match.args}`).join(' | ')}` : 'none'}`,
+      `bundle ${run.outcome?.bundle.digest}`,
+      `source ${source.commit} tree ${source.tree} exact=${source.exact} dirty ${source.dirtyPaths.length}`,
+      `raw ${file}`,
+      run.failure === undefined ? '' : `failure ${String(run.failure)}`,
+    ].join('\n')
+  );
+  return code;
 }
 
 if (import.meta.main) {
