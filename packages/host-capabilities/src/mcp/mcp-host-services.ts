@@ -14,11 +14,14 @@ import { joinCredentialCleanup } from '@brainstrike/agent-host/credential-contra
 import type { McpExtensionEnablement, McpHostCloseReport } from '@brainstrike/assistant-contract';
 import type { ResolvedMcpConfig } from '@brainstrike/assistant-contract/mcp-config';
 import type { McpTaskDatabase } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import type { McpBearerCredentialAuthority } from './bearer-credential.js';
 import type { McpElicitationPresenterAuthority } from './elicitation-presenter.js';
 import { type AgentHostMcpCollection, bindMcpTool } from './mcp-tool-binding.js';
 import { McpHostRuntime, type McpHostRuntimeDependencies } from './node-host-runtime.js';
 import type { McpOAuthStore } from './oauth-client-provider.js';
+
+const logger = createLogger('McpHostServices');
 
 export class AgentHostAdapterClosedError extends Error {
   readonly code = 'agent_host_adapter_closed';
@@ -153,9 +156,14 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
       await runtime.setMcpExtensionPreferences(options.extensionPreferences);
       ensureOpen();
     }
-    configuration = runtime.replaceResolvedConfig(options.mcpConfiguration);
-    await configuration;
-    ensureOpen();
+    // Host readiness never waits for server startup: auth projection reads
+    // credentials, which can wait for work that starts only after the host is
+    // ready (the legacy credential import). Each run's discovery joins it.
+    const initial = runtime.replaceResolvedConfig(options.mcpConfiguration);
+    configuration = initial;
+    initial.catch((cause: unknown) => {
+      logger.error('Initial MCP configuration failed', { cause });
+    });
   } catch (cause) {
     try {
       await close();
@@ -183,6 +191,9 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
     };
     const work = Promise.resolve()
       .then(async () => {
+        ensureOpen();
+        // A failed initial configuration refuses each run with its own cause.
+        await configuration;
         ensureOpen();
         const before = runtime.host.snapshot();
         const client = await createMcpRuntimeClient({
