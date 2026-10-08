@@ -5,13 +5,15 @@ import {
 } from '@brainstrike/agent/provider-request';
 import {
   createProvider,
+  createProviderNativeWebSearchTool,
   type ProviderAuthInput,
+  providerSupportsNativeWebSearch,
   type RuntimeData,
   resolveRuntimeConfiguration,
 } from '@brainstrike/agent/provider-runtime';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
-import type { LanguageModel } from 'ai';
+import type { LanguageModel, Tool } from 'ai';
 import { z } from 'zod';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
 import {
@@ -85,6 +87,18 @@ function rootModel(
     selected.runtime
   );
   return materializeHostProviderModel(model);
+}
+
+/** The provider's own web search, built with the chat model's auth; Core decides its use. */
+function admittedNativeWebSearch(
+  provider: string,
+  auth: ProviderAuthInput | undefined
+): { readonly nativeWebSearch?: Tool } {
+  if (!providerSupportsNativeWebSearch(provider)) {
+    return {};
+  }
+  const tool = createProviderNativeWebSearchTool(provider, auth) as unknown as Tool | undefined;
+  return tool ? { nativeWebSearch: tool } : {};
 }
 
 async function closeMcpAdmission(
@@ -247,6 +261,7 @@ export async function createProductionHostPlatform(
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
           model,
+          ...admittedNativeWebSearch(provider, auth),
           openRun: (context) =>
             StateStoreHostMemory.open(context, {
               ...selected.memory,

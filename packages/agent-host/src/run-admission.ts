@@ -1,4 +1,5 @@
 import { resolvePermissionDecision } from '@brainstrike/assistant-contract';
+import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import type { HostRunState } from './core-state.js';
@@ -191,13 +192,18 @@ export async function acquireHostRunAdmission(
     }
     return admission;
   } catch (cause) {
-    try {
-      await selected.close?.();
-    } catch (cleanup) {
-      throw new HostRunAdmissionCleanupError(cause, cleanup);
-    }
-    throw cause;
+    return await rejectHostRunSelection(selected, cause);
   }
+}
+
+/** Join a selection that failed after acquisition, then rethrow its failure. */
+async function rejectHostRunSelection(selected: HostRunAdmission, cause: unknown): Promise<never> {
+  try {
+    await selected.close?.();
+  } catch (cleanup) {
+    throw new HostRunAdmissionCleanupError(cause, cleanup);
+  }
+  throw cause;
 }
 
 /** The Core retains this promise; both owners are attempted even when one join fails. */
@@ -251,11 +257,74 @@ export async function ensureHostRunAdmission(
     await validateHostRunWorkspaceBinding(platform, request);
     return run.admission;
   }
-  run.admissionTask ??= acquireHostRunAdmission(platform, request).then((admission) => {
-    run.admission = admission;
-    return admission;
-  });
+  run.admissionTask ??= acquireHostRunAdmission(platform, request).then((admission) =>
+    retainHostRunAdmission(platform, run, admission).catch((cause: unknown) =>
+      rejectHostRunSelection(admission, cause)
+    )
+  );
   return run.admissionTask;
+}
+
+/**
+ * Retain a run's admission and fix, once, whether the provider's web search
+ * stands in for the catalog tool. Both admission paths (a new run and a
+ * re-admitted one) go through here; each joins the selection if this throws.
+ */
+export async function retainHostRunAdmission(
+  platform: HostPlatform,
+  run: HostRunState,
+  admission: HostRunAdmission
+): Promise<HostRunAdmission> {
+  run.nativeWebSearch = await admitHostNativeWebSearch(platform, run, admission);
+  run.admission = admission;
+  return admission;
+}
+
+/** The catalog web search's provider tool name in this run's registry. */
+function hostWebSearchToolId(admission: HostRunAdmission): string | undefined {
+  return Object.entries(admission.tools).find(
+    ([id, tool]) => (tool.permissionToolId ?? id) === WEB_SEARCH_TOOL_ID
+  )?.[0];
+}
+
+/**
+ * Decide once, at admission, whether the provider's own web search replaces
+ * the catalog tool. Only an `allow` qualifies: a provider-executed tool runs
+ * before any approval could pause it, so `ask` keeps the execute-backed tool
+ * and `deny` leaves nothing to swap. A run carrying an approval of the catalog
+ * tool also keeps it, so the answered call resumes against the same executor.
+ */
+async function admitHostNativeWebSearch(
+  platform: HostPlatform,
+  run: HostRunState,
+  admission: HostRunAdmission
+): Promise<HostRunState['nativeWebSearch']> {
+  const tool = admission.nativeWebSearch;
+  const toolId = hostWebSearchToolId(admission);
+  if (!(tool && toolId)) {
+    return;
+  }
+  if ([...run.approvals.values()].some((approval) => approval.event.toolId === toolId)) {
+    return;
+  }
+  const decision = await hostToolDecision(platform, run.threadId, admission.tools, toolId);
+  return decision === 'allow' ? { tool, toolId } : undefined;
+}
+
+/**
+ * A provider-executed tool has no execute for the per-call permission
+ * re-check, so each step re-reads the live policy instead: once web search no
+ * longer resolves to `allow`, the provider's tool leaves the step's tools.
+ */
+export async function hostStepActiveTools(
+  run: HostRunState,
+  platform: HostPlatform
+): Promise<string[] | undefined> {
+  const native = run.nativeWebSearch;
+  if (!native || (await hostRunToolDecision(platform, run, native.toolId)) === 'allow') {
+    return;
+  }
+  return Object.keys(hostRunTools(run)).filter((id) => id !== native.toolId);
 }
 
 export function hostRunTools(run: HostRunState): HostRunAdmission['tools'] {
@@ -295,16 +364,25 @@ export function hostStepInteractions(
 }
 
 /** Keep revocation live while taking risk and executor identity from admission. */
-export async function hostRunToolDecision(
+export function hostRunToolDecision(
   platform: HostPlatform,
   run: HostRunState,
   toolId: string
 ): Promise<'allow' | 'ask' | 'deny'> {
-  const registered = hostRunTools(run)[toolId];
+  return hostToolDecision(platform, run.threadId, hostRunTools(run), toolId);
+}
+
+async function hostToolDecision(
+  platform: HostPlatform,
+  threadId: string,
+  tools: HostRunAdmission['tools'],
+  toolId: string
+): Promise<'allow' | 'ask' | 'deny'> {
+  const registered = tools[toolId];
   if (!registered) {
     throw new Error('Tool is not registered');
   }
-  const snapshot = await platform.readPermissionPolicy(run.threadId);
+  const snapshot = await platform.readPermissionPolicy(threadId);
   const permissionToolId = registered.permissionToolId ?? toolId;
   // ADR-0010: explicit deny outranks a session grant or YOLO.
   if (
@@ -331,7 +409,7 @@ export function createAdmittedHostSdkTools(
     input: unknown
   ) => Promise<unknown>
 ): ToolSet {
-  return createHostSdkTools({
+  const tools = createHostSdkTools({
     admittedInput: (id, input) => admittedApprovalInput(id, input, run),
     execute: (id, toolCallId, input) => {
       const action = run.permits.get(toolCallId);
@@ -345,15 +423,22 @@ export function createAdmittedHostSdkTools(
     },
     tools: hostRunTools(run),
   });
+  const native = run.nativeWebSearch;
+  return native ? { ...tools, [native.toolId]: native.tool } : tools;
 }
 
 /** Uses the existing Core-owned run; permission calculation has no log writer. */
 export async function decideHostSdkApproval(
   run: HostRunState,
   platform: HostPlatform,
-  call: { toolName: string; toolCallId: string; input: unknown }
-): Promise<'approved' | 'denied' | 'user-approval'> {
+  call: { toolName: string; toolCallId: string; input: unknown; providerExecuted?: boolean }
+): Promise<'approved' | 'denied' | 'not-applicable' | 'user-approval'> {
   run.controller.signal.throwIfAborted();
+  // The provider already ran its own search; admission and each step's active
+  // tools are its gate (hostStepActiveTools), never a decision after the fact.
+  if (call.providerExecuted === true && call.toolName === run.nativeWebSearch?.toolId) {
+    return 'not-applicable';
+  }
   const registered = hostRunTools(run)[call.toolName];
   if (!registered) {
     throw new Error('Unknown tool');

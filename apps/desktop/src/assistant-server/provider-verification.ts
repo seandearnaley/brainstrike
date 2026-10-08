@@ -66,7 +66,7 @@ import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { Effect } from 'effect';
 import { resolveProviderBaseUrl } from './provider-base-url';
 import { resolveProviderCredential } from './provider-credentials';
-import { resolveTavilyApiKeyFromKeychain, TAVILY_SECRET_PROVIDER } from './web-search-tool';
+import { resolveTavilyApiKeyFromKeychain, TAVILY_SECRET_PROVIDER } from './tavily-key';
 
 const DEFAULT_SUCCESS_TTL_MS = 60 * 1000;
 const DEFAULT_FAILURE_TTL_MS = 3 * 1000;

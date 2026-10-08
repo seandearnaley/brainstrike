@@ -18,6 +18,7 @@ import {
   hostModelStepEvents,
   hostRunToolDecision,
   hostRunTools,
+  hostStepActiveTools,
   prepareHostProviderStep,
 } from './run-admission.js';
 import { hostRunAncestors, hostRunContext } from './run-branch.js';
@@ -209,8 +210,10 @@ export async function runHostSdkLoop(
           stepNumber: run.steps,
         });
         recordedInputLength = memory?.messages.length ?? prepared.length;
+        const activeTools = await hostStepActiveTools(run, ports.platform);
+        const gated = activeTools ? { activeTools } : {};
         if (!admission.provider) {
-          return memory ?? { messages: prepared };
+          return { ...(memory ?? { messages: prepared }), ...gated };
         }
         const provider = await admission.provider.prepare({
           configuration: admission.configuration,
@@ -218,7 +221,7 @@ export async function runHostSdkLoop(
           modelId: run.modelId,
           signal: run.controller.signal,
         });
-        return prepareHostProviderStep(provider, memory?.system, owner);
+        return { ...prepareHostProviderStep(provider, memory?.system, owner), ...gated };
       },
       // A committed run/steer ends the run after the step in flight (BST-588).
       stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],

@@ -18,7 +18,6 @@ import {
   type QueryEmbeddingSpaceInput,
   resolveGuardedToolSignal,
   type WebExtractInput,
-  type WebSearchInput,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
@@ -52,8 +51,6 @@ import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { attachGlobWorkspaceTelemetry, attachGrepSearchTelemetry } from './tool-call-telemetry';
 import { projectWebExtractModelOutput } from './web-extract-model-projection';
 import { runWebExtract } from './web-extract-tool';
-import { projectWebSearchModelOutput } from './web-search-model-projection';
-import { runWebSearch } from './web-search-tool';
 import {
   projectFindWorkspaceSymbolModelOutput,
   projectLspInspectModelOutput,
@@ -161,27 +158,6 @@ export const SEARCH_TOOL_EXECUTORS = executorGroup({
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.globWorkspace],
     toModelOutput: (output: unknown) =>
       projectGlobWorkspaceModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
-  [NATIVE_TOOL_ID.webSearch]: ({ dependencies, resolveActiveDomainCharBudget }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webSearch],
-    // The Tavily key is resolved server-side inside runWebSearch and never
-    // returned to the model. No injected deps here → real fetch + keychain.
-    execute: async (input: ToolExecuteInput<WebSearchInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webSearch],
-        input
-      );
-      try {
-        return await runWebSearch(resolvedInput, dependencies.webSearch);
-      } catch (error) {
-        logToolFailure('webSearch failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.webSearch,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webSearch],
-    toModelOutput: (output: unknown) =>
-      projectWebSearchModelOutput(output, resolveActiveDomainCharBudget()),
   }),
   [NATIVE_TOOL_ID.webExtract]: ({ dependencies, resolveActiveDomainCharBudget }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webExtract],

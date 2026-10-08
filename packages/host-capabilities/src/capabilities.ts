@@ -4,6 +4,7 @@ import type { KeyringCredentialBackend } from '@brainstrike/agent-host/credentia
 import type { HostLoginCredential } from '@brainstrike/agent-host/protocol';
 import { findProviderDefinition, isSupportedProvider } from '@brainstrike/assistant-contract';
 import { createHostCredentials, type HostCredentials } from './credentials.js';
+import { createTavilyKeyResolver } from './native-tools/web-search-tool.js';
 import { createHostProviderAuth } from './provider-auth.js';
 
 /**
@@ -15,6 +16,8 @@ export interface HostCapabilities {
   close(): Promise<void>;
   readonly credentials: HostCredentials;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
+  /** The Tavily key for host-executed web search: env first, then this host's store. */
+  resolveTavilyApiKey(): Promise<string | undefined>;
   /** The single writer of user-supplied keys; subscription OAuth never logs in this way. */
   storeProviderCredential(provider: string, credential: HostLoginCredential): Promise<void>;
 }
@@ -62,6 +65,9 @@ export async function createHostCapabilities(
     close,
     credentials,
     resolveProviderAuth: createHostProviderAuth({ credentials, env: options.env }),
+    resolveTavilyApiKey: createTavilyKeyResolver(options.env, (account) =>
+      credentials.secrets().getKey(account)
+    ),
     storeProviderCredential: async (provider, credential) => {
       assertLoginCredential(provider, credential);
       await credentials.secrets().setCredential(provider, credential);

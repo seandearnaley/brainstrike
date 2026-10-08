@@ -46,6 +46,7 @@ import {
   closeHostRunResources,
   ensureHostRunAdmission,
   hostRunCommandRequest,
+  retainHostRunAdmission,
 } from './run-admission.js';
 import {
   admittedHostRun,
@@ -468,7 +469,7 @@ export class HostCore {
         admission.snapshot,
         controller
       );
-      run.admission = admission;
+      await retainHostRunAdmission(this.platform, run, admission);
       if (this.conversationIds.has(run.id) || run.id === params.commandId) {
         throw new Error('Generated run collides with a committed conversation identity');
       }

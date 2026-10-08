@@ -1,4 +1,4 @@
-import type { ModelMessage } from 'ai';
+import type { ModelMessage, Tool } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
@@ -167,6 +167,12 @@ export interface HostRunState {
   /** This run's own committed model messages, after its user message. */
   readonly messages: ModelMessage[];
   readonly modelId: string;
+  /**
+   * The provider's web search standing in for the catalog tool, fixed when the
+   * run was admitted: only when that tool resolved to `allow` and no approval
+   * of it is in flight. It has no execute, so steps re-check the live policy.
+   */
+  nativeWebSearch?: { readonly tool: Tool; readonly toolId: string } | undefined;
   outcome?: Extract<HostEvent, { type: 'run.finished' }>['outcome'];
   readonly outputs: Map<string, Json>;
   owner?: Promise<HostRunOwner | undefined>;

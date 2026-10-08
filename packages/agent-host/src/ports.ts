@@ -147,6 +147,12 @@ export interface HostRunAdmission {
   /** Title an untitled thread's first completed run through this run's model. */
   readonly generatesThreadTitle?: boolean;
   readonly model: LanguageModel;
+  /**
+   * The resolved provider's own web search (Anthropic, OpenAI), built with the
+   * run's provider auth. Core swaps it in for the catalog web search only when
+   * that tool resolves to `allow` at admission; it has no local execute.
+   */
+  readonly nativeWebSearch?: Tool;
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   readonly provider?: HostProviderPort;
   readonly snapshot: HostRunSnapshot;

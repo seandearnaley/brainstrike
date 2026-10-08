@@ -15,6 +15,10 @@ export {
 export { createAwsCredentialChain } from './providers/aws-credential-chain';
 export type { LocalLlmHostClient } from './providers/local/llm-host-client';
 export {
+  createProviderNativeWebSearchTool,
+  providerSupportsNativeWebSearch,
+} from './providers/native-web-search';
+export {
   apiKeyAuthInput,
   type ProviderAuthInput,
 } from './providers/provider-auth-input';
