@@ -75,6 +75,7 @@ import {
   normalizeWriteBackFilePaths,
   resolveWriteBackFolderId,
 } from './assistant-selection-write-back';
+import { useAssistantThreadHost, withAssistantThreadHost } from './assistant-thread-host-context';
 import {
   buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,
@@ -682,6 +683,17 @@ export function AssistantUiPanelWrapper({
     () => (db ? createPgliteAssistantThreadRepository(db) : null),
     [db]
   );
+  // Forge observations walk every thread in the resource, host threads
+  // included, so only this writer routes through the host: a host thread's
+  // forgePrUrl is part of its committed binding, never a history row.
+  const threadHost = useAssistantThreadHost();
+  const forgeThreadRepository = useMemo(
+    () =>
+      assistantThreadRepository
+        ? withAssistantThreadHost(assistantThreadRepository, threadHost)
+        : null,
+    [assistantThreadRepository, threadHost]
+  );
   const {
     desktopAssistantBackendAvailable,
     localChatTransport,
@@ -1264,7 +1276,7 @@ export function AssistantUiPanelWrapper({
   // Forge observations arrive out of band from main, so they need their own
   // trigger source alongside the stream-scanning one — same decision layer.
   useForgeRunEvents({
-    assistantThreadRepository,
+    assistantThreadRepository: forgeThreadRepository,
     branchLookup: forgeBranchLookup,
     memoryResourceId,
     notifications: notificationCallbacks,

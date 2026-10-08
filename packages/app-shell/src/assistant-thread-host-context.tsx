@@ -22,6 +22,8 @@ export interface AssistantThreadHostCapability {
   updateThreadBinding(threadId: string, metadata: AssistantThreadMetadata): Promise<void>;
   workspaceRepository(history: ThreadWorkspaceRepository): ThreadWorkspaceRepository;
 }
+const HOST_RENAME_REFUSAL = "Agent host threads can't be renamed yet; the title was not changed.";
+
 export const AssistantThreadHostContext = createContext<AssistantThreadHostCapability | undefined>(
   undefined
 );
@@ -55,12 +57,22 @@ export function withAssistantThreadHost<Repository extends AssistantThreadReposi
     }
     await repository.updateThreadMetadata(threadId, metadata);
   };
+  // Interim, visible refusal: the host has no title command yet, and a history
+  // UPDATE would match no row and report success while the committed title
+  // stays. Refusing before the store's optimistic set keeps that title.
+  const renameThread = async (threadId: string, title: string): Promise<void> => {
+    if (await host.ownsThread(threadId)) {
+      throw new Error(HOST_RENAME_REFUSAL);
+    }
+    await repository.renameThread(threadId, title);
+  };
   // The bulk path stays with history: it already refuses, before any write,
   // any id without a history row (assertAllBulkThreadsFound).
   return {
     ...repository,
     createThread: (resourceId) => host.createThread(resourceId),
     deleteThread,
+    renameThread,
     updateThreadMetadata,
     ...(deleteHistoryThreads
       ? {

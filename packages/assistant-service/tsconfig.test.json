@@ -1,10 +1,69 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["vitest/globals", "node"],
+    "types": [
+      "vitest/globals",
+      "node"
+    ],
     "skipLibCheck": true,
     "strictNullChecks": true
   },
-  "include": ["src/**/*", "**/*.test.*"],
-  "exclude": ["dist", "node_modules"]
+  "include": [
+    "src/**/*",
+    "**/*.test.*"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ],
+  "references": [
+    {
+      "path": "../agent"
+    },
+    {
+      "path": "../assistant-contract"
+    },
+    {
+      "path": "../assistant-wire"
+    },
+    {
+      "path": "../canonical-ingestion"
+    },
+    {
+      "path": "../db"
+    },
+    {
+      "path": "../effect-kit"
+    },
+    {
+      "path": "../file-system"
+    },
+    {
+      "path": "../host-lease"
+    },
+    {
+      "path": "../indexer"
+    },
+    {
+      "path": "../indexing-contract"
+    },
+    {
+      "path": "../logging"
+    },
+    {
+      "path": "../sqlite-query"
+    },
+    {
+      "path": "../state-store"
+    },
+    {
+      "path": "../storage"
+    },
+    {
+      "path": "../types"
+    },
+    {
+      "path": "../utils"
+    }
+  ]
 }

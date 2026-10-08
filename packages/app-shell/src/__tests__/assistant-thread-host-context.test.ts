@@ -1,4 +1,7 @@
-import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
+import {
+  type AssistantThreadRepository,
+  useAssistantThreadStore,
+} from '@brainstrike/assistant-data';
 import { expect, test, vi } from 'vitest';
 import {
   type AssistantThreadHostCapability,
@@ -65,6 +68,36 @@ test('a historical thread keeps its existing metadata repository', async () => {
     color: 'rose',
   });
   expect(host.updateThreadBinding).not.toHaveBeenCalled();
+});
+
+test('renaming a host-owned thread refuses visibly and never writes history', async () => {
+  const { history, repository } = repositories(vi.fn());
+  await expect(repository.renameThread('owned-thread', 'Renamed')).rejects.toThrow();
+  expect(history.renameThread).not.toHaveBeenCalled();
+});
+
+test('a refused host rename keeps the committed title instead of an optimistic one', async () => {
+  const { repository } = repositories(vi.fn());
+  const committed = {
+    createdAt: new Date('2026-10-08T00:00:00.000Z'),
+    id: 'owned-thread',
+    resourceId: 'workspace',
+    title: 'Committed title',
+    updatedAt: new Date('2026-10-08T00:00:00.000Z'),
+  };
+  useAssistantThreadStore.setState({ threadsByResourceId: { workspace: [committed] } });
+  await expect(
+    useAssistantThreadStore
+      .getState()
+      .renameThread(repository, 'workspace', 'owned-thread', 'Optimistic title')
+  ).rejects.toThrow();
+  expect(useAssistantThreadStore.getState().threadsByResourceId['workspace']).toEqual([committed]);
+});
+
+test('renaming a historical thread keeps its existing repository', async () => {
+  const { history, repository } = repositories(vi.fn());
+  await repository.renameThread('legacy-thread', 'Renamed');
+  expect(history.renameThread).toHaveBeenCalledExactlyOnceWith('legacy-thread', 'Renamed');
 });
 
 test('thread deletion waits for its host owner and never sends a failed owned deletion to history', async () => {

@@ -1,0 +1,207 @@
+import assert from 'node:assert/strict';
+import { access, mkdir, readFile, realpath, rename, symlink, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import {
+  createNodeProfileDatabaseOwner,
+  joinProfileDirectory,
+  openExistingNodeWorkspaceServices,
+} from '@brainstrike/assistant-service/node-workspace-services';
+import { RootLock, StateStore } from '@brainstrike/state-store';
+
+const [mode, fixture] = process.argv.slice(2);
+assert.ok(mode && fixture);
+assert.equal(process.versions.electron, undefined);
+const location = { profile: 'selected', rootPath: fixture, source: 'test' };
+const profile = joinProfileDirectory(location.rootPath, location.profile);
+const workspace = path.join(fixture, 'workspace');
+const userData = path.join(fixture, 'explicit-existing-user-data');
+const ledger = path.join(userData, 'electron-storage.json');
+const rootId = '630ae8f2-854e-41bc-86ab-e446aa02d063';
+const aliasId = '6f936fb9-1b3a-4491-9010-f8af5ba55e8b';
+const alias = path.join(fixture, 'existing-alias');
+let services;
+let seedOwner;
+let store;
+try {
+  if (mode === 'seed') {
+    await mkdir(profile, { recursive: true });
+    await mkdir(workspace);
+    await mkdir(userData);
+    await writeFile(path.join(workspace, 'inside.txt'), 'actual pinned native bytes');
+    await symlink(workspace, alias, 'dir');
+  }
+  store = await StateStore.open(profile, { home: fixture });
+  if (mode === 'seed') {
+    seedOwner = createNodeProfileDatabaseOwner({ getLocation: () => location });
+    const db = await seedOwner.initialize();
+    await db.query(
+      'INSERT INTO roots(id,kind,display_name,path) VALUES ($1,$2,$3,$4),($5,$2,$6,$7)',
+      [rootId, 'path', 'Existing root', workspace, aliasId, 'Existing alias', alias]
+    );
+    const model = (await db.query('SELECT id FROM models ORDER BY id LIMIT 1')).rows[0];
+    assert.ok(model && typeof model.id === 'string');
+    await db.query('UPDATE models SET name = $1 WHERE id = $2', [
+      'Existing selected catalog sentinel',
+      model.id,
+    ]);
+    const roots = [
+      { addedAt: 1_728_000_000_000, path: workspace, rootId },
+      { addedAt: 1_728_000_000_001, path: alias, rootId: aliasId },
+    ];
+    // Exact existing storage envelope, explicitly fixture-owned; no product storage writer is used.
+    await writeFile(
+      ledger,
+      JSON.stringify({
+        lastFolderPath: workspace,
+        recentRootsList: '[]',
+        rootsList: JSON.stringify(roots),
+      })
+    );
+    await writeFile(path.join(fixture, 'fixture-model-id.json'), JSON.stringify(model.id));
+    await seedOwner.close();
+    seedOwner = undefined;
+    await store.close();
+    store = undefined;
+    process.stdout.write(`${JSON.stringify({ aliasId, electron: false, rootId, seeded: true })}\n`);
+  } else {
+    const joins = [];
+    const originalLedger = await readFile(ledger, 'utf8');
+    const startup = {
+      register: async (close) => {
+        joins.push(close);
+      },
+      signal: new AbortController().signal,
+      store,
+    };
+    const options = {
+      disposeCommandSessionsForRoot: async () => 0,
+      evictLspServersForRoot: async () => undefined,
+      grants: { getItem: async (key) => JSON.parse(await readFile(ledger, 'utf8'))[key] ?? null },
+      location,
+      subscribe: async () => {
+        throw new Error('This native read fixture supplies no subscription owner.');
+      },
+    };
+    services = await openExistingNodeWorkspaceServices(startup, options);
+    assert.equal(services.profileDirectory, await realpath(profile));
+    assert.equal(services.location.profile, 'selected');
+    assert.equal(joins.length, 1);
+    await assert.rejects(
+      openExistingNodeWorkspaceServices(startup, options),
+      /already has a cold workspace owner/
+    );
+    await mkdir(joinProfileDirectory(fixture, 'wrong-profile'));
+    await assert.rejects(
+      openExistingNodeWorkspaceServices(startup, {
+        ...options,
+        location: { ...location, profile: 'wrong-profile' },
+      }),
+      /acquired canonical Root/
+    );
+    await assert.rejects(
+      access(path.join(joinProfileDirectory(fixture, 'wrong-profile'), 'pgdata'))
+    );
+    const roots = await services.readRoots();
+    assert.deepEqual(
+      roots.map((root) => root.rootId),
+      [rootId]
+    );
+    const modelId = JSON.parse(await readFile(path.join(fixture, 'fixture-model-id.json'), 'utf8'));
+    const model = await services.withCatalog((db) =>
+      db.query('SELECT name FROM models WHERE id = $1', [modelId])
+    );
+    assert.equal(model.rows[0]?.name, 'Existing selected catalog sentinel');
+    const lease = await services.borrowRoot(rootId);
+    assert.equal(lease, await services.borrowRoot(rootId));
+    const context = { requestId: 'actual-cold-native-read', signal: new AbortController().signal };
+    const result = await lease.readFile('inside.txt', 100, context);
+    assert.equal(result.status, 'ok');
+    assert.equal(Buffer.from(result.content).toString('utf8'), 'actual pinned native bytes');
+    assert.deepEqual(await lease.readFile('inside.txt', 3, context), { status: 'oversized' });
+    await assert.rejects(services.borrowRoot(aliasId));
+    assert.equal(await readFile(ledger, 'utf8'), originalLedger);
+    const aliasRow = await services.withCatalog((db) =>
+      db.query('SELECT status FROM roots WHERE id = $1', [aliasId])
+    );
+    assert.equal(aliasRow.rows[0]?.status, 'disconnected');
+    if (mode === 'revoke') {
+      const updated = JSON.parse(originalLedger);
+      updated.rootsList = '[]';
+      // Simulate the existing explicit grant owner revoking its fixture ledger.
+      await writeFile(ledger, JSON.stringify(updated));
+      assert.deepEqual(await services.readRoots(), []);
+      assert.equal(lease.signal.aborted, true);
+      await assert.rejects(services.revalidate([rootId]));
+      await assert.rejects(lease.readFile('inside.txt', 100, context));
+      const row = await services.withCatalog((db) =>
+        db.query('SELECT status FROM roots WHERE id = $1', [rootId])
+      );
+      assert.equal(row.rows[0]?.status, 'disconnected');
+    } else {
+      await symlink('inside.txt', path.join(workspace, 'inside-link.txt'));
+      assert.deepEqual(await lease.readFile('inside-link.txt', 100, context), {
+        status: 'unreadable',
+      });
+      const replacement = path.join(fixture, 'replacement');
+      await mkdir(replacement);
+      await writeFile(path.join(replacement, 'inside.txt'), 'replacement must not be read');
+      await rename(workspace, path.join(fixture, 'parked-original'));
+      await symlink(replacement, workspace, 'dir');
+      await assert.rejects(services.revalidate([rootId]));
+      await assert.rejects(services.borrowRoot(rootId));
+      await assert.rejects(lease.readFile('inside.txt', 100, context));
+    }
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let admitted;
+    const entered = new Promise((resolve) => {
+      admitted = resolve;
+    });
+    const pending = services.withCatalog(async (db) => {
+      await db.query('SELECT 1');
+      admitted();
+      await gate;
+    });
+    const rejected = assert.rejects(pending);
+    await entered;
+    const closing = services.close();
+    assert.equal(closing, services.close());
+    await access(path.join(profile, '.db-process.lock'));
+    assert.equal(store.lock.isReleased, false);
+    release();
+    await rejected;
+    await closing;
+    for (const join of joins) {
+      await join();
+    }
+    assert.equal(lease.signal.aborted, true);
+    assert.equal(store.lock.isReleased, false);
+    await assert.rejects(access(path.join(profile, '.db-process.lock')));
+    await assert.rejects(
+      openExistingNodeWorkspaceServices(startup, {
+        ...options,
+        grants: { getItem: async () => '{malformed existing ledger' },
+      })
+    );
+    await assert.rejects(access(path.join(profile, '.db-process.lock')));
+    assert.equal(store.lock.isReleased, false);
+    const previousGeneration = store.lock.gen;
+    await store.close();
+    assert.equal(store.lock.isReleased, true);
+    assert.equal(RootLock.inspect(profile)?.owner.released, true);
+    store = undefined;
+    const nextOwner = await RootLock.acquire(profile);
+    assert.ok(nextOwner.gen > previousGeneration);
+    nextOwner.release();
+    services = undefined;
+    process.stdout.write(
+      `${JSON.stringify({ aliasRefused: true, catalogPreserved: true, electron: false, joined: true, mode, preferencesUnchanged: mode !== 'revoke', rootId, sameLease: true, secondWriterRefused: true, wrongProfileRefused: true })}\n`
+    );
+  }
+} finally {
+  await services?.close();
+  await seedOwner?.close();
+  await store?.close();
+}
