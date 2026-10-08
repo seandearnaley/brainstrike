@@ -246,6 +246,7 @@ export async function createProductionHostPlatform(
           configuration: selected.configuration,
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
+          inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
           model,
           openRun: (context) =>
             StateStoreHostMemory.open(context, {

@@ -22,6 +22,7 @@ import {
   committedRunIdentity,
   committedThreadBranches,
 } from '../committed-identities.js';
+import { compactedRunIds } from '../context-compaction.js';
 import { readHostRow } from '../event-storage.js';
 import type { HostRunContext, HostRunOwner } from '../ports.js';
 import type { HostLogRow } from '../protocol.js';
@@ -322,11 +323,15 @@ export class StateStoreHostMemory implements HostRunOwner {
     // In this thread only the selected branch is history: a sibling branch's
     // turns never enter the request, even when native Memory selects them.
     const path = new Set(committedRunAncestors(rows, this.identity.runId));
+    // A committed compaction replaces whole earlier turns: neither the native
+    // history window nor a semantic recall hit re-adds one (Core adds the note).
+    const compacted = compactedRunIds(rows);
     for (const started of rows) {
       if (
         (!this.resourceRecall && started.threadId !== this.identity.threadId) ||
         started.event.type !== 'run.started' ||
         started.event.runId === this.identity.runId ||
+        compacted.has(started.event.runId) ||
         (started.threadId === this.identity.threadId && !path.has(started.event.runId))
       ) {
         continue;
