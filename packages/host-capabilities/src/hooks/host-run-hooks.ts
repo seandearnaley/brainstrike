@@ -53,6 +53,7 @@ export function createHostRunHooks(options: HostRunHooksOptions): HostRunHooks |
     return;
   }
   return {
+    matchesPreToolUse: (toolName) => manager.matchesPreToolUse(toolName),
     preToolUse: async ({ input, toolName }) => {
       const result = await manager.runPreToolUse(toolName, input);
       return result.allowed

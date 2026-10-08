@@ -186,6 +186,11 @@ export type HostPreToolUseVerdict =
 
 /** The run's user-authored lifecycle hooks, from the composition's hooks configuration. */
 export interface HostRunHooks {
+  /**
+   * Whether a PreToolUse hook would run for this tool (its catalog ID). A
+   * provider-executed tool never reaches the approval point where hooks run.
+   */
+  matchesPreToolUse(toolName: string): boolean;
   /** Before a tool the policy would allow or ask about: a hook may block it, with a reason. */
   preToolUse(call: {
     readonly input: unknown;

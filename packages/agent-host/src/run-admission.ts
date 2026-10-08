@@ -384,6 +384,11 @@ async function admitHostNativeWebSearch(
   if ([...run.approvals.values()].some((approval) => approval.event.toolId === toolId)) {
     return;
   }
+  // The provider's search never passes an approval point, so a PreToolUse hook
+  // on web search could not run; the catalog tool keeps it running per call.
+  if (admission.hooks?.matchesPreToolUse(WEB_SEARCH_TOOL_ID)) {
+    return;
+  }
   const decision = await hostToolDecision(platform, run, admission.tools, toolId);
   return decision === 'allow' ? { tool, toolId } : undefined;
 }
