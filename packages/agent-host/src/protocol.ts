@@ -28,8 +28,10 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // step boundary), run attempt records, `mcp.tools.unavailable`, committed with
 // `run.started` for each configured MCP server whose tools the run proceeds
 // without, permission grants answered with an approval (`interaction/respond`
-// grant, `permission.granted`, the request's risk), and plan mode (`run/start`,
-// `run/regenerate` and `run.started` planMode).
+// grant, `permission.granted`, the request's risk), plan mode (`run/start`,
+// `run/regenerate` and `run.started` planMode), lifecycle hook context
+// (`hook.context`) and host-owned project hook trust (`hooks/trust`,
+// `hooks/trust/read`, `hooks/untrust`).
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -212,6 +214,17 @@ const HostLegacyImportSchema = z.union([
 export type HostLegacyImport = z.infer<typeof HostLegacyImportSchema>;
 
 const Provider = { provider: Id };
+/** A workspace root by its durable ID: the desktop's DB `roots.id`. */
+const HookRoot = { rootId: Id };
+/**
+ * A root's trusted project hooks: its absolute path and the SHA-256 of
+ * `<path>/.brainstrike/hooks.json`'s raw bytes. The host is the only writer.
+ */
+export const HostHookTrustSchema = z.strictObject({
+  path: z.string().min(1),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type HostHookTrust = z.infer<typeof HostHookTrustSchema>;
 
 export const HOST_METHOD_SCHEMAS = {
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
@@ -240,6 +253,14 @@ export const HOST_METHOD_SCHEMAS = {
     entryId: Id.optional(),
     force: z.boolean().optional(),
   }),
+  /**
+   * Trust a root's project hooks at the hash its reviewer saw. The host
+   * re-hashes the file and refuses a mismatch; a later edit needs a new trust.
+   */
+  'hooks/trust': z.strictObject({ ...HookRoot, ...HostHookTrustSchema.shape }),
+  'hooks/trust/read': z.strictObject(HookRoot),
+  /** Revoke a root's trust; removing the root revokes it too. */
+  'hooks/untrust': z.strictObject(HookRoot),
   /** Provider availability: the host's configured keys, unreadable entries and env-file failures. */
   'host/status': z.strictObject({}),
   'host/stop': z.strictObject({}),
@@ -611,6 +632,10 @@ export const HOST_RESULT_SCHEMAS = {
   'auth/status': HostAuthStatusSchema,
   'auth/verify': HostAuthVerdictSchema,
   'checkpoint/revert': z.strictObject({ outcomes: z.array(HostEditRevertOutcomeSchema) }),
+  'hooks/trust': z.strictObject({ trusted: z.literal(true) }),
+  'hooks/trust/read': z.strictObject({ trust: HostHookTrustSchema.nullable() }),
+  /** Whether a trust was revoked; false when the root had none. */
+  'hooks/untrust': z.strictObject({ untrusted: z.boolean() }),
   // The renderer validates the availability payload strictly (use-assistant-availability).
   'host/status': z.record(z.string(), z.json()),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
