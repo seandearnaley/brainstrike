@@ -73,6 +73,10 @@ export class CommittedThreadView {
   private rows: readonly HostLogRow[] = [];
   private tail = 0;
   constructor(readonly threadId: string) {}
+  /** The last contiguously applied seq (0 before any row). */
+  get lastSeq(): number {
+    return this.tail;
+  }
   readonly getSnapshot = (): readonly HostLogRow[] => this.rows;
   readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -127,7 +131,7 @@ export class CommittedThreadSession {
     rows: [],
   };
   constructor(
-    private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'request'>,
+    private client: Pick<HostClient, 'closed' | 'onEvent' | 'request'>,
     private readonly threadId: string
   ) {
     this.view = new CommittedThreadView(threadId);
@@ -156,12 +160,16 @@ export class CommittedThreadSession {
   connect(): () => Promise<void> {
     let active = true;
     let connectionClosed = false;
-    const release = this.client.onEvent((row) => {
+    const client = this.client;
+    const release = client.onEvent((row) => {
       if (active) {
         this.view.accept([row]);
       }
     });
-    this.client.request('log/subscribe', { fromSeq: 0, threadId: this.threadId }).then(
+    // From the last applied seq: a first connection replays the whole log, a
+    // reconnection only the rows committed since.
+    const applied = this.view.lastSeq;
+    client.request('log/subscribe', { fromSeq: applied, threadId: this.threadId }).then(
       (result) => {
         if (active) {
           // The boundary is set before the replay publishes, so no listener sees
@@ -171,7 +179,7 @@ export class CommittedThreadSession {
           this.snapshot = {
             ...this.snapshot,
             isLoading: false,
-            replayedThrough: result.rows.reduce((last, row) => Math.max(last, row.seq), 0),
+            replayedThrough: result.rows.reduce((last, row) => Math.max(last, row.seq), applied),
           };
           this.view.accept(result.rows);
           if (this.view.getSnapshot() === before) {
@@ -194,17 +202,31 @@ export class CommittedThreadSession {
         this.update({ connected: false });
       }
     };
-    this.client.closed.then(closed, closed);
+    client.closed.then(closed, closed);
     let disposed: Promise<void> | undefined;
     return () => {
       disposed ??= (async (): Promise<void> => {
         active = false;
         release();
         if (!connectionClosed) {
-          await this.client.request('log/unsubscribe', { threadId: this.threadId });
+          await client.request('log/unsubscribe', { threadId: this.threadId });
         }
       })();
       return disposed;
     };
+  }
+
+  /**
+   * Resubscribe on a new client after the previous connection closed. Only the
+   * rows committed after the last applied seq replay, so nothing duplicates and
+   * the fold stays equal to a fresh fold. Returns the new subscription's disposer.
+   */
+  reconnect(client: Pick<HostClient, 'closed' | 'onEvent' | 'request'>): () => Promise<void> {
+    if (this.snapshot.connected) {
+      throw new Error('The committed thread view is still connected');
+    }
+    this.client = client;
+    this.update({ connected: true, error: undefined });
+    return this.connect();
   }
 }

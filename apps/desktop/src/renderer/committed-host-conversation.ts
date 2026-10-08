@@ -17,6 +17,12 @@ export interface CommittedHostConversation {
   close(): void;
   readonly commands: CommittedAssistantCommands;
   readonly mcpInput: CommittedHostMcpInput;
+  /**
+   * Resume on the window's replacement client after the host connection
+   * closed. Only rows after the last applied seq replay; commands use the new
+   * client. The same client is a no-op.
+   */
+  reconnect(client: HostClient): void;
   /** The thread's committed session; this conversation connects and releases it. */
   readonly source: CommittedThreadSession;
   readonly store: CommittedAssistantLogStore;
@@ -32,9 +38,14 @@ export function createCommittedHostConversation(options: {
   readonly readConfiguration?: () => Record<string, unknown>;
   readonly threadId: string;
 }): CommittedHostConversation {
-  const { client, modelId, threadId } = options;
+  const { modelId, threadId } = options;
+  let client = options.client;
+  // Commands and MCP input always use the current client, so a reconnect needs no rebuild.
+  const requester: Pick<HostClient, 'request'> = {
+    request: ((method, params) => client.request(method, params)) as HostClient['request'],
+  };
   const source = new CommittedThreadSession(client, threadId);
-  const mcpInput = new CommittedHostMcpInput(client, source, threadId);
+  const mcpInput = new CommittedHostMcpInput(requester, source, threadId);
   const store = new CommittedAssistantLogStore({
     identifyRun: (row) => {
       const runId = row.event['runId'];
@@ -68,7 +79,7 @@ export function createCommittedHostConversation(options: {
     const prompt = message.content
       .map((part) => (part.type === 'text' ? part.text : ''))
       .join('\n');
-    await client.request('run/start', {
+    await requester.request('run/start', {
       commandId: crypto.randomUUID(),
       ...runSettings(),
       parentMessageId: message.parentId,
@@ -82,7 +93,7 @@ export function createCommittedHostConversation(options: {
       if (!runId) {
         throw new Error('Stop has no committed active root run');
       }
-      await client.request('run/stop', { commandId: crypto.randomUUID(), runId, threadId });
+      await requester.request('run/stop', { commandId: crypto.randomUUID(), runId, threadId });
     },
     // Committed messages are immutable; the installed vendor would otherwise
     // evict a "deleted" message locally through the branch-selection port.
@@ -96,7 +107,7 @@ export function createCommittedHostConversation(options: {
       if (parentId === null) {
         throw new Error('Regenerate has no committed user message');
       }
-      await client.request('run/regenerate', {
+      await requester.request('run/regenerate', {
         commandId: crypto.randomUUID(),
         ...runSettings(),
         threadId,
@@ -117,7 +128,7 @@ export function createCommittedHostConversation(options: {
         if (response.text === undefined) {
           throw new Error('Human interaction requires its typed response');
         }
-        await client.request('interaction/resume', {
+        await requester.request('interaction/resume', {
           commandId: crypto.randomUUID(),
           interactionId: interaction.interactionId,
           resumeData: z.json().parse(JSON.parse(response.text)),
@@ -126,7 +137,7 @@ export function createCommittedHostConversation(options: {
         });
         return;
       }
-      await client.request('interaction/respond', {
+      await requester.request('interaction/respond', {
         commandId: crypto.randomUUID(),
         decision: response.approved ? 'approve' : 'deny',
         interactionId: interaction.interactionId,
@@ -148,7 +159,7 @@ export function createCommittedHostConversation(options: {
       options.onTitleCommitted?.();
     }
   });
-  const disconnect = source.connect();
+  let disconnect = source.connect();
   return {
     close: () => {
       unsubscribeTitles();
@@ -162,6 +173,13 @@ export function createCommittedHostConversation(options: {
     },
     commands,
     mcpInput,
+    reconnect: (replacement) => {
+      if (replacement === client) {
+        return;
+      }
+      client = replacement;
+      disconnect = source.reconnect(replacement);
+    },
     source,
     store,
   };

@@ -19,6 +19,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { connectDesktopAgentHost } from './agent-host-client';
 import { HostThreadRuns } from './host-thread-runs';
+import { WindowHostConnection } from './window-host-connection';
 
 /** Workspace views and binding changes are thread state, not conversation activity. */
 const WORKSPACE_COMMANDS = new Set(['thread/workspace/set', 'thread/workspace/binding/update']);
@@ -108,6 +109,8 @@ function bindingPatch(metadata: AssistantThreadMetadata): ThreadWorkspaceBinding
 export function createWindowThreadCapability(
   renderThread: (view: {
     readonly catalogLoaded: boolean;
+    /** The window's host connection, including a reattach after its host exits. */
+    readonly connection: WindowHostConnection;
     readonly host: HostClient | undefined;
     readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
     readonly onTitleCommitted: () => void;
@@ -122,29 +125,23 @@ export function createWindowThreadCapability(
       listener();
     }
   };
-  let connecting: Promise<HostClient> | undefined;
-  let closing: Promise<void> | undefined;
   let catalogLoaded = false;
   const threads = new Map<string, HostClient>();
+  // A replacement client (after the host exited) serves every known thread.
+  const connection = new WindowHostConnection(connectDesktopAgentHost, (attached) => {
+    for (const threadId of threads.keys()) {
+      threads.set(threadId, attached);
+    }
+  });
+  let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
-    const admitted = connecting;
-    closing ??= (async () => {
-      if (admitted) {
-        const [result] = await Promise.allSettled([admitted]);
-        if (result?.status === 'fulfilled') {
-          await result.value.close();
-          await result.value.closed;
-        }
-      }
-      threads.clear();
-    })();
+    closing ??= connection.close().then(() => threads.clear());
     return closing;
   };
+  let unloadOwned = false;
   const client = (): Promise<HostClient> => {
-    if (closing) {
-      return Promise.reject(new Error('The desktop host view is closing'));
-    }
-    if (!connecting) {
+    if (!unloadOwned) {
+      unloadOwned = true;
       // The actual frame owns this client. Main joins its relay on navigation,
       // renderer loss and shutdown; React presentation replay owns no transport.
       window.addEventListener(
@@ -154,9 +151,8 @@ export function createWindowThreadCapability(
         },
         { once: true }
       );
-      connecting = connectDesktopAgentHost();
     }
-    return connecting;
+    return connection.client();
   };
   const listThreads = async (resourceId: string): Promise<readonly AssistantMemoryThread[]> => {
     const host = await client();
@@ -223,6 +219,7 @@ export function createWindowThreadCapability(
     renderThread: (threadId, _isVisible, onRunningChange) =>
       renderThread({
         catalogLoaded,
+        connection,
         host: threads.get(threadId),
         onRunningChange,
         onTitleCommitted: titleCommitted,

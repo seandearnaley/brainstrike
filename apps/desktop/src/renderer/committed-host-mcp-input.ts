@@ -95,7 +95,7 @@ export class CommittedHostMcpInput {
   private closed = false;
 
   constructor(
-    private readonly client: HostClient,
+    private readonly client: Pick<HostClient, 'request'>,
     private readonly source: CommittedThreadSession,
     private readonly threadId: string
   ) {
