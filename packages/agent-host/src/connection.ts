@@ -39,10 +39,20 @@ export function bindHostConnection(
       return disposed;
     },
   };
-  const subscriptions = new Map<string, number>();
+  // Each view of a thread holds its own subscription: the connection sends a
+  // thread's rows until the last of its views unsubscribes (BST-1932).
+  const subscriptions = new Map<string, { readonly fromSeq: number; readonly views: number }>();
+  const unsubscribe = (threadId: string): void => {
+    const current = subscriptions.get(threadId);
+    if (current && current.views > 1) {
+      subscriptions.set(threadId, { ...current, views: current.views - 1 });
+      return;
+    }
+    subscriptions.delete(threadId);
+  };
   const disposables: Array<{ dispose(): void }> = [];
   const release = core.onCommitted((row: HostLogRow) => {
-    const from = subscriptions.get(row.threadId);
+    const from = subscriptions.get(row.threadId)?.fromSeq;
     if (from !== undefined && row.seq > from && !disposed) {
       connection.sendNotification('log/event', row).catch(() => connection.dispose());
     }
@@ -116,16 +126,20 @@ export function bindHostConnection(
   handle('mcp/input/stage', (params) => core.stageMcpInput(params, mcpClient));
   handle('mcp/input/settle', (params) => core.settleMcpInput(params, mcpClient));
   handle('log/subscribe', async (params) => {
-    subscriptions.set(params.threadId, params.fromSeq);
+    const current = subscriptions.get(params.threadId);
+    subscriptions.set(params.threadId, {
+      fromSeq: Math.min(current?.fromSeq ?? params.fromSeq, params.fromSeq),
+      views: (current?.views ?? 0) + 1,
+    });
     try {
       return { rows: await core.read(params.threadId, params.fromSeq) };
     } catch (cause) {
-      subscriptions.delete(params.threadId);
+      unsubscribe(params.threadId);
       throw cause;
     }
   });
   handle('log/unsubscribe', (params) => {
-    subscriptions.delete(params.threadId);
+    unsubscribe(params.threadId);
     return { unsubscribed: true };
   });
   const close = (): void => {
