@@ -28,7 +28,10 @@ import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
 import type { HostThreadLedger } from './host-thread-ledger';
 import type { HostThreadRuns } from './host-thread-runs';
-import { useDesktopHostPresentation } from './use-desktop-host-presentation';
+import {
+  type ProviderReadErrors,
+  useDesktopHostPresentation,
+} from './use-desktop-host-presentation';
 
 /** The existing checkpoint undo controls, fed from the thread's committed edits. */
 function CommittedCheckpoints({
@@ -51,6 +54,7 @@ function HostThread({
   ledger,
   onRunningChange,
   onTitleCommitted,
+  providerReadErrors,
   runs,
   threadId,
 }: {
@@ -58,11 +62,15 @@ function HostThread({
   readonly ledger: HostThreadLedger;
   readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
   readonly onTitleCommitted: () => void;
+  readonly providerReadErrors: ProviderReadErrors | undefined;
   readonly runs: HostThreadRuns;
   readonly threadId: string;
 }): ReactElement {
   const explorer = useFileExplorerStoreContext();
-  const { readConfiguration, readPlanMode, ...presentation } = useDesktopHostPresentation(threadId);
+  const { readConfiguration, readPlanMode, ...presentation } = useDesktopHostPresentation(
+    threadId,
+    providerReadErrors
+  );
   const configuration = useRef(readConfiguration);
   const planMode = useRef(readPlanMode);
   useLayoutEffect(() => {
@@ -154,7 +162,16 @@ function SteeringStatus({
 
 // One lazy client capability per actual renderer frame, independent of React replay.
 const windowThreadCapability = createWindowThreadCapability(
-  ({ catalogLoaded, host, ledger, onRunningChange, onTitleCommitted, runs, threadId }) => {
+  ({
+    catalogLoaded,
+    host,
+    ledger,
+    onRunningChange,
+    onTitleCommitted,
+    providerReadErrors,
+    runs,
+    threadId,
+  }) => {
     // Persisted tabs render before catalog hydration. The observed legacy
     // Mastra initialization for these SQLite-owned IDs must not claim them.
     if (!(host || catalogLoaded)) {
@@ -166,6 +183,7 @@ const windowThreadCapability = createWindowThreadCapability(
         ledger={ledger}
         onRunningChange={onRunningChange}
         onTitleCommitted={onTitleCommitted}
+        providerReadErrors={providerReadErrors}
         runs={runs}
         threadId={threadId}
       />

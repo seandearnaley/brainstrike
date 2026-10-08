@@ -544,7 +544,8 @@ function ThreadPanels({
               {host?.renderThread(
                 threadId,
                 isOpen && threadId === activeThreadId,
-                onRunningChange
+                onRunningChange,
+                providerReadErrors
               ) ?? (
                 <AssistantUiPanelWrapper
                   isVisible={isOpen && threadId === activeThreadId}

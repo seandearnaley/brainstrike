@@ -114,6 +114,7 @@ export function createWindowThreadCapability(
     readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
     readonly onTitleCommitted: () => void;
     readonly ledger: HostThreadLedger;
+    readonly providerReadErrors: Parameters<AssistantThreadHostCapability['renderThread']>[3];
     readonly runs: HostThreadRuns;
     readonly threadId: string;
   }) => ReturnType<AssistantThreadHostCapability['renderThread']>
@@ -245,13 +246,14 @@ export function createWindowThreadCapability(
       }
       await host.request('thread/update', { commandId: crypto.randomUUID(), threadId, title });
     },
-    renderThread: (threadId, _isVisible, onRunningChange) =>
+    renderThread: (threadId, _isVisible, onRunningChange, providerReadErrors) =>
       renderThread({
         catalogLoaded,
         host: threads.get(threadId),
         ledger,
         onRunningChange,
         onTitleCommitted: titleCommitted,
+        providerReadErrors,
         runs,
         threadId,
       }),

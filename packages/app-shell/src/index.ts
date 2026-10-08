@@ -23,6 +23,7 @@ export * from './hooks/use-assistant-availability';
 export { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 export { useAssistantModelChange } from './hooks/use-assistant-model-change';
 export { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
+export { useAssistantProviderDisabledReason } from './hooks/use-assistant-provider-disabled-reason';
 export { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 export { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 export { useEnableModel } from './hooks/use-enable-model';
