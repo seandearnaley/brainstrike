@@ -8,7 +8,7 @@ import type { Page, TestInfo } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { getBufferedElectronOutput } from './utils/electron-helpers.mts';
 import { runInteractiveChildFixture } from './utils/interactive-child-fixture';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
@@ -138,6 +138,7 @@ test('cancels a real MCP task while user input is pending (BST-1948)', async ({
         compositeModelKey: 'openrouter::openai/gpt-5.4',
         provider: 'openrouter',
       });
+      await enableAssistantCatalogModel(page, 'openrouter::openai/gpt-5.4');
       await ensureAssistantShellVisible(page);
       await beginTask(page, 'Start the task whose pending input I will cancel.');
       // The task-bound input is visible; its card projection updates only after

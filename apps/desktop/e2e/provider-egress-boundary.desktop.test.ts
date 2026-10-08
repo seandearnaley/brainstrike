@@ -325,7 +325,7 @@ test.describe('Provider egress boundary (desktop)', () => {
     expect(Buffer.from(await served.arrayBuffer()).equals(recorded)).toBe(true);
 
     const unrecorded = await fetch(`${base}/model/openai/gpt-5.4`, { headers });
-    expect(unrecorded.status).toBe(403);
+    expect(unrecorded.status).toBe(401);
     expect(modelProvider.refusals()).toEqual([
       expect.objectContaining({
         knob: 'OPENROUTER_BASE_URL',

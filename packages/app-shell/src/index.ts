@@ -32,6 +32,7 @@ export * from './root-layout-content';
 export * from './status-items';
 export * from './threads-panel';
 export * from './types';
+export { useAssistantRunNotifications } from './use-assistant-run-notifications';
 export { useAssistantSlashCommands } from './use-assistant-slash-commands';
 export { useComposerDraftChannel } from './use-composer-draft-channel';
 export { useFileMentions } from './use-file-mentions';

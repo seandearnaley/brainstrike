@@ -101,6 +101,9 @@ export async function startAgentHost(
   };
   const ownedPlatform: HostPlatform = {
     close: closePlatform,
+    get generatesThreadTitles(): boolean | undefined {
+      return currentPlatform().generatesThreadTitles;
+    },
     get maxSteps(): number | undefined {
       return currentPlatform().maxSteps;
     },

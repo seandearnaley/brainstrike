@@ -82,7 +82,7 @@ function fixture() {
   };
   connect.mockResolvedValue(client);
   return {
-    capability: createWindowThreadCapability((host, threadId) => (host ? threadId : undefined)),
+    capability: createWindowThreadCapability(({ host, threadId }) => (host ? threadId : undefined)),
     request,
   };
 }

@@ -366,6 +366,47 @@ async function configureAssistantProviderWithModels(
 }
 
 /**
+ * Enables the catalog row Main admits for a `provider::model` selection. The
+ * committed host admission refuses a disabled row, and renderer selection alone
+ * does not enable it (precedent: mcp-packaged-core.desktop.test.ts).
+ */
+export async function enableAssistantCatalogModel(
+  page: Page,
+  compositeModelKey: string
+): Promise<void> {
+  const separator = compositeModelKey.indexOf('::');
+  const provider = compositeModelKey.slice(0, separator);
+  const model = compositeModelKey.slice(separator + 2);
+  const rows = await page.evaluate(
+    async ([providerId, modelId]) => {
+      const db = window.electronAPI?.db;
+      if (!db) {
+        throw new Error('The ordinary desktop catalog DB bridge is unavailable');
+      }
+      await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
+        modelId,
+        providerId,
+      ]);
+      const after = await db.query(
+        'SELECT id, provider_id AS "providerId", is_enabled AS "isEnabled" FROM models WHERE id = $1 AND provider_id = $2',
+        [modelId, providerId]
+      );
+      return after.rows as readonly Record<string, unknown>[];
+    },
+    [provider, model] as const
+  );
+  const [row] = rows;
+  const enabled =
+    rows.length === 1 &&
+    row?.['id'] === model &&
+    row['providerId'] === provider &&
+    row['isEnabled'] === true;
+  if (!enabled) {
+    throw new Error(`Catalog row ${compositeModelKey} was not enabled: ${JSON.stringify(rows)}`);
+  }
+}
+
+/**
  * Configures the real assistant provider/key/model seams without replacing
  * the app's internal `/assistant` endpoint. Use this when an E2E needs the
  * real server-side Mastra loop and native-tool execution.

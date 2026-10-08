@@ -121,6 +121,7 @@ export async function acquireHostRunAdmission(
     }
     selected = {
       configuration: {},
+      ...(platform.generatesThreadTitles ? { generatesThreadTitle: true } : {}),
       model: await resolveModel.call(platform, request.modelId),
       snapshot: {
         configuration: {},
@@ -224,6 +225,34 @@ export function hostRunTools(run: HostRunState): HostRunAdmission['tools'] {
   return run.admission.tools;
 }
 
+/** A finished step's answerable approval requests, each bound to its registered tool. */
+export function hostStepInteractions(
+  run: HostRunState,
+  content: StepResult<ToolSet>['content']
+): Extract<HostEvent, { type: 'interaction.requested' }>[] {
+  return content.flatMap((part) => {
+    if (part.type !== 'tool-approval-request' || part.isAutomatic === true) {
+      return [];
+    }
+    const registered = hostRunTools(run)[part.toolCall.toolName];
+    if (!registered) {
+      throw new Error('Approval references an unknown tool');
+    }
+    return [
+      {
+        input: jsonValue(part.toolCall.input),
+        interactionId: part.approvalId,
+        kind: registered.interaction?.kind ?? 'approval',
+        runId: run.id,
+        toolCallId: part.toolCall.toolCallId,
+        toolId: part.toolCall.toolName,
+        toolIdentity: registered.identity,
+        type: 'interaction.requested',
+      },
+    ];
+  });
+}
+
 /** Keep revocation live while taking risk and executor identity from admission. */
 export async function hostRunToolDecision(
   platform: HostPlatform,
@@ -325,34 +354,17 @@ export async function decideHostSdkApproval(
 
 /** One model step and its answerable interactions, committed together by Core. */
 export function hostModelStepEvents(run: HostRunState, step: StepResult<ToolSet>): HostEvent[] {
-  const event: HostEvent = {
-    messages: step.response.messages.map((message) => jsonValue(modelMessageSchema.parse(message))),
-    model: jsonValue(step.model),
-    runId: run.id,
-    stepNumber: run.steps,
-    type: 'model.step',
-    usage: jsonValue(step.usage),
-  };
-  const interactions = step.content.flatMap((part): HostEvent[] => {
-    if (part.type !== 'tool-approval-request' || part.isAutomatic === true) {
-      return [];
-    }
-    const registered = hostRunTools(run)[part.toolCall.toolName];
-    if (!registered) {
-      throw new Error('Approval references an unknown tool');
-    }
-    return [
-      {
-        input: jsonValue(part.toolCall.input),
-        interactionId: part.approvalId,
-        kind: registered.interaction?.kind ?? 'approval',
-        runId: run.id,
-        toolCallId: part.toolCall.toolCallId,
-        toolId: part.toolCall.toolName,
-        toolIdentity: registered.identity,
-        type: 'interaction.requested',
-      },
-    ];
-  });
-  return [event, ...interactions];
+  return [
+    {
+      messages: step.response.messages.map((message) =>
+        jsonValue(modelMessageSchema.parse(message))
+      ),
+      model: jsonValue(step.model),
+      runId: run.id,
+      stepNumber: run.steps,
+      type: 'model.step',
+      usage: jsonValue(step.usage),
+    },
+    ...hostStepInteractions(run, step.content),
+  ];
 }

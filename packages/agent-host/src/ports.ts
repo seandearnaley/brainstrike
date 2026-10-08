@@ -140,6 +140,8 @@ export interface HostRunAdmission {
   /** Join resources selected before the run is committed, including failed admission. */
   close?(): Promise<void>;
   readonly configuration: Readonly<RuntimeData>;
+  /** Title an untitled thread's first completed run through this run's model. */
+  readonly generatesThreadTitle?: boolean;
   readonly model: LanguageModel;
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   readonly provider?: HostProviderPort;
@@ -202,6 +204,8 @@ export interface HostTool {
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
   close(): Promise<void>;
+  /** The default admission's auto-title capability; `admitRun` sets it per admission. */
+  readonly generatesThreadTitles?: boolean | undefined;
   /** Supplied by the existing run configuration, not a second host default. */
   readonly maxSteps?: number | undefined;
   /** Run-scoped construction; cached shared memory must not capture a run signal. */

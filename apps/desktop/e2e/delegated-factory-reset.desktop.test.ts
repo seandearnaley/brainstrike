@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { readDelegatedResetState, seedDelegatedResetState } from './utils/delegated-reset-seed';
 import {
   ensureAssistantShellVisible,
@@ -21,7 +21,9 @@ async function openSubagents(page: Page): Promise<void> {
 
 async function sendInventoryProbe(page: Page, marker: string): Promise<void> {
   await ensureAssistantShellVisible(page);
-  const panel = page.getByTestId('chat-panel').filter({ visible: true });
+  const panel = page
+    .getByRole('region', { exact: true, name: 'Assistant' })
+    .filter({ visible: true });
   await panel.getByRole('textbox', { name: 'Message input' }).fill(marker);
   await panel.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(panel.getByText(`${marker} complete`, { exact: true })).toBeVisible();
@@ -103,6 +105,7 @@ test.fixme(
         compositeModelKey: 'openrouter::openai/gpt-5.4',
         provider: 'openrouter',
       });
+      await enableAssistantCatalogModel(page, 'openrouter::openai/gpt-5.4');
       await sendInventoryProbe(page, ENABLED_PROBE);
       expect(catalogs.get(ENABLED_PROBE)).toContain('agent-worker');
       await openSubagents(page);
@@ -176,6 +179,7 @@ test.fixme(
         compositeModelKey: 'openrouter::openai/gpt-5.4',
         provider: 'openrouter',
       });
+      await enableAssistantCatalogModel(page, 'openrouter::openai/gpt-5.4');
       await sendInventoryProbe(page, RESTORED_PROBE);
       expect(catalogs.get(RESTORED_PROBE)).toContain('agent-worker');
       await attachProviderCatalogs();

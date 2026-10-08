@@ -90,16 +90,21 @@ export class HostCore {
   private readonly mcpInputs = new HostMcpInputState();
   private readonly records = new HostToolRecords();
   private readonly threads = new Set<string>();
-  private readonly titles = new HostThreadTitleState((params, event) =>
-    this.accept(
-      params.threadId,
-      'thread/rename',
-      params,
-      { accepted: true },
-      [event],
-      this.foldRows
-    )
-  );
+  private readonly titles = new HostThreadTitleState({
+    admit: (threadId, perform) => this.admit(threadId, perform),
+    append: async (threadId, event) => {
+      await this.append(threadId, [event], 'normal', this.foldRows);
+    },
+    rename: (params, event) =>
+      this.accept(
+        params.threadId,
+        'thread/rename',
+        params,
+        { accepted: true },
+        [event],
+        this.foldRows
+      ),
+  });
   private readonly workspaces = new HostThreadWorkspaceState((method, params, event, durability) =>
     this.accept(
       params.threadId,
@@ -589,6 +594,7 @@ export class HostCore {
     try {
       const owner = await this.openRun(run);
       const admission = await ensureHostRunAdmission(this.platform, run);
+      this.titles.request(run, admission, this.runs.values());
       const result = streamText({
         abortSignal: run.controller.signal,
         maxRetries: 0,
@@ -943,7 +949,7 @@ export class HostCore {
             this.fold(row);
           }
         })
-    );
+    ).then(() => this.titles.settle(run));
   }
 
   close(): Promise<void> {
