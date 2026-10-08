@@ -6,7 +6,8 @@ import { z } from 'zod';
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), and thread
 // titles (`thread/rename`, `thread.renamed`, titles in `thread/list`).
-export const AGENT_HOST_PROTOCOL_VERSION = 11;
+// 12: child threads (BST-1932): `thread.started` with a delegation `origin`.
+export const AGENT_HOST_PROTOCOL_VERSION = 12;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
@@ -71,6 +72,22 @@ export const McpToolAuthoritySchema = z.discriminatedUnion('kind', [
   }),
 ]);
 export type McpToolAuthority = z.infer<typeof McpToolAuthoritySchema>;
+/**
+ * BST-1932: a child thread's durable invocation identity, ancestry and owner.
+ * The child threadId is the invocation ID; this origin commits in the same
+ * transaction as the parent's delegation effect. `turnId` is the root run
+ * whose user turn admitted the whole subtree.
+ */
+export const HostChildOriginSchema = z.strictObject({
+  background: z.boolean(),
+  depth: z.number().int().positive(),
+  parentRunId: Id,
+  parentThreadId: Id,
+  persona: Id,
+  toolCallId: Id,
+  turnId: Id,
+});
+export type HostChildOrigin = z.infer<typeof HostChildOriginSchema>;
 /** Credentials and executable capabilities remain process-local. */
 export const HostRunSnapshotSchema = z.strictObject({
   configuration: z.record(z.string(), z.json()),
@@ -206,6 +223,7 @@ export const HostEventSchema = z.union([
     type: z.literal('mcp.input.settled'),
   }),
   z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
+  z.strictObject({ origin: HostChildOriginSchema, type: z.literal('thread.started') }),
   z.strictObject({ title: ThreadTitle, type: z.literal('thread.renamed') }),
   z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
   z.strictObject({

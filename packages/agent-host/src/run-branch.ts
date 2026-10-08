@@ -25,7 +25,11 @@ import { assertHostRunStartAvailable } from './run-admission.js';
 
 type Started = Extract<HostEvent, { type: 'run.started' }>;
 
-/** The run/start or run/regenerate command whose acceptance admitted a run. */
+/**
+ * The run/start or run/regenerate command whose acceptance admitted a run, or
+ * (BST-1932) the delegation that created a child thread, identified by the
+ * child threadId: its task is that thread's first user message.
+ */
 export interface HostRunAdmissionCommand {
   readonly commandId: string;
   readonly method: string;
@@ -55,6 +59,13 @@ export function foldHostRunBranch(
       throw new Error('Regenerated run does not repeat its committed user message');
     }
     return original.branch;
+  }
+  if (admission.method === 'delegation') {
+    // BST-1932: a child thread's first run answers its delegation task.
+    if (event.parentMessageId !== null || prior.length > 0) {
+      throw new Error('A delegated child run must start its child thread');
+    }
+    return { parentMessageId: null, prompt: event.prompt, userMessageId: admission.commandId };
   }
   if (admission.method !== 'run/start') {
     throw new Error('A new user message requires its committed run/start command');
@@ -231,21 +242,37 @@ export function foldHostRunAdmission(
   admitted.set(runId, { commandId: event.commandId, method: event.method });
 }
 
+/** The admission of a child thread's first run: its delegation, keyed by the child threadId. */
+export function delegatedHostRunAdmission(threadId: string): HostRunAdmissionCommand {
+  return { commandId: threadId, method: 'delegation' };
+}
+
 /** Folds a committed run.started into `runs`, consuming its admission command. */
 export function foldHostStartedRun(
   admitted: Map<string, HostRunAdmissionCommand>,
   conversationIds: Set<string>,
   runs: Map<string, HostRunState>,
   threadId: string,
-  event: Started
-): void {
+  event: Started,
+  isChildThread: (threadId: string) => boolean
+): HostRunState {
   recordHostConversationId(conversationIds, event.runId);
-  const admission = admitted.get(event.runId);
+  let admission = admitted.get(event.runId);
+  if (
+    !admission &&
+    isChildThread(threadId) &&
+    ![...runs.values()].some((run) => run.threadId === threadId)
+  ) {
+    admission = delegatedHostRunAdmission(threadId);
+    recordHostConversationId(conversationIds, threadId);
+  }
   if (!admission) {
     throw new Error('Committed run start has no committed admission command');
   }
   admitted.delete(event.runId);
-  runs.set(event.runId, startedHostRun(runs.values(), threadId, event, admission, event.snapshot));
+  const run = startedHostRun(runs.values(), threadId, event, admission, event.snapshot);
+  runs.set(event.runId, run);
+  return run;
 }
 
 /** A new run needs its thread, no active run there, and an unused command identity. */

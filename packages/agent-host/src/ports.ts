@@ -10,6 +10,8 @@ import type {
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
 import type { McpTaskHandle } from '@brainstrike/assistant-contract/mcp-task-presentation';
+import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ThreadWorkspaceBinding } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import type {
@@ -110,6 +112,8 @@ export interface HostRunAdmission {
   /** Join resources selected before the run is committed, including failed admission. */
   close?(): Promise<void>;
   readonly configuration: Readonly<RuntimeData>;
+  /** Present when this run may delegate; its tools are already in `tools`. */
+  readonly delegation?: HostDelegation | undefined;
   /** Title an untitled thread's first completed run through this run's model. */
   readonly generatesThreadTitle?: boolean;
   readonly model: LanguageModel;
@@ -148,7 +152,19 @@ export interface HostMcpRuntime {
   close(): Promise<McpHostCloseReport>;
   executableTools(request: HostMcpToolRequest): Promise<HostMcpToolSelection>;
 }
+/**
+ * BST-1932: the personas a run may delegate to and the user's subagent limits,
+ * resolved by the existing settings owner for this admission. HostCore owns
+ * the `agent-<persona>` tools built from it and dispatches them itself.
+ */
+export interface HostDelegation {
+  readonly personas: readonly AssistantPersonaDefinition[];
+  readonly settings: RuntimeSubagentSettings;
+}
+
 export interface HostTool {
+  /** HostCore-dispatched persona delegation; `execute` is never called for it. */
+  readonly delegation?: AssistantPersonaDefinition;
   readonly description: string;
   execute(input: unknown, context: HostToolContext): Promise<unknown>;
   /** Existing executor/server-generation identity, bound into pending decisions. */
@@ -174,6 +190,8 @@ export interface HostTool {
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
   close(): Promise<void>;
+  /** The default admission's delegation capability; `admitRun` sets it per admission. */
+  readonly delegation?: HostDelegation | undefined;
   /** The default admission's auto-title capability; `admitRun` sets it per admission. */
   readonly generatesThreadTitles?: boolean | undefined;
   /** Supplied by the existing run configuration, not a second host default. */

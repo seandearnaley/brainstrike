@@ -11,6 +11,7 @@ import {
   ApprovalInputReconstructionError,
   rebuildApprovedRuntimeMessages,
 } from './approval-input.js';
+import { type HostChildRunPort, HostChildRuns } from './core-child-runs.js';
 import { hostRunClosingOutcomes, reportRetiredHostOutcomes } from './core-retirement.js';
 import {
   abortHostThreadRuns,
@@ -20,6 +21,7 @@ import {
   joinHostRunOwner,
   joinHostThreadDeletion,
   queueHostAdmission,
+  recoverHostRun,
   rejectHostRunAdmission,
   retainHostRunWork,
 } from './core-run-lifecycle.js';
@@ -27,11 +29,13 @@ import {
   createHostRunContext,
   foldHostAcceptedCommand,
   foldHostInteraction,
+  foldHostRunEffect,
   HostCommandLedger,
   hasHostInteractionResponse,
   type HostRunState as Run,
   recordHostConversationId,
 } from './core-state.js';
+import { performHostToolEffect } from './core-tool-effect.js';
 import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
@@ -120,6 +124,7 @@ export class HostCore {
     )
   );
   private readonly runs = new Map<string, Run>();
+  private readonly children = new HostChildRuns();
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
   private readonly listeners = new Set<(row: HostLogRow) => void>();
@@ -152,34 +157,15 @@ export class HostCore {
       }
     }
     for (const run of core.runs.values()) {
-      if (run.terminal) {
-        continue;
-      }
-      if (run.stopped) {
-        await core.finish(run, 'stopped');
-        continue;
-      }
-      const uncertain = [...run.started].some(
-        (id) => !(run.outputs.has(id) || run.checkpointedResults.has(id))
-      );
-      if (uncertain) {
-        await core.finish(
-          run,
-          'interrupted',
-          'Host restarted with an uncertain external effect; it was not replayed'
-        );
-      } else if (run.approvals.size > 0) {
+      const recovery = recoverHostRun(run);
+      if (recovery?.kind === 'finish') {
+        await core.finish(run, recovery.outcome, recovery.detail);
+      } else if (recovery) {
         run.release = retainRun();
-        if ([...run.approvals.values()].every(hasHostInteractionResponse)) {
+        if (recovery.kind === 'continue') {
           run.task = core.continueRun(run);
           run.task.catch(() => undefined);
         }
-      } else {
-        await core.finish(
-          run,
-          'interrupted',
-          'Host restarted outside a committed decision boundary'
-        );
       }
     }
     return core;
@@ -196,7 +182,14 @@ export class HostCore {
         foldHostRunAdmission(this.admittedRuns, this.conversationIds, event);
         break;
       case 'run.started':
-        foldHostStartedRun(this.admittedRuns, this.conversationIds, this.runs, row.threadId, event);
+        foldHostStartedRun(
+          this.admittedRuns,
+          this.conversationIds,
+          this.runs,
+          row.threadId,
+          event,
+          (threadId) => this.children.isChild(threadId)
+        );
         break;
       case 'model.step':
       case 'model.messages':
@@ -206,33 +199,34 @@ export class HostCore {
       case 'interaction.responded':
         foldHostInteraction(this.runs, event);
         break;
-      case 'effect.started':
-        this.runs.get(event.runId)?.started.add(event.toolCallId);
-        break;
-      case 'effect.finished':
-        this.runs.get(event.runId)?.outputs.set(event.toolCallId, event.output);
-        break;
-      case 'run.finished': {
-        const run = this.runs.get(event.runId);
-        if (run) {
-          run.terminal = true;
-          run.outcome = event.outcome;
-        }
-        break;
-      }
       default:
+        foldHostRunEffect(this.runs, event);
         break;
     }
+    this.children.fold(row, this.runs);
   }
 
-  private async append(
+  private append(
     threadId: string,
     events: readonly HostEvent[],
     durability: 'normal' | 'full' = 'normal',
     beforePublish?: (rows: readonly HostLogRow[]) => void
   ): Promise<HostLogRow[]> {
+    return this.appendAcross(
+      events.map((event) => ({ event, threadId })),
+      durability,
+      beforePublish
+    );
+  }
+
+  /** One StateStore transaction, possibly across threads (a parent and its new child). */
+  private async appendAcross(
+    items: readonly { readonly event: HostEvent; readonly threadId: string }[],
+    durability: 'normal' | 'full' = 'normal',
+    beforePublish?: (rows: readonly HostLogRow[]) => void
+  ): Promise<HostLogRow[]> {
     const committed = await this.store.append(
-      events.map((event) => storedHostEvent(threadId, event)),
+      items.map(({ event, threadId }) => storedHostEvent(threadId, event)),
       undefined,
       durability
     );
@@ -251,8 +245,11 @@ export class HostCore {
     return () => this.listeners.delete(listener);
   }
 
+  /** Child threads are reached through their parent, never listed as top-level threads. */
   listThreads(): HostResults['thread/list']['threads'] {
-    return [...this.threads].map((threadId) => ({ threadId, ...this.titles.read(threadId) }));
+    return [...this.threads]
+      .filter((threadId) => !this.children.isChild(threadId))
+      .map((threadId) => ({ threadId, ...this.titles.read(threadId) }));
   }
 
   renameThread(params: HostParams<'thread/rename'>): Promise<{ accepted: true }> {
@@ -506,45 +503,20 @@ export class HostCore {
       throw new Error('Tool permission was revoked');
     }
     run.controller.signal.throwIfAborted();
-    await ensureHostRunAdmission(this.platform, run);
-    await this.append(run.threadId, [action]);
-    run.started.add(action.toolCallId);
-    run.controller.signal.throwIfAborted();
-    // The public SDK already validated/transformed this exact admitted input.
-    // Revalidating a canonical value can transform it a second time.
-    const output = await registered.execute(input, {
-      ...(resumeData === undefined ? {} : { resumeData }),
-      mcp: this.mcpInputs.execution(run, action, registered, {
-        admit: (perform) => this.admit(run.threadId, perform, run.controller.signal),
-        append: (events, beforePublish) =>
-          this.append(run.threadId, events, 'full', (rows) => {
-            for (const row of rows) {
-              this.fold(row);
-            }
-            beforePublish?.();
-          }),
-        assertCurrent: () => {
-          if (
-            this.closing ||
-            this.deletions.has(run.threadId) ||
-            hostRunTools(run)[action.toolId] !== registered
-          ) {
-            throw new Error('MCP execution authority retired');
-          }
-        },
-        retain: (work) => retainHostRunWork(run, work),
-      }),
-      runId: run.id,
-      signal: run.controller.signal,
-      threadId: run.threadId,
-      toolCallId: action.toolCallId,
-      write: async (chunk: unknown): Promise<void> => {
-        run.controller.signal.throwIfAborted();
-        await this.append(run.threadId, [
-          { chunk: jsonValue(chunk), runId: run.id, type: 'stream.chunk' },
-        ]);
-      },
-    });
+    const admission = await ensureHostRunAdmission(this.platform, run);
+    const output = registered.delegation
+      ? await this.children.delegate(
+          { action, admission, input, persona: registered.delegation, run },
+          this.childRunPort(run)
+        )
+      : await performHostToolEffect(run, action, registered, input, resumeData, {
+          admit: (perform) => this.admit(run.threadId, perform, run.controller.signal),
+          append: (events, durability, beforePublish) =>
+            this.append(run.threadId, events, durability, beforePublish),
+          fold: (row) => this.fold(row),
+          mcpInputs: this.mcpInputs,
+          retired: () => this.closing || this.deletions.has(run.threadId),
+        });
     await this.append(run.threadId, [
       {
         output: jsonValue(output),
@@ -555,6 +527,35 @@ export class HostCore {
     ]);
     run.outputs.set(action.toolCallId, jsonValue(output));
     return output;
+  }
+
+  /** BST-1932: HostChildRuns orchestrates a delegation; Core lends its sole writer and loop. */
+  private childRunPort(run: Run): HostChildRunPort {
+    return {
+      commit: async ({ child, items, threadId }) => {
+        await this.appendAcross(items, 'full');
+        this.threads.add(threadId);
+        this.runs.set(child.id, child);
+        recordHostConversationId(this.conversationIds, threadId);
+        recordHostConversationId(this.conversationIds, child.id);
+      },
+      loop: (child, model) => this.loop(child, model),
+      retainRun: this.retainRun,
+      stop: (child, reason) => {
+        if (!this.closing) {
+          retainHostRunWork(run, this.stopChildRun(child, reason));
+        }
+      },
+      taken: (id) => this.threads.has(id) || this.conversationIds.has(id),
+    };
+  }
+
+  /** Mirrors run/stop for a child its parent no longer waits on. */
+  private async stopChildRun(child: Run, reason: unknown): Promise<void> {
+    child.stopped = true;
+    child.controller.abort(reason);
+    await joinHostRunOwner(child, (owned) => this.closeRunOwner(owned));
+    await this.finish(child, 'stopped');
   }
 
   private dispatch(
@@ -900,7 +901,10 @@ export class HostCore {
 
   private openRun(run: Run): Promise<HostRunOwner | undefined> {
     run.owner ??= ensureHostRunAdmission(this.platform, run).then((admission) => {
-      const open = admission.openRun ?? this.platform.openRun?.bind(this.platform);
+      // BST-1932: Memory stays scoped to root threads; a child opens no run owner.
+      const open = run.origin
+        ? undefined
+        : (admission.openRun ?? this.platform.openRun?.bind(this.platform));
       return open?.(
         createHostRunContext(run, (threadId, events) => this.append(threadId, events, 'full'))
       );

@@ -1,6 +1,7 @@
 import { resolvePermissionDecision } from '@brainstrike/assistant-contract';
 import type { StepResult, ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
+import { withHostDelegationTools } from './child-runs.js';
 import type { HostRunState } from './core-state.js';
 import { canonical, jsonValue } from './json-value.js';
 import { McpAuthorityReconstructionError } from './mcp-authority.js';
@@ -106,37 +107,47 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
   });
 }
 
+/** The platform's fixed default selection, for hosts without a per-run `admitRun`. */
+async function defaultHostRunAdmission(
+  platform: HostPlatform,
+  request: HostRunAdmissionRequest
+): Promise<HostRunAdmission> {
+  const { delegation, maxSteps, resolveModel, tools } = platform;
+  if (!(resolveModel && tools && maxSteps && Number.isSafeInteger(maxSteps) && maxSteps > 0)) {
+    throw new Error('Host platform has no complete run admission capability');
+  }
+  const admitted = withHostDelegationTools(tools, delegation);
+  return {
+    configuration: {},
+    ...(delegation ? { delegation } : {}),
+    ...(platform.generatesThreadTitles ? { generatesThreadTitle: true } : {}),
+    model: await resolveModel.call(platform, request.modelId),
+    snapshot: {
+      configuration: {},
+      maxSteps,
+      toolIdentities: Object.fromEntries(
+        Object.entries(admitted).map(([id, binding]) => [id, binding.identity])
+      ),
+    },
+    tools: admitted,
+  };
+}
+
 export async function acquireHostRunAdmission(
   platform: HostPlatform,
   request: HostRunAdmissionRequest
 ): Promise<HostRunAdmission> {
   await validateHostRunWorkspaceBinding(platform, request);
-  let selected: HostRunAdmission;
-  if (platform.admitRun) {
-    selected = await platform.admitRun(request);
-  } else {
-    const { maxSteps, resolveModel, tools } = platform;
-    if (!(resolveModel && tools && maxSteps && Number.isSafeInteger(maxSteps) && maxSteps > 0)) {
-      throw new Error('Host platform has no complete run admission capability');
-    }
-    selected = {
-      configuration: {},
-      ...(platform.generatesThreadTitles ? { generatesThreadTitle: true } : {}),
-      model: await resolveModel.call(platform, request.modelId),
-      snapshot: {
-        configuration: {},
-        maxSteps,
-        toolIdentities: Object.fromEntries(
-          Object.entries(tools).map(([id, binding]) => [id, binding.identity])
-        ),
-      },
-      tools,
-    };
-  }
+  const selected = platform.admitRun
+    ? await platform.admitRun(request)
+    : await defaultHostRunAdmission(platform, request);
   try {
     await validateHostRunWorkspaceBinding(platform, request);
     const admission = captureHostRunAdmission(bindHostRunWorkspace(selected, request));
     const { snapshot, tools } = admission;
+    if (!admission.delegation && Object.values(tools).some((tool) => tool.delegation)) {
+      throw new Error('Delegation tools were admitted without a delegation capability');
+    }
     if (
       request.snapshot &&
       Object.values(tools).some((tool) => tool.mcpAuthority?.kind === 'unavailable')
@@ -262,6 +273,10 @@ export async function hostRunToolDecision(
   const registered = hostRunTools(run)[toolId];
   if (!registered) {
     throw new Error('Tool is not registered');
+  }
+  // Spawning never asks; every effect inside the child passes this gate itself.
+  if (registered.delegation) {
+    return 'allow';
   }
   const snapshot = await platform.readPermissionPolicy(run.threadId);
   const permissionToolId = registered.permissionToolId ?? toolId;

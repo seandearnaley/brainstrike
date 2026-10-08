@@ -5,6 +5,7 @@ import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
 import type { HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
 import {
   HOST_METHOD_SCHEMAS,
+  type HostChildOrigin,
   type HostEvent,
   type HostParams,
   type HostRunSnapshot,
@@ -137,6 +138,21 @@ export function foldHostInteraction(
     approval.resumeData = event.resumeData;
   }
 }
+/** Folds a committed effect or terminal into its run; other events are not run effects. */
+export function foldHostRunEffect(runs: ReadonlyMap<string, HostRunState>, event: HostEvent): void {
+  if (event.type === 'effect.started') {
+    runs.get(event.runId)?.started.add(event.toolCallId);
+  } else if (event.type === 'effect.finished') {
+    runs.get(event.runId)?.outputs.set(event.toolCallId, event.output);
+  } else if (event.type === 'run.finished') {
+    const run = runs.get(event.runId);
+    if (run) {
+      run.terminal = true;
+      run.outcome = event.outcome;
+    }
+  }
+}
+
 /** A run's committed position in the thread's conversation tree. */
 export interface HostRunBranch {
   /** The committed run its user message follows; null is the thread root. */
@@ -163,6 +179,8 @@ export interface HostRunState {
   /** This run's own committed model messages, after its user message. */
   readonly messages: ModelMessage[];
   readonly modelId: string;
+  /** BST-1932: present on every run of a child thread. */
+  origin?: HostChildOrigin;
   outcome?: Extract<HostEvent, { type: 'run.finished' }>['outcome'];
   readonly outputs: Map<string, Json>;
   owner?: Promise<HostRunOwner | undefined>;

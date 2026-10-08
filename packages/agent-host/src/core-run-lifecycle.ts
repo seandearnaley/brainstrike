@@ -1,8 +1,51 @@
-import type { HostRunState } from './core-state.js';
+import { type HostRunState, hasHostInteractionResponse } from './core-state.js';
 import { HostMcpInputPersistenceError } from './mcp-input-state.js';
 import type { HostRunAdmission } from './ports.js';
 import type { HostEvent } from './protocol.js';
 import { HostRunAdmissionCleanupError } from './run-admission.js';
+
+/** What a committed, non-terminal run becomes when a host starts (ADR-0010). */
+export type HostRunRecovery =
+  | { readonly kind: 'await-decision' | 'continue' }
+  | {
+      readonly detail?: string;
+      readonly kind: 'finish';
+      readonly outcome: 'interrupted' | 'stopped';
+    };
+
+export function recoverHostRun(run: HostRunState): HostRunRecovery | undefined {
+  if (run.terminal) {
+    return;
+  }
+  if (run.origin) {
+    // BST-1932: child runs, and any interaction they wait on, are interrupted.
+    return {
+      detail: 'Host restarted; child runs are not resumed',
+      kind: 'finish',
+      outcome: 'interrupted',
+    };
+  }
+  if (run.stopped) {
+    return { kind: 'finish', outcome: 'stopped' };
+  }
+  if ([...run.started].some((id) => !(run.outputs.has(id) || run.checkpointedResults.has(id)))) {
+    return {
+      detail: 'Host restarted with an uncertain external effect; it was not replayed',
+      kind: 'finish',
+      outcome: 'interrupted',
+    };
+  }
+  if (run.approvals.size === 0) {
+    return {
+      detail: 'Host restarted outside a committed decision boundary',
+      kind: 'finish',
+      outcome: 'interrupted',
+    };
+  }
+  return [...run.approvals.values()].every(hasHostInteractionResponse)
+    ? { kind: 'continue' }
+    : { kind: 'await-decision' };
+}
 
 /** Calculations over Core's one admission tail; queued cancellation starts no work. */
 export function queueHostAdmission<T>(
