@@ -1,0 +1,944 @@
+{
+  "identities": {
+    "6bd8173a-918f-4a53-af6c-68634d58e4e1": {
+      "assistantMessageId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+      "createdAt": "2026-10-08T08:05:05.976Z",
+      "parentMessageId": null,
+      "userMessageId": "826e8348-a977-4a37-83c7-d443b471501b"
+    },
+    "454db80e-10ec-45c2-968e-1add0166a07f": {
+      "assistantMessageId": "454db80e-10ec-45c2-968e-1add0166a07f",
+      "createdAt": "2026-10-08T08:05:06.014Z",
+      "parentMessageId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+      "userMessageId": "a34d97f8-f0a3-4cfd-9c41-9c4f4c9d1705"
+    },
+    "276a784f-138e-43c8-9ec6-3aa86c5da48c": {
+      "assistantMessageId": "276a784f-138e-43c8-9ec6-3aa86c5da48c",
+      "createdAt": "2026-10-08T08:05:06.046Z",
+      "parentMessageId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+      "userMessageId": "a34d97f8-f0a3-4cfd-9c41-9c4f4c9d1705"
+    },
+    "1627c432-8fed-4214-a973-fb773cd09296": {
+      "assistantMessageId": "1627c432-8fed-4214-a973-fb773cd09296",
+      "createdAt": "2026-10-08T08:05:06.077Z",
+      "parentMessageId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+      "userMessageId": "449c9eec-4186-41ff-89bb-4ebad036cd56"
+    }
+  },
+  "rows": [
+    {
+      "event": {
+        "commandId": "1755bd84-6ee8-423f-9e51-dead3f8a8259",
+        "method": "thread/start",
+        "payload": {
+          "commandId": "1755bd84-6ee8-423f-9e51-dead3f8a8259"
+        },
+        "result": {
+          "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2"
+        },
+        "type": "command.accepted"
+      },
+      "seq": 1,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446705973
+    },
+    {
+      "event": {
+        "commandId": "1755bd84-6ee8-423f-9e51-dead3f8a8259",
+        "type": "thread.started"
+      },
+      "seq": 2,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446705973
+    },
+    {
+      "event": {
+        "commandId": "826e8348-a977-4a37-83c7-d443b471501b",
+        "method": "run/start",
+        "payload": {
+          "commandId": "826e8348-a977-4a37-83c7-d443b471501b",
+          "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+          "modelId": "scripted",
+          "prompt": "Plan the release checklist."
+        },
+        "result": {
+          "runId": "6bd8173a-918f-4a53-af6c-68634d58e4e1"
+        },
+        "type": "command.accepted"
+      },
+      "seq": 3,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446705976
+    },
+    {
+      "event": {
+        "type": "run.started",
+        "runId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+        "modelId": "scripted",
+        "parentMessageId": null,
+        "prompt": "Plan the release checklist.",
+        "snapshot": {
+          "configuration": {},
+          "maxSteps": 3,
+          "toolIdentities": {}
+        }
+      },
+      "seq": 4,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446705976
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+        "chunk": {
+          "type": "start"
+        }
+      },
+      "seq": 5,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446705980
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+        "chunk": {
+          "type": "start-step",
+          "request": {},
+          "warnings": []
+        }
+      },
+      "seq": 6,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446705983
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+        "chunk": {
+          "id": "text-1",
+          "type": "text-start"
+        }
+      },
+      "seq": 7,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446705983
+    },
+    {
+      "event": {
+        "type": "model.step",
+        "runId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "Recorded answer 0."
+              }
+            ]
+          }
+        ],
+        "model": {
+          "provider": "mock-provider",
+          "modelId": "mock-model-id"
+        },
+        "stepNumber": 0,
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        }
+      },
+      "seq": 8,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446705984
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+        "chunk": {
+          "type": "text-delta",
+          "id": "text-1",
+          "text": "Recorded answer 0."
+        }
+      },
+      "seq": 9,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446705989
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+        "chunk": {
+          "id": "text-1",
+          "type": "text-end"
+        }
+      },
+      "seq": 10,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446705990
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+        "chunk": {
+          "type": "finish-step",
+          "finishReason": "stop",
+          "rawFinishReason": "stop",
+          "usage": {
+            "inputTokens": 1,
+            "inputTokenDetails": {
+              "noCacheTokens": 1,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0
+            },
+            "outputTokens": 1,
+            "outputTokenDetails": {
+              "textTokens": 1,
+              "reasoningTokens": 0
+            },
+            "totalTokens": 2
+          },
+          "performance": {
+            "stepTimeMs": 3.216833000000065,
+            "toolExecutionMs": {},
+            "responseTimeMs": 1.338166000000001,
+            "effectiveOutputTokensPerSecond": 747.291442167862,
+            "outputTokensPerSecond": 9364.084988441482,
+            "inputTokensPerSecond": 812.1002943863099,
+            "effectiveTotalTokensPerSecond": 1494.582884335724,
+            "timeToFirstOutputMs": 1.231375000000071
+          },
+          "response": {
+            "id": "aitxt-shxd9pwMCyj0Gul5ycdq4oBk",
+            "timestamp": "2026-10-08T08:05:05.980Z",
+            "modelId": "mock-model-id"
+          }
+        }
+      },
+      "seq": 11,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446705990
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+        "chunk": {
+          "type": "finish",
+          "finishReason": "stop",
+          "rawFinishReason": "stop",
+          "totalUsage": {
+            "inputTokens": 1,
+            "inputTokenDetails": {
+              "noCacheTokens": 1,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0
+            },
+            "outputTokens": 1,
+            "outputTokenDetails": {
+              "textTokens": 1,
+              "reasoningTokens": 0
+            },
+            "totalTokens": 2
+          }
+        }
+      },
+      "seq": 12,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446705996
+    },
+    {
+      "event": {
+        "type": "run.finished",
+        "runId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+        "outcome": "completed"
+      },
+      "seq": 13,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446705998
+    },
+    {
+      "event": {
+        "commandId": "a34d97f8-f0a3-4cfd-9c41-9c4f4c9d1705",
+        "method": "run/start",
+        "payload": {
+          "commandId": "a34d97f8-f0a3-4cfd-9c41-9c4f4c9d1705",
+          "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+          "modelId": "scripted",
+          "prompt": "Add a rollback step."
+        },
+        "result": {
+          "runId": "454db80e-10ec-45c2-968e-1add0166a07f"
+        },
+        "type": "command.accepted"
+      },
+      "seq": 14,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706014
+    },
+    {
+      "event": {
+        "type": "run.started",
+        "runId": "454db80e-10ec-45c2-968e-1add0166a07f",
+        "modelId": "scripted",
+        "parentMessageId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+        "prompt": "Add a rollback step.",
+        "snapshot": {
+          "configuration": {},
+          "maxSteps": 3,
+          "toolIdentities": {}
+        }
+      },
+      "seq": 15,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706014
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "454db80e-10ec-45c2-968e-1add0166a07f",
+        "chunk": {
+          "type": "start"
+        }
+      },
+      "seq": 16,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706015
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "454db80e-10ec-45c2-968e-1add0166a07f",
+        "chunk": {
+          "type": "start-step",
+          "request": {},
+          "warnings": []
+        }
+      },
+      "seq": 17,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706016
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "454db80e-10ec-45c2-968e-1add0166a07f",
+        "chunk": {
+          "id": "text-1",
+          "type": "text-start"
+        }
+      },
+      "seq": 18,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706016
+    },
+    {
+      "event": {
+        "type": "model.step",
+        "runId": "454db80e-10ec-45c2-968e-1add0166a07f",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "Recorded answer 1."
+              }
+            ]
+          }
+        ],
+        "model": {
+          "provider": "mock-provider",
+          "modelId": "mock-model-id"
+        },
+        "stepNumber": 0,
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        }
+      },
+      "seq": 19,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706016
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "454db80e-10ec-45c2-968e-1add0166a07f",
+        "chunk": {
+          "type": "text-delta",
+          "id": "text-1",
+          "text": "Recorded answer 1."
+        }
+      },
+      "seq": 20,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706020
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "454db80e-10ec-45c2-968e-1add0166a07f",
+        "chunk": {
+          "id": "text-1",
+          "type": "text-end"
+        }
+      },
+      "seq": 21,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706021
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "454db80e-10ec-45c2-968e-1add0166a07f",
+        "chunk": {
+          "type": "finish-step",
+          "finishReason": "stop",
+          "rawFinishReason": "stop",
+          "usage": {
+            "inputTokens": 1,
+            "inputTokenDetails": {
+              "noCacheTokens": 1,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0
+            },
+            "outputTokens": 1,
+            "outputTokenDetails": {
+              "textTokens": 1,
+              "reasoningTokens": 0
+            },
+            "totalTokens": 2
+          },
+          "performance": {
+            "stepTimeMs": 0.5896250000000691,
+            "toolExecutionMs": {},
+            "responseTimeMs": 0.2113329999999678,
+            "effectiveOutputTokensPerSecond": 4731.868662254132,
+            "outputTokensPerSecond": 14068.061280488691,
+            "inputTokensPerSecond": 7130.124777181705,
+            "effectiveTotalTokensPerSecond": 9463.737324508264,
+            "timeToFirstOutputMs": 0.1402500000000373
+          },
+          "response": {
+            "id": "aitxt-npvpXkz5RDoS5ID3eY4z8UEb",
+            "timestamp": "2026-10-08T08:05:06.015Z",
+            "modelId": "mock-model-id"
+          }
+        }
+      },
+      "seq": 22,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706023
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "454db80e-10ec-45c2-968e-1add0166a07f",
+        "chunk": {
+          "type": "finish",
+          "finishReason": "stop",
+          "rawFinishReason": "stop",
+          "totalUsage": {
+            "inputTokens": 1,
+            "inputTokenDetails": {
+              "noCacheTokens": 1,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0
+            },
+            "outputTokens": 1,
+            "outputTokenDetails": {
+              "textTokens": 1,
+              "reasoningTokens": 0
+            },
+            "totalTokens": 2
+          }
+        }
+      },
+      "seq": 23,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706028
+    },
+    {
+      "event": {
+        "type": "run.finished",
+        "runId": "454db80e-10ec-45c2-968e-1add0166a07f",
+        "outcome": "completed"
+      },
+      "seq": 24,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706028
+    },
+    {
+      "event": {
+        "commandId": "81f840c1-f17c-4255-a1df-4137b04b7d15",
+        "method": "run/regenerate",
+        "payload": {
+          "commandId": "81f840c1-f17c-4255-a1df-4137b04b7d15",
+          "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+          "modelId": "scripted",
+          "userMessageId": "a34d97f8-f0a3-4cfd-9c41-9c4f4c9d1705"
+        },
+        "result": {
+          "runId": "276a784f-138e-43c8-9ec6-3aa86c5da48c"
+        },
+        "type": "command.accepted"
+      },
+      "seq": 25,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706046
+    },
+    {
+      "event": {
+        "type": "run.started",
+        "runId": "276a784f-138e-43c8-9ec6-3aa86c5da48c",
+        "modelId": "scripted",
+        "prompt": "Add a rollback step.",
+        "snapshot": {
+          "configuration": {},
+          "maxSteps": 3,
+          "toolIdentities": {}
+        },
+        "userMessageId": "a34d97f8-f0a3-4cfd-9c41-9c4f4c9d1705"
+      },
+      "seq": 26,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706046
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "276a784f-138e-43c8-9ec6-3aa86c5da48c",
+        "chunk": {
+          "type": "start"
+        }
+      },
+      "seq": 27,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706047
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "276a784f-138e-43c8-9ec6-3aa86c5da48c",
+        "chunk": {
+          "type": "start-step",
+          "request": {},
+          "warnings": []
+        }
+      },
+      "seq": 28,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706047
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "276a784f-138e-43c8-9ec6-3aa86c5da48c",
+        "chunk": {
+          "id": "text-1",
+          "type": "text-start"
+        }
+      },
+      "seq": 29,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706047
+    },
+    {
+      "event": {
+        "type": "model.step",
+        "runId": "276a784f-138e-43c8-9ec6-3aa86c5da48c",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "Recorded answer 2."
+              }
+            ]
+          }
+        ],
+        "model": {
+          "provider": "mock-provider",
+          "modelId": "mock-model-id"
+        },
+        "stepNumber": 0,
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        }
+      },
+      "seq": 30,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706048
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "276a784f-138e-43c8-9ec6-3aa86c5da48c",
+        "chunk": {
+          "type": "text-delta",
+          "id": "text-1",
+          "text": "Recorded answer 2."
+        }
+      },
+      "seq": 31,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706052
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "276a784f-138e-43c8-9ec6-3aa86c5da48c",
+        "chunk": {
+          "id": "text-1",
+          "type": "text-end"
+        }
+      },
+      "seq": 32,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706053
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "276a784f-138e-43c8-9ec6-3aa86c5da48c",
+        "chunk": {
+          "type": "finish-step",
+          "finishReason": "stop",
+          "rawFinishReason": "stop",
+          "usage": {
+            "inputTokens": 1,
+            "inputTokenDetails": {
+              "noCacheTokens": 1,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0
+            },
+            "outputTokens": 1,
+            "outputTokenDetails": {
+              "textTokens": 1,
+              "reasoningTokens": 0
+            },
+            "totalTokens": 2
+          },
+          "performance": {
+            "stepTimeMs": 0.5132919999999785,
+            "toolExecutionMs": {},
+            "responseTimeMs": 0.20570899999995618,
+            "effectiveOutputTokensPerSecond": 4861.23601787094,
+            "outputTokensPerSecond": 17843.760037099844,
+            "inputTokensPerSecond": 6681.499595773359,
+            "effectiveTotalTokensPerSecond": 9722.47203574188,
+            "timeToFirstOutputMs": 0.1496669999999085
+          },
+          "response": {
+            "id": "aitxt-jYi0WlS7LvkJMBmNFxhmYhnQ",
+            "timestamp": "2026-10-08T08:05:06.047Z",
+            "modelId": "mock-model-id"
+          }
+        }
+      },
+      "seq": 33,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706053
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "276a784f-138e-43c8-9ec6-3aa86c5da48c",
+        "chunk": {
+          "type": "finish",
+          "finishReason": "stop",
+          "rawFinishReason": "stop",
+          "totalUsage": {
+            "inputTokens": 1,
+            "inputTokenDetails": {
+              "noCacheTokens": 1,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0
+            },
+            "outputTokens": 1,
+            "outputTokenDetails": {
+              "textTokens": 1,
+              "reasoningTokens": 0
+            },
+            "totalTokens": 2
+          }
+        }
+      },
+      "seq": 34,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706058
+    },
+    {
+      "event": {
+        "type": "run.finished",
+        "runId": "276a784f-138e-43c8-9ec6-3aa86c5da48c",
+        "outcome": "completed"
+      },
+      "seq": 35,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706059
+    },
+    {
+      "event": {
+        "commandId": "449c9eec-4186-41ff-89bb-4ebad036cd56",
+        "method": "run/start",
+        "payload": {
+          "commandId": "449c9eec-4186-41ff-89bb-4ebad036cd56",
+          "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+          "modelId": "scripted",
+          "parentMessageId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+          "prompt": "Add a rollback step with an owner."
+        },
+        "result": {
+          "runId": "1627c432-8fed-4214-a973-fb773cd09296"
+        },
+        "type": "command.accepted"
+      },
+      "seq": 36,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706077
+    },
+    {
+      "event": {
+        "type": "run.started",
+        "runId": "1627c432-8fed-4214-a973-fb773cd09296",
+        "modelId": "scripted",
+        "parentMessageId": "6bd8173a-918f-4a53-af6c-68634d58e4e1",
+        "prompt": "Add a rollback step with an owner.",
+        "snapshot": {
+          "configuration": {},
+          "maxSteps": 3,
+          "toolIdentities": {}
+        }
+      },
+      "seq": 37,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706077
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "1627c432-8fed-4214-a973-fb773cd09296",
+        "chunk": {
+          "type": "start"
+        }
+      },
+      "seq": 38,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706077
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "1627c432-8fed-4214-a973-fb773cd09296",
+        "chunk": {
+          "type": "start-step",
+          "request": {},
+          "warnings": []
+        }
+      },
+      "seq": 39,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706078
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "1627c432-8fed-4214-a973-fb773cd09296",
+        "chunk": {
+          "id": "text-1",
+          "type": "text-start"
+        }
+      },
+      "seq": 40,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706079
+    },
+    {
+      "event": {
+        "type": "model.step",
+        "runId": "1627c432-8fed-4214-a973-fb773cd09296",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "Recorded answer 3."
+              }
+            ]
+          }
+        ],
+        "model": {
+          "provider": "mock-provider",
+          "modelId": "mock-model-id"
+        },
+        "stepNumber": 0,
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        }
+      },
+      "seq": 41,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706079
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "1627c432-8fed-4214-a973-fb773cd09296",
+        "chunk": {
+          "type": "text-delta",
+          "id": "text-1",
+          "text": "Recorded answer 3."
+        }
+      },
+      "seq": 42,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706084
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "1627c432-8fed-4214-a973-fb773cd09296",
+        "chunk": {
+          "id": "text-1",
+          "type": "text-end"
+        }
+      },
+      "seq": 43,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706085
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "1627c432-8fed-4214-a973-fb773cd09296",
+        "chunk": {
+          "type": "finish-step",
+          "finishReason": "stop",
+          "rawFinishReason": "stop",
+          "usage": {
+            "inputTokens": 1,
+            "inputTokenDetails": {
+              "noCacheTokens": 1,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0
+            },
+            "outputTokens": 1,
+            "outputTokenDetails": {
+              "textTokens": 1,
+              "reasoningTokens": 0
+            },
+            "totalTokens": 2
+          },
+          "performance": {
+            "stepTimeMs": 0.46862499999997453,
+            "toolExecutionMs": {},
+            "responseTimeMs": 0.19670799999994415,
+            "effectiveOutputTokensPerSecond": 5083.677328834027,
+            "outputTokensPerSecond": 16609.088493226605,
+            "inputTokensPerSecond": 7326.007326009718,
+            "effectiveTotalTokensPerSecond": 10167.354657668055,
+            "timeToFirstOutputMs": 0.13649999999995543
+          },
+          "response": {
+            "id": "aitxt-6l6iPv9KFpwf8BdYuwSKHKOY",
+            "timestamp": "2026-10-08T08:05:06.077Z",
+            "modelId": "mock-model-id"
+          }
+        }
+      },
+      "seq": 44,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706085
+    },
+    {
+      "event": {
+        "type": "stream.chunk",
+        "runId": "1627c432-8fed-4214-a973-fb773cd09296",
+        "chunk": {
+          "type": "finish",
+          "finishReason": "stop",
+          "rawFinishReason": "stop",
+          "totalUsage": {
+            "inputTokens": 1,
+            "inputTokenDetails": {
+              "noCacheTokens": 1,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0
+            },
+            "outputTokens": 1,
+            "outputTokenDetails": {
+              "textTokens": 1,
+              "reasoningTokens": 0
+            },
+            "totalTokens": 2
+          }
+        }
+      },
+      "seq": 45,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706089
+    },
+    {
+      "event": {
+        "type": "run.finished",
+        "runId": "1627c432-8fed-4214-a973-fb773cd09296",
+        "outcome": "completed"
+      },
+      "seq": 46,
+      "threadId": "dd80428e-3a10-473c-a09c-b4f99b81e4d2",
+      "ts": 1791446706089
+    }
+  ]
+}

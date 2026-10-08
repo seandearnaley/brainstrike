@@ -62,6 +62,12 @@ function desktopRuntimeConfiguration(
     ...(selected.configuration.providerOptions
       ? { providerOptions: selected.configuration.providerOptions }
       : {}),
+    ...(selected.workspace
+      ? {
+          boundWorkspaceRootId: selected.workspace.boundWorkspaceRootId,
+          workspaceRoots: selected.workspace.roots,
+        }
+      : {}),
   };
 }
 
@@ -128,6 +134,7 @@ export async function createHostPlatform(
         {
           ...(admission.configuration ? { configuration: admission.configuration } : {}),
           ...(admission.snapshot ? { snapshot: admission.snapshot } : {}),
+          ...(admission.workspaceBinding ? { workspaceBinding: admission.workspaceBinding } : {}),
           modelId: admission.modelId,
           ...(admission.prompt === undefined ? {} : { prompt: admission.prompt }),
           threadId: admission.threadId,
@@ -336,5 +343,10 @@ export async function createHostPlatform(
       throw new Error('Desktop provider auth requires an admitted thread selection');
     },
     startup,
+    validateWorkspaceBinding: async ({ binding, signal, threadId }) => {
+      z.strictObject({ accepted: z.literal(true) }).parse(
+        await request('platform/workspace/validate', { binding, threadId }, signal)
+      );
+    },
   });
 }

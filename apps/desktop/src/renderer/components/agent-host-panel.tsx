@@ -1,7 +1,10 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { CommittedThreadSession, foldHostRuns } from '@brainstrike/agent-host/thread-view';
+import { createLogger } from '@brainstrike/logging';
 import { Button } from '@brainstrike/ui';
 import { type ReactElement, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+
+const logger = createLogger('AgentHostPanel');
 
 export interface AgentHostPanelProps {
   readonly client: HostClient;
@@ -23,7 +26,15 @@ export function AgentHostPanel({ client, threadId, modelId }: AgentHostPanelProp
   const [error, setError] = useState<string>();
   const [working, setWorking] = useState(false);
   const connected = snapshot.connected;
-  useEffect(() => session.connect(), [session]);
+  useEffect(() => {
+    const disconnect = session.connect();
+    return () => {
+      // The client outlives this panel; a refused unsubscribe is reported, never swallowed.
+      disconnect().catch((error: unknown) => {
+        logger.error('Host panel unsubscribe failed', { error, threadId });
+      });
+    };
+  }, [session, threadId]);
   const perform = async (action: () => Promise<unknown>): Promise<void> => {
     setWorking(true);
     setError(undefined);

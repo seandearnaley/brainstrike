@@ -66,6 +66,7 @@ export interface ProductionHostPlatformOptions {
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   readonly startup: HostStartupContext;
   readonly stateIndexer?: StateStoreIndexerPort;
+  readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
 function rootModel(
@@ -165,6 +166,9 @@ export async function createProductionHostPlatform(
   // Register ownership before the first provider, Memory or MCP side effect.
   await options.startup.register(close);
   return {
+    ...(options.validateWorkspaceBinding
+      ? { validateWorkspaceBinding: options.validateWorkspaceBinding }
+      : {}),
     ...(options.stateIndexer ? { stateIndexer: options.stateIndexer } : {}),
     admitRun: async (request) => {
       if (closing) {

@@ -1,6 +1,8 @@
+import { isDeepStrictEqual } from 'node:util';
 import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import {
   canonicalToolInputJsonSchema,
+  type HostPlatform,
   type HostRunAdmissionRequest,
   type HostTool,
   validateCanonicalToolInput,
@@ -18,11 +20,13 @@ import {
   type PlatformSelection,
   PlatformSelectionSchema,
   PlatformToolRequestSchema,
+  PlatformWorkspaceBindingRequestSchema,
 } from './platform-wire';
 import { serveProviderFetchTransport } from './provider-fetch-transport';
 
 export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools'> {
   close(): Promise<void>;
+  revalidateWorkspace?(signal: AbortSignal): Promise<void>;
   readonly tools: Readonly<Record<string, HostTool>>;
 }
 export interface DesktopPlatformCapabilities {
@@ -33,6 +37,7 @@ export interface DesktopPlatformCapabilities {
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
+  readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
 async function describePlatformSelection(
@@ -63,7 +68,12 @@ async function describePlatformSelection(
       ])
     )
   );
-  const { close: _close, tools: _tools, ...configuration } = captured;
+  const {
+    close: _close,
+    revalidateWorkspace: _revalidateWorkspace,
+    tools: _tools,
+    ...configuration
+  } = captured;
   return PlatformSelectionSchema.parse({ ...configuration, tools });
 }
 
@@ -86,6 +96,22 @@ async function rejectPlatformSelection(
 interface DesktopSelectionOwner {
   closing?: Promise<void>;
   readonly selection: DesktopPlatformSelection;
+  readonly workspaceBinding?: HostRunAdmissionRequest['workspaceBinding'];
+}
+
+function desktopAdmissionRequest(
+  request: ReturnType<typeof PlatformRunRequestSchema.parse>,
+  signal: AbortSignal
+): HostRunAdmissionRequest {
+  return {
+    ...(request.configuration ? { configuration: request.configuration } : {}),
+    ...(request.snapshot ? { snapshot: request.snapshot } : {}),
+    ...(request.workspaceBinding ? { workspaceBinding: request.workspaceBinding } : {}),
+    modelId: request.modelId,
+    ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
+    signal,
+    threadId: request.threadId,
+  };
 }
 
 async function closeDesktopProviderSelection(
@@ -222,6 +248,25 @@ export function serveDesktopPlatform(
       return PlatformPolicySchema.parse(await capabilities.readPermissionPolicy(threadId));
     })
   );
+  connection.onRequest('platform/workspace/validate', (input: unknown, token: CancellationToken) =>
+    execute(token, async (signal) => {
+      const request = PlatformWorkspaceBindingRequestSchema.parse(input);
+      if (!capabilities.validateWorkspaceBinding) {
+        throw new Error('Desktop has no live workspace binding owner');
+      }
+      const captured = selections.get(request.threadId);
+      if (
+        captured?.selection.revalidateWorkspace &&
+        isDeepStrictEqual(captured.workspaceBinding, request.binding)
+      ) {
+        await captured.selection.revalidateWorkspace(signal);
+      } else {
+        await capabilities.validateWorkspaceBinding({ ...request, signal });
+      }
+      signal.throwIfAborted();
+      return { accepted: true };
+    })
+  );
   connection.onRequest('platform/admit', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
       const request = PlatformRunRequestSchema.parse(input);
@@ -231,15 +276,11 @@ export function serveDesktopPlatform(
       admissions.add(request.threadId);
       let captured: DesktopPlatformSelection | undefined;
       try {
-        const borrowed = await capabilities.readConfiguration({
-          ...(request.configuration ? { configuration: request.configuration } : {}),
-          ...(request.snapshot ? { snapshot: request.snapshot } : {}),
-          modelId: request.modelId,
-          ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
-          signal,
-          threadId: request.threadId,
-        });
+        const borrowed = await capabilities.readConfiguration(
+          desktopAdmissionRequest(request, signal)
+        );
         const owner: DesktopSelectionOwner = {
+          ...(request.workspaceBinding ? { workspaceBinding: request.workspaceBinding } : {}),
           selection: {
             ...borrowed,
             close: () =>

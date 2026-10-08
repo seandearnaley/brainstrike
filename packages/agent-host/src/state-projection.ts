@@ -95,7 +95,10 @@ export function messages(
   for (const row of rows) {
     if (row.event.type === 'run.started') {
       const { accepted } = committedRunSource(rows, row.event.runId);
-      append(accepted.event.commandId, row.seq);
+      // A regeneration answers its committed user message again; it adds no message.
+      if (row.event.userMessageId === undefined) {
+        append(accepted.event.commandId, row.seq);
+      }
       for (const segment of rows) {
         const event = segment.event;
         if (

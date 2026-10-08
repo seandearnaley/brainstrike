@@ -1,14 +1,10 @@
-import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
+import recorded from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json' with {
+  type: 'json',
+};
 
 // This storage proof admits only the exact producer-owned recorded HostEvent bodies.
 // Production delegates to HostEventSchema in Studio's trusted producer module.
-const recorded = JSON.parse(
-  readFileSync(
-    new URL('../../../agent-host/__tests__/fixtures/approved-run-log.json', import.meta.url),
-    'utf8'
-  )
-);
 
 export function decode(raw, mode) {
   const { seq, ...event } = JSON.parse(raw);

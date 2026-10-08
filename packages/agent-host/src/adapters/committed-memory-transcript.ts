@@ -46,14 +46,18 @@ export function committedMemoryTranscript(
     }
     const runId = started.event.runId;
     const identity = committedRunIdentity(rows, runId);
-    append({
-      content: { format: 2, parts: [{ text: started.event.prompt, type: 'text' }] },
-      createdAt: identity.createdAt,
-      id: identity.userMessageId,
-      resourceId,
-      role: 'user',
-      threadId: started.threadId,
-    });
+    // A regeneration answers its committed user message again; only the
+    // run/start that committed it contributes the message.
+    if (started.event.userMessageId === undefined) {
+      append({
+        content: { format: 2, parts: [{ text: started.event.prompt, type: 'text' }] },
+        createdAt: identity.createdAt,
+        id: identity.userMessageId,
+        resourceId,
+        role: 'user',
+        threadId: started.threadId,
+      });
+    }
     const previous: MastraDBMessage[] = [];
     let modelMetadata: ReturnType<typeof committedModelMetadata>;
     const segments = rows.filter(
