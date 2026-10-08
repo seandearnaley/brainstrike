@@ -115,6 +115,29 @@ async function openWorktreeMapTab(page: Page): Promise<void> {
   await expect(page.getByTestId('worktree-map-card').first()).toBeVisible({ timeout: 30_000 });
 }
 
+const ACTIVE_THREAD_PANEL = '[data-testid^="assistant-thread-panel-"]:not([hidden])';
+
+async function activeThreadId(page: Page): Promise<string> {
+  const panel = page.locator(ACTIVE_THREAD_PANEL);
+  await expect(panel).toHaveCount(1, { timeout: 30_000 });
+  const testId = await panel.getAttribute('data-testid');
+  if (!testId) {
+    throw new Error('The active assistant thread panel has no thread id');
+  }
+  return testId.slice('assistant-thread-panel-'.length);
+}
+
+/**
+ * "New thread here" must open a NEW thread created by the agent host: the
+ * committed conversation renders it, never the legacy history panel.
+ */
+async function expectNewCommittedThread(page: Page, previousThreadId: string): Promise<void> {
+  await expect.poll(() => activeThreadId(page), { timeout: 30_000 }).not.toBe(previousThreadId);
+  const panel = page.locator(ACTIVE_THREAD_PANEL);
+  await expect(panel.getByTestId('assistant-conversation-panel')).toBeVisible({ timeout: 30_000 });
+  await expect(panel.getByTestId('chat-panel')).toHaveCount(0);
+}
+
 async function queryRows<Row extends Record<string, unknown>>(
   page: Page,
   sql: string,
@@ -385,7 +408,9 @@ test.describe('Worktree Map (desktop)', () => {
 
     const newThread = externalCard.getByTestId('worktree-map-new-thread');
     await expect(newThread).toBeEnabled({ timeout: 30_000 });
+    const previousThreadId = await activeThreadId(page);
     await newThread.click();
+    await expectNewCommittedThread(page, previousThreadId);
     // Two thread tabs are open at this point (the original "New Thread" plus
     // the one just opened for the adopted worktree) and each carries its own
     // mode chip, so the bare testid resolves to two elements — scope to the
@@ -429,7 +454,9 @@ test.describe('Worktree Map (desktop)', () => {
 
     const newThread = nestedCard.getByTestId('worktree-map-new-thread');
     await expect(newThread).toBeEnabled({ timeout: 30_000 });
+    const previousThreadId = await activeThreadId(page);
     await newThread.click();
+    await expectNewCommittedThread(page, previousThreadId);
     // The mount is the step the old rule refused; a bound mode chip proves
     // mount + thread bind both completed instead of the stated
     // "can't be mounted automatically" action error.

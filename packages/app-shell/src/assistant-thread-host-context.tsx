@@ -1,5 +1,6 @@
 import type {
   AssistantMemoryThread,
+  AssistantThreadMetadata,
   AssistantThreadRepository,
   ThreadWorkspaceRepository,
 } from '@brainstrike/assistant-data';
@@ -11,7 +12,14 @@ export interface AssistantThreadHostCapability {
   /** True only for an identity owned and physically deleted by this host. */
   deleteThread(threadId: string): Promise<boolean>;
   listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]>;
+  /** True only for an identity this host owns; its metadata never reaches history. */
+  ownsThread(threadId: string): Promise<boolean>;
   renderThread(threadId: string, isVisible: boolean): ReactNode | undefined;
+  /**
+   * Commits an owned thread's workspace binding keys through the host. Any key
+   * the host does not own rejects before a request, never reaching history.
+   */
+  updateThreadBinding(threadId: string, metadata: AssistantThreadMetadata): Promise<void>;
   workspaceRepository(history: ThreadWorkspaceRepository): ThreadWorkspaceRepository;
 }
 export const AssistantThreadHostContext = createContext<AssistantThreadHostCapability | undefined>(
@@ -35,10 +43,25 @@ export function withAssistantThreadHost<Repository extends AssistantThreadReposi
     }
   };
   const deleteHistoryThreads = repository.deleteThreads?.bind(repository);
+  // A host identity has no history row: a history write would update nothing
+  // and report success, so a host-owned id never falls through to it.
+  const updateThreadMetadata = async (
+    threadId: string,
+    metadata: AssistantThreadMetadata
+  ): Promise<void> => {
+    if (await host.ownsThread(threadId)) {
+      await host.updateThreadBinding(threadId, metadata);
+      return;
+    }
+    await repository.updateThreadMetadata(threadId, metadata);
+  };
+  // The bulk path stays with history: it already refuses, before any write,
+  // any id without a history row (assertAllBulkThreadsFound).
   return {
     ...repository,
     createThread: (resourceId) => host.createThread(resourceId),
     deleteThread,
+    updateThreadMetadata,
     ...(deleteHistoryThreads
       ? {
           deleteThreads: async (threadIds: readonly string[]): Promise<void> => {

@@ -10,9 +10,10 @@ import { type UseWorkspaceBarArgs, useWorkspaceBar } from '../hooks/use-workspac
 
 export interface WorkspaceBarHostProps extends UseWorkspaceBarArgs {
   /**
-   * Present when the selected thread has no durable owner for its
-   * thread-scoped workspace facts (its attached folder set and its
-   * Local/Worktree checkout binding). Every action whose last step writes one
+   * Present when the selected thread's folder-scope writes (its attached
+   * folder set, operating root and Local/Worktree checkout binding) cannot be
+   * committed: no durable owner, or an owner that refuses scope changes its
+   * platform cannot validate yet. Every action whose last step writes one
    * of those facts is gated BEFORE its side effects run: Add folder and Recent
    * would mount the folder globally, and a new worktree would be created on
    * disk, before the thread write is refused. Add folder, Recent, New

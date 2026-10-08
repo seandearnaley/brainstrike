@@ -2,14 +2,22 @@ import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import type { AssistantThreadHostCapability } from '@brainstrike/app-shell/assistant-thread-host-context';
 import { DEFAULT_THREAD_TITLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import {
+  type ThreadWorkspaceBinding,
+  ThreadWorkspaceBindingSchema,
+} from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import {
   type AssistantMemoryThread,
+  type AssistantThreadMetadata,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { connectDesktopAgentHost } from './agent-host-client';
 
-/** Transient display projection of the owner's committed identity and timestamps. */
+/** Workspace views and binding changes are thread state, not conversation activity. */
+const WORKSPACE_COMMANDS = new Set(['thread/workspace/set', 'thread/workspace/binding/update']);
+
+/** Transient display projection of the owner's committed identity, binding and timestamps. */
 function projectThread(
   threadId: string,
   resourceId: string,
@@ -22,15 +30,39 @@ function projectThread(
   const latest = rows.findLast(
     (row) =>
       row.event.type !== 'workspace.updated' &&
-      !(row.event.type === 'command.accepted' && row.event.method === 'thread/workspace/set')
+      row.event.type !== 'workspace.binding.updated' &&
+      !(row.event.type === 'command.accepted' && WORKSPACE_COMMANDS.has(row.event.method))
   );
+  // Each committed binding event carries the full merged binding.
+  const bound = rows.findLast((row) => row.event.type === 'workspace.binding.updated');
   return {
     createdAt: new Date(started.ts),
     id: threadId,
+    ...(bound?.event.type === 'workspace.binding.updated' ? { metadata: bound.event.binding } : {}),
     resourceId,
     title: DEFAULT_THREAD_TITLE,
     updatedAt: new Date(latest?.ts ?? started.ts),
   };
+}
+
+/**
+ * The host owns only the thread workspace binding keys. Any other key (colour,
+ * icon, model…) has no host owner yet and is refused here, before a request,
+ * rather than reaching a history repository that has no row for this thread.
+ */
+function bindingPatch(metadata: AssistantThreadMetadata): ThreadWorkspaceBinding {
+  const parsed = ThreadWorkspaceBindingSchema.safeParse(metadata);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  const unowned = parsed.error.issues.flatMap((issue) =>
+    issue.code === 'unrecognized_keys' ? issue.keys : []
+  );
+  throw new Error(
+    unowned.length > 0
+      ? `Agent host threads do not store ${unowned.join(', ')} yet; nothing was changed.`
+      : (parsed.error.issues[0]?.message ?? 'Invalid thread workspace binding')
+  );
 }
 
 export function createWindowThreadCapability(
@@ -114,7 +146,20 @@ export function createWindowThreadCapability(
       return true;
     },
     listThreads,
+    ownsThread: async (threadId) => (await threadClient(threadId)) !== undefined,
     renderThread: (threadId) => renderThread(threads.get(threadId), threadId, catalogLoaded),
+    updateThreadBinding: async (threadId, metadata) => {
+      const patch = bindingPatch(metadata);
+      const host = await threadClient(threadId);
+      if (!host) {
+        throw new Error('This thread is not owned by the agent host');
+      }
+      await host.request('thread/workspace/binding/update', {
+        commandId: crypto.randomUUID(),
+        patch,
+        threadId,
+      });
+    },
     workspaceRepository: (history) => {
       const getThreadWorkspace = async (threadId: string) => {
         const host = await threadClient(threadId);
