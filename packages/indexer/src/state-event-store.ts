@@ -15,6 +15,7 @@ import {
   stateThreadsSchema,
 } from './contracts.js';
 import { StateMessageVectors } from './state-message-vectors.js';
+import { StateObservationVectors } from './state-observation-vectors.js';
 import type { StateProjection } from './state-projection.js';
 
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
@@ -58,6 +59,7 @@ export class StateEventStore {
       INSERT INTO state_events_fts(state_events_fts,rank) VALUES('secure-delete',1);
     `);
     StateMessageVectors.initialize(db);
+    StateObservationVectors.initialize(db);
     db.prepare('INSERT INTO state_index_source VALUES(1,?,?,?)').run(
       root ?? null,
       projection?.identity ?? null,
@@ -114,6 +116,7 @@ export class StateEventStore {
   }
 
   readonly messages: StateMessageVectors;
+  readonly observations: StateObservationVectors;
 
   constructor(
     private readonly db: Database.Database,
@@ -126,6 +129,7 @@ export class StateEventStore {
     }
     this.truth = new SqliteReader(root);
     this.messages = new StateMessageVectors(db, this.truth, projection, options);
+    this.observations = new StateObservationVectors(db, this.truth, projection, this.messages);
     db.exec("INSERT INTO state_events_fts(state_events_fts,rank) VALUES('integrity-check',1)");
   }
 
@@ -198,8 +202,10 @@ export class StateEventStore {
     if (row?.kind !== 'event' || row.seq !== seq) {
       throw new Error('State reindex requires the exact verified committed truth event');
     }
+    // Persist retirement before fallible projection/observation reads; a failed cleanup stays fenced.
+    this.messages.invalidate(threadId, seq);
     this.db.transaction(() => {
-      this.messages.invalidate(threadId, seq);
+      this.observations.invalidate(threadId);
       this.replace(threadId, seq, row.raw);
     })();
     this.messages.finishCleanup();
@@ -208,8 +214,9 @@ export class StateEventStore {
 
   rebuild(input: unknown): boolean {
     const threadId = decoder(Schema.NonEmptyString)(input);
+    this.messages.invalidate(threadId);
     this.db.transaction(() => {
-      this.messages.invalidate(threadId);
+      this.observations.invalidate(threadId);
       this.db.prepare('DELETE FROM state_event_rows WHERE thread_id=?').run(threadId);
       this.db.prepare('DELETE FROM state_thread_cursors WHERE thread_id=?').run(threadId);
       this.catchUp([threadId]);
@@ -277,13 +284,14 @@ export class StateEventStore {
     if (this.truth.watermark(threadId) !== 0) {
       throw new Error('State thread deletion requires authoritative truth deletion first');
     }
+    this.messages.invalidate(threadId);
     this.db.transaction(() => {
       this.db
         .prepare(
           'INSERT OR IGNORE INTO state_dropped_blob_refs SELECT ?,r.hash FROM state_event_blob_refs r JOIN state_event_rows e ON e.pk=r.event_pk WHERE e.thread_id=?'
         )
         .run(threadId, threadId);
-      this.messages.invalidate(threadId);
+      this.observations.invalidate(threadId);
       this.db.prepare('DELETE FROM state_event_rows WHERE thread_id=?').run(threadId);
       this.db.prepare('DELETE FROM state_thread_cursors WHERE thread_id=?').run(threadId);
     })();

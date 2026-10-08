@@ -27,6 +27,18 @@ try {
       stateOperation = request.op.startsWith('state-');
       let value: unknown;
       switch (request.op) {
+        case 'state-observation-prepare':
+          value = writer.requireState().observations.prepare(request.payload);
+          break;
+        case 'state-observation-upsert':
+          value = writer.requireState().observations.upsert(request.payload);
+          break;
+        case 'state-observation-query':
+          value = writer.requireState().observations.query(request.payload);
+          break;
+        case 'state-observation-purge':
+          value = writer.requireState().observations.purge(request.payload);
+          break;
         case 'state-message-prepare':
           value = writer.requireState().messages.prepare(request.payload);
           break;
