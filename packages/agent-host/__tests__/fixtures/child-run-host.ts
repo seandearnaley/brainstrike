@@ -17,7 +17,7 @@ import { type MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { expect } from 'vitest';
 import { z } from 'zod';
 import { HostCore, type HostEventStore } from '../../src/core.js';
-import type { HostClientOrigin, HostPlatform } from '../../src/ports.js';
+import type { HostClientOrigin, HostPlatform, HostTool } from '../../src/ports.js';
 import type { HostLogRow } from '../../src/protocol.js';
 
 export type Chunk =
@@ -114,30 +114,75 @@ export function blocked(options: StreamOptions) {
   };
 }
 
+/** The shipped general worker: every tool the parent admitted, under the root's policy. */
+export const worker: AssistantPersonaDefinition = {
+  allowedToolIds: ['*'],
+  description: 'Delegate an authorized deliverable.',
+  id: 'worker',
+  instructions: 'You are the Worker subagent.',
+  label: 'Worker',
+  maxSteps: 6,
+  mode: 'worker',
+};
+
+/** Overrides for a fixture host: its personas, root policy and extra tools. */
+export interface ChildRunFixture {
+  /** The platform's run owner (Memory), opened with each run's context. */
+  readonly openRun?: HostPlatform['openRun'];
+  readonly personas?: readonly AssistantPersonaDefinition[];
+  /** The live root policy for `threadId`; defaults to read and edit allowed. */
+  readonly policy?: HostPlatform['readPermissionPolicy'];
+  readonly settings?: Partial<RuntimeSubagentSettings>;
+}
+
+/** A canonical question tool: answered by `interaction/resume`, then it returns the answer. */
+export const askUserTool: HostTool = {
+  description: 'Ask the user a question',
+  execute: async (_input, context) => context.resumeData,
+  identity: 'native-ask-user-generation-1',
+  inputSchema: z.object({ question: z.string() }),
+  interaction: { kind: 'question', resumeSchema: z.object({ answer: z.string() }) },
+  risk: 'read',
+};
+
 export function fixturePlatform(
   model: MockLanguageModelV4,
   writes: string[] = [],
-  settings: Partial<RuntimeSubagentSettings> = {}
+  fixture: ChildRunFixture = {}
 ): HostPlatform {
   return {
     close: async () => undefined,
     delegation: {
-      personas: [explorer],
-      settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, ...settings },
+      personas: fixture.personas ?? [explorer],
+      settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, ...fixture.settings },
     },
     maxSteps: 4,
-    readPermissionPolicy: () => ({
-      policies: { ...DEFAULT_PERMISSION_POLICIES, edit: 'allow', read: 'allow' },
-      yolo: false,
-    }),
+    ...(fixture.openRun ? { openRun: fixture.openRun } : {}),
+    readPermissionPolicy:
+      fixture.policy ??
+      (() => ({
+        policies: { ...DEFAULT_PERMISSION_POLICIES, edit: 'allow', read: 'allow' },
+        yolo: false,
+      })),
     resolveModel: async () => model,
     tools: {
+      ask_user: askUserTool,
       read_file: {
         description: 'Read a workspace file',
         execute: async () => ({ content: NOTES }),
         identity: 'native-read-generation-1',
         inputSchema: z.object({ path: z.string() }),
         risk: 'read',
+      },
+      run_command: {
+        description: 'Run a workspace command',
+        execute: async (input) => {
+          writes.push(JSON.stringify(input));
+          return { exitCode: 0 };
+        },
+        identity: 'native-command-generation-1',
+        inputSchema: z.object({ command: z.string() }),
+        risk: 'execute',
       },
       write_file: {
         description: 'Write a workspace file',
@@ -157,7 +202,7 @@ export function fixturePlatform(
 export async function setupChildRunHost(
   model: MockLanguageModelV4,
   cleanup: (() => Promise<void>)[],
-  settings: Partial<RuntimeSubagentSettings> = {},
+  fixture: ChildRunFixture = {},
   /** Replaces the default admission, as a production platform's `admitRun` does. */
   admit?: (platform: HostPlatform) => HostPlatform['admitRun']
 ) {
@@ -184,7 +229,7 @@ export async function setupChildRunHost(
   };
   let current = writer();
   const writes: string[] = [];
-  const base = fixturePlatform(model, writes, settings);
+  const base = fixturePlatform(model, writes, fixture);
   const admitRun = admit?.(base);
   const platform: HostPlatform = admitRun ? { ...base, admitRun } : base;
   let core = await HostCore.open(current.port, platform, () => () => undefined);
@@ -230,14 +275,18 @@ export type ChildRunHarness = Awaited<ReturnType<typeof setupChildRunHost>>;
 export async function rowsUntil(
   harness: ChildRunHarness,
   threadId: string,
-  done: (row: HostLogRow) => boolean
+  done: (row: HostLogRow) => boolean,
+  timeout = 1000
 ): Promise<HostLogRow[]> {
   let rows: HostLogRow[] = [];
   await expect
-    .poll(async () => {
-      rows = await harness.core().read(threadId, 0);
-      return rows.some(done);
-    })
+    .poll(
+      async () => {
+        rows = await harness.core().read(threadId, 0);
+        return rows.some(done);
+      },
+      { timeout }
+    )
     .toBe(true);
   return rows;
 }

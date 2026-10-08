@@ -1,4 +1,7 @@
-import { resolvePermissionDecision } from '@brainstrike/assistant-contract';
+import {
+  intersectChildPermissionCeilings,
+  resolvePermissionDecision,
+} from '@brainstrike/assistant-contract';
 import type { StepResult, ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import { withHostDelegationTools } from './child-runs.js';
@@ -302,7 +305,11 @@ export async function hostRunToolDecision(
   if (registered.delegation) {
     return 'allow';
   }
-  const snapshot = await platform.readPermissionPolicy(run.threadId);
+  // BST-1932: a descendant follows its root's live policy; its admitted denies stay frozen.
+  const live = await platform.readPermissionPolicy(run.policyThreadId ?? run.threadId);
+  const snapshot = run.admittedPolicy
+    ? (intersectChildPermissionCeilings(run.admittedPolicy, live) ?? live)
+    : live;
   const permissionToolId = registered.permissionToolId ?? toolId;
   // ADR-0010: explicit deny outranks a session grant or YOLO.
   if (

@@ -384,6 +384,8 @@ export const HostEventSchema = z.union([
   z.strictObject({
     type: z.literal('interaction.responded'),
     ...RunFields,
+    /** BST-1932: the root's live policy, not a person, answered this approval. */
+    by: z.literal('policy').optional(),
     decision: z.enum(['approve', 'deny']),
     interactionId: Id,
   }),

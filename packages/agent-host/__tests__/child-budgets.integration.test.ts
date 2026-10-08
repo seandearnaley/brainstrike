@@ -40,16 +40,22 @@ const runsOf = (rows: readonly HostLogRow[]) =>
 
 async function settledChildren(harness: ChildRunHarness, count: number): Promise<string[]> {
   let threads: string[] = [];
+  // Room for the 1 s child deadline to expire before the poll gives up.
   await expect
-    .poll(async () => {
-      threads = await childThreads(harness);
-      const done = await Promise.all(
-        threads.map(async (threadId) =>
-          (await harness.core().read(threadId, 0)).some((row) => row.event.type === 'run.finished')
-        )
-      );
-      return threads.length === count && done.every(Boolean);
-    })
+    .poll(
+      async () => {
+        threads = await childThreads(harness);
+        const done = await Promise.all(
+          threads.map(async (threadId) =>
+            (await harness.core().read(threadId, 0)).some(
+              (row) => row.event.type === 'run.finished'
+            )
+          )
+        );
+        return threads.length === count && done.every(Boolean);
+      },
+      { timeout: 5000 }
+    )
     .toBe(true);
   return threads;
 }
@@ -82,7 +88,7 @@ test('every model step of the turn’s children queues FIFO on maxConcurrentWork
       return stream(text(`${lastUser(call)} done.`));
     },
   });
-  const harness = await setupChildRunHost(model, cleanup, { maxConcurrentWork: 1 });
+  const harness = await setupChildRunHost(model, cleanup, { settings: { maxConcurrentWork: 1 } });
   const runId = await harness.start('Fan out.');
   await rowsUntil(harness, harness.threadId, finished(runId));
   await expect.poll(() => gates.length).toBe(1);
@@ -115,7 +121,7 @@ test('the turn’s invocation budget refuses an extra delegation with the shippe
       return stream(text(`${lastUser(call)} done.`));
     },
   });
-  const harness = await setupChildRunHost(model, cleanup, { maxInvocations: 1 });
+  const harness = await setupChildRunHost(model, cleanup, { settings: { maxInvocations: 1 } });
   const runId = await harness.start('Fan out.');
   await rowsUntil(harness, harness.threadId, finished(runId));
   await settledChildren(harness, 1);
@@ -156,9 +162,7 @@ test('a child’s last step is a tool-free summary, and every step is capped by 
     },
   });
   const harness = await setupChildRunHost(model, cleanup, {
-    maxChildSteps: 3,
-    maxStepOutputTokens: 512,
-    synthesisOutputTokens: 256,
+    settings: { maxChildSteps: 3, maxStepOutputTokens: 512, synthesisOutputTokens: 256 },
   });
   const runId = await harness.start('Delegate a survey.');
   await rowsUntil(harness, harness.threadId, finished(runId));
@@ -194,7 +198,7 @@ test('an expired child deadline fails that child alone; its siblings complete', 
     },
   });
   const harness = await setupChildRunHost(model, cleanup, {
-    maxChildRuntimeMs: 1000,
+    settings: { maxChildRuntimeMs: 1000 },
   });
   const runId = await harness.start('Fan out.');
   await rowsUntil(harness, harness.threadId, finished(runId));

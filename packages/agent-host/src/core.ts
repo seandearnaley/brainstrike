@@ -14,6 +14,7 @@ import {
 import { commitHostModelStep } from './core-model-step.js';
 import { reportRetiredHostOutcomes } from './core-retirement.js';
 import {
+  abortHostClosingWork,
   abortHostThreadRuns,
   acceptHostRunStop,
   assertHostAdmissionCleanup,
@@ -79,6 +80,7 @@ import {
 } from './run-branch.js';
 
 import {
+  approveHostRunByPolicy,
   commitHostInteractionResponse,
   commitHostModelMessages,
   createHostApprovalResponses,
@@ -582,11 +584,8 @@ export class HostCore {
         recordHostConversationId(this.conversationIds, child.id);
       },
       commitEffect: () => this.append(run.threadId, [action]).then(() => undefined),
-      expire: (child, detail) => {
-        child.deadline = detail;
-        child.controller.abort(new Error(detail));
-      },
       loop: (child, model) => this.loop(child, model),
+      policy: async (threadId) => await this.platform.readPermissionPolicy(threadId),
       retainRun: this.retainRun,
       stop: (child, reason) => {
         if (!this.closing) {
@@ -629,6 +628,7 @@ export class HostCore {
     const ancestors = hostRunAncestors(this.runs, run);
     let recordedInputLength = initialMessages.length;
     let historyPrepared = false;
+    const deadline = this.children.armDeadline(run);
     try {
       const owner = await this.openRun(run);
       const admission = await ensureHostRunAdmission(this.platform, run);
@@ -717,6 +717,7 @@ export class HostCore {
       interrupted = cause instanceof ApprovalInputReconstructionError;
       failed = cause instanceof Error ? cause.message : String(cause);
     }
+    clearTimeout(deadline);
     if (checkpointFailure !== undefined) {
       throw checkpointFailure;
     }
@@ -779,29 +780,41 @@ export class HostCore {
   }
 
   respond(params: HostParams<'interaction/respond'>): Promise<{ accepted: true }> {
-    return this.command('interaction/respond', params, () =>
-      commitHostInteractionResponse(
-        this.run(params.threadId, params.runId),
-        this.platform,
-        params,
-        (event) =>
-          this.accept(params.threadId, 'interaction/respond', params, { accepted: true }, [event]),
-        () => this.continueRun(this.run(params.threadId, params.runId))
-      )
-    );
+    return this.answer('interaction/respond', params);
   }
 
   resume(params: HostParams<'interaction/resume'>): Promise<{ accepted: true }> {
-    return this.command('interaction/resume', params, () =>
-      commitHostInteractionResponse(
-        this.run(params.threadId, params.runId),
+    return this.answer('interaction/resume', params);
+  }
+
+  private answer(
+    method: 'interaction/respond' | 'interaction/resume',
+    params: HostParams<'interaction/respond'> | HostParams<'interaction/resume'>
+  ): Promise<{ accepted: true }> {
+    return this.command(method, params, async () => {
+      const run = this.run(params.threadId, params.runId);
+      const answered = await commitHostInteractionResponse(
+        run,
         this.platform,
         params,
-        (event) =>
-          this.accept(params.threadId, 'interaction/resume', params, { accepted: true }, [event]),
-        () => this.continueRun(this.run(params.threadId, params.runId))
-      )
-    );
+        (event) => this.accept(params.threadId, method, params, { accepted: true }, [event]),
+        () => this.continueRun(run)
+      );
+      this.children.releaseGranted(params.threadId, this.runs, (sibling, interactionId) =>
+        this.admit(sibling.threadId, () =>
+          approveHostRunByPolicy(
+            sibling,
+            this.platform,
+            interactionId,
+            async (event) => {
+              await this.append(sibling.threadId, [event]);
+            },
+            () => this.continueRun(sibling)
+          )
+        )
+      );
+      return answered;
+    });
   }
 
   private commitMessages(run: Run, messages: readonly ModelMessage[]): Promise<void> {
@@ -905,13 +918,11 @@ export class HostCore {
 
   private openRun(run: Run): Promise<HostRunOwner | undefined> {
     run.owner ??= ensureHostRunAdmission(this.platform, run).then((admission) => {
-      // BST-1932: Memory stays scoped to root threads; a child opens no run owner.
-      const open = run.origin
-        ? undefined
-        : (admission.openRun ?? this.platform.openRun?.bind(this.platform));
-      return open?.(
-        createHostRunContext(run, (threadId, events) => this.append(threadId, events, 'full'))
-      );
+      const open = admission.openRun ?? this.platform.openRun?.bind(this.platform);
+      return open?.({
+        ...createHostRunContext(run, (threadId, events) => this.append(threadId, events, 'full')),
+        ...(admission.workingMemory === false ? { workingMemory: false as const } : {}),
+      });
     });
     return run.owner;
   }
@@ -972,16 +983,9 @@ export class HostCore {
 
   private async closeOwned(): Promise<void> {
     this.closing = true;
-    for (const controller of this.pendingAdmissions.keys()) {
-      controller.abort(new Error('Host is closing'));
-    }
-    for (const run of this.runs.values()) {
-      run.controller.abort(new Error('Host is closing'));
-    }
+    abortHostClosingWork(this.pendingAdmissions.keys(), this.runs.values());
     await this.admission;
-    for (const run of this.runs.values()) {
-      run.controller.abort(new Error('Host is closing'));
-    }
+    abortHostClosingWork([], this.runs.values());
     const outcomes = await retireHostRuns(
       [...this.runs.values()],
       (owned) => this.closeRunOwner(owned),
