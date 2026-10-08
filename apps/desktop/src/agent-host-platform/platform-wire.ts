@@ -1,5 +1,5 @@
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
-import { HostRunSnapshotSchema, McpToolAuthoritySchema } from '@brainstrike/agent-host/protocol';
+import { HostRunSnapshotSchema } from '@brainstrike/agent-host/protocol';
 import { CliWorkspaceSelectionSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { PERMISSION_DECISIONS, TOOL_RISK_CATEGORIES } from '@brainstrike/assistant-contract';
@@ -167,10 +167,6 @@ export const PlatformSelectionSchema = z.strictObject({
           kind: z.enum(['question', 'plan']),
           resumeSchema: z.record(z.string(), z.json()),
         })
-        .optional(),
-      mcpAuthority: McpToolAuthoritySchema.optional(),
-      mcpBinding: z
-        .strictObject({ configuredServerId: Id, generation: z.number().int().positive().safe() })
         .optional(),
       permissionToolId: Id,
       risk: z.enum(TOOL_RISK_CATEGORIES),

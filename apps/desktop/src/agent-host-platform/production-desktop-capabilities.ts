@@ -6,16 +6,11 @@ import {
   type RuntimeData,
   resolveAssistantResilienceConfig,
 } from '@brainstrike/agent';
-import { collectCombinedTools, createMcpRuntimeClient } from '@brainstrike/agent/mcp-client';
 import {
   DEFAULT_AGENT_MAX_STEPS,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent/tool-runtime';
-import {
-  createMcpHostToolAdapter,
-  type HostRunAdmissionRequest,
-  type HostToolContext,
-} from '@brainstrike/agent-host';
+import type { HostRunAdmissionRequest, HostToolContext } from '@brainstrike/agent-host';
 import {
   CliWorkspaceRootsSchema,
   materializeCliWorkspaceIntent,
@@ -51,10 +46,7 @@ import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
 import { readWorkspaceTextFile } from '../assistant-server/workspace-text-file-reader';
 import { getDatabase } from '../db-main';
-import { readDesktopMcpHostSnapshot } from '../ipc-mcp';
-import { getDesktopMcpHostRuntime } from '../mcp/host-runtime';
 import { readProviderCredential } from '../provider-api-key';
-import { bindMcpTool } from './adapter-services';
 import { readDesktopHostSystemContext } from './desktop-host-context';
 import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
 import {
@@ -469,79 +461,15 @@ export function productionDesktopCapabilities(
         request
       );
       const { tools } = native;
-      const runtimeMcp = getDesktopMcpHostRuntime();
-      const before = await readDesktopMcpHostSnapshot(runtimeMcp);
-      request.signal.throwIfAborted();
       const resilience = resolveAssistantResilienceConfig();
-      const client = await createMcpRuntimeClient({
-        config: undefined,
-        host: runtimeMcp.host,
-        mcpTaskTracking: runtimeMcp.taskHost,
-        toolTimeoutMs: resilience.toolTimeoutMs,
-      });
-      let adapter: ReturnType<typeof createMcpHostToolAdapter> | undefined;
-      let joined: Promise<void> | undefined;
-      const close = (): Promise<void> =>
-        (joined ??= (async () => {
-          const failures: unknown[] = [];
-          try {
-            await adapter?.close();
-          } catch (cause) {
-            failures.push(cause);
-          }
-          try {
-            await client?.disconnect();
-          } catch (cause) {
-            failures.push(cause);
-          }
-          if (failures.length > 0) {
-            throw new AggregateError(failures, 'Desktop borrowed MCP cleanup failed');
-          }
-          if (policies.get(request.threadId) === permissionPolicy) {
-            policies.delete(request.threadId);
-          }
-        })());
+      // MCP tools are composed and executed by the Node host's own MCP runtime.
+      const close = (): Promise<void> => {
+        if (policies.get(request.threadId) === permissionPolicy) {
+          policies.delete(request.threadId);
+        }
+        return Promise.resolve();
+      };
       try {
-        const names = new Map<string, string>();
-        const collection = await collectCombinedTools({
-          durableArtifactSettlement: false,
-          mcpClient: client,
-          mcpConfig: undefined,
-          sanitizedLocalTools: undefined,
-          scaledDefaultTokens: budget.transportResultTokens,
-          timeoutOverrideMs: undefined,
-          toolNameMap: names,
-        });
-        request.signal.throwIfAborted();
-        if (collection.mcpDiscoverySkips.length > 0) {
-          throw new Error('Configured MCP tools could not be admitted');
-        }
-        const after = runtimeMcp.host.snapshot();
-        adapter = createMcpHostToolAdapter({
-          bindings: Object.fromEntries(
-            Object.entries(collection.tools).map(([name, source]) => [
-              name,
-              bindMcpTool({
-                after,
-                before,
-                canonicalId: names.get(name) ?? name,
-                resolvedToolResultBudget: budget,
-                runtime: runtimeMcp,
-                ...(request.snapshot ? { snapshot: request.snapshot } : {}),
-                source,
-                toolId: name,
-                toolTimeoutMs: resilience.toolTimeoutMs,
-              }),
-            ])
-          ),
-          host: runtimeMcp.host,
-        });
-        for (const [name, tool] of Object.entries(adapter.tools)) {
-          if (Object.hasOwn(tools, name)) {
-            throw new Error('Native and MCP catalog identities collide');
-          }
-          tools[name] = tool;
-        }
         policies.set(request.threadId, permissionPolicy);
         const system = await readDesktopHostSystemContext({
           inputTokenLimit,

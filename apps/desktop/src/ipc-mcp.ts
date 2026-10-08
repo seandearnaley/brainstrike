@@ -19,6 +19,7 @@ import {
   mcpPathSelectionContract,
 } from './ipc-domains/mcp.contract';
 import { attachMcpBridges, type McpBridgesRuntime } from './mcp/bridges';
+import { toMcpConfigStatus } from './mcp/config-status';
 import { registerMcpContentIpc } from './mcp/content-ipc';
 import {
   clearStoredMcpExtensionPreferences,
@@ -26,8 +27,9 @@ import {
   readStoredMcpExtensionPreferences,
   writeStoredMcpExtensionPreferences,
 } from './mcp/extension-preferences';
-import { type DesktopMcpHostRuntime, getDesktopMcpHostRuntime } from './mcp/host-runtime';
+import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { controlDestructiveMcpLifecycle, notifyMcpStatusUpdated } from './mcp/lifecycle-control';
+import type { RemoteMcpRuntime } from './mcp/remote-runtime';
 import {
   applyToolPreferenceMutation,
   type DiscoveredServerTools,
@@ -118,35 +120,13 @@ export const MCP_CONFIG_UPDATED_EVENT = mcpContract.onConfigUpdated.channel;
 export const MCP_STATUS_UPDATED_EVENT = mcpContract.onServerStatusUpdated.channel;
 export const MCP_EXTENSIONS_UPDATED_EVENT = mcpContract.onExtensionPreferencesUpdated.channel;
 type McpAuthorityRuntime = Pick<
-  DesktopMcpHostRuntime,
+  RemoteMcpRuntime,
   'host' | 'mcpExtensionPreferences' | 'replaceResolvedConfig' | 'setMcpExtensionPreferences'
 >;
-type McpIpcRuntime = McpAuthorityRuntime & McpBridgesRuntime;
-
-function toMcpConfigStatus(config: LoadedMcpConfig): McpConfigStatus {
-  const status: McpConfigStatus = {
-    exists: config.exists,
-    path: config.path,
-  };
-  if (config.error !== undefined) {
-    status.error = config.error;
-  }
-  if (config.loadedAt !== undefined) {
-    status.loadedAt = config.loadedAt;
-  }
-  if (config.migrations && config.migrations.length > 0) {
-    status.migrations = config.migrations;
-  }
-  const servers = config.servers ?? config.config?.servers;
-  if (servers !== undefined) {
-    status.servers = servers.map(({ name, protocol, transport }) => ({
-      name,
-      protocol,
-      transport,
-    }));
-  }
-  return status;
-}
+/** The Node host's runtime can (re)start after Settings loaded; it then re-runs discovery. */
+type McpIpcRuntime = McpAuthorityRuntime &
+  McpBridgesRuntime &
+  Partial<Pick<RemoteMcpRuntime, 'onReady'>>;
 
 function rebuildToolRegistry(
   discoveries: DiscoveredServerTools[],
@@ -996,8 +976,18 @@ export function registerMcpIpcHandlers({
   void startup.catch((error: unknown) => {
     logger.error('MCP runtime startup failed', { error });
   });
+  // The Node host's runtime can become ready after this registration, or restart:
+  // each time, reload so discovery and the Settings tools list follow it.
+  const stopReady = runtime.onReady?.(() => {
+    void trackConfigOperation((lifecycleEpoch) =>
+      reloadMcpConfigForLifecycle(runtime, lifecycleEpoch)
+    ).catch((error: unknown) => {
+      logger.error('MCP reload after the runtime became ready failed', { error });
+    });
+  });
 
   return () => {
+    stopReady?.();
     detachBridges();
     stopStatusWatch();
     registry.unregisterAll();
