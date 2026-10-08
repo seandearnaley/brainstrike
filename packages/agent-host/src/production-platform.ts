@@ -28,6 +28,7 @@ import type {
   HostPlatform,
   HostRunAdmission,
   HostRunAdmissionRequest,
+  HostRunContext,
   HostTool,
 } from './ports.js';
 import type { HostRunSnapshot } from './protocol.js';
@@ -107,6 +108,26 @@ async function closeMcpAdmission(
   if (failures.length > 0) {
     throw new AggregateError(failures, 'Production MCP admission cleanup failed');
   }
+}
+
+/**
+ * BST-1932: the shipped child Memory. A run that withholds working memory
+ * (a read-only persona's child) keeps every other Memory option.
+ */
+export function hostRunMemoryOptions(
+  memory: ProductionHostRunConfiguration['memory'],
+  context: Pick<HostRunContext, 'workingMemory'>
+): ProductionHostRunConfiguration['memory'] {
+  if (context.workingMemory !== false) {
+    return memory;
+  }
+  return {
+    ...memory,
+    native: {
+      ...memory.native,
+      options: { ...memory.native.options, workingMemory: { enabled: false } },
+    },
+  };
 }
 
 /** Node-only production composition; Core remains the sole dispatcher and event writer. */
@@ -253,7 +274,7 @@ export async function createProductionHostPlatform(
           model,
           openRun: (context) =>
             StateStoreHostMemory.open(context, {
-              ...selected.memory,
+              ...hostRunMemoryOptions(selected.memory, context),
               providerRequestContext: () => selected.providerRequestContext,
               store: options.startup.store,
             }),

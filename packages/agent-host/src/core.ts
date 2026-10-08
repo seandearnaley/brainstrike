@@ -916,13 +916,11 @@ export class HostCore {
 
   private openRun(run: Run): Promise<HostRunOwner | undefined> {
     run.owner ??= ensureHostRunAdmission(this.platform, run).then((admission) => {
-      // BST-1932: Memory stays scoped to root threads; a child opens no run owner.
-      const open = run.origin
-        ? undefined
-        : (admission.openRun ?? this.platform.openRun?.bind(this.platform));
-      return open?.(
-        createHostRunContext(run, (threadId, events) => this.append(threadId, events, 'full'))
-      );
+      const open = admission.openRun ?? this.platform.openRun?.bind(this.platform);
+      return open?.({
+        ...createHostRunContext(run, (threadId, events) => this.append(threadId, events, 'full')),
+        ...(admission.workingMemory === false ? { workingMemory: false as const } : {}),
+      });
     });
     return run.owner;
   }

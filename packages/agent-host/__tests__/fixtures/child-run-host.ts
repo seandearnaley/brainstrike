@@ -127,6 +127,8 @@ export const worker: AssistantPersonaDefinition = {
 
 /** Overrides for a fixture host: its personas, root policy and extra tools. */
 export interface ChildRunFixture {
+  /** The platform's run owner (Memory), opened with each run's context. */
+  readonly openRun?: HostPlatform['openRun'];
   readonly personas?: readonly AssistantPersonaDefinition[];
   /** The live root policy for `threadId`; defaults to read and edit allowed. */
   readonly policy?: HostPlatform['readPermissionPolicy'];
@@ -155,6 +157,7 @@ export function fixturePlatform(
       settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, ...fixture.settings },
     },
     maxSteps: 4,
+    ...(fixture.openRun ? { openRun: fixture.openRun } : {}),
     readPermissionPolicy:
       fixture.policy ??
       (() => ({

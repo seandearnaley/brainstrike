@@ -225,6 +225,10 @@ export function deriveHostChildAdmission(
     configuration: parent.configuration,
     ...(delegates ? { delegation } : {}),
     model: parent.model,
+    // The shipped child Memory: the parent's configuration on the child's own
+    // thread; a read-only persona's run never reads or writes working memory.
+    ...(parent.openRun ? { openRun: parent.openRun } : {}),
+    ...(personaMode(persona) === 'worker' ? {} : { workingMemory: false as const }),
     provider: {
       prepare: async (request) => {
         const prepared = provider

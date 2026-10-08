@@ -74,6 +74,11 @@ export interface HostRunContext {
   readonly runId: string;
   readonly signal: AbortSignal;
   readonly threadId: string;
+  /**
+   * BST-1932: false for a read-only persona's child run, which keeps the
+   * parent's Memory on its own thread but never reads or writes working memory.
+   */
+  readonly workingMemory?: false;
 }
 /** Fence new work and join every provider, memory, storage and hook tail. */
 export interface HostRunOwner {
@@ -128,6 +133,8 @@ export interface HostRunAdmission {
   readonly provider?: HostProviderPort;
   readonly snapshot: HostRunSnapshot;
   readonly tools: Readonly<Record<string, HostTool>>;
+  /** BST-1932: a read-only child's admission withholds working memory from its run owner. */
+  readonly workingMemory?: false;
 }
 
 /**

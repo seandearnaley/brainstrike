@@ -333,3 +333,48 @@ test("a decision's live grant answers every sibling it now allows; the others st
   const cRows = await harness.core().read(find('RUN_C-call').threadId, 0);
   expect(cRows.some((row) => row.event.type === 'interaction.responded')).toBe(false);
 });
+
+test('children open the parent’s Memory on their own thread; a read-only child withholds working memory', async () => {
+  const opened: { threadId: string; workingMemory: false | undefined }[] = [];
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      if (firstUser(call) === 'Both.') {
+        if (lastUser(call).includes(LEDGER)) {
+          return stream(text('Parent read both.'));
+        }
+        return stream(
+          answered(call as CallOptions)
+            ? text('Parent continues.')
+            : toolCalls([
+                ['agent-explore', { prompt: 'EXPLORE_TASK' }, 'm-e'],
+                ['agent-worker', { prompt: 'WORK_TASK' }, 'm-w'],
+              ])
+        );
+      }
+      return stream(text(`${firstUser(call)} done.`));
+    },
+  });
+  const harness = await setupChildRunHost(model, cleanup, {
+    openRun: async (context) => {
+      opened.push({ threadId: context.threadId, workingMemory: context.workingMemory });
+      return { close: async () => undefined };
+    },
+    personas: [explorer, worker],
+  });
+  const runId = await harness.start('Both.');
+  await rowsUntil(harness, harness.threadId, finished(runId));
+  const children = await childThreads(harness);
+  await expect.poll(() => opened.length).toBeGreaterThanOrEqual(3);
+  const byThread = new Map(opened.map((entry) => [entry.threadId, entry.workingMemory]));
+  expect(byThread.get(harness.threadId)).toBeUndefined();
+  const personaOf = async (threadId: string) => {
+    const origin = (await harness.core().read(threadId, 0))[0]?.event;
+    return origin?.type === 'thread.started' && 'origin' in origin ? origin.origin.persona : '';
+  };
+  for (const threadId of children) {
+    expect(byThread.has(threadId)).toBe(true);
+    expect(byThread.get(threadId)).toBe(
+      (await personaOf(threadId)) === 'explore' ? false : undefined
+    );
+  }
+});
