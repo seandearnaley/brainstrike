@@ -1,3 +1,8 @@
+/**
+ * The SDK provider declaration these client options name. Implement it from here,
+ * so a NodeNext consumer and this entry's declarations see one declaration copy.
+ */
+export type { OAuthClientProvider } from '@modelcontextprotocol/client';
 export {
   ElicitRequestFormParamsSchema,
   ElicitRequestURLParamsSchema,

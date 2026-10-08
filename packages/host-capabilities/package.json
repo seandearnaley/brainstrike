@@ -19,6 +19,7 @@
       "default": "./dist/native-tools/index.js"
     },
     "./platform": { "types": "./dist/platform.d.ts", "default": "./dist/platform.js" },
+    "./mcp/*": { "types": "./dist/mcp/*.d.ts", "default": "./dist/mcp/*.js" },
     "./provider-credentials": {
       "types": "./dist/provider-credentials.d.ts",
       "default": "./dist/provider-credentials.js"
@@ -27,7 +28,7 @@
   "files": ["bin", "dist"],
   "scripts": {
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
@@ -39,17 +40,24 @@
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-data": "workspace:*",
     "@brainstrike/assistant-service": "workspace:*",
+    "@brainstrike/db": "workspace:*",
+    "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/host-lease": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/utils": "workspace:*",
+    "@modelcontextprotocol/client": "catalog:",
+    "effect": "catalog:",
     "minimatch": "catalog:",
+    "strip-ansi": "7.2.0",
+    "vscode-jsonrpc": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/state-store": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
+    "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
