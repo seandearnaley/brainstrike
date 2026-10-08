@@ -29,6 +29,11 @@ export {
   type StateStoreHostMemoryOptions,
 } from './adapters/state-store-host-memory.js';
 export {
+  HostAuthStatusSchema,
+  type HostAuthVerdict,
+  HostAuthVerdictSchema,
+} from './auth-wire.js';
+export {
   type HostCliDefaults,
   type HostCliOutput,
   runHostCli,

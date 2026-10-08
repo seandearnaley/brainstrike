@@ -45,6 +45,7 @@ import {
   acquireHostRunAdmission,
   closeHostRunResources,
   ensureHostRunAdmission,
+  hostMcpUnavailableEvents,
   hostRunCommandRequest,
   retainHostRunAdmission,
 } from './run-admission.js';
@@ -475,7 +476,8 @@ export class HostCore {
       }
       run.release = release;
       const result = { runId: run.id };
-      await this.accept(params.threadId, method, record, result, [started]);
+      const unavailable = hostMcpUnavailableEvents(admission, run.id);
+      await this.accept(params.threadId, method, record, result, [started, ...unavailable]);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);

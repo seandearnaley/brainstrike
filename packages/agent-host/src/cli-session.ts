@@ -47,6 +47,9 @@ function displayRow(row: HostLogRow, output: HostCliOutput, json: boolean): void
     ) {
       output.write(chunk['text']);
     }
+  } else if (event.type === 'mcp.tools.unavailable') {
+    // A notice beside the output: the run proceeds without this server's tools.
+    process.stderr.write(`MCP server ${event.serverId} unavailable: ${event.reason}\n`);
   } else if (event.type === 'effect.finished') {
     output.write(`\n${JSON.stringify(event.output)}\n`);
   } else if (event.type === 'run.finished') {

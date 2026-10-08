@@ -7,6 +7,8 @@ import type {
   McpHostCloseReport,
   McpHostPort,
   PermissionToolGateSnapshot,
+  ProviderAuthStartMethod,
+  ProviderAuthStatus,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
@@ -24,7 +26,13 @@ import type {
   ToolSet,
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
-import type { HostEditOp, HostLoginCredential, HostRunSnapshot } from './protocol.js';
+import type { HostAuthVerdict } from './auth-wire.js';
+import type {
+  HostEditOp,
+  HostLegacyImport,
+  HostLoginCredential,
+  HostRunSnapshot,
+} from './protocol.js';
 
 /** Private native authority. Validation never resolves or sends an answer. */
 export interface HostMcpInputCapability {
@@ -157,6 +165,35 @@ export interface HostRunAdmission {
   readonly provider?: HostProviderPort;
   readonly snapshot: HostRunSnapshot;
   readonly tools: Readonly<Record<string, HostTool>>;
+  /** Configured MCP servers this run proceeds without; committed with `run.started`. */
+  readonly unavailableMcpServers?: readonly HostMcpUnavailableServer[];
+}
+
+/**
+ * The host's single credential writer, token holder and OAuth refresher.
+ * `connect` and subscription use require the private desktop origin.
+ */
+export interface HostAuthService {
+  cancel(provider: string): Promise<ProviderAuthStatus>;
+  clear(): Promise<boolean>;
+  connect(
+    provider: string,
+    method: ProviderAuthStartMethod | undefined,
+    origin: HostClientOrigin | undefined
+  ): Promise<ProviderAuthStatus>;
+  deleteCredential(account: string): Promise<boolean>;
+  disconnect(provider: string): Promise<ProviderAuthStatus>;
+  /** Idempotent; settles every credential use a launch-declared pending import holds. */
+  importLegacy(
+    input: HostLegacyImport
+  ): Promise<{ readonly alreadyPresent: number; readonly migrated: number }>;
+  /** A Settings-namespace entry under its existing account (provider, tool or MCP key). */
+  setCredential(account: string, credential: HostLoginCredential): Promise<void>;
+  status(provider: string): Promise<ProviderAuthStatus>;
+  /** A provider login, validated against the provider's authentication form. */
+  storeProviderCredential(provider: string, credential: HostLoginCredential): Promise<void>;
+  /** Refresh-aware session liveness through the one refresher; never a token. */
+  verify(provider: string): Promise<HostAuthVerdict>;
 }
 
 /**
@@ -182,11 +219,19 @@ export interface HostRunAdmissionRequest {
   readonly workspaceBinding?: ThreadWorkspaceBinding;
 }
 
+/** A configured MCP server whose tools a run proceeds without, and why. */
+export interface HostMcpUnavailableServer {
+  readonly reason: string;
+  readonly serverId: string;
+}
+
 /** The existing configured authority and its generation-qualified executors. */
 export interface HostMcpToolSelection {
   readonly bindings: Readonly<Record<string, McpHostToolBinding>>;
   /** Release this run's borrowed client after its executions and watches join. */
   close(): Promise<void>;
+  /** Servers whose discovery failed; Core commits each with the run's start. */
+  readonly unavailable: readonly HostMcpUnavailableServer[];
 }
 export interface HostMcpToolRequest {
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
@@ -223,6 +268,8 @@ export interface HostTool {
 /** Credentials and process-local capabilities never become protocol payloads. */
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
+  /** The host's credential authority; absent where the host owns no credential store. */
+  readonly auth?: HostAuthService;
   close(): Promise<void>;
   /** Purge process-local caches scoped to a thread Core just deleted. */
   forgetThread?(threadId: string): void;
@@ -246,8 +293,6 @@ export interface HostPlatform {
   }): Promise<string>;
   /** Borrowed existing native writer; startup acquires it before interrupted purge replay. */
   readonly stateIndexer?: StateStoreIndexerPort;
-  /** The host's own credential store, its single writer; absent where none is owned. */
-  storeProviderCredential?(provider: string, credential: HostLoginCredential): Promise<void>;
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
   validateWorkspaceBinding?(request: {
     readonly binding: ThreadWorkspaceBinding;

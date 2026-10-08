@@ -331,24 +331,8 @@ interface ChainProbe {
   readonly resolveChain: string | undefined;
 }
 
-function isChainProbe(probe: ProbeRequest | ChainProbe | SubscriptionProbe): probe is ChainProbe {
+function isChainProbe(probe: ProbeRequest | ChainProbe): probe is ChainProbe {
   return 'resolveChain' in probe;
-}
-
-/**
- * A subscription-OAuth verification (BST-1356): the credential IS the token
- * pair, so the probe is proving the session can still mint a fresh access
- * token. Mirrors the BST-1353 chain probe, where resolving the credential is
- * itself the most useful answer available without spending a turn.
- */
-interface SubscriptionProbe {
-  readonly refreshSubscription: string;
-}
-
-function isSubscriptionProbe(
-  probe: ProbeRequest | ChainProbe | SubscriptionProbe
-): probe is SubscriptionProbe {
-  return 'refreshSubscription' in probe;
 }
 
 function resolveProbe(
@@ -356,16 +340,7 @@ function resolveProbe(
   target: ProviderVerificationTarget,
   credential: ProviderCredential,
   env: Readonly<Record<string, string | undefined>>
-): ProbeRequest | ChainProbe | SubscriptionProbe {
-  if (target.authType === 'oauth_subscription') {
-    if (credential.type !== 'oauth') {
-      throw new UnsupportedVerificationCredentialError(
-        'the provider expects a subscription sign-in but a different credential type is stored'
-      );
-    }
-    return { refreshSubscription: providerId };
-  }
-
+): ProbeRequest | ChainProbe {
   if (target.authType === 'aws') {
     // An `api_key` credential on an aws provider IS a Bedrock bearer (PR
     // #2529 review, finding 3): environment variables cannot encode the aws
@@ -633,6 +608,11 @@ export function createProviderVerificationService(
         };
       }
 
+      if (target.authType === 'oauth_subscription') {
+        // The host's sign-in engine holds this credential and answers from its
+        // one refresher; Main never reads subscription tokens.
+        return { freshness: 'live', result: await runSubscriptionProbe(providerId) };
+      }
       const credential = await readCredential(providerId);
       if (!credential) {
         throw new MissingProviderCredentialError(providerId);
@@ -665,9 +645,7 @@ export function createProviderVerificationService(
       }
       const request = (async (): Promise<ProviderVerificationSnapshot> => {
         let result: ProviderVerificationResult;
-        if (isSubscriptionProbe(probe)) {
-          result = await runSubscriptionProbe(probe.refreshSubscription);
-        } else if (isChainProbe(probe)) {
+        if (isChainProbe(probe)) {
           result = await runChainProbe(probe.resolveChain);
         } else {
           result = await runProbe(probe);

@@ -5,7 +5,6 @@ import {
   resolveAwsCredentialChain,
 } from '@brainstrike/agent';
 import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
-import { getSubscriptionFetchFactory } from '../provider-auth/provider-auth-runtime';
 
 /** Existing credential owner resolves typed chain failures before the SDK boundary. */
 export async function deriveAssistantTurnAuthInput(
@@ -24,13 +23,9 @@ export async function deriveAssistantTurnAuthInput(
     credential?.type === 'aws' && credential.mode === 'profile_chain'
       ? await preresolveAwsChain(credential.profile)
       : createAwsCredentialChain;
-  // This existing owner enforces the interactive-only subscription capability.
-  // Headless callers do not install the provider-auth runtime and fail closed.
-  const oauthSubscriptionFetch = getSubscriptionFetchFactory();
-  return providerAuthInputFromCredential(provider, credential, {
-    awsCredentialChain,
-    ...(oauthSubscriptionFetch === undefined ? {} : { oauthSubscriptionFetch }),
-  });
+  // Subscription auth lives only in the agent host's engine; with no
+  // subscription capability here, an OAuth credential refuses.
+  return providerAuthInputFromCredential(provider, credential, { awsCredentialChain });
 }
 
 async function preresolveAwsChain(
