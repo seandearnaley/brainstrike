@@ -11,5 +11,6 @@ module.exports = {
   activeProcessCount: native.activeProcessCount,
   drainOtherProcesses: native.drainOtherProcesses,
   initialize: native.initialize,
+  observeLinuxProcess: native.observeLinuxProcess,
   terminateOtherProcesses: native.terminateOtherProcesses,
 };

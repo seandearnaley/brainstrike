@@ -1,4 +1,5 @@
 #include <napi.h>
+#include "linux-process-observer.h"
 
 #include <cmath>
 #include <cstdint>
@@ -388,6 +389,7 @@ Napi::Value UnsupportedDrain(const Napi::CallbackInfo& info) {
 #endif
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
+  exports.Set("observeLinuxProcess", Napi::Function::New(env, ObserveLinuxProcess));
 #ifdef _WIN32
   exports.Set("activeProcessCount", Napi::Function::New(env, ActiveProcessCount));
   exports.Set("drainOtherProcesses", Napi::Function::New(env, DrainOtherProcesses));

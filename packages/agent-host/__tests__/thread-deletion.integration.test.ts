@@ -5,11 +5,11 @@ import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
 import { RootLock, StateStore } from '@brainstrike/state-store';
-import { expect, test } from 'vitest';
-import { z } from 'zod';
-import recording from '../../../apps/desktop/src/__tests__/fixtures/committed-rich-host-runs.json' with {
+import recording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json' with {
   type: 'json',
 };
+import { expect, test } from 'vitest';
+import { z } from 'zod';
 import { attachAgentHost, type HostClient } from '../src/client.js';
 import { storedHostEvent } from '../src/event-storage.js';
 import { HostLogRowSchema } from '../src/protocol.js';

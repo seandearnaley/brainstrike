@@ -1,6 +1,6 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { Button } from '@brainstrike/ui';
-import { useId, useMemo, useState } from 'react';
+import { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { CommittedHumanInteraction } from './committed-human-interaction';
@@ -88,6 +88,25 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   const isCollapsed = userCollapsed ?? !policy.defaultExpanded;
   const detailsId = useId();
 
+  // Focus handoff (WAI-ARIA: focus must not fall to <body> when the focused
+  // control is removed). The card is the one element of this call that
+  // persists through pending → running → done, while its row is a
+  // non-interactive group until a result lands. It is a programmatic target
+  // only (tabIndex -1), so the Tab order is unchanged.
+  const cardRef = useRef<HTMLDivElement>(null);
+  const decisionRef = useCallback((decision: HTMLFieldSetElement | null) => {
+    if (!decision) {
+      return;
+    }
+    // Runs while the settled decision is still connected, before React
+    // removes it, so focus moves to the card instead of being dropped.
+    return () => {
+      if (decision.contains(decision.ownerDocument.activeElement)) {
+        cardRef.current?.focus({ preventScroll: true });
+      }
+    };
+  }, []);
+
   const hasResult = result !== undefined;
   const { glyphState, runPythonResult } = resolveCardStatus(
     toolName,
@@ -120,11 +139,14 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
 
   return (
     <div
-      className={`bs-tool-timeline my-1 rounded-lg border ${
+      className={`bs-tool-timeline my-1 rounded-lg border outline-none focus-visible:ring-2 focus-visible:ring-ring ${
         isError ? 'border-destructive/50 bg-destructive/5' : tint.card
       }`}
       data-testid="tool-fallback"
       data-tool-category={category}
+      ref={cardRef}
+      // Only a card that can carry decision controls is a focus handoff target.
+      tabIndex={props.approval ? -1 : undefined}
     >
       <ToolFallbackRow
         argsStreaming={argsStreaming}
@@ -141,7 +163,7 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
         toolCallId={toolCallId}
         toolName={toolName}
       />
-      <CommittedHumanInteraction tool={props} />
+      <CommittedHumanInteraction decisionRef={decisionRef} tool={props} />
       {props.approval &&
       props.approval.approved === undefined &&
       props.approval.resolution === undefined &&
@@ -151,14 +173,22 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
         <fieldset
           aria-label={`Tool approval ${toolName}`}
           className="flex flex-col gap-2 px-3 pb-3"
+          ref={decisionRef}
         >
           <div className="flex gap-2">
             {([true, false] as const).map((approved) => (
               <Button
+                aria-disabled={responding || undefined}
                 aria-label={`${approved ? 'Approve' : 'Decline'} ${toolName}`}
-                disabled={responding}
+                className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                 key={String(approved)}
+                // aria-disabled, not `disabled`: a disabled button drops the
+                // keyboard focus it holds. While the decision is pending the
+                // pressed control keeps focus and the guard refuses a repeat.
                 onClick={() => {
+                  if (responding) {
+                    return;
+                  }
                   setResponding(true);
                   setApprovalError(undefined);
                   // The public runtime routes the exact committed interaction.

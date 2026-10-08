@@ -6,6 +6,11 @@ export {
   platformToolInputSchema,
   validateCanonicalToolInput,
 } from './adapters/canonical-context.js';
+export {
+  type AgentHostToolBinding,
+  type AgentHostToolBindings,
+  createAgentHostToolBindings,
+} from './adapters/canonical-tool-bindings.js';
 export { committedMemoryTranscript } from './adapters/committed-memory-transcript.js';
 export {
   createKeyringNativeBackend,

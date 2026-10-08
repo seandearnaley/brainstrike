@@ -8,12 +8,12 @@ import {
   type CommittedAssistantLogSourceSnapshot,
   CommittedAssistantLogStore,
 } from '@brainstrike/assistant-ui';
+// Actual canonical tools, HostCore, authenticated socket, SQLite and public SDK captures.
+import recordedPlan from '@brainstrike/test-utils/fixtures/committed-host-plan.json';
+import recordedQuestion from '@brainstrike/test-utils/fixtures/committed-host-question.json';
 import { TooltipProvider } from '@brainstrike/ui';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
-// Actual canonical tools, HostCore, authenticated socket, SQLite and public SDK captures.
-import recordedPlan from './fixtures/committed-host-plan.json';
-import recordedQuestion from './fixtures/committed-host-question.json';
 
 afterEach(cleanup);
 test.each([

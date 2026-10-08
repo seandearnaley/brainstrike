@@ -1,12 +1,10 @@
-import { createRequire } from 'node:module';
+import {
+  Memory,
+  parseObservationGroups,
+} from '@brainstrike/agent/test-fixtures/observation-memory';
 
 export { messages, schema, text } from './state-message-schema.mjs';
 
-// Qualification fixture uses the actual installed public vendor exports in the
-// existing agent-host dependency closure. No production dependency/alias added.
-const require = createRequire(new URL('../../../agent-host/package.json', import.meta.url));
-const { Memory } = require('@mastra/memory');
-const { parseObservationGroups } = require('@mastra/memory/processors');
 class NativeChunks extends Memory {
   /** @param {string} text */
   chunks(text) {

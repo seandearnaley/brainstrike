@@ -6,11 +6,11 @@ import { createAskUserTool } from '@brainstrike/agent';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
 import { RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
-import { expect, test, vi } from 'vitest';
-import { z } from 'zod';
-import recording from '../../../apps/desktop/src/__tests__/fixtures/committed-host-question.json' with {
+import recording from '@brainstrike/test-utils/fixtures/committed-host-question.json' with {
   type: 'json',
 };
+import { expect, test, vi } from 'vitest';
+import { z } from 'zod';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform } from '../src/ports.js';
 import { HostLogRowSchema } from '../src/protocol.js';

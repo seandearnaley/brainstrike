@@ -19,9 +19,11 @@ import {
   openIndexer,
   type StateMessageQuery,
   type StateMessageVectorPort,
+  type StateObservationVectorPort,
   type VectorProfile,
 } from '@brainstrike/indexer';
 import { StateStore } from '@brainstrike/state-store';
+import captured from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { createDesktopHostMemoryConfiguration } from '../agent-host-platform/memory-model-configuration';
@@ -30,7 +32,6 @@ import {
   type PlatformSelection,
   PlatformSelectionSchema,
 } from '../agent-host-platform/platform-wire';
-import captured from './fixtures/committed-rich-host-runs.json';
 
 const require = createRequire(import.meta.url);
 const hostDirectory = dirname(require.resolve('@brainstrike/agent-host'));
@@ -110,7 +111,7 @@ function embedding(text: string): number[] {
   );
 }
 
-async function fixture(scope: 'thread' | 'resource' = 'thread') {
+async function fixture(scope: 'thread' | 'resource' = 'thread', observations = false) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-memory-configuration-')));
   const controller = new AbortController();
   const queries: StateMessageQuery[] = [];
@@ -137,7 +138,7 @@ async function fixture(scope: 'thread' | 'resource' = 'thread') {
     memoryCalculatorModule: join(hostDirectory, 'adapters/memory-storage-calculator.js'),
   });
   await store.append(recordings.map((row) => ({ event: row.event, threadId: row.threadId })));
-  const port: StateMessageVectorPort = {
+  const port: StateMessageVectorPort & Partial<StateObservationVectorPort> = {
     prepareStateMessageVectors: (input) => indexer.prepareStateMessageVectors(input),
     purgeStateMessageVectors: (input) => indexer.purgeStateMessageVectors(input),
     queryStateMessageVectors: (input) => {
@@ -145,6 +146,22 @@ async function fixture(scope: 'thread' | 'resource' = 'thread') {
       return indexer.queryStateMessageVectors(input);
     },
     upsertStateMessageVectors: (input) => indexer.upsertStateMessageVectors(input),
+    ...(observations
+      ? {
+          prepareStateObservationVectors: (
+            input: Parameters<StateObservationVectorPort['prepareStateObservationVectors']>[0]
+          ) => indexer.prepareStateObservationVectors(input),
+          purgeStateObservationVectors: (
+            input: Parameters<StateObservationVectorPort['purgeStateObservationVectors']>[0]
+          ) => indexer.purgeStateObservationVectors(input),
+          queryStateObservationVectors: (
+            input: Parameters<StateObservationVectorPort['queryStateObservationVectors']>[0]
+          ) => indexer.queryStateObservationVectors(input),
+          upsertStateObservationVectors: (
+            input: Parameters<StateObservationVectorPort['upsertStateObservationVectors']>[0]
+          ) => indexer.upsertStateObservationVectors(input),
+        }
+      : {}),
   };
   const caps: DesktopHostMemoryVectorCapabilities = {
     embedder: {
@@ -226,6 +243,48 @@ beforeEach(() => {
       throw new Error('Live inference is forbidden in deterministic configuration proofs');
     })
   );
+});
+
+test('configured vector observations preserve retrieval options and one captured combined authority', async () => {
+  const f = await fixture('resource', true);
+  try {
+    const admitted = structuredClone(f.admitted);
+    admitted.memory.settings.observationalMemory.enabled = true;
+    admitted.memory.settings.observationalMemory.retrievalMode = 'vector';
+    admitted.memory.settings.observationalMemory.scope = 'resource';
+    const original = structuredClone(admitted);
+    const factory = vi.spyOn(StateStoreHostMemory, 'createObservationVectorBridge');
+    const configured = await createDesktopHostMemoryConfiguration(
+      admitted,
+      async () => ({
+        apiKey: 'deterministic-no-call-fixture',
+        kind: 'api_key' as const,
+      }),
+      f.caps
+    );
+    expect(factory).toHaveBeenCalledExactlyOnceWith({
+      port: f.caps.port,
+      profile: f.caps.profile,
+      scope: f.caps.scope,
+      signal: f.controller.signal,
+    });
+    expect(configured.native.vector).toBe(configured.vectorBridge);
+    expect(configured.native.embedder).toBe(f.caps.embedder);
+    expect(configured.native.options?.observationalMemory).toMatchObject({
+      retrieval: { scope: 'resource', vector: true },
+      scope: 'resource',
+    });
+    expect(() =>
+      configured.vectorBridge?.assertOwner(resourceId, threadId, f.controller.signal)
+    ).not.toThrow();
+    expect(() =>
+      configured.vectorBridge?.assertOwner(resourceId, threadId, new AbortController().signal)
+    ).toThrow();
+    expect(admitted).toEqual(original);
+    expect(f.embeddings).toHaveLength(0);
+  } finally {
+    await f.close();
+  }
 });
 afterEach(() => {
   expect(fetch).not.toHaveBeenCalled();

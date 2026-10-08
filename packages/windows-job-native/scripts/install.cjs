@@ -2,7 +2,7 @@
 
 const { spawnSync } = require('node:child_process');
 
-if (process.platform === 'win32') {
+if (process.platform === 'win32' || process.platform === 'linux') {
   const nodeGyp = require.resolve('node-gyp/bin/node-gyp.js');
   const result = spawnSync(process.execPath, [nodeGyp, 'rebuild'], { stdio: 'inherit' });
   if (result.error) {

@@ -33,6 +33,7 @@
       "types": "./dist/test-fixtures/scripted-model.d.ts",
       "default": "./dist/test-fixtures/scripted-model.js"
     },
+    "./test-fixtures/owned-process": "./__tests__/fixtures/owned-fixture-process.ts",
     "./thread-view": { "types": "./dist/thread-view.d.ts", "default": "./dist/thread-view.js" }
   },
   "scripts": {

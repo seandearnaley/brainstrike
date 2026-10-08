@@ -49,6 +49,16 @@ export interface CommittedAssistantLogView {
 
 type Part = ThreadAssistantMessage['content'][number];
 type ToolPart = Extract<Part, { type: 'tool-call' }>;
+type MessageStatus = ThreadAssistantMessage['status'];
+
+const RUNNING: MessageStatus = { type: 'running' };
+/**
+ * The installed vendor's own reading of an unanswered approval
+ * (`getAutoStatus`: `isInterruptedToolCall` → `requires-action`/`interrupt`).
+ * Its `toMessagePartStatus` hands this status to every resultless tool part,
+ * which the shared cards read as `Waiting for approval`.
+ */
+const AWAITING_INTERACTION: MessageStatus = { reason: 'interrupt', type: 'requires-action' };
 interface ProjectedRun {
   readonly authoritativeInputs: Set<string>;
   readonly authoritativeResults: Set<string>;
@@ -275,6 +285,20 @@ export class CommittedAssistantLogProjection {
       run.authoritativeInputs.add(id);
     }
     return id;
+  }
+
+  /** A live run waits on the user exactly while it holds a pending host interaction. */
+  private publishRunStatus(run: ProjectedRun, runId: string): void {
+    if (run.terminal) {
+      return;
+    }
+    const status = this.view.pendingInteractions.some((item) => item.runId === runId)
+      ? AWAITING_INTERACTION
+      : RUNNING;
+    const message = this.message(run);
+    if (message.status.type !== status.type) {
+      this.put({ ...message, status });
+    }
   }
 
   private updateTool(run: ProjectedRun, id: string, update: (part: ToolPart) => ToolPart): void {
@@ -539,6 +563,7 @@ export class CommittedAssistantLogProjection {
           },
         ],
       };
+      this.publishRunStatus(run, event['runId']);
     } else if (event['type'] === 'interaction.responded') {
       const interaction = this.view.pendingInteractions.find(
         (item) => item.runId === event['runId'] && item.interactionId === event['interactionId']
@@ -558,6 +583,7 @@ export class CommittedAssistantLogProjection {
         ...this.view,
         pendingInteractions: this.view.pendingInteractions.filter((item) => item !== interaction),
       };
+      this.publishRunStatus(run, event['runId']);
     } else if (event['type'] === 'effect.started') {
       this.tool(run, event, true);
     } else if (event['type'] === 'effect.finished') {

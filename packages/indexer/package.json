@@ -25,7 +25,8 @@
     "./coverage-reader": {
       "types": "./dist/coverage-reader.d.ts",
       "default": "./dist/coverage-reader.js"
-    }
+    },
+    "./test-fixtures/state-observation-schema": "./__tests__/fixtures/state-observation-schema.mjs"
   },
   "files": [
     "dist"
@@ -39,6 +40,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/agent": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@effect/tsgo": "catalog:",
     "@types/better-sqlite3": "catalog:",

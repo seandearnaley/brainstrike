@@ -15,15 +15,15 @@ import {
   startAgentHost,
 } from '@brainstrike/agent-host';
 import { HostLogRowSchema } from '@brainstrike/agent-host/protocol';
+import {
+  observeFixtureChild,
+  recordFixtureEvent,
+} from '@brainstrike/agent-host/test-fixtures/owned-process';
 import { scriptedToolSequence } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { processStartTime } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
-import {
-  observeFixtureChild,
-  recordFixtureEvent,
-} from '../../../../packages/agent-host/__tests__/fixtures/owned-fixture-process';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
 
 const roots: string[] = [];

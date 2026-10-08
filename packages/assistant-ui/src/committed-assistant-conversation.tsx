@@ -1,12 +1,14 @@
 import type { ReactElement } from 'react';
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   AssistantConversationPanel,
   type AssistantConversationPanelProps,
 } from './assistant-conversation-panel';
+import type { CommittedAssistantSnapshot } from './committed-assistant-store';
 import {
   type CommittedAssistantRuntimeOptions,
   useCommittedAssistantRuntime,
+  useCommittedAssistantSelector,
 } from './use-committed-assistant-runtime';
 
 export type CommittedAssistantConversationProps = Omit<
@@ -16,6 +18,10 @@ export type CommittedAssistantConversationProps = Omit<
   Omit<CommittedAssistantRuntimeOptions, 'onCommandError'> & {
     readonly onCommandError?: (cause: unknown) => void;
   };
+
+const UNAVAILABLE = 'The agent host is unavailable.';
+const selectConnection = (snapshot: CommittedAssistantSnapshot) => snapshot.connection;
+const selectError = (snapshot: CommittedAssistantSnapshot) => snapshot.error;
 
 /** The shipped desktop conversation surface; connection changes never key/remount its transcript. */
 export function CommittedAssistantConversation(
@@ -33,7 +39,11 @@ function BoundCommittedAssistantConversation({
   onCommandError,
   ...presentation
 }: CommittedAssistantConversationProps): ReactElement {
+  // Owner status only: a committed token publication never re-renders this shell.
+  const connection = useCommittedAssistantSelector(store, selectConnection);
+  const error = useCommittedAssistantSelector(store, selectError);
   const [commandError, setCommandError] = useState<string | undefined>();
+  const rootRef = useRef<HTMLDivElement>(null);
   const reportCommandError = useCallback(
     (cause: unknown): void => {
       setCommandError(cause instanceof Error ? cause.message : String(cause));
@@ -41,48 +51,68 @@ function BoundCommittedAssistantConversation({
     },
     [onCommandError]
   );
-  const runtime = useCommittedAssistantRuntime({
-    adapters,
-    commands,
-    onCommandError: reportCommandError,
-    store,
-  });
-  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-  const unavailable = snapshot.connection !== 'connected' || snapshot.error !== undefined;
+  const dismissCommandError = (): void => {
+    // Dismiss leaves with its alert. Before it unmounts, hand focus to the
+    // composer: the conversation's stable input, where the next command
+    // (including a refused send's restored draft) is written.
+    rootRef.current?.querySelector<HTMLElement>('.aui-composer-input')?.focus();
+    setCommandError(undefined);
+  };
+  const unavailable = connection !== 'connected' || error !== undefined;
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {snapshot.error === undefined ? (
-        snapshot.connection === 'connected' ? null : (
+    <div className="flex h-full min-h-0 flex-col" ref={rootRef}>
+      {error === undefined ? (
+        connection === 'connected' ? null : (
           <div aria-live="polite" role="status">
-            {snapshot.connection === 'connecting'
+            {connection === 'connecting'
               ? 'Connecting to the agent host…'
-              : snapshot.connection === 'failed'
+              : connection === 'failed'
                 ? 'The agent host connection failed. Reconnect to continue.'
                 : 'Agent host disconnected. Reconnect to continue.'}
           </div>
         )
       ) : (
         <div aria-label="Agent host error" role="alert">
-          {snapshot.error}
+          {error}
         </div>
       )}
       {commandError === undefined ? null : (
         <div aria-label="Agent command error" role="alert">
           {commandError}
-          <button onClick={() => setCommandError(undefined)} type="button">
+          <button onClick={dismissCommandError} type="button">
             Dismiss
           </button>
         </div>
       )}
-      <AssistantConversationPanel
+      <CommittedRuntimePanel
         {...presentation}
-        disabledReason={
-          snapshot.error ??
-          (unavailable ? 'The agent host is unavailable.' : presentation.disabledReason)
-        }
-        runtime={runtime}
-        threadKey={store.threadId}
+        adapters={adapters}
+        commands={commands}
+        disabledReason={error ?? (unavailable ? UNAVAILABLE : presentation.disabledReason)}
+        onCommandError={reportCommandError}
+        store={store}
       />
     </div>
   );
+}
+
+type CommittedRuntimePanelProps = Omit<AssistantConversationPanelProps, 'runtime' | 'threadKey'> &
+  CommittedAssistantRuntimeOptions;
+
+/**
+ * Hosts the vendor runtime, whose adapter must see every committed publication,
+ * so only this subtree re-renders per publication; the wrapper above it reads
+ * connection and error state alone. The panel is deliberately not memoized:
+ * measured in Chromium (BST-1929), memoizing it moved the vendor's per-token
+ * work into Scheduler tasks and widened the per-token tail.
+ */
+function CommittedRuntimePanel({
+  store,
+  commands,
+  adapters,
+  onCommandError,
+  ...panel
+}: CommittedRuntimePanelProps): ReactElement {
+  const runtime = useCommittedAssistantRuntime({ adapters, commands, onCommandError, store });
+  return <AssistantConversationPanel {...panel} runtime={runtime} threadKey={store.threadId} />;
 }

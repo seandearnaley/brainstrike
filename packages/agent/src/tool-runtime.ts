@@ -17,5 +17,7 @@ export {
   resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
 } from './stream/tool-output-limits';
+export { createAskUserTool } from './tools/ask-user-tool';
 export { guardToolExecution } from './tools/guard-tool-execution';
+export { createSubmitPlanTool } from './tools/submit-plan-tool';
 export type { RuntimeData } from './types';

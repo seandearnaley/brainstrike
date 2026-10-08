@@ -16,6 +16,8 @@ export interface HostMemoryIdentity extends HostRunContext {
 }
 
 export interface HostMemoryCapabilities {
+  /** Instantiate the public native leaf only after all run lifetime wrapping. */
+  readonly createNativeMemory?: (native: HostMemoryCapabilities['native']) => Memory;
   /**
    * Optional additional run-owned tails. Called after the patched native
    * barrier joins. The storage owner may close after HostMemory.close completes.
@@ -115,7 +117,9 @@ export class HostMemory implements HostRunOwner {
         };
       }
     }
-    this.memory = new Memory(native);
+    this.memory = capabilities.createNativeMemory
+      ? capabilities.createNativeMemory(native)
+      : new Memory(native);
     this.messageList = new MessageList({
       resourceId: identity.resourceId,
       threadId: identity.threadId,
