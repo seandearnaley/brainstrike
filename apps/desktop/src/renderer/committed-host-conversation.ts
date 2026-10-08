@@ -6,11 +6,13 @@ import {
   CommittedAssistantLogStore,
 } from '@brainstrike/assistant-ui';
 import { z } from 'zod';
+import { CommittedHostMcpInput } from './committed-host-mcp-input';
 
 export interface CommittedHostConversation {
   /** Release this view's subscription; the client/root host belongs to its caller. */
   close(): void;
   readonly commands: CommittedAssistantCommands;
+  readonly mcpInput: CommittedHostMcpInput;
   readonly store: CommittedAssistantLogStore;
 }
 
@@ -24,6 +26,7 @@ export function createCommittedHostConversation(options: {
 }): CommittedHostConversation {
   const { client, modelId, threadId } = options;
   const source = new CommittedThreadSession(client, threadId);
+  const mcpInput = new CommittedHostMcpInput(client, source, threadId);
   const store = new CommittedAssistantLogStore({
     identifyRun: (row) => {
       const runId = row.event['runId'];
@@ -102,10 +105,12 @@ export function createCommittedHostConversation(options: {
   const disconnect = source.connect();
   return {
     close: () => {
+      mcpInput.close();
       disconnect();
       store.dispose();
     },
     commands,
+    mcpInput,
     store,
   };
 }

@@ -36,6 +36,7 @@ export * from './local-llm-model-specs.js';
 export * from './mastra-memory-schema.js';
 export * from './mcp-apps-ipc.js';
 export * from './mcp-elicitation.js';
+export * from './mcp-elicitation-presentation.js';
 export * from './mcp-extensions.js';
 export * from './mcp-host.js';
 export * from './mcp-status.js';

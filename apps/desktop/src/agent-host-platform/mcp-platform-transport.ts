@@ -1,7 +1,3 @@
-import {
-  ElicitRequestFormParamsSchema,
-  ElicitRequestURLParamsSchema,
-} from '@brainstrike/agent/mcp-client';
 import type {
   HostMcpExecution,
   HostMcpInputCapability,
@@ -9,11 +5,9 @@ import type {
   HostToolContext,
 } from '@brainstrike/agent-host';
 import {
-  ConfiguredMcpServerIdSchema,
-  McpConfiguredProtocolSchema,
-  type McpElicitationPresentationWire,
-  McpStatusTransportSchema,
+  McpElicitationPresentationSchema,
   McpTaskHandleSchema,
+  parseMcpElicitationPresentation,
   parseMcpElicitationSettlement,
 } from '@brainstrike/assistant-contract';
 import type { MessageConnection } from 'vscode-jsonrpc';
@@ -22,59 +16,9 @@ import { z } from 'zod';
 const Id = z.string().min(1);
 const OriginSchema = z.strictObject({ runId: Id, threadId: Id, toolCallId: Id, toolId: Id });
 type Origin = z.output<typeof OriginSchema>;
-const ProvenanceSchema = z.strictObject({
-  configuredProtocol: McpConfiguredProtocolSchema,
-  configuredServerId: ConfiguredMcpServerIdSchema,
-  generation: z.number().int().positive().safe(),
-  invocationId: Id,
-  negotiatedRevision: Id,
-  operation: z.strictObject({
-    target: z.string().optional(),
-    type: z.enum([
-      'tools/list',
-      'tools/call',
-      'resources/list',
-      'resources/templates/list',
-      'resources/read',
-      'prompts/list',
-      'prompts/get',
-      'completion/complete',
-      'resources/subscribe',
-      'resources/unsubscribe',
-    ]),
-  }),
-  requestId: z.union([Id, z.number().int().safe()]),
-  serverIdentity: z
-    .strictObject({
-      name: Id,
-      title: Id.optional(),
-      version: z.string(),
-      websiteOrigin: z.string().optional(),
-    })
-    .optional(),
-  taskHandle: McpTaskHandleSchema.optional(),
-  transport: McpStatusTransportSchema,
-});
-const PresentationBase = {
-  id: Id,
-  message: ElicitRequestFormParamsSchema.shape.message,
-  provenance: ProvenanceSchema,
-};
-const PresentationSchema = z.discriminatedUnion('mode', [
-  z.strictObject({
-    ...PresentationBase,
-    mode: z.literal('form'),
-    requestedSchema: ElicitRequestFormParamsSchema.shape.requestedSchema,
-  }),
-  z.strictObject({
-    ...PresentationBase,
-    mode: z.literal('url'),
-    url: ElicitRequestURLParamsSchema.shape.url,
-  }),
-]);
 const InputRequestSchema = z.strictObject({
   origin: OriginSchema,
-  presentation: PresentationSchema,
+  presentation: McpElicitationPresentationSchema,
 });
 const InputAddressSchema = z.strictObject({ id: Id, origin: OriginSchema });
 const TaskAddressSchema = z.strictObject({ handle: McpTaskHandleSchema, origin: OriginSchema });
@@ -99,33 +43,6 @@ function sameOrigin(left: Origin, right: Origin): boolean {
     left.toolCallId === right.toolCallId &&
     left.toolId === right.toolId
   );
-}
-function parsePresentation(input: unknown): McpElicitationPresentationWire {
-  const parsed = parse(PresentationSchema, input);
-  const { operation, serverIdentity, taskHandle, ...provenance } = parsed.provenance;
-  return {
-    ...parsed,
-    provenance: {
-      ...provenance,
-      operation: {
-        type: operation.type,
-        ...(operation.target === undefined ? {} : { target: operation.target }),
-      },
-      ...(taskHandle === undefined ? {} : { taskHandle }),
-      ...(serverIdentity === undefined
-        ? {}
-        : {
-            serverIdentity: {
-              name: serverIdentity.name,
-              version: serverIdentity.version,
-              ...(serverIdentity.title === undefined ? {} : { title: serverIdentity.title }),
-              ...(serverIdentity.websiteOrigin === undefined
-                ? {}
-                : { websiteOrigin: serverIdentity.websiteOrigin }),
-            },
-          }),
-    },
-  };
 }
 function executionAddress(origin: Origin): string {
   return JSON.stringify([origin.runId, origin.toolCallId]);
@@ -170,7 +87,7 @@ export function bindNodeMcpPlatformTransport(
     }),
     connection.onRequest('platform/mcp/input/request', async (input: unknown) => {
       const request = parse(InputRequestSchema, input);
-      const presentation = parsePresentation(request.presentation);
+      const presentation = parseMcpElicitationPresentation(request.presentation);
       const execution = context(request.origin);
       const id = presentation.id;
       if (inputs.has(id)) {
@@ -379,7 +296,7 @@ export function serveMainMcpPlatformTransport(
         },
         requestInput: async (capability) => {
           check(origin);
-          const presentation = parse(PresentationSchema, capability.presentation);
+          const presentation = parseMcpElicitationPresentation(capability.presentation);
           if (inputs.has(presentation.id)) {
             throw refused();
           }
