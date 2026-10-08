@@ -87,10 +87,10 @@ export const optionsSchema = Schema.Struct({
   rootIds: Schema.Array(nonblank),
   scopes: Schema.optional(Schema.Array(scopeSchema)),
   stateProjection: Schema.optional(stateProjectionOptionsSchema),
+  // Root/resource acquisition only: each vector request carries its complete
+  // profile, and vectors are partitioned by that profile's hash.
   stateResources: Schema.optional(
-    Schema.Array(
-      Schema.Struct({ profile: vectorProfileSchema, resourceId: nonblank, rootId: nonblank })
-    )
+    Schema.Array(Schema.Struct({ resourceId: nonblank, rootId: nonblank }))
   ),
   stateRoot: Schema.optional(nonblank),
 });

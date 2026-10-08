@@ -3,8 +3,9 @@ import type { HostRecord } from '@brainstrike/host-lease';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
-import type { HostAuthService, HostClientOrigin } from './ports.js';
+import type { HostAuthService, HostClientOrigin, HostProviderService } from './ports.js';
 import { type HostLogRow, type HostMethod, type HostParams, parseHostParams } from './protocol.js';
+import { bindHostProviderMethods } from './provider-connection.js';
 
 export interface HostConnectionLifecycle {
   readonly closing: boolean;
@@ -18,6 +19,8 @@ export interface HostConnectionOptions {
   readonly lifecycle?: HostConnectionLifecycle;
   /** The transport's client origin; the public socket is never the desktop. */
   readonly origin?: HostClientOrigin;
+  /** The platform's provider reads, where the host owns a credential store. */
+  readonly providers?: HostProviderService;
 }
 
 /** All transports enter this same authenticated method dispatcher. */
@@ -28,7 +31,7 @@ export function bindHostConnection(
   attached: () => void,
   options: HostConnectionOptions = {}
 ): () => void {
-  const { auth, lifecycle, origin = 'public-socket' } = options;
+  const { auth, lifecycle, origin = 'public-socket', providers } = options;
   let initialized = false;
   let disposed = false;
   const mcpClient = {
@@ -88,6 +91,7 @@ export function bindHostConnection(
     };
   });
   bindHostAuthMethods(handle, connection, auth, origin);
+  bindHostProviderMethods(handle, providers, origin);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
   handle('thread/delete', (params) => core.deleteThread(params));
@@ -101,8 +105,10 @@ export function bindHostConnection(
   handle('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
   handle('run/start', (params) => core.startRun(params, origin));
   handle('run/regenerate', (params) => core.regenerateRun(params, origin));
+  handle('run/steer', (params) => core.steer(params));
   handle('run/stop', (params) => core.stop(params));
   handle('checkpoint/revert', (params) => core.revertCheckpoint(params));
+  handle('run/verdict', (params) => core.recordVerdict(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));
   handle('mcp/input/read', (params) => core.readMcpInput(params));

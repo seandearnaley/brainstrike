@@ -11,6 +11,7 @@ import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { HostCore, type HostEventStore, jsonValue } from '../src/core.js';
 import type { HostPlatform } from '../src/ports.js';
+import { HostRunOwnerCleanupError } from '../src/run-admission.js';
 import { AgentHostStartupError, startAgentHost } from '../src/runtime.js';
 import { foldHostRuns } from '../src/thread-view.js';
 import { scriptedModel, scriptedToolSequence } from './fixtures/scripted-model.js';
@@ -619,13 +620,17 @@ test('completed actors remain registered and are fenced on shutdown after their 
   }
 });
 
-test('rejected run cleanup remains owned and repeated Stop never returns cached success', async () => {
+test('unjoined run cleanup remains owned and repeated Stop never returns cached success', async () => {
   const dataRoot = await root();
   const store = await StateStore.open(dataRoot);
   const failed = Promise.withResolvers<void>();
   let active = 0;
   let ownerCloses = 0;
-  const cleanupFailure = new Error('recorded hook cleanup failed');
+  // Work the owner acquired and could not join: only this keeps the run owned.
+  const cleanupFailure = new HostRunOwnerCleanupError(
+    new Error('recorded hook work failed'),
+    new Error('recorded hook cleanup failed')
+  );
   const core = await HostCore.open(
     store,
     platform({

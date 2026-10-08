@@ -4,6 +4,20 @@ import type { HostRunAdmission } from './ports.js';
 import type { HostEvent } from './protocol.js';
 import { HostRunAdmissionCleanupError } from './run-admission.js';
 
+/**
+ * Commit a run/steer, then end the run after its step in flight (the SDK
+ * loop's stopWhen reads the flag): legacy BST-588 steering.
+ */
+export async function steerHostRun(
+  run: HostRunState,
+  accept: (result: { readonly outcome: 'steering' | 'already-terminal' }) => Promise<void>
+): Promise<{ outcome: 'steering' | 'already-terminal' }> {
+  const result = { outcome: run.terminal ? ('already-terminal' as const) : ('steering' as const) };
+  await accept(result);
+  run.steered ||= result.outcome === 'steering';
+  return result;
+}
+
 /** Calculations over Core's one admission tail; queued cancellation starts no work. */
 export function queueHostAdmission<T>(
   previous: Promise<void>,
@@ -198,14 +212,20 @@ export function finishHostRun(
     await Promise.allSettled([...run.effects]);
     await closeOwner(run);
     await run.stopAcceptance;
+    const ownerDetail = failureDetail(run.ownerFailure);
     const joinedOutcome = run.stopped
       ? 'stopped'
       : run.controller.signal.aborted && closing()
         ? 'interrupted'
-        : run.mcpInputPersistenceFailures?.length && outcome === 'completed'
+        : (run.mcpInputPersistenceFailures?.length || ownerDetail !== undefined) &&
+            outcome === 'completed'
           ? 'failed'
           : outcome;
-    const joinedDetail = detail ?? run.mcpInputPersistenceFailures?.[0]?.message;
+    // A joined owner failure stays visible whatever ended the run (Stop included).
+    const joinedDetail =
+      detail !== undefined && ownerDetail !== undefined && !detail.includes(ownerDetail)
+        ? `${detail} (${ownerDetail})`
+        : (detail ?? ownerDetail ?? run.mcpInputPersistenceFailures?.[0]?.message);
     await publish(
       {
         outcome: joinedOutcome,
@@ -222,6 +242,49 @@ export function finishHostRun(
     );
   })();
   return run.completion;
+}
+
+/** An owner failure's own message, plus any aggregated cause it does not already name. */
+function failureDetail(failure: unknown): string | undefined {
+  if (failure === undefined) {
+    return undefined;
+  }
+  if (!(failure instanceof Error)) {
+    return String(failure);
+  }
+  const causes =
+    failure instanceof AggregateError
+      ? failure.errors
+          .map((cause: unknown) => (cause instanceof Error ? cause.message : String(cause)))
+          .filter((message) => !failure.message.includes(message))
+      : [];
+  return causes.length > 0 ? `${failure.message}: ${causes.join('; ')}` : failure.message;
+}
+
+type FinishedOutcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
+
+/**
+ * Stop and Close set their own fact before they abort. A watchdog that
+ * cancelled a still-running tool aborts the run too, and that run failed; so
+ * does a run aborted by its own failed memory step.
+ */
+function joinedSdkOutcome(
+  run: HostRunState,
+  closing: boolean,
+  failed: string | undefined,
+  interrupted: boolean
+): FinishedOutcome {
+  const aborted = run.controller.signal.aborted;
+  if (run.stopped) {
+    return 'stopped';
+  }
+  if ((aborted && closing) || interrupted) {
+    return 'interrupted';
+  }
+  if (failed !== undefined) {
+    return 'failed';
+  }
+  return aborted ? 'stopped' : 'completed';
 }
 
 /** Core supplies the existing completion writer after the SDK stream joins. */
@@ -243,14 +306,5 @@ export async function finishHostSdkLoop(
     await Promise.allSettled([...run.effects]);
     return;
   }
-  const outcome = run.controller.signal.aborted
-    ? closing
-      ? 'interrupted'
-      : 'stopped'
-    : interrupted
-      ? 'interrupted'
-      : failed === undefined
-        ? 'completed'
-        : 'failed';
-  await finish(outcome, failed);
+  await finish(joinedSdkOutcome(run, closing, failed, interrupted), failed);
 }

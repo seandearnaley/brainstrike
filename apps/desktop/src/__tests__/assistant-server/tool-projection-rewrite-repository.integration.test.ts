@@ -4,12 +4,12 @@ import {
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import {
+  grepProjectionHeaderPrefix,
   projectReadWorkspaceFileModelOutput,
   readProjectionHeaderPrefix,
 } from '@brainstrike/host-capabilities/native-tools';
 import { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { grepProjectionHeaderPrefix } from '../../assistant-server/grep-search-result-contract';
 import {
   buildGrepSupersededMarker,
   createToolProjectionRewriteLookup,

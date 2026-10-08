@@ -1,9 +1,17 @@
+import {
+  describeRunAttempt,
+  providerCallWarningDetail,
+  providerCallWarningLabel,
+  readProviderCallWarning,
+} from '@brainstrike/assistant-contract';
 import type { HostClient } from './client-connection.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 
 export type PendingHostApproval = Extract<HostEvent, { type: 'interaction.requested' }>;
 export interface HostRunView {
   readonly approvals: readonly PendingHostApproval[];
+  /** The committed `run.finished` detail, when the run ended with one. */
+  readonly detail?: string;
   readonly results: readonly Extract<HostEvent, { type: 'effect.finished' }>[];
   readonly runId: string;
   readonly status: 'running' | Extract<HostEvent, { type: 'run.finished' }>['outcome'];
@@ -22,6 +30,36 @@ function textDelta(
   return undefined;
 }
 
+/** One committed run event applied to its run's view. */
+function foldRunEvent(run: HostRunView, event: HostEvent): HostRunView {
+  switch (event.type) {
+    case 'stream.chunk': {
+      const text = textDelta(event.chunk);
+      return text === undefined ? run : { ...run, text: run.text + text };
+    }
+    case 'interaction.requested':
+      return { ...run, approvals: [...run.approvals, event] };
+    case 'interaction.responded':
+      return {
+        ...run,
+        approvals: run.approvals.filter(
+          (approval) => approval.interactionId !== event.interactionId
+        ),
+      };
+    case 'effect.finished':
+      return { ...run, results: [...run.results, event] };
+    case 'run.finished':
+      return {
+        ...run,
+        approvals: [],
+        status: event.outcome,
+        ...(event.detail === undefined ? {} : { detail: event.detail }),
+      };
+    default:
+      return run;
+  }
+}
+
 /** Consumers fold the committed log; none of these values have another writer. */
 export function foldHostRuns(rows: readonly HostLogRow[]): HostRunView[] {
   const runs = new Map<string, HostRunView>();
@@ -36,34 +74,54 @@ export function foldHostRuns(rows: readonly HostLogRow[]): HostRunView[] {
       });
       continue;
     }
-    if (!('runId' in event)) {
-      continue;
-    }
-    const run = runs.get(event.runId);
-    if (!run) {
-      continue;
-    }
-    if (event.type === 'stream.chunk') {
-      const text = textDelta(event.chunk);
-      if (text !== undefined) {
-        runs.set(run.runId, { ...run, text: run.text + text });
-      }
-    } else if (event.type === 'interaction.requested') {
-      runs.set(run.runId, { ...run, approvals: [...run.approvals, event] });
-    } else if (event.type === 'interaction.responded') {
-      runs.set(run.runId, {
-        ...run,
-        approvals: run.approvals.filter(
-          (approval) => approval.interactionId !== event.interactionId
-        ),
-      });
-    } else if (event.type === 'effect.finished') {
-      runs.set(run.runId, { ...run, results: [...run.results, event] });
-    } else if (event.type === 'run.finished') {
-      runs.set(run.runId, { ...run, approvals: [], status: event.outcome });
+    const run = 'runId' in event ? runs.get(event.runId) : undefined;
+    if (run) {
+      runs.set(run.runId, foldRunEvent(run, event));
     }
   }
   return [...runs.values()];
+}
+
+/**
+ * Human notices for committed rows: each distinct provider call warning once
+ * per run (the SDK repeats them on every step), and every attempt record. The
+ * wording is shared with the desktop thread view.
+ */
+export class HostRunNotices {
+  private readonly warned = new Map<string, Set<string>>();
+
+  read({ event }: HostLogRow): readonly string[] {
+    if (event.type === 'run.attempt') {
+      const notice = describeRunAttempt(event);
+      return [notice.ended, ...(notice.resumed ? [notice.resumed] : [])].map(
+        (line) => `${line.label}: ${line.detail}`
+      );
+    }
+    if (event.type !== 'stream.chunk') {
+      return [];
+    }
+    const chunk = event.chunk;
+    if (
+      !chunk ||
+      typeof chunk !== 'object' ||
+      Array.isArray(chunk) ||
+      chunk['type'] !== 'start-step' ||
+      !Array.isArray(chunk['warnings'])
+    ) {
+      return [];
+    }
+    const seen = this.warned.get(event.runId) ?? new Set<string>();
+    this.warned.set(event.runId, seen);
+    return chunk['warnings'].flatMap((entry) => {
+      const warning = readProviderCallWarning(entry);
+      const signature = JSON.stringify([warning.type, warning.subject, warning.detail]);
+      if (seen.has(signature)) {
+        return [];
+      }
+      seen.add(signature);
+      return [`${providerCallWarningLabel(warning)}: ${providerCallWarningDetail(warning)}`];
+    });
+  }
 }
 
 /** Replay/live overlap and out-of-order delivery never display an uncommitted gap. */

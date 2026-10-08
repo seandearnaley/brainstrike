@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import * as clientModule from '@brainstrike/agent/mcp-client';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
-import { MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
+import { MigrationRunner, migrations, pgliteMcpTaskStorage, wasmLoader } from '@brainstrike/db';
 import type { McpTaskElicitationBinding } from '@brainstrike/host-capabilities/mcp/elicitation-presenter';
 import * as taskModule from '@brainstrike/host-capabilities/mcp/task-host';
 
@@ -56,7 +56,7 @@ try {
         presented.reject(error);
       }
     },
-    openDatabase: async () => db,
+    openStorage: async () => pgliteMcpTaskStorage(db),
     runtimeId: 'built-contract-fixture',
   });
   const createdAt = '2026-10-03T00:00:00.000Z';

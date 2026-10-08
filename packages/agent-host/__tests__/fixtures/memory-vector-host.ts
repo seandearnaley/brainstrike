@@ -131,7 +131,7 @@ export async function memoryVectorHost(options: {
         options.stateProjectionModule ??
         new URL('../../dist/state-projection.js', import.meta.url).href,
     },
-    stateResources: [{ profile: RECORDED_VECTOR_PROFILE, resourceId, rootId: root }],
+    stateResources: [{ resourceId, rootId: root }],
     stateRoot: root,
   } as const;
   const indexerDeadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
@@ -302,9 +302,10 @@ export async function memoryVectorHost(options: {
   return {
     close,
     async closeRejectedAdmission(): Promise<void> {
-      // Core retains the failed admission cause. No Memory owner was constructed;
-      // the negative test verifies zero SDK, embedding and working-memory calls.
-      await expect(core.close()).rejects.toBeInstanceOf(AggregateError);
+      // A failed Memory open is its run's failed outcome: nothing was acquired,
+      // so Core releases the run and closes cleanly. The negative test verifies
+      // zero SDK, embedding and working-memory calls.
+      await expect(core.close()).resolves.toBeUndefined();
       await store.close();
       await rm(root, { force: true, recursive: true });
     },

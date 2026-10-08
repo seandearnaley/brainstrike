@@ -1,0 +1,713 @@
+[
+  {
+    "event": {
+      "commandId": "3c82ba98-b97d-4c55-a326-b7592c68ed02",
+      "method": "thread/start",
+      "payload": {
+        "commandId": "3c82ba98-b97d-4c55-a326-b7592c68ed02"
+      },
+      "result": {
+        "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 1,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119312
+  },
+  {
+    "event": {
+      "commandId": "3c82ba98-b97d-4c55-a326-b7592c68ed02",
+      "type": "thread.started"
+    },
+    "seq": 2,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119312
+  },
+  {
+    "event": {
+      "commandId": "84012673-6324-486f-ba5e-720cb50407f7",
+      "method": "run/start",
+      "payload": {
+        "commandId": "84012673-6324-486f-ba5e-720cb50407f7",
+        "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+        "modelId": "openai::gpt-6-sol",
+        "prompt": "Use the recorded canonical human interaction."
+      },
+      "result": {
+        "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 3,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119329
+  },
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "modelId": "openai::gpt-6-sol",
+      "parentMessageId": null,
+      "prompt": "Use the recorded canonical human interaction.",
+      "snapshot": {
+        "configuration": {
+          "capabilities": {
+            "browserOAuth": "unavailable",
+            "configuredMcp": "unavailable",
+            "localInference": "unavailable",
+            "mcpAppUi": "text",
+            "nativeTools": {
+              "available": [
+                "brainstrike.askUser",
+                "brainstrike.submitPlan"
+              ],
+              "remaining": "unavailable"
+            },
+            "skills": "unavailable",
+            "tasks": "unavailable",
+            "vectorMemory": "unavailable",
+            "workspaceInstructions": "unavailable"
+          },
+          "intent": {
+            "agentLoop": {
+              "inputTokenLimit": 869500,
+              "maxSteps": 100
+            },
+            "enabledNativeToolIds": [
+              "brainstrike.askUser",
+              "brainstrike.submitPlan"
+            ],
+            "memoryOptions": {
+              "lastMessages": 40,
+              "workingMemory": {
+                "enabled": true,
+                "scope": "thread",
+                "template": "# Session\n- **Active task**:\n- **Workspace / roots**:\n\n# Decisions\n- (settled choices and why)\n\n# Open questions\n- (unresolved, needs the user)\n\n# Key paths\n- (files central to this task)\n"
+              }
+            },
+            "memorySettings": {
+              "observationalMemory": {
+                "enabled": false,
+                "messageTokens": 30000,
+                "modelTarget": "auto",
+                "observationTokens": 40000,
+                "retrievalMode": "off",
+                "scope": "thread"
+              },
+              "semanticRecall": {
+                "embeddingModelTarget": "openai/text-embedding-3-small",
+                "enabled": false,
+                "messageRange": 2,
+                "scope": "resource",
+                "topK": 5
+              }
+            },
+            "modelConfiguration": {
+              "model": "gpt-6-sol",
+              "provider": "openai"
+            },
+            "permissionPolicy": {
+              "policies": {
+                "edit": "ask",
+                "execute": "ask",
+                "mcp": "allow",
+                "read": "allow"
+              },
+              "yolo": false
+            },
+            "workspaceInstructionsPreference": {
+              "masterEnabled": false,
+              "oversizedOptInByRootId": {}
+            }
+          }
+        },
+        "maxSteps": 100,
+        "toolIdentities": {
+          "brainstrike_askUser": "brainstrike.askUser",
+          "brainstrike_submitPlan": "brainstrike.submitPlan"
+        }
+      }
+    },
+    "seq": 4,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119329
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 5,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119763
+  },
+  {
+    "event": {
+      "type": "provider.request.prepared",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "accounting": {
+        "measurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "promptTokens": 541,
+        "removedMessages": 0,
+        "toolTokens": 817,
+        "totalTokens": 1358,
+        "usedBackstop": false
+      },
+      "modelId": "gpt-6-sol",
+      "provider": "openai"
+    },
+    "seq": 6,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119883
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 7,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119904
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "tool-input-start",
+        "id": "call_standalone_human_1",
+        "toolName": "brainstrike_askUser",
+        "dynamic": false
+      }
+    },
+    "seq": 8,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119908
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "tool-input-delta",
+        "id": "call_standalone_human_1",
+        "delta": "{\"options\":[{\"label\":\"Local\"},{\"label\":\"Preview\"}],\"question\":\"Which environment?\",\"selectionMode\":\"multi_select\"}"
+      }
+    },
+    "seq": 9,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119915
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "tool-input-end",
+        "id": "call_standalone_human_1"
+      }
+    },
+    "seq": 10,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119923
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "tool-call",
+        "toolCallId": "call_standalone_human_1",
+        "toolName": "brainstrike_askUser",
+        "input": {
+          "options": [
+            {
+              "label": "Local"
+            },
+            {
+              "label": "Preview"
+            }
+          ],
+          "question": "Which environment?",
+          "selectionMode": "multi_select"
+        },
+        "providerMetadata": {
+          "openai": {
+            "itemId": "fc_standalone_human_1"
+          }
+        }
+      }
+    },
+    "seq": 11,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119927
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "tool-approval-request",
+        "approvalId": "aitxt-PKwb8lpZ4k23aIHtLKC5NGgL",
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "call_standalone_human_1",
+          "toolName": "brainstrike_askUser",
+          "input": {
+            "options": [
+              {
+                "label": "Local"
+              },
+              {
+                "label": "Preview"
+              }
+            ],
+            "question": "Which environment?",
+            "selectionMode": "multi_select"
+          },
+          "providerMetadata": {
+            "openai": {
+              "itemId": "fc_standalone_human_1"
+            }
+          }
+        },
+        "isAutomatic": true
+      }
+    },
+    "seq": 12,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119941
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "toolCallId": "call_standalone_human_1",
+              "toolName": "brainstrike_askUser",
+              "input": {
+                "options": [
+                  {
+                    "label": "Local"
+                  },
+                  {
+                    "label": "Preview"
+                  }
+                ],
+                "question": "Which environment?",
+                "selectionMode": "multi_select"
+              },
+              "providerOptions": {
+                "openai": {
+                  "itemId": "fc_standalone_human_1"
+                }
+              }
+            },
+            {
+              "type": "tool-approval-request",
+              "approvalId": "aitxt-PKwb8lpZ4k23aIHtLKC5NGgL",
+              "toolCallId": "call_standalone_human_1",
+              "isAutomatic": true
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "tool-approval-response",
+              "approvalId": "aitxt-PKwb8lpZ4k23aIHtLKC5NGgL",
+              "approved": false,
+              "reason": "Questions are disabled in this workspace"
+            },
+            {
+              "type": "tool-result",
+              "toolCallId": "call_standalone_human_1",
+              "toolName": "brainstrike_askUser",
+              "output": {
+                "type": "execution-denied",
+                "reason": "Questions are disabled in this workspace"
+              }
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "openai.responses",
+        "modelId": "gpt-6-sol"
+      },
+      "stepNumber": 0,
+      "usage": {
+        "inputTokens": 42,
+        "inputTokenDetails": {
+          "noCacheTokens": 42,
+          "cacheReadTokens": 0
+        },
+        "outputTokens": 9,
+        "outputTokenDetails": {
+          "textTokens": 9,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 51,
+        "raw": {
+          "input_tokens": 42,
+          "output_tokens": 9
+        }
+      }
+    },
+    "seq": 13,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119948
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "tool-approval-response",
+        "approvalId": "aitxt-PKwb8lpZ4k23aIHtLKC5NGgL",
+        "approved": false,
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "call_standalone_human_1",
+          "toolName": "brainstrike_askUser",
+          "input": {
+            "options": [
+              {
+                "label": "Local"
+              },
+              {
+                "label": "Preview"
+              }
+            ],
+            "question": "Which environment?",
+            "selectionMode": "multi_select"
+          },
+          "providerMetadata": {
+            "openai": {
+              "itemId": "fc_standalone_human_1"
+            }
+          }
+        },
+        "reason": "Questions are disabled in this workspace"
+      }
+    },
+    "seq": 14,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119954
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "tool-output-denied",
+        "toolCallId": "call_standalone_human_1",
+        "toolName": "brainstrike_askUser"
+      }
+    },
+    "seq": 15,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119956
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "tool-calls",
+        "usage": {
+          "inputTokens": 42,
+          "inputTokenDetails": {
+            "noCacheTokens": 42,
+            "cacheReadTokens": 0
+          },
+          "outputTokens": 9,
+          "outputTokenDetails": {
+            "textTokens": 9,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 51,
+          "raw": {
+            "input_tokens": 42,
+            "output_tokens": 9
+          }
+        },
+        "performance": {
+          "stepTimeMs": 137.2489999999998,
+          "toolExecutionMs": {},
+          "responseTimeMs": 128.15091699999994,
+          "effectiveOutputTokensPerSecond": 70.2296964445444,
+          "outputTokensPerSecond": 2413.8121549920065,
+          "inputTokensPerSecond": 337.55986413215686,
+          "effectiveTotalTokensPerSecond": 397.9682798524183,
+          "timeToFirstOutputMs": 124.42237499999919,
+          "timeBetweenOutputChunksMs": {
+            "min": 1.1529170000003433,
+            "p10": 1.1529170000003433,
+            "median": 1.1529170000003433,
+            "avg": 1.1529170000003433,
+            "p90": 1.1529170000003433,
+            "max": 1.1529170000003433
+          }
+        },
+        "providerMetadata": {
+          "openai": {
+            "responseId": "resp_standalone_1"
+          }
+        },
+        "response": {
+          "id": "resp_standalone_1",
+          "timestamp": "2025-07-27T07:06:40.000Z",
+          "modelId": "gpt-6-sol",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      }
+    },
+    "seq": 16,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119959
+  },
+  {
+    "event": {
+      "type": "provider.request.prepared",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "accounting": {
+        "measurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "promptTokens": 674,
+        "removedMessages": 0,
+        "toolTokens": 817,
+        "totalTokens": 1491,
+        "usedBackstop": false
+      },
+      "modelId": "gpt-6-sol",
+      "provider": "openai"
+    },
+    "seq": 17,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479119987
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 18,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479120015
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "text-start",
+        "id": "msg_standalone_1",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_standalone_1"
+          }
+        }
+      }
+    },
+    "seq": 19,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479120016
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Offline standalone production reply",
+              "providerOptions": {
+                "openai": {
+                  "itemId": "msg_standalone_1"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "openai.responses",
+        "modelId": "gpt-6-sol"
+      },
+      "stepNumber": 1,
+      "usage": {
+        "inputTokens": 42,
+        "inputTokenDetails": {
+          "noCacheTokens": 42,
+          "cacheReadTokens": 0
+        },
+        "outputTokens": 9,
+        "outputTokenDetails": {
+          "textTokens": 9,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 51,
+        "raw": {
+          "input_tokens": 42,
+          "output_tokens": 9
+        }
+      }
+    },
+    "seq": 20,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479120019
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "text-delta",
+        "id": "msg_standalone_1",
+        "text": "Offline standalone production reply"
+      }
+    },
+    "seq": 21,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479120025
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "text-end",
+        "id": "msg_standalone_1",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_standalone_1"
+          }
+        }
+      }
+    },
+    "seq": 22,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479120027
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "stop",
+        "usage": {
+          "inputTokens": 42,
+          "inputTokenDetails": {
+            "noCacheTokens": 42,
+            "cacheReadTokens": 0
+          },
+          "outputTokens": 9,
+          "outputTokenDetails": {
+            "textTokens": 9,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 51,
+          "raw": {
+            "input_tokens": 42,
+            "output_tokens": 9
+          }
+        },
+        "performance": {
+          "stepTimeMs": 32.875208000000384,
+          "toolExecutionMs": {},
+          "responseTimeMs": 32.05670800000007,
+          "effectiveOutputTokensPerSecond": 280.75247152639565,
+          "outputTokensPerSecond": 14203.985006895908,
+          "inputTokensPerSecond": 1336.5970487364473,
+          "effectiveTotalTokensPerSecond": 1590.9306719829087,
+          "timeToFirstOutputMs": 31.42308299999968
+        },
+        "providerMetadata": {
+          "openai": {
+            "responseId": "resp_standalone_1"
+          }
+        },
+        "response": {
+          "id": "resp_standalone_1",
+          "timestamp": "2025-07-27T07:06:40.000Z",
+          "modelId": "gpt-6-sol",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      }
+    },
+    "seq": 23,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479120028
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "stop",
+        "totalUsage": {
+          "inputTokens": 84,
+          "inputTokenDetails": {
+            "noCacheTokens": 84,
+            "cacheReadTokens": 0
+          },
+          "outputTokens": 18,
+          "outputTokenDetails": {
+            "textTokens": 18,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 102
+        }
+      }
+    },
+    "seq": 24,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479120041
+  },
+  {
+    "event": {
+      "type": "run.finished",
+      "runId": "8626aa7f-b9be-4ebd-bc87-0f0ffbe87b26",
+      "outcome": "completed"
+    },
+    "seq": 25,
+    "threadId": "518e8df6-68ca-4983-9be3-f54c11cc0c1f",
+    "ts": 1791479120044
+  }
+]

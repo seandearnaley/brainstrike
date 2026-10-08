@@ -562,6 +562,7 @@ export class HostMcpInputState {
           }
           check();
         }),
+      threadId: run.threadId,
     };
   }
 }

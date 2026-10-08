@@ -14,6 +14,7 @@ import { resolveToolRiskCategory } from '@brainstrike/assistant-contract';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import {
+  type MastraTool,
   type MastraTools,
   type NativeToolBuildContext,
   type NativeToolPorts,
@@ -43,16 +44,24 @@ export function isSharedNativeToolId(id: string): id is SharedNativeToolId {
   return (SHARED_NATIVE_TOOL_IDS as readonly string[]).includes(id);
 }
 
+/** One request-scoped executor entry over the shared build context. */
+export type NativeToolExecutor = (context: NativeToolBuildContext) => MastraTool | undefined;
+
 export interface SharedNativeHostToolsOptions {
   /** Post-edit language-server diagnostics the shell can run in this process. */
   readonly diagnostics?: FileMutationPorts['diagnostics'];
+  /**
+   * A shell's own in-process executors beside the shared ones (Desktop's
+   * language-server inspection); each id in `ids` needs one or the other.
+   */
+  readonly executors?: Readonly<Record<string, NativeToolExecutor>>;
   /**
    * The live roots before each execution and the recheck after it; absent
    * keeps the admitted roots. A revoked root rejects the call.
    */
   readonly freshRoots?: (signal: AbortSignal) => Promise<readonly RuntimeWorkspaceRoot[]>;
-  /** The admitted shared tools, by canonical catalog id. */
-  readonly ids: readonly SharedNativeToolId[];
+  /** The admitted host-executed tools, by canonical catalog id. */
+  readonly ids: readonly string[];
   /** One host-lifetime registry; its handles are scoped to the calling thread. */
   readonly readFileCursorRegistry: ReadWorkspaceFileCursorRegistry;
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
@@ -91,6 +100,10 @@ export function createSharedNativeHostTools(
 ): Readonly<Record<string, HostTool>> {
   const budget = options.resolvedToolResultBudget.domainModelResultCharBudget;
   const provider = typeof options.runtime.provider === 'string' ? options.runtime.provider : '';
+  const executors: Readonly<Record<string, NativeToolExecutor>> = {
+    ...SHARED_NATIVE_TOOL_EXECUTORS,
+    ...options.executors,
+  };
   const bind = (runtimeData: RuntimeData, ports: NativeToolPorts) => {
     const context: NativeToolBuildContext = {
       isLocalProvider: provider.trim().toLowerCase() === 'local',
@@ -103,7 +116,11 @@ export function createSharedNativeHostTools(
     };
     const tools: MastraTools = {};
     for (const id of options.ids) {
-      const tool = SHARED_NATIVE_TOOL_EXECUTORS[id](context);
+      const executor = executors[id];
+      if (!executor) {
+        throw new Error(`No host executor is registered for native tool ${id}`);
+      }
+      const tool = executor(context);
       if (tool) {
         tools[id] = tool;
       }
@@ -111,7 +128,8 @@ export function createSharedNativeHostTools(
     return createAgentHostToolBindings({
       bindings: Object.fromEntries(
         Object.keys(tools).map((id) => {
-          const definition = NATIVE_TOOL_REGISTRIES.byId[id as SharedNativeToolId];
+          const definition =
+            NATIVE_TOOL_REGISTRIES.byId[id as keyof typeof NATIVE_TOOL_REGISTRIES.byId];
           return [id, { identity: id, risk: resolveToolRiskCategory(definition.defaults) }];
         })
       ),

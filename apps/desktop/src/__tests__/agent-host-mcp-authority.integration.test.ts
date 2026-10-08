@@ -95,7 +95,7 @@ describe('persisted configured MCP authority', () => {
             ],
           },
           openExternal: async () => undefined,
-          openTaskDatabase: async () => {
+          openTaskStorage: async () => {
             throw new Error('Legacy stdio fixture does not use Tasks');
           },
           root,
@@ -275,7 +275,7 @@ describe('persisted configured MCP authority', () => {
           credentialStore: { kind: 'file', path: join(root, 'explicit-credentials.json') },
           mcpConfiguration: { servers: [] },
           openExternal: async () => undefined,
-          openTaskDatabase: async () => {
+          openTaskStorage: async () => {
             throw new Error('No Tasks database expected by this legacy fixture');
           },
           root,

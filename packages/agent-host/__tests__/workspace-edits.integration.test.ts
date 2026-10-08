@@ -29,6 +29,8 @@ import { type AgentHost, startAgentHost } from '../src/runtime.js';
 import { scriptedToolSequence } from '../src/test-fixtures/scripted-model.js';
 
 const ROOT_ID = 'workspace-root';
+/** A scripted run takes seconds under machine load, past expect.poll's 1 s default. */
+const RUN_SETTLED = { timeout: 30_000 };
 const EditInput = z.discriminatedUnion('op', [
   z.strictObject({ content: z.string(), op: z.literal('write'), path: z.string() }),
   z.strictObject({ op: z.literal('delete'), path: z.string() }),
@@ -171,7 +173,7 @@ async function rowsUntil(
     .poll(async () => {
       rows = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
       return rows.some(done);
-    })
+    }, RUN_SETTLED)
     .toBe(true);
   return rows;
 }
@@ -204,6 +206,16 @@ async function editRun(
   )?.event;
   expect(finished).toMatchObject({ outcome: 'completed' });
   return { rows, runId };
+}
+
+/** Each revert-derived run label, with the event committed just before it. */
+async function revertVerdicts(client: HostClient, threadId: string) {
+  const rows = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
+  return rows.flatMap((row, index) =>
+    row.event.type === 'run.verdict'
+      ? [{ after: rows[index - 1]?.event.type, event: row.event, seq: row.seq }]
+      : []
+  );
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -348,6 +360,20 @@ test('the conflict gate refuses a path changed after the run; force and a single
   expect(await readFile(join(state.workspace, 'b.txt'), 'utf8')).toBe('b v0');
   // The same command ID returns its committed result without acting again.
   expect(await client.request('checkpoint/revert', command)).toEqual(first);
+  // A partial revert labels the run `mixed`, in the same commit as its outcomes.
+  expect(await revertVerdicts(client, threadId)).toEqual([
+    {
+      after: 'workspace.edit.reverted',
+      event: {
+        detail: '1/2 edits reverted',
+        runId,
+        source: 'edit_revert',
+        type: 'run.verdict',
+        verdict: 'mixed',
+      },
+      seq: expect.any(Number),
+    },
+  ]);
 
   expect(
     await client.request('checkpoint/revert', {
@@ -359,6 +385,22 @@ test('the conflict gate refuses a path changed after the run; force and a single
     })
   ).toEqual({ outcomes: [{ entryId: a.entryId, status: 'reverted' }] });
   expect(await readFile(join(state.workspace, 'a.txt'), 'utf8')).toBe('a v0');
+  // Every revertible edit reverted: the run's work was rejected outright.
+  expect(
+    (await revertVerdicts(client, threadId)).map(({ after, event }) => [after, event])
+  ).toEqual([
+    ['workspace.edit.reverted', expect.objectContaining({ verdict: 'mixed' })],
+    [
+      'workspace.edit.reverted',
+      {
+        detail: '2/2 edits reverted',
+        runId,
+        source: 'edit_revert',
+        type: 'run.verdict',
+        verdict: 'failed',
+      },
+    ],
+  ]);
   expect(
     await client.request('checkpoint/revert', {
       commandId: randomUUID(),
@@ -379,6 +421,8 @@ test('the conflict gate refuses a path changed after the run; force and a single
       threadId,
     })
   ).rejects.toThrow('Unknown edit checkpoint for this run');
+  // A revert that restored nothing commits no new label.
+  expect(await revertVerdicts(client, threadId)).toHaveLength(2);
 });
 
 test('an oversized prior file and a moved root refuse with their reasons, leaving disk untouched', async () => {
@@ -436,6 +480,17 @@ test('an oversized prior file and a moved root refuse with their reasons, leavin
   ]);
   expect(await readFile(join(state.workspace, 'small.txt'), 'utf8')).toBe('small v0');
   expect(await readFile(join(state.workspace, 'large.txt'), 'utf8')).toBe('large v1');
+  // The moved-root revert restored nothing; the edit without a prior state is not revertible,
+  // so restoring the only revertible edit rejects the run's work outright.
+  expect((await revertVerdicts(client, threadId)).map(({ event }) => event)).toEqual([
+    {
+      detail: '1/1 edits reverted',
+      runId,
+      source: 'edit_revert',
+      type: 'run.verdict',
+      verdict: 'failed',
+    },
+  ]);
 });
 
 test('revert refuses without a live root owner, and for an unknown run', async () => {

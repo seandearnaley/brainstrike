@@ -543,6 +543,7 @@ describe('McpElicitationPresenterAuthority host-owned input (BST-1930 part B)', 
         }
         inputs.push(input);
       }),
+      threadId: 'thread-presenter',
     };
     return { execution, inputs };
   }

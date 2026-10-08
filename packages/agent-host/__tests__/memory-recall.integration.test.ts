@@ -3,6 +3,7 @@ import type { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
 import { readHostRow } from '../src/event-storage.js';
+import type { HostEvent } from '../src/protocol.js';
 import {
   deterministicEmbedding,
   memoryVectorHost as fixture,
@@ -141,13 +142,35 @@ test.each(['thread', 'resource'] as const)(
   }
 );
 
-test('missing semantic capability fails admission before embedding or the SDK call', async () => {
+test('missing semantic capability fails the run before embedding or the SDK call', async () => {
   const current = await fixture({ semanticScope: 'thread' });
   try {
     const { threadId } = await current.core.startThread({ commandId: randomUUID() });
-    await expect(
-      current.run(threadId, 'Request unavailable semantic recall.')
-    ).rejects.toBeInstanceOf(Error);
+    const { runId } = await current.core.startRun({
+      commandId: randomUUID(),
+      modelId: 'recorded-sdk-fixture',
+      prompt: 'Request unavailable semantic recall.',
+      threadId,
+    });
+    let finished: HostEvent | undefined;
+    await expect
+      .poll(
+        async () => {
+          finished = (await current.core.read(threadId, 0))
+            .map((row) => row.event)
+            .find((event) => event.type === 'run.finished' && event.runId === runId);
+          return finished !== undefined;
+        },
+        { timeout: 30_000 }
+      )
+      .toBe(true);
+    // The run commits its failure, naming the missing capability.
+    expect(finished).toMatchObject({
+      detail: expect.stringContaining(
+        'Memory open failed: Semantic recall requires the borrowed vector owner'
+      ),
+      outcome: 'failed',
+    });
     expect(current.embeddingCalls).toHaveLength(0);
     expect(current.models.flatMap((model) => model.doStreamCalls)).toHaveLength(0);
     expect(current.workingReads).toHaveLength(0);

@@ -3,7 +3,7 @@ import type { HostMcpRuntime, HostStartupContext } from '@brainstrike/agent-host
 import type { ResolvedMcpConfig } from '@brainstrike/assistant-contract/mcp-config';
 import type { ProviderCredentialReader } from '@brainstrike/assistant-service/ports';
 import type { ProviderAuthProjectionOptions } from '@brainstrike/assistant-service/provider-credential-projection';
-import type { McpTaskDatabase } from '@brainstrike/db';
+import type { McpTaskStorage } from '@brainstrike/db';
 
 /** Explicit selection only: failure never selects a different credential backend. */
 export type AgentHostCredentialStoreOptions =
@@ -18,8 +18,8 @@ export interface AgentHostAdapterServicesOptions {
   readonly credentialStore: AgentHostCredentialStoreOptions;
   readonly mcpConfiguration: ResolvedMcpConfig;
   readonly openExternal: (url: string) => Promise<void>;
-  /** Borrow the existing Tasks writer; the leaf must not construct another database. */
-  readonly openTaskDatabase: () => Promise<McpTaskDatabase>;
+  /** Borrow the existing Tasks writer; the leaf must not construct another store. */
+  readonly openTaskStorage: () => Promise<McpTaskStorage>;
   readonly root: string;
   /** Retain partial cleanup before the first credential/MCP side effect. */
   readonly startup: HostStartupContext;

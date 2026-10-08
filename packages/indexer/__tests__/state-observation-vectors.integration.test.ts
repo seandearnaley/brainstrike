@@ -107,8 +107,8 @@ async function fixture(owner: ObservationLifecycle, nativeScope: 'thread' | 'res
       module: new URL('./fixtures/state-observation-schema.mjs', import.meta.url).href,
     },
     stateResources: [
-      { profile, resourceId: 'resource', rootId: 'root' },
-      { profile, resourceId: 'foreign', rootId: 'foreign-root' },
+      { resourceId: 'resource', rootId: 'root' },
+      { resourceId: 'foreign', rootId: 'foreign-root' },
     ],
     stateRoot: root,
   } as const;
@@ -403,11 +403,17 @@ it(
     expect(
       await f.port.queryStateObservationVectors({ ...query, observedAfter: date.toISOString() })
     ).toEqual([]);
+    // Another complete profile is its own partition: it never ranks these vectors.
+    expect(
+      await f.port.queryStateObservationVectors({
+        ...query,
+        profile: { ...profile, modelId: 'foreign-model' },
+      })
+    ).toEqual([]);
     for (const request of [
       { ...query, scope: { ...scope, rootId: 'foreign-root' } },
       { ...query, scope: { ...scope, threadId: 'foreign-thread' } },
       { ...query, threadIds: ['foreign-thread'] },
-      { ...query, profile: { ...profile, modelId: 'foreign-model' } },
       { ...query, observedAfter: 'not a date' },
     ]) {
       await expect(f.port.queryStateObservationVectors(request)).rejects.toThrow();

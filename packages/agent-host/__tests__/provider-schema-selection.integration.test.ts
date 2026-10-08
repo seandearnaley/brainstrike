@@ -280,6 +280,9 @@ test('production schema selection preserves authored validation and one executor
       prompt: 'Edit recorded workspace path',
       threadId,
     });
+    // Under machine load each wait below exceeds expect.poll's 1 s default; a timed-out poll
+    // then surfaces only as the finally close's error for the still-running run.
+    const settled = { timeout: 30_000 };
     let approval: Extract<HostEvent, { type: 'interaction.requested' }> | undefined;
     await expect
       .poll(async () => {
@@ -290,7 +293,7 @@ test('production schema selection preserves authored validation and one executor
               event.type === 'interaction.requested' && event.runId === runId
           );
         return approval !== undefined;
-      })
+      }, settled)
       .toBe(true);
     if (!approval) {
       throw new Error('Prepared tool did not suspend for approval');
@@ -309,15 +312,17 @@ test('production schema selection preserves authored validation and one executor
       runId,
       threadId,
     });
-    await expect.poll(() => executed.length).toBe(1);
+    await expect.poll(() => executed.length, settled).toBe(1);
     await expect
-      .poll(async () =>
-        (await core.read(threadId, 0)).some(
-          (row) =>
-            row.event.type === 'run.finished' &&
-            row.event.runId === runId &&
-            row.event.outcome === 'completed'
-        )
+      .poll(
+        async () =>
+          (await core.read(threadId, 0)).some(
+            (row) =>
+              row.event.type === 'run.finished' &&
+              row.event.runId === runId &&
+              row.event.outcome === 'completed'
+          ),
+        settled
       )
       .toBe(true);
     expect(executed).toStrictEqual([{ path: 'README.MD' }]);

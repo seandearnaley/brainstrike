@@ -1,9 +1,9 @@
 import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
-import { describe, expect, it } from 'vitest';
 import {
   projectFindWorkspaceSymbolModelOutput,
   projectLspInspectModelOutput,
-} from '../../assistant-server/workspace-inspection-model-projections';
+} from '@brainstrike/host-capabilities/native-tools';
+import { describe, expect, it } from 'vitest';
 
 function serializedChars(value: unknown): number {
   return JSON.stringify(value).length;

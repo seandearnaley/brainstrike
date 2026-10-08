@@ -8,12 +8,8 @@ import {
   type BrowserGetPageTextInput,
   type BrowserNavigateInput,
   type BrowserReadPageInput,
-  type FindWorkspaceSymbolInput,
-  type GlobWorkspaceInput,
-  type GrepSearchInput,
   type HybridSearchInput,
   type ListEmbeddingSetsInput,
-  type LspInspectInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   type QueryEmbeddingSpaceInput,
   resolveGuardedToolSignal,
@@ -24,11 +20,8 @@ import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contra
 import {
   logToolFailure,
   parseToolExecuteInput,
-  readStateScope,
-  runGlobWorkspace,
   type ToolExecuteContext,
   type ToolExecuteInput,
-  withRepeatedCallGuard,
 } from '@brainstrike/host-capabilities/native-tools';
 import type { z } from 'zod';
 import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
@@ -37,10 +30,9 @@ import {
   runBrowserNavigate,
   runBrowserReadPage,
 } from './browser-agent-tools';
-import { runGrepSearch } from './grep-search-tool';
+import { pgliteGrepIndex } from './grep-search-tool';
 import { runHybridSearch } from './hybrid-search-tool';
 import { runListEmbeddingSpaces } from './list-embedding-spaces-tool';
-import { runFindWorkspaceSymbol, runLspInspect } from './lsp-inspection-tools';
 import {
   NATIVE_HYBRID_RETRIEVAL_DESCRIPTION,
   NATIVE_SEMANTIC_RETRIEVAL_DESCRIPTION,
@@ -48,120 +40,20 @@ import {
   NativeQueryEmbeddingSpaceInputSchema,
 } from './native-retrieval-schemas';
 import { executorGroup } from './native-tool-executor-context';
+import { grepSearchExecutor } from './native-tool-executors-grep';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
-import { attachGlobWorkspaceTelemetry, attachGrepSearchTelemetry } from './tool-call-telemetry';
 import { projectWebExtractModelOutput } from './web-extract-model-projection';
 import { runWebExtract } from './web-extract-tool';
 import { projectWebSearchModelOutput } from './web-search-model-projection';
 import { runWebSearch } from './web-search-tool';
 import {
-  projectFindWorkspaceSymbolModelOutput,
-  projectLspInspectModelOutput,
-} from './workspace-inspection-model-projections';
-import {
   projectHybridSearchModelOutput,
   projectQueryEmbeddingSpaceModelOutput,
 } from './workspace-retrieval-model-projections';
-import {
-  projectGlobWorkspaceModelOutput,
-  projectGrepSearchModelOutput,
-} from './workspace-search-model-projections';
 
 export const SEARCH_TOOL_EXECUTORS = executorGroup({
-  [NATIVE_TOOL_ID.findWorkspaceSymbol]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.findWorkspaceSymbol],
-    execute: async (input: ToolExecuteInput<FindWorkspaceSymbolInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.findWorkspaceSymbol],
-        input
-      );
-      try {
-        return await runFindWorkspaceSymbol(resolvedInput, runtimeData);
-      } catch (error) {
-        logToolFailure('findWorkspaceSymbol failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.findWorkspaceSymbol,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.findWorkspaceSymbol],
-    toModelOutput: (output: unknown) =>
-      projectFindWorkspaceSymbolModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
-  [NATIVE_TOOL_ID.lspInspect]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.lspInspect],
-    execute: async (input: ToolExecuteInput<LspInspectInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.lspInspect],
-        input
-      );
-      try {
-        return await runLspInspect(resolvedInput, runtimeData);
-      } catch (error) {
-        logToolFailure('lspInspect failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.lspInspect,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.lspInspect],
-    toModelOutput: (output: unknown) =>
-      projectLspInspectModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
-  [NATIVE_TOOL_ID.grepSearch]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.grepSearch],
-    execute: async (input: ToolExecuteInput<GrepSearchInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.grepSearch],
-        input
-      );
-      try {
-        return await withRepeatedCallGuard({
-          input: resolvedInput,
-          run: async () =>
-            attachGrepSearchTelemetry(
-              resolvedInput,
-              await runGrepSearch(resolvedInput, runtimeData)
-            ),
-          threadScope: readStateScope(runtimeData),
-          toolId: NATIVE_TOOL_ID.grepSearch,
-        });
-      } catch (error) {
-        logToolFailure('grepSearch failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.grepSearch,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.grepSearch],
-    toModelOutput: (output: unknown) =>
-      projectGrepSearchModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
-  [NATIVE_TOOL_ID.globWorkspace]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.globWorkspace],
-    execute: async (input: ToolExecuteInput<GlobWorkspaceInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.globWorkspace],
-        input
-      );
-      try {
-        return await withRepeatedCallGuard({
-          input: resolvedInput,
-          run: async () =>
-            attachGlobWorkspaceTelemetry(
-              resolvedInput,
-              await runGlobWorkspace(resolvedInput, runtimeData)
-            ),
-          threadScope: readStateScope(runtimeData),
-          toolId: NATIVE_TOOL_ID.globWorkspace,
-        });
-      } catch (error) {
-        logToolFailure('globWorkspace failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.globWorkspace,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.globWorkspace],
-    toModelOutput: (output: unknown) =>
-      projectGlobWorkspaceModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
+  // Main's grep reads its own PGlite file-chunk index.
+  [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(pgliteGrepIndex),
   [NATIVE_TOOL_ID.webSearch]: ({ dependencies, resolveActiveDomainCharBudget }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webSearch],
     // The Tavily key is resolved server-side inside runWebSearch and never

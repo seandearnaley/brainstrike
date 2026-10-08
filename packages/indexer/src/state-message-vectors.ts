@@ -40,17 +40,14 @@ const rowSchema = Schema.Struct({
 const columns =
   'pk,thread_id AS threadId,message_id AS messageId,seq,segment_ordinal AS segmentOrdinal,source_hash AS sourceHash,dimensions,emb';
 
+/**
+ * The workspace index's one profile rule (`vectorProfileHash`: local dtype
+ * required, revision and token cap optional, every field hashed). Memory ranks
+ * by cosine, so that is the only additional requirement.
+ */
 export function profileHash(profile: VectorProfile): string {
-  if (
-    profile.distance !== 'cosine' ||
-    ('provider' in profile &&
-      (profile.provider === 'local' || profile.provider === 'transformers') &&
-      !(profile.revision && profile.dtype && profile.tokenCap))
-  ) {
-    throw new IndexerError(
-      'unsupported-profile',
-      'Message vectors require cosine and a complete immutable profile.'
-    );
+  if (profile.distance !== 'cosine') {
+    throw new IndexerError('unsupported-profile', 'Message vectors require a cosine profile.');
   }
   return vectorProfileHash(profile);
 }
@@ -105,9 +102,6 @@ export class StateMessageVectors {
     private readonly projection: StateProjection,
     private readonly options: IndexerOptions
   ) {
-    for (const grant of options.stateResources ?? []) {
-      profileHash(grant.profile);
-    }
     StateMessageVectors.validateStorage(db);
   }
 
@@ -176,17 +170,10 @@ export class StateMessageVectors {
       );
     }
   }
+  /** An acquired Root/resource with a complete request profile; vectors partition by its hash. */
   selectedProfile(scope: StateMessageScope, profile: VectorProfile): void {
     this.grant(scope);
-    const grant = this.options.stateResources?.find(
-      (current) => current.resourceId === scope.resourceId && current.rootId === scope.rootId
-    );
-    if (!grant || profileHash(grant.profile) !== profileHash(profile)) {
-      throw new IndexerError(
-        'profile-not-authorized',
-        'Message profile differs from its acquired Root/resource selection.'
-      );
-    }
+    profileHash(profile);
   }
   members(scope: StateMessageScope): readonly string[] {
     this.grant(scope);

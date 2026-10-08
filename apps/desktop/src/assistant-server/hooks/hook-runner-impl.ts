@@ -8,7 +8,7 @@
  */
 
 import type { AgentHookRunner, HookToolGateResult } from '@brainstrike/agent';
-import type { HookManager } from './manager';
+import type { HookManager } from '@brainstrike/host-capabilities/hooks';
 
 export function createDesktopHookRunner(manager: HookManager): AgentHookRunner {
   return {

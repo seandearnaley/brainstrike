@@ -31,7 +31,7 @@ import type {
   ResolvedMcpServer,
 } from '@brainstrike/assistant-contract/mcp-config';
 import { applyMcpExtensionPreferences } from '@brainstrike/assistant-contract/mcp-config';
-import type { McpTaskDatabase } from '@brainstrike/db';
+import type { McpTaskStorage } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import type { McpBearerCredentialAuthority } from './bearer-credential.js';
 import { McpElicitationPresenterAuthority } from './elicitation-presenter.js';
@@ -172,8 +172,8 @@ export interface McpHostRuntimePlatform {
   readonly bearerCredentialAuthority: McpBearerCredentialAuthority;
   readonly oauthStore: McpOAuthStore;
   readonly openExternal: (url: string) => Promise<void>;
-  /** Reuse the platform's existing database and durable Tasks authority. */
-  readonly openTaskDatabase: () => Promise<McpTaskDatabase>;
+  /** The host's one Tasks store (the StateStore on a host; PGlite only for the conformance client). */
+  readonly openTaskStorage: () => Promise<McpTaskStorage>;
 }
 
 export interface McpHostRuntimeDependencies {
@@ -372,7 +372,7 @@ export class McpHostRuntime {
       new McpDesktopTaskHost({
         elicitationPresenter: this.elicitationPresenter,
         onInternalError: (code, cause) => this.reportInternalError(code, cause),
-        openDatabase: platform.openTaskDatabase,
+        openStorage: platform.openTaskStorage,
       });
     this.host = {
       close: async () => {

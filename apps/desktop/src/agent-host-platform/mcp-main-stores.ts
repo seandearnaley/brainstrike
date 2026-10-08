@@ -13,7 +13,6 @@ import type { RemoteMcpRuntime } from '../mcp/remote-runtime';
 export interface DesktopMcpPlatformCapabilities {
   readonly oauth: McpOAuthStore;
   openExternal(url: string): Promise<void>;
-  queryTasks(sql: string, params: readonly unknown[]): Promise<{ readonly rows: unknown[] }>;
   readonly runtime: RemoteMcpRuntime;
 }
 
@@ -31,8 +30,8 @@ function tokenSignal(token: CancellationToken): AbortSignal {
 /**
  * Serve the Node MCP runtime's store adapters and bind Main's runtime proxy to
  * this host connection. Each adapter is removed when its store moves to Node:
- * OAuth records with the shared credential store, the Tasks tables with host-owned
- * storage, config with host-owned config, the opener stays a narrow adapter.
+ * OAuth records with the shared credential store, config with host-owned
+ * config; the opener stays a narrow adapter. The host owns the Tasks tables.
  */
 export function serveMainMcpStores(
   connection: MessageConnection,
@@ -52,15 +51,6 @@ export function serveMainMcpStores(
     ),
     connection.onRequest(MCP_STORE_METHODS.openExternal, (input: unknown) =>
       respond(() => capabilities.openExternal(z.strictObject({ url: z.url() }).parse(input).url))
-    ),
-    connection.onRequest(MCP_STORE_METHODS.tasksQuery, (input: unknown) =>
-      respond(async () => {
-        const request = z
-          .strictObject({ params: z.array(z.json()), sql: z.string().min(1) })
-          .parse(input);
-        const result = await capabilities.queryTasks(request.sql, request.params);
-        return { rows: result.rows };
-      })
     ),
     connection.onRequest(MCP_STORE_METHODS.oauthRead, (input: unknown, token: CancellationToken) =>
       respond(() =>

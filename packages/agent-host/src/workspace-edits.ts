@@ -431,6 +431,41 @@ export class HostWorkspaceEdits {
   }
 
   /** Newest-first, one restore per (root, path), each gated on the entry's own after-state. */
+  /**
+   * The run's revertible edits (every prior state kept) and how many are
+   * reverted once these outcomes commit: the Task Ledger revert label's counts.
+   */
+  revertTally(
+    threadId: string,
+    runId: string,
+    outcomes: readonly HostEditRevertOutcome[]
+  ): { readonly reverted: number; readonly total: number } {
+    const edits = this.threads.get(threadId);
+    const run = edits?.baselines.get(runId);
+    if (!(edits && run)) {
+      return { reverted: 0, total: 0 };
+    }
+    const now = new Set(
+      outcomes.flatMap((outcome) => (outcome.status === 'reverted' ? [outcome.entryId] : []))
+    );
+    const revertible = [...edits.entries.values()].filter(
+      (entry) =>
+        entry.runId === runId &&
+        (entry.fromPath === undefined ? [entry.path] : [entry.fromPath, entry.path]).every(
+          (relative) => {
+            const baseline = run.get(baselineKey(entry.rootId, relative));
+            return baseline !== undefined && baseline.kind !== 'unavailable';
+          }
+        )
+    );
+    return {
+      reverted: revertible.filter(
+        (entry) => edits.reverted.has(entry.entryId) || now.has(entry.entryId)
+      ).length,
+      total: revertible.length,
+    };
+  }
+
   async revert(request: HostEditRevertRequest): Promise<HostEditRevertOutcome[]> {
     const edits = this.threads.get(request.threadId);
     const runEntries = [...(edits?.entries.values() ?? [])].filter(
@@ -566,6 +601,31 @@ export function hostEditScope(
 }
 
 /** `checkpoint/revert` with the live root owner; thread deletion and host close abort it. */
+/**
+ * The Task Ledger `edit_revert` label: every revertible edit reverted rejects
+ * the run's work outright (`failed`), a partial revert is `mixed`. A revert
+ * that restored nothing commits no label; a user verdict outranks this one.
+ */
+function revertVerdict(
+  edits: HostWorkspaceEdits,
+  params: HostParams<'checkpoint/revert'>,
+  outcomes: readonly HostEditRevertOutcome[]
+): HostEvent[] {
+  if (!outcomes.some((outcome) => outcome.status === 'reverted')) {
+    return [];
+  }
+  const { reverted, total } = edits.revertTally(params.threadId, params.runId, outcomes);
+  return [
+    {
+      detail: `${reverted}/${total} edits reverted`,
+      runId: params.runId,
+      source: 'edit_revert',
+      type: 'run.verdict',
+      verdict: reverted === total ? 'failed' : 'mixed',
+    },
+  ];
+}
+
 export async function revertHostRunEdits(
   edits: HostWorkspaceEdits,
   params: HostParams<'checkpoint/revert'>,
@@ -576,7 +636,8 @@ export async function revertHostRunEdits(
     readonly storeRoot: string;
   }
 ): Promise<{
-  readonly event: Extract<HostEvent, { type: 'workspace.edit.reverted' }>;
+  /** The outcomes, then the run's revert label when this revert restored anything. */
+  readonly events: readonly HostEvent[];
   readonly result: HostResults['checkpoint/revert'];
 }> {
   for (const run of owner.runs) {
@@ -600,13 +661,14 @@ export async function revertHostRunEdits(
       signal: controller.signal,
       threadId: params.threadId,
     });
+    const reverted: HostEvent = {
+      commandId: params.commandId,
+      outcomes,
+      runId: params.runId,
+      type: 'workspace.edit.reverted',
+    };
     return {
-      event: {
-        commandId: params.commandId,
-        outcomes,
-        runId: params.runId,
-        type: 'workspace.edit.reverted',
-      },
+      events: [reverted, ...revertVerdict(edits, params, outcomes)],
       result: { outcomes },
     };
   } finally {

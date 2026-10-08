@@ -1,3 +1,4 @@
+import { pgliteMcpTaskStorage } from './mcp-task-pglite-storage.js';
 import {
   decodeMcpTaskAuthorityRow,
   decodeMcpTaskBlockedDiagnostic,
@@ -12,8 +13,6 @@ import {
   type McpTaskStatus,
 } from './mcp-task-row-schema.js';
 
-const TABLE = 'brainstrike_mcp_tasks';
-const AUTHORITY_TABLE = 'brainstrike_mcp_task_authorities';
 export const MCP_TASK_METADATA_MAX_BYTES = 65_536;
 const MAX_BLOCKED_DIAGNOSTIC_BYTES = 4096;
 const TEXT_ENCODER = new TextEncoder();
@@ -63,10 +62,70 @@ export interface UpdateMcpTaskInput {
   readonly statusMessage?: string | null;
 }
 
-export interface CreateMcpTaskInput extends McpTaskIdentity, UpdateMcpTaskInput {}
+export interface CreateMcpTaskInput extends McpTaskIdentity, UpdateMcpTaskInput {
+  /** The host thread whose run created the task; its deletion erases the row. */
+  readonly threadId?: string;
+}
 
 export interface McpTaskDatabase {
   query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+}
+
+/** A validated new row; metadata, diagnostic and history are serialized JSON. */
+export interface McpTaskInsert {
+  readonly at: string;
+  readonly blockedDiagnostic: string | null;
+  readonly history: string;
+  readonly inputMetadata: string | null;
+  readonly resultMetadata: string | null;
+  readonly status: McpTaskStatus;
+  readonly statusMessage: string | null;
+  readonly taskId: string;
+  readonly terminalAt: string | null;
+  readonly threadId: string | null;
+}
+
+/** A validated transition; each `has*` flag says whether its field is replaced. */
+export interface McpTaskPatch {
+  readonly at: string;
+  readonly blockedDiagnostic: string | null;
+  readonly hasBlocked: boolean;
+  readonly hasInput: boolean;
+  readonly hasMessage: boolean;
+  readonly hasResult: boolean;
+  /** One serialized `[{ at, status }]` entry appended to the bounded history. */
+  readonly historyEntry: string;
+  readonly inputMetadata: string | null;
+  readonly resultMetadata: string | null;
+  readonly status: McpTaskStatus;
+  readonly statusMessage: string | null;
+  readonly terminal: boolean;
+}
+
+/**
+ * One durable Tasks store. Each operation is atomic and returns raw rows in
+ * the PostgreSQL column shape; `McpTaskStore` validates every input and row.
+ */
+export interface McpTaskStorage {
+  get(identity: McpTaskIdentity): Promise<unknown>;
+  /** The inserted row, or nothing when the lease is not live. */
+  insert(row: McpTaskInsert, lease: McpTaskAuthorityLease): Promise<unknown>;
+  listActive(lease: McpTaskAuthorityLease, limit: number): Promise<readonly unknown[]>;
+  /** `{inputBytes, inputSha256, resultBytes, resultSha256}`, as this store bounds metadata. */
+  measureMetadata(
+    inputMetadata: string | null,
+    resultMetadata: string | null,
+    maxBytes: number
+  ): Promise<unknown>;
+  /** Rebind the live authority, or retire it and create one; no row means stale. */
+  openAuthority(input: McpTaskAuthorityInput, at: string): Promise<readonly unknown[]>;
+  retireAuthority(lease: McpTaskAuthorityLease, at: string): Promise<void>;
+  /** The updated row, or nothing when the lease, row or transition is refused. */
+  update(
+    identity: McpTaskIdentity,
+    patch: McpTaskPatch,
+    lease: McpTaskAuthorityLease
+  ): Promise<unknown>;
 }
 
 export class McpTaskMetadataTooLargeError extends TypeError {
@@ -162,6 +221,17 @@ function requireAuthorityLease(lease: McpTaskAuthorityLease): void {
   requireScope(lease);
 }
 
+function assertBlockedDiagnosticBudget(serialized: string | null): void {
+  if (
+    serialized !== null &&
+    TEXT_ENCODER.encode(serialized).length > MAX_BLOCKED_DIAGNOSTIC_BYTES
+  ) {
+    throw new TypeError(
+      `MCP task blockedDiagnostic exceeds ${MAX_BLOCKED_DIAGNOSTIC_BYTES} bytes.`
+    );
+  }
+}
+
 function serializeMetadata(value: JsonObject | null): string | null {
   if (value === null) {
     return null;
@@ -246,27 +316,6 @@ function mapAuthorityRow(value: unknown): McpTaskAuthorityLease {
   return Object.freeze(lease);
 }
 
-function identityParams(identity: McpTaskIdentity): unknown[] {
-  return [
-    identity.authorityEpoch,
-    identity.serverId,
-    identity.resource,
-    identity.principalId,
-    identity.taskId,
-  ];
-}
-
-function leaseParams(lease: McpTaskAuthorityLease): unknown[] {
-  return [
-    lease.authorityEpoch,
-    lease.serverId,
-    lease.resource,
-    lease.principalId,
-    lease.runtimeId,
-    lease.connectionGeneration,
-  ];
-}
-
 function requireMatchingLease(identity: McpTaskScope, lease: McpTaskAuthorityLease): void {
   requireScope(identity);
   requireAuthorityLease(lease);
@@ -314,70 +363,21 @@ function explainRejectedUpdate(
 }
 
 /** Durable local Tasks handle store. Lifecycle polling is deliberately out of scope. */
-export class McpTaskRepository {
+export class McpTaskStore {
   constructor(
-    private readonly db: McpTaskDatabase,
+    private readonly storage: McpTaskStorage,
     private readonly now: () => Date = () => new Date()
   ) {}
 
   async openAuthority(input: McpTaskAuthorityInput): Promise<McpTaskAuthorityLease> {
     requireAuthorityInput(input);
     const at = decodeMcpTaskClock(this.now()).toISOString();
-    const result = await this.db.query(
-      `WITH live AS (
-         SELECT * FROM ${AUTHORITY_TABLE}
-         WHERE server_id = $1 AND resource = $2 AND principal_id = $3
-           AND retired_at IS NULL
-         FOR UPDATE
-       ), retired AS (
-         UPDATE ${AUTHORITY_TABLE} AS authority
-         SET retired_at = GREATEST(authority.updated_at, $6::timestamptz),
-             updated_at = GREATEST(authority.updated_at, $6::timestamptz)
-         FROM live
-         WHERE authority.authority_epoch = live.authority_epoch
-           AND live.runtime_id = $4
-           AND live.connection_generation < $5::bigint
-         RETURNING authority.authority_epoch
-       ), rebound AS (
-         UPDATE ${AUTHORITY_TABLE} AS authority
-         SET runtime_id = $4,
-             connection_generation = $5::bigint,
-             updated_at = GREATEST(authority.updated_at, $6::timestamptz)
-         FROM live
-         WHERE authority.authority_epoch = live.authority_epoch
-           AND (
-             live.runtime_id <> $4 OR live.connection_generation = $5::bigint
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM retired WHERE retired.authority_epoch = live.authority_epoch
-           )
-         RETURNING authority.*
-       ), created AS (
-         INSERT INTO ${AUTHORITY_TABLE} (
-           server_id, resource, principal_id, runtime_id, connection_generation,
-           created_at, updated_at
-         )
-         SELECT $1, $2, $3, $4, $5::bigint, $6::timestamptz, $6::timestamptz
-         WHERE NOT EXISTS (SELECT 1 FROM live) OR EXISTS (SELECT 1 FROM retired)
-         RETURNING *
-       )
-       SELECT * FROM rebound
-       UNION ALL
-       SELECT * FROM created`,
-      [
-        input.serverId,
-        input.resource,
-        input.principalId,
-        input.runtimeId,
-        input.connectionGeneration,
-        at,
-      ]
-    );
-    const row = result.rows[0];
+    const rows = await this.storage.openAuthority(input, at);
+    const row = rows[0];
     if (row === undefined) {
       throw new Error('MCP task authority acquisition is stale.');
     }
-    if (result.rows.length !== 1) {
+    if (rows.length !== 1) {
       throw new Error('MCP task authority acquisition did not produce exactly one lease.');
     }
     return mapAuthorityRow(row);
@@ -386,20 +386,14 @@ export class McpTaskRepository {
   async retireAuthority(lease: McpTaskAuthorityLease): Promise<void> {
     requireAuthorityLease(lease);
     const at = decodeMcpTaskClock(this.now()).toISOString();
-    await this.db.query(
-      `UPDATE ${AUTHORITY_TABLE}
-       SET retired_at = GREATEST(updated_at, $7::timestamptz),
-           updated_at = GREATEST(updated_at, $7::timestamptz)
-       WHERE authority_epoch = $1::uuid AND server_id = $2 AND resource = $3
-         AND principal_id = $4 AND runtime_id = $5
-         AND connection_generation = $6::bigint AND retired_at IS NULL`,
-      [...leaseParams(lease), at]
-    );
+    await this.storage.retireAuthority(lease, at);
   }
 
   async create(input: CreateMcpTaskInput, lease: McpTaskAuthorityLease): Promise<McpTaskRecord> {
     requireIdentity(input);
     requireMatchingLease(input, lease);
+    const threadId =
+      input.threadId === undefined ? null : requireText(input.threadId, 'threadId', 512);
     const status = decodeMcpTaskStatus(input.status);
     const inputMetadata = decodeMcpTaskInputMetadata(input.inputMetadata ?? null);
     const resultMetadata = decodeMcpTaskResultMetadata(input.resultMetadata ?? null);
@@ -415,59 +409,33 @@ export class McpTaskRepository {
       throw new TypeError('A completed or failed MCP task requires resultMetadata.');
     }
     await this.assertMetadataBudgets(inputMetadataJson, resultMetadataJson);
-    if (
-      blockedDiagnosticJson !== null &&
-      TEXT_ENCODER.encode(blockedDiagnosticJson).length > MAX_BLOCKED_DIAGNOSTIC_BYTES
-    ) {
-      throw new TypeError(
-        `MCP task blockedDiagnostic exceeds ${MAX_BLOCKED_DIAGNOSTIC_BYTES} bytes.`
-      );
-    }
-    const at = decodeMcpTaskClock(this.now());
-    const result = await this.db.query(
-      `INSERT INTO ${TABLE} (
-         authority_epoch, server_id, resource, principal_id, task_id, status,
-         status_message, input_metadata, result_metadata, blocked_diagnostic,
-         history, created_at, updated_at, terminal_at
-       )
-       SELECT $1::uuid, $2::text, $3::text, $4::text, $7::text, $8::text,
-              $9::text, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb,
-              $14::timestamptz, $14::timestamptz, $15::timestamptz
-       WHERE EXISTS (
-         SELECT 1 FROM ${AUTHORITY_TABLE}
-         WHERE authority_epoch = $1::uuid AND server_id = $2 AND resource = $3
-           AND principal_id = $4 AND runtime_id = $5
-           AND connection_generation = $6::bigint AND retired_at IS NULL
-       )
-       RETURNING *`,
-      [
-        ...leaseParams(lease),
-        input.taskId,
+    assertBlockedDiagnosticBudget(blockedDiagnosticJson);
+    const at = decodeMcpTaskClock(this.now()).toISOString();
+    const row = await this.storage.insert(
+      {
+        at,
+        blockedDiagnostic: blockedDiagnosticJson,
+        history: JSON.stringify([{ at, status }]),
+        inputMetadata: inputMetadataJson,
+        resultMetadata: resultMetadataJson,
         status,
         statusMessage,
-        inputMetadataJson,
-        resultMetadataJson,
-        blockedDiagnosticJson,
-        JSON.stringify([{ at: at.toISOString(), status }]),
-        at.toISOString(),
-        TERMINAL_STATUSES.has(status) || blockedDiagnostic !== null ? at.toISOString() : null,
-      ]
+        taskId: input.taskId,
+        terminalAt: TERMINAL_STATUSES.has(status) || blockedDiagnostic !== null ? at : null,
+        threadId,
+      },
+      lease
     );
-    if (result.rows[0] === undefined) {
+    if (row === undefined) {
       throw new Error('MCP task handle is missing or stale.');
     }
-    return mapRow(result.rows[0]);
+    return mapRow(row);
   }
 
   async get(identity: McpTaskIdentity): Promise<McpTaskRecord | null> {
     requireIdentity(identity);
-    const result = await this.db.query(
-      `SELECT * FROM ${TABLE}
-       WHERE authority_epoch = $1::uuid AND server_id = $2 AND resource = $3
-         AND principal_id = $4 AND task_id = $5`,
-      identityParams(identity)
-    );
-    return result.rows[0] === undefined ? null : mapRow(result.rows[0]);
+    const row = await this.storage.get(identity);
+    return row === undefined ? null : mapRow(row);
   }
 
   /**
@@ -487,21 +455,7 @@ export class McpTaskRepository {
       );
     }
     requireAuthorityLease(lease);
-    const result = await this.db.query(
-      `SELECT * FROM ${TABLE}
-       WHERE authority_epoch = $1::uuid AND server_id = $2 AND resource = $3
-         AND principal_id = $4 AND terminal_at IS NULL
-         AND EXISTS (
-           SELECT 1 FROM ${AUTHORITY_TABLE}
-           WHERE authority_epoch = $1::uuid AND server_id = $2 AND resource = $3
-             AND principal_id = $4 AND runtime_id = $5
-             AND connection_generation = $6::bigint AND retired_at IS NULL
-         )
-       ORDER BY created_at ASC, task_id ASC
-       LIMIT $7`,
-      [...leaseParams(lease), limit]
-    );
-    return result.rows.map(mapRow);
+    return (await this.storage.listActive(lease, limit)).map(mapRow);
   }
 
   async update(
@@ -531,58 +485,28 @@ export class McpTaskRepository {
       hasInput ? inputMetadataJson : null,
       hasResult ? resultMetadataJson : null
     );
-    if (
-      blockedDiagnosticJson !== null &&
-      TEXT_ENCODER.encode(blockedDiagnosticJson).length > MAX_BLOCKED_DIAGNOSTIC_BYTES
-    ) {
-      throw new TypeError(
-        `MCP task blockedDiagnostic exceeds ${MAX_BLOCKED_DIAGNOSTIC_BYTES} bytes.`
-      );
-    }
-    const at = decodeMcpTaskClock(this.now());
-    const result = await this.db.query(
-      `UPDATE ${TABLE}
-       SET status = $8,
-           status_message = CASE WHEN $9 THEN $10 ELSE status_message END,
-           input_metadata = CASE WHEN $11 THEN $12::jsonb ELSE input_metadata END,
-           result_metadata = CASE WHEN $13 THEN $14::jsonb ELSE result_metadata END,
-           blocked_diagnostic = CASE WHEN $15 THEN $16::jsonb ELSE blocked_diagnostic END,
-           history = (CASE WHEN jsonb_array_length(history) = 32 THEN history - 0 ELSE history END)
-                     || $17::jsonb,
-           updated_at = $18::timestamptz,
-           terminal_at = CASE WHEN $19 THEN $18::timestamptz ELSE NULL END
-       WHERE authority_epoch = $1::uuid AND server_id = $2 AND resource = $3
-         AND principal_id = $4 AND task_id = $7::text AND terminal_at IS NULL
-         AND EXISTS (
-           SELECT 1 FROM ${AUTHORITY_TABLE}
-           WHERE authority_epoch = $1::uuid AND server_id = $2 AND resource = $3
-             AND principal_id = $4 AND runtime_id = $5
-             AND connection_generation = $6::bigint AND retired_at IS NULL
-         )
-         AND ($8 <> 'input_required' OR
-              (CASE WHEN $11 THEN $12::jsonb ELSE input_metadata END) IS NOT NULL)
-         AND ($8 NOT IN ('completed', 'failed') OR
-              (CASE WHEN $13 THEN $14::jsonb ELSE result_metadata END) IS NOT NULL)
-       RETURNING *`,
-      [
-        ...leaseParams(lease),
-        identity.taskId,
-        status,
-        hasMessage,
-        statusMessage,
-        hasInput,
-        inputMetadataJson,
-        hasResult,
-        resultMetadataJson,
+    assertBlockedDiagnosticBudget(blockedDiagnosticJson);
+    const at = decodeMcpTaskClock(this.now()).toISOString();
+    const row = await this.storage.update(
+      identity,
+      {
+        at,
+        blockedDiagnostic: blockedDiagnosticJson,
         hasBlocked,
-        blockedDiagnosticJson,
-        JSON.stringify([{ at: at.toISOString(), status }]),
-        at.toISOString(),
-        TERMINAL_STATUSES.has(status) || blockedDiagnostic !== null,
-      ]
+        hasInput,
+        hasMessage,
+        hasResult,
+        historyEntry: JSON.stringify([{ at, status }]),
+        inputMetadata: inputMetadataJson,
+        resultMetadata: resultMetadataJson,
+        status,
+        statusMessage,
+        terminal: TERMINAL_STATUSES.has(status) || blockedDiagnostic !== null,
+      },
+      lease
     );
-    if (result.rows[0] !== undefined) {
-      return mapRow(result.rows[0]);
+    if (row !== undefined) {
+      return mapRow(row);
     }
     throw explainRejectedUpdate(await this.get(identity), status, {
       hasInput,
@@ -600,24 +524,17 @@ export class McpTaskRepository {
       return;
     }
     // The digest is only read on the over-budget branch, so it is only hashed there.
-    const result = await this.db.query(
-      `SELECT octet_length(COALESCE($1::jsonb::text, '')) AS input_bytes,
-              CASE WHEN octet_length(COALESCE($1::jsonb::text, '')) > $3::int
-                   THEN encode(sha256(convert_to($1::jsonb::text, 'UTF8')), 'hex')
-              END AS input_sha256,
-              octet_length(COALESCE($2::jsonb::text, '')) AS result_bytes,
-              CASE WHEN octet_length(COALESCE($2::jsonb::text, '')) > $3::int
-                   THEN encode(sha256(convert_to($2::jsonb::text, 'UTF8')), 'hex')
-              END AS result_sha256`,
-      [inputMetadataJson, resultMetadataJson, MCP_TASK_METADATA_MAX_BYTES]
+    const row = await this.storage.measureMetadata(
+      inputMetadataJson,
+      resultMetadataJson,
+      MCP_TASK_METADATA_MAX_BYTES
     );
-    const row = result.rows[0];
     if (!isRecord(row)) {
       throw new TypeError('MCP task metadata size query returned an invalid row.');
     }
     for (const [field, bytesColumn, digestColumn] of [
-      ['inputMetadata', 'input_bytes', 'input_sha256'],
-      ['resultMetadata', 'result_bytes', 'result_sha256'],
+      ['inputMetadata', 'inputBytes', 'inputSha256'],
+      ['resultMetadata', 'resultBytes', 'resultSha256'],
     ] as const) {
       const bytes = Number(row[bytesColumn]);
       if (!(Number.isSafeInteger(bytes) && bytes >= 0)) {
@@ -631,5 +548,12 @@ export class McpTaskRepository {
         throw new McpTaskMetadataTooLargeError(field, bytes, MCP_TASK_METADATA_MAX_BYTES, digest);
       }
     }
+  }
+}
+
+/** The PGlite Tasks tables, until the host StateStore owns every Tasks row. */
+export class McpTaskRepository extends McpTaskStore {
+  constructor(db: McpTaskDatabase, now?: () => Date) {
+    super(pgliteMcpTaskStorage(db), now);
   }
 }

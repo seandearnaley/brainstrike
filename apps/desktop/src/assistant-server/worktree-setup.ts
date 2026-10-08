@@ -11,9 +11,9 @@ import { createHash } from 'node:crypto';
 import { promises as fsPromises } from 'node:fs';
 import { glob } from 'node:fs/promises';
 import path from 'node:path';
+import { sha256OfBuffer } from '@brainstrike/host-capabilities/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { WorktreeSetupOutcome, WorktreeSetupSkippedCopy } from '@brainstrike/types';
-import { sha256OfBuffer } from './hooks/trust';
 import { isPathWithin } from './worktree-paths';
 import type { WorktreeSetupInput } from './worktree-service';
 

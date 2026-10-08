@@ -33,15 +33,26 @@ import type { ExecuteCommandInput, RuntimeData } from '@brainstrike/agent';
 import { scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
 import type { ShellOutputStreamer } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
+import type { GitResult } from '@brainstrike/types';
 import type { ExecuteCommandToolResult } from './execute-command-tool';
 import { runExecuteCommand } from './execute-command-tool';
 import type { ShellCorrelationCapability } from './shell-worktree-correlation';
-import type { WorktreeToolCapability } from './worktree-tools';
 
 const logger = createLogger('ExecuteCommandCorrelation');
 
+/** The worktree listing the pre-command snapshot reads; only paths are needed. */
+export interface WorktreePathListing {
+  readonly list: () => Promise<GitResult<readonly { readonly path: string }[]>>;
+}
+
+/** Where a command's worktree/forge side effects are correlated (BST-1392). */
+export interface ShellCorrelationDependencies {
+  readonly shellCorrelation?: ShellCorrelationCapability | undefined;
+  readonly worktreeTools?: WorktreePathListing | undefined;
+}
+
 async function snapshotWorktreePaths(
-  worktreeTools: WorktreeToolCapability | undefined
+  worktreeTools: WorktreePathListing | undefined
 ): Promise<ReadonlySet<string> | undefined> {
   if (!worktreeTools) {
     return undefined;
@@ -66,10 +77,7 @@ export async function runExecuteCommandWithShellCorrelation(
     readonly signal?: AbortSignal | undefined;
     readonly stream?: ShellOutputStreamer | undefined;
   },
-  dependencies: {
-    readonly shellCorrelation?: ShellCorrelationCapability | undefined;
-    readonly worktreeTools?: WorktreeToolCapability | undefined;
-  }
+  dependencies: ShellCorrelationDependencies
 ): Promise<ExecuteCommandToolResult> {
   const precedingWorktreePaths =
     dependencies.shellCorrelation && scanShellCommandForGitSignals(input.command).touchedWorktrees

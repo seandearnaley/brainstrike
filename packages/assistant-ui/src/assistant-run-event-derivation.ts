@@ -119,6 +119,10 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     event.kind === 'provider.request.warned' ||
     event.kind === 'run.failed' ||
     event.kind === 'run.cancelled' ||
+    // A recovered stall shows the abandoned attempt's partial text; its two
+    // rows are the only explanation, so they show at every detail level.
+    event.kind === 'run.stalled' ||
+    event.kind === 'run.resumed' ||
     event.kind === 'tool.approval.requested' ||
     event.kind === UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND
   );

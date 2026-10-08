@@ -410,7 +410,7 @@ export async function finalPromptAccountingHost(
               module: pathToFileURL(require.resolve('@brainstrike/agent-host/state-projection'))
                 .href,
             },
-            stateResources: [{ profile: RECORDED_VECTOR_PROFILE, resourceId, rootId: root }],
+            stateResources: [{ resourceId, rootId: root }],
             stateRoot: root,
           },
           { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }

@@ -80,6 +80,11 @@ export const MAIN_PROCESS_BUILD_OPTIONS = {
       appRoot,
       '../../packages/assistant-data/src/assistant-memory-repository.ts'
     ),
+    // The host platform entry acquires memory vectors for this resource (BST-1928).
+    '@brainstrike/assistant-data/assistant-memory-resource': path.resolve(
+      appRoot,
+      '../../packages/assistant-data/src/assistant-memory-resource.ts'
+    ),
     '@brainstrike/assistant-data/assistant-thread-run-reaper': path.resolve(
       appRoot,
       '../../packages/assistant-data/src/assistant-thread-run-reaper.ts'

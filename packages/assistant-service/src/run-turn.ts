@@ -21,13 +21,14 @@
  * coupled to pump lifetime, which remains transport-owned until BST-973's
  * shared HTTP adapter takes it over.
  */
-import type {
-  AgentMessage,
-  AssistantToolApprovalAction,
-  AssistantToolResumeAction,
-  assistantDataStreamSessions,
-  ProviderAuthInput,
-  RuntimeData,
+import {
+  type AgentMessage,
+  type AssistantToolApprovalAction,
+  type AssistantToolResumeAction,
+  type assistantDataStreamSessions,
+  outputLimitContextFor,
+  type ProviderAuthInput,
+  type RuntimeData,
 } from '@brainstrike/agent';
 import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
@@ -161,17 +162,7 @@ async function runOwnedAssistantTurn(
     return { ok: false, payload: streamResult.payload, status: streamResult.status };
   }
 
-  const reasoningEffort = runtimeData.requestedReasoningEffort;
-  const outputLimitContext =
-    runtimeData.provider === 'openrouter' &&
-    typeof runtimeData.model === 'string' &&
-    typeof reasoningEffort === 'string'
-      ? {
-          model: runtimeData.model,
-          provider: 'openrouter' as const,
-          reasoningEffort,
-        }
-      : undefined;
+  const outputLimitContext = outputLimitContextFor(runtimeData);
   const session = sessions.create(streamResult.stream, {
     ...(assistantMessageId ? { messageId: assistantMessageId } : {}),
     ...(outputLimitContext ? { outputLimitContext } : {}),
