@@ -2,11 +2,11 @@ import {
   type McpHostServerSnapshot,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
+import { McpElicitationPresenterAuthority } from '@brainstrike/host-capabilities/mcp/elicitation-presenter';
 import type { ElicitRequest } from '@modelcontextprotocol/client';
 import type { BrowserWindow } from 'electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { attachMcpElicitationBridge } from '../../mcp/elicitation-bridge';
-import { McpElicitationPresenterAuthority } from '../../mcp/elicitation-presenter';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 import type { DesktopIpcInvokeHandler } from '../../platform/desktop-ipc-registry';
 

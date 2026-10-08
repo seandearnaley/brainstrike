@@ -1,5 +1,6 @@
 export * from './agent-ignore-guard.js';
 export * from './canvas-document-content.js';
+export * from './canvas-state.js';
 export * from './executors.js';
 export * from './file-mutation-tools.js';
 export * from './glob-workspace-tool.js';

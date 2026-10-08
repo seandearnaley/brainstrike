@@ -118,11 +118,15 @@ async function harness() {
       prompt,
       threadId,
     });
+    // An observed run makes a chat and an observer model call; under machine load
+    // that takes seconds (measured 0.4-7.3 s at load ~50), past expect.poll's 1 s default.
     await expect
-      .poll(async () =>
-        (await core.read(threadId, 0)).some(
-          (row) => row.event.type === 'run.finished' && row.event.runId === runId
-        )
+      .poll(
+        async () =>
+          (await core.read(threadId, 0)).some(
+            (row) => row.event.type === 'run.finished' && row.event.runId === runId
+          ),
+        { timeout: 30_000 }
       )
       .toBe(true);
     return runId;

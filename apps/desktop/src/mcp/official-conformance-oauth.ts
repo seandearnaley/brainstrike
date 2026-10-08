@@ -6,10 +6,13 @@ import {
   OFFICIAL_AUTH_SCENARIOS,
   type OfficialAuthScenarioName,
 } from '@brainstrike/assistant-contract/official-auth-conformance';
+import {
+  createInMemoryMcpOAuthStore,
+  createMcpOAuthClientProvider,
+} from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import type { StoredOAuthClientInformation } from '@modelcontextprotocol/client';
 import { z } from 'zod';
 import type { DesktopMcpHostRuntimeDependencies } from './host-runtime';
-import { createInMemoryMcpOAuthStore, createMcpOAuthClientProvider } from './oauth-client-provider';
 
 const NonEmpty = z.string().min(1);
 const CIMD_CLIENT_METADATA_URL = 'https://conformance-test.local/client-metadata.json';

@@ -4,6 +4,8 @@ import type { ModelPricingResolver } from '../../assistant-cross-root-cost';
 import {
   DAILY_SPEND_AGGREGATION_SQL,
   type DailySpendUsageRow,
+  type HostUsageRecord,
+  hostDailySpendRows,
   mapDailySpendUsageRow,
   resolveDailySpendSummary,
 } from '../daily-spend';
@@ -187,5 +189,51 @@ describe('resolveDailySpendSummary', () => {
       totalUsd: 0,
       unpricedModels: [],
     });
+  });
+});
+
+describe('hostDailySpendRows', () => {
+  const now = Date.parse('2026-10-08T12:00:00Z');
+  const record = (overrides: Partial<HostUsageRecord>): HostUsageRecord => ({
+    at: now - 60_000,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    inputTokens: 0,
+    model: 'claude-sonnet-4-6',
+    outputTokens: 0,
+    provider: 'anthropic',
+    ...overrides,
+  });
+
+  it('groups the host calls inside the last 24h per model, all unreported', () => {
+    const rows = hostDailySpendRows(
+      [
+        record({ cacheReadTokens: 10, inputTokens: 100, outputTokens: 5 }),
+        record({ inputTokens: 50, outputTokens: 7 }),
+        record({ inputTokens: 900, model: 'gpt-5.2', outputTokens: 9, provider: 'openai' }),
+        // Outside the rolling window: a call from 25 hours ago no longer counts.
+        record({ at: now - 25 * 60 * 60 * 1000, inputTokens: 1_000_000 }),
+      ],
+      now
+    );
+    expect(rows).toEqual([
+      {
+        model: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+        unreportedCacheCreationTokens: 0,
+        unreportedCacheReadTokens: 10,
+        unreportedInputTokens: 150,
+        unreportedOutputTokens: 12,
+      },
+      {
+        model: 'gpt-5.2',
+        provider: 'openai',
+        unreportedCacheCreationTokens: 0,
+        unreportedCacheReadTokens: 0,
+        unreportedInputTokens: 900,
+        unreportedOutputTokens: 9,
+      },
+    ]);
+    expect(resolveDailySpendSummary(rows, resolvePricing).estimatedUsd).toBeGreaterThan(0);
   });
 });

@@ -48,6 +48,7 @@ function selection(modelTarget = 'openai/observer-fixture'): PlatformSelection {
         },
       },
     },
+    nativeRuntime: { provider: 'anthropic', workspaceRoots: [] },
     resourceId: 'workspace-fixture',
     tools: {},
     toolTimeoutMs: 5000,

@@ -14,7 +14,9 @@ import { z } from 'zod';
 // in `thread/list`), withheld observational memory, tool catalog IDs on
 // committed tool events, image attachments on a user message (`run/start`
 // and `run.started`), committed workspace edit attribution,
-// `checkpoint/revert`, per-thread tool state and run attempt records.
+// `checkpoint/revert`, per-thread tool state, the prompt breakdown on
+// `provider.request.prepared`, `run/steer` (end the active run at its next
+// step boundary) and run attempt records.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -30,6 +32,9 @@ const ThreadPresentation = {
   title: ThreadTitle.optional(),
 };
 const Run = { ...Thread, runId: Id };
+/** Task Ledger run labels (brainstrike_assistant_run_outcomes verdict/source). */
+const RunVerdict = z.enum(['failed', 'mixed', 'succeeded']);
+const RunVerdictDetail = z.string().max(2000);
 const McpInput = { ...Run, interactionId: Id };
 export const HostMcpInputStatusSchema = z.enum([
   'requested',
@@ -229,7 +234,20 @@ export const HOST_METHOD_SCHEMAS = {
     parentMessageId: Id.nullable().optional(),
     prompt: Id,
   }),
+  /**
+   * End the active run gracefully at its next step boundary, after the step in
+   * flight, so the user's steering message can start the next turn (BST-588).
+   */
+  'run/steer': z.strictObject({ ...Command, ...Run }),
   'run/stop': z.strictObject({ ...Command, ...Run }),
+  /** A client verdict is always the user's; hook and revert labels are host-committed. */
+  'run/verdict': z.strictObject({
+    ...Command,
+    ...Run,
+    detail: RunVerdictDetail.optional(),
+    source: z.literal('user'),
+    verdict: RunVerdict,
+  }),
   /** Destructive Root lifecycle; the existing StateStore intent owns recovery. */
   'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
@@ -291,6 +309,15 @@ export const HostMcpInputRequestSchema = z.strictObject({
   requestId: z.union([Id, z.number().int().safe()]),
   taskId: Id.optional(),
   type: z.literal('mcp.input.requested'),
+});
+/** A prepared provider prompt's composition (the context popover's breakdown). */
+export const HostPromptBreakdownSchema = z.strictObject({
+  attachmentsCount: z.number().int().nonnegative(),
+  historyMessagesTokens: z.number().int().nonnegative(),
+  provenance: z.literal('heuristic'),
+  systemInstructionsTokens: z.number().int().nonnegative(),
+  toolDefinitionsProvenance: z.enum(['heuristic', 'measured']),
+  toolDefinitionsTokens: z.number().int().nonnegative(),
 });
 export const HostEventSchema = z.union([
   z.strictObject({
@@ -367,6 +394,8 @@ export const HostEventSchema = z.union([
     type: z.literal('provider.request.prepared'),
     ...RunFields,
     accounting: z.json(),
+    /** The prepared prompt's composition, for the context popover. */
+    breakdown: HostPromptBreakdownSchema.optional(),
     modelId: Id,
     provider: Id,
   }),
@@ -500,6 +529,14 @@ export const HostEventSchema = z.union([
     commandId: Id,
     outcomes: z.array(HostEditRevertOutcomeSchema),
   }),
+  /** Only the host commits labels; precedence is applied by projectRunVerdicts. */
+  z.strictObject({
+    type: z.literal('run.verdict'),
+    ...RunFields,
+    detail: RunVerdictDetail.optional(),
+    source: z.enum(['edit_revert', 'hook', 'user']),
+    verdict: RunVerdict,
+  }),
 ]);
 export type HostEvent = z.infer<typeof HostEventSchema>;
 export const HostLogRowSchema = z.strictObject({
@@ -537,7 +574,9 @@ export const HOST_RESULT_SCHEMAS = {
   'mcp/input/stage': z.strictObject({ staged: z.literal(true) }),
   'run/regenerate': z.strictObject({ runId: Id }),
   'run/start': z.strictObject({ runId: Id }),
+  'run/steer': z.strictObject({ outcome: z.enum(['steering', 'already-terminal']) }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
+  'run/verdict': z.strictObject({ accepted: z.literal(true) }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),
   'thread/list': z.strictObject({
     // Presentation fields never committed are absent.

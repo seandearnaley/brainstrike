@@ -20,16 +20,16 @@ import {
   type McpElicitationSettlement,
   parseMcpElicitationSettlement,
 } from '@brainstrike/assistant-contract';
-import { mcpElicitationContract } from '../ipc-domains/mcp.contract';
-import { type DesktopIpcRegistry, registerDomain } from '../platform/desktop-ipc-registry';
-import type { Handlers } from '../platform/ipc-contract';
-import { getTrackedWindowsByRole } from '../window-role';
 import {
   type McpElicitationPresentation,
   type McpElicitationPresenterAuthority,
   McpElicitationPresenterError,
   type McpElicitationPresenterErrorCode,
-} from './elicitation-presenter';
+} from '@brainstrike/host-capabilities/mcp/elicitation-presenter';
+import { mcpElicitationContract } from '../ipc-domains/mcp.contract';
+import { type DesktopIpcRegistry, registerDomain } from '../platform/desktop-ipc-registry';
+import type { Handlers } from '../platform/ipc-contract';
+import { getTrackedWindowsByRole } from '../window-role';
 
 export type McpElicitationBridgeErrorCode =
   | McpElicitationPresenterErrorCode
