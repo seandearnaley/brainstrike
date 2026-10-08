@@ -275,3 +275,28 @@ test.each(['desktop-ui', 'public-socket'] as const)(
     expect(new Set(prepared.map((step) => step.origin))).toEqual(new Set([origin]));
   }
 );
+
+test('a thread lists its direct child threads in delegation order with their origins', async () => {
+  const { model, release } = fanOutModel();
+  release();
+  const harness = await setupChildRunHost(model, cleanup);
+  const runId = await harness.start('Fan out.');
+  await settledChildren(harness, 2);
+  const children = harness.core().listChildren(harness.threadId);
+  expect(children.map(({ origin }) => origin.toolCallId)).toEqual(['fan-1', 'fan-2']);
+  expect(children.map(({ threadId }) => threadId).sort()).toEqual(
+    (await childThreads(harness)).sort()
+  );
+  for (const { origin } of children) {
+    expect(origin).toMatchObject({
+      background: true,
+      depth: 1,
+      parentRunId: runId,
+      parentThreadId: harness.threadId,
+      persona: 'explore',
+    });
+  }
+  // A leaf child has none; an unknown thread is refused, never an empty list.
+  expect(harness.core().listChildren(children[0]?.threadId ?? '')).toEqual([]);
+  expect(() => harness.core().listChildren(randomUUID())).toThrow('Unknown thread');
+});

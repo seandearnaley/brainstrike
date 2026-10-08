@@ -31,6 +31,7 @@ import type {
   HostEvent,
   HostLogRow,
   HostParams,
+  HostResults,
   HostRunSnapshot,
 } from './protocol.js';
 import { delegatedHostRunAdmission, type HostRunPosition, startedHostRun } from './run-branch.js';
@@ -357,19 +358,39 @@ export class HostChildRuns {
   }
 
   /**
-   * The wake continues its turn: it reopens the committed selection of the run
-   * it follows, as a restart reopens a run, never as a client's configuration.
+   * What a new run's admission reads: a command's user-written prompt, or for a
+   * wake, which continues its turn, the committed selection of the run it
+   * follows, reopened as a restart reopens a run and never posing as a client's
+   * configuration.
    */
-  wakeSelection(
+  admissionInput(
+    method: string,
     params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
+    position: HostRunPosition,
     runs: ReadonlyMap<string, HostRunState>
-  ): { readonly snapshot: HostRunSnapshot } {
+  ): { readonly prompt: string } | { readonly snapshot: HostRunSnapshot } {
+    if (method !== 'wake') {
+      return { prompt: position.prompt };
+    }
     const tip = 'parentMessageId' in params ? params.parentMessageId : undefined;
     const snapshot = tip ? runs.get(tip)?.snapshot : undefined;
     if (!snapshot) {
       throw new Error('A wake requires the committed selection of the run it follows');
     }
     return { snapshot };
+  }
+
+  /** A thread's direct children, in the order their origins were committed. */
+  listed(
+    threadId: string,
+    threads: ReadonlySet<string>
+  ): HostResults['thread/children']['children'] {
+    if (!threads.has(threadId)) {
+      throw new Error('Unknown thread');
+    }
+    return [...this.origins].flatMap(([child, origin]) =>
+      origin.parentThreadId === threadId ? [{ origin, threadId: child }] : []
+    );
   }
 
   /** A committed run.started's delivery advances the watermark. */

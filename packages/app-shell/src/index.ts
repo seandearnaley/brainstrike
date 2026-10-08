@@ -26,6 +26,7 @@ export { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picke
 export { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 export { useEnableModel } from './hooks/use-enable-model';
 export { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
+export { HostChildConversations } from './host-child-conversations';
 export * from './navigation';
 export * from './page-wrapper';
 export * from './provider-verification-client';

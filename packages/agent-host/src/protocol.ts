@@ -15,8 +15,8 @@ import { z } from 'zod';
 // committed tool events, and image attachments on a user message (`run/start`
 // and `run.started`).
 // 12 (M4): cross-thread history search (`history/search`), and child threads
-// (BST-1932): `thread.started` with a delegation `origin`, and the child results
-// a `run.started` delivers.
+// (BST-1932): `thread.started` with a delegation `origin`, the child results a
+// `run.started` delivers, and `thread/children` (a thread's direct children).
 export const AGENT_HOST_PROTOCOL_VERSION = 12;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -234,6 +234,8 @@ export const HOST_METHOD_SCHEMAS = {
     prompt: Id,
   }),
   'run/stop': z.strictObject({ ...Command, ...Run }),
+  /** BST-1932: a thread's direct child threads; they are never in `thread/list`. */
+  'thread/children': z.strictObject(Thread),
   /** Destructive Root lifecycle; the existing StateStore intent owns recovery. */
   'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
@@ -448,6 +450,10 @@ export const HOST_RESULT_SCHEMAS = {
   'run/regenerate': z.strictObject({ runId: Id }),
   'run/start': z.strictObject({ runId: Id }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
+  'thread/children': z.strictObject({
+    // Delegation order: each child with the origin its thread.started committed.
+    children: z.array(z.strictObject({ ...Thread, origin: HostChildOriginSchema })),
+  }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),
   'thread/list': z.strictObject({
     // Presentation fields never committed are absent.

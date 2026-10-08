@@ -8,6 +8,8 @@ import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const TASK = 'EXPLORE_TASK_5A: list what the notes say.';
 const LEDGER = 'Background invocations of this turn';
+const FOLLOW_UP = 'FOLLOW_UP_5B: anything else in the notes?';
+const CONTINUATION = '<child_continuation_result>';
 
 /** A thread's committed runs as a spec reads them: how each was admitted and how it ended. */
 function committedRuns(rows: readonly HostLogRow[]) {
@@ -49,7 +51,7 @@ function committedTree(logs: readonly HostThreadLog[]) {
  * background Explorer child under its persona's narrowed tools, and wakes the
  * parent once with the child's result. Only the provider is scripted.
  */
-test('a host thread delegates to a background persona child and wakes with its result', async ({
+test('a host thread delegates to a background persona child, wakes with its result, and drives the child from its tab', async ({
   electron,
   modelProvider,
   window,
@@ -64,6 +66,9 @@ test('a host thread delegates to a background persona child and wakes with its r
     }
     const history = JSON.stringify(messages);
     if (toolNames.includes('agent-explore')) {
+      if (history.includes(CONTINUATION)) {
+        return { finalText: 'Parent read the follow-up.' };
+      }
       return history.includes(LEDGER)
         ? { finalText: 'Parent read the child.' }
         : {
@@ -71,7 +76,9 @@ test('a host thread delegates to a background persona child and wakes with its r
             toolCall: { arguments: { prompt: TASK }, name: 'agent-explore' },
           };
     }
-    return { finalText: 'Child finding 5A.' };
+    return {
+      finalText: history.includes('FOLLOW_UP_5B') ? 'Child follow-up 5B.' : 'Child finding 5A.',
+    };
   });
   await ensureAssistantShellVisible(window);
   const input = window.getByRole('textbox', { name: 'Message input' });
@@ -131,5 +138,57 @@ test('a host thread delegates to a background persona child and wakes with its r
   const wakes = streamed.filter(({ messages }) => JSON.stringify(messages).includes(LEDGER));
   expect(wakes).toHaveLength(1);
   expect(JSON.stringify(wakes[0]?.messages)).toContain('Child finding 5A.');
+
+  // The card opens the child's own host thread in a workspace tab.
+  const root = window.getByRole('region', { exact: true, name: 'Assistant' });
+  await root.getByRole('button', { exact: true, name: 'Expand activity' }).first().click();
+  await root.getByRole('button', { exact: true, name: 'Open Explorer conversation' }).click();
+  await expect(
+    window.getByRole('tablist', { name: 'Workspace tabs' }).getByRole('tab', { selected: true })
+  ).toHaveText('Explorer');
+  const childView = window.getByRole('region', { exact: true, name: 'Explorer' });
+  await expect(childView.getByText(TASK, { exact: true })).toBeVisible();
+  await expect(childView.getByText('Child finding 5A.', { exact: true })).toBeVisible();
+
+  // Typing into the idle child continues its thread, and the parent wakes once more.
+  await childView.getByRole('textbox', { name: 'Message input' }).fill(FOLLOW_UP);
+  await childView.getByRole('button', { exact: true, name: 'Send' }).click();
+  await expect(childView.getByText('Child follow-up 5B.', { exact: true })).toBeVisible({
+    timeout: E2E_TIMEOUTS.messageVisibility,
+  });
+  await expect(root.getByText('Parent read the follow-up.', { exact: true })).toBeVisible({
+    timeout: E2E_TIMEOUTS.messageVisibility,
+  });
+  await expect
+    .poll(async () => committedTree(await readHostThreadTree(electron.getUserDataDir())), {
+      timeout: E2E_TIMEOUTS.messageVisibility,
+    })
+    .toEqual([
+      {
+        child: false,
+        origin: null,
+        runs: [
+          { delivered: [], detail: null, outcome: 'completed', via: 'command' },
+          { delivered: ['returned'], detail: null, outcome: 'completed', via: 'wake' },
+          { delivered: ['returned'], detail: null, outcome: 'completed', via: 'wake' },
+        ],
+      },
+      {
+        child: true,
+        origin: { background: true, depth: 1, persona: 'explore' },
+        runs: [
+          { delivered: [], detail: null, outcome: 'completed', via: 'command' },
+          { delivered: [], detail: null, outcome: 'completed', via: 'command' },
+        ],
+      },
+    ]);
+  const continued = modelProvider
+    .requests()
+    .filter(
+      ({ messages, toolNames }) =>
+        toolNames.includes('agent-explore') && JSON.stringify(messages).includes(CONTINUATION)
+    );
+  expect(continued).toHaveLength(1);
+  expect(JSON.stringify(continued[0]?.messages)).toContain('Child follow-up 5B.');
   expect(modelProvider.refusals()).toEqual([]);
 });

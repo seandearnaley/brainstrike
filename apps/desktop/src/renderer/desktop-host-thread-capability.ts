@@ -111,6 +111,8 @@ function bindingPatch(metadata: AssistantThreadMetadata): ThreadWorkspaceBinding
 export function createWindowThreadCapability(
   renderThread: (view: {
     readonly catalogLoaded: boolean;
+    /** BST-1932: the persona a child thread runs; absent for a top-level thread. */
+    readonly childPersona: string | undefined;
     readonly host: HostClient | undefined;
     readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
     readonly onTitleCommitted: () => void;
@@ -129,6 +131,7 @@ export function createWindowThreadCapability(
   let closing: Promise<void> | undefined;
   let catalogLoaded = false;
   const threads = new Map<string, HostClient>();
+  const childPersonas = new Map<string, string>();
   const close = (): Promise<void> => {
     const admitted = connecting;
     closing ??= (async () => {
@@ -196,6 +199,24 @@ export function createWindowThreadCapability(
     return host;
   };
   return {
+    // BST-1932: a listed child is driven through its parent's host client.
+    childThreads: async (threadId) => {
+      const host = await threadClient(threadId);
+      if (!host) {
+        throw new Error('This thread is not owned by the agent host');
+      }
+      const { children } = await host.request('thread/children', { threadId });
+      return children.map(({ origin, threadId: child }) => {
+        threads.set(child, host);
+        childPersonas.set(child, origin.persona);
+        return {
+          parentRunId: origin.parentRunId,
+          persona: origin.persona,
+          threadId: child,
+          toolCallId: origin.toolCallId,
+        };
+      });
+    },
     createThread: async (resourceId) => {
       const host = await client();
       const { threadId } = await host.request('thread/start', { commandId: crypto.randomUUID() });
@@ -226,6 +247,7 @@ export function createWindowThreadCapability(
     renderThread: (threadId, _isVisible, onRunningChange) =>
       renderThread({
         catalogLoaded,
+        childPersona: childPersonas.get(threadId),
         host: threads.get(threadId),
         onRunningChange,
         onTitleCommitted: titleCommitted,

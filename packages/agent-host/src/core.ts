@@ -259,6 +259,11 @@ export class HostCore {
       .map((threadId) => ({ threadId, ...this.presentations.read(threadId) }));
   }
 
+  /** BST-1932: a thread's direct child threads, in delegation order, with their origins. */
+  listChildren(threadId: string): HostResults['thread/children']['children'] {
+    return this.children.listed(threadId, this.threads);
+  }
+
   updateThread(params: HostParams<'thread/update'>): Promise<{ accepted: true }> {
     return this.command('thread/update', params, () => this.presentations.update(params));
   }
@@ -478,9 +483,7 @@ export class HostCore {
         ...hostRunCommandRequest(
           { ...params, threadId: root },
           origin,
-          method === 'wake'
-            ? this.children.wakeSelection(params, this.runs)
-            : { prompt: selected.prompt },
+          this.children.admissionInput(method, params, selected, this.runs),
           controller.signal
         ),
         ...this.workspaces.admissionBinding(root),
@@ -955,7 +958,7 @@ export class HostCore {
     ).then(() => {
       this.presentations.settle(run);
       const parent = this.children.deliveryParent(run) ?? (run.origin ? undefined : run.threadId);
-      if (parent && wakes) {
+      if (parent && wakes && !(this.closing || this.deletions.has(parent))) {
         this.wake(parent);
       }
     });
@@ -963,9 +966,6 @@ export class HostCore {
 
   /** B10/B14 (ADR-0010): an idle, unparked parent wakes once per batch of settled children. */
   private wake(threadId: string): void {
-    if (this.closing || this.deletions.has(threadId) || !this.threads.has(threadId)) {
-      return;
-    }
     this.admit(threadId, async () => {
       const wake = this.children.wakeParams(threadId, this.runs);
       if (wake) {

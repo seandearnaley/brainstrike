@@ -31,8 +31,22 @@ export interface AssistantThreadHistoryHit {
   readonly ts: number;
 }
 
+/** BST-1932: one child thread a host delegation started, as its origin committed it. */
+export interface AssistantThreadHostChild {
+  /** The parent run whose tool call started this child. */
+  readonly parentRunId: string;
+  readonly persona: string;
+  readonly threadId: string;
+  readonly toolCallId: string;
+}
+
 /** A host app supplies committed thread identity and its connected presentation. */
 export interface AssistantThreadHostCapability {
+  /**
+   * A thread's direct child threads, in delegation order. Child threads are
+   * never listed as threads; a host without delegation omits this.
+   */
+  childThreads?(threadId: string): Promise<readonly AssistantThreadHostChild[]>;
   createThread(resourceId: string): Promise<AssistantMemoryThread>;
   /** True only for an identity owned and physically deleted by this host. */
   deleteThread(threadId: string): Promise<boolean>;
