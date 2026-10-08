@@ -1,4 +1,4 @@
-import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
+import type { PermissionToolGateSnapshot, ToolRiskCategory } from '@brainstrike/assistant-contract';
 import type { ModelMessage } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
@@ -6,6 +6,8 @@ import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
 import type { HostClientOrigin, HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
 import {
   HOST_METHOD_SCHEMAS,
+  type HostChildDelivery,
+  type HostChildOrigin,
   type HostEvent,
   type HostImageAttachment,
   type HostParams,
@@ -164,10 +166,31 @@ export function foldHostInteraction(
     approval.resumeData = event.resumeData;
   }
 }
+/** Folds a committed effect or terminal into its run; other events are not run effects. */
+export function foldHostRunEffect(runs: ReadonlyMap<string, HostRunState>, event: HostEvent): void {
+  if (event.type === 'effect.started') {
+    runs.get(event.runId)?.started.add(event.toolCallId);
+  } else if (event.type === 'effect.finished') {
+    runs.get(event.runId)?.outputs.set(event.toolCallId, event.output);
+  } else if (event.type === 'run.finished') {
+    const run = runs.get(event.runId);
+    if (run) {
+      run.terminal = true;
+      run.outcome = event.outcome;
+      // BST-1932: a child's failure reaches its parent with its committed reason.
+      if (event.detail !== undefined) {
+        run.detail = event.detail;
+      }
+    }
+  }
+}
+
 /** A run's committed position in the thread's conversation tree. */
 export interface HostRunBranch {
   /** Images on the user message, beside its prompt. */
   readonly attachments?: readonly HostImageAttachment[];
+  /** BST-1932: background child results delivered with this run's user message. */
+  readonly delivery?: HostChildDelivery;
   /** The committed run its user message follows; null is the thread root. */
   readonly parentMessageId: string | null;
   readonly prompt: string;
@@ -178,11 +201,17 @@ export interface HostRunBranch {
 export interface HostRunState {
   admission?: HostRunAdmission;
   admissionTask?: Promise<HostRunAdmission>;
+  /** A child's root permission policy at admission; only its denies stay frozen (ADR-0010). */
+  admittedPolicy?: PermissionToolGateSnapshot;
   readonly approvals: Map<string, PendingInteraction>;
   readonly branch: HostRunBranch;
   readonly checkpointedResults: Set<string>;
   completion?: Promise<void>;
   readonly controller: AbortController;
+  /** Set when a child's execution deadline expired; it ends failed, not stopped. */
+  deadline?: string;
+  /** The committed run.finished detail, once terminal. */
+  detail?: string;
   readonly effects: Set<Promise<unknown>>;
   /** Its thread's grants for this host process, shared with the thread's other runs. */
   readonly grants: HostThreadGrants;
@@ -199,6 +228,8 @@ export interface HostRunState {
   /** This run's own committed model messages, after its user message. */
   readonly messages: ModelMessage[];
   readonly modelId: string;
+  /** BST-1932: present on every run of a child thread. */
+  origin?: HostChildOrigin;
   outcome?: Extract<HostEvent, { type: 'run.finished' }>['outcome'];
   readonly outputs: Map<string, Json>;
   owner?: Promise<HostRunOwner | undefined>;
@@ -209,6 +240,8 @@ export interface HostRunState {
   readonly permits: Map<string, Action>;
   /** Committed on run.started: it reads and proposes a plan, and approval ends it. */
   planMode?: true;
+  /** A child's root thread, whose live permission policy governs its decisions. */
+  policyThreadId?: string;
   readonly rawInputs: Map<string, Json>;
   release?: (() => void) | undefined;
   readonly responses: Set<string>;
@@ -222,6 +255,8 @@ export interface HostRunState {
   task?: Promise<void>;
   terminal: boolean;
   readonly threadId: string;
+  /** A follow-up typed into an idle child starts its own turn: its ID. */
+  turnId?: string;
 }
 
 export function createHostRunState(
