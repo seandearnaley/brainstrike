@@ -5,7 +5,7 @@ import { z } from 'zod';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`); committed
-// workspace edit attribution and `checkpoint/revert`.
+// workspace edit attribution, `checkpoint/revert` and per-thread tool state.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -362,6 +362,14 @@ export const HostEventSchema = z.union([
     rootPath: Id,
     toolCallId: Id,
     toolId: Id,
+  }),
+  z.strictObject({
+    type: z.literal('tool.state.updated'),
+    ...RunFields,
+    /** Tool-owned key, e.g. the task list or one canvas; the latest value per key wins. */
+    key: Id,
+    toolCallId: Id,
+    value: z.json(),
   }),
   z.strictObject({
     type: z.literal('workspace.edit.reverted'),

@@ -61,6 +61,15 @@ export interface HostWorkspaceEditTracker {
   track<T>(edit: HostWorkspaceEdit, mutate: () => Promise<T>): Promise<T>;
 }
 
+/** Core-owned per-thread tool state; every write is a committed `tool.state.updated`. */
+export interface HostToolState {
+  /** The latest committed value of every key starting with `prefix`. */
+  entries(prefix: string): readonly (readonly [string, unknown])[];
+  read(key: string): unknown;
+  /** Atomic per (thread, key): `next` sees the latest committed value; `undefined` writes nothing. */
+  update(key: string, next: (current: unknown) => unknown): Promise<void>;
+}
+
 export interface HostToolContext {
   /** Present for every Core-dispatched execution; file tools must refuse without it. */
   readonly edits?: HostWorkspaceEditTracker | undefined;
@@ -69,6 +78,8 @@ export interface HostToolContext {
   readonly resumeData?: unknown;
   readonly runId: string;
   readonly signal: AbortSignal;
+  /** Present for every Core-dispatched execution; stateful tools must refuse without it. */
+  readonly state?: HostToolState | undefined;
   readonly threadId: string;
   readonly toolCallId: string;
   /** Existing native/MCP progress is committed by the run-log owner. */

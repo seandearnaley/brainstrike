@@ -70,7 +70,8 @@ import {
   finishApprovedHostResults,
   resolveHostApprovalInput,
 } from './run-continuation.js';
-import { HostWorkspaceEdits, hostEditScope, revertHostRunEdits } from './workspace-edits.js';
+import { HostToolRecords } from './tool-records.js';
+import { revertHostRunEdits } from './workspace-edits.js';
 import { HostThreadWorkspaceState } from './workspace-state.js';
 
 export { jsonValue } from './json-value.js';
@@ -85,7 +86,7 @@ export type HostEventStore = Pick<
 export class HostCore {
   private readonly commands = new HostCommandLedger();
   private readonly mcpInputs = new HostMcpInputState();
-  private readonly edits = new HostWorkspaceEdits();
+  private readonly records = new HostToolRecords();
   private readonly threads = new Set<string>();
   private readonly workspaces = new HostThreadWorkspaceState((method, params, event, durability) =>
     this.accept(
@@ -166,7 +167,7 @@ export class HostCore {
 
   private fold(row: HostLogRow): void {
     this.mcpInputs.fold(row);
-    this.edits.fold(row);
+    this.records.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
     switch (event.type) {
@@ -389,7 +390,7 @@ export class HostCore {
       this.threads.delete(params.threadId);
       this.workspaces.forget(params.threadId);
       this.mcpInputs.forgetThread(params.threadId);
-      this.edits.forgetThread(params.threadId);
+      this.records.forgetThread(params.threadId);
       for (const run of runs) {
         this.runs.delete(run.id);
         this.conversationIds.delete(run.id);
@@ -514,9 +515,11 @@ export class HostCore {
     // Revalidating a canonical value can transform it a second time.
     const output = await registered.execute(input, {
       ...(resumeData === undefined ? {} : { resumeData }),
-      edits: this.edits.tracker(
-        hostEditScope(run, action, () => this.closing || this.deletions.has(run.threadId)),
-        (event, blobs) => this.append(run.threadId, [event], 'full', this.foldRows, blobs)
+      ...this.records.context(
+        run,
+        action,
+        () => this.closing || this.deletions.has(run.threadId),
+        (events, blobs) => this.append(run.threadId, events, 'full', this.foldRows, blobs)
       ),
       mcp: this.mcpInputs.execution(run, action, registered, {
         admit: (perform) => this.admit(run.threadId, perform, run.controller.signal),
@@ -707,7 +710,7 @@ export class HostCore {
     const method = 'checkpoint/revert';
     return this.command(method, params, async () => {
       this.run(params.threadId, params.runId);
-      const { event, result } = await revertHostRunEdits(this.edits, params, {
+      const { event, result } = await revertHostRunEdits(this.records.edits, params, {
         pending: this.pendingAdmissions,
         platform: this.platform,
         runs: this.runs.values(),
