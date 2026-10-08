@@ -6,10 +6,12 @@ import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell
 import {
   type ReactElement,
   type ReactNode,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import {
   type CommittedHostConversation,
@@ -63,6 +65,14 @@ function HostThread({
       conversation ? runs.observe(threadId, conversation.source, onRunNotification) : undefined,
     [conversation, onRunNotification, runs, threadId]
   );
+  // Steer (BST-588): the queue holds the message at its front while Core ends
+  // the run after its step in flight; the message then starts the next turn.
+  const [steeredRunId, setSteeredRunId] = useState<string>();
+  const steer = useCallback(async (): Promise<boolean> => {
+    const runId = await conversation?.steer();
+    setSteeredRunId(runId);
+    return runId !== undefined;
+  }, [conversation]);
   return conversation ? (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
@@ -71,16 +81,37 @@ function HostThread({
           commands={conversation.commands}
           label="Assistant"
           onRunningChange={onRunningChange}
+          onSteerActiveRun={steer}
           store={conversation.store}
           workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
         />
       </div>
+      {steeredRunId ? <SteeringStatus runId={steeredRunId} store={conversation.store} /> : null}
       {/* Core-owned MCP input: the dialog portals; status and alerts sit under the conversation. */}
       <CommittedHostMcpInputView input={conversation.mcpInput} />
     </div>
   ) : (
     <div role="status">Connecting to the agent host…</div>
   );
+}
+
+/** Visible while the steered run is still the thread's active run. */
+function SteeringStatus({
+  runId,
+  store,
+}: {
+  readonly runId: string;
+  readonly store: CommittedHostConversation['store'];
+}): ReactElement | null {
+  const activeRunId = useSyncExternalStore(
+    store.subscribe,
+    () => store.getCommittedView().activeRunId
+  );
+  return activeRunId === runId ? (
+    <div aria-live="polite" className="px-3 py-1 text-muted-foreground text-xs" role="status">
+      Steering: stopping after this step, then sending your message…
+    </div>
+  ) : null;
 }
 
 // One lazy client capability per actual renderer frame, independent of React replay.

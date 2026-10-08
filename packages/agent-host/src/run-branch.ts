@@ -7,6 +7,8 @@
  * restart derive a run's branch through the same fold, and a run's model
  * context is its selected path only: a sibling branch is never on it.
  */
+
+import { createHash } from 'node:crypto';
 import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   AssistantAttachmentValidationError,
@@ -214,6 +216,29 @@ export type HostRunPosition = {
   readonly attachments?: HostImageAttachment[];
   readonly prompt: string;
 } & ({ readonly parentMessageId: string | null } | { readonly userMessageId: string });
+
+/**
+ * The run/start command as its ledger records it. An image is stored once: its
+ * bytes are the run's (run.started), and the record names it by digest, which
+ * still detects a reused command identity.
+ */
+export function hostRunStartRecord(params: HostParams<'run/start'>): Omit<
+  HostParams<'run/start'>,
+  'attachments'
+> & {
+  readonly attachments?: readonly (Omit<HostImageAttachment, 'data'> & { sha256: string })[];
+} {
+  const { attachments, ...command } = params;
+  return attachments
+    ? {
+        ...command,
+        attachments: attachments.map(({ data, ...image }) => ({
+          ...image,
+          sha256: createHash('sha256').update(data).digest('hex'),
+        })),
+      }
+    : command;
+}
 
 /** A start follows its requested parent (omitted: the current tip; null: the root). */
 export function hostStartPosition(

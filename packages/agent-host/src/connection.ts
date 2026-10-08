@@ -89,6 +89,7 @@ export function bindHostConnection(
   handle('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
   handle('run/start', (params) => core.startRun(params));
   handle('run/regenerate', (params) => core.regenerateRun(params));
+  handle('run/steer', (params) => core.steer(params));
   handle('run/stop', (params) => core.stop(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));

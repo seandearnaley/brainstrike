@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { StateStore } from '@brainstrike/state-store';
 import {
   type LanguageModel,
@@ -22,6 +22,7 @@ import {
   queueHostAdmission,
   rejectHostRunAdmission,
   retainHostRunWork,
+  steerHostRun,
 } from './core-run-lifecycle.js';
 import {
   createHostRunContext,
@@ -67,6 +68,7 @@ import {
   hostRegeneratePosition,
   hostRunAncestors,
   hostRunContext,
+  hostRunStartRecord,
   hostStartPosition,
 } from './run-branch.js';
 
@@ -417,17 +419,7 @@ export class HostCore {
   }
 
   startRun(params: HostParams<'run/start'>): Promise<{ runId: string }> {
-    // An image is stored once: its bytes are the run's (run.started), and the
-    // command record names it by digest, which still detects a reused command.
-    const record = params.attachments
-      ? {
-          ...params,
-          attachments: params.attachments.map(({ data, ...image }) => ({
-            ...image,
-            sha256: createHash('sha256').update(data).digest('hex'),
-          })),
-        }
-      : params;
+    const record = hostRunStartRecord(params);
     return this.command('run/start', record, () =>
       this.admitRun(
         'run/start',
@@ -688,7 +680,8 @@ export class HostCore {
           });
           return prepareHostProviderStep(provider, memory?.system, owner);
         },
-        stopWhen: stepCountIs(admission.snapshot.maxSteps - run.steps),
+        // A committed run/steer ends the run after the step in flight (BST-588).
+        stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],
         toolApproval: ({ toolCall }) => decideHostSdkApproval(run, this.platform, toolCall),
         tools: createAdmittedHostSdkTools(run, (action, input) =>
           this.dispatch(run, action, input)
@@ -859,6 +852,14 @@ export class HostCore {
         cause instanceof Error ? cause.message : String(cause)
       );
     }
+  }
+
+  steer(params: HostParams<'run/steer'>): Promise<{ outcome: 'steering' | 'already-terminal' }> {
+    return this.command('run/steer', params, () =>
+      steerHostRun(this.run(params.threadId, params.runId), (result) =>
+        this.accept(params.threadId, 'run/steer', params, result, [])
+      )
+    );
   }
 
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
