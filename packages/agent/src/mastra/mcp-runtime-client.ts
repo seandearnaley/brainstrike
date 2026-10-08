@@ -292,9 +292,16 @@ class CompositeMcpRuntimeClient implements McpRuntimeClient {
       const { tools } = await entry.client.listTools();
       defineOwn(toolsets, entry.server.name, convertMcpTools(entry, tools));
     } catch (error) {
-      defineOwn(errors, entry.server.name, errorMessage(error));
+      defineOwn(errors, entry.server.name, discoveryFailureReason(error));
     }
   }
+}
+
+/** The failure's message plus its stable content-free code, when it carries one. */
+function discoveryFailureReason(error: unknown): string {
+  const message = errorMessage(error);
+  const code = error instanceof Error ? Reflect.get(error, 'code') : undefined;
+  return typeof code === 'string' && code.length > 0 ? `${message} (${code})` : message;
 }
 
 function convertMcpTools(

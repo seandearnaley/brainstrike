@@ -1,3 +1,4 @@
+import type { McpDiscoverySkip } from '@brainstrike/agent/mcp-client';
 import {
   guardToolExecution,
   type RuntimeData,
@@ -17,7 +18,7 @@ type ExecutableMcpBindings = HostMcpToolSelection['bindings'];
 
 /** Structural injection of the shipped collector, until its public barrel is available. */
 export interface AgentHostMcpCollection {
-  readonly mcpDiscoverySkips: readonly unknown[];
+  readonly mcpDiscoverySkips: readonly McpDiscoverySkip[];
   readonly tools: CanonicalTools;
 }
 
