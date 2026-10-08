@@ -1,4 +1,5 @@
 import {
+  type CompleteAttachment,
   type ExportedMessageRepository,
   fromThreadMessageLike,
   type ThreadAssistantMessage,
@@ -80,6 +81,38 @@ function requiredString(value: Readonly<Record<string, unknown>>, key: string): 
     throw new Error(`Committed host event is missing ${key}.`);
   }
   return field;
+}
+
+/** A committed user message's images, as sent-message attachments. */
+function committedAttachments(
+  event: Readonly<Record<string, unknown>>,
+  messageId: string
+): CompleteAttachment[] | undefined {
+  const attachments = event['attachments'];
+  if (attachments === undefined) {
+    return;
+  }
+  if (!Array.isArray(attachments)) {
+    throw new Error('Committed host attachments must be a list.');
+  }
+  return attachments.map((attachment: unknown, index): CompleteAttachment => {
+    if (
+      !attachment ||
+      typeof attachment !== 'object' ||
+      !('type' in attachment && attachment.type === 'image')
+    ) {
+      throw new Error('A committed host attachment must be an image.');
+    }
+    const fields = attachment as Readonly<Record<string, unknown>>;
+    return {
+      content: [{ image: requiredString(fields, 'data'), type: 'image' }],
+      contentType: requiredString(fields, 'mediaType'),
+      id: `${messageId}:attachment:${index}`,
+      name: requiredString(fields, 'name'),
+      status: { type: 'complete' },
+      type: 'image',
+    };
+  });
 }
 
 function providerMetadata(value: unknown): ToolPart['providerMetadata'] {
@@ -325,8 +358,10 @@ export class CommittedAssistantLogProjection {
       // answer is a sibling under it, and the user message stays as committed.
       parentId = identity.userMessageId;
     } else if (identity.userMessageId) {
+      const attachments = committedAttachments(row.event, identity.userMessageId);
       const user = fromThreadMessageLike(
         {
+          ...(attachments ? { attachments } : {}),
           content: [{ text: requiredString(row.event, 'prompt'), type: 'text' }],
           createdAt: identity.createdAt,
           id: identity.userMessageId,

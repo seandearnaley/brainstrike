@@ -1,3 +1,7 @@
+import {
+  ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
+  SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES,
+} from '@brainstrike/assistant-contract/assistant-attachments';
 import { McpTaskHandleSchema } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
@@ -5,7 +9,8 @@ import { z } from 'zod';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), and thread
-// titles (`thread/rename`, `thread.renamed`, titles in `thread/list`).
+// titles (`thread/rename`, `thread.renamed`, titles in `thread/list`), and
+// image attachments on a user message (`run/start` and `run.started`).
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -29,6 +34,22 @@ const McpContent = z.record(
   z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
 );
 const Seq = z.number().int().nonnegative();
+/**
+ * An image on a user message, as the composer encodes it: a base64 data URL.
+ * Core admits it against the shared attachment contract's caps.
+ */
+export const HostImageAttachmentSchema = z.strictObject({
+  data: z.string().min(1),
+  mediaType: z.enum(SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES),
+  /** The attached file's name, shown with the image. */
+  name: z.string().min(1).max(255),
+  type: z.literal('image'),
+});
+export type HostImageAttachment = z.infer<typeof HostImageAttachmentSchema>;
+const Attachments = z
+  .array(HostImageAttachmentSchema)
+  .min(1)
+  .max(ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE);
 const McpAuthorityBase = {
   extensions: z.strictObject({ apps: z.boolean(), tasks: z.boolean() }),
   protocol: z.enum(['legacy', 'auto', '2026-07-28']),
@@ -120,6 +141,8 @@ export const HOST_METHOD_SCHEMAS = {
   'run/start': z.strictObject({
     ...Command,
     ...Thread,
+    /** Images on the new user message, beside its prompt. */
+    attachments: Attachments.optional(),
     configuration: z.record(z.string(), z.json()).optional(),
     modelId: Id,
     /** A committed run ID to follow, null for the thread root; omitted is the current tip. */
@@ -218,6 +241,8 @@ export const HostEventSchema = z.union([
   z.strictObject({
     type: z.literal('run.started'),
     ...RunFields,
+    /** The user message's images; a regeneration repeats its message's. */
+    attachments: Attachments.optional(),
     modelId: Id,
     /**
      * The committed message this run's new user message follows (a run ID;

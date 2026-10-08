@@ -1,6 +1,10 @@
 import type { AppendMessage } from '@assistant-ui/react';
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { committedRunIdentity } from '@brainstrike/agent-host/committed-identities';
+import {
+  type HostImageAttachment,
+  HostImageAttachmentSchema,
+} from '@brainstrike/agent-host/protocol';
 import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
 import {
   type CommittedAssistantCommands,
@@ -11,6 +15,22 @@ import { z } from 'zod';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
 
 const logger = createLogger('CommittedHostConversation');
+
+/** A composer image as the host's user-message attachment; anything else is refused. */
+function hostImageAttachment(
+  attachment: NonNullable<AppendMessage['attachments']>[number]
+): HostImageAttachment {
+  const image = attachment.content.find((part) => part.type === 'image');
+  if (attachment.type !== 'image' || !image) {
+    throw new Error('The agent host accepts image attachments only');
+  }
+  return HostImageAttachmentSchema.parse({
+    data: image.image,
+    mediaType: attachment.contentType?.toLowerCase(),
+    name: attachment.name,
+    type: 'image',
+  });
+}
 
 export interface CommittedHostConversation {
   /** Release this view's subscription; the client/root host belongs to its caller. */
@@ -59,16 +79,15 @@ export function createCommittedHostConversation(options: {
   // A send, a send from a selected branch, and an edit all start a new user
   // message after the vendor's explicit parent (null: the thread root).
   const startTurn = async (message: AppendMessage): Promise<void> => {
-    if (
-      (message.attachments?.length ?? 0) > 0 ||
-      message.content.some((part) => part.type !== 'text')
-    ) {
+    if (message.content.some((part) => part.type !== 'text')) {
       throw new Error('This host command requires text input');
     }
+    const attachments = (message.attachments ?? []).map(hostImageAttachment);
     const prompt = message.content
       .map((part) => (part.type === 'text' ? part.text : ''))
       .join('\n');
     await client.request('run/start', {
+      ...(attachments.length > 0 ? { attachments } : {}),
       commandId: crypto.randomUUID(),
       ...runSettings(),
       parentMessageId: message.parentId,
