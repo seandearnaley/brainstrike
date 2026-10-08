@@ -14,15 +14,8 @@
  */
 
 import type { McpHostPort, NativeToolExecutionBudget } from '@brainstrike/assistant-contract';
-import {
-  NATIVE_TOOL_EXECUTION_BUDGETS,
-  NATIVE_TOOL_ID,
-  resolveToolDiscoveryAdapter,
-} from '@brainstrike/assistant-contract';
-import {
-  findProviderDefinition,
-  resolveTokenMeasurementCapability,
-} from '@brainstrike/assistant-contract/provider-registry';
+import { NATIVE_TOOL_EXECUTION_BUDGETS, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage, ToolsInput } from '@mastra/core/agent';
@@ -79,6 +72,8 @@ import {
 import { sanitizeToolName, sanitizeTools } from '../tool-sanitizer';
 import {
   BrainstrikeToolSearchProcessor,
+  isHostedProviderRuntime,
+  resolveHostedToolDiscoveryAdapter,
   resolveToolDiscoverySurface,
   type ToolDiscoverySurface,
 } from '../tool-search-runtime';
@@ -339,15 +334,6 @@ function assertCatalogMetaToolNamesAvailable(params: {
   }
 }
 
-function isHostedProviderRuntime(provider: ResolvedRuntimeConfiguration['provider']): boolean {
-  // Registry-derived (BST-1349) with FAIL-OPEN polarity (PR #2513 review,
-  // finding 4): only the known local runtimes opt out of the hosted path, so
-  // an unknown id or a future runtime value keeps the pre-BST-1349 hosted
-  // default. Guarded lookup: an out-of-registry id must not TypeError.
-  const runtime = findProviderDefinition(provider)?.runtime;
-  return runtime !== 'local' && runtime !== 'browser';
-}
-
 export async function prepareHostedToolDiscovery(params: {
   eligibleTools: ToolsInput;
   localToolIds: ReadonlySet<string>;
@@ -365,29 +351,11 @@ export async function prepareHostedToolDiscovery(params: {
   tokenDiagnostics: RunTokenDiagnostics;
   toolSearchProcessor?: BrainstrikeToolSearchProcessor;
 }> {
-  const isHosted = isHostedProviderRuntime(params.provider);
-  const discoveryResolution = isHosted
-    ? resolveToolDiscoveryAdapter({
-        modelId: params.modelName,
-        provider: params.provider,
-        requestedAdapter: 'mastra-catalog-search',
-      })
-    : undefined;
-  if (discoveryResolution?.status === 'unsupported') {
-    throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
-      context: {
-        phase: 'adapter-resolution',
-        provider: params.provider,
-        reason: discoveryResolution.reason,
-        requestedAdapter: 'mastra-catalog-search',
-      },
-      detail: `Mastra catalog discovery is unsupported for ${params.provider}/${params.modelName}: ${discoveryResolution.reason}`,
-    });
-  }
+  const discoveryAdapter = resolveHostedToolDiscoveryAdapter(params.provider, params.modelName);
 
-  const discoverySurface = discoveryResolution
+  const discoverySurface = discoveryAdapter
     ? resolveToolDiscoverySurface({
-        adapter: discoveryResolution.adapter,
+        adapter: discoveryAdapter,
         eligibleTools: params.eligibleTools,
         localToolIds: params.localToolIds,
         toolNameMap: params.toolNameMap,

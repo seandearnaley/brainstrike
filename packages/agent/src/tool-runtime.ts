@@ -10,6 +10,7 @@ export {
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
 } from './mastra/default-instructions';
+export { LIST_AVAILABLE_TOOLS_ID } from './mastra/deferred-tool-catalog';
 export { filterToolsForPlanMode } from './mastra/plan-mode-tool-gate';
 export { applyToolModelOutputProjections } from './mastra/tool-model-output';
 export {
@@ -27,6 +28,13 @@ export {
   toolOutputArtifactModelOutput,
 } from './mastra/tool-output-artifact-settlement';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
+export {
+  BrainstrikeToolSearchProcessor,
+  createPersistedStepArgs,
+  resolveHostedToolDiscoveryAdapter,
+  resolveToolDiscoverySurface,
+} from './mastra/tool-search-runtime';
+export { createListingOnlyModel } from './providers/listing-only-model';
 export {
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   resolveScaledToolResultBudget,
