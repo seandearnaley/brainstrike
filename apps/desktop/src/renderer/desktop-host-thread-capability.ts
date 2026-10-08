@@ -70,9 +70,16 @@ export function createWindowThreadCapability(
   renderThread: (
     host: HostClient | undefined,
     threadId: string,
-    catalogLoaded: boolean
+    catalogLoaded: boolean,
+    onTitleCommitted: () => void
   ) => ReturnType<AssistantThreadHostCapability['renderThread']>
 ): AssistantThreadHostCapability {
+  const titleListeners = new Set<() => void>();
+  const titleCommitted = (): void => {
+    for (const listener of titleListeners) {
+      listener();
+    }
+  };
   let connecting: Promise<HostClient> | undefined;
   let closing: Promise<void> | undefined;
   let catalogLoaded = false;
@@ -169,7 +176,12 @@ export function createWindowThreadCapability(
       }
       await host.request('thread/rename', { commandId: crypto.randomUUID(), threadId, title });
     },
-    renderThread: (threadId) => renderThread(threads.get(threadId), threadId, catalogLoaded),
+    renderThread: (threadId) =>
+      renderThread(threads.get(threadId), threadId, catalogLoaded, titleCommitted),
+    subscribeTitleChanges: (listener) => {
+      titleListeners.add(listener);
+      return () => titleListeners.delete(listener);
+    },
     updateThreadBinding: async (threadId, metadata) => {
       const patch = bindingPatch(metadata);
       const host = await threadClient(threadId);
