@@ -20,6 +20,7 @@
 import { z } from 'zod';
 import {
   type ConfiguredMcpServerId,
+  type McpHostCaller,
   type McpHostOperation,
   parseConfiguredMcpServerId,
 } from './mcp-host.js';
@@ -106,6 +107,8 @@ export interface McpElicitationServerIdentityWire {
   readonly websiteOrigin?: string;
 }
 export interface McpElicitationProvenanceWire {
+  /** The host tool call that raised the input; supplied by the host, never by the request. */
+  readonly caller?: McpHostCaller;
   readonly configuredProtocol: McpConfiguredProtocol;
   readonly configuredServerId: ConfiguredMcpServerId;
   readonly generation: number;

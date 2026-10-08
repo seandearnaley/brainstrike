@@ -13,16 +13,25 @@ import { z } from 'zod';
 import { executableInputSchema } from '../executable-input-schema.js';
 import type { HostToolContext } from '../ports.js';
 
-/** Actual public library context, with the existing plain-tool provenance. */
+/**
+ * Actual public library context, with the existing plain-tool provenance. Its
+ * `threadId`, `runId` and `toolCallId` are the exact host call an MCP tool
+ * reports as its caller.
+ */
 export function createCanonicalToolContext(
   context: HostToolContext,
   toolName: string
-): ToolExecutionContext & { readonly threadId: string; readonly toolCallId: string } {
+): ToolExecutionContext & {
+  readonly runId: string;
+  readonly threadId: string;
+  readonly toolCallId: string;
+} {
   return {
     abortSignal: context.signal,
     observe: noopObserve,
     requestContext: new RequestContext(),
     ...(context.resumeData === undefined ? {} : { resumeData: context.resumeData }),
+    runId: context.runId,
     threadId: context.threadId,
     toolCallId: context.toolCallId,
     ...(context.write

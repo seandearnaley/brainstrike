@@ -448,7 +448,20 @@ export interface McpHostWatchEvent {
   revision: number;
   servers: readonly McpHostServerSnapshot[];
 }
+/**
+ * The host tool call an MCP operation runs for: the agent host's
+ * `HostToolContext` identity, passed explicitly down the call path. It is
+ * never inferred from in-flight calls and never read from async context.
+ */
+export const McpHostCallerSchema = z.strictObject({
+  runId: z.string().min(1),
+  threadId: z.string().min(1),
+  toolCallId: z.string().min(1),
+});
+export type McpHostCaller = Readonly<z.infer<typeof McpHostCallerSchema>>;
 export interface McpHostInvokeOptions {
+  /** Present only for operations a host run's tool call issues. */
+  caller?: McpHostCaller;
   onProgress?: (progress: McpHostProgress) => void;
   signal?: AbortSignal;
 }

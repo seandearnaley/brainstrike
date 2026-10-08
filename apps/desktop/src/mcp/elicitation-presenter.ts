@@ -9,6 +9,7 @@ import {
 } from '@brainstrike/agent/mcp-client';
 import type {
   ConfiguredMcpServerId,
+  McpHostCaller,
   McpHostOperation,
   McpHostServerSnapshot,
   McpServerIdentity,
@@ -68,6 +69,8 @@ export interface McpElicitationOperationProjection {
   readonly type: McpHostOperation['type'];
 }
 export interface McpElicitationProvenance {
+  /** The host tool call that raised the input, supplied by the host binding. */
+  readonly caller?: McpHostCaller;
   readonly configuredProtocol: McpHostServerSnapshot['configuredProtocol'];
   readonly configuredServerId: ConfiguredMcpServerId;
   readonly generation: number;
@@ -114,6 +117,8 @@ interface InvocationAuthority {
     readonly configuredServerId: ConfiguredMcpServerId;
     readonly generation: number;
   };
+  /** The host tool call this operation or task belongs to; supplied, never inferred. */
+  readonly caller?: McpHostCaller;
   readonly configuredServerId: ConfiguredMcpServerId;
   readonly id: string;
   readonly operation: McpElicitationOperationProjection;
@@ -126,6 +131,8 @@ interface InvocationAuthority {
  * `tools/call` projection instead of the single-matching-operation registry.
  */
 export interface McpTaskElicitationBinding {
+  /** The host tool call that created the task; absent for a recovered task. */
+  readonly caller?: McpHostCaller;
   readonly configuredServerId: ConfiguredMcpServerId;
   readonly generation: number;
   readonly operation: McpElicitationOperationProjection;
@@ -143,6 +150,11 @@ export interface McpElicitationPresenterAuthorityOptions {
     configuredServerId: ConfiguredMcpServerId
   ) => McpHostServerSnapshot | undefined;
 }
+/**
+ * The single consent surface. A synchronous throw, or a returned promise that
+ * rejects (an awaited commit that failed), finalizes the presentation and
+ * refuses the input, keeping a thrown presenter error's code.
+ */
 type PresentationListener = (presentation: McpElicitationPresentation) => void;
 export interface McpElicitationFinalizedEvent {
   readonly code: McpElicitationPresenterErrorCode;
@@ -259,8 +271,13 @@ export class McpElicitationPresenterAuthority {
     };
   }
 
-  async runWithOperation<T>(operation: McpHostOperation, run: () => Promise<T>): Promise<T> {
+  async runWithOperation<T>(
+    operation: McpHostOperation,
+    run: () => Promise<T>,
+    caller?: McpHostCaller
+  ): Promise<T> {
     const authority = {
+      ...(caller ? { caller: { ...caller } } : {}),
       configuredServerId: operation.configuredServerId,
       id: `${this.processNonce}:${++this.invocationSequence}`,
       operation: projectOperation(operation),
@@ -284,6 +301,7 @@ export class McpElicitationPresenterAuthority {
     }
     const authority: InvocationAuthority = {
       binding: { configuredServerId: binding.configuredServerId, generation: binding.generation },
+      ...(binding.caller ? { caller: { ...binding.caller } } : {}),
       configuredServerId: binding.configuredServerId,
       id: `${this.processNonce}:task:${++this.invocationSequence}`,
       operation: { ...binding.operation },
@@ -511,12 +529,22 @@ export class McpElicitationPresenterAuthority {
       request: structuredClone(request),
       resolve: deferred.resolve,
     });
-    try {
-      listener(structuredClone(presentation));
-    } catch {
-      this.finish(presentation.id, 'mcp-elicitation-presenter-unavailable', () =>
-        deferred.reject(new McpElicitationPresenterError('mcp-elicitation-presenter-unavailable'))
+    const refuse = (cause: unknown): void => {
+      const code =
+        cause instanceof McpElicitationPresenterError
+          ? cause.code
+          : 'mcp-elicitation-presenter-unavailable';
+      this.finish(presentation.id, code, () =>
+        deferred.reject(new McpElicitationPresenterError(code))
       );
+    };
+    try {
+      const displayed: unknown = listener(structuredClone(presentation));
+      if (displayed instanceof Promise) {
+        displayed.catch(refuse);
+      }
+    } catch (cause) {
+      refuse(cause);
     }
   }
 
@@ -558,6 +586,7 @@ export class McpElicitationPresenterAuthority {
     return {
       invocation,
       provenance: {
+        ...(invocation.caller ? { caller: { ...invocation.caller } } : {}),
         configuredProtocol: server.configuredProtocol,
         configuredServerId: server.configuredServerId,
         generation: server.generation,

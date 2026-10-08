@@ -311,6 +311,22 @@ export class McpTaskLifecycle {
   }
 
   /**
+   * Ends this lifecycle's tracking of one task without touching its durable
+   * row: the task's poller is aborted with `reason`, so its `settled` rejects
+   * with it. For a task that can make no progress through this host; recovery
+   * can resume it later. Returns whether the task was tracked.
+   */
+  release(taskId: string, reason: unknown): boolean {
+    this.requireOpen();
+    const task = this.active.get(taskId);
+    if (!task) {
+      return false;
+    }
+    task.controller.abort(reason);
+    return true;
+  }
+
+  /**
    * Aborts every poller and drains in-flight creates; that part never rejects
    * and is memoized. Only `server-removed` and `server-replaced` retire the
    * authority epoch afterwards: a disconnect, restart, or close leaves the

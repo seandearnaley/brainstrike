@@ -14,9 +14,10 @@ import { McpTaskRepository, MigrationRunner, migrations, wasmLoader } from '@bra
 import type { PGlite } from '@electric-sql/pglite';
 import type { JSONObject } from '@modelcontextprotocol/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  McpBoundTaskElicitationPresenter,
-  McpTaskElicitationBinding,
+import {
+  type McpBoundTaskElicitationPresenter,
+  McpElicitationPresenterError,
+  type McpTaskElicitationBinding,
 } from '../../mcp/elicitation-presenter';
 import {
   deriveMcpTaskAuthorityIdentity,
@@ -530,6 +531,77 @@ describe('McpDesktopTaskHost', () => {
       },
     ]);
     expect(server.cancels).toEqual([]);
+  });
+
+  it('binds task input to its host caller and ends tracking when that input is refused unbound', async () => {
+    const server = createFakeServer();
+    elicitationPresenter.bindTaskPresenter.mockImplementationOnce(
+      (binding: McpTaskElicitationBinding) => {
+        bindings.push(binding);
+        return {
+          presenter: {
+            confirmUrl: async () => ({ action: 'cancel' as const }),
+            form: true,
+            openExternal: async () => undefined,
+            presentForm: () =>
+              Promise.reject(new McpElicitationPresenterError('mcp-elicitation-origin-unbound')),
+            url: true,
+          },
+          release: vi.fn(),
+        };
+      }
+    );
+    await host.connected(createConnection(server));
+    const caller = { runId: 'run-7', threadId: 'thread-7', toolCallId: 'call-7' };
+    const initial = await host.track({
+      caller,
+      configuredServerId: SERVER_ID,
+      result: server.created('t-7'),
+      toolName: 'unbound',
+    });
+    expect(bindings.at(-1)).toEqual({
+      caller,
+      configuredServerId: SERVER_ID,
+      generation: 1,
+      operation: { target: 'unbound', type: 'tools/call' },
+      taskHandle: initial.handle,
+    });
+    server.set('t-7', {
+      inputRequests: {
+        'input-1': {
+          method: 'elicitation/create',
+          params: {
+            message: 'Choose a workspace',
+            mode: 'form',
+            requestedSchema: {
+              properties: { workspace: { type: 'string' } },
+              required: ['workspace'],
+              type: 'object',
+            },
+          },
+        },
+      },
+      status: 'input_required',
+    });
+    await until(
+      () => internalErrors.some(([code]) => code === 'mcp-task-settlement-failed'),
+      'the fenced tracking'
+    );
+    const refused = expect.objectContaining({ code: 'mcp-elicitation-origin-unbound' });
+    expect(host.list().tasks).toEqual([
+      expect.objectContaining({
+        handle: initial.handle,
+        recovery: 'restart_required',
+        status: 'input_required',
+      }),
+    ]);
+    expect(host.snapshot().sessions[0]?.lifecycle.activeTasks).toBe(0);
+    expect(server.updates).toEqual([]);
+    expect(server.cancels).toEqual([]);
+    // The withdrawn input settles its delivery, so only the fence reports.
+    expect(internalErrors).toEqual([
+      ['mcp-task-settlement-failed', { cause: refused, taskId: 't-7' }],
+    ]);
   });
 
   it('marks tasks restart_required on disconnect, recovers them on reconnect, and retires the epoch on replacement', async () => {

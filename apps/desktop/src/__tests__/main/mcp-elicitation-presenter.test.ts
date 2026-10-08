@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   type McpElicitationPresentation,
   McpElicitationPresenterAuthority,
+  McpElicitationPresenterError,
 } from '../../mcp/elicitation-presenter';
 
 const SERVER_ID = parseConfiguredMcpServerId('team.linear.prod');
@@ -395,6 +396,118 @@ describe('McpElicitationPresenterAuthority', () => {
         requestId: 'close-me',
       })
     ).toThrowError(expect.objectContaining({ code: 'mcp-elicitation-settlement-invalid' }));
+  });
+});
+
+describe('McpElicitationPresenterAuthority host caller and awaited consent (BST-1930)', () => {
+  const caller = { runId: 'run-1', threadId: 'thread-1', toolCallId: 'call-1' };
+  const taskHandle = {
+    authorityEpoch: '00000000-0000-4000-8000-000000000001',
+    principalId: 'fixture-principal',
+    resource: 'https://tasks.example.test/',
+    serverId: SERVER_ID,
+    taskId: 'pending-task',
+  };
+
+  it('carries the supplied host caller into operation and task provenance', async () => {
+    let sequence = 1;
+    const presentations: McpElicitationPresentation[] = [];
+    const authority = new McpElicitationPresenterAuthority({
+      createPresentationId: () => `presentation-${sequence++}`,
+      openExternal: vi.fn(),
+      resolveServer: () => connectedServer(),
+    });
+    authority.attach((presentation) => presentations.push(presentation));
+    const operation = {
+      configuredServerId: SERVER_ID,
+      toolName: 'search_issues',
+      type: 'tools/call',
+    } as const;
+    const answer = (id: string, requestId: string): void =>
+      authority.settle({ action: 'decline', ...settlement(id, requestId) });
+    const called = authority.runWithOperation(
+      operation,
+      () => authority.presenter.presentForm(formRequest, context('called')),
+      caller
+    );
+    answer('presentation-1', 'called');
+    await expect(called).resolves.toEqual({ action: 'decline' });
+    const uncalled = authority.runWithOperation(operation, () =>
+      authority.presenter.presentForm(formRequest, context('uncalled'))
+    );
+    answer('presentation-2', 'uncalled');
+    await expect(uncalled).resolves.toEqual({ action: 'decline' });
+    const binding = authority.bindTaskPresenter({
+      caller,
+      configuredServerId: SERVER_ID,
+      generation: 7,
+      operation: { target: 'long_running_tool', type: 'tools/call' },
+      taskHandle,
+    });
+    const task = binding.presenter.presentForm(formRequest, context('task-input'));
+    answer('presentation-3', 'task-input');
+    await expect(task).resolves.toEqual({ action: 'decline' });
+    expect(presentations.map(({ provenance }) => provenance.caller)).toEqual([
+      caller,
+      undefined,
+      caller,
+    ]);
+    expect(presentations[1]?.provenance).not.toHaveProperty('caller');
+    authority.close();
+  });
+
+  it('refuses input whose awaited consent surface rejects, keeping a presenter code', async () => {
+    let sequence = 1;
+    const authority = new McpElicitationPresenterAuthority({
+      createPresentationId: () => `presentation-${sequence++}`,
+      openExternal: vi.fn(),
+      resolveServer: () => connectedServer(),
+    });
+    const events: unknown[] = [];
+    authority.observeFinalized((event) => events.push(event));
+    const committed = Promise.withResolvers<void>();
+    const refusals = [
+      Promise.reject(new McpElicitationPresenterError('mcp-elicitation-origin-unbound')),
+      Promise.reject(new Error('commit failed')),
+      committed.promise,
+    ];
+    for (const refusal of refusals) {
+      refusal.catch(() => undefined);
+    }
+    authority.attach(() => refusals.shift());
+    const operation = { configuredServerId: SERVER_ID, type: 'tools/list' } as const;
+    const present = (requestId: string) =>
+      authority.runWithOperation(operation, () =>
+        authority.presenter.presentForm(formRequest, context(requestId))
+      );
+    await expect(present('unbound')).rejects.toMatchObject({
+      code: 'mcp-elicitation-origin-unbound',
+    });
+    await expect(present('unwritten')).rejects.toMatchObject({
+      code: 'mcp-elicitation-presenter-unavailable',
+    });
+    expect(() =>
+      authority.settle({ action: 'decline', ...settlement('presentation-1', 'unbound') })
+    ).toThrowError(expect.objectContaining({ code: 'mcp-elicitation-origin-unbound' }));
+    // A consent surface that committed stays answerable.
+    const accepted = present('committed');
+    committed.resolve();
+    await Promise.resolve();
+    authority.settle({
+      action: 'accept',
+      content: { workspace: 'Engineering' },
+      ...settlement('presentation-3', 'committed'),
+    });
+    await expect(accepted).resolves.toEqual({
+      action: 'accept',
+      content: { workspace: 'Engineering' },
+    });
+    expect(events).toEqual([
+      { code: 'mcp-elicitation-origin-unbound', id: 'presentation-1' },
+      { code: 'mcp-elicitation-presenter-unavailable', id: 'presentation-2' },
+      { code: 'mcp-elicitation-already-settled', id: 'presentation-3' },
+    ]);
+    authority.close();
   });
 });
 

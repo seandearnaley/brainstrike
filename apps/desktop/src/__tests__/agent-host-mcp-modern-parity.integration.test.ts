@@ -526,16 +526,18 @@ const TASK_INPUT_REQUEST = {
   },
 } as const;
 
-/** Exact server, generation and request provenance of the lab's task input. */
+/** Exact server, generation, request and (live) host-call provenance of the lab's task input. */
 function expectedTaskInput(
   generation: number,
   operation: McpElicitationPresentation['provenance']['operation'],
-  taskHandle: unknown
+  taskHandle: unknown,
+  caller?: McpElicitationPresentation['provenance']['caller']
 ): unknown {
   return {
     ...TASK_INPUT_REQUEST,
     id: expect.any(String),
     provenance: {
+      ...(caller ? { caller } : {}),
       configuredProtocol: '2026-07-28',
       configuredServerId: TASKS_SERVER,
       generation,
@@ -596,6 +598,7 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     });
     const presentation = await modern.presentations.until((items) => items[0]);
     const handle = requireTaskHandle(presentation);
+    const effect = await log.effect();
     expect(presentation).toEqual(
       expectedTaskInput(
         server.generation,
@@ -606,7 +609,8 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
           resource: lab.ready.endpoint,
           serverId: TASKS_SERVER,
           taskId: 'reference-task-1',
-        }
+        },
+        { runId, threadId, toolCallId: effect.toolCallId }
       )
     );
     expect(await durableTask(modern.storage, handle)).toMatchObject({
@@ -628,7 +632,6 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       expect.objectContaining({ code: 'mcp-elicitation-already-settled' })
     );
     expect(await log.finished()).toMatchObject({ outcome: 'completed', runId });
-    const effect = await log.effect();
     expect(effect).toMatchObject({
       input: {},
       toolId: modern.toolId,

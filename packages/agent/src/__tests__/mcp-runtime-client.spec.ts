@@ -831,6 +831,46 @@ describe('MCP runtime client', () => {
       }
     );
 
+    it('forwards the exact host caller to the invocation and task tracking, never to the server', async () => {
+      const remote = createTaskServer(createdTask as unknown as ExplicitHttpMcpCallToolResult);
+      const mcpTaskTracking: McpTaskTrackingCapability = {
+        awaitSettlement: vi.fn(async () => ({ settled: true as const, task: settled })),
+        track: vi.fn(async () => live),
+      };
+      const { host } = createTestHost({ remote });
+      const runtimeClient = await createMcpRuntimeClient({
+        config: undefined,
+        host,
+        mcpTaskTracking,
+        toolTimeoutMs: 60_000,
+      });
+      const discovered = await runtimeClient?.listToolsetsWithErrors();
+      const tool = requireExecutableTool(discovered?.toolsets['remote']?.['export']);
+      const caller = { runId: 'host-run', threadId: 'host-thread', toolCallId: 'host-call' };
+
+      // The agent host's canonical tool context names the call at the top level.
+      await tool.execute({}, { ...caller });
+      expect(host.invoke).toHaveBeenLastCalledWith(
+        { arguments: {}, configuredServerId: 'remote', toolName: 'export', type: 'tools/call' },
+        expect.objectContaining({ caller })
+      );
+      expect(mcpTaskTracking.track).toHaveBeenLastCalledWith(
+        { caller, configuredServerId: 'remote', result: createdTask, toolName: 'export' },
+        undefined
+      );
+
+      // Mastra's own context has a top-level runId but nests the call: no host caller.
+      await tool.execute(
+        {},
+        { agent: { threadId: 'host-thread', toolCallId: 'mastra-call' }, runId: 'mastra-run' }
+      );
+      expect(vi.mocked(host.invoke).mock.lastCall?.[1]).not.toHaveProperty('caller');
+      expect(mcpTaskTracking.track).toHaveBeenLastCalledWith(
+        { configuredServerId: 'remote', result: createdTask, toolName: 'export' },
+        undefined
+      );
+    });
+
     it('throws for an app-originated task on a host without task tracking', async () => {
       const remote = createTaskServer(createdTask as unknown as ExplicitHttpMcpCallToolResult);
       const { host } = createTestHost({ remote });

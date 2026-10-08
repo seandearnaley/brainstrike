@@ -67,10 +67,11 @@ import { McpTaskRepository } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import type { JSONObject } from '@modelcontextprotocol/client';
 import type { ResolvedMcpServer } from '../mcp-loader';
-import type {
-  McpBoundTaskElicitationPresenter,
-  McpElicitationPresenterAuthority,
-  McpTaskElicitationBinding,
+import {
+  type McpBoundTaskElicitationPresenter,
+  type McpElicitationPresenterAuthority,
+  McpElicitationPresenterError,
+  type McpTaskElicitationBinding,
 } from './elicitation-presenter';
 
 export const MCP_TASKS_EXTENSION_ID = 'io.modelcontextprotocol/tasks';
@@ -370,7 +371,7 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
       throw new Error(`MCP Tasks session for "${request.configuredServerId}" is not ready.`);
     }
     const tracked = await session.lifecycle.track(request.result, signal);
-    const entry = this.register(session, tracked, request.toolName);
+    const entry = this.register(session, tracked, request.toolName, request.caller);
     if (!TERMINAL_STATUSES.has(entry.presentation.status)) {
       await this.ensureInteraction(session, connection, [tracked.record.taskId]);
     }
@@ -524,7 +525,8 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
   private register(
     session: TaskSession,
     tracked: McpTrackedTask,
-    toolName: string | undefined
+    toolName: string | undefined,
+    caller?: McpTaskTrackingRequest['caller']
   ): TrackedEntry {
     const { taskId } = tracked.record;
     const existing = session.tasks.get(taskId);
@@ -532,6 +534,7 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
       throw new Error(`MCP task "${taskId}" is already registered with this host.`);
     }
     const binding = this.options.elicitationPresenter.bindTaskPresenter({
+      ...(caller ? { caller } : {}),
       configuredServerId: session.configuredServerId,
       generation: session.generation,
       operation: { ...(toolName ? { target: toolName } : {}), type: 'tools/call' },
@@ -593,12 +596,27 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
     }
     const elicitation: McpTaskInteractionElicitationAuthority = {
       form: true,
-      handle: (request, context) => {
+      handle: async (request, context) => {
         const entry = session.tasks.get(context.taskId);
         if (!entry) {
           throw new Error(`MCP task "${context.taskId}" has no live elicitation binding.`);
         }
-        return entry.elicitation.handle(request, context);
+        try {
+          return await entry.elicitation.handle(request, context);
+        } catch (cause) {
+          // The consent surface refused input it cannot bind to a host call
+          // (a recovered task has none). This host can never answer it, so its
+          // tracking ends: the fence withdraws the input and projects the row
+          // as restart_required instead of redelivering a refusal every poll.
+          if (
+            !session.closed &&
+            cause instanceof McpElicitationPresenterError &&
+            cause.code === 'mcp-elicitation-origin-unbound'
+          ) {
+            session.lifecycle.release(context.taskId, cause);
+          }
+          throw cause;
+        }
       },
       url: true,
     };
