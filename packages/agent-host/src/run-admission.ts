@@ -344,6 +344,14 @@ export function hostStepInteractions(
   });
 }
 
+/**
+ * Discovery's own tools sit outside the permission catalog: legacy added them
+ * after its permission gate, so its ask set never held them (approval-gate.ts).
+ */
+function isHostDiscoveryTool(run: HostRunState, toolId: string): boolean {
+  return run.admission?.discovery?.toolIds.has(toolId) === true;
+}
+
 /** Keep revocation live while taking risk and executor identity from admission. */
 export async function hostRunToolDecision(
   platform: HostPlatform,
@@ -353,6 +361,9 @@ export async function hostRunToolDecision(
   const registered = hostRunTools(run)[toolId];
   if (!registered) {
     throw new Error('Tool is not registered');
+  }
+  if (isHostDiscoveryTool(run, toolId)) {
+    return 'allow';
   }
   const snapshot = await platform.readPermissionPolicy(run.threadId);
   const permissionToolId = registered.permissionToolId ?? toolId;
@@ -421,6 +432,11 @@ export async function decideHostSdkApproval(
     toolIdentity: registered.identity,
     type: 'effect.started',
   };
+  // No policy decision, prompt or hook for discovery's own tools, as legacy.
+  if (isHostDiscoveryTool(run, call.toolName)) {
+    run.permits.set(call.toolCallId, action);
+    return 'approved';
+  }
   const decision = await hostRunToolDecision(platform, run, call.toolName);
   run.controller.signal.throwIfAborted();
   const prior = [...run.approvals.values()].find(
