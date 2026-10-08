@@ -107,6 +107,7 @@ export function bindHostConnection(
   handle('run/regenerate', (params) => core.regenerateRun(params, origin));
   handle('run/stop', (params) => core.stop(params));
   handle('checkpoint/revert', (params) => core.revertCheckpoint(params));
+  handle('run/verdict', (params) => core.recordVerdict(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));
   handle('mcp/input/read', (params) => core.readMcpInput(params));
