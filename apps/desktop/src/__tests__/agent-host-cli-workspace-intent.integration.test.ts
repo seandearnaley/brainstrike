@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HostRunAdmissionRequest, HostTool, HostToolContext } from '@brainstrike/agent-host';
+import { HostRunSnapshotSchema } from '@brainstrike/agent-host/protocol';
 import {
   DEFAULT_PERMISSION_POLICIES,
   NATIVE_TOOL_ID,
@@ -16,6 +17,10 @@ import type {
 } from '@brainstrike/indexing-contract/indexer-client';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
+import type {
+  DesktopHostIntent,
+  DesktopHostModelProjection,
+} from '../agent-host-platform/desktop-host-intent';
 
 // Observe existing owner boundaries. The actual Main adapter, context readers,
 // semantic/hybrid dispatch and native scope validation remain production code.
@@ -31,6 +36,71 @@ const owner = vi.hoisted(() => ({
   hybrid: vi.fn(),
   query: vi.fn(),
   semantic: vi.fn(),
+}));
+const renderer = vi.hoisted(() => ({
+  enforce: true,
+  intent: vi.fn<() => DesktopHostIntent>(),
+  project: vi.fn(),
+}));
+vi.mock('@brainstrike/app-shell', () => ({
+  buildAgentLoopSettings: () => renderer.intent().agentLoop,
+  buildAssistantMemoryOptions: () => renderer.intent().memoryOptions,
+  buildDraftRuntimeForProvider: renderer.project,
+  toRuntimeWorkspaceContext: () => renderer.intent().workspaceContext ?? null,
+}));
+vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', () => ({
+  useAssistantPreferencesStore: {
+    getState: () => ({
+      providerSettings: { openai: { temperature: 0.12 } },
+      selectedModel: 'openai::gpt-6-sol',
+    }),
+  },
+}));
+vi.mock('@brainstrike/assistant-data', async (original) => ({
+  ...(await original<typeof import('@brainstrike/assistant-data')>()),
+  useAssistantThreadStore: {
+    getState: () => ({
+      draftRuntimeByThreadId: {
+        'owner-thread': {
+          model: 'gpt-6-sol',
+          modelSettings: { maxOutputTokens: 111 },
+          provider: 'openai',
+          providerOptions: { openai: { reasoningEffort: 'medium' } },
+          providerSettings: { openai: { temperature: 0.22 } },
+        },
+      },
+    }),
+  },
+}));
+vi.mock('@brainstrike/app-state/stores/assistant-memory-preferences-store', () => ({
+  useAssistantMemoryPreferencesStore: {
+    getState: () => ({ getRuntimeMemorySettings: () => renderer.intent().memorySettings }),
+  },
+}));
+vi.mock('@brainstrike/app-state/stores/native-tool-preferences-store', () => ({
+  useNativeToolPreferencesStore: {
+    getState: () => ({
+      isToolEnabled: (id: string) => renderer.intent().enabledNativeToolIds.includes(id),
+    }),
+  },
+}));
+vi.mock('@brainstrike/app-state/stores/permission-policy-store', () => ({
+  getPermissionToolGateSnapshotInput: () => ({
+    ...renderer.intent().permissionPolicy,
+    enforce: renderer.enforce,
+  }),
+}));
+vi.mock('@brainstrike/app-state/stores/skills-preferences-store', () => ({
+  buildSkillsContextRequest: () => renderer.intent().skillsPreference,
+  useSkillsPreferencesStore: { getState: () => ({}) },
+}));
+vi.mock('@brainstrike/app-state/stores/workspace-instructions-preferences-store', () => ({
+  useWorkspaceInstructionsPreferencesStore: {
+    getState: () => renderer.intent().workspaceInstructionsPreference,
+  },
+}));
+vi.mock('@brainstrike/file-explorer-ui/preview', () => ({
+  useWorkspaceContextCurationStore: { getState: () => ({ contextSnapshot: null }) },
 }));
 vi.mock('../db-main', () => ({ getDatabase: async () => ({ query: owner.query }) }));
 vi.mock('../provider-api-key', () => ({
@@ -55,6 +125,7 @@ vi.mock('@brainstrike/db', async (original) => ({
 
 import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-wire';
 import { productionDesktopCapabilities } from '../agent-host-platform/production-desktop-capabilities';
+import { readDesktopHostConfiguration } from '../renderer/desktop-host-configuration';
 
 const directories: string[] = [];
 let roots: { id: string; displayName: string; path: string }[] = [];
@@ -94,6 +165,12 @@ const embedding = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  renderer.enforce = true;
+  renderer.intent.mockImplementation(intent);
+  renderer.project.mockImplementation(() => ({
+    ...intent().modelConfiguration,
+    providerSettings: { openai: { apiKey: 'synthetic-private-projection-marker' } },
+  }));
   vi.stubGlobal('fetch', owner.fetch);
   fileOwners = [{ id: 'file-b', rootId: 'root-b', rootName: 'B' }];
   owner.files.mockResolvedValue([
@@ -235,6 +312,194 @@ function execution(): HostToolContext {
     toolCallId: 'scope-call',
   };
 }
+
+function cliInput(rootIds = ['root-a']) {
+  return {
+    kind: 'cli-workspace',
+    version: 1,
+    workspace: { instructions: 'off', rootIds, skills: 'off' },
+  };
+}
+
+test.for([false, true])(
+  'actual renderer capture retains every field and option precedence (projection=%s)',
+  (projected) => {
+    const original = intent();
+    original.enabledNativeToolIds = [NATIVE_TOOL_ID.askUser];
+    renderer.intent.mockReturnValue(original);
+    renderer.enforce = false;
+    const projection: DesktopHostModelProjection | undefined = projected
+      ? {
+          agentLoop: { inputTokenLimit: 6789, maxSteps: 7 },
+          model: 'gpt-6-astra',
+          modelSettings: { maxOutputTokens: 222, temperature: 0.44 },
+          provider: 'openai',
+          providerOptions: { openai: { reasoningEffort: 'high' } },
+        }
+      : undefined;
+    const captured = readDesktopHostConfiguration('owner-thread', 'root-a', projection);
+    expect(captured).toEqual({
+      ...original,
+      agentLoop: projection?.agentLoop ?? original.agentLoop,
+      modelConfiguration: {
+        model: projection?.model ?? original.modelConfiguration.model,
+        modelSettings: projection?.modelSettings ?? { maxOutputTokens: 111 },
+        provider: 'openai',
+        providerOptions: projection?.providerOptions ?? { openai: { reasoningEffort: 'medium' } },
+      },
+      permissionPolicy: { ...original.permissionPolicy, yolo: true },
+      selectionFolderId: 'root-a',
+    });
+    expect(renderer.project).toHaveBeenCalledWith({
+      model: 'gpt-6-sol',
+      provider: 'openai',
+      providerSettingsMap: { openai: { temperature: 0.22 } },
+    });
+    expect(JSON.stringify(captured)).not.toContain('synthetic-private-projection-marker');
+  }
+);
+
+test.for([{ rootIds: ['root-a'] }, { rootIds: [] }])(
+  'actual Main trusted full intent owner preserves all settings when reducing to $rootIds',
+  async ({ rootIds }) => {
+    await workspace();
+    const original = intent();
+    original.selectionFolderId = 'root-b';
+    original.skillsPreference = {
+      disabledSkillKeys: ['root:root-b:disabled'],
+      masterEnabled: true,
+    };
+    original.workspaceInstructionsPreference = {
+      masterEnabled: true,
+      oversizedOptInByRootId: { 'root-a': true, 'root-b': true },
+    };
+    original.workspaceContext!.files.push({
+      ...original.workspaceContext!.files[0]!,
+      rootId: 'root-b',
+    });
+    const unchanged = structuredClone(original);
+    const readOwner = vi.fn(async () => original);
+    const capabilities = productionDesktopCapabilities({}, undefined, readOwner);
+    const input = request(cliInput(rootIds));
+    const captured = await capabilities.readConfiguration(input);
+    try {
+      const { selectionFolderId: _selection, ...retained } = original;
+      expect(captured.durableConfiguration['intent']).toEqual({
+        ...retained,
+        cliWorkspace: cliInput(rootIds).workspace,
+        skillsPreference: { ...original.skillsPreference, masterEnabled: false },
+        workspaceContext: {
+          ...original.workspaceContext,
+          files: original.workspaceContext!.files.filter((file) => rootIds.includes(file.rootId!)),
+        },
+        workspaceInstructionsPreference: {
+          masterEnabled: false,
+          oversizedOptInByRootId: rootIds.length ? { 'root-a': true } : {},
+        },
+      });
+      expect(captured.configuration).toEqual(original.modelConfiguration);
+      expect(captured.maxSteps).toBe(3);
+      expect(captured.inputTokenLimit).toBe(7000);
+      expect(captured.memory.options).toEqual(original.memoryOptions);
+      expect(readOwner).toHaveBeenCalledExactlyOnceWith(input);
+      expect(original).toEqual(unchanged);
+    } finally {
+      await captured.close();
+    }
+  }
+);
+
+test.for([undefined, null, { modelConfiguration: { model: 'gpt-6-sol', provider: 'openai' } }])(
+  'actual Main refuses absent or incomplete trusted owner output without substituting defaults (%j)',
+  async (output) => {
+    await workspace();
+    const readOwner = vi.fn(async () => output);
+    const capabilities = productionDesktopCapabilities({}, undefined, readOwner);
+    await expect(capabilities.readConfiguration(request(cliInput()))).rejects.toThrow();
+    expect(readOwner).toHaveBeenCalledOnce();
+    expect(owner.query.mock.calls.some(([sql]) => String(sql).includes('FROM roots'))).toBe(false);
+  }
+);
+
+test('actual Main refuses a trusted owner model mismatch before root acquisition', async () => {
+  await workspace();
+  const original = intent();
+  original.modelConfiguration.model = 'gpt-6-astra';
+  const capabilities = productionDesktopCapabilities({}, undefined, async () => original);
+  await expect(capabilities.readConfiguration(request(cliInput()))).rejects.toThrow(
+    'Captured settings do not belong'
+  );
+  expect(owner.query.mock.calls.some(([sql]) => String(sql).includes('FROM roots'))).toBe(false);
+});
+
+test('actual Main rejects caller-supplied owner intent in the strict CLI envelope', async () => {
+  await workspace();
+  const readOwner = vi.fn(async () => intent());
+  const capabilities = productionDesktopCapabilities({}, undefined, readOwner);
+  await expect(
+    capabilities.readConfiguration(request({ ...cliInput(), ownerIntent: intent() }))
+  ).rejects.toThrow();
+  expect(readOwner).not.toHaveBeenCalled();
+});
+
+test('actual Main joins a held owner read and refuses after admission is aborted', async () => {
+  await workspace();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<DesktopHostIntent>();
+  const controller = new AbortController();
+  const readOwner = vi.fn(() => {
+    entered.resolve();
+    return release.promise;
+  });
+  const capabilities = productionDesktopCapabilities({}, undefined, readOwner);
+  const pending = capabilities.readConfiguration({
+    ...request(cliInput()),
+    signal: controller.signal,
+  });
+  const settled = pending.then(
+    async (selection) => {
+      await selection.close();
+      return;
+    },
+    (cause: unknown) => cause
+  );
+  try {
+    await entered.promise;
+    controller.abort(new Error('Owner capture aborted'));
+  } finally {
+    release.resolve(intent());
+  }
+  expect(await settled).toEqual(new Error('Owner capture aborted'));
+  expect(owner.query.mock.calls.some(([sql]) => String(sql).includes('FROM roots'))).toBe(false);
+});
+
+test('actual Main recovery retains committed full intent without rereading current preferences', async () => {
+  await workspace();
+  const readOwner = vi.fn(async () => intent());
+  const capabilities = productionDesktopCapabilities({}, undefined, readOwner);
+  const input = request(cliInput());
+  const admitted = await capabilities.readConfiguration(input);
+  const snapshot = HostRunSnapshotSchema.parse({
+    configuration: admitted.durableConfiguration,
+    maxSteps: admitted.maxSteps,
+    toolIdentities: {},
+  });
+  await admitted.close();
+  readOwner.mockImplementation(async () => {
+    throw new Error('Recovery must not consult current preferences');
+  });
+  const recovered = await capabilities.readConfiguration({ ...input, snapshot });
+  try {
+    expect(recovered.durableConfiguration).toEqual(snapshot.configuration);
+    expect(readOwner).toHaveBeenCalledOnce();
+  } finally {
+    await recovered.close();
+  }
+  await expect(
+    capabilities.readConfiguration({ ...request(cliInput(['root-a', 'root-b'])), snapshot })
+  ).rejects.toThrow('CLI workspace recovery does not match its committed selection');
+  expect(readOwner).toHaveBeenCalledOnce();
+});
 
 test('actual Main preserves a nondefault full intent and refuses CLI reduction without its intent owner', async () => {
   await workspace();

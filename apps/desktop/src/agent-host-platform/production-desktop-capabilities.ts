@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import { isDeepStrictEqual } from 'node:util';
 import {
   createAssistantSkillTools,
   isSupportedProvider,
@@ -17,6 +18,7 @@ import {
 } from '@brainstrike/agent-host';
 import {
   CliWorkspaceRootsSchema,
+  materializeCliWorkspaceIntent,
   readCliWorkspaceRunInput,
   revalidateCliWorkspaceRoots,
   selectCliWorkspaceRoots,
@@ -66,6 +68,9 @@ interface DesktopCatalogSelection {
   readonly model: string;
   readonly provider: SupportedProvider;
 }
+
+/** Supplied by the existing settings owner, never parsed from client configuration. */
+export type DesktopCliOwnerIntentReader = (request: HostRunAdmissionRequest) => Promise<unknown>;
 
 function desktopSystemFields(system: string | undefined): { readonly system?: string } {
   return system === undefined ? {} : { system };
@@ -167,14 +172,39 @@ async function readDesktopCatalogSelection(
 async function readDesktopIntent(
   request: HostRunAdmissionRequest,
   catalog: DesktopCatalogSelection,
-  readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>
+  readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
+  readCliOwnerIntent?: DesktopCliOwnerIntentReader
 ): Promise<z.output<typeof PlatformClientConfigurationSchema>> {
   const workspaceInput = readCliWorkspaceRunInput(request.configuration);
   if (workspaceInput) {
-    // BST-1943: a subset envelope replaced admitted settings with construction
-    // defaults. The existing full-intent owner must supply this capability.
-    throw new Error(
-      '[ERR_CLI_WORKSPACE_OWNER_INTENT_UNAVAILABLE] CLI workspace reduction requires the existing full intent owner'
+    if (request.snapshot) {
+      const committed = PlatformClientConfigurationSchema.parse(
+        request.snapshot.configuration['intent']
+      );
+      if (!isDeepStrictEqual(committed.cliWorkspace, workspaceInput.workspace)) {
+        throw new Error('CLI workspace recovery does not match its committed selection');
+      }
+      return committed;
+    }
+    // BST-1943: a subset envelope previously replaced settings with construction defaults.
+    if (!readCliOwnerIntent) {
+      throw new Error(
+        '[ERR_CLI_WORKSPACE_OWNER_INTENT_UNAVAILABLE] CLI workspace reduction requires the existing full intent owner'
+      );
+    }
+    request.signal.throwIfAborted();
+    const ownerIntent = await readCliOwnerIntent(request);
+    request.signal.throwIfAborted();
+    if (ownerIntent === undefined || ownerIntent === null) {
+      throw new Error(
+        '[ERR_CLI_WORKSPACE_OWNER_INTENT_UNAVAILABLE] The full intent owner supplied no CLI intent'
+      );
+    }
+    return PlatformClientConfigurationSchema.parse(
+      materializeCliWorkspaceIntent(
+        PlatformClientConfigurationSchema.parse(ownerIntent),
+        workspaceInput.workspace
+      )
     );
   }
   const captured = request.configuration ?? request.snapshot?.configuration['intent'];
@@ -403,7 +433,8 @@ async function createDesktopNativeTools(
 /** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
 export function productionDesktopCapabilities(
   dependencies: DesktopAssistantToolDependencies,
-  readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>
+  readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
+  readCliOwnerIntent?: DesktopCliOwnerIntentReader
 ): DesktopPlatformCapabilities {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   return {
@@ -412,7 +443,12 @@ export function productionDesktopCapabilities(
       request.signal.throwIfAborted();
       const catalog = await readDesktopCatalogSelection(db, request.modelId);
       const { definition } = catalog;
-      const intent = await readDesktopIntent(request, catalog, readPersistedPolicy);
+      const intent = await readDesktopIntent(
+        request,
+        catalog,
+        readPersistedPolicy,
+        readCliOwnerIntent
+      );
       const configuration = PlatformModelConfigurationSchema.parse(intent.modelConfiguration);
       const permissionPolicy = platformPermissionPolicy(intent.permissionPolicy);
       if (configuration.provider !== catalog.provider || configuration.model !== catalog.model) {
