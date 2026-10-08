@@ -29,6 +29,7 @@ import type {
   HostTool,
 } from './ports.js';
 import type { HostRunSnapshot } from './protocol.js';
+import { prepareHostProviderTools } from './provider-schema-selection.js';
 import type { HostStartupContext } from './runtime.js';
 
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
@@ -41,6 +42,8 @@ export interface ProductionHostRunConfiguration {
   readonly memory: Omit<StateStoreHostMemoryOptions, 'store' | 'providerRequestContext'>;
   readonly providerRequestContext: ProviderRequestContext;
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
+  /** Captured admission auth closure; never part of durable configuration. */
+  readonly resolveProviderAuth?: (provider: string) => Promise<ProviderAuthInput | undefined>;
   readonly system?: string;
   /** Complete shipped native catalog with its canonical schema/output projections. */
   readonly tools: Readonly<Record<string, HostTool>>;
@@ -59,13 +62,16 @@ export interface ProductionHostPlatformOptions {
   resolveModel?: (
     configuration: RuntimeData,
     auth: ProviderAuthInput | undefined
-  ) => Promise<LanguageModel>;
+  ) => Promise<Exclude<LanguageModel, string>>;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   readonly startup: HostStartupContext;
   readonly stateIndexer?: StateStoreIndexerPort;
 }
 
-function rootModel(configuration: RuntimeData, auth: ProviderAuthInput | undefined): LanguageModel {
+function rootModel(
+  configuration: RuntimeData,
+  auth: ProviderAuthInput | undefined
+): Exclude<LanguageModel, string> {
   const selected = resolveRuntimeConfiguration(configuration, auth);
   const model = createProvider(
     selected.provider,
@@ -195,13 +201,26 @@ export async function createProductionHostPlatform(
         if (closing) {
           throw new Error('Production host is closing');
         }
-        const auth = await options.resolveProviderAuth(selected.configuration.provider ?? '');
+        const provider = selected.configuration.provider ?? '';
+        const auth = selected.resolveProviderAuth
+          ? await selected.resolveProviderAuth(provider)
+          : await options.resolveProviderAuth(provider);
         const model = options.resolveModel
           ? await options.resolveModel(selected.configuration, auth)
           : rootModel(selected.configuration, auth);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
-        const tools = { ...selected.tools };
+        const authoredTools = { ...selected.tools };
+        for (const [id, binding] of Object.entries(acquired?.mcp.tools ?? {})) {
+          if (Object.hasOwn(authoredTools, id)) {
+            throw new Error('Native and MCP catalog identities collide');
+          }
+          authoredTools[id] = binding;
+        }
+        // One run-bound registry supplies SDK declarations and approval/restart
+        // validation against the concrete resolved model, including MCP opt-out.
+        const tools = await prepareHostProviderTools(model, authoredTools);
+        request.signal.throwIfAborted();
         const selection: HostRunAdmission = {
           close: release,
           configuration: selected.configuration,
@@ -239,12 +258,6 @@ export async function createProductionHostPlatform(
           },
           tools,
         };
-        for (const [id, binding] of Object.entries(acquired?.mcp.tools ?? {})) {
-          if (Object.hasOwn(tools, id)) {
-            throw new Error('Native and MCP catalog identities collide');
-          }
-          tools[id] = binding;
-        }
         Object.assign(
           selection.snapshot.toolIdentities,
           Object.fromEntries(Object.entries(tools).map(([id, binding]) => [id, binding.identity]))

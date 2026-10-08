@@ -1,10 +1,16 @@
-import { createRequire } from 'node:module';
-import {
-  type CanonicalProviderSchemaLayer,
-  prepareProviderToolInputSchema,
-} from '@brainstrike/agent/provider-request';
+import { prepareProviderToolInputSchema } from '@brainstrike/agent/provider-request';
 import { providerCompatibleInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import type { StandardSchemaWithJSON } from '@mastra/core/schema';
+import {
+  AnthropicSchemaCompatLayer,
+  DeepSeekSchemaCompatLayer,
+  GoogleSchemaCompatLayer,
+  MetaSchemaCompatLayer,
+  type ModelInformation,
+  OpenAIReasoningSchemaCompatLayer,
+  OpenAISchemaCompatLayer,
+  type SchemaCompatLayer,
+} from '@mastra/schema-compat';
 import { asSchema, jsonSchema, TypeValidationError } from 'ai';
 import { z } from 'zod';
 import { executableInputSchema } from './executable-input-schema.js';
@@ -18,51 +24,26 @@ export interface HostProviderModelIdentity {
   readonly supportsStructuredOutputs?: boolean;
 }
 
-type LayerConstructor = new (identity: {
-  modelId: string;
-  provider: string;
-  supportsStructuredOutputs: boolean;
-}) => CanonicalProviderSchemaLayer;
-
-type InstalledCompatibility = Record<
-  | 'AnthropicSchemaCompatLayer'
-  | 'DeepSeekSchemaCompatLayer'
-  | 'GoogleSchemaCompatLayer'
-  | 'MetaSchemaCompatLayer'
-  | 'OpenAIReasoningSchemaCompatLayer'
-  | 'OpenAISchemaCompatLayer',
-  LayerConstructor
->;
-
-// Borrow Mastra's installed public compatibility entry point. This package
-// already depends on @mastra/core; no second version or converter is installed.
-const require = createRequire(import.meta.url);
-const mastraRequire = createRequire(require.resolve('@mastra/core'));
-const compatibility = (await import(
-  mastraRequire.resolve('@mastra/schema-compat')
-)) as InstalledCompatibility;
-
 /** Only the model-facing schema changes; every authored tool binding survives. */
 export async function prepareHostProviderTools(
   model: HostProviderModelIdentity,
   tools: Readonly<Record<string, HostTool>>
 ): Promise<Readonly<Record<string, HostTool>>> {
-  const identity = {
+  const identity: ModelInformation = {
     modelId: model.modelId,
     provider: model.provider,
     supportsStructuredOutputs: model.supportsStructuredOutputs ?? false,
   };
   // Same first-applicable order as the shipped Mastra tool converter.
-  const layer = [
-    compatibility.OpenAIReasoningSchemaCompatLayer,
-    compatibility.OpenAISchemaCompatLayer,
-    compatibility.GoogleSchemaCompatLayer,
-    compatibility.AnthropicSchemaCompatLayer,
-    compatibility.DeepSeekSchemaCompatLayer,
-    compatibility.MetaSchemaCompatLayer,
-  ]
-    .map((Layer) => new Layer(identity))
-    .find((candidate) => candidate.shouldApply());
+  const layers: readonly SchemaCompatLayer[] = [
+    new OpenAIReasoningSchemaCompatLayer(identity),
+    new OpenAISchemaCompatLayer(identity),
+    new GoogleSchemaCompatLayer(identity),
+    new AnthropicSchemaCompatLayer(identity),
+    new DeepSeekSchemaCompatLayer(identity),
+    new MetaSchemaCompatLayer(identity),
+  ];
+  const layer = layers.find((candidate) => candidate.shouldApply());
   if (!layer) {
     return tools;
   }
