@@ -10,7 +10,12 @@ import {
   DEFAULT_AGENT_MAX_STEPS,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent/tool-runtime';
-import type { HostRunAdmissionRequest, HostTool, HostToolContext } from '@brainstrike/agent-host';
+import type {
+  HostDelegation,
+  HostRunAdmissionRequest,
+  HostTool,
+  HostToolContext,
+} from '@brainstrike/agent-host';
 import {
   CliWorkspaceRootsSchema,
   materializeCliWorkspaceIntent,
@@ -54,7 +59,12 @@ import {
   desktopWorktreeToolDependencies,
 } from '../assistant-server/worktree-tool-dependencies';
 import { getDatabase } from '../db-main';
-import { desktopPlanModeTools, readDesktopHostSystemContext } from './desktop-host-context';
+import {
+  type DesktopHostSystemContext,
+  desktopPlanModeTools,
+  readDesktopHostSystemContext,
+} from './desktop-host-context';
+import { resolveDesktopHostDelegation } from './desktop-host-delegation';
 import type {
   DesktopWorkspaceBindingAuthority,
   DesktopWorkspaceBindingBorrow,
@@ -119,7 +129,7 @@ function desktopRetrievalScopeFields(
 function desktopDurableConfiguration(
   intent: z.output<typeof PlatformClientConfigurationSchema>,
   observerTarget: string | null,
-  system: string | undefined,
+  { childSystem, system }: DesktopHostSystemContext,
   cliWorkspaceRoots?: RuntimeData['workspaceRoots'],
   boundWorkspaceRoots?: RuntimeData['workspaceRoots']
 ): DesktopPlatformSelection['durableConfiguration'] {
@@ -130,6 +140,7 @@ function desktopDurableConfiguration(
         ...(cliWorkspaceRoots ? { cliWorkspaceRoots } : {}),
         ...(boundWorkspaceRoots ? { boundWorkspaceRoots } : {}),
         ...desktopSystemFields(system),
+        ...(childSystem === undefined ? {} : { childSystem }),
         memoryResolution: {
           observationalMemory: desktopObservationResolution(
             intent.memorySettings.observationalMemory.enabled,
@@ -593,6 +604,24 @@ function desktopShellCorrelation(services: DesktopWorktreeServices): DesktopShel
   };
 }
 
+/** BST-1932: the supervisor instructions name only the personas this run may delegate to. */
+function desktopPersonaFields(delegation: HostDelegation | undefined): {
+  readonly personas?: HostDelegation['personas'];
+} {
+  return delegation ? { personas: delegation.personas } : {};
+}
+
+/** BST-1932: the child context and personas a run delegates with, when it may delegate. */
+function desktopDelegationFields(
+  childSystem: string | undefined,
+  delegation: HostDelegation | undefined
+): Pick<DesktopPlatformSelection, 'childSystem' | 'delegation'> {
+  return {
+    ...(childSystem === undefined ? {} : { childSystem }),
+    ...(delegation ? { delegation } : {}),
+  };
+}
+
 /** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
 export function productionDesktopCapabilities(
   dependencies: DesktopHostToolServices,
@@ -652,8 +681,15 @@ export function productionDesktopCapabilities(
     };
     try {
       policies.set(request.threadId, permissionPolicy);
-      const system = await readDesktopHostSystemContext({
+      const delegation = resolveDesktopHostDelegation(
+        intent,
+        configuration.provider,
+        native.runtime.workspaceRoots ?? [],
+        request.planMode === true
+      );
+      const { childSystem, system } = await readDesktopHostSystemContext({
         inputTokenLimit,
+        ...desktopPersonaFields(delegation),
         ...desktopContextReaderFields(
           intent.cliWorkspace !== undefined || workspace !== undefined,
           native.readWorkspaceFile
@@ -672,10 +708,11 @@ export function productionDesktopCapabilities(
         durableConfiguration: desktopDurableConfiguration(
           intent,
           observerTarget,
-          system,
+          { childSystem, system },
           intent.cliWorkspace ? native.runtime.workspaceRoots : undefined,
           desktopWorkspaceRootObservation(workspace)
         ),
+        ...desktopDelegationFields(childSystem, delegation),
         freshWorkspaceRoots: native.freshRoots,
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
