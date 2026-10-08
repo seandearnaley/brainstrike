@@ -69,6 +69,7 @@ export interface ProductionHostPlatformOptions {
   /** The live root owner checkpoint revert revalidates against. */
   readonly resolveWorkspaceRoot?: HostPlatform['resolveWorkspaceRoot'];
   readonly startup: HostStartupContext;
+  readonly storeProviderCredential?: HostPlatform['storeProviderCredential'];
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
@@ -299,5 +300,8 @@ export async function createProductionHostPlatform(
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
     stateIndexer: indexer,
+    ...(options.storeProviderCredential
+      ? { storeProviderCredential: options.storeProviderCredential }
+      : {}),
   };
 }

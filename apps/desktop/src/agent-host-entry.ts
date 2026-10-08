@@ -1,5 +1,6 @@
-import { runAgentHostProcess } from '@brainstrike/agent-host';
+import { type AgentHost, runAgentHostProcess } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
+import { bindDesktopClientPort } from './agent-host-platform/desktop-client-port';
 import { installParentPlatformPort } from './agent-host-platform/parent-platform-port';
 import { decodeHostLeaseControl, decodeHostLeaseParentMessage } from './host-lease-control';
 
@@ -11,12 +12,13 @@ async function main(): Promise<void> {
   }
   let retained = false;
   let controlFailure: unknown;
+  let host: AgentHost | undefined;
   try {
     await runAgentHostProcess(process.argv.slice(2), {
       listen: (cancel) => {
         const receive = (input: unknown): void => {
           try {
-            if (installParentPlatformPort(input)) {
+            if (installParentPlatformPort(input) || bindDesktopClientPort(input, host)) {
               return;
             }
             decodeHostLeaseControl(decodeHostLeaseParentMessage(input).data);
@@ -33,6 +35,9 @@ async function main(): Promise<void> {
           retained = message.ownership === 'retained';
         }
         parent.postMessage(message);
+      },
+      started: (acquired) => {
+        host = acquired;
       },
     });
     if (controlFailure !== undefined) {

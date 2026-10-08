@@ -11,6 +11,7 @@ export {
   buildProviderOptionsWhenReady,
   getRuntimeProviderLlmModels,
   type LlmProviderModelDefinition,
+  resolveComposerAttachmentsAvailability,
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';

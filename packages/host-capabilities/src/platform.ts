@@ -246,5 +246,6 @@ export async function createHostPlatform(
       return root.path;
     },
     startup,
+    storeProviderCredential: host.storeProviderCredential,
   });
 }

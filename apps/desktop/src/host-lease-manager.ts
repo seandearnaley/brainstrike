@@ -25,7 +25,7 @@ export interface HostLeaseUtilityProcess {
   once(event: 'exit', listener: (code: number) => void): unknown;
   readonly pid: number | undefined;
   postMessage(
-    message: HostLeaseControl | { event: 'platform-capabilities' },
+    message: HostLeaseControl | { event: 'platform-capabilities' } | { event: 'client-port' },
     transfer?: readonly MessagePortMain[]
   ): void;
 }
@@ -37,6 +37,8 @@ export interface DesktopHostLeaseOptions {
   readonly closeTimeoutMs?: number;
   readonly entryPath?: string;
   readonly fork?: HostLeaseFork;
+  /** A ready child this lease spawned; only it can receive private client ports. */
+  readonly onChildReady?: (child: DesktopHostChild) => void;
   /** Created only when this desktop actually owns a new Root child. */
   readonly platform?: () => { readonly port: MessagePortMain; close(): Promise<void> };
   /** Trusted Node composition module; the GUI and CLI use the same kernel. */
@@ -46,10 +48,14 @@ export interface DesktopHostLeaseOptions {
   readonly root: string;
   readonly startupTimeoutMs?: number;
 }
+export interface DesktopHostChild {
+  readonly exited: Promise<number>;
+  postClientPort(port: MessagePortMain): void;
+}
 /** The app-owned agent host composition: its platform port, module and launch selection. */
 export type DesktopAgentHostPlatform = Pick<
   DesktopHostLeaseOptions,
-  'platform' | 'platformModule' | 'platformOptions'
+  'onChildReady' | 'platform' | 'platformModule' | 'platformOptions'
 >;
 export interface DesktopHostLease {
   acquire(): Promise<HostAttachment>;
@@ -202,6 +208,10 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           }
           await ready;
           child.ready = true;
+          options.onChildReady?.({
+            exited: child.exited,
+            postClientPort: (port) => child.handle.postMessage({ event: 'client-port' }, [port]),
+          });
         },
         ...(options.startupTimeoutMs === undefined
           ? {}
