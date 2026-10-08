@@ -25,10 +25,11 @@ import {
   type UpsertVectorParams,
 } from '@mastra/core/vector';
 import type { MockLanguageModelV4 } from 'ai/test';
-import { expect } from 'vitest';
+import { expect, onTestFinished } from 'vitest';
 import { StateStoreHostMemory } from '../../src/adapters/state-store-host-memory.js';
 import { HostCore } from '../../src/core.js';
 import type { HostPlatform, HostRunContext } from '../../src/ports.js';
+import type { HostEvent } from '../../src/protocol.js';
 import { RECORDED_VECTOR_PROFILE } from './recorded-memory-vector-port.js';
 import { scriptedModel } from './scripted-model.js';
 
@@ -148,6 +149,10 @@ export async function memoryVectorHost(options: {
   const owners: StateStoreHostMemory[] = [];
   let retained = 0;
   const runResources = new Map<string, string>();
+  const primaryFailures: unknown[] = [];
+  const cancelledWaits = new Set<(cause: unknown) => void>();
+  const pendingRuns = new Set<Promise<void>>();
+  const openingFailures = new Set<(context: HostRunContext, cause: unknown) => void>();
   const workingReads: { readonly threadId: string; readonly value: string | null }[] = [];
   let workingSeed: string | undefined;
   const embeddingCalls: string[][] = [];
@@ -170,7 +175,7 @@ export async function memoryVectorHost(options: {
     specificationVersion: 'v3',
     supportsParallelCalls: false,
   };
-  const platform: HostPlatform = {
+  const platform = {
     close: async () => undefined,
     maxSteps: 1,
     openRun: async (context) => {
@@ -229,6 +234,19 @@ export async function memoryVectorHost(options: {
       return model;
     },
     tools: {},
+  } satisfies HostPlatform;
+  const openRun = platform.openRun;
+  platform.openRun = async (context) => {
+    try {
+      return await openRun(context);
+    } catch (cause) {
+      // Observe the original public owner rejection, including the admission
+      // negative that cannot publish a terminal with an unjoined owner.
+      for (const rejected of openingFailures) {
+        rejected(context, cause);
+      }
+      throw cause;
+    }
   };
   const retain = () => {
     retained += 1;
@@ -237,25 +255,52 @@ export async function memoryVectorHost(options: {
     };
   };
   let core = await HostCore.open(store, platform, retain);
-  return {
-    async close(): Promise<void> {
-      try {
-        await core.close();
-      } catch (error) {
-        console.error('Memory recall cleanup cause:', JSON.stringify(failureReceipt(error)));
-        throw error;
-      } finally {
-        try {
-          await store.close();
-        } finally {
-          try {
-            await indexer?.close();
-          } finally {
-            await rm(root, { force: true, recursive: true });
-          }
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= (async () => {
+      const failures: unknown[] = [];
+      // Keep original teardown order and attempt every retirement, retaining
+      // the primary run assertion alongside independent cleanup failures.
+      for (const close of [
+        () => core.close(),
+        () => store.close(),
+        async () => indexer?.close(),
+        () => rm(root, { force: true, recursive: true }),
+      ]) {
+        const [result] = await Promise.allSettled([Promise.resolve().then(close)]);
+        if (result?.status === 'rejected') {
+          failures.push(result.reason);
         }
       }
-    },
+      if (failures.length > 0) {
+        const causes = [...new Set([...primaryFailures, ...failures])];
+        const error =
+          causes.length === 1
+            ? causes[0]
+            : new AggregateError(causes, 'Memory recall primary and cleanup failures');
+        console.error('Memory recall cleanup cause:', JSON.stringify(failureReceipt(error)));
+        throw error;
+      }
+    })();
+    return closing;
+  };
+  // The supported test lifecycle receives the original watchdog signal. Its
+  // awaited hook joins physical cleanup even if the timed-out body is suspended.
+  onTestFinished(async ({ signal }) => {
+    if (!signal.aborted) {
+      return;
+    }
+    for (const cancel of cancelledWaits) {
+      cancel(signal.reason);
+    }
+    try {
+      await close();
+    } finally {
+      await Promise.all([...pendingRuns]);
+    }
+  });
+  return {
+    close,
     async closeRejectedAdmission(): Promise<void> {
       // Core retains the failed admission cause. No Memory owner was constructed;
       // the negative test verifies zero SDK, embedding and working-memory calls.
@@ -292,30 +337,70 @@ export async function memoryVectorHost(options: {
     root,
     async run(threadId: string, prompt: string, selectedResourceId = resourceId): Promise<string> {
       runResources.set(threadId, selectedResourceId);
-      const { runId } = await core.startRun({
-        commandId: randomUUID(),
-        modelId: 'recorded-sdk-fixture',
-        prompt,
-        threadId,
+      type Terminal = Extract<HostEvent, { type: 'run.finished' }>;
+      const completion = Promise.withResolvers<Terminal>();
+      completion.promise.catch(() => undefined);
+      const settlement = Promise.withResolvers<void>();
+      pendingRuns.add(settlement.promise);
+      let cancelled = false;
+      const cancel = (cause: unknown): void => {
+        cancelled = true;
+        completion.reject(cause);
+      };
+      cancelledWaits.add(cancel);
+      const earlyTerminals: Terminal[] = [];
+      const earlyFailures: { runId: string; cause: unknown }[] = [];
+      let runId: string | undefined;
+      // Subscribe before the command; an original owner can retire or reject
+      // before startRun's result reaches this caller. Match its accepted ID.
+      const unsubscribe = core.onCommitted((row) => {
+        if (row.threadId !== threadId || row.event.type !== 'run.finished') {
+          return;
+        }
+        if (runId === undefined) {
+          earlyTerminals.push(row.event);
+        } else if (row.event.runId === runId) {
+          completion.resolve(row.event);
+        }
       });
+      const rejected = (context: HostRunContext, cause: unknown): void => {
+        if (context.threadId !== threadId) {
+          return;
+        }
+        if (runId === undefined) {
+          earlyFailures.push({ cause, runId: context.runId });
+        } else if (context.runId === runId) {
+          completion.reject(cause);
+        }
+      };
+      openingFailures.add(rejected);
       try {
-        await expect
-          .poll(async () => {
-            const terminal = (await core.read(threadId, 0)).find(
-              ({ event }) => event.type === 'run.finished' && event.runId === runId
-            )?.event;
-            if (terminal?.type === 'run.finished' && terminal.outcome !== 'completed') {
-              throw new Error(JSON.stringify(terminal));
-            }
-            return terminal;
-          })
-          .toMatchObject({ outcome: 'completed' });
+        const accepted = await core.startRun({
+          commandId: randomUUID(),
+          modelId: 'recorded-sdk-fixture',
+          prompt,
+          threadId,
+        });
+        runId = accepted.runId;
+        for (const failure of earlyFailures) {
+          if (failure.runId === runId) {
+            completion.reject(failure.cause);
+          }
+        }
+        for (const terminal of earlyTerminals) {
+          if (terminal.runId === runId) {
+            completion.resolve(terminal);
+          }
+        }
+        expect(await completion.promise).toMatchObject({ outcome: 'completed' });
+        return runId;
       } catch (error) {
+        primaryFailures.push(error);
         console.error(
           'Memory recall first failure:',
           JSON.stringify({
             failure: failureReceipt(error),
-            rows: (await core.read(threadId, 0)).map((row) => ({
+            rows: (cancelled ? [] : await core.read(threadId, 0)).map((row) => ({
               seq: row.seq,
               type: row.event.type,
             })),
@@ -324,8 +409,13 @@ export async function memoryVectorHost(options: {
           })
         );
         throw error;
+      } finally {
+        cancelledWaits.delete(cancel);
+        openingFailures.delete(rejected);
+        unsubscribe();
+        settlement.resolve();
+        pendingRuns.delete(settlement.promise);
       }
-      return runId;
     },
     seedWorkingMemory(value: string): void {
       workingSeed = value;
