@@ -15,6 +15,13 @@ import {
   type HostRunAdmissionRequest,
   type HostToolContext,
 } from '@brainstrike/agent-host';
+import {
+  CliWorkspaceRootsSchema,
+  materializeCliWorkspaceIntent,
+  readCliWorkspaceRunInput,
+  revalidateCliWorkspaceRoots,
+  selectCliWorkspaceRoots,
+} from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import {
   DEFAULT_PERMISSION_POLICIES,
@@ -66,12 +73,14 @@ function desktopSystemFields(system: string | undefined): { readonly system?: st
 function desktopDurableConfiguration(
   intent: z.output<typeof PlatformClientConfigurationSchema>,
   observerTarget: string | null,
-  system: string | undefined
+  system: string | undefined,
+  cliWorkspaceRoots?: RuntimeData['workspaceRoots']
 ): DesktopPlatformSelection['durableConfiguration'] {
   return z.record(z.string(), z.json()).parse(
     JSON.parse(
       JSON.stringify({
         intent,
+        ...(cliWorkspaceRoots ? { cliWorkspaceRoots } : {}),
         ...desktopSystemFields(system),
         memoryResolution: {
           observationalMemory: desktopObservationResolution(
@@ -145,8 +154,14 @@ async function readDesktopIntent(
   catalog: DesktopCatalogSelection,
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>
 ): Promise<z.output<typeof PlatformClientConfigurationSchema>> {
-  const captured = request.configuration ?? request.snapshot?.configuration['intent'];
-  return PlatformClientConfigurationSchema.parse(
+  const workspaceInput = readCliWorkspaceRunInput(request.configuration);
+  if (workspaceInput && request.snapshot) {
+    throw new Error('CLI workspace input cannot replace a committed recovery intent');
+  }
+  const captured = workspaceInput
+    ? undefined
+    : (request.configuration ?? request.snapshot?.configuration['intent']);
+  const owner = PlatformClientConfigurationSchema.parse(
     captured ?? {
       enabledNativeToolIds: DESKTOP_NATIVE_TOOLS.map((tool) => tool.id),
       memoryOptions: {
@@ -162,6 +177,11 @@ async function readDesktopIntent(
       workspaceInstructionsPreference: { masterEnabled: true, oversizedOptInByRootId: {} },
     }
   );
+  return workspaceInput
+    ? PlatformClientConfigurationSchema.parse(
+        materializeCliWorkspaceIntent(owner, workspaceInput.workspace)
+      )
+    : owner;
 }
 
 function resolveDesktopMemorySettings(
@@ -203,13 +223,37 @@ async function createDesktopNativeTools(
   configuration: z.output<typeof PlatformModelConfigurationSchema>,
   intent: z.output<typeof PlatformClientConfigurationSchema>,
   dependencies: DesktopAssistantToolDependencies,
-  budget: ReturnType<typeof resolveScaledToolResultBudget>
+  budget: ReturnType<typeof resolveScaledToolResultBudget>,
+  request: HostRunAdmissionRequest
 ): Promise<{
+  readonly revalidateWorkspace: () => Promise<void>;
   readonly runtime: RuntimeData;
   readonly tools: Record<string, import('@brainstrike/agent-host').HostTool>;
   readonly workspaceSkills?: import('@brainstrike/agent').ScannedWorkspaceSkills;
 }> {
-  const roots = await loadWorkspaceRootsFromDatabase(db);
+  request.signal.throwIfAborted();
+  const liveRoots = await loadWorkspaceRootsFromDatabase(db);
+  request.signal.throwIfAborted();
+  const selection = intent.cliWorkspace;
+  const roots = selection ? selectCliWorkspaceRoots(liveRoots, selection) : liveRoots;
+  if (selection && request.snapshot) {
+    const capturedRoots = CliWorkspaceRootsSchema.parse(
+      request.snapshot.configuration['cliWorkspaceRoots']
+    );
+    revalidateCliWorkspaceRoots(capturedRoots, liveRoots, selection);
+  }
+  const freshRoots = async (): Promise<typeof roots> => {
+    if (!selection) {
+      return roots;
+    }
+    request.signal.throwIfAborted();
+    const current = await loadWorkspaceRootsFromDatabase(db);
+    request.signal.throwIfAborted();
+    return revalidateCliWorkspaceRoots(roots, current, selection);
+  };
+  const revalidateWorkspace = async (): Promise<void> => {
+    await freshRoots();
+  };
   const focused = roots.find((root) => root.rootId === intent.selectionFolderId);
   if (intent.selectionFolderId && !focused) {
     throw new Error('The selected workspace root is no longer mounted');
@@ -241,11 +285,16 @@ async function createDesktopNativeTools(
       : {}),
     ...(intent.skillsPreference ? { skillsPreference: intent.skillsPreference } : {}),
   };
-  const { workspaceSkills } = prepareRequestSkills({
-    fs: createSecureSkillsFs([...roots.map((root) => root.path), homedir()]),
-    homedir,
-    runtimeData: runtime,
-  });
+  if (selection && (intent.skillsPreference?.masterEnabled ?? true)) {
+    throw new Error('CLI Skills require an explicit existing home-tier read authority');
+  }
+  const { workspaceSkills } = selection
+    ? {}
+    : prepareRequestSkills({
+        fs: createSecureSkillsFs([...roots.map((root) => root.path), homedir()]),
+        homedir,
+        runtimeData: runtime,
+      });
   const skillTools = workspaceSkills ? createAssistantSkillTools(workspaceSkills) : {};
   const nativeBindings = Object.fromEntries(
     [
@@ -255,7 +304,7 @@ async function createDesktopNativeTools(
       ),
     ].map((tool) => [tool.id, { identity: tool.id, risk: resolveToolRiskCategory(tool.defaults) }])
   );
-  const build = (context?: HostToolContext) =>
+  const build = (context?: HostToolContext, currentRoots = roots) =>
     createAgentHostToolBindings({
       bindings: nativeBindings,
       resolvedToolResultBudget: budget,
@@ -263,6 +312,7 @@ async function createDesktopNativeTools(
         ...buildDesktopAssistantTools(
           {
             ...runtime,
+            workspaceRoots: currentRoots,
             ...(context
               ? {
                   memory: {
@@ -289,16 +339,24 @@ async function createDesktopNativeTools(
       {
         ...tool,
         execute: async (input: unknown, context: HostToolContext): Promise<unknown> => {
-          const executor = build(context).tools[name];
+          context.signal.throwIfAborted();
+          const currentRoots = await freshRoots();
+          context.signal.throwIfAborted();
+          const executor = build(context, currentRoots).tools[name];
           if (!executor || executor.identity !== tool.identity) {
             throw new Error('Native executor changed after admission');
           }
-          return executor.execute(input, context);
+          const result = await executor.execute(input, context);
+          if (selection) {
+            await revalidateWorkspace();
+            context.signal.throwIfAborted();
+          }
+          return result;
         },
       },
     ])
   );
-  return { runtime, tools, ...(workspaceSkills ? { workspaceSkills } : {}) };
+  return { revalidateWorkspace, runtime, tools, ...(workspaceSkills ? { workspaceSkills } : {}) };
 }
 
 /** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
@@ -330,7 +388,8 @@ export function productionDesktopCapabilities(
         configuration,
         intent,
         dependencies,
-        budget
+        budget,
+        request
       );
       const { tools } = native;
       const runtimeMcp = getDesktopMcpHostRuntime();
@@ -414,11 +473,17 @@ export function productionDesktopCapabilities(
           tools,
           ...(native.workspaceSkills ? { workspaceSkills: native.workspaceSkills } : {}),
         });
+        await native.revalidateWorkspace();
         return {
           close,
           configuration,
           contextWindow: definition.contextWindow,
-          durableConfiguration: desktopDurableConfiguration(intent, observerTarget, system),
+          durableConfiguration: desktopDurableConfiguration(
+            intent,
+            observerTarget,
+            system,
+            intent.cliWorkspace ? native.runtime.workspaceRoots : undefined
+          ),
           inputTokenLimit,
           maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
           memory: { options: intent.memoryOptions, settings: memorySettings },
