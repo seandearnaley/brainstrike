@@ -21,6 +21,8 @@ export {
   ForeignLockError,
   type LockOptions,
   type LockOwner,
+  type LockProcessIdentity,
+  type LockRetirementReceipt,
   processStartTime,
   RootLock,
   RootLockedError,

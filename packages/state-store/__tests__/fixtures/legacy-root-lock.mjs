@@ -1,0 +1,401 @@
+// Exact old runtime emitted from c6ee2c3005b33e40c52d971a19b7c1aa636761eb.
+// Materialized verbatim by the real old-reader fixture; formatting changes only this wrapper.
+export const legacyRootLockSource = `// Data-root lock (M0-A2 src/lock.ts, adapted from spike s-dur D5), with the Windows process start time from M0-A1
+// src/dir-lock.ts:32-59.
+//
+// Generation files \`g<12 digits>\` are created with link(fsynced temp), which fails with EEXIST, so exactly one of N
+// contenders wins a generation; a winner re-lists and drops its own file if a newer generation exists. Nobody ever
+// renames or unlinks someone else's live lock.
+//
+// The lock lives INSIDE the root (\`<root>/lock/\`), so any file-level copy of a root (Time Machine, Migration Assistant,
+// \`cp -R\`, the export bundle) carries it, and the owner records the root's realpath. A lock from another host is refused unconditionally. A same-host lock copied from another root cannot be judged
+// by pid: the opener confirms the copied-root takeover explicitly.
+//
+// Owner identity = { pid, start, host, root, token }. \`start\` is the OS-reported start time of \`pid\`, read the SAME way
+// for the owner (at acquisition) and for a checker, so the comparison is exact and defeats pid reuse:
+//   darwin/linux: \`ps -o lstart= -p <pid>\` with LC_ALL=C TZ=UTC (1 s resolution);
+//   win32: the creation time from GetProcessTimes, read through PowerShell's .NET Process.StartTime (100 ns FILETIME).
+import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeSync, } from 'node:fs';
+import { hostname } from 'node:os';
+import { join } from 'node:path';
+import { newRetryStats, retrySharing } from './fs-retry.mjs';
+export class RootLockedError extends Error {
+    constructor(owner) {
+        super(\`data root is in use by pid \${owner.pid} on \${owner.host} (started \${owner.start})\`);
+        this.name = 'RootLockedError';
+        this.owner = owner;
+    }
+}
+/** The opener declined (or was not asked) to take over a lock it cannot judge. Opening again asks again. */
+export class ForeignLockError extends Error {
+    constructor(owner) {
+        super(\`data root is locked by \${owner.host} pid \${owner.pid} for \${owner.root}; it cannot be checked from here. Foreign host locks cannot be taken over; a copied same-host root requires explicit confirmation.\`);
+        this.name = 'ForeignLockError';
+        this.owner = owner;
+    }
+}
+let ownStart;
+/** OS start time of a live pid, or null if no such process. Same formatter for owner and checker. */
+export function processStartTime(pid) {
+    if (pid === process.pid && ownStart !== undefined) {
+        return ownStart; // a process's own start time never changes
+    }
+    const start = process.platform === 'win32' ? windowsStartTime(pid) : posixStartTime(pid);
+    if (pid === process.pid) {
+        ownStart = start;
+    }
+    return start;
+}
+/** \`ps\` in the C locale and UTC, so the same start time always formats the same way. */
+function psEnv() {
+    const env = { ...process.env };
+    env['LC_ALL'] = 'C';
+    env['TZ'] = 'UTC';
+    return env;
+}
+function posixStartTime(pid) {
+    try {
+        const out = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
+            encoding: 'utf8',
+            env: psEnv(),
+            stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim();
+        return out.length > 0 ? out : null;
+    }
+    catch (e) {
+        if (e !== null && typeof e === 'object' && 'status' in e && e.status === 1) {
+            return null; // ps exits 1 when the pid does not exist
+        }
+        throw e; // an unavailable OS identity source never implies a stale owner
+    }
+}
+/**
+ * The process creation time from GetProcessTimes, via .NET Process.StartTime (which calls it), as a UTC FILETIME
+ * (100 ns ticks). Only "no such process" (GetProcessById's ArgumentException) means null; anything else (e.g. access
+ * denied) throws: guessing "gone" would let a live owner's lock be taken over.
+ */
+export const WIN_START_PS = (pid) => \`$ErrorActionPreference='Stop'; try { $p = [System.Diagnostics.Process]::GetProcessById(\${pid}) } catch [System.ArgumentException] { 'NOPROC'; exit 0 }; 'START ' + $p.StartTime.ToFileTimeUtc()\`;
+function windowsStartTime(pid) {
+    const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WIN_START_PS(pid)], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+    }).trim();
+    if (out === 'NOPROC') {
+        return null;
+    }
+    const m = /^START (\\d+)$/.exec(out);
+    if (!m?.[1]) {
+        throw new Error(\`lock: unexpected PowerShell start-time output for pid \${pid}: \${JSON.stringify(out)}\`);
+    }
+    return m[1];
+}
+/** kill(pid, 0): ESRCH = gone; EPERM = exists (another user's process). */
+function pidExists(pid) {
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch (e) {
+        const code = e.code;
+        if (code === 'ESRCH') {
+            return false;
+        }
+        if (code === 'EPERM') {
+            return true;
+        }
+        throw e;
+    }
+}
+const GEN = /^g(\\d{12})$/;
+const genName = (g) => \`g\${String(g).padStart(12, '0')}\`;
+const generations = (dir) => readdirSync(dir)
+    .flatMap((n) => {
+    const m = GEN.exec(n);
+    return m ? [Number(m[1])] : [];
+})
+    .sort((a, b) => a - b);
+function readOwner(path) {
+    let raw;
+    try {
+        raw = readFileSync(path, 'utf8');
+    }
+    catch (e) {
+        if (e.code === 'ENOENT') {
+            return null;
+        }
+        throw e;
+    }
+    // Only ever created complete (link of an fsynced temp): a parse error is real corruption.
+    const o = JSON.parse(raw);
+    if (typeof o.pid !== 'number' ||
+        !Number.isSafeInteger(o.pid) ||
+        o.pid <= 0 ||
+        typeof o.start !== 'string' ||
+        typeof o.host !== 'string' ||
+        typeof o.root !== 'string' ||
+        typeof o.token !== 'string') {
+        throw new Error(\`lock: malformed \${path}\`);
+    }
+    return o;
+}
+function writeTemp(dir, o) {
+    const tmp = join(dir, \`.\${o.token}.\${randomBytes(4).toString('hex')}.tmp\`);
+    const fd = openSync(tmp, 'wx');
+    try {
+        writeSync(fd, JSON.stringify(o));
+        fsyncSync(fd);
+    }
+    finally {
+        closeSync(fd);
+    }
+    return tmp;
+}
+const unlinkIfExists = (p) => {
+    try {
+        unlinkSync(p);
+    }
+    catch (e) {
+        if (e.code !== 'ENOENT') {
+            throw e;
+        }
+    }
+};
+/**
+ * Judge a held (not released) lock: return it when it may be taken over (stale: a dead or reused pid; or a foreign lock
+ * from a copied same-host root whose takeover was confirmed), throw when it is live or the takeover was declined.
+ */
+async function judgeHeld(cur, host, realRoot, opts) {
+    if (cur.host !== host) {
+        throw new ForeignLockError(cur);
+    }
+    const judgeable = cur.root === realRoot;
+    if (!judgeable) {
+        const ok = await opts.onForeignLock?.(cur);
+        if (ok !== true) {
+            throw new ForeignLockError(cur);
+        }
+        return cur;
+    }
+    if (pidExists(cur.pid)) {
+        const observed = processStartTime(cur.pid);
+        if (observed === null) {
+            throw new Error(\`lock: cannot verify process start time for live pid \${cur.pid}\`);
+        }
+        if (observed === cur.start) {
+            throw new RootLockedError(cur);
+        }
+    }
+    return cur;
+}
+/** Create generation \`next\` as a link of a complete, fsynced temp file: false when another process holds it (EEXIST). */
+function linkGeneration(dir, me, next) {
+    const tmp = writeTemp(dir, me);
+    try {
+        linkSync(tmp, join(dir, genName(next)));
+        return true;
+    }
+    catch (e) {
+        if (e.code !== 'EEXIST') {
+            throw e;
+        }
+        return false;
+    }
+    finally {
+        unlinkSync(tmp);
+    }
+}
+/**
+ * Take generation \`next\`: false when another process holds it (re-list: it is live, or itself stale) or when a newer
+ * generation appeared meanwhile (we raced on an old listing: our own file is dropped, a winner may already have deleted
+ * it). On success, the older generations listed in \`gens\` are removed.
+ */
+function claimGeneration(dir, me, next, gens) {
+    if (!linkGeneration(dir, me, next)) {
+        return false;
+    }
+    if (generations(dir).some((g) => g > next)) {
+        unlinkIfExists(join(dir, genName(next)));
+        return false;
+    }
+    for (const g of gens) {
+        if (g < next) {
+            unlinkIfExists(join(dir, genName(g)));
+        }
+    }
+    return true;
+}
+export class RootLock {
+    constructor(dir, gen, owner) {
+        this.released = false;
+        this.releaseStats = newRetryStats();
+        this.dir = dir;
+        this.gen = gen;
+        this.owner = owner;
+    }
+    static dirOf(root) {
+        return join(root, 'lock');
+    }
+    /** The current (newest) generation and its owner, or null if never locked. */
+    static inspect(root) {
+        let gens;
+        try {
+            gens = generations(RootLock.dirOf(root));
+        }
+        catch (e) {
+            if (e.code === 'ENOENT') {
+                return null;
+            }
+            throw e;
+        }
+        const g = gens.at(-1);
+        if (g === undefined) {
+            return null;
+        }
+        const owner = readOwner(join(RootLock.dirOf(root), genName(g)));
+        return owner ? { gen: g, owner } : null;
+    }
+    static async acquire(root, opts = {}) {
+        const realRoot = realpathSync(root);
+        const host = opts.host ?? hostname();
+        const dir = RootLock.dirOf(realRoot);
+        mkdirSync(dir, { recursive: true });
+        const start = processStartTime(process.pid);
+        if (start === null) {
+            throw new Error('lock: cannot read own process start time');
+        }
+        const me = {
+            host,
+            pid: process.pid,
+            root: realRoot,
+            start,
+            token: randomBytes(12).toString('hex'),
+        };
+        for (let attempt = 0; attempt < 100; attempt++) {
+            const gens = generations(dir);
+            const top = gens.at(-1);
+            let next = 0;
+            let broken = null;
+            if (top !== undefined) {
+                const cur = readOwner(join(dir, genName(top)));
+                if (cur === null) {
+                    continue; // dropped by a racing loser between list and read: re-list
+                }
+                if (!cur.released) {
+                    broken = await judgeHeld(cur, host, realRoot, opts);
+                }
+                next = top + 1;
+            }
+            if (!claimGeneration(dir, me, next, gens)) {
+                continue;
+            }
+            if (broken) {
+                opts.onStaleBroken?.(broken);
+            }
+            return new RootLock(dir, next, me);
+        }
+        throw new Error(\`lock: could not acquire \${dir} after 100 attempts\`);
+    }
+    get isReleased() {
+        return this.released;
+    }
+    /** Windows release-operation accounting; snapshots never expose the mutable counters. */
+    get releaseRetryStats() {
+        return { ...this.releaseStats, codes: { ...this.releaseStats.codes } };
+    }
+    assertReleaseOwner(path) {
+        const cur = readOwner(path);
+        if (!cur ||
+            (cur.released !== undefined && cur.released !== false) ||
+            cur.token !== this.owner.token ||
+            cur.pid !== this.owner.pid ||
+            cur.start !== this.owner.start ||
+            cur.host !== this.owner.host ||
+            cur.root !== this.owner.root) {
+            throw new Error(\`lock: \${path} is no longer ours at release\`);
+        }
+        if (generations(this.dir).at(-1) !== this.gen) {
+            throw new Error(\`lock: \${path} was superseded at release\`);
+        }
+    }
+    /** Atomic release; Windows retries only rename faults while full authority remains ours. */
+    release() {
+        if (this.released) {
+            return;
+        }
+        const path = join(this.dir, genName(this.gen));
+        this.assertReleaseOwner(path);
+        let tmp;
+        let fd;
+        try {
+            const candidate = join(this.dir, \`.\${this.owner.token}.\${randomBytes(4).toString('hex')}.tmp\`);
+            fd = openSync(candidate, 'wx');
+            tmp = candidate; // Only a successful exclusive open gives us cleanup authority.
+            writeSync(fd, JSON.stringify({ ...this.owner, released: true }));
+            fsyncSync(fd);
+            closeSync(fd);
+            fd = undefined;
+            const rename = () => {
+                try {
+                    this.assertReleaseOwner(path);
+                }
+                catch (cause) {
+                    // A read/listing EPERM is an authority failure, never a rename retry.
+                    throw new ReleaseAuthorityError(cause);
+                }
+                renameSync(candidate, path);
+            };
+            if (process.platform === 'win32') {
+                const error = retrySharing(rename, this.releaseStats);
+                if (error) {
+                    throw error;
+                }
+            }
+            else {
+                rename();
+            }
+            this.released = true;
+        }
+        catch (error) {
+            const primary = error instanceof ReleaseAuthorityError ? error.cause : error;
+            const failures = [primary];
+            if (fd !== undefined) {
+                try {
+                    closeSync(fd);
+                }
+                catch (cause) {
+                    failures.push(cause);
+                }
+            }
+            if (tmp !== undefined) {
+                try {
+                    unlinkIfExists(tmp);
+                }
+                catch (cause) {
+                    failures.push(cause);
+                }
+            }
+            if (failures.length > 1) {
+                throw new AggregateError(failures, \`lock: release failed; owned temp \${tmp}\`, {
+                    cause: primary,
+                });
+            }
+            throw primary;
+        }
+    }
+    /** Factory reset: release, then remove the lock directory itself. */
+    releaseAndRemove() {
+        this.release();
+        rmSync(this.dir, { recursive: true });
+    }
+}
+/** Terminal classification inside retrySharing; the caller receives the original authority cause. */
+class ReleaseAuthorityError extends Error {
+    constructor(cause) {
+        super('lock: release authority validation failed', { cause });
+        this.code = 'LOCK_RELEASE_AUTHORITY';
+    }
+}
+//# sourceMappingURL=lock.js.map`;

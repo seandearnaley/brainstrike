@@ -33,13 +33,24 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { newRetryStats, type RetryStats, retrySharing } from './fs-retry.mjs';
 
+export interface LockProcessIdentity {
+  readonly pid: number;
+  readonly start: string;
+}
+
 export interface LockOwner {
   readonly host: string;
   readonly pid: number;
   readonly released?: boolean;
+  readonly retirementAuthority?: LockProcessIdentity;
   readonly root: string;
   readonly start: string;
   readonly token: string;
+}
+
+export interface LockRetirementReceipt {
+  readonly gen: number;
+  readonly owner: LockOwner;
 }
 
 export class RootLockedError extends Error {
@@ -160,6 +171,55 @@ const generations = (dir: string): number[] =>
     })
     .sort((a, b) => a - b);
 
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+const isPid = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+const isIdentity = (value: unknown): value is LockProcessIdentity =>
+  isObject(value) &&
+  isPid(value['pid']) &&
+  typeof value['start'] === 'string' &&
+  value['start'].length > 0;
+
+/** Positive authority observation only; ambiguous/exited state never arms a Root. */
+function assertLiveAuthority(identity: LockProcessIdentity): void {
+  if (!isIdentity(identity)) {
+    throw new Error('lock: invalid retirement authority');
+  }
+  if (identity.pid === process.pid) {
+    if (processStartTime(process.pid) === identity.start) {
+      return; // This exact process is executing the check.
+    }
+  } else if (process.platform === 'win32') {
+    const out = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `$ErrorActionPreference='Stop'; $p=[System.Diagnostics.Process]::GetProcessById(${identity.pid}); if($p.HasExited){'EXITED'}else{'LIVE '+$p.StartTime.ToFileTimeUtc()}`,
+      ],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }
+    ).trim();
+    if (out === `LIVE ${identity.start}`) {
+      return;
+    }
+  } else {
+    // Preserve the existing C/UTC start formatter. Leader Z is refused even if
+    // its group might contain a worker: uncertainty cannot delegate retirement.
+    const out = execFileSync('ps', ['-o', 'stat=', '-o', 'lstart=', '-p', String(identity.pid)], {
+      encoding: 'utf8',
+      env: psEnv(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    const match = /^([RSDTtIWU][<NLsl+]*)\s+(.+)$/.exec(out);
+    if (match?.[2] === identity.start) {
+      return;
+    }
+  }
+  throw new Error('lock: retirement authority is not the exact live process');
+}
+
 function readOwner(path: string): LockOwner | null {
   let raw: string;
   try {
@@ -171,26 +231,58 @@ function readOwner(path: string): LockOwner | null {
     throw e;
   }
   // Only ever created complete (link of an fsynced temp): a parse error is real corruption.
-  const o = JSON.parse(raw) as LockOwner;
+  const o: unknown = JSON.parse(raw);
   if (
-    typeof o.pid !== 'number' ||
-    !Number.isSafeInteger(o.pid) ||
-    o.pid <= 0 ||
-    typeof o.start !== 'string' ||
-    typeof o.host !== 'string' ||
-    typeof o.root !== 'string' ||
-    typeof o.token !== 'string'
+    !isObject(o) ||
+    typeof o['start'] !== 'string' ||
+    typeof o['host'] !== 'string' ||
+    typeof o['root'] !== 'string' ||
+    typeof o['token'] !== 'string' ||
+    (o['released'] !== undefined && typeof o['released'] !== 'boolean') ||
+    'retirementAuthority' in o
   ) {
     throw new Error(`lock: malformed ${path}`);
   }
-  return o;
+  if (isPid(o['pid'])) {
+    return o as unknown as LockOwner;
+  }
+  const envelope = o['pid'];
+  if (
+    !isObject(envelope) ||
+    envelope['version'] !== 1 ||
+    !isPid(envelope['writer']) ||
+    !isIdentity(envelope['retirementAuthority']) ||
+    o['released'] === true
+  ) {
+    throw new Error(`lock: malformed ${path}`);
+  }
+  return {
+    ...o,
+    pid: envelope['writer'],
+    retirementAuthority: { ...envelope['retirementAuthority'] },
+  } as unknown as LockOwner;
+}
+
+function serializeOwner(owner: LockOwner): string {
+  const { retirementAuthority, ...legacy } = owner;
+  // The FIRST linked armed record is incompatible with old numeric readers.
+  // Released records keep the exact legacy shape. Studio's frozen contract:
+  // https://github.com/seandearnaley/brainstrike/pull/3543#issuecomment-6051153905
+  return JSON.stringify(
+    retirementAuthority && !owner.released
+      ? {
+          ...legacy,
+          pid: { retirementAuthority, version: 1, writer: owner.pid },
+        }
+      : legacy
+  );
 }
 
 function writeTemp(dir: string, o: LockOwner): string {
   const tmp = join(dir, `.${o.token}.${randomBytes(4).toString('hex')}.tmp`);
   const fd = openSync(tmp, 'wx');
   try {
-    writeSync(fd, JSON.stringify(o));
+    writeSync(fd, serializeOwner(o));
     fsyncSync(fd);
   } finally {
     closeSync(fd);
@@ -214,6 +306,7 @@ export interface LockOptions {
   /** Asked only for a same-host lock copied from another root. Foreign host locks are always refused. */
   readonly onForeignLock?: (owner: LockOwner) => boolean | Promise<boolean>;
   readonly onStaleBroken?: (owner: LockOwner) => void;
+  readonly retirementAuthority?: LockProcessIdentity;
 }
 
 /**
@@ -228,6 +321,12 @@ async function judgeHeld(
 ): Promise<LockOwner> {
   if (cur.host !== host) {
     throw new ForeignLockError(cur);
+  }
+  if (cur.retirementAuthority) {
+    if (cur.root !== realRoot) {
+      throw new ForeignLockError(cur);
+    }
+    throw new RootLockedError(cur);
   }
   const judgeable = cur.root === realRoot;
   if (!judgeable) {
@@ -253,6 +352,9 @@ async function judgeHeld(
 function linkGeneration(dir: string, me: LockOwner, next: number): boolean {
   const tmp = writeTemp(dir, me);
   try {
+    if (me.retirementAuthority) {
+      assertLiveAuthority(me.retirementAuthority);
+    }
     linkSync(tmp, join(dir, genName(next)));
     return true;
   } catch (e) {
@@ -289,6 +391,136 @@ function claimGeneration(
     }
   }
   return true;
+}
+
+/** Existing fsynced-temp/atomic-rename release, shared with explicit retirement. */
+function replaceGeneration(
+  dir: string,
+  gen: number,
+  owner: LockOwner,
+  assertAuthority: () => void,
+  stats: RetryStats
+): void {
+  const path = join(dir, genName(gen));
+  assertAuthority();
+  let tmp: string | undefined;
+  let fd: number | undefined;
+  try {
+    const candidate = join(dir, `.${owner.token}.${randomBytes(4).toString('hex')}.tmp`);
+    fd = openSync(candidate, 'wx');
+    tmp = candidate; // Only a successful exclusive open gives us cleanup authority.
+    writeSync(fd, serializeOwner({ ...owner, released: true }));
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = undefined;
+    const rename = (): void => {
+      try {
+        assertAuthority();
+      } catch (cause) {
+        // A read/listing EPERM is an authority failure, never a rename retry.
+        throw new ReleaseAuthorityError(cause);
+      }
+      renameSync(candidate, path);
+    };
+    if (process.platform === 'win32') {
+      const error = retrySharing(rename, stats);
+      if (error) {
+        throw error;
+      }
+    } else {
+      rename();
+    }
+  } catch (error) {
+    const primary = error instanceof ReleaseAuthorityError ? error.cause : error;
+    const failures: unknown[] = [primary];
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch (cause) {
+        failures.push(cause);
+      }
+    }
+    if (tmp !== undefined) {
+      try {
+        unlinkIfExists(tmp);
+      } catch (cause) {
+        failures.push(cause);
+      }
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, `lock: release failed; owned temp ${tmp}`, {
+        cause: primary,
+      });
+    }
+    throw primary;
+  }
+}
+
+function sameWriter(a: LockOwner, b: LockOwner): boolean {
+  return (
+    a.pid === b.pid &&
+    a.start === b.start &&
+    a.host === b.host &&
+    a.root === b.root &&
+    a.token === b.token
+  );
+}
+
+function snapshotReceipt(receipt: LockRetirementReceipt): LockRetirementReceipt {
+  const owner = receipt?.owner;
+  if (
+    !Number.isSafeInteger(receipt?.gen) ||
+    receipt.gen < 0 ||
+    !owner ||
+    !isPid(owner.pid) ||
+    typeof owner.start !== 'string' ||
+    typeof owner.host !== 'string' ||
+    typeof owner.root !== 'string' ||
+    typeof owner.token !== 'string' ||
+    !isIdentity(owner.retirementAuthority) ||
+    (owner.released !== undefined && owner.released !== false)
+  ) {
+    throw new Error('lock: invalid armed retirement receipt');
+  }
+  return Object.freeze({
+    gen: receipt.gen,
+    owner: Object.freeze({
+      host: owner.host,
+      pid: owner.pid,
+      root: owner.root,
+      start: owner.start,
+      token: owner.token,
+      ...(owner.released === undefined ? {} : { released: owner.released }),
+      retirementAuthority: Object.freeze({ ...owner.retirementAuthority }),
+    }),
+  });
+}
+
+function assertRetirementOwner(receipt: LockRetirementReceipt): void {
+  const expected = receipt.owner;
+  const authority = expected.retirementAuthority;
+  if (expected.host !== hostname() || realpathSync(expected.root) !== expected.root) {
+    throw new Error('lock: foreign or copied retirement Root');
+  }
+  if (
+    !authority ||
+    authority.pid !== process.pid ||
+    authority.start !== processStartTime(process.pid)
+  ) {
+    throw new Error('lock: retirement requires the exact designated process');
+  }
+  const dir = RootLock.dirOf(expected.root);
+  const cur = readOwner(join(dir, genName(receipt.gen)));
+  if (
+    !(cur && sameWriter(cur, expected)) ||
+    cur.released !== expected.released ||
+    !cur.retirementAuthority ||
+    cur.retirementAuthority.pid !== authority.pid ||
+    cur.retirementAuthority.start !== authority.start ||
+    generations(dir).at(-1) !== receipt.gen
+  ) {
+    throw new Error('lock: retirement generation or owner changed');
+  }
 }
 
 export class RootLock {
@@ -342,7 +574,15 @@ export class RootLock {
       root: realRoot,
       start,
       token: randomBytes(12).toString('hex'),
+      ...(opts.retirementAuthority === undefined
+        ? {}
+        : {
+            retirementAuthority: Object.freeze({ ...opts.retirementAuthority }),
+          }),
     };
+    if (me.retirementAuthority) {
+      assertLiveAuthority(me.retirementAuthority);
+    }
     for (let attempt = 0; attempt < 100; attempt++) {
       const gens = generations(dir);
       const top = gens.at(-1);
@@ -373,6 +613,58 @@ export class RootLock {
     return this.released;
   }
 
+  get retirementReceipt(): LockRetirementReceipt | undefined {
+    return this.owner.retirementAuthority && !this.released
+      ? snapshotReceipt({ gen: this.gen, owner: this.owner })
+      : undefined;
+  }
+
+  /** Main supplies physical borrower drainage; process absence is never that proof. */
+  static async retire(
+    receipt: LockRetirementReceipt,
+    proveDrained: () => Promise<void>
+  ): Promise<void> {
+    if (typeof proveDrained !== 'function') {
+      throw new Error('lock: retirement requires a drainage proof');
+    }
+    const exact = snapshotReceipt(receipt);
+    assertRetirementOwner(exact);
+    const proof = proveDrained();
+    if (!proof || typeof proof.then !== 'function') {
+      throw new Error('lock: retirement requires an awaited drainage proof');
+    }
+    if ((await proof) !== undefined) {
+      throw new Error('lock: drainage proof must resolve without a result');
+    }
+    assertRetirementOwner(exact);
+    replaceGeneration(
+      RootLock.dirOf(exact.owner.root),
+      exact.gen,
+      exact.owner,
+      () => assertRetirementOwner(exact),
+      newRetryStats()
+    );
+  }
+
+  /** Called by the original writer only after the designated process retired it. */
+  acknowledgeRetirement(): void {
+    if (this.released) {
+      return;
+    }
+    const cur = RootLock.inspect(this.owner.root);
+    if (
+      !(this.owner.retirementAuthority && cur) ||
+      cur.gen !== this.gen ||
+      cur.owner.released !== true ||
+      cur.owner.retirementAuthority ||
+      !sameWriter(cur.owner, this.owner) ||
+      generations(this.dir).at(-1) !== this.gen
+    ) {
+      throw new Error('lock: exact newest retirement has not been acknowledged');
+    }
+    this.released = true;
+  }
+
   /** Windows release-operation accounting; snapshots never expose the mutable counters. */
   get releaseRetryStats(): Readonly<RetryStats> {
     return { ...this.releaseStats, codes: { ...this.releaseStats.codes } };
@@ -382,6 +674,7 @@ export class RootLock {
     const cur = readOwner(path);
     if (
       !cur ||
+      cur.retirementAuthority !== undefined ||
       (cur.released !== undefined && cur.released !== false) ||
       cur.token !== this.owner.token ||
       cur.pid !== this.owner.pid ||
@@ -401,63 +694,18 @@ export class RootLock {
     if (this.released) {
       return;
     }
-    const path = join(this.dir, genName(this.gen));
-    this.assertReleaseOwner(path);
-    let tmp: string | undefined;
-    let fd: number | undefined;
-    try {
-      const candidate = join(
-        this.dir,
-        `.${this.owner.token}.${randomBytes(4).toString('hex')}.tmp`
-      );
-      fd = openSync(candidate, 'wx');
-      tmp = candidate; // Only a successful exclusive open gives us cleanup authority.
-      writeSync(fd, JSON.stringify({ ...this.owner, released: true }));
-      fsyncSync(fd);
-      closeSync(fd);
-      fd = undefined;
-      const rename = (): void => {
-        try {
-          this.assertReleaseOwner(path);
-        } catch (cause) {
-          // A read/listing EPERM is an authority failure, never a rename retry.
-          throw new ReleaseAuthorityError(cause);
-        }
-        renameSync(candidate, path);
-      };
-      if (process.platform === 'win32') {
-        const error = retrySharing(rename, this.releaseStats);
-        if (error) {
-          throw error;
-        }
-      } else {
-        rename();
-      }
-      this.released = true;
-    } catch (error) {
-      const primary = error instanceof ReleaseAuthorityError ? error.cause : error;
-      const failures: unknown[] = [primary];
-      if (fd !== undefined) {
-        try {
-          closeSync(fd);
-        } catch (cause) {
-          failures.push(cause);
-        }
-      }
-      if (tmp !== undefined) {
-        try {
-          unlinkIfExists(tmp);
-        } catch (cause) {
-          failures.push(cause);
-        }
-      }
-      if (failures.length > 1) {
-        throw new AggregateError(failures, `lock: release failed; owned temp ${tmp}`, {
-          cause: primary,
-        });
-      }
-      throw primary;
+    if (this.owner.retirementAuthority) {
+      throw new Error('lock: armed generation requires designated retirement');
     }
+    const path = join(this.dir, genName(this.gen));
+    replaceGeneration(
+      this.dir,
+      this.gen,
+      this.owner,
+      () => this.assertReleaseOwner(path),
+      this.releaseStats
+    );
+    this.released = true;
   }
 
   /** Factory reset: release, then remove the lock directory itself. */
