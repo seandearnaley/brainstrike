@@ -20,6 +20,7 @@ import {
 } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createInteractiveSubscriptionFetchFactory } from '../provider-auth/subscription-fetch';
+import { emptyMainMcpCapabilities } from './fixtures/main-mcp-capabilities';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -105,6 +106,7 @@ test('a CLI socket client attached to the desktop host cannot resolve the openai
     resolveOriginRole: () => 'visible-ui',
   });
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
+    mcp: emptyMainMcpCapabilities(),
     readConfiguration: async () => selection,
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     resolveProviderAuth: async (provider) =>

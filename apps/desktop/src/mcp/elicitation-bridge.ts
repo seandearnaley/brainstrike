@@ -17,6 +17,7 @@
 import {
   type McpElicitationPresentationWire,
   type McpElicitationRetiredWire,
+  type McpElicitationSettlement,
   parseMcpElicitationSettlement,
 } from '@brainstrike/assistant-contract';
 import { mcpElicitationContract } from '../ipc-domains/mcp.contract';
@@ -44,8 +45,11 @@ export class McpElicitationBridgeError extends Error {
 export interface McpElicitationBridgeRuntime {
   readonly elicitationPresenter: Pick<
     McpElicitationPresenterAuthority,
-    'attach' | 'observeFinalized' | 'settle'
-  >;
+    'attach' | 'observeFinalized'
+  > & {
+    /** Local or remote: the Node host's presenter settles over the private connection. */
+    settle(settlement: McpElicitationSettlement): Promise<void> | void;
+  };
 }
 
 /**
@@ -86,7 +90,7 @@ export function attachMcpElicitationBridge(
   // settle: hidden inference hosts and untracked senders are rejected before
   // the payload is parsed (same policy as secrets and mcp:content:*).
   const handlers: Handlers<typeof mcpElicitationContract> = {
-    settleElicitation: (settlement): void => {
+    settleElicitation: async (settlement): Promise<void> => {
       let parsed: ReturnType<typeof parseMcpElicitationSettlement>;
       try {
         parsed = parseMcpElicitationSettlement(settlement);
@@ -94,7 +98,7 @@ export function attachMcpElicitationBridge(
         throw new McpElicitationBridgeError('mcp-elicitation-settlement-malformed');
       }
       try {
-        elicitationPresenter.settle(parsed);
+        await elicitationPresenter.settle(parsed);
       } catch (error) {
         throw new McpElicitationBridgeError(
           error instanceof McpElicitationPresenterError

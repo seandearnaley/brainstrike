@@ -7,15 +7,13 @@ import {
 } from '@brainstrike/assistant-contract';
 import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { Effect } from 'effect';
+import { resolveProviderBaseUrl } from './provider-base-url';
 
 const DEFAULT_SUCCESS_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_CACHE_ENTRIES = 128;
 const MAX_VISIBLE_ERROR_CHARS = 300;
 const MAX_MODEL_ID_CHARS = 256;
-const OPENROUTER_DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
-const INVALID_BASE_URL_MESSAGE =
-  'OPENROUTER_BASE_URL must be an absolute HTTP(S) base URL without credentials, query or fragment';
 
 class OpenRouterMetadataRequestError extends Error {
   constructor(error: unknown) {
@@ -69,25 +67,6 @@ export function requireOpenRouterModelId(modelId: string): readonly [string, str
     throw new Error('OpenRouter model id must use the provider/model form');
   }
   return [parts[0] as string, parts[1] as string];
-}
-
-function requireOpenRouterBaseUrl(): string {
-  let url: URL;
-  try {
-    url = new URL(process.env['OPENROUTER_BASE_URL'] || OPENROUTER_DEFAULT_BASE_URL);
-  } catch {
-    throw new Error(INVALID_BASE_URL_MESSAGE);
-  }
-  if (
-    !(url.protocol === 'http:' || url.protocol === 'https:') ||
-    url.username ||
-    url.password ||
-    url.href.includes('?') ||
-    url.href.includes('#')
-  ) {
-    throw new Error(INVALID_BASE_URL_MESSAGE);
-  }
-  return url.href.replace(/\/$/, '');
 }
 
 function buildModelUrl(modelId: string, baseUrl: string): string {
@@ -202,7 +181,7 @@ export function createOpenRouterModelMetadataService(
         throw new Error('OpenRouter API key is required for model metadata');
       }
 
-      const baseUrl = requireOpenRouterBaseUrl();
+      const baseUrl = resolveProviderBaseUrl('openrouter');
       const cacheKey = JSON.stringify([baseUrl, modelId]);
       const cached = cache.get(cacheKey);
       if (cached && now() - cached.checkedAt < successTtlMs) {

@@ -17,6 +17,8 @@ export interface CommittedHostConversation {
   close(): void;
   readonly commands: CommittedAssistantCommands;
   readonly mcpInput: CommittedHostMcpInput;
+  /** The thread's committed session; this conversation connects and releases it. */
+  readonly source: CommittedThreadSession;
   readonly store: CommittedAssistantLogStore;
 }
 
@@ -24,6 +26,8 @@ export interface CommittedHostConversation {
 export function createCommittedHostConversation(options: {
   readonly client: HostClient;
   readonly modelId: string;
+  /** Told when a newer committed title (a rename or an auto-title) reaches this view. */
+  readonly onTitleCommitted?: () => void;
   readonly readModelId?: () => string;
   readonly readConfiguration?: () => Record<string, unknown>;
   readonly threadId: string;
@@ -134,9 +138,20 @@ export function createCommittedHostConversation(options: {
     // head over the committed tree, and nothing is written to the host.
     setMessages: () => undefined,
   };
+  let titleSeq = -1;
+  const unsubscribeTitles = source.subscribe(() => {
+    const renamed = source
+      .getSnapshot()
+      .rows.findLast((row) => row.event.type === 'thread.renamed');
+    if (renamed && renamed.seq > titleSeq) {
+      titleSeq = renamed.seq;
+      options.onTitleCommitted?.();
+    }
+  });
   const disconnect = source.connect();
   return {
     close: () => {
+      unsubscribeTitles();
       mcpInput.close();
       // The client outlives this view, so the unsubscribe is not joined here;
       // its refusal is reported, never swallowed.
@@ -147,6 +162,7 @@ export function createCommittedHostConversation(options: {
     },
     commands,
     mcpInput,
+    source,
     store,
   };
 }

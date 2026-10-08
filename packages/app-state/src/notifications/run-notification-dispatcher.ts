@@ -32,6 +32,8 @@ export type RunNotificationEvent =
   | (RunNotificationEventBase & {
       readonly kind: 'toolApprovalRequired';
       readonly decisionKey: string;
+      /** What the run waits on when it is not a tool approval; the one toggle governs all. */
+      readonly input?: 'plan' | 'question';
     });
 
 /**
@@ -89,6 +91,11 @@ const EVENT_PHRASE: Record<NotificationEventKind, string> = {
   toolApprovalRequired: 'Needs your approval to continue.',
 };
 
+const INPUT_PHRASE = {
+  plan: 'Has a plan for your review.',
+  question: 'Has a question for you.',
+} as const;
+
 function isForgeEvent(
   event: ForgeNotificationEvent | RunNotificationEvent
 ): event is ForgeNotificationEvent {
@@ -106,6 +113,9 @@ function buildNotificationCopy(event: ForgeNotificationEvent | RunNotificationEv
     }
     const verb = event.checksOutcome === 'failing' ? 'failed' : 'passed';
     return { body: `Checks ${verb} on pull request #${event.prNumber}.`, title };
+  }
+  if (event.kind === 'toolApprovalRequired' && event.input) {
+    return { body: INPUT_PHRASE[event.input], title };
   }
   return { body: EVENT_PHRASE[event.kind], title };
 }

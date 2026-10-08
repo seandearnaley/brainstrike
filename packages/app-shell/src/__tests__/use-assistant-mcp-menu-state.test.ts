@@ -2,7 +2,10 @@ import type { AssistantToolMenuItem } from '@brainstrike/assistant-ui';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { McpToolMap } from '../assistant-ui-panel-wrapper-runtime';
-import { useAssistantMcpMenuState } from '../hooks/use-assistant-mcp-menu-state';
+import {
+  MCP_LEGACY_THREAD_NOTICE,
+  useAssistantMcpMenuState,
+} from '../hooks/use-assistant-mcp-menu-state';
 
 type McpApi = NonNullable<Window['mcp']>;
 
@@ -67,7 +70,12 @@ describe('useAssistantMcpMenuState', () => {
     expect(mcpApi.listTools).toHaveBeenCalledTimes(1);
     expect(result.current.enabledNativeToolIds).toEqual(['native.search']);
     expect(result.current.toolMenu.isLoading).toBe(false);
-    expect(result.current.toolMenu.summary).toBe('2 of 2 enabled');
+    // Legacy threads no longer run MCP (BST-1930): the tool stays listed, disabled.
+    expect(result.current.toolMenu.items.find((tool) => tool.id === 'mcp.tool')).toMatchObject({
+      description: MCP_LEGACY_THREAD_NOTICE,
+      disabled: true,
+    });
+    expect(result.current.toolMenu.summary).toBe(`1 of 1 enabled · ${MCP_LEGACY_THREAD_NOTICE}`);
     expect(result.current.toolMenu.onRefresh).toBeTypeOf('function');
   });
 

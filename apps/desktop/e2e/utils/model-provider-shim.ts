@@ -19,7 +19,7 @@
  *   wire is scripted, so every request through it is refused.
  *
  * DEFAULT DENY: a shim with no script refuses every request with a
- * non-retryable 403 naming the request, and records it in `refusals()`. The
+ * terminal 401 naming the request, and records it in `refusals()`. The
  * desktop launch fixture points every knob at one such boundary unless a spec
  * supplies a live shim of its own, so an unscripted provider request is refused
  * on loopback instead of reaching a real provider. The shim never redirects.
@@ -777,10 +777,14 @@ function refusalMessage(refusal: ModelProviderRefusal): string {
 
 function writeRefusal(response: ServerResponse, refusal: ModelProviderRefusal): void {
   const message = refusalMessage(refusal);
-  // 403 is non-retryable for every provider SDK. The body satisfies each
-  // SDK's error parser: OpenAI/OpenRouter read `error.message`; Anthropic
-  // reads `{ type: 'error', error: { type, message } }`.
-  response.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+  // 401, as the real providers answer the E2E fixture keys: no SDK retries it
+  // (they retry 408, 409, 429 and 5xx), the runtime's stream-error retry
+  // treats it as a terminal authorization failure, and a credential probe
+  // reads it as invalid. A 403 would read as "authenticated but limited" and
+  // auto-open the provider card; any non-auth 4xx is retried by the runtime.
+  // The body satisfies each SDK's error parser: OpenAI/OpenRouter read
+  // `error.message`; Anthropic reads `{ type: 'error', error: { type, message } }`.
+  response.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
   response.end(
     JSON.stringify({
       error: { code: 'e2e_egress_refused', message, param: null, type: 'e2e_egress_refused' },

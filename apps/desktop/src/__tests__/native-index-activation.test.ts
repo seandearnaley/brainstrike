@@ -71,6 +71,25 @@ it('retains the assistant profile through index settings replacement and rebuild
   expect(mocks.closeProfile).toHaveBeenCalledOnce();
 });
 
+it('acquires the workspace index.sqlite with no state truth root or projection', async () => {
+  mocks.manager.attachCanonicalCollection.mockImplementation(
+    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
+  );
+  const { activation } = fixture();
+  try {
+    await activation.acquire();
+  } finally {
+    await activation.close();
+  }
+  // The host's own state-index.sqlite owns state rows; this file must never project them too.
+  expect(mocks.acquire).toHaveBeenCalledOnce();
+  const [options] = mocks.acquire.mock.calls[0] ?? [];
+  expect(options).toMatchObject({ dbPath: '/owned/profile/index.sqlite' });
+  expect(options).not.toHaveProperty('stateRoot');
+  expect(options).not.toHaveProperty('stateProjection');
+  expect(options).not.toHaveProperty('stateResources');
+});
+
 it.each([DEFAULT_MAX_FILE_SIZE, 4096])(
   'activates ordinary TEXT source reads with the actual configured %i-byte limit',
   async (maxFileSize) => {
