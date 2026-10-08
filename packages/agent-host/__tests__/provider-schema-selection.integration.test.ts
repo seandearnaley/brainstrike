@@ -205,9 +205,15 @@ test.each([
   }
 );
 
-test('allocated schema helper preserves authored validation and one executor effect after SQLite approval reopen', async () => {
+test('production schema selection preserves authored validation and one executor effect after SQLite approval reopen', async () => {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-prepared-approval-'));
-  let store = await StateStore.open(root);
+  const storeOptions = {
+    memoryCalculatorModule: join(
+      candidate,
+      'packages/agent-host/dist/adapters/memory-storage-calculator.js'
+    ),
+  };
+  let store = await StateStore.open(root, storeOptions);
   const executed: unknown[] = [];
   const transform = vi.fn((path: string) => path.toUpperCase());
   const authored = z.object({
@@ -222,7 +228,7 @@ test('allocated schema helper preserves authored validation and one executor eff
     modelId: 'gpt-6-sol',
     provider: 'openai.responses',
   });
-  const tools = await prepareHostProviderTools(model, {
+  const tools: Readonly<Record<string, HostTool>> = {
     edit: {
       description: 'Recorded authored edit tool',
       execute: async (input) => {
@@ -233,18 +239,39 @@ test('allocated schema helper preserves authored validation and one executor eff
       inputSchema: authored,
       risk: 'edit',
     },
-  });
-  const platform = {
-    close: async () => undefined,
-    maxSteps: 3,
-    readPermissionPolicy: () => ({
-      policies: { ...DEFAULT_PERMISSION_POLICIES, edit: 'ask' as const },
-      yolo: false,
-    }),
-    resolveModel: async () => model,
-    tools,
   };
-  let core = await HostCore.open(store, platform, () => () => undefined);
+  const platform = () =>
+    createProductionHostPlatform({
+      close: async () => undefined,
+      readConfiguration: async () => ({
+        configuration: { model: model.modelId, provider: 'openai' },
+        durableConfiguration: { model: model.modelId, provider: 'openai' },
+        maxSteps: 3,
+        memory: {
+          native: {
+            options: {
+              observationalMemory: false,
+              semanticRecall: false,
+              workingMemory: { enabled: false },
+            },
+          },
+          recordPrompt: async () => undefined,
+          resourceId: 'm3-prepared-approval-fixture',
+        },
+        providerRequestContext: { inputTokenLimit: 5000, provider: 'openai' },
+        resolvedToolResultBudget: resolveScaledToolResultBudget(20_000),
+        tools,
+        toolTimeoutMs: 1000,
+      }),
+      readPermissionPolicy: () => ({
+        policies: { ...DEFAULT_PERMISSION_POLICIES, edit: 'ask' as const },
+        yolo: false,
+      }),
+      resolveModel: async () => model,
+      resolveProviderAuth: async () => apiKeyAuthInput('offline-fixture-key'),
+      startup: { register: async () => undefined, signal: new AbortController().signal, store },
+    });
+  let core = await HostCore.open(store, await platform(), () => () => undefined);
   try {
     const { threadId } = await core.startThread({ commandId: randomUUID() });
     const { runId } = await core.startRun({
@@ -273,8 +300,8 @@ test('allocated schema helper preserves authored validation and one executor eff
     await core.close();
     await store.close();
     expect(RootLock.inspect(root)?.owner.released).toBe(true);
-    store = await StateStore.open(root);
-    core = await HostCore.open(store, platform, () => () => undefined);
+    store = await StateStore.open(root, storeOptions);
+    core = await HostCore.open(store, await platform(), () => () => undefined);
     await core.respond({
       commandId: randomUUID(),
       decision: 'approve',
@@ -350,4 +377,190 @@ test('schema helper delegates remote authored transforms once and leaves server-
     type: 'object',
   });
   expect(execute).not.toHaveBeenCalled();
+});
+
+test('production concurrent selections retain their own auth closures outside durable configuration', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-selected-auth-'));
+  const store = await StateStore.open(root);
+  const requests: { authorization: string | null; input: unknown }[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const request = new Request(input, init);
+      requests.push({
+        authorization: request.headers.get('authorization'),
+        input: await request.json(),
+      });
+      return Response.json(
+        { error: { message: 'Offline auth selection qualification', type: 'fixture_terminal' } },
+        { status: 400 }
+      );
+    })
+  );
+  const configured = Promise.withResolvers<void>();
+  let configurationCount = 0;
+  const first = vi.fn(async (provider: string) => {
+    expect(provider).toBe('openai');
+    return apiKeyAuthInput('offline-first-selection-key');
+  });
+  const second = vi.fn(async (provider: string) => {
+    expect(provider).toBe('openai');
+    return apiKeyAuthInput('offline-second-selection-key');
+  });
+  const globalAuth = vi.fn(async () => apiKeyAuthInput('offline-platform-fallback-key'));
+  const resolvers = new Map<string, typeof first>();
+  const platform = await createProductionHostPlatform({
+    close: async () => undefined,
+    readConfiguration: async (request) => {
+      const resolver = resolvers.get(request.threadId);
+      if (!resolver) {
+        throw new Error('No captured auth for this existing thread');
+      }
+      configurationCount += 1;
+      if (configurationCount === 2) {
+        configured.resolve();
+      }
+      // Both configurations are captured before either model materializes.
+      await configured.promise;
+      return {
+        configuration: { model: 'gpt-6-sol', provider: 'openai' },
+        durableConfiguration: { model: 'gpt-6-sol', provider: 'openai' },
+        maxSteps: 1,
+        memory: {
+          native: { options: { observationalMemory: false, semanticRecall: false } },
+          recordPrompt: async () => undefined,
+          resourceId: 'selected-auth-fixture',
+        },
+        providerRequestContext: { inputTokenLimit: 5000, provider: 'openai' },
+        resolvedToolResultBudget: resolveScaledToolResultBudget(20_000),
+        resolveProviderAuth: resolver,
+        tools: {},
+        toolTimeoutMs: 1000,
+      };
+    },
+    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
+    resolveProviderAuth: globalAuth,
+    startup: { register: async () => undefined, signal: new AbortController().signal, store },
+  });
+  const core = await HostCore.open(store, platform, () => () => undefined);
+  try {
+    const firstThread = await core.startThread({ commandId: randomUUID() });
+    const secondThread = await core.startThread({ commandId: randomUUID() });
+    resolvers.set(firstThread.threadId, first);
+    resolvers.set(secondThread.threadId, second);
+    if (!platform.admitRun) {
+      throw new Error('Production admission capability is missing');
+    }
+    const admitted = await Promise.all(
+      [firstThread, secondThread].map((thread) =>
+        platform.admitRun!({
+          modelId: 'gpt-6-sol',
+          signal: new AbortController().signal,
+          threadId: thread.threadId,
+        })
+      )
+    );
+    for (const selection of admitted) {
+      expect(selection.snapshot.configuration).toStrictEqual({
+        model: 'gpt-6-sol',
+        provider: 'openai',
+      });
+      expect(selection.configuration).toStrictEqual({ model: 'gpt-6-sol', provider: 'openai' });
+    }
+    await Promise.all(
+      admitted.map(async (selection, index) => {
+        const prepared = await selection.provider?.prepare({
+          configuration: selection.configuration,
+          messages: [{ content: `selected-auth-${index}`, role: 'user' }],
+          modelId: 'gpt-6-sol',
+          signal: new AbortController().signal,
+        });
+        if (!prepared || typeof prepared.model === 'string') {
+          throw new Error('Production selection did not resolve a concrete model');
+        }
+        await expect(
+          prepared.model.doGenerate({
+            prompt: [{ content: [{ text: `selected-auth-${index}`, type: 'text' }], role: 'user' }],
+          })
+        ).rejects.toMatchObject({ statusCode: 400 });
+      })
+    );
+    expect(globalAuth).not.toHaveBeenCalled();
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(requests).toHaveLength(2);
+    for (const [index, key] of [
+      'offline-first-selection-key',
+      'offline-second-selection-key',
+    ].entries()) {
+      const request = requests.find((record) =>
+        JSON.stringify(record.input).includes(`selected-auth-${index}`)
+      );
+      expect(request?.authorization).toBe(`Bearer ${key}`);
+    }
+  } finally {
+    await core.close();
+    await store.close();
+    expect(RootLock.inspect(root)?.owner.released).toBe(true);
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test.each([
+  {
+    auth: { apiKey: '', kind: 'api_key' as const },
+    code: 'mastra_agent_missing_api_key',
+    name: 'empty selected API key',
+  },
+  {
+    auth: { apiKey: 'offline-bedrock-key', kind: 'aws' as const, region: 'us-east-1' },
+    code: 'mastra_agent_runtime_init_failed',
+    name: 'selected auth for another provider',
+  },
+])('production selection retains existing validation for $name', async ({ auth, code }) => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-selected-auth-validation-'));
+  const store = await StateStore.open(root);
+  const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({}, { status: 400 }));
+  vi.stubGlobal('fetch', fetch);
+  const globalAuth = vi.fn(async () => apiKeyAuthInput('offline-valid-global-key'));
+  const release = vi.fn(async () => undefined);
+  const platform = await createProductionHostPlatform({
+    close: async () => undefined,
+    readConfiguration: async () => ({
+      close: release,
+      configuration: { model: 'gpt-6-sol', provider: 'openai' },
+      durableConfiguration: { model: 'gpt-6-sol', provider: 'openai' },
+      maxSteps: 1,
+      memory: {
+        native: { options: { observationalMemory: false, semanticRecall: false } },
+        recordPrompt: async () => undefined,
+        resourceId: 'selected-auth-validation-fixture',
+      },
+      providerRequestContext: { inputTokenLimit: 5000, provider: 'openai' },
+      resolvedToolResultBudget: resolveScaledToolResultBudget(20_000),
+      resolveProviderAuth: async () => auth,
+      tools: {},
+      toolTimeoutMs: 1000,
+    }),
+    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
+    resolveProviderAuth: globalAuth,
+    startup: { register: async () => undefined, signal: new AbortController().signal, store },
+  });
+  try {
+    await expect(
+      platform.admitRun?.({
+        modelId: 'gpt-6-sol',
+        signal: new AbortController().signal,
+        threadId: 'recorded-auth-validation-thread',
+      })
+    ).rejects.toMatchObject({ code });
+    expect(globalAuth).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledTimes(1);
+  } finally {
+    await platform.close();
+    await store.close();
+    expect(RootLock.inspect(root)?.owner.released).toBe(true);
+    await rm(root, { force: true, recursive: true });
+  }
 });

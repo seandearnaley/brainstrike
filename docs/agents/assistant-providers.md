@@ -32,6 +32,16 @@ model as the next thread's default plus a capped `recentModels` list
 (`packages/app-state/src/stores/assistant-preferences-store.ts`); the thread
 store persists each thread's own model and provider settings.
 
+Desktop Root admission captures provider auth per existing admitted thread and
+uses the concrete resolved SDK model's public schema compatibility layer once.
+The prepared registry retains authored validation, executor identities and MCP
+`strict:false` for SDK declarations, approval and restart. Main retains custom
+authenticated fetch closures; its private port carries capability metadata and
+demand-read response bytes, never the subscription bearer. Selection retirement
+fences new auth/fetch calls and joins original auth lookups and response bodies
+before releasing borrowed capabilities. Failed physical joins remain observable
+through enclosing close and prevent Root release.
+
 **Local runtimes.**
 
 - Route Ollama and LM Studio chat through Mastra's first-class

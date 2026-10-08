@@ -33,8 +33,8 @@ interface FetchTail {
   readonly fetch: typeof globalThis.fetch;
   joined?: Promise<void>;
   readonly original: Promise<Response>;
-  read?: Promise<ReadableStreamReadResult<Uint8Array>>;
-  reader?: ReadableStreamDefaultReader<Uint8Array>;
+  read?: Promise<ReadableStreamReadResult<Uint8Array>> | undefined;
+  reader?: ReadableStreamDefaultReader<Uint8Array> | undefined;
   readonly scope: ProviderFetchScope;
 }
 
