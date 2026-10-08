@@ -1,11 +1,13 @@
+import type { McpHostPort } from '@brainstrike/assistant-contract';
 import {
   createMcpContentApplicationPort,
   type McpContentApplicationPort,
 } from '@brainstrike/assistant-service/mcp-content-application-port';
 import { createLogger } from '@brainstrike/logging';
-import type { DesktopMcpHostRuntime } from './host-runtime';
 
-type McpContentRuntime = Pick<DesktopMcpHostRuntime, 'host'>;
+interface McpContentRuntime {
+  readonly host: McpHostPort;
+}
 
 const logger = createLogger('DesktopMcpContent');
 const contentPorts = new WeakMap<McpContentRuntime, McpContentApplicationPort>();

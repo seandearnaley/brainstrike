@@ -102,12 +102,13 @@ Guard: `packages/indexer/__tests__/stored-vector-bytes.test.ts`, `packages/index
 
 ### State projection and purge
 
-- Acquire an explicit canonical truth root, persist its identity, and refuse a different root on reopen. Keep state-event rows and blob references separate from canonical file identities in the same derived database and writer worker.
+- Two derived databases, each with exactly one writer. The agent host owns `<root>/state-index.sqlite` inside its own state root: state events, blob references and their FTS, written by its own indexer writer worker (`openHostStateIndex`, composed by `createProductionHostPlatform`). The workspace indexer owns `index.sqlite`: file identities, chunks and vectors; it is acquired with no state truth root or projection, so state rows are never duplicated there. Do not add a third derived database or chat writer.
+- Acquire an explicit canonical truth root, persist its identity, and refuse a different root on reopen. Keep state-event rows and blob references separate from canonical file identities.
 - Read verified committed state events inside the serialized writer operation. Catch up to a captured watermark with a durable contiguous cursor; exact reindex rereads truth and never accepts caller-provided event bodies. Reject CRC/sequence gaps.
 - Acquire state truth together with an explicit producer module and dev/prod mode. Import the canonical local module only in the writer; use the shared event upgrader without rewriting authoritative bytes. Persist module/mode identity and refuse a different projection on reopen. Missing or invalid schemas fail closed, never index raw JSON as a substitute.
 - Project recognized text only. Preserve unknown prod events at their original sequence with explicit derived gap reasons; unknown dev events reject and remain observable through the foundation port's indexer health. Rebuild a state thread on the same serialized writer without deleting canonical file/profile data. Keep blob references based on verified truth, independent of text eligibility.
 - Keep event FTS and reference rows transactional. Enable core and FTS secure deletion; complete a checked TRUNCATE checkpoint before purge or thread-drop acknowledges. A pinned reader refuses immediately and leaves the state-store purge intent for retry.
-- Close the writer-owned truth reader on indexer shutdown. The state-store adapter resets through the same joined process destruction; do not add another derived database or chat writer.
+- Close the writer-owned truth reader on indexer shutdown. The state-store adapter resets through the same joined process destruction.
 
 Evidence: `indexer/state-event-purge.md`.
 Guard: `packages/indexer/__tests__/state-purge.integration.test.ts`.

@@ -189,6 +189,7 @@ import { startSnapshotStartupMaintenance } from './main/snapshot-lifecycle';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-shell-protocol';
+import { createDesktopMcpPlatformCapabilities } from './mcp/desktop-host-platform';
 import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { purgeMcpOAuthRuntimeState } from './mcp/oauth-client-provider';
 import { createNativeCallerRead } from './native-caller-query';
@@ -1043,6 +1044,8 @@ const nativeIndexActivation = createNativeIndexActivation({
             );
           }
         },
+        // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
+        mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
       });
     },
     platformModule: resolveBundledSiblingPath(

@@ -16,24 +16,48 @@ const STATUS_BY_OUTCOME: Readonly<
 > = { completed: 'completed', failed: 'failed', interrupted: 'failed', stopped: 'cancelled' };
 
 interface LatestRun {
+  /** Interactions (approval, question, plan) the run is waiting on its user for. */
+  readonly pending: ReadonlySet<string>;
   readonly run: AssistantThreadHostRun;
   readonly runId: string;
   /** The committed row that last changed this run; a lower one never replaces it. */
   readonly seq: number;
 }
 
+function withPending(latest: LatestRun, pending: ReadonlySet<string>, seq: number): LatestRun {
+  return { ...latest, pending, run: { ...latest.run, needsInput: pending.size > 0 }, seq };
+}
+
 /** Fold one committed row into the thread's latest root run (Core starts one at a time). */
 function foldLatestRun(latest: LatestRun | undefined, row: HostLogRow): LatestRun | undefined {
   const { event } = row;
   if (event.type === 'run.started') {
-    return { run: { completedAt: null, status: 'running' }, runId: event.runId, seq: row.seq };
+    return {
+      pending: new Set(),
+      run: { completedAt: null, needsInput: false, status: 'running' },
+      runId: event.runId,
+      seq: row.seq,
+    };
   }
-  if (event.type !== 'run.finished' || event.runId !== latest?.runId) {
+  if (!('runId' in event) || event.runId !== latest?.runId) {
+    return latest;
+  }
+  if (event.type === 'interaction.requested') {
+    return withPending(latest, new Set([...latest.pending, event.interactionId]), row.seq);
+  }
+  if (event.type === 'interaction.responded' && latest.pending.has(event.interactionId)) {
+    const pending = new Set(latest.pending);
+    pending.delete(event.interactionId);
+    return withPending(latest, pending, row.seq);
+  }
+  if (event.type !== 'run.finished') {
     return latest;
   }
   return {
+    pending: new Set(),
     run: {
       completedAt: row.ts === undefined ? null : new Date(row.ts),
+      needsInput: false,
       status: STATUS_BY_OUTCOME[event.outcome],
     },
     runId: latest.runId,
@@ -44,8 +68,13 @@ function foldLatestRun(latest: LatestRun | undefined, row: HostLogRow): LatestRu
 /** The OS notification a committed row asks for, if any. A Stop is the user's own act. */
 function notificationFor(row: HostLogRow): RunNotificationEvent | undefined {
   const { event } = row;
-  if (event.type === 'interaction.requested' && event.kind === 'approval') {
-    return { decisionKey: event.interactionId, kind: 'toolApprovalRequired', runId: event.runId };
+  if (event.type === 'interaction.requested') {
+    return {
+      decisionKey: event.interactionId,
+      ...(event.kind === 'approval' ? {} : { input: event.kind }),
+      kind: 'toolApprovalRequired',
+      runId: event.runId,
+    };
   }
   if (event.type !== 'run.finished' || event.outcome === 'stopped') {
     return;

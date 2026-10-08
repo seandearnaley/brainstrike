@@ -16,7 +16,7 @@ import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
 import { mainPlatformConnection } from './connection';
-import { bindNodeMcpPlatformTransport } from './mcp-platform-transport';
+import { createDesktopNodeMcpHost } from './desktop-node-mcp';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import { decodePlatformAuth } from './platform-auth';
@@ -77,12 +77,6 @@ export async function createHostPlatform(
   const port = await parentPlatformPort();
   const connection = mainPlatformConnection(port);
   const executions = new Map<string, HostToolContext & { readonly toolId: string }>();
-  const mcp = bindNodeMcpPlatformTransport(connection, (origin) => {
-    const execution = executions.get(JSON.stringify([origin.runId, origin.toolCallId]));
-    return execution?.threadId === origin.threadId && execution.toolId === origin.toolId
-      ? execution
-      : undefined;
-  });
   const request = async (
     method: string,
     input: unknown,
@@ -110,14 +104,19 @@ export async function createHostPlatform(
   connection.listen();
   connection.onClose(() => connection.dispose());
   await startup.register(async () => {
-    mcp.close();
     connection.dispose();
     port.close();
   });
+  // The desktop's one MCP runtime: host-thread MCP tools run here, beside Core.
+  const mcpHost = await createDesktopNodeMcpHost(connection, request, startup);
+  await startup.register(() => mcpHost.close());
   return createProductionHostPlatform({
     close: async () => {
+      // MCP cleanup still writes through Main's stores, so it joins before Main closes.
+      await mcpHost.close();
       await request('platform/close', {});
     },
+    mcp: mcpHost.services.mcp,
     readConfiguration: async (admission) => {
       const response = await request(
         'platform/admit',
@@ -227,8 +226,6 @@ export async function createHostPlatform(
                   },
                 }
               : {}),
-            ...(descriptor.mcpAuthority ? { mcpAuthority: descriptor.mcpAuthority } : {}),
-            ...(descriptor.mcpBinding ? { mcpBinding: descriptor.mcpBinding } : {}),
             permissionToolId: descriptor.permissionToolId,
             risk: descriptor.risk,
             ...(descriptor.strict === undefined ? {} : { strict: descriptor.strict }),
@@ -254,12 +251,6 @@ export async function createHostPlatform(
                   context.signal
                 );
               } finally {
-                mcp.release({
-                  runId: context.runId,
-                  threadId: context.threadId,
-                  toolCallId: context.toolCallId,
-                  toolId: name,
-                });
                 executions.delete(address);
               }
             },

@@ -144,3 +144,9 @@ export {
   McpTaskObservationPort,
   type McpTaskPollAuthority,
 } from './mcp/tasks-observation';
+/**
+ * The registry this entry's collector filters with. Entries are bundled
+ * separately, so a host that collects through this entry applies Settings
+ * tool preferences here, not to the root entry's copy.
+ */
+export { toolRegistry as mcpToolRegistry } from './mcp/tool-registry';

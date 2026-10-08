@@ -3,12 +3,9 @@ import {
   createSubmitPlanTool,
   type ScaledToolResultBudget,
 } from '@brainstrike/agent/tool-runtime';
+import { type AgentHostToolBindings, createAgentHostToolBindings } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID, resolveToolRiskCategory } from '@brainstrike/assistant-contract';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
-import {
-  type AgentHostToolBindings,
-  createAgentHostToolBindings,
-} from './adapters/canonical-tool-bindings.js';
 
 export const STANDALONE_HUMAN_TOOL_IDS = [
   NATIVE_TOOL_ID.askUser,
