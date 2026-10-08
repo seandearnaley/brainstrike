@@ -649,7 +649,7 @@ it('erases all shared OM attribution on actual committed event purge and refuses
   }
 });
 
-it('requires explicit derived rebuild from schema9 while retaining transcript truth and old index bytes', async () => {
+it('refuses a counterfeit schema9 label with observation storage while retaining transcript truth and old index bytes', async () => {
   const f = await fixture();
   try {
     await write(f);

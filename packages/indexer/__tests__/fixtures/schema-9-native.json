@@ -1,0 +1,487 @@
+{
+  "source": "0a562b0c02bd6317f64c35a12628582ed8b4b2dc",
+  "version": 9,
+  "schema": [
+    {
+      "name": "index_metadata",
+      "type": "table",
+      "sql": "CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY CHECK(singleton=1),schema_version INTEGER NOT NULL,store_id TEXT NOT NULL,index_mode TEXT NOT NULL CHECK(index_mode IN ('text-only','vector-configured')),profile_json TEXT,profile_hash TEXT,CHECK((index_mode='text-only' AND profile_json IS NULL AND profile_hash IS NULL) OR (index_mode='vector-configured' AND profile_json IS NOT NULL AND profile_hash IS NOT NULL)))"
+    },
+    {
+      "name": "file_records",
+      "type": "table",
+      "sql": "CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,name TEXT NOT NULL,path TEXT,embedding_set_id TEXT,source_path TEXT,scoped INTEGER NOT NULL DEFAULT 0 CHECK(scoped IN (0,1)),content_hash TEXT NOT NULL,snapshot_hash TEXT NOT NULL,UNIQUE(root_id,id),CHECK((root_id IS NULL AND path IS NULL AND embedding_set_id IS NOT NULL AND scoped=1) OR (root_id IS NOT NULL AND path IS NOT NULL)))"
+    },
+    {
+      "name": "file_chunks",
+      "type": "table",
+      "sql": "CREATE TABLE file_chunks(pk INTEGER PRIMARY KEY,id TEXT UNIQUE NOT NULL,root_id TEXT,file_record_id TEXT NOT NULL,start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,content TEXT NOT NULL,content_hash TEXT NOT NULL,embedding_hash TEXT,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER,has_vector INTEGER NOT NULL CHECK(has_vector IN (0,1)),CHECK(has_vector=0 OR embedding_hash IS NOT NULL),CHECK((chunk_index IS NULL AND chunk_size IS NULL AND chunk_type IS NULL AND start_offset IS NULL AND end_offset IS NULL AND token_count IS NULL) OR (chunk_index IS NOT NULL AND chunk_size IS NOT NULL AND chunk_type IS NOT NULL AND start_offset IS NOT NULL AND end_offset IS NOT NULL AND token_count IS NOT NULL AND chunk_index>=0 AND chunk_size>0 AND chunk_type IN ('text','sentence','recursive') AND start_offset>=0 AND end_offset>start_offset AND token_count>0)),FOREIGN KEY(file_record_id) REFERENCES file_records(id) ON DELETE CASCADE)"
+    },
+    {
+      "name": "chunks_file",
+      "type": "index",
+      "sql": "CREATE INDEX chunks_file ON file_chunks(root_id,file_record_id)"
+    },
+    {
+      "name": "chunks_file_record",
+      "type": "index",
+      "sql": "CREATE INDEX chunks_file_record ON file_chunks(file_record_id)"
+    },
+    {
+      "name": "file_symbols",
+      "type": "table",
+      "sql": "CREATE TABLE file_symbols(file_record_id TEXT NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,seq INTEGER NOT NULL,name TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('function','class','method','variable','interface','type','enum')),exported INTEGER NOT NULL CHECK(exported IN (0,1)),start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,start_offset INTEGER NOT NULL,end_offset INTEGER NOT NULL,PRIMARY KEY(file_record_id,seq)) WITHOUT ROWID"
+    },
+    {
+      "name": "idx_file_symbols_name",
+      "type": "index",
+      "sql": "CREATE INDEX idx_file_symbols_name ON file_symbols(name)"
+    },
+    {
+      "name": "file_symbol_refs",
+      "type": "table",
+      "sql": "CREATE TABLE file_symbol_refs(file_record_id TEXT NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,seq INTEGER NOT NULL,from_symbol_seq INTEGER,name TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('call','import','extends','implements')),module TEXT,line INTEGER NOT NULL,PRIMARY KEY(file_record_id,seq),FOREIGN KEY(file_record_id,from_symbol_seq) REFERENCES file_symbols(file_record_id,seq) ON DELETE CASCADE) WITHOUT ROWID"
+    },
+    {
+      "name": "idx_file_symbol_refs_name_kind",
+      "type": "index",
+      "sql": "CREATE INDEX idx_file_symbol_refs_name_kind ON file_symbol_refs(name,kind)"
+    },
+    {
+      "name": "file_chunks_fts",
+      "type": "table",
+      "sql": "CREATE VIRTUAL TABLE file_chunks_fts USING fts5(content,content='file_chunks',content_rowid='pk',tokenize='porter unicode61')"
+    },
+    {
+      "name": "file_chunks_trigram",
+      "type": "table",
+      "sql": "CREATE VIRTUAL TABLE file_chunks_trigram USING fts5(content,content='file_chunks',content_rowid='pk',tokenize='trigram')"
+    },
+    {
+      "name": "vec_chunks",
+      "type": "table",
+      "sql": "CREATE VIRTUAL TABLE vec_chunks USING vec0(id INTEGER PRIMARY KEY,root_id TEXT PARTITION KEY,bin BIT[384],+emb BLOB)"
+    },
+    {
+      "name": "chunks_insert",
+      "type": "trigger",
+      "sql": "CREATE TRIGGER chunks_insert AFTER INSERT ON file_chunks BEGIN\n          INSERT INTO file_chunks_fts(rowid,content) VALUES(new.pk,new.content);\n          INSERT INTO file_chunks_trigram(rowid,content) VALUES(new.pk,new.content);\n        END"
+    },
+    {
+      "name": "chunks_delete",
+      "type": "trigger",
+      "sql": "CREATE TRIGGER chunks_delete AFTER DELETE ON file_chunks BEGIN\n          INSERT INTO file_chunks_fts(file_chunks_fts,rowid,content) VALUES('delete',old.pk,old.content);\n          INSERT INTO file_chunks_trigram(file_chunks_trigram,rowid,content) VALUES('delete',old.pk,old.content);\n        END"
+    },
+    {
+      "name": "chunks_update",
+      "type": "trigger",
+      "sql": "CREATE TRIGGER chunks_update AFTER UPDATE ON file_chunks BEGIN\n          INSERT INTO file_chunks_fts(file_chunks_fts,rowid,content) VALUES('delete',old.pk,old.content);\n          INSERT INTO file_chunks_trigram(file_chunks_trigram,rowid,content) VALUES('delete',old.pk,old.content);\n          INSERT INTO file_chunks_fts(rowid,content) VALUES(new.pk,new.content);\n          INSERT INTO file_chunks_trigram(rowid,content) VALUES(new.pk,new.content);\n        END"
+    },
+    {
+      "name": "index_scope_authority",
+      "type": "table",
+      "sql": "CREATE TABLE index_scope_authority(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch TEXT NOT NULL)"
+    },
+    {
+      "name": "files_collection",
+      "type": "index",
+      "sql": "CREATE INDEX files_collection ON file_records(embedding_set_id,id)"
+    },
+    {
+      "name": "vector_profiles",
+      "type": "table",
+      "sql": "CREATE TABLE vector_profiles(profile_hash TEXT PRIMARY KEY,profile_json TEXT NOT NULL,dimensions INTEGER NOT NULL CHECK(dimensions>0))"
+    },
+    {
+      "name": "scoped_vectors",
+      "type": "table",
+      "sql": "CREATE TABLE scoped_vectors(pk INTEGER PRIMARY KEY,chunk_pk INTEGER NOT NULL REFERENCES file_chunks(pk) ON DELETE CASCADE,profile_hash TEXT NOT NULL REFERENCES vector_profiles(profile_hash),content_hash TEXT NOT NULL,dimensions INTEGER NOT NULL,emb BLOB NOT NULL CHECK(typeof(emb)='blob' AND vec_length(emb)=dimensions),UNIQUE(chunk_pk,profile_hash))"
+    },
+    {
+      "name": "state_index_source",
+      "type": "table",
+      "sql": "CREATE TABLE state_index_source(singleton INTEGER PRIMARY KEY CHECK(singleton=1),root TEXT,projection_identity TEXT,resource_grants TEXT NOT NULL)"
+    },
+    {
+      "name": "state_event_rows",
+      "type": "table",
+      "sql": "CREATE TABLE state_event_rows(pk INTEGER PRIMARY KEY,thread_id TEXT NOT NULL,seq INTEGER NOT NULL CHECK(seq>0),payload TEXT NOT NULL,content TEXT,gap_reason TEXT,UNIQUE(thread_id,seq))"
+    },
+    {
+      "name": "state_event_blob_refs",
+      "type": "table",
+      "sql": "CREATE TABLE state_event_blob_refs(event_pk INTEGER NOT NULL REFERENCES state_event_rows(pk) ON DELETE CASCADE,hash TEXT NOT NULL,PRIMARY KEY(event_pk,hash)) WITHOUT ROWID"
+    },
+    {
+      "name": "state_blob_hash",
+      "type": "index",
+      "sql": "CREATE INDEX state_blob_hash ON state_event_blob_refs(hash)"
+    },
+    {
+      "name": "state_thread_cursors",
+      "type": "table",
+      "sql": "CREATE TABLE state_thread_cursors(thread_id TEXT PRIMARY KEY,seq INTEGER NOT NULL CHECK(seq>=0)) WITHOUT ROWID"
+    },
+    {
+      "name": "state_dropped_blob_refs",
+      "type": "table",
+      "sql": "CREATE TABLE state_dropped_blob_refs(thread_id TEXT NOT NULL,hash TEXT NOT NULL,PRIMARY KEY(thread_id,hash)) WITHOUT ROWID"
+    },
+    {
+      "name": "state_events_fts",
+      "type": "table",
+      "sql": "CREATE VIRTUAL TABLE state_events_fts USING fts5(content,content='state_event_rows',content_rowid='pk',tokenize='unicode61')"
+    },
+    {
+      "name": "state_event_insert",
+      "type": "trigger",
+      "sql": "CREATE TRIGGER state_event_insert AFTER INSERT ON state_event_rows BEGIN\n        INSERT INTO state_events_fts(rowid,content) VALUES(new.pk,new.content);\n      END"
+    },
+    {
+      "name": "state_event_delete",
+      "type": "trigger",
+      "sql": "CREATE TRIGGER state_event_delete AFTER DELETE ON state_event_rows BEGIN\n        INSERT INTO state_events_fts(state_events_fts,rowid,content) VALUES('delete',old.pk,old.content);\n      END"
+    },
+    {
+      "name": "state_event_update",
+      "type": "trigger",
+      "sql": "CREATE TRIGGER state_event_update AFTER UPDATE ON state_event_rows BEGIN\n        INSERT INTO state_events_fts(state_events_fts,rowid,content) VALUES('delete',old.pk,old.content);\n        INSERT INTO state_events_fts(rowid,content) VALUES(new.pk,new.content);\n      END"
+    },
+    {
+      "name": "state_message_generation",
+      "type": "table",
+      "sql": "CREATE TABLE state_message_generation(singleton INTEGER PRIMARY KEY CHECK(singleton=1),generation INTEGER NOT NULL CHECK(generation>=0),pending_cleanup INTEGER NOT NULL CHECK(pending_cleanup IN (0,1)))"
+    },
+    {
+      "name": "state_message_profiles",
+      "type": "table",
+      "sql": "CREATE TABLE state_message_profiles(hash TEXT PRIMARY KEY,json TEXT NOT NULL,dimensions INTEGER NOT NULL CHECK(dimensions>0))"
+    },
+    {
+      "name": "state_message_vectors",
+      "type": "table",
+      "sql": "CREATE TABLE state_message_vectors(\n        pk INTEGER PRIMARY KEY,root_id TEXT NOT NULL,resource_id TEXT NOT NULL,thread_id TEXT NOT NULL,\n        message_id TEXT NOT NULL,seq INTEGER NOT NULL CHECK(seq>0),segment_ordinal INTEGER NOT NULL CHECK(segment_ordinal>=0),\n        profile_hash TEXT NOT NULL REFERENCES state_message_profiles(hash),source_hash TEXT NOT NULL,\n        dimensions INTEGER NOT NULL,emb BLOB NOT NULL CHECK(length(emb)=dimensions*4),\n        UNIQUE(thread_id,message_id,segment_ordinal,profile_hash))"
+    },
+    {
+      "name": "state_message_scope",
+      "type": "index",
+      "sql": "CREATE INDEX state_message_scope ON state_message_vectors(root_id,resource_id,thread_id,profile_hash)"
+    },
+    {
+      "name": "scope_vec_384",
+      "type": "table",
+      "sql": "CREATE VIRTUAL TABLE scope_vec_384 USING vec0(id INTEGER PRIMARY KEY,profile_hash TEXT PARTITION KEY,bin BIT[384])"
+    }
+  ],
+  "rows": {
+    "index_metadata": [
+      {
+        "singleton": 1,
+        "schema_version": 9,
+        "store_id": "cb2a1590c3aee9085641fb8a0241d8c69cdc10c46164c453be4ffb16aa6a1839",
+        "index_mode": "vector-configured",
+        "profile_json": "{\"dimensions\":384,\"dtype\":\"fp16\",\"modelId\":\"onnx-community/all-MiniLM-L6-v2-ONNX\",\"revision\":\"aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f\",\"tokenCap\":256}",
+        "profile_hash": "60a05b1084b11c2add2e01bb8112960f51e83e68c88ad4151b0dc54eb69e1914"
+      }
+    ],
+    "file_records": [
+      {
+        "id": "legacy-scoped-file",
+        "root_id": null,
+        "name": "source.ts",
+        "path": null,
+        "embedding_set_id": "legacy-collection",
+        "source_path": "/recorded/source.ts",
+        "scoped": 1,
+        "content_hash": "c62e9fe92b9adfdb61215ec93dd6f66b757c895c9e66f679416754cb5fb7f015",
+        "snapshot_hash": "4c57a19f6fc1069823e780017b217875a7204bbfa5e92f422ee3676fbac85be8"
+      },
+      {
+        "id": "canonical-existing-file",
+        "root_id": "root",
+        "name": "recorded-source.ts",
+        "path": "recorded-source.ts",
+        "embedding_set_id": null,
+        "source_path": null,
+        "scoped": 0,
+        "content_hash": "c62e9fe92b9adfdb61215ec93dd6f66b757c895c9e66f679416754cb5fb7f015",
+        "snapshot_hash": "6171647837ee252b2340034d240ad4676be5df022dc5676201cfe8cfa482c2e7"
+      }
+    ],
+    "file_chunks": [
+      {
+        "pk": 1,
+        "id": "8b566178da7d449b28692170c7fdda3a6e50f27516503364f4926b91999c160d",
+        "root_id": null,
+        "file_record_id": "legacy-scoped-file",
+        "start_line": 1,
+        "end_line": 40,
+        "content": "/// <reference lib=\"webworker\" />\n\nimport {\n  assertEmbedWorkerRequestControl,\n  EMBED_WORKER_INSTANCE_NAME_PREFIX,\n  EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,\n  EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,\n  type EmbedWorkerRequestControl,\n  FUSED_MINILM_MODEL_ID,\n} from '@brainstrike/indexing-contract';\nimport { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';\nimport type {\n  FeatureExtractionPipeline,\n  Tensor as TransformersTensor,\n} from '@huggingface/transformers';\nimport { Transfer, worker, workerEmit } from 'workerpool';\nimport { createTokenBudgetBatchEnds, extractCappedEmbeddings } from './embedding-input-plan';\nimport {\n  createEmbeddingPipelineCacheController,\n  type PipelineCacheDiagnosticSink,\n} from './pipeline-cache-controller';\nimport type {\n  EmbeddingDevice,\n  EmbeddingDeviceHint,\n  EmbeddingDType,\n  EmbedWorkerBatch,\n  EmbedWorkerComplete,\n  EmbedWorkerError,\n  EmbedWorkerLifetimeError,\n  EmbedWorkerPipelineCacheDiagnostic,\n  EmbedWorkerProgress,\n  EmbedWorkerRequest,\n  EmbedWorkerSuccess,\n  EmbedWorkerTelemetrySourceClosed,\n} from './shared';\nimport {\n  cloneAsFloat32,\n  computeInitialBatchSize,\n  l2Normalize,\n  normalizeProgr",
+        "content_hash": "c62e9fe92b9adfdb61215ec93dd6f66b757c895c9e66f679416754cb5fb7f015",
+        "embedding_hash": null,
+        "chunk_index": null,
+        "chunk_size": null,
+        "chunk_type": null,
+        "start_offset": null,
+        "end_offset": null,
+        "token_count": null,
+        "has_vector": 0
+      },
+      {
+        "pk": 2,
+        "id": "a3d361db7f6e3d7cd54d3ae51367243d104ab7741867bd1c9f8ebceae66e668d",
+        "root_id": "root",
+        "file_record_id": "canonical-existing-file",
+        "start_line": 1,
+        "end_line": 40,
+        "content": "/// <reference lib=\"webworker\" />\n\nimport {\n  assertEmbedWorkerRequestControl,\n  EMBED_WORKER_INSTANCE_NAME_PREFIX,\n  EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,\n  EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,\n  type EmbedWorkerRequestControl,\n  FUSED_MINILM_MODEL_ID,\n} from '@brainstrike/indexing-contract';\nimport { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';\nimport type {\n  FeatureExtractionPipeline,\n  Tensor as TransformersTensor,\n} from '@huggingface/transformers';\nimport { Transfer, worker, workerEmit } from 'workerpool';\nimport { createTokenBudgetBatchEnds, extractCappedEmbeddings } from './embedding-input-plan';\nimport {\n  createEmbeddingPipelineCacheController,\n  type PipelineCacheDiagnosticSink,\n} from './pipeline-cache-controller';\nimport type {\n  EmbeddingDevice,\n  EmbeddingDeviceHint,\n  EmbeddingDType,\n  EmbedWorkerBatch,\n  EmbedWorkerComplete,\n  EmbedWorkerError,\n  EmbedWorkerLifetimeError,\n  EmbedWorkerPipelineCacheDiagnostic,\n  EmbedWorkerProgress,\n  EmbedWorkerRequest,\n  EmbedWorkerSuccess,\n  EmbedWorkerTelemetrySourceClosed,\n} from './shared';\nimport {\n  cloneAsFloat32,\n  computeInitialBatchSize,\n  l2Normalize,\n  normalizeProgr",
+        "content_hash": "c62e9fe92b9adfdb61215ec93dd6f66b757c895c9e66f679416754cb5fb7f015",
+        "embedding_hash": "b6a53deb52ff6a59c96d8ce9d5d04a0d149c256d059f6bacb23b241ecec278bb",
+        "chunk_index": null,
+        "chunk_size": null,
+        "chunk_type": null,
+        "start_offset": null,
+        "end_offset": null,
+        "token_count": null,
+        "has_vector": 1
+      }
+    ],
+    "file_symbols": [
+      {
+        "file_record_id": "canonical-existing-file",
+        "seq": 0,
+        "name": "retainedSymbol",
+        "kind": "function",
+        "exported": 1,
+        "start_line": 1,
+        "end_line": 1,
+        "start_offset": 0,
+        "end_offset": 1
+      }
+    ],
+    "file_symbol_refs": [
+      {
+        "file_record_id": "canonical-existing-file",
+        "seq": 0,
+        "from_symbol_seq": 0,
+        "name": "retainedSymbol",
+        "kind": "call",
+        "module": null,
+        "line": 1
+      }
+    ],
+    "vec_chunks": [
+      {
+        "id": 2,
+        "root_id": "root",
+        "bin": {
+          "hex": "9ce471f18e4120471d541c61caccbc7ffd3b1a2c12c35d8793265659dac6ac1aa2498c51b9ddf460427352bcd8b22370"
+        },
+        "emb": {
+          "hex": "b561edbdbd0d1abd4b089d3b8575b73cdde80d3af2a611bab3de5ebce85ed93cad3cb6bd58cf7cbb7ca9db3c13776cbdc4449cbba151403de4583c3bf111383d5e43123d340037bd5e63c1bcd6eab7bc29e3c63c6a47053d0e839a3ccb941bbd1688223d1aa73cbd29c397bc8d730dbc84c0ae3d9d64203c9d4ba33d996ce73cdba5ddbd525fce3cc6f9a43db39e003ef8366fba433c41bdfab97dbd0e8acc3b8fdd9e3d331202bdd2cb9dbdbd0d9abd94b141bd368345bd0a9dac3c5597e5bd06a5f3bcdabedabc7fe172bd7a264dbd3e4f21bc0c008c3db94029bd0103cbbc1756283d2030683ce526423d472961b9d77f11bc09cf26bd81569d3d499e8bbde4510a3a5d7c3ebb50c3c23cedf21d3d2e856f3b9e1929bd8fdd9ebd7d90debc4e59b1bde2d5adbc34e0073d8a1760bd48de693d2dc282bd5665eb3d29cac9bdac6e30bd64ba72bd0414013d5597e53ca876773d989ee1b8c4449cbb92f586bb2030e83ce0521fbc54c9dfbbd0480fbd4b219abd55b0623d6a35ba3dc918bfbc232821bdd79fc03d05d7edbc12c2e33d44f1c9bca62563bd1aa08a3ded197f3dcacd47bc1a6e90bc09cf263cc45d193d5ff81abd499e0bbd5cc0033d5d7cbe3d09cf26bc21ccf3bc029f563db3dede3c5daeb83c66481a3d7652aabc4004aa3d58c1983d8611433c3a70653ceae1e73c440ac73b2e5e8e3a9877803a000000001824ae3def5c2fbc4f20053cabd2243df841883daa041f3d54fb593de50dc53d6b1cbd3ccf7a893c0ea3c9bd2c1b5e3cff663f3c19c0393d77d5b8bda60ce6bd696734bd9fe72e3d631ee7bbb88ba03c21cc733d64ececbc21be8fbdb47aeabc622980bd5cc7b5bcdabe5a3cbfb05737b6ef94bdfb791f3d8fdd1ebcad5533bd9fe7aebba3bb513d3b25eebb954dcdbc4da4283d8fdd9ebc0c1909bedb8c60bd9e19a93c92f5863bf5fe57bd57258dbd87d816bc658878bdb142533dafb8923c41b2803ddef6f1bc180bb13c1f49e53c11f45d3dfeaa84bdff5f0d3d12c2e3bc9bc8143c49ac6f3d1c11ce3d4323c4bc81569dbde38a36bc8d4113bd3cfe0c3d60b4553dad55333df2bf0ebd1a878dbca07c083d631e67bd19d284bdaba02a3d93dc09bb5657073ceea7a63b25c42cbd7e45e7bcceec613cba0eafbdcbad18bd29e3c6bc5bf92f3d08339b3cd0610cbdc6f9243c02d150bdf023033cc79530bd1b5c453b68cb28bdd50335bd35ae8d38f84f6c3b4255bebcad1c073c0000000040042abc7d5ee43c50dcbfbdf1f8ba3bb5616d3d5e2a15bc8611c33d48f7663dbd0d9abd2dd0663d6cd1453d9079aabdd3b220bd49b708bd40eb2c3d4199033cb6d697bd897bd4bd01e31b3dc87c333d50bc90bb78a3be3d84c0aebc468d553d042265bb41b9323d468dd5bba4a2d43c35cebc3d3cf3f3bb036ddcbc67fd22bb24f6a6bdbadcb43d5ff89abc19c039bce91362bdfc47a53d4993f2bc6e54d43c2e85ef3d68b2abbc848782bd2009873d8a1760bc34f904bda7c1ee3ba5575dbdcb9b4dbdeb7df3bc0765953c0dce113a4d8babbd08339bbc762030bd2281fc3bad3cb63dc6c7aabd7a26cdbcf5fe57bc9160ad3d74cf9bbd28fc433dc10c85bbd44eac3d1a75c2bb74ddffbcb2f7db3cbbbc053dd0618c3ba7da6bbcfad27a3d84c02e3d428738bdcc82d03d80c8f53bc125023d5cc083bc4674583d31afa23b666f7bbd855c3abd41b9b23d272ebebb6310033d02b8533dc52b1f3d9e002c3eeea726bd4cd622bddc7363bd5e63c1bc6269debcbd0d9a3d11f45d3ddf6b1cb31ddfd3bd7971443d40eb2cbdd12f12bd374a19bd666f7bbd86433d3d3da8fcbcb47a6a3b8e36fa3cae0a3cbc54fb59bc5e2a953cfc47253ddad7d73d68cba8bd228c95bd67e4253d93e33bbda4a2d4bde107283ccacd47bc3c0cf13c44d8ccbc5d7cbeb928fc43bc717e873c3c0cf13dd79f403c6237643ccadf92bd9c7d9d3d40042abd367c93bdef8ea9bdbefbce3d2e856f3d3e4fa1bd8bfe623b564c6e3d558901bd60cd523db9272cbdf1f83abddc5ae63d1413f83b0eb514bdc476163dd1fd973c5657873db927acbce0521fbdc85c04bdfc47a53dcaf88fbc631e67bbf51755bcd86dc6bd7e45e7bc1a75c2bb7a38983df2adc33cdb8ce03b0b6480bd"
+        }
+      }
+    ],
+    "vector_profiles": [
+      {
+        "profile_hash": "caf69ae8e51f176fb397bac4dbb3e122e1c417e02c639306a29903bc716e6b68",
+        "profile_json": "{\"dimensions\":384,\"dtype\":\"fp16\",\"modelId\":\"onnx-community/all-MiniLM-L6-v2-ONNX\",\"revision\":\"aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f\",\"tokenCap\":256,\"distance\":\"cosine\",\"provider\":\"local\"}",
+        "dimensions": 384
+      }
+    ],
+    "scoped_vectors": [
+      {
+        "pk": 1,
+        "chunk_pk": 1,
+        "profile_hash": "caf69ae8e51f176fb397bac4dbb3e122e1c417e02c639306a29903bc716e6b68",
+        "content_hash": "c62e9fe92b9adfdb61215ec93dd6f66b757c895c9e66f679416754cb5fb7f015",
+        "dimensions": 384,
+        "emb": {
+          "hex": "b561edbdbd0d1abd4b089d3b8575b73cdde80d3af2a611bab3de5ebce85ed93cad3cb6bd58cf7cbb7ca9db3c13776cbdc4449cbba151403de4583c3bf111383d5e43123d340037bd5e63c1bcd6eab7bc29e3c63c6a47053d0e839a3ccb941bbd1688223d1aa73cbd29c397bc8d730dbc84c0ae3d9d64203c9d4ba33d996ce73cdba5ddbd525fce3cc6f9a43db39e003ef8366fba433c41bdfab97dbd0e8acc3b8fdd9e3d331202bdd2cb9dbdbd0d9abd94b141bd368345bd0a9dac3c5597e5bd06a5f3bcdabedabc7fe172bd7a264dbd3e4f21bc0c008c3db94029bd0103cbbc1756283d2030683ce526423d472961b9d77f11bc09cf26bd81569d3d499e8bbde4510a3a5d7c3ebb50c3c23cedf21d3d2e856f3b9e1929bd8fdd9ebd7d90debc4e59b1bde2d5adbc34e0073d8a1760bd48de693d2dc282bd5665eb3d29cac9bdac6e30bd64ba72bd0414013d5597e53ca876773d989ee1b8c4449cbb92f586bb2030e83ce0521fbc54c9dfbbd0480fbd4b219abd55b0623d6a35ba3dc918bfbc232821bdd79fc03d05d7edbc12c2e33d44f1c9bca62563bd1aa08a3ded197f3dcacd47bc1a6e90bc09cf263cc45d193d5ff81abd499e0bbd5cc0033d5d7cbe3d09cf26bc21ccf3bc029f563db3dede3c5daeb83c66481a3d7652aabc4004aa3d58c1983d8611433c3a70653ceae1e73c440ac73b2e5e8e3a9877803a000000001824ae3def5c2fbc4f20053cabd2243df841883daa041f3d54fb593de50dc53d6b1cbd3ccf7a893c0ea3c9bd2c1b5e3cff663f3c19c0393d77d5b8bda60ce6bd696734bd9fe72e3d631ee7bbb88ba03c21cc733d64ececbc21be8fbdb47aeabc622980bd5cc7b5bcdabe5a3cbfb05737b6ef94bdfb791f3d8fdd1ebcad5533bd9fe7aebba3bb513d3b25eebb954dcdbc4da4283d8fdd9ebc0c1909bedb8c60bd9e19a93c92f5863bf5fe57bd57258dbd87d816bc658878bdb142533dafb8923c41b2803ddef6f1bc180bb13c1f49e53c11f45d3dfeaa84bdff5f0d3d12c2e3bc9bc8143c49ac6f3d1c11ce3d4323c4bc81569dbde38a36bc8d4113bd3cfe0c3d60b4553dad55333df2bf0ebd1a878dbca07c083d631e67bd19d284bdaba02a3d93dc09bb5657073ceea7a63b25c42cbd7e45e7bcceec613cba0eafbdcbad18bd29e3c6bc5bf92f3d08339b3cd0610cbdc6f9243c02d150bdf023033cc79530bd1b5c453b68cb28bdd50335bd35ae8d38f84f6c3b4255bebcad1c073c0000000040042abc7d5ee43c50dcbfbdf1f8ba3bb5616d3d5e2a15bc8611c33d48f7663dbd0d9abd2dd0663d6cd1453d9079aabdd3b220bd49b708bd40eb2c3d4199033cb6d697bd897bd4bd01e31b3dc87c333d50bc90bb78a3be3d84c0aebc468d553d042265bb41b9323d468dd5bba4a2d43c35cebc3d3cf3f3bb036ddcbc67fd22bb24f6a6bdbadcb43d5ff89abc19c039bce91362bdfc47a53d4993f2bc6e54d43c2e85ef3d68b2abbc848782bd2009873d8a1760bc34f904bda7c1ee3ba5575dbdcb9b4dbdeb7df3bc0765953c0dce113a4d8babbd08339bbc762030bd2281fc3bad3cb63dc6c7aabd7a26cdbcf5fe57bc9160ad3d74cf9bbd28fc433dc10c85bbd44eac3d1a75c2bb74ddffbcb2f7db3cbbbc053dd0618c3ba7da6bbcfad27a3d84c02e3d428738bdcc82d03d80c8f53bc125023d5cc083bc4674583d31afa23b666f7bbd855c3abd41b9b23d272ebebb6310033d02b8533dc52b1f3d9e002c3eeea726bd4cd622bddc7363bd5e63c1bc6269debcbd0d9a3d11f45d3ddf6b1cb31ddfd3bd7971443d40eb2cbdd12f12bd374a19bd666f7bbd86433d3d3da8fcbcb47a6a3b8e36fa3cae0a3cbc54fb59bc5e2a953cfc47253ddad7d73d68cba8bd228c95bd67e4253d93e33bbda4a2d4bde107283ccacd47bc3c0cf13c44d8ccbc5d7cbeb928fc43bc717e873c3c0cf13dd79f403c6237643ccadf92bd9c7d9d3d40042abd367c93bdef8ea9bdbefbce3d2e856f3d3e4fa1bd8bfe623b564c6e3d558901bd60cd523db9272cbdf1f83abddc5ae63d1413f83b0eb514bdc476163dd1fd973c5657873db927acbce0521fbdc85c04bdfc47a53dcaf88fbc631e67bbf51755bcd86dc6bd7e45e7bc1a75c2bb7a38983df2adc33cdb8ce03b0b6480bd"
+        }
+      }
+    ],
+    "scope_vec_384": [
+      {
+        "id": 1,
+        "profile_hash": "caf69ae8e51f176fb397bac4dbb3e122e1c417e02c639306a29903bc716e6b68",
+        "bin": {
+          "hex": "9ce471f18e4120471d541c61caccbc7ffd3b1a2c12c35d8793265659dac6ac1aa2498c51b9ddf460427352bcd8b22370"
+        }
+      }
+    ],
+    "state_index_source": [
+      {
+        "singleton": 1,
+        "root": "/tmp/m3-schema9-populated-tD7hof",
+        "projection_identity": "b962210e2952cee40f4c6192753ed6c349019dfb1d8cd7672a42c1e7086da508",
+        "resource_grants": "[{\"profile\":{\"dimensions\":8,\"dtype\":\"fp32\",\"modelId\":\"deterministic-storage-proof\",\"revision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"tokenCap\":256,\"distance\":\"cosine\",\"provider\":\"local\"},\"resourceId\":\"resource\",\"rootId\":\"root\"}]"
+      }
+    ],
+    "state_event_rows": [
+      {
+        "pk": 1,
+        "thread_id": "thread",
+        "seq": 1,
+        "payload": "{\"seq\":1,\"type\":\"text\",\"v\":2,\"content\":\"committed state compatibility text\"}",
+        "content": "committed state compatibility text",
+        "gap_reason": null
+      }
+    ],
+    "state_event_blob_refs": [],
+    "state_thread_cursors": [
+      {
+        "thread_id": "thread",
+        "seq": 1
+      }
+    ],
+    "state_dropped_blob_refs": [],
+    "index_scope_authority": [
+      {
+        "singleton": 1,
+        "epoch": "9262b2941feddfdaffab4dbbadb0810f6d676383df83bfa2741c182119f697c6"
+      }
+    ],
+    "state_message_generation": [
+      {
+        "singleton": 1,
+        "generation": 1,
+        "pending_cleanup": 0
+      }
+    ],
+    "state_message_profiles": [
+      {
+        "hash": "f52ebeaee14d99cae70b2e77ba918788eeeba4c97400a832e51505386e8c469c",
+        "json": "{\"dimensions\":8,\"dtype\":\"fp32\",\"modelId\":\"deterministic-storage-proof\",\"revision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"tokenCap\":256,\"distance\":\"cosine\",\"provider\":\"local\"}",
+        "dimensions": 8
+      }
+    ],
+    "state_message_vectors": [
+      {
+        "pk": 1,
+        "root_id": "root",
+        "resource_id": "resource",
+        "thread_id": "thread",
+        "message_id": "[\"thread\",1]",
+        "seq": 1,
+        "segment_ordinal": 0,
+        "profile_hash": "f52ebeaee14d99cae70b2e77ba918788eeeba4c97400a832e51505386e8c469c",
+        "source_hash": "f449fe784c03a7de8a9ee33efa91e5343d47ef347b5afad353b3d02730b4dbb5",
+        "dimensions": 8,
+        "emb": {
+          "hex": "0000003e000080be0000c03e000000bf0000203f000040bf0000603f000084bf"
+        }
+      }
+    ]
+  },
+  "truthSchema": [
+    {
+      "name": "run_events",
+      "type": "table",
+      "sql": "CREATE TABLE run_events (\n    id INTEGER PRIMARY KEY,\n    thread_id TEXT NOT NULL,\n    seq INTEGER NOT NULL,\n    type TEXT NOT NULL,\n    run_id TEXT,\n    payload TEXT NOT NULL,\n    crc INTEGER NOT NULL,\n    raw_count INTEGER,\n    created_at REAL NOT NULL,\n    UNIQUE (thread_id, seq)\n  )"
+    },
+    {
+      "name": "threads",
+      "type": "table",
+      "sql": "CREATE TABLE threads (\n  id TEXT PRIMARY KEY NOT NULL,\n  last_seq INTEGER NOT NULL CHECK (last_seq >= 0),\n  created_at REAL NOT NULL,\n  updated_at REAL NOT NULL\n) STRICT"
+    },
+    {
+      "name": "brainstrike_memory_scopes",
+      "type": "table",
+      "sql": "CREATE TABLE brainstrike_memory_scopes (\n  resource_id TEXT PRIMARY KEY NOT NULL,\n  revision INTEGER NOT NULL CHECK (revision >= 0)\n) STRICT"
+    },
+    {
+      "name": "brainstrike_memory_entities",
+      "type": "table",
+      "sql": "CREATE TABLE brainstrike_memory_entities (\n  kind TEXT NOT NULL CHECK (kind IN ('thread','resource','observation')),\n  id TEXT NOT NULL,\n  resource_id TEXT NOT NULL REFERENCES brainstrike_memory_scopes(resource_id) ON DELETE CASCADE,\n  thread_id TEXT REFERENCES threads(id) ON DELETE CASCADE,\n  payload TEXT NOT NULL CHECK (json_valid(payload) AND json_type(payload) = 'object'),\n  PRIMARY KEY (kind,id)\n) STRICT"
+    }
+  ],
+  "truthRows": {
+    "threads": [
+      {
+        "id": "thread",
+        "last_seq": 1,
+        "created_at": 1791420818695,
+        "updated_at": 1791420818695
+      }
+    ],
+    "run_events": [
+      {
+        "id": 1,
+        "thread_id": "thread",
+        "seq": 1,
+        "type": "text",
+        "run_id": null,
+        "payload": "{\"seq\":1,\"type\":\"text\",\"v\":2,\"content\":\"committed state compatibility text\"}",
+        "crc": 1984515464,
+        "raw_count": null,
+        "created_at": 1791420818695
+      }
+    ],
+    "brainstrike_memory_scopes": [
+      {
+        "resource_id": "resource",
+        "revision": 1
+      }
+    ],
+    "brainstrike_memory_entities": [
+      {
+        "kind": "thread",
+        "id": "thread",
+        "resource_id": "resource",
+        "thread_id": "thread",
+        "payload": "{\"id\":\"thread\",\"resourceId\":\"resource\",\"metadata\":{}}"
+      }
+    ]
+  },
+  "profile": {
+    "dimensions": 384,
+    "dtype": "fp16",
+    "modelId": "onnx-community/all-MiniLM-L6-v2-ONNX",
+    "revision": "aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f",
+    "tokenCap": 256
+  },
+  "memoryProfile": {
+    "dimensions": 8,
+    "distance": "cosine",
+    "dtype": "fp32",
+    "modelId": "deterministic-storage-proof",
+    "provider": "local",
+    "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tokenCap": 256
+  },
+  "memoryVector": [
+    0.125,
+    -0.25,
+    0.375,
+    -0.5,
+    0.625,
+    -0.75,
+    0.875,
+    -1.03125
+  ],
+  "ftsConfig": {
+    "file_chunks_fts_config": [
+      {
+        "k": "version",
+        "v": 4
+      }
+    ],
+    "file_chunks_trigram_config": [
+      {
+        "k": "version",
+        "v": 4
+      }
+    ],
+    "state_events_fts_config": [
+      {
+        "k": "secure-delete",
+        "v": 1
+      },
+      {
+        "k": "version",
+        "v": 4
+      }
+    ]
+  }
+}

@@ -37,7 +37,9 @@ import {
   configuredEmbedding,
   freshIdentity,
   INDEX_SCHEMA_VERSION,
+  type IndexSchemaVersion,
   readIndexIdentity,
+  readIndexSchemaVersion,
   validateAcquisition,
   validateChunkEmbeddingState,
 } from './index-metadata.js';
@@ -186,16 +188,19 @@ export class IndexWriter {
           'SQLite integrity_check refused the existing derived index.'
         );
       }
+      const version = readIndexSchemaVersion(this.db);
+      StateEventStore.validateLayout(this.db, version);
+      StateEventStore.validateRoot(
+        this.db,
+        this.options.stateRoot,
+        this.projection,
+        this.options,
+        version
+      );
       this.db.pragma('journal_mode = WAL');
       this.db.pragma('synchronous = NORMAL');
       this.db.pragma('foreign_keys = ON');
       this.db.pragma('secure_delete = ON');
-      this.state = StateEventStore.acquire(
-        this.db,
-        this.options.stateRoot,
-        this.projection,
-        this.options
-      );
       for (const table of ['file_chunks_fts', 'file_chunks_trigram']) {
         this.db.exec(`INSERT INTO ${table}(${table},rank) VALUES('integrity-check',1)`);
       }
@@ -231,8 +236,7 @@ export class IndexWriter {
         validate: (syntax, fileId) => this.validateSyntax(syntax, fileId),
       });
       this.scoped.validateStorage();
-      this.scoped.beginOwnerEpoch();
-      this.state?.messages.beginOwnerGeneration();
+      this.state = this.acquireState(version);
       this.info = {
         dbPath: this.options.dbPath,
         journalMode: decoder(Schema.String)(this.db.pragma('journal_mode', { simple: true })),
@@ -250,6 +254,43 @@ export class IndexWriter {
   }
   get identity(): IndexerIdentity {
     return readIndexIdentity(this.db);
+  }
+  private acquireState(version: IndexSchemaVersion): StateEventStore | undefined {
+    let acquiredState: StateEventStore | undefined;
+    try {
+      return this.db
+        .transaction(() => {
+          validateAcquisition(this.db, this.options);
+          StateEventStore.validateLayout(this.db, version);
+          StateEventStore.validateRoot(
+            this.db,
+            this.options.stateRoot,
+            this.projection,
+            this.options,
+            version
+          );
+          StateEventStore.addCompatibleStorage(this.db, version);
+          acquiredState = StateEventStore.acquire(
+            this.db,
+            this.options.stateRoot,
+            this.projection,
+            this.options
+          );
+          this.scoped.beginOwnerEpoch();
+          acquiredState?.messages.beginOwnerGeneration();
+          // Last write: commit additions and the existing owner's retirement fences atomically.
+          if (version !== INDEX_SCHEMA_VERSION) {
+            this.db
+              .prepare('UPDATE index_metadata SET schema_version=? WHERE singleton=1')
+              .run(INDEX_SCHEMA_VERSION);
+          }
+          return acquiredState;
+        })
+        .immediate();
+    } catch (error) {
+      acquiredState?.close();
+      throw error;
+    }
   }
   private initialize(): void {
     this.db.transaction(() => {

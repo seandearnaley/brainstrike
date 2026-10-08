@@ -14,6 +14,7 @@ import {
   stateStatsSchema,
   stateThreadsSchema,
 } from './contracts.js';
+import { INDEX_SCHEMA_VERSION, type IndexSchemaVersion } from './index-metadata.js';
 import { StateMessageVectors } from './state-message-vectors.js';
 import { StateObservationVectors } from './state-observation-vectors.js';
 import type { StateProjection } from './state-projection.js';
@@ -71,7 +72,8 @@ export class StateEventStore {
     db: Database.Database,
     root: string | undefined,
     projection: StateProjection | undefined,
-    options: IndexerOptions
+    options: IndexerOptions,
+    version: IndexSchemaVersion = INDEX_SCHEMA_VERSION
   ): void {
     const stored = decoder(Schema.NullOr(Schema.String))(
       db.prepare('SELECT root FROM state_index_source WHERE singleton=1').pluck().get()
@@ -82,9 +84,15 @@ export class StateEventStore {
         .pluck()
         .get()
     );
-    const grants = decoder(Schema.String)(
-      db.prepare('SELECT resource_grants FROM state_index_source WHERE singleton=1').pluck().get()
-    );
+    const grants =
+      version === 8
+        ? '[]'
+        : decoder(Schema.String)(
+            db
+              .prepare('SELECT resource_grants FROM state_index_source WHERE singleton=1')
+              .pluck()
+              .get()
+          );
     if (grants !== JSON.stringify(options.stateResources ?? [])) {
       throw new IndexerError(
         'rebuild-required',
@@ -97,6 +105,70 @@ export class StateEventStore {
         'State projection belongs to a different immutable truth root or producer schema.'
       );
     }
+  }
+
+  /** Exact additive frontier: a legacy label must not hide partial or counterfeit additions. */
+  static validateLayout(db: Database.Database, version: IndexSchemaVersion): void {
+    const additions: readonly (readonly [string, string, boolean])[] = [
+      ['state_message_generation', 'table', version >= 9],
+      ['state_message_profiles', 'table', version >= 9],
+      ['state_message_vectors', 'table', version >= 9],
+      ['state_message_scope', 'index', version >= 9],
+      ['state_observation_vectors', 'table', version === 10],
+      ['state_observation_scope', 'index', version === 10],
+    ];
+    const objects = decoder(
+      Schema.Array(Schema.Struct({ name: Schema.String, type: Schema.String }))
+    )(
+      db
+        .prepare(
+          'SELECT name,type FROM sqlite_schema WHERE name IN (SELECT value FROM json_each(?))'
+        )
+        .all(JSON.stringify(additions.map(([name]) => name)))
+    );
+    for (const [name, type, expected] of additions) {
+      const found = objects.find((object) => object.name === name);
+      if (expected ? found?.type !== type : found !== undefined) {
+        throw new IndexerError(
+          'rebuild-required',
+          'Declared derived schema disagrees with its additive layout.'
+        );
+      }
+    }
+    const columns = decoder(Schema.Array(Schema.String))(
+      db
+        .prepare("SELECT name FROM pragma_table_info('state_index_source') ORDER BY cid")
+        .pluck()
+        .all()
+    );
+    if (
+      JSON.stringify(columns) !==
+      JSON.stringify([
+        'singleton',
+        'root',
+        'projection_identity',
+        ...(version === 8 ? [] : ['resource_grants']),
+      ])
+    ) {
+      throw new IndexerError(
+        'rebuild-required',
+        'State source schema disagrees with its declared version.'
+      );
+    }
+  }
+
+  /** Caller owns the native transaction; no rows or existing authority are replaced. */
+  static addCompatibleStorage(db: Database.Database, version: IndexSchemaVersion): void {
+    if (version === 8) {
+      db.exec(
+        "ALTER TABLE state_index_source ADD COLUMN resource_grants TEXT NOT NULL DEFAULT '[]'"
+      );
+      StateMessageVectors.initialize(db);
+    }
+    if (version !== INDEX_SCHEMA_VERSION) {
+      StateObservationVectors.initialize(db);
+    }
+    StateMessageVectors.validateStorage(db);
   }
 
   static acquire(
