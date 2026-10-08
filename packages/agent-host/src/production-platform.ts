@@ -24,14 +24,17 @@ import {
   type StateStoreHostMemoryOptions,
 } from './adapters/state-store-host-memory.js';
 import type { StateStoreMemoryVector } from './adapters/state-store-memory-vector.js';
+import { withHostDelegationTools } from './child-runs.js';
 import { type HostStateIndex, openHostStateIndex } from './host-state-index.js';
 import { materializeHostProviderModel } from './model-router-sdk.js';
 import type {
+  HostDelegation,
   HostMcpRuntime,
   HostMcpToolSelection,
   HostPlatform,
   HostRunAdmission,
   HostRunAdmissionRequest,
+  HostRunContext,
   HostRunHooks,
   HostTool,
 } from './ports.js';
@@ -41,9 +44,13 @@ import type { HostStartupContext } from './runtime.js';
 
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
 export interface ProductionHostRunConfiguration {
+  /** BST-1932: the host context a delegated child receives beside its persona instructions. */
+  readonly childSystem?: string | undefined;
   /** Borrowed platform capabilities remain owned until every run tail joins. */
   readonly close?: () => Promise<void>;
   readonly configuration: RuntimeData;
+  /** BST-1932: the personas and subagent limits this admission may delegate with. */
+  readonly delegation?: HostDelegation | undefined;
   readonly durableConfiguration: HostRunSnapshot['configuration'];
   /** The run's lifecycle hooks, when the composition loaded any. */
   readonly hooks?: HostRunHooks;
@@ -166,6 +173,26 @@ function mergeToolCatalogs(
     }
   }
   return merged;
+}
+
+/**
+ * BST-1932: the shipped child Memory. A run that withholds working memory
+ * (a read-only persona's child) keeps every other Memory option.
+ */
+export function hostRunMemoryOptions<Memory extends Pick<StateStoreHostMemoryOptions, 'native'>>(
+  memory: Memory,
+  context: Pick<HostRunContext, 'workingMemory'>
+): Memory {
+  if (context.workingMemory !== false) {
+    return memory;
+  }
+  return {
+    ...memory,
+    native: {
+      ...memory.native,
+      options: { ...memory.native.options, workingMemory: { enabled: false } },
+    },
+  };
 }
 
 /** Node-only production composition; Core remains the sole dispatcher and event writer. */
@@ -305,9 +332,11 @@ export async function createProductionHostPlatform(
           : rootModel(selected.configuration, auth);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
-        let opened: Promise<StateStoreHostMemory> | undefined;
+        // BST-1932: a delegated child opens its own run on this admission, so
+        // each run's Memory owner is kept by its run ID.
+        const opened = new Map<string, Promise<StateStoreHostMemory>>();
         const runMemory = async (runId: string): Promise<HostMemory> => {
-          const owner = await opened;
+          const owner = await opened.get(runId);
           if (owner?.memory.identity.runId !== runId) {
             throw new Error('Memory tool call has no Memory owner for its run');
           }
@@ -315,11 +344,10 @@ export async function createProductionHostPlatform(
         };
         const { vectors, ...memory } = selected.memory;
         const nativeMemory = (
-          bridge: StateStoreMemoryVector | undefined
+          bridge: StateStoreMemoryVector | undefined,
+          native: StateStoreHostMemoryOptions['native'] = memory.native
         ): StateStoreHostMemoryOptions['native'] =>
-          bridge && vectors
-            ? { ...memory.native, embedder: vectors.embedder, vector: bridge }
-            : memory.native;
+          bridge && vectors ? { ...native, embedder: vectors.embedder, vector: bridge } : native;
         const authoredTools = mergeToolCatalogs(
           selected.tools,
           acquired?.mcp.tools ?? {},
@@ -331,11 +359,16 @@ export async function createProductionHostPlatform(
         );
         // One run-bound registry supplies SDK declarations and approval/restart
         // validation against the concrete resolved model, including MCP opt-out.
-        const tools = await prepareHostProviderTools(model, authoredTools);
+        const tools = await prepareHostProviderTools(
+          model,
+          withHostDelegationTools(authoredTools, selected.delegation)
+        );
         request.signal.throwIfAborted();
         const selection: HostRunAdmission = {
+          childSystem: selected.childSystem,
           close: release,
           configuration: selected.configuration,
+          delegation: selected.delegation,
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
           hooks: selected.hooks,
@@ -344,14 +377,16 @@ export async function createProductionHostPlatform(
           ...admittedNativeWebSearch(provider, auth),
           openRun: (context) => {
             const bridge = runVectorBridge(selected, context.threadId, context.signal);
-            opened = StateStoreHostMemory.open(context, {
-              ...memory,
-              native: nativeMemory(bridge),
+            const runOptions = hostRunMemoryOptions(memory, context);
+            const owner = StateStoreHostMemory.open(context, {
+              ...runOptions,
+              native: nativeMemory(bridge, runOptions.native),
               providerRequestContext: () => selected.providerRequestContext,
               store: options.startup.store,
               ...(bridge ? { vectorBridge: bridge } : {}),
             });
-            return opened;
+            opened.set(context.runId, owner);
+            return owner;
           },
           provider: {
             prepare: async ({ configuration, messages, signal }) => {
