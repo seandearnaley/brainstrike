@@ -76,13 +76,43 @@ class McpTaskInputWithdrawnError extends Error {
   }
 }
 
+/**
+ * A dispatched `tasks/update` for this input ended without the server's
+ * acknowledgement, so the server may have applied it. That includes a JSON-RPC
+ * error response, which proves no ack but not that nothing was applied (pinned
+ * ext-tasks 2026-07-28 tasks.md L791-801 permits internal errors; JSON-RPC 2.0
+ * §5 gives no no-effect guarantee). The answer is never sent again
+ * automatically (L377: the ack is eventually consistent, so a poll that still
+ * lists the key proves nothing; L379: ignoring an answered key is only a SHOULD).
+ */
+export class McpTaskInputDeliveryUnknownError extends Error {
+  constructor(
+    readonly taskId: string,
+    readonly inputKey: string
+  ) {
+    super(
+      `MCP task "${taskId}" input "${inputKey}" has an unknown delivery outcome; it is not resent.`
+    );
+    this.name = 'McpTaskInputDeliveryUnknownError';
+  }
+}
+
+/**
+ * - `pending`: nothing was sent yet.
+ * - `acknowledged`: the server returned the empty-result ack (L377). Only that
+ *   positive response sets it, never a later task status.
+ * - `unknown`: a send ended without the ack, whatever the error. It is terminal
+ *   for the key.
+ */
+type InputDelivery = 'acknowledged' | 'pending' | 'unknown';
+
 interface InputOperation {
-  acknowledged: boolean;
   readonly controller: AbortController;
   readonly decision: Promise<ElicitResult>;
   delivery: Promise<void> | undefined;
   readonly fingerprint: string;
   readonly inputKey: string;
+  outcome: InputDelivery;
   retired: boolean;
   readonly taskId: string;
 }
@@ -326,6 +356,19 @@ export class McpTaskInteraction {
     return promise;
   }
 
+  /**
+   * Withdraws a task's unanswered input WITHOUT cancelling the task. The host
+   * calls this when its sole poller for the task ends while the session stays
+   * open: nothing can observe the outcome of a late answer, so none may be
+   * delivered. The durable handle stays recoverable, and a recovered poller
+   * that observes the same input key presents it afresh, unless an answer to
+   * that key was already sent with an unknown outcome.
+   */
+  withdraw(taskId: string): void {
+    this.requireOpen();
+    this.withdrawInputs(taskId);
+  }
+
   close(): Promise<void> {
     if (this.closePromise) {
       return this.closePromise;
@@ -344,7 +387,7 @@ export class McpTaskInteraction {
     return Object.freeze({
       activeCancellations: this.cancellations.size,
       activeInputs: [...this.inputs.values()].filter(
-        (operation) => !(operation.acknowledged || operation.retired)
+        (operation) => operation.outcome === 'pending' && !operation.retired
       ).length,
       inputKeys: this.inputs.size,
       subscriptionActive: this.subscription !== undefined,
@@ -359,10 +402,10 @@ export class McpTaskInteraction {
     const identity = inputIdentity(taskId, inputKey);
     const fingerprint = canonicalJson(request);
     let operation = this.inputs.get(identity);
-    if (operation?.retired) {
-      // A superseded request was withdrawn by the server; re-requesting the
-      // key restarts the exactly-once cycle with a fresh operation. The
-      // retired one was already aborted and settles on its own.
+    if (operation?.retired && operation.outcome !== 'unknown') {
+      // A superseded or withdrawn request that was never possibly delivered:
+      // re-requesting the key starts a fresh operation. The retired one was
+      // already aborted and settles on its own. An unknown delivery stays fenced.
       this.inputs.delete(identity);
       operation = undefined;
     }
@@ -376,12 +419,12 @@ export class McpTaskInteraction {
       const controller = new AbortController();
       const decision = this.resolveInput(taskId, inputKey, request, controller.signal);
       const created: InputOperation = {
-        acknowledged: false,
         controller,
         decision,
         delivery: undefined,
         fingerprint,
         inputKey,
+        outcome: 'pending',
         retired: false,
         taskId,
       };
@@ -389,29 +432,27 @@ export class McpTaskInteraction {
       this.inputs.set(identity, operation);
       void decision.catch(() => undefined);
     }
-    if (operation.acknowledged) {
+    if (operation.outcome === 'acknowledged') {
       return;
+    }
+    if (operation.outcome === 'unknown') {
+      throw new McpTaskInputDeliveryUnknownError(taskId, inputKey);
     }
     if (operation.delivery) {
       return await operation.delivery;
     }
     let delivery: Promise<void>;
-    delivery = this.deliverInput(taskId, inputKey, operation.decision, operation.controller.signal)
-      .then(
-        () => {
-          operation.acknowledged = true;
-        },
-        (error: unknown) => {
-          // A withdrawal by this coordinator's own cancel() finishes the
-          // observation; cancel() reports the cancellation outcome. Decide on
-          // our own state, not the error: a transport's abort listener can
-          // reject an in-flight tasks/update first with its own error.
-          const { signal } = operation.controller;
-          if (!(signal.aborted && signal.reason instanceof McpTaskInputWithdrawnError)) {
-            throw error;
-          }
+    delivery = this.deliverInput(operation)
+      .catch((error: unknown) => {
+        // A withdrawal by this coordinator's own cancel() finishes the
+        // observation; cancel() reports the cancellation outcome. Decide on
+        // our own state, not the error: a transport's abort listener can
+        // reject an in-flight tasks/update first with its own error.
+        const { signal } = operation.controller;
+        if (!(signal.aborted && signal.reason instanceof McpTaskInputWithdrawnError)) {
+          throw error;
         }
-      )
+      })
       .finally(() => {
         if (operation.delivery === delivery) {
           operation.delivery = undefined;
@@ -446,26 +487,33 @@ export class McpTaskInteraction {
     );
   }
 
-  private async deliverInput(
-    taskId: string,
-    inputKey: string,
-    decision: Promise<ElicitResult>,
-    inputSignal: AbortSignal
-  ): Promise<void> {
+  private async deliverInput(operation: InputOperation): Promise<void> {
+    const { controller, decision, inputKey, taskId } = operation;
     const taskController = this.taskControllers.get(taskId);
     if (!taskController) {
       throw new Error(`MCP task "${taskId}" has no live interaction scope.`);
     }
-    const signal = AbortSignal.any([this.controller.signal, taskController.signal, inputSignal]);
+    const signal = AbortSignal.any([
+      this.controller.signal,
+      taskController.signal,
+      controller.signal,
+    ]);
     const response = await raceAbort(decision, signal);
-    await raceAbort(
-      this.client.requestExtension(
-        MCP_TASKS_UPDATE_REQUEST_CONTRACT,
-        parseMcpUpdateTaskParams({ inputResponses: { [inputKey]: response }, taskId }),
-        { signal }
-      ),
-      signal
-    );
+    const params = parseMcpUpdateTaskParams({ inputResponses: { [inputKey]: response }, taskId });
+    try {
+      await raceAbort(
+        this.client.requestExtension(MCP_TASKS_UPDATE_REQUEST_CONTRACT, params, { signal }),
+        signal
+      );
+    } catch (error) {
+      // Once dispatched, only the ack proves the outcome. An error response, a
+      // lost response, a transport failure, a timeout or an abort may all follow
+      // an application, and the pinned spec guarantees no-application for none
+      // of them, so the key is fenced as unknown and the original error rethrown.
+      operation.outcome = 'unknown';
+      throw error;
+    }
+    operation.outcome = 'acknowledged';
   }
 
   private async runCancellation(
@@ -522,7 +570,7 @@ export class McpTaskInteraction {
 
   private withdrawInputs(taskId: string): void {
     for (const operation of this.inputs.values()) {
-      if (operation.taskId !== taskId || operation.acknowledged || operation.retired) {
+      if (operation.taskId !== taskId || operation.outcome !== 'pending' || operation.retired) {
         continue;
       }
       operation.retired = true;

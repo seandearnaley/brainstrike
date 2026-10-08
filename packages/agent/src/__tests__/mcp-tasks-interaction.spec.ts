@@ -1,4 +1,12 @@
-import type { ElicitRequest, ElicitResult, JSONObject } from '@modelcontextprotocol/client';
+import {
+  type ElicitRequest,
+  type ElicitResult,
+  type JSONObject,
+  ProtocolError,
+  ProtocolErrorCode,
+  SdkError,
+  SdkErrorCode,
+} from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { McpClientExtensionRequestContract } from '../mcp/client-extension-registry.js';
 import {
@@ -147,6 +155,30 @@ function createInteraction(
   });
 }
 
+/** An interaction whose consumer failures are recorded, as the host's diagnostic sink does. */
+function createRecordedInteraction(
+  fake: FakeClient,
+  handle: (
+    request: ElicitRequest,
+    context: McpTaskInteractionElicitationContext
+  ) => Promise<ElicitResult>
+) {
+  const consumerErrors: unknown[] = [];
+  const observationPort = new McpTaskObservationPort({
+    onConsumerError: (_taskId, error) => consumerErrors.push(error),
+  });
+  observationPort.attachAuthority({ wake: vi.fn() });
+  const interaction = new McpTaskInteraction({
+    client: fake.client,
+    elicitation: { form: true, handle, url: false },
+    observationPort,
+    scope,
+  });
+  return { consumerErrors, interaction, observationPort };
+}
+
+const approved: ElicitResult = { action: 'accept', content: { approved: true } };
+
 afterEach(() => vi.useRealTimers());
 describe('McpTaskInteraction', () => {
   it('deduplicates task input and preserves exact elicitation and update provenance', async () => {
@@ -239,6 +271,33 @@ describe('McpTaskInteraction', () => {
     await interaction.close();
   });
 
+  it('withdraws unanswered input without cancelling the task and presents a re-request afresh', async () => {
+    const presented: AbortSignal[] = [];
+    const fake = createClient();
+    // The user never answers; only a withdrawal or close ends the input.
+    const interaction = createInteraction(fake, (_request, context) => {
+      presented.push(context.signal);
+      return new Promise<ElicitResult>(() => undefined);
+    });
+    await interaction.start(['task-1']);
+    const parked = fake.observationPort.publish(inputRequiredTask('task-1'));
+    await vi.waitFor(() => expect(presented).toHaveLength(1));
+
+    interaction.withdraw('task-1');
+
+    expect(presented[0]?.aborted).toBe(true);
+    await expect(parked).resolves.toBeUndefined();
+    // Neither tasks/update nor tasks/cancel: the task itself is left to the server.
+    expect(fake.requestExtension).not.toHaveBeenCalled();
+    expect(interaction.snapshot()).toMatchObject({ activeCancellations: 0, activeInputs: 0 });
+    // A later observation of the same key (a recovered poller) asks again.
+    const recovered = fake.observationPort.publish(inputRequiredTask('task-1'));
+    await vi.waitFor(() => expect(presented).toHaveLength(2));
+    expect(presented[1]?.aborted).toBe(false);
+    await interaction.close();
+    await expect(recovered).rejects.toThrow(/unexpected consumer error for task-1/u);
+  });
+
   it('retires superseded input before a stale user response can be delivered', async () => {
     const decision = deferred<ElicitResult>();
     const fake = createClient();
@@ -263,6 +322,125 @@ describe('McpTaskInteraction', () => {
         expect.anything()
       )
     );
+    await interaction.close();
+  });
+
+  // The server below applies every `inputResponses` it receives, which the pinned
+  // ext-tasks 2026-07-28 spec permits (tasks.md L379: ignoring an answered key is
+  // only a SHOULD), and its ack is eventually consistent (L377), so its next poll
+  // still lists the answered key.
+  it('fences an applied tasks/update whose acknowledgement was lost instead of resending it', async () => {
+    const fake = createClient();
+    const applied: unknown[] = [];
+    fake.requestExtension.mockImplementation(async (_contract: unknown, params: unknown) => {
+      applied.push(params);
+      if (applied.length === 1) {
+        // Applied, then the connection closed before the empty-result ack arrived.
+        throw new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
+      }
+      return { resultType: 'complete' };
+    });
+    const handle = vi.fn(async (): Promise<ElicitResult> => approved);
+    const { consumerErrors, interaction, observationPort } = createRecordedInteraction(
+      fake,
+      handle
+    );
+    await interaction.start(['task-1']);
+    await observationPort.publish(inputRequiredTask('task-1'));
+    await observationPort.publish(inputRequiredTask('task-1'));
+    expect(applied).toHaveLength(1);
+    expect(handle).toHaveBeenCalledOnce();
+    expect(consumerErrors).toEqual([
+      expect.objectContaining({ code: SdkErrorCode.ConnectionClosed }),
+      expect.objectContaining({ name: 'McpTaskInputDeliveryUnknownError' }),
+    ]);
+    await interaction.close();
+  });
+
+  it('fences an answer whose in-flight tasks/update was withdrawn instead of presenting it again', async () => {
+    const fake = createClient();
+    const applied: unknown[] = [];
+    const dispatched = deferred<void>();
+    fake.requestExtension.mockImplementation(
+      (_contract: unknown, params: unknown, options?: { readonly signal?: AbortSignal }) => {
+        applied.push(params);
+        if (applied.length > 1) {
+          return Promise.resolve({ resultType: 'complete' });
+        }
+        dispatched.resolve();
+        // Applied by the server; its ack has not arrived when the input is withdrawn.
+        return new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener(
+            'abort',
+            () => reject(new SdkError(SdkErrorCode.RequestTimeout, 'Request aborted')),
+            { once: true }
+          );
+        });
+      }
+    );
+    const handle = vi.fn(async (): Promise<ElicitResult> => approved);
+    const { consumerErrors, interaction, observationPort } = createRecordedInteraction(
+      fake,
+      handle
+    );
+    await interaction.start(['task-1']);
+    const first = observationPort.publish(inputRequiredTask('task-1'));
+    await dispatched.promise;
+    interaction.withdraw('task-1');
+    await first;
+    // A recovered poller observes the same key; the server may already have applied it.
+    await observationPort.publish(inputRequiredTask('task-1'));
+    expect(applied).toHaveLength(1);
+    expect(handle).toHaveBeenCalledOnce();
+    expect(consumerErrors).toEqual([
+      expect.objectContaining({ name: 'McpTaskInputDeliveryUnknownError' }),
+    ]);
+    await interaction.close();
+  });
+
+  it('fences an applied tasks/update that drew a JSON-RPC internal error instead of resending it', async () => {
+    const fake = createClient();
+    const applied: unknown[] = [];
+    fake.requestExtension.mockImplementation(async (_contract: unknown, params: unknown) => {
+      applied.push(params);
+      if (applied.length === 1) {
+        // Applied, then the error response (tasks.md L791-801 permits -32603). A JSON-RPC error
+        // proves no ack, not that nothing was applied (JSON-RPC 2.0 §5).
+        throw new ProtocolError(ProtocolErrorCode.InternalError, 'Internal error');
+      }
+      return { resultType: 'complete' };
+    });
+    const handle = vi.fn(async (): Promise<ElicitResult> => approved);
+    const { consumerErrors, interaction, observationPort } = createRecordedInteraction(
+      fake,
+      handle
+    );
+    await interaction.start(['task-1']);
+    await observationPort.publish(inputRequiredTask('task-1'));
+    await observationPort.publish(inputRequiredTask('task-1'));
+    expect(applied).toHaveLength(1);
+    expect(handle).toHaveBeenCalledOnce();
+    expect(consumerErrors).toEqual([
+      expect.objectContaining({ code: ProtocolErrorCode.InternalError, name: 'ProtocolError' }),
+      expect.objectContaining({ name: 'McpTaskInputDeliveryUnknownError' }),
+    ]);
+    await interaction.close();
+  });
+
+  it('keeps a positive acknowledgement final while a later poll still lists the key', async () => {
+    const fake = createClient();
+    const handle = vi.fn(async (): Promise<ElicitResult> => approved);
+    const { consumerErrors, interaction, observationPort } = createRecordedInteraction(
+      fake,
+      handle
+    );
+    await interaction.start(['task-1']);
+    await observationPort.publish(inputRequiredTask('task-1'));
+    // The ack is eventually consistent (L377): this poll still lists the answered key.
+    await observationPort.publish(inputRequiredTask('task-1'));
+    expect(fake.requestExtension).toHaveBeenCalledOnce();
+    expect(handle).toHaveBeenCalledOnce();
+    expect(consumerErrors).toEqual([]);
     await interaction.close();
   });
 
