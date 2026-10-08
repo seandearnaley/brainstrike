@@ -52,10 +52,11 @@ import { fixtureCapabilities, fixtureToolRequest } from './agent-host-adapter-fi
 const LAB_FIXTURE = fileURLToPath(new URL('./agent-host-mcp-modern-lab.mjs', import.meta.url));
 export const TASKS_SERVER = 'lab.tasks';
 export const APPS_SERVER = 'lab.apps';
+export const LEGACY_SERVER = 'lab.legacy';
 export const APP_RESOURCE_URI = 'ui://get-time/mcp-app.html';
 export const APP_MIME_TYPE = 'text/html;profile=mcp-app';
 
-type LabScenario = 'apps-reference' | 'tasks-reference';
+type LabScenario = 'apps-reference' | 'legacy-reference' | 'tasks-reference';
 const LabReportSchema = z.strictObject({
   httpListenersClosed: z.number().int(),
   stdioTransportsClosed: z.number().int(),
@@ -65,10 +66,14 @@ const LabReadySchema = z.strictObject({
   authentication: z.literal('none'),
   endpoint: z.url(),
   fixture: z.string().min(1),
-  fixtureSourceSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  // The Brainstrike-owned legacy echo fixture pins no upstream source.
+  fixtureSourceSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/u)
+    .nullable(),
   pid: z.number().int().positive(),
-  protocol: z.literal('2026-07-28'),
-  scenario: z.enum(['apps-reference', 'tasks-reference']),
+  protocol: z.enum(['2025-11-25', '2026-07-28']),
+  scenario: z.enum(['apps-reference', 'legacy-reference', 'tasks-reference']),
   transport: z.literal('streamable-http'),
   type: z.literal('ready'),
   usesAmbientCredentials: z.literal(false),
@@ -234,9 +239,13 @@ interface ModernHostOptions {
   readonly appUi: 'rich' | 'text';
   readonly lab: LabProcess;
   readonly policy: 'allow' | 'ask';
+  /** The configured MCP protocol; the modern lab scenarios use 2026-07-28. */
+  readonly protocol?: '2026-07-28' | 'legacy';
   readonly serverId: string;
   /** Reopen an earlier Root and Tasks writer instead of creating disposable ones. */
   readonly storage?: ModernStorage;
+  /** The scripted model's arguments for the one tool call. */
+  readonly toolInput?: Record<string, unknown>;
   readonly toolName: string;
 }
 
@@ -311,7 +320,7 @@ export async function openModernHost(options: ModernHostOptions) {
   if (!toolId) {
     throw new Error('The canonical sanitizer produced no provider tool name');
   }
-  const model = scriptedToolSequence([{ input: {}, toolId }]);
+  const model = scriptedToolSequence([{ input: options.toolInput ?? {}, toolId }]);
   // The local presenter listener: host-owned input must never reach it.
   const presentations = new Observed<McpElicitationPresentation>();
   const inputs = new Observed<PublicInput>();
@@ -341,7 +350,7 @@ export async function openModernHost(options: ModernHostOptions) {
         servers: [
           {
             name: parseConfiguredMcpServerId(options.serverId),
-            protocol: '2026-07-28',
+            protocol: options.protocol ?? '2026-07-28',
             startup: 'automatic',
             transport: 'streamable-http',
             url: options.lab.ready.endpoint,

@@ -378,17 +378,41 @@ describe('MCP runtime client', () => {
     const discovered = await runtimeClient?.listToolsetsWithErrors();
     expect(discovered?.errors).toEqual({ broken: 'connection refused' });
     const tool = requireExecutableTool(discovered?.toolsets['healthy']?.['fail']);
-    await expect(
-      tool.execute(
-        {},
-        {
-          agent: { toolCallId: 'call-error' },
-          writer: {
-            custom: vi.fn().mockRejectedValue(new Error('progress channel closed')),
-          },
-        }
-      )
-    ).rejects.toThrow('intentional failure');
+    // A server's own tool error result (MCP `isError`) is typed and logged, never silent: the
+    // run's guard sanitizes the model-facing text, so this record is where its reason survives.
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    try {
+      await expect(
+        tool.execute(
+          {},
+          {
+            agent: { toolCallId: 'call-error' },
+            writer: {
+              custom: vi.fn().mockRejectedValue(new Error('progress channel closed')),
+            },
+          }
+        )
+      ).rejects.toMatchObject({
+        code: 'mcp-tool-error-result',
+        message: 'intentional failure',
+        name: 'McpToolResultError',
+        serverName: 'healthy',
+        toolName: 'fail',
+      });
+      expect(logRecords).toContainEqual(
+        expect.objectContaining({
+          args: [
+            'MCP tool returned an error result',
+            { reason: 'intentional failure', serverName: 'healthy', toolName: 'fail' },
+          ],
+          level: 'warn',
+          scope: 'MastraAgentMcpRuntimeClient',
+        })
+      );
+    } finally {
+      removeLogListener();
+    }
   });
 
   it('keeps a complete 2020-12 schema usable at the model boundary', async () => {

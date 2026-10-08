@@ -546,13 +546,36 @@ async function executeMcpTool(
   } else if (shouldRetainRawMcpCallToolResult(context.abortSignal)) {
     return result;
   } else if (result.isError) {
-    throw new Error(extractMcpToolError(result));
+    throw failMcpToolResult(serverName, toolName, extractMcpToolError(result));
   } else if (result.structuredContent === undefined || readMcpMultimodalOutput(result)) {
     ordinaryResult = result;
   } else {
     ordinaryResult = result.structuredContent;
   }
   return createMcpAppToolResult(appOrigin, ordinaryResult);
+}
+
+/**
+ * A server's own tool error result (MCP `isError`), such as a stateless 2025-11-25 server that
+ * cannot send a push-style `elicitation/create`. The run's tool guard turns every thrown error
+ * into a generic model-facing failure, so the typed reason is logged here, at the boundary that
+ * still has it.
+ */
+export class McpToolResultError extends Error {
+  readonly code = 'mcp-tool-error-result';
+  constructor(
+    readonly serverName: string,
+    readonly toolName: string,
+    reason: string
+  ) {
+    super(reason);
+    this.name = 'McpToolResultError';
+  }
+}
+
+function failMcpToolResult(serverName: string, toolName: string, reason: string): never {
+  logger.warn('MCP tool returned an error result', { reason, serverName, toolName });
+  throw new McpToolResultError(serverName, toolName, reason);
 }
 
 function readToolCallMeta(context: McpExecuteContext): Record<string, unknown> | undefined {

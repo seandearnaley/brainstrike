@@ -5,6 +5,7 @@ import {
   parseConfiguredMcpServerId,
   readMcpAppToolInvocationResult,
 } from '@brainstrike/assistant-contract';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { processStartTime } from '@brainstrike/state-store';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fixtureToolRequest } from './fixtures/agent-host-adapter-fixture';
@@ -23,6 +24,7 @@ import {
   firstOf,
   type LabProcess,
   LEASE_UNAVAILABLE,
+  LEGACY_SERVER,
   liveServer,
   modelToolResult,
   Observed,
@@ -557,6 +559,48 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       await answerPublicly(modern.client, input.address, APPROVE);
       await log.finished();
     }
+  });
+
+  // Packet C finding (#3543 6055185569): a legacy push-style server input on a host run failed
+  // with a generic `tool_failed` and no log line. The legacy lab fixture is stateless, so the
+  // server keeps no negotiated client capabilities and refuses `elicitation/create` itself (MCP
+  // 2025-11-25 basic/lifecycle L220; this client declares elicitation per client/elicitation L51).
+  // That refusal is the server's `isError` result: nothing is presented, and its reason is typed
+  // and logged at the MCP boundary instead of vanishing behind the run's tool guard.
+  it("surfaces a stateless legacy server's push-style input refusal instead of failing silently", async (context) => {
+    const records: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => records.push(record));
+    owned.push(async () => removeLogListener());
+    const lab = await startLab('legacy-reference', context.signal);
+    const modern = await openModernHost({
+      appUi: 'text',
+      lab,
+      policy: 'allow',
+      protocol: 'legacy',
+      serverId: LEGACY_SERVER,
+      toolInput: { text: 'parity' },
+      toolName: 'elicit_confirm',
+    });
+    const { log, runId } = await startThreadRun(modern, 'Confirm through the legacy server');
+    expect(await log.finished()).toMatchObject({ runId });
+    expect(eventOf(log.rows(), 'effect.finished')).toMatchObject({
+      output: { error: { code: 'tool_failed', toolName: 'lab.legacy.elicit_confirm' }, ok: false },
+    });
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        args: [
+          'MCP tool returned an error result',
+          {
+            reason: 'Client does not support form elicitation.',
+            serverName: LEGACY_SERVER,
+            toolName: 'elicit_confirm',
+          },
+        ],
+        level: 'warn',
+      })
+    );
+    expect(modern.presentations.items).toEqual([]);
+    expect(modern.inputs.items).toEqual([]);
   });
 
   // RED until Studio publishes a read of Core's committed outcome for a recovered task's input
