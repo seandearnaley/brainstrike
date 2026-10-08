@@ -3,6 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
 import { BLOBS_DIR, StateStore, UnknownEventError } from '@brainstrike/state-store';
+import approved from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json' with {
+  type: 'json',
+};
 import plan from '@brainstrike/test-utils/fixtures/committed-host-plan.json' with { type: 'json' };
 import question from '@brainstrike/test-utils/fixtures/committed-host-question.json' with {
   type: 'json',
@@ -17,7 +20,6 @@ import { committedRowAddress } from '../src/committed-identities.js';
 import { readHostRow, storedHostEvent } from '../src/event-storage.js';
 import { HostLogRowSchema } from '../src/protocol.js';
 import { decode, messages, text } from '../src/state-projection.js';
-import approved from './fixtures/approved-run-log.json' with { type: 'json' };
 
 const recordings = { approved, plan, question, rich };
 

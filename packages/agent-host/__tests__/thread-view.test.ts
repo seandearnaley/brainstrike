@@ -1,8 +1,10 @@
+import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json' with {
+  type: 'json',
+};
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { HostLogRowSchema } from '../src/protocol.js';
 import { CommittedThreadView, foldHostRuns } from '../src/thread-view.js';
-import recording from './fixtures/approved-run-log.json' with { type: 'json' };
 
 const rows = z.array(HostLogRowSchema).parse(recording);
 const threadId = rows[0]?.threadId;
