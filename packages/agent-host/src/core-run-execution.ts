@@ -232,7 +232,7 @@ export async function runHostSdkLoop(
             messages: prepared,
             signal: run.controller.signal,
             summarize: (transcript) =>
-              summarizeHostContext(admission.model, transcript, run.controller.signal),
+              summarizeHostContext(admission.model, run.modelId, transcript, run.controller.signal),
           });
           prepared = overlay.messages;
           compactionNote = overlay.note;

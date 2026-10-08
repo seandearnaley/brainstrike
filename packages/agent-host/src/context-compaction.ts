@@ -1,6 +1,8 @@
 import { COMPACTION_SUMMARIZER_INSTRUCTIONS, hasCompactionSummarySchema } from '@brainstrike/agent';
+import { denormalizeNativeToolName, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { generateText, type LanguageModel, type ModelMessage } from 'ai';
 import type { HostRunState } from './core-state.js';
+import { type Json, jsonValue } from './json-value.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 
 type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
@@ -119,9 +121,57 @@ function splitTurns(chain: readonly HostRunState[], messages: readonly ModelMess
   }));
 }
 
-/** Oldest-first ancestors, never the current run or its immediate predecessor. */
+/** Legacy `COMPACTION_PROTECT_WINDOW_TOKENS` (desktop compaction-range-repository.ts). */
+const PROTECT_WINDOW_TOKENS = 20_000;
+
+/** Legacy SKILL_TOOL_NAMES and PLAN_TOOL_NAMES: an active skill or plan keeps its turn. */
+const PROTECTED_TOOL_NAMES: ReadonlySet<string> = new Set([
+  NATIVE_TOOL_ID.skill,
+  NATIVE_TOOL_ID.askUser,
+  NATIVE_TOOL_ID.submitPlan,
+  'askUser',
+  'submitPlan',
+]);
+
+function callsProtectedTool(turn: Turn): boolean {
+  return turn.messages.some(
+    (message) =>
+      typeof message.content !== 'string' &&
+      message.content.some(
+        (part) =>
+          (part.type === 'tool-call' || part.type === 'tool-result') &&
+          PROTECTED_TOOL_NAMES.has(denormalizeNativeToolName(part.toolName))
+      )
+  );
+}
+
+/**
+ * Legacy `selectProtectedMessageIds` at whole-turn grain: the current turn and
+ * its predecessor, the newest turns up to the protect window, and every turn
+ * that called a skill or plan tool. Whole turns keep tool calls with results.
+ */
+function protectedRunIds(turns: readonly Turn[]): Set<string> {
+  const kept = new Set(turns.slice(-2).map((turn) => turn.run.id));
+  let recent = 0;
+  for (const turn of [...turns].reverse()) {
+    if (recent >= PROTECT_WINDOW_TOKENS) {
+      break;
+    }
+    kept.add(turn.run.id);
+    recent += estimateTokens(turn.messages);
+  }
+  for (const turn of turns) {
+    if (callsProtectedTool(turn)) {
+      kept.add(turn.run.id);
+    }
+  }
+  return kept;
+}
+
+/** Oldest-first turns that neither a committed compaction nor the protection rules hold. */
 function droppable(turns: readonly Turn[], compacted: ReadonlySet<string>): Turn[] {
-  return turns.slice(0, -2).filter((turn) => !compacted.has(turn.run.id));
+  const kept = protectedRunIds(turns);
+  return turns.filter((turn) => !(compacted.has(turn.run.id) || kept.has(turn.run.id)));
 }
 
 function select(candidates: readonly Turn[], reclaim: number): Turn[] {
@@ -137,10 +187,13 @@ function select(candidates: readonly Turn[], reclaim: number): Turn[] {
   return selected;
 }
 
-/** Usage the summarizer's provider reported; the legacy summarizer required both counts. */
+/**
+ * The summarizer side call's usage receipt, in `memory.usage`'s shape: the
+ * model it ran on and the SDK usage exactly as reported.
+ */
 export interface HostContextSummaryUsage {
-  readonly inputTokens: number;
-  readonly outputTokens: number;
+  readonly modelId: string;
+  readonly usage: Json;
 }
 
 export interface HostContextSummary extends HostContextSummaryUsage {
@@ -149,29 +202,29 @@ export interface HostContextSummary extends HostContextSummaryUsage {
 
 /** The summarizer answered, but not in the required five-section shape. */
 export class HostContextSummarySchemaError extends Error {
-  readonly usage: HostContextSummaryUsage;
+  readonly receipt: HostContextSummaryUsage;
 
-  constructor(usage: HostContextSummaryUsage) {
+  constructor(receipt: HostContextSummaryUsage) {
     super('Compaction summarizer response violated the required five-section schema.');
     this.name = 'HostContextSummarySchemaError';
-    this.usage = usage;
+    this.receipt = receipt;
   }
 }
 
-function requireUsage(count: number | undefined, field: string): number {
+function requireUsage(count: number | undefined, field: string): void {
   if (!(typeof count === 'number' && Number.isFinite(count) && count >= 0)) {
     throw new Error(`Compaction summarizer omitted provider-reported ${field}.`);
   }
-  return count;
 }
 
 /**
  * The legacy agentic summarizer (`generateAgenticCompactionSummary`) on the
- * run's own admitted model: its instructions, one step, no tools, and the
- * five-section schema check.
+ * run's own admitted model: its instructions, one step, no tools, provider
+ * usage required, and the five-section schema check.
  */
 export async function summarizeHostContext(
   model: LanguageModel,
+  modelId: string,
   transcript: string,
   signal: AbortSignal
 ): Promise<HostContextSummary> {
@@ -181,14 +234,13 @@ export async function summarizeHostContext(
     prompt: transcript,
     system: COMPACTION_SUMMARIZER_INSTRUCTIONS,
   });
-  const usage = {
-    inputTokens: requireUsage(result.totalUsage.inputTokens, 'inputTokens'),
-    outputTokens: requireUsage(result.totalUsage.outputTokens, 'outputTokens'),
-  };
+  requireUsage(result.totalUsage.inputTokens, 'inputTokens');
+  requireUsage(result.totalUsage.outputTokens, 'outputTokens');
+  const receipt = { modelId, usage: jsonValue(result.totalUsage) };
   if (!hasCompactionSummarySchema(result.text)) {
-    throw new HostContextSummarySchemaError(usage);
+    throw new HostContextSummarySchemaError(receipt);
   }
-  return { ...usage, text: result.text };
+  return { ...receipt, text: result.text };
 }
 
 function transcriptContent(message: ModelMessage): unknown {
@@ -233,11 +285,12 @@ async function compactionEvent(request: CompactionRequest): Promise<Compacted> {
     return {
       compactedRunIds: request.candidates.map((turn) => turn.run.id),
       kind: 'agentic',
+      modelId: summary.modelId,
       reason: 'pre-request',
       runId: request.runId,
       summary: summary.text,
       type: 'context.compacted',
-      usage: { inputTokens: summary.inputTokens, outputTokens: summary.outputTokens },
+      usage: summary.usage,
     };
   } catch (cause) {
     if (request.signal.aborted) {
@@ -251,7 +304,7 @@ async function compactionEvent(request: CompactionRequest): Promise<Compacted> {
       runId: request.runId,
       summary: `Deterministic fallback: dropped ${selected.length} earlier turns (${messageCount(selected)} messages) after an agentic summarizer failure; no summarization model ran.`,
       type: 'context.compacted',
-      ...(cause instanceof HostContextSummarySchemaError ? { usage: cause.usage } : {}),
+      ...(cause instanceof HostContextSummarySchemaError ? cause.receipt : {}),
     };
   }
 }

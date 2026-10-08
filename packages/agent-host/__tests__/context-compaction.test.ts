@@ -14,6 +14,7 @@ function chain(count: number): HostRunState[] {
   return Array.from({ length: count }, (_, index) => ({ id: `run-${index}` }) as HostRunState);
 }
 
+/** Each turn: a 3-token question and an answer of ceil((chars + 9) / 4) tokens. */
 function turns(count: number, chars: number): ModelMessage[] {
   return Array.from({ length: count }, (_, index): ModelMessage[] => [
     { content: `question ${index}`, role: 'user' },
@@ -24,9 +25,13 @@ function turns(count: number, chars: number): ModelMessage[] {
   ]).flat();
 }
 
-const summary = { inputTokens: 300, outputTokens: 40, text: 'Goal: g\nState: s' };
+const receipt = { modelId: 'gpt-6-sol', usage: { inputTokens: 300, outputTokens: 40 } };
+const summary = { ...receipt, text: 'Goal: g\nState: s' };
 
-/** Six turns of ~1,000 estimated tokens against a 4,000-token budget: past the trigger. */
+/**
+ * Six turns of 10,006 estimated tokens (60,036) against a 40,000-token budget:
+ * past the trigger; the protect window keeps run-4 and run-5 (20,012 tokens).
+ */
 async function pastTrigger(overrides: Partial<Input> = {}) {
   const committed: Compacted[] = [];
   const prepared = await prepareCompactedContext({
@@ -35,8 +40,8 @@ async function pastTrigger(overrides: Partial<Input> = {}) {
       committed.push(event);
     },
     compactions: [],
-    inputTokenLimit: 4000,
-    messages: turns(6, 4000),
+    inputTokenLimit: 40_000,
+    messages: turns(6, 40_000),
     signal: new AbortController().signal,
     summarize: async () => summary,
     ...overrides,
@@ -63,67 +68,101 @@ describe('prepareCompactedContext', () => {
     expect(prepared).toEqual({ messages });
   });
 
-  it('summarizes every turn but the last two past the trigger and returns the note', async () => {
+  it('summarizes every unprotected turn past the trigger and commits the summarizer receipt', async () => {
     const summarize = vi.fn(async (_transcript: string) => summary);
     const { committed, prepared } = await pastTrigger({ summarize });
     expect(committed).toEqual([
       {
         compactedRunIds: ['run-0', 'run-1', 'run-2', 'run-3'],
         kind: 'agentic',
+        modelId: 'gpt-6-sol',
         reason: 'pre-request',
         runId: 'run-5',
         summary: summary.text,
         type: 'context.compacted',
-        usage: { inputTokens: 300, outputTokens: 40 },
+        usage: receipt.usage,
       },
     ]);
     const transcript = summarize.mock.calls[0]?.[0] ?? '';
     expect(transcript.split('\n')).toHaveLength(8);
     expect(transcript).toContain('question 0');
     expect(transcript).not.toContain('question 4');
-    expect(prepared.messages.map((message) => message.role)).toEqual([
-      'user',
-      'assistant',
-      'user',
-      'assistant',
-    ]);
     expect(prepared.messages[0]).toEqual({ content: 'question 4', role: 'user' });
+    expect(prepared.messages).toHaveLength(4);
     expect(prepared.note).toBe(`[Earlier conversation compacted]\n${summary.text}`);
+  });
+
+  it('keeps the newest 20,000 estimated tokens even past the trigger', async () => {
+    const summarize = vi.fn(async () => summary);
+    // Six turns of 1,006 tokens against 4,000: past the trigger, all inside the window.
+    const { committed, prepared } = await pastTrigger({
+      inputTokenLimit: 4000,
+      messages: turns(6, 4000),
+      summarize,
+    });
+    expect(summarize).not.toHaveBeenCalled();
+    expect(committed).toEqual([]);
+    expect(prepared.messages).toHaveLength(12);
+  });
+
+  it('keeps a turn that called a plan or skill tool', async () => {
+    const messages = turns(6, 40_000);
+    messages[3] = {
+      content: [
+        { text: 'answer 1', type: 'text' },
+        // The provider-facing (sanitized) name of brainstrike.askUser.
+        { input: {}, toolCallId: 'call-ask', toolName: 'brainstrike_askUser', type: 'tool-call' },
+      ],
+      role: 'assistant',
+    };
+    messages[5] = {
+      content: [
+        {
+          input: { name: 'review' },
+          toolCallId: 'call-skill',
+          toolName: 'skill',
+          type: 'tool-call',
+        },
+      ],
+      role: 'assistant',
+    };
+    const { committed, prepared } = await pastTrigger({ messages });
+    expect(committed[0]?.compactedRunIds).toEqual(['run-0', 'run-3']);
+    expect(
+      prepared.messages.filter((message) => message.role === 'user').map((m) => m.content)
+    ).toEqual(['question 1', 'question 2', 'question 4', 'question 5']);
   });
 
   it('falls back to dropping only the oldest turns that reach the target when the summarizer fails', async () => {
     const { committed, prepared } = await pastTrigger({
-      // ~6,040 estimated tokens against 6,000: reaching the 4,200 target takes two turns.
-      inputTokenLimit: 6000,
+      // Target 35,000: reclaiming 25,036 of 60,036 takes three turns.
+      inputTokenLimit: 50_000,
       summarize: async () => {
         throw new Error('provider unavailable');
       },
     });
     expect(committed).toEqual([
       {
-        compactedRunIds: ['run-0', 'run-1'],
+        compactedRunIds: ['run-0', 'run-1', 'run-2'],
         kind: 'deterministic',
         reason: 'pre-request',
         runId: 'run-5',
         summary:
-          'Deterministic fallback: dropped 2 earlier turns (4 messages) after an agentic summarizer failure; no summarization model ran.',
+          'Deterministic fallback: dropped 3 earlier turns (6 messages) after an agentic summarizer failure; no summarization model ran.',
         type: 'context.compacted',
       },
     ]);
-    expect(prepared.messages[0]).toEqual({ content: 'question 2', role: 'user' });
+    expect(prepared.messages[0]).toEqual({ content: 'question 3', role: 'user' });
     expect(prepared.note).toContain(committed[0]?.summary);
   });
 
-  it('keeps the usage of a schema-violating summary on the deterministic fallback', async () => {
+  it('keeps the receipt of a schema-violating summary on the deterministic fallback', async () => {
     const { committed } = await pastTrigger({
       summarize: async () => {
-        throw new HostContextSummarySchemaError({ inputTokens: 300, outputTokens: 12 });
+        throw new HostContextSummarySchemaError(receipt);
       },
     });
-    expect(committed[0]).toMatchObject({
-      kind: 'deterministic',
-      usage: { inputTokens: 300, outputTokens: 12 },
-    });
+    expect(committed[0]).toMatchObject({ kind: 'deterministic', ...receipt });
   });
 
   it('commits nothing when the run aborts during summarization', async () => {

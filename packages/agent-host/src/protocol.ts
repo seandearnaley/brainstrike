@@ -403,21 +403,18 @@ export const HostEventSchema = z.union([
   }),
   /**
    * Host-committed overlay from the run that made it: later requests replace
-   * these turns with `summary`. `usage` is the summarizer's own model usage.
+   * these turns with `summary`. When a summarizer model ran, `modelId` and
+   * `usage` are its side-call receipt, in `memory.usage`'s shape.
    */
   z.strictObject({
     type: z.literal('context.compacted'),
     ...RunFields,
     compactedRunIds: z.array(Id).min(1),
     kind: z.enum(['agentic', 'deterministic']),
+    modelId: Id.optional(),
     reason: z.literal('pre-request'),
     summary: z.string().min(1),
-    usage: z
-      .strictObject({
-        inputTokens: z.number().int().nonnegative(),
-        outputTokens: z.number().int().nonnegative(),
-      })
-      .optional(),
+    usage: z.json().optional(),
   }),
   z.strictObject({
     type: z.literal('workspace.edit.recorded'),

@@ -190,41 +190,48 @@ function compactionOf(events: readonly HostEvent[]) {
   return compaction;
 }
 
+// 12 earlier turns of ~10,000 estimated tokens against a 100,000-token budget:
+// past the trigger, with the newest 20,000 tokens (answer-10, answer-11) protected.
+const TURNS = 12;
+const ANSWER_CHARS = 40_000;
+const BUDGET = 100_000;
+
 test('a thread longer than its input budget commits an agentic summary of its earlier turns before the request', async () => {
   const { requests } = stubProvider(SUMMARY);
-  // 12 earlier turns of ~2,500 estimated tokens against a 20,000-token budget.
-  const host = await longThreadHost(12, 10_000, 20_000);
+  const host = await longThreadHost(TURNS, ANSWER_CHARS, BUDGET);
   const { events } = await host.run('Latest question');
 
   const compaction = compactionOf(events);
   expect(compaction).toMatchObject({
     kind: 'agentic',
+    modelId,
     reason: 'pre-request',
     summary: SUMMARY,
-    usage: { inputTokens: 42, outputTokens: 9 },
+    usage: { inputTokens: 42, outputTokens: 9, totalTokens: 51 },
   });
-  // Every earlier turn except the previous one (answer-11).
-  expect(compaction.compactedRunIds).toHaveLength(11);
+  expect(compaction.compactedRunIds).toHaveLength(10);
   expect(requests).toHaveLength(2);
   const [summarizer, request] = requests.map((body) => JSON.stringify(body));
   expect(summarizer).toContain('Create a concise conversation state summary');
   expect(summarizer).toContain('answer-0 ');
-  expect(summarizer).toContain('answer-10 ');
-  expect(summarizer).not.toContain('answer-11 ');
+  expect(summarizer).toContain('answer-9 ');
+  expect(summarizer).not.toContain('answer-10 ');
   expect(request).not.toContain('answer-0 ');
-  expect(request).not.toContain('answer-10 ');
+  expect(request).not.toContain('answer-9 ');
+  expect(request).toContain('answer-10 ');
   expect(request).toContain('answer-11 ');
   expect(request).toContain('State: twelve earlier questions were answered.');
 });
 
 test('a summarizer answer outside the five-section schema commits the labelled deterministic fallback', async () => {
   const { requests } = stubProvider('Just a sentence.');
-  const host = await longThreadHost(12, 10_000, 20_000);
+  const host = await longThreadHost(TURNS, ANSWER_CHARS, BUDGET);
   const { events } = await host.run('Latest question');
 
   const compaction = compactionOf(events);
   expect(compaction).toMatchObject({
     kind: 'deterministic',
+    modelId,
     usage: { inputTokens: 42, outputTokens: 9 },
   });
   expect(compaction.summary).toContain('after an agentic summarizer failure');
