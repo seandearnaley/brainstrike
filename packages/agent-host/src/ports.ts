@@ -291,6 +291,11 @@ export interface HostMcpRuntime {
   executableTools(request: HostMcpToolRequest): Promise<HostMcpToolSelection>;
 }
 export interface HostTool {
+  /**
+   * A system note this tool contributes before each step, from its thread's
+   * committed tool state (the legacy `<current-task-list>` re-injection).
+   */
+  readonly contextNote?: (state: Pick<HostToolState, 'entries' | 'read'>) => string | undefined;
   readonly description: string;
   execute(input: unknown, context: HostToolContext): Promise<unknown>;
   /** Existing executor/server-generation identity, bound into pending decisions. */
