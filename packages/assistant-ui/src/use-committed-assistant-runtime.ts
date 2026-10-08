@@ -4,7 +4,7 @@ import {
   type ThreadMessage,
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
-import { useCallback, useMemo, useReducer, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useReducer, useState, useSyncExternalStore } from 'react';
 import {
   bindCommittedAssistantCommands,
   type CommittedAssistantCommands,
@@ -53,12 +53,40 @@ export function useCommittedAssistantRuntime({
     () => bindCommittedAssistantCommands(store, commands, reportCommandError),
     [store, commands, reportCommandError]
   );
+  // Branch selection is view state over the committed tree. The installed
+  // vendor shows a switched branch only when the repository it is given heads
+  // there, so an accepted selection is published as the head until the
+  // committed head moves (a new run). The owner's port admits it first; a
+  // rejection keeps the committed head.
+  const [selection, select] = useState<{
+    readonly committedHeadId: string | null | undefined;
+    readonly headId: string | null;
+  }>();
+  const setMessages = useMemo(() => {
+    const owner = ports.setMessages;
+    return owner
+      ? (messages: readonly ThreadMessage[]): void => {
+          owner(messages);
+          select({
+            committedHeadId: store.getSnapshot().repository.headId,
+            headId: messages.at(-1)?.id ?? null,
+          });
+        }
+      : undefined;
+  }, [ports.setMessages, store]);
+  const selectedHeadId =
+    selection && selection.committedHeadId === snapshot.repository.headId
+      ? selection.headId
+      : snapshot.repository.headId;
   // Branch/import can move the vendor's local head before a rejected command.
   // A fresh repository envelope forces its public snapshot path to adopt the
   // canonical fold again. Message/part/approval objects are never copied.
   const repository = useMemo(
-    () => ({ ...snapshot.repository }),
-    [snapshot.repository, snapshot.connection, snapshot.error, resync]
+    () =>
+      selectedHeadId === undefined
+        ? { ...snapshot.repository }
+        : { ...snapshot.repository, headId: selectedHeadId },
+    [snapshot.repository, snapshot.connection, snapshot.error, resync, selectedHeadId]
   );
   return useExternalStoreRuntime<ThreadMessage>({
     ...ports,
@@ -72,7 +100,7 @@ export function useCommittedAssistantRuntime({
     // Installed branch switching checks this port before moving its local head.
     setMessages:
       snapshot.connection === 'connected' && snapshot.error === undefined && !snapshot.isDisabled
-        ? ports.setMessages
+        ? setMessages
         : undefined,
     state: snapshot.state,
   });

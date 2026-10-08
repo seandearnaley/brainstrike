@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { AppendMessage } from '@assistant-ui/react';
 import {
   type AgentHost,
   attachAgentHost,
@@ -28,6 +29,7 @@ import {
 import { committedRunIdentity } from '@brainstrike/agent-host/committed-identities';
 import { scriptedModel } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import { CommittedAssistantLogStore } from '@brainstrike/assistant-ui';
 import { afterEach, expect, test } from 'vitest';
 import { createCommittedHostConversation } from '../renderer/committed-host-conversation';
 
@@ -187,5 +189,153 @@ test('the desktop committed conversation offers Regenerate and Edit through the 
     // connection are written in order, so this round-trip joins that write
     // before the client closes; otherwise the writer rejects unhandled.
     await first.client.request('thread/list', {});
+  }
+});
+
+/** A fresh client fold of exactly these committed rows, with the production identities. */
+function freshFold(rows: readonly HostLogRow[], threadId: string) {
+  const store = new CommittedAssistantLogStore({
+    identifyRun: (row) => {
+      const runId = row.event['runId'];
+      if (typeof runId !== 'string') {
+        throw new Error('Committed conversation has no run identity');
+      }
+      return committedRunIdentity(rows, runId);
+    },
+    source: {
+      getSnapshot: () => ({ connected: true, error: undefined, rows }),
+      subscribe: () => () => undefined,
+    },
+    threadId,
+  });
+  const { repository } = store.getSnapshot();
+  store.dispose();
+  return repository;
+}
+
+/** An edit as the installed vendor hands it to the adapter's onEdit port. */
+function editOf(text: string, parentId: string | null, sourceId: string): AppendMessage {
+  return {
+    attachments: [],
+    content: [{ text, type: 'text' }],
+    createdAt: new Date(),
+    metadata: { custom: {} },
+    parentId,
+    role: 'user',
+    runConfig: undefined,
+    sourceId,
+  };
+}
+
+test('the live desktop view equals a fresh fold of the committed log at every resume point, across a restart', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-branch-replay-'));
+  roots.push(root);
+  const model = scriptedModel();
+  const platform = {
+    close: async () => undefined,
+    maxSteps: 3,
+    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
+    resolveModel: async () => model,
+    tools: {},
+  };
+  let host = await startAgentHost({ lifetime: 'persistent', root }, platform);
+  hosts.push(host);
+  let client = await attachAgentHost(host.record);
+  clients.push(client);
+  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+  let live = createCommittedHostConversation({ client, modelId: 'scripted', threadId });
+  /** Wait for the live view to settle on `runId`, then compare it with a fresh fold. */
+  const resumePoint = async (runId: string) => {
+    const rows = await finishedRows(client, threadId, runId);
+    await expect
+      .poll(
+        () =>
+          !live.store.getSnapshot().isRunning &&
+          live.store
+            .getCommittedView()
+            .repository.messages.some(
+              ({ message }) => message.id === runId && message.status?.type !== 'running'
+            )
+      )
+      .toBe(true);
+    expect(live.store.getSnapshot().repository).toEqual(freshFold(rows, threadId));
+    return rows;
+  };
+  /** The run the latest command admitted: a committed run.started not seen before. */
+  const known = new Set<string>();
+  const admitted = async (): Promise<string> => {
+    let runId: string | undefined;
+    await expect
+      .poll(async () => {
+        const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
+        runId = rows.flatMap(({ event }) =>
+          event.type === 'run.started' && !known.has(event.runId) ? [event.runId] : []
+        )[0];
+        return runId;
+      })
+      .toBeTypeOf('string');
+    known.add(String(runId));
+    return String(runId);
+  };
+  const close = async () => {
+    live.close();
+    // Join the view's unsubscribe write before the client closes.
+    await client.request('thread/list', {});
+  };
+  try {
+    const { runId: first } = await client.request('run/start', {
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'First question',
+      threadId,
+    });
+    known.add(first);
+    await resumePoint(first);
+    const { runId: second } = await client.request('run/start', {
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Second question',
+      threadId,
+    });
+    known.add(second);
+    const afterSecond = await resumePoint(second);
+    const secondUser = committedRunIdentity(afterSecond, second).userMessageId;
+
+    // The shipped controls' ports: Regenerate, then an edit of the same message.
+    await live.commands.onReload?.(secondUser, {
+      parentId: secondUser,
+      runConfig: {},
+      sourceId: second,
+    });
+    const regenerated = await admitted();
+    await resumePoint(regenerated);
+    await live.commands.onEdit?.(editOf('Second question, edited', first, secondUser));
+    const edited = await admitted();
+    const afterEdit = await resumePoint(edited);
+    expect(committedRunIdentity(afterEdit, edited).parentMessageId).toBe(first);
+    const before = live.store.getSnapshot().repository;
+
+    // Restart: a new host and view over the same Root fold the same tree.
+    await close();
+    await client.close();
+    await host.close();
+    host = await startAgentHost({ lifetime: 'persistent', root }, platform);
+    hosts.push(host);
+    client = await attachAgentHost(host.record);
+    clients.push(client);
+    live = createCommittedHostConversation({ client, modelId: 'scripted', threadId });
+    await resumePoint(edited);
+    expect(live.store.getSnapshot().repository).toEqual(before);
+
+    // A send from the regenerated branch continues it after the restart.
+    await live.commands.onNew?.({
+      ...editOf('Third question', regenerated, ''),
+      sourceId: null,
+    });
+    const continued = await admitted();
+    const afterContinue = await resumePoint(continued);
+    expect(committedRunIdentity(afterContinue, continued).parentMessageId).toBe(regenerated);
+  } finally {
+    await close();
   }
 });
