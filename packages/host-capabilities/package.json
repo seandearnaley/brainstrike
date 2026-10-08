@@ -9,7 +9,12 @@
   "engines": { "node": ">=24.20.0 <25 || >=26.8.2 <27" },
   "exports": {
     ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "./platform": { "types": "./dist/platform.d.ts", "default": "./dist/platform.js" }
+    "./credentials": { "types": "./dist/credentials.d.ts", "default": "./dist/credentials.js" },
+    "./platform": { "types": "./dist/platform.d.ts", "default": "./dist/platform.js" },
+    "./provider-credentials": {
+      "types": "./dist/provider-credentials.d.ts",
+      "default": "./dist/provider-credentials.js"
+    }
   },
   "files": ["bin", "dist"],
   "scripts": {
@@ -27,6 +32,7 @@
     "@brainstrike/assistant-data": "workspace:*",
     "@brainstrike/assistant-service": "workspace:*",
     "@brainstrike/host-lease": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {

@@ -8,22 +8,55 @@ import {
 } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import {
+  ASSISTANT_THREAD_COLOR_IDS,
+  ASSISTANT_THREAD_ICON_IDS,
   type AssistantMemoryThread,
+  type AssistantThreadColorId,
+  type AssistantThreadIconId,
   type AssistantThreadMetadata,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
+import { createLogger } from '@brainstrike/logging';
 import { connectDesktopAgentHost } from './agent-host-client';
 import { HostThreadRuns } from './host-thread-runs';
 
 /** Workspace views and binding changes are thread state, not conversation activity. */
 const WORKSPACE_COMMANDS = new Set(['thread/workspace/set', 'thread/workspace/binding/update']);
+const logger = createLogger('DesktopHostThreads');
+
+/** The catalog's committed title, colour and icon (each absent until set). */
+interface HostPresentation {
+  readonly color?: string;
+  readonly icon?: string;
+  readonly title?: string;
+}
+
+const isColor = (value: string): value is AssistantThreadColorId =>
+  (ASSISTANT_THREAD_COLOR_IDS as readonly string[]).includes(value);
+const isIcon = (value: string): value is AssistantThreadIconId =>
+  (ASSISTANT_THREAD_ICON_IDS as readonly string[]).includes(value);
+
+/** Committed colour and icon this renderer can draw; an unknown ID is reported, not drawn. */
+function presentedMetadata(threadId: string, { color, icon }: HostPresentation) {
+  if ((color !== undefined && !isColor(color)) || (icon !== undefined && !isIcon(icon))) {
+    logger.warn('Host thread has a colour or icon this renderer cannot draw', {
+      color,
+      icon,
+      threadId,
+    });
+  }
+  return {
+    ...(color !== undefined && isColor(color) ? { color } : {}),
+    ...(icon !== undefined && isIcon(icon) ? { icon } : {}),
+  };
+}
 
 /** Transient display projection of the owner's committed identity, binding and timestamps. */
 function projectThread(
   threadId: string,
   resourceId: string,
   rows: readonly HostLogRow[],
-  title: string | undefined
+  presentation: HostPresentation
 ): AssistantMemoryThread {
   const started = rows.find((row) => row.event.type === 'thread.started');
   if (started?.ts === undefined) {
@@ -37,20 +70,25 @@ function projectThread(
   );
   // Each committed binding event carries the full merged binding.
   const bound = rows.findLast((row) => row.event.type === 'workspace.binding.updated');
+  const metadata = {
+    ...(bound?.event.type === 'workspace.binding.updated' ? bound.event.binding : {}),
+    ...presentedMetadata(threadId, presentation),
+  };
   return {
     createdAt: new Date(started.ts),
     id: threadId,
-    ...(bound?.event.type === 'workspace.binding.updated' ? { metadata: bound.event.binding } : {}),
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     resourceId,
-    title: title ?? DEFAULT_THREAD_TITLE,
+    title: presentation.title ?? DEFAULT_THREAD_TITLE,
     updatedAt: new Date(latest?.ts ?? started.ts),
   };
 }
 
 /**
- * The host owns only the thread workspace binding keys. Any other key (colour,
- * icon, model…) has no host owner yet and is refused here, before a request,
- * rather than reaching a history repository that has no row for this thread.
+ * The host owns the thread workspace binding keys (and colour and icon, through
+ * `thread/update`). Any other key (model…) has no host owner yet and is refused
+ * here, before a request, rather than reaching a history repository that has
+ * no row for this thread.
  */
 function bindingPatch(metadata: AssistantThreadMetadata): ThreadWorkspaceBinding {
   const parsed = ThreadWorkspaceBindingSchema.safeParse(metadata);
@@ -124,11 +162,11 @@ export function createWindowThreadCapability(
     const host = await client();
     const catalog = await host.request('thread/list', {});
     const projected = await Promise.all(
-      catalog.threads.map(async ({ threadId, title }) => {
+      catalog.threads.map(async ({ threadId, ...presentation }) => {
         const { rows } = await host.request('thread/read', { fromSeq: 0, threadId });
         threads.set(threadId, host);
         runs.accept(threadId, rows);
-        return projectThread(threadId, resourceId, rows, title);
+        return projectThread(threadId, resourceId, rows, presentation);
       })
     );
     catalogLoaded = true;
@@ -160,7 +198,7 @@ export function createWindowThreadCapability(
       const { threadId } = await host.request('thread/start', { commandId: crypto.randomUUID() });
       const { rows } = await host.request('thread/read', { fromSeq: 0, threadId });
       threads.set(threadId, host);
-      return projectThread(threadId, resourceId, rows, undefined);
+      return projectThread(threadId, resourceId, rows, {});
     },
     deleteThread: async (threadId) => {
       const host = await client();
@@ -180,7 +218,7 @@ export function createWindowThreadCapability(
       if (!host) {
         throw new Error('This thread is not owned by the agent host');
       }
-      await host.request('thread/rename', { commandId: crypto.randomUUID(), threadId, title });
+      await host.request('thread/update', { commandId: crypto.randomUUID(), threadId, title });
     },
     renderThread: (threadId, _isVisible, onRunningChange) =>
       renderThread({
@@ -197,16 +235,27 @@ export function createWindowThreadCapability(
       return () => titleListeners.delete(listener);
     },
     updateThreadBinding: async (threadId, metadata) => {
-      const patch = bindingPatch(metadata);
+      const { color, icon, ...binding } = metadata;
+      const patch = Object.keys(binding).length > 0 ? bindingPatch(binding) : undefined;
       const host = await threadClient(threadId);
       if (!host) {
         throw new Error('This thread is not owned by the agent host');
       }
-      await host.request('thread/workspace/binding/update', {
-        commandId: crypto.randomUUID(),
-        patch,
-        threadId,
-      });
+      if (color !== undefined || icon !== undefined) {
+        await host.request('thread/update', {
+          commandId: crypto.randomUUID(),
+          ...(color === undefined ? {} : { color }),
+          ...(icon === undefined ? {} : { icon }),
+          threadId,
+        });
+      }
+      if (patch) {
+        await host.request('thread/workspace/binding/update', {
+          commandId: crypto.randomUUID(),
+          patch,
+          threadId,
+        });
+      }
     },
     workspaceRepository: (history) => {
       const getThreadWorkspace = async (threadId: string) => {

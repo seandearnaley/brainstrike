@@ -500,10 +500,9 @@ export function registerSecretsIpcHandlers(
 
       if (isTestMode()) {
         testModeSecrets.clear();
-        await options.onClearAll?.();
-        return { success: true };
       }
-
+      // Test mode also wipes the profile store: its disposable file holds the
+      // provider, OAuth-engine and MCP bearer entries Main and the host share.
       try {
         const result = await secrets.clearAll();
         return { success: result };

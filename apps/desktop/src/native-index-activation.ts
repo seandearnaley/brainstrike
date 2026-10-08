@@ -13,7 +13,7 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { getDatabase } from './db-main';
 import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
 import type { EmbeddingHostManager } from './embedding-host-manager';
-import { createDesktopHostLease, type DesktopHostLeaseOptions } from './host-lease-manager';
+import { createDesktopHostLease, type DesktopAgentHostPlatform } from './host-lease-manager';
 import { generateHostedEmbeddings } from './hosted-embeddings';
 import {
   acquireIndexerHost,
@@ -69,7 +69,7 @@ import {
 
 type WithoutSource<T> = T extends unknown ? Omit<T, 'source'> : never;
 interface Dependencies {
-  readonly agentHostPlatform?: Pick<DesktopHostLeaseOptions, 'platform' | 'platformModule'>;
+  readonly agentHostPlatform?: DesktopAgentHostPlatform;
   readonly application: ApplicationIpcDomain;
   readonly embedding: Pick<EmbeddingHostManager, 'documentEmbeddings'>;
   readonly onError: (operation: string, error: unknown) => void;
