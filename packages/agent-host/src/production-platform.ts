@@ -175,7 +175,7 @@ export async function createProductionHostPlatform(
   await options.startup.register(close);
   // The host owns its derived state index: thread deletion, purge and blob GC need it.
   stateIndex = openHostStateIndex(options.startup.store.root);
-  const { indexer } = await stateIndex;
+  const index = await stateIndex;
   return {
     admitRun: async (request) => {
       if (closing) {
@@ -286,6 +286,7 @@ export async function createProductionHostPlatform(
     },
     close,
     readPermissionPolicy: options.readPermissionPolicy,
-    stateIndexer: indexer,
+    searchHistory: (request) => index.search(request),
+    stateIndexer: index.indexer,
   };
 }

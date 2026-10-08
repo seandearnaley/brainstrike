@@ -80,7 +80,19 @@ export const HostRunSnapshotSchema = z.strictObject({
   workspaceBinding: ThreadWorkspaceBindingSchema.optional(),
 });
 export type HostRunSnapshot = z.infer<typeof HostRunSnapshotSchema>;
+/** One ranked committed-text hit in this host's derived state index. */
+export const HostHistoryHitSchema = z.strictObject({
+  seq: z.number().int().positive(),
+  snippet: z.string(),
+  threadId: Id,
+});
+export type HostHistoryHit = z.infer<typeof HostHistoryHitSchema>;
 export const HOST_METHOD_SCHEMAS = {
+  /** Ranked committed text across this host's threads; each word is a literal term. */
+  'history/search': z.strictObject({
+    limit: z.number().int().positive().max(100),
+    query: z.string().regex(/\S/u),
+  }),
   'host/stop': z.strictObject({}),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -297,6 +309,7 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  'history/search': z.strictObject({ hits: z.array(HostHistoryHitSchema) }),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
     hostVersion: Id,
