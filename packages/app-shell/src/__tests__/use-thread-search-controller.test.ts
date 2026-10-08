@@ -108,9 +108,19 @@ describe('useThreadSearchController', () => {
 
   it('adds host history hits as their own thread results, best thread first', async () => {
     const searchHistory = vi.fn(async () => [
-      { seq: 4, snippet: 'plan the hnsw rebuild', threadId: 'host-thread-b' },
-      { seq: 9, snippet: 'hnsw rebuild finished', threadId: 'host-thread-a' },
-      { seq: 2, snippet: 'why hnsw', threadId: 'host-thread-b' },
+      {
+        seq: 4,
+        snippet: 'plan the hnsw rebuild',
+        threadId: 'host-thread-b',
+        ts: 1_791_458_453_960,
+      },
+      {
+        seq: 9,
+        snippet: 'hnsw rebuild finished',
+        threadId: 'host-thread-a',
+        ts: 1_791_458_460_000,
+      },
+      { seq: 2, snippet: 'why hnsw', threadId: 'host-thread-b', ts: 1_791_458_400_000 },
     ]);
     renderController(createRepository(), createEmbedder(), null, searchHistory);
 
@@ -130,7 +140,7 @@ describe('useThreadSearchController', () => {
     expect(hostResults?.[0]?.matches).toEqual([
       expect.objectContaining({
         headline: 'plan the hnsw rebuild',
-        messageCreatedAt: null,
+        messageCreatedAt: new Date(1_791_458_453_960),
         messageId: 'host-thread-b:4',
         role: 'history',
       }),

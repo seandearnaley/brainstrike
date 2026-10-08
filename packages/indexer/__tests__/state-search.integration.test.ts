@@ -39,6 +39,9 @@ it('searches committed text across the requested threads with literal, bounded, 
       )
     );
 
+    // Each hit carries its row's committed run_events time from the truth log.
+    const committedAt = async (threadId: string): Promise<number | undefined> =>
+      (await store.read(threadId)).find((row) => row.seq === started.seq)?.ts;
     const hits = await port.searchState({
       limit: 10,
       query: 'fixture tool',
@@ -46,13 +49,17 @@ it('searches committed text across the requested threads with literal, bounded, 
     });
     expect(hits).toEqual(
       expect.arrayContaining(
-        [first, second].map((threadId) => ({
-          seq: started.seq,
-          snippet: expect.stringContaining('fixture tool'),
-          threadId,
-        }))
+        await Promise.all(
+          [first, second].map(async (threadId) => ({
+            seq: started.seq,
+            snippet: expect.stringContaining('fixture tool'),
+            threadId,
+            ts: await committedAt(threadId),
+          }))
+        )
       )
     );
+    expect(hits.every((hit) => Number.isInteger(hit.ts) && hit.ts > 0)).toBe(true);
     expect(hits.map((hit) => hit.threadId)).not.toContain(unrequested);
 
     // User text is literal terms, never FTS5 query syntax: as syntax this is an

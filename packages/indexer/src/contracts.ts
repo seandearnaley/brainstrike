@@ -109,10 +109,16 @@ export const stateSearchSchema = Schema.Struct({
   threads: stateThreadsSchema,
 });
 export type StateSearchRequest = typeof stateSearchSchema.Type;
-export const stateSearchHitSchema = Schema.Struct({
+/** A ranked FTS row before its committed time is read from truth. */
+export const stateSearchRankSchema = Schema.Struct({
   seq: positive,
   snippet: Schema.String,
   threadId: nonblank,
+});
+export const stateSearchHitSchema = Schema.Struct({
+  ...stateSearchRankSchema.fields,
+  /** The row's committed run_events time (ms), read from truth at query time. */
+  ts: nonnegative,
 });
 export type StateSearchHit = typeof stateSearchHitSchema.Type;
 export const stateHealthSchema = Schema.Struct({ indexerErrors: Schema.Array(Schema.String) });

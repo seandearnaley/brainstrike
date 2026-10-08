@@ -86,6 +86,8 @@ export const HostHistoryHitSchema = z.strictObject({
   seq: z.number().int().positive(),
   snippet: z.string(),
   threadId: Id,
+  /** The matched row's committed run_events time, like `HostLogRow.ts`. */
+  ts: z.number().int().nonnegative(),
 });
 export type HostHistoryHit = z.infer<typeof HostHistoryHitSchema>;
 export const HOST_METHOD_SCHEMAS = {

@@ -83,11 +83,9 @@ function SearchResultRow({
               <span className="min-w-0 flex-1 truncate">
                 {match.headline ? renderMarkedText(match.headline) : null}
               </span>
-              {match.messageCreatedAt ? (
-                <span className="shrink-0 text-[10px] opacity-70">
-                  {formatMatchDate(match.messageCreatedAt)}
-                </span>
-              ) : null}
+              <span className="shrink-0 text-[10px] opacity-70">
+                {formatMatchDate(match.messageCreatedAt)}
+              </span>
             </li>
           ))}
         </ul>

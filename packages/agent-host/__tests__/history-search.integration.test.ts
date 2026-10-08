@@ -60,10 +60,15 @@ test('history/search finds committed text across host threads and forgets a dele
     const { threadId: empty } = await client.request('thread/start', { commandId: randomUUID() });
 
     const byTool = await client.request('history/search', { limit: 20, query: 'fixture tool' });
+    const committedAt = (
+      await client.request('thread/read', { fromSeq: 0, threadId: toolThread })
+    ).rows.find((row) => row.seq === toolStarted.seq)?.ts;
+    expect(committedAt).toEqual(expect.any(Number));
     expect(byTool.hits).toContainEqual({
       seq: toolStarted.seq,
       snippet: expect.stringContaining('fixture tool'),
       threadId: toolThread,
+      ts: committedAt,
     });
     expect(new Set(byTool.hits.map((hit) => hit.threadId))).toEqual(new Set([toolThread]));
 
@@ -74,6 +79,7 @@ test('history/search finds committed text across host threads and forgets a dele
           seq,
           snippet: expect.stringContaining('committed run'),
           threadId: runsThread,
+          ts: expect.any(Number),
         }))
       )
     );

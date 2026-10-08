@@ -13,6 +13,7 @@ import {
   stateGcSchema,
   stateMatchSchema,
   stateSearchHitSchema,
+  stateSearchRankSchema,
   stateSearchSchema,
   stateStatsSchema,
   stateThreadsSchema,
@@ -375,7 +376,7 @@ export class StateEventStore {
       return [];
     }
     this.catchUp(threads);
-    return decoder(Schema.Array(stateSearchHitSchema))(
+    const ranked = decoder(Schema.Array(stateSearchRankSchema))(
       this.db
         .prepare(
           `SELECT e.thread_id AS threadId,e.seq,snippet(state_events_fts,0,'','','…',16) AS snippet
@@ -385,6 +386,19 @@ export class StateEventStore {
         )
         .all(literalTerms(query), JSON.stringify([...new Set(threads)]), limit)
     );
+    return decoder(Schema.Array(stateSearchHitSchema))(
+      ranked.map((hit) => ({ ...hit, ts: this.committedAt(hit.threadId, hit.seq) }))
+    );
+  }
+
+  /** The verified truth row's committed time; an indexed event without one is a gap, never 0. */
+  private committedAt(threadId: string, seq: number): number {
+    for (const item of this.truth.read(threadId, seq, seq)) {
+      if (item.kind === 'event' && item.seq === seq) {
+        return item.ts;
+      }
+    }
+    throw new Error('State truth has no verified committed row for an indexed event');
   }
 
   recordFailure(error: unknown): void {

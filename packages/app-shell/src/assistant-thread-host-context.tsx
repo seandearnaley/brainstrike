@@ -27,6 +27,8 @@ export interface AssistantThreadHistoryHit {
   readonly seq: number;
   readonly snippet: string;
   readonly threadId: string;
+  /** The matched row's committed time (epoch ms). */
+  readonly ts: number;
 }
 
 /** A host app supplies committed thread identity and its connected presentation. */
