@@ -85,3 +85,49 @@ test('an id the host has never heard of is historical only after the host says s
   await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
   expect(await capability.ownsThread('historical-pglite-thread')).toBe(false);
 });
+
+test('a renamed host thread keeps its title across a reload, a second client and a host restart', async () => {
+  vi.stubGlobal('window', frame);
+  root = await mkdtemp(join(tmpdir(), 'bs-m3-cross-client-rename-'));
+  const platform = {
+    close: async () => undefined,
+    readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
+  };
+  host = await startAgentHost({ lifetime: 'persistent', root }, platform);
+  connect.mockResolvedValueOnce(await attachAgentHost(host.record));
+  const capability = createWindowThreadCapability(() => undefined);
+  const renameHistory = vi.fn<AssistantThreadRepository['renameThread']>();
+  const repository = withAssistantThreadHost(
+    { renameThread: renameHistory } as unknown as AssistantThreadRepository,
+    capability
+  );
+  const created = await capability.createThread(WORKSPACE_MEMORY_RESOURCE_ID);
+  await repository.renameThread(created.id, 'Release plan');
+  expect(renameHistory).not.toHaveBeenCalled();
+
+  // A reload: this window's client closes and a fresh window lists the catalog.
+  frame.dispatchEvent(new Event('beforeunload'));
+  connect.mockResolvedValueOnce(await attachAgentHost(host.record));
+  const reloaded = createWindowThreadCapability(() => undefined);
+  expect(await reloaded.listThreads(WORKSPACE_MEMORY_RESOURCE_ID)).toEqual([
+    expect.objectContaining({ id: created.id, title: 'Release plan' }),
+  ]);
+
+  // A second client (another window or the CLI) sees the committed title.
+  other = await attachAgentHost(host.record);
+  expect((await other.request('thread/list', {})).threads).toEqual([
+    { threadId: created.id, title: 'Release plan' },
+  ]);
+
+  // A host restart folds the same title from the log.
+  frame.dispatchEvent(new Event('beforeunload'));
+  await other.close();
+  other = undefined;
+  await host.close();
+  host = await startAgentHost({ lifetime: 'persistent', root }, platform);
+  connect.mockResolvedValueOnce(await attachAgentHost(host.record));
+  const restarted = createWindowThreadCapability(() => undefined);
+  expect(await restarted.listThreads(WORKSPACE_MEMORY_RESOURCE_ID)).toEqual([
+    expect.objectContaining({ id: created.id, title: 'Release plan' }),
+  ]);
+});

@@ -79,6 +79,7 @@ export function bindHostConnection(
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
   handle('thread/delete', (params) => core.deleteThread(params));
+  handle('thread/rename', (params) => core.renameThread(params));
   handle('thread/read', async (params) => ({
     rows: await core.read(params.threadId, params.fromSeq),
   }));
@@ -87,6 +88,7 @@ export function bindHostConnection(
   handle('thread/workspace/binding/read', (params) => core.readWorkspaceBinding(params.threadId));
   handle('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
   handle('run/start', (params) => core.startRun(params));
+  handle('run/regenerate', (params) => core.regenerateRun(params));
   handle('run/stop', (params) => core.stop(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));

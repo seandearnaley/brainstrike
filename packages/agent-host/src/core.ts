@@ -25,9 +25,8 @@ import {
 } from './core-run-lifecycle.js';
 import {
   createHostRunContext,
-  createHostRunState,
   foldHostAcceptedCommand,
-  foldHostConversationMessages,
+  foldHostInteraction,
   HostCommandLedger,
   hasHostInteractionResponse,
   type HostRunState as Run,
@@ -48,7 +47,6 @@ import {
 import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.js';
 import {
   acquireHostRunAdmission,
-  assertHostRunStartAvailable,
   closeHostRunResources,
   createAdmittedHostSdkTools,
   decideHostSdkApproval,
@@ -57,6 +55,19 @@ import {
   hostRunTools,
   prepareHostProviderStep,
 } from './run-admission.js';
+import {
+  admittedHostRun,
+  assertHostRunAdmissible,
+  foldHostConversationMessages,
+  foldHostRunAdmission,
+  foldHostStartedRun,
+  type HostRunAdmissionCommand,
+  type HostRunPosition,
+  hostRegeneratePosition,
+  hostRunAncestors,
+  hostRunContext,
+  hostStartPosition,
+} from './run-branch.js';
 
 import {
   commitHostInteractionResponse,
@@ -65,6 +76,7 @@ import {
   finishApprovedHostResults,
   resolveHostApprovalInput,
 } from './run-continuation.js';
+import { HostThreadTitleState } from './thread-title-state.js';
 import { HostThreadWorkspaceState } from './workspace-state.js';
 
 export { jsonValue } from './json-value.js';
@@ -81,6 +93,16 @@ export class HostCore {
   private readonly commands = new HostCommandLedger();
   private readonly mcpInputs = new HostMcpInputState();
   private readonly threads = new Set<string>();
+  private readonly titles = new HostThreadTitleState((params, event) =>
+    this.accept(
+      params.threadId,
+      'thread/rename',
+      params,
+      { accepted: true },
+      [event],
+      this.foldRows
+    )
+  );
   private readonly workspaces = new HostThreadWorkspaceState((method, params, event, durability) =>
     this.accept(
       params.threadId,
@@ -93,7 +115,7 @@ export class HostCore {
     )
   );
   private readonly runs = new Map<string, Run>();
-  private readonly messages = new Map<string, ModelMessage[]>();
+  private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
   private readonly listeners = new Set<(row: HostLogRow) => void>();
   private readonly pendingAdmissions = new Map<AbortController, string>();
@@ -160,54 +182,25 @@ export class HostCore {
 
   private fold(row: HostLogRow): void {
     this.mcpInputs.fold(row);
+    this.titles.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
     switch (event.type) {
       case 'command.accepted':
         foldHostAcceptedCommand(this.commands, this.runs, event, row.threadId);
-        if (event.method === 'run/start') {
-          recordHostConversationId(this.conversationIds, event.commandId);
-        }
+        foldHostRunAdmission(this.admittedRuns, this.conversationIds, event);
         break;
       case 'run.started':
-        recordHostConversationId(this.conversationIds, event.runId);
-        this.runs.set(
-          event.runId,
-          createHostRunState(row.threadId, event.runId, event.modelId, event.snapshot)
-        );
-        this.messages.set(row.threadId, [
-          ...(this.messages.get(row.threadId) ?? []),
-          { content: event.prompt, role: 'user' },
-        ]);
+        foldHostStartedRun(this.admittedRuns, this.conversationIds, this.runs, row.threadId, event);
         break;
       case 'model.step':
       case 'model.messages':
-        foldHostConversationMessages(this.messages, this.runs, row.threadId, event);
+        foldHostConversationMessages(this.runs, event);
         break;
-      case 'interaction.requested': {
-        const run = this.runs.get(event.runId);
-        if (!run) {
-          throw new Error('Interaction references an unknown run');
-        }
-        const runtimeInput = run.liveInputs.get(event.toolCallId);
-        run.approvals.set(event.interactionId, {
-          event,
-          ...(runtimeInput ? { runtimeInput } : {}),
-        });
-        run.paused = true;
+      case 'interaction.requested':
+      case 'interaction.responded':
+        foldHostInteraction(this.runs, event);
         break;
-      }
-      case 'interaction.responded': {
-        const approval = this.runs.get(event.runId)?.approvals.get(event.interactionId);
-        if (approval) {
-          if ('decision' in event) {
-            approval.decision = event.decision;
-          } else {
-            approval.resumeData = event.resumeData;
-          }
-        }
-        break;
-      }
       case 'effect.started':
         this.runs.get(event.runId)?.started.add(event.toolCallId);
         break;
@@ -253,8 +246,12 @@ export class HostCore {
     return () => this.listeners.delete(listener);
   }
 
-  listThreads(): { threadId: string }[] {
-    return [...this.threads].map((threadId) => ({ threadId }));
+  listThreads(): HostResults['thread/list']['threads'] {
+    return [...this.threads].map((threadId) => ({ threadId, ...this.titles.read(threadId) }));
+  }
+
+  renameThread(params: HostParams<'thread/rename'>): Promise<{ accepted: true }> {
+    return this.command('thread/rename', params, () => this.titles.rename(params));
   }
 
   read(threadId: string, fromSeq: number): Promise<HostLogRow[]> {
@@ -385,7 +382,7 @@ export class HostCore {
         this.conversationIds.delete(commandId);
       }
       this.threads.delete(params.threadId);
-      this.messages.delete(params.threadId);
+      this.titles.forget(params.threadId);
       this.workspaces.forget(params.threadId);
       this.mcpInputs.forgetThread(params.threadId);
       for (const run of runs) {
@@ -415,75 +412,76 @@ export class HostCore {
   }
 
   startRun(params: HostParams<'run/start'>): Promise<{ runId: string }> {
-    return this.command('run/start', params, async () => {
-      if (!this.threads.has(params.threadId)) {
-        throw new Error('Unknown thread');
+    return this.command('run/start', params, () =>
+      this.admitRun('run/start', params, () => hostStartPosition(this.runs.values(), params))
+    );
+  }
+
+  /** A new answer to an existing committed user message, on a sibling branch. */
+  regenerateRun(params: HostParams<'run/regenerate'>): Promise<{ runId: string }> {
+    return this.command('run/regenerate', params, () =>
+      this.admitRun('run/regenerate', params, () =>
+        hostRegeneratePosition(this.runs.values(), params)
+      )
+    );
+  }
+
+  /** One admission per new run; restart folds its committed branch the same way. */
+  private async admitRun(
+    method: 'run/start' | 'run/regenerate',
+    params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
+    position: () => HostRunPosition
+  ): Promise<{ runId: string }> {
+    assertHostRunAdmissible(this.threads, this.runs.values(), this.conversationIds, params);
+    const selected = position();
+    const controller = new AbortController();
+    this.pendingAdmissions.set(controller, params.threadId);
+    let admission: HostRunAdmission | undefined;
+    let release: (() => void) | undefined;
+    try {
+      admission = await acquireHostRunAdmission(this.platform, {
+        ...(params.configuration ? { configuration: params.configuration } : {}),
+        modelId: params.modelId,
+        prompt: selected.prompt,
+        signal: controller.signal,
+        threadId: params.threadId,
+        ...this.workspaces.admissionBinding(params.threadId),
+      });
+      controller.signal.throwIfAborted();
+      release = this.retainRun();
+      const { run, started } = admittedHostRun(
+        this.runs.values(),
+        { ...params, method, runId: randomUUID() },
+        selected,
+        admission.snapshot,
+        controller
+      );
+      run.admission = admission;
+      if (this.conversationIds.has(run.id) || run.id === params.commandId) {
+        throw new Error('Generated run collides with a committed conversation identity');
       }
-      assertHostRunStartAvailable(this.runs.values(), params.threadId);
-      if (this.conversationIds.has(params.commandId)) {
-        throw new Error('Input command collides with a committed conversation identity');
-      }
-      const controller = new AbortController();
-      this.pendingAdmissions.set(controller, params.threadId);
-      let admission: HostRunAdmission | undefined;
-      let release: (() => void) | undefined;
-      try {
-        admission = await acquireHostRunAdmission(this.platform, {
-          ...(params.configuration ? { configuration: params.configuration } : {}),
-          modelId: params.modelId,
-          prompt: params.prompt,
-          signal: controller.signal,
-          threadId: params.threadId,
-          ...this.workspaces.admissionBinding(params.threadId),
-        });
-        controller.signal.throwIfAborted();
-        release = this.retainRun();
-        const run = createHostRunState(
-          params.threadId,
-          randomUUID(),
-          params.modelId,
-          admission.snapshot,
-          controller
-        );
-        run.admission = admission;
-        if (this.conversationIds.has(run.id) || run.id === params.commandId) {
-          throw new Error('Generated run collides with a committed conversation identity');
-        }
-        run.release = release;
-        const result = { runId: run.id };
-        await this.accept(params.threadId, 'run/start', params, result, [
-          {
-            modelId: params.modelId,
-            prompt: params.prompt,
-            runId: run.id,
-            snapshot: admission.snapshot,
-            type: 'run.started',
-          },
-        ]);
-        this.runs.set(run.id, run);
-        recordHostConversationId(this.conversationIds, params.commandId);
-        recordHostConversationId(this.conversationIds, run.id);
-        this.messages.set(params.threadId, [
-          ...(this.messages.get(params.threadId) ?? []),
-          { content: params.prompt, role: 'user' },
-        ]);
-        run.task = this.loop(run, admission.model);
-        // Stop/close joins this task; retain failures rather than leaking rejections.
-        run.task.catch(() => undefined);
-        return result;
-      } catch (cause) {
-        controller.abort(cause);
-        return await rejectHostRunAdmission(
-          params.threadId,
-          cause,
-          admission,
-          release,
-          this.failedAdmissions
-        );
-      } finally {
-        this.pendingAdmissions.delete(controller);
-      }
-    });
+      run.release = release;
+      const result = { runId: run.id };
+      await this.accept(params.threadId, method, params, result, [started]);
+      this.runs.set(run.id, run);
+      recordHostConversationId(this.conversationIds, params.commandId);
+      recordHostConversationId(this.conversationIds, run.id);
+      run.task = this.loop(run, admission.model);
+      // Stop/close joins this task; retain failures rather than leaking rejections.
+      run.task.catch(() => undefined);
+      return result;
+    } catch (cause) {
+      controller.abort(cause);
+      return await rejectHostRunAdmission(
+        params.threadId,
+        cause,
+        admission,
+        release,
+        this.failedAdmissions
+      );
+    } finally {
+      this.pendingAdmissions.delete(controller);
+    }
   }
 
   private async execute(
@@ -574,7 +572,8 @@ export class HostCore {
     let interrupted = false;
     let checkpointFailure: unknown;
     run.paused = false;
-    const initialMessages = [...(this.messages.get(run.threadId) ?? [])];
+    const initialMessages = hostRunContext(this.runs, run);
+    const ancestors = hostRunAncestors(this.runs, run);
     let recordedInputLength = initialMessages.length;
     let historyPrepared = false;
     try {
@@ -667,7 +666,7 @@ export class HostCore {
           let prepared = messages;
           if (!historyPrepared) {
             historyPrepared = true;
-            prepared = healInterruptedRunHistory(messages, [...this.runs.values()], run.threadId);
+            prepared = healInterruptedRunHistory(messages, ancestors, run.threadId);
             recordedInputLength = prepared.length;
           }
           const memory = await owner?.prepareHostStep?.({

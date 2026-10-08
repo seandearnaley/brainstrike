@@ -4,7 +4,7 @@ import {
   type ThreadMessage,
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
-import { useCallback, useMemo, useReducer, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useReducer, useState, useSyncExternalStore } from 'react';
 import {
   bindCommittedAssistantCommands,
   type CommittedAssistantCommands,
@@ -49,16 +49,55 @@ export function useCommittedAssistantRuntime({
     },
     [onCommandError]
   );
+  // Branch selection is view state over the committed tree. The installed
+  // vendor shows a switched branch only when the repository it is given heads
+  // there, so an accepted selection is published as the head until the
+  // committed head moves (a new run). The owner's port admits it first: a
+  // synchronous refusal throws before anything is selected, and an
+  // asynchronous one withdraws exactly the selection it refused.
+  const [selection, select] = useState<{
+    readonly committedHeadId: string | null | undefined;
+    readonly headId: string | null;
+  }>();
+  const selecting = useMemo((): CommittedAssistantCommands => {
+    const owner = commands.setMessages;
+    if (!owner) {
+      return commands;
+    }
+    return {
+      ...commands,
+      setMessages: (messages) => {
+        const result: unknown = owner(messages);
+        const accepted = {
+          committedHeadId: store.getSnapshot().repository.headId,
+          headId: messages.at(-1)?.id ?? null,
+        };
+        select(accepted);
+        // The bound port reports the refusal; this only withdraws the selection.
+        void Promise.resolve(result).catch(() =>
+          select((current) => (current === accepted ? undefined : current))
+        );
+        return result;
+      },
+    };
+  }, [commands, store]);
   const ports = useMemo(
-    () => bindCommittedAssistantCommands(store, commands, reportCommandError),
-    [store, commands, reportCommandError]
+    () => bindCommittedAssistantCommands(store, selecting, reportCommandError),
+    [store, selecting, reportCommandError]
   );
+  const selectedHeadId =
+    selection && selection.committedHeadId === snapshot.repository.headId
+      ? selection.headId
+      : snapshot.repository.headId;
   // Branch/import can move the vendor's local head before a rejected command.
   // A fresh repository envelope forces its public snapshot path to adopt the
   // canonical fold again. Message/part/approval objects are never copied.
   const repository = useMemo(
-    () => ({ ...snapshot.repository }),
-    [snapshot.repository, snapshot.connection, snapshot.error, resync]
+    () =>
+      selectedHeadId === undefined
+        ? { ...snapshot.repository }
+        : { ...snapshot.repository, headId: selectedHeadId },
+    [snapshot.repository, snapshot.connection, snapshot.error, resync, selectedHeadId]
   );
   return useExternalStoreRuntime<ThreadMessage>({
     ...ports,

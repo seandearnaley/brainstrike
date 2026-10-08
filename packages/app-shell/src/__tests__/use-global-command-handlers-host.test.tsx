@@ -47,6 +47,7 @@ describe('useGlobalCommandHandlers new thread', () => {
       deleteThread: vi.fn(),
       listThreads: vi.fn(async () => []),
       ownsThread: vi.fn(),
+      renameThread: vi.fn(),
       renderThread: vi.fn(),
       updateThreadBinding: vi.fn(),
       workspaceRepository: (repository) => repository,

@@ -22,7 +22,8 @@ const WORKSPACE_COMMANDS = new Set(['thread/workspace/set', 'thread/workspace/bi
 function projectThread(
   threadId: string,
   resourceId: string,
-  rows: readonly HostLogRow[]
+  rows: readonly HostLogRow[],
+  title: string | undefined
 ): AssistantMemoryThread {
   const started = rows.find((row) => row.event.type === 'thread.started');
   if (started?.ts === undefined) {
@@ -41,7 +42,7 @@ function projectThread(
     id: threadId,
     ...(bound?.event.type === 'workspace.binding.updated' ? { metadata: bound.event.binding } : {}),
     resourceId,
-    title: DEFAULT_THREAD_TITLE,
+    title: title ?? DEFAULT_THREAD_TITLE,
     updatedAt: new Date(latest?.ts ?? started.ts),
   };
 }
@@ -116,11 +117,11 @@ export function createWindowThreadCapability(
     const host = await client();
     const catalog = await host.request('thread/list', {});
     const projected = await Promise.all(
-      catalog.threads.map(async ({ threadId }) => {
+      catalog.threads.map(async ({ threadId, title }) => {
         const { rows } = await host.request('thread/read', { fromSeq: 0, threadId });
         threads.set(threadId, host);
         runs.accept(threadId, rows);
-        return projectThread(threadId, resourceId, rows);
+        return projectThread(threadId, resourceId, rows, title);
       })
     );
     catalogLoaded = true;
@@ -152,7 +153,7 @@ export function createWindowThreadCapability(
       const { threadId } = await host.request('thread/start', { commandId: crypto.randomUUID() });
       const { rows } = await host.request('thread/read', { fromSeq: 0, threadId });
       threads.set(threadId, host);
-      return projectThread(threadId, resourceId, rows);
+      return projectThread(threadId, resourceId, rows, undefined);
     },
     deleteThread: async (threadId) => {
       const host = await client();
@@ -167,6 +168,13 @@ export function createWindowThreadCapability(
     },
     listThreads,
     ownsThread: async (threadId) => (await threadClient(threadId)) !== undefined,
+    renameThread: async (threadId, title) => {
+      const host = await threadClient(threadId);
+      if (!host) {
+        throw new Error('This thread is not owned by the agent host');
+      }
+      await host.request('thread/rename', { commandId: crypto.randomUUID(), threadId, title });
+    },
     renderThread: (threadId, _isVisible, onRunningChange) =>
       renderThread({
         catalogLoaded,

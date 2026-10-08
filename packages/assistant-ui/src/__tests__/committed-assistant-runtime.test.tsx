@@ -198,6 +198,57 @@ describe('production external store binding', () => {
     expect(source.getSnapshot().repository).toBe(repository);
   });
 
+  it('a late branch refusal withdraws only the selection it refused, never a newer accepted one', async () => {
+    const answer = viewMessage('answer', 'Answer');
+    const sibling = viewMessage('sibling', 'Sibling');
+    const other = viewMessage('other', 'Other');
+    const source = new PublishedConversation('root', [answer]);
+    const repository = {
+      headId: answer.id,
+      messages: [
+        { message: answer, parentId: null },
+        { message: sibling, parentId: null },
+        { message: other, parentId: null },
+      ],
+    };
+    source.publish({ repository });
+    let refuseFirst: (cause: Error) => void = () => undefined;
+    const setMessages = vi
+      .fn<NonNullable<CommittedAssistantCommands['setMessages']>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            refuseFirst = reject;
+          })
+      )
+      .mockImplementationOnce(() => undefined);
+    const onCommandError = vi.fn();
+    const { result } = renderHook(() =>
+      useCommittedAssistantRuntime({
+        commands: { onNew: vi.fn(), setMessages },
+        onCommandError,
+        store: source,
+      })
+    );
+    const runtime = result.current;
+    await act(async () => {
+      runtime.thread.getMessageById(answer.id).switchToBranch({ branchId: sibling.id });
+    });
+    await act(async () => {
+      runtime.thread.getMessageById(sibling.id).switchToBranch({ branchId: other.id });
+    });
+    expect(runtime.thread.export().headId).toBe(other.id);
+    await act(async () => {
+      refuseFirst(new Error('Late branch refusal'));
+    });
+    expect(onCommandError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Late branch refusal' })
+    );
+    expect(setMessages).toHaveBeenCalledTimes(2);
+    expect(runtime.thread.export().headId).toBe(other.id);
+    expect(source.getSnapshot().repository).toBe(repository);
+  });
+
   it('observes asynchronous tool-resume failures without changing a pending interaction', async () => {
     const answer = viewMessage('answer', [
       {

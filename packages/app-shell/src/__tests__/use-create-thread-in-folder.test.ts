@@ -150,6 +150,7 @@ describe('useCreateThreadInFolder', () => {
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
       ownsThread: vi.fn(async (threadId: string) => threadId === 'host-thread-1'),
+      renameThread: vi.fn(),
       renderThread: vi.fn(),
       updateThreadBinding: vi.fn(async () => {
         throw refusal;
