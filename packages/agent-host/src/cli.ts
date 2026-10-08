@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { launchHost } from '@brainstrike/host-lease';
 import { HostCliExitError, runHostCliSession } from './cli-session.js';
 import { attachAgentHost, type HostClient } from './client.js';
 import { createAgentHostSpawner } from './launcher.js';
+import type { HostPlatformLaunchOptions } from './platform-launch-options.js';
 import { isProcessEntrypoint } from './process-entrypoint.js';
 import { HOST_METHOD_SCHEMAS } from './protocol.js';
 
@@ -21,6 +23,9 @@ function required(value: string | undefined, name: string): string {
 
 type CliStringOption =
   | 'command-id'
+  | 'credential-file'
+  | 'credential-service'
+  | 'credential-store'
   | 'data-root'
   | 'decision'
   | 'from-seq'
@@ -46,6 +51,9 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
     args,
     options: {
       'command-id': { type: 'string' },
+      'credential-file': { type: 'string' },
+      'credential-service': { type: 'string' },
+      'credential-store': { type: 'string' },
       'data-root': { type: 'string' },
       decision: { type: 'string' },
       'from-seq': { type: 'string' },
@@ -101,6 +109,37 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
   };
 }
 
+function credentialSelection(
+  values: HostCliArguments['values']
+): HostPlatformLaunchOptions | undefined {
+  const kind = values['credential-store'];
+  const file = values['credential-file'];
+  const service = values['credential-service'];
+  if (!(kind || file || service)) {
+    return undefined;
+  }
+  if (kind === 'file' && !service) {
+    return { credentialStore: { kind, path: required(file, 'credential-file') } };
+  }
+  if (kind === 'keyring' && !file) {
+    return { credentialStore: { kind, service: required(service, 'credential-service') } };
+  }
+  throw new Error(
+    'Select --credential-store keyring --credential-service <existing service>, or --credential-store file --credential-file <absolute path>'
+  );
+}
+
+function assertCredentialAuthority(spawned: boolean, values: HostCliArguments['values']): void {
+  if (
+    !spawned &&
+    (values['credential-store'] || values['credential-file'] || values['credential-service'])
+  ) {
+    throw new Error(
+      'An attached host retains its existing credential authority; credential backend selection requires a new host'
+    );
+  }
+}
+
 /** CLI is a client of the root owner; it never runs a second model/tool loop. */
 export async function runHostCli(
   args: string[],
@@ -124,23 +163,37 @@ log follow --thread <id> [--from-seq <n>]
 
 Question answers use {"answer":"text"} or {"answer":["choice 1","choice 2"]}.
 Plan decisions use {"action":"approved"} or {"action":"rejected","feedback":"reason"}.
-Starting a host currently requires its configured --platform module.
+Standalone hosts use an explicit --model provider::model from the canonical catalog.
+This selection does not change desktop model enablement or saved settings.
+Native tools, configured MCP/Tasks, Skills/workspace instructions, vector Memory,
+local inference and browser OAuth require platform capabilities.
+An existing host keeps its own platform and admission policy.
+Credential backends require an explicit existing keyring service or absolute private file:
+--credential-store keyring --credential-service <service>
+--credential-store file --credential-file <path>
+Selections apply only to a newly started host. Missing keyring support never selects file automatically.
 Unanswered noninteractive decisions exit 2 and remain available for attach.
 An interactive terminal prompts for approvals, question answers, and plan decisions. EOF detaches.
 Run signals stop and join its execution; attach signals detach.
 `);
     return;
   }
+  let spawned = false;
   const attachment = await launchHost(
     resolve(required(values['data-root'] ?? values.root, 'data-root')),
     {
       attach: attachAgentHost,
       lifetime: command === 'host start' ? 'persistent' : 'cli',
-      spawn: (options, signal) => {
+      spawn: async (options, signal) => {
         if (command === 'host status' || command === 'host stop') {
           throw new Error('No host is running for this root');
         }
-        return createAgentHostSpawner(required(values.platform, 'platform'))(options, signal);
+        await createAgentHostSpawner(
+          values.platform ??
+            fileURLToPath(new URL('./default-production-platform.js', import.meta.url)),
+          credentialSelection(values)
+        )(options, signal);
+        spawned = true;
       },
     }
   );
@@ -153,6 +206,7 @@ Run signals stop and join its execution; attach signals detach.
   const threadId = (): string => required(values.thread, 'thread');
   const runId = (): string => required(values.run, 'run');
   try {
+    assertCredentialAuthority(spawned, values);
     switch (command) {
       case 'host start':
       case 'host status': {
