@@ -1,5 +1,6 @@
 import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import type { HostAuthService, HostAuthVerdict, HostClientOrigin } from '@brainstrike/agent-host';
+import type { SecretsService } from '@brainstrike/agent-host/credential-contract';
 import type { HostLegacyImport, HostLoginCredential } from '@brainstrike/agent-host/protocol';
 import type {
   OAuthProviderDescriptor,
@@ -59,6 +60,8 @@ export interface HostAuthority extends HostAuthService {
     provider: string,
     origin: HostClientOrigin | undefined
   ): Promise<ProviderAuthInput | undefined>;
+  /** The profile store for the host's other credential readers, behind the same import gate. */
+  secrets(): SecretsService;
   setCredential(account: string, credential: HostLoginCredential): Promise<void>;
   status(provider: string): Promise<ProviderAuthStatus>;
   storeProviderCredential(provider: string, credential: HostLoginCredential): Promise<void>;
@@ -131,6 +134,16 @@ export function createHostAuthority(options: HostAuthorityOptions): HostAuthorit
     await legacyImport?.promise;
     return await use();
   };
+  const gatedSecrets: SecretsService = {
+    clearAll: () => imported(() => secrets().clearAll()),
+    deleteKey: (account) => imported(() => secrets().deleteKey(account)),
+    getCredential: (account) => imported(() => secrets().getCredential(account)),
+    getKey: (account) => imported(() => secrets().getKey(account)),
+    listProviders: () => imported(() => secrets().listProviders()),
+    saveKey: (account, value) => imported(() => secrets().saveKey(account, value)),
+    setCredential: (account, credential) =>
+      imported(() => secrets().setCredential(account, credential)),
+  };
   return {
     cancel: (provider) => imported(() => engine.cancel(provider)),
     clear: async () => {
@@ -181,6 +194,7 @@ export function createHostAuthority(options: HostAuthorityOptions): HostAuthorit
           }),
         })(provider)
       ),
+    secrets: () => gatedSecrets,
     setCredential: (account, credential) =>
       imported(async () => {
         await secrets().setCredential(account, credential);
