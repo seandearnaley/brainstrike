@@ -54,6 +54,14 @@ export class HostRunAdmissionCleanupError extends AggregateError {
   }
 }
 
+/** A run owner's open acquired resources and then failed to join them. */
+export class HostRunOwnerCleanupError extends AggregateError {
+  constructor(cause: unknown, cleanup: unknown, message = 'Run owner open and cleanup failed') {
+    super([cause, cleanup], message);
+    this.name = 'HostRunOwnerCleanupError';
+  }
+}
+
 /** Copy data records; credentials/functions and native capabilities stay process-local. */
 function immutableData<T>(input: T): T {
   if (Array.isArray(input)) {
@@ -195,7 +203,17 @@ export async function acquireHostRunAdmission(
 /** The Core retains this promise; both owners are attempted even when one join fails. */
 export async function closeHostRunResources(run: HostRunState): Promise<void> {
   const joined = await Promise.allSettled([
-    Promise.resolve(run.owner).then((owner) => owner?.close()),
+    Promise.resolve(run.owner).then(
+      (owner) => owner?.close(),
+      (cause: unknown) => {
+        // A failed or aborted open has nothing to close, and its failure is
+        // already the run's outcome. Only an unjoined partial acquisition is a
+        // cleanup failure; an admission's own failure stays with that branch.
+        if (cause instanceof HostRunOwnerCleanupError) {
+          throw cause;
+        }
+      }
+    ),
     Promise.resolve(run.admissionTask ?? run.admission).then(
       (admission) => admission?.close?.(),
       (cause: unknown) => {
