@@ -4,7 +4,7 @@ import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 
@@ -140,6 +140,7 @@ test.fixme(
         compositeModelKey: 'openrouter::openai/gpt-5.4',
         provider: 'openrouter',
       });
+      await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
       await new HomePage(window).openSettings();
       await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
       await window
@@ -147,7 +148,7 @@ test.fixme(
         .selectOption('ask');
       await window.getByTestId('permission-policy-edit').selectOption('ask');
       await ensureAssistantShellVisible(window);
-      const root = window.getByTestId('chat-panel');
+      const root = window.getByRole('region', { exact: true, name: 'Assistant' });
       await root
         .getByRole('textbox', { name: 'Message input' })
         .fill('Ask two Explorers to read their evidence, then create the report canvas.');
