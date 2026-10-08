@@ -172,8 +172,7 @@
       "types": "./dist/pglite-mastra-memory/schema.d.ts",
       "import": "./dist/pglite-mastra-memory/schema.mjs",
       "require": "./dist/pglite-mastra-memory/schema.js"
-    },
-    "./test-fixtures/observation-memory": "./test-fixtures/observation-memory.mjs"
+    }
   },
   "files": [
     "dist/**",

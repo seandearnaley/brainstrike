@@ -7,15 +7,17 @@ import { fileURLToPath } from 'node:url';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { decodeHostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
+import plan from '@brainstrike/test-utils/fixtures/committed-host-plan.json' with { type: 'json' };
+import question from '@brainstrike/test-utils/fixtures/committed-host-question.json' with {
+  type: 'json',
+};
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { HOST_RESULT_SCHEMAS, HostLogRowSchema } from '../src/protocol.js';
 import { removeFixtureRoot } from './fixtures/cooperative-host-fixture.js';
 
 const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
-const httpFixture = fileURLToPath(
-  new URL('./fixtures/standalone-production-http.mjs', import.meta.url)
-);
+const httpFixture = new URL('./fixtures/standalone-production-http.mjs', import.meta.url).href;
 const roots: string[] = [];
 
 interface OfflineInteraction {
@@ -118,15 +120,7 @@ test.each(
     expect(await execute(['host', 'start'])).toMatchObject({ code: 0, stderr: '' });
     const firstOwner = await owner(dataRoot);
     const recordedRows = HostLogRowSchema.array().parse(
-      JSON.parse(
-        await readFile(
-          new URL(
-            `../../../apps/desktop/src/__tests__/fixtures/committed-host-${fixture.kind}.json`,
-            import.meta.url
-          ),
-          'utf8'
-        )
-      )
+      fixture.kind === 'question' ? question : plan
     );
     const recorded = recordedRows.find(
       ({ event }) => event.type === 'interaction.requested'

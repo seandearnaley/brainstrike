@@ -34,7 +34,11 @@
       "default": "./dist/test-fixtures/scripted-model.js"
     },
     "./test-fixtures/owned-process": "./__tests__/fixtures/owned-fixture-process.ts",
-    "./thread-view": { "types": "./dist/thread-view.d.ts", "default": "./dist/thread-view.js" }
+    "./thread-view": { "types": "./dist/thread-view.d.ts", "default": "./dist/thread-view.js" },
+    "./standalone-workspace-input": {
+      "types": "./dist/standalone-workspace-input.d.ts",
+      "default": "./dist/standalone-workspace-input.js"
+    }
   },
   "scripts": {
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",

@@ -1,7 +1,7 @@
 import {
   Memory,
   parseObservationGroups,
-} from '@brainstrike/agent/test-fixtures/observation-memory';
+} from '@brainstrike/test-utils/fixtures/observation-memory';
 
 export { messages, schema, text } from './state-message-schema.mjs';
 

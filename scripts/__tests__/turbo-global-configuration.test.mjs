@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { createSpawnInvocation } from '../spawn-command.mjs';
 
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -338,6 +339,19 @@ test('MONEY TEST: turbo rejects concurrency equal to the persistent-task count',
           version: '0.0.0',
         })
       );
+    }
+
+    // Give the fixture the same installed dependency state required by pnpm run.
+    for (const flags of [
+      ['--lockfile-only', '--offline'],
+      ['--frozen-lockfile', '--offline'],
+    ]) {
+      const invocation = createSpawnInvocation('pnpm', ['install', ...flags]);
+      execFileSync(invocation.command, invocation.args, {
+        cwd: dir,
+        encoding: 'utf8',
+        shell: invocation.shell,
+      });
     }
 
     const runDev = (concurrency) =>

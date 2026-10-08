@@ -2903,9 +2903,6 @@ importers:
         specifier: 'catalog:'
         version: 4.0.0-rc.118
     devDependencies:
-      '@brainstrike/agent':
-        specifier: workspace:*
-        version: link:../agent
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
@@ -3525,6 +3522,12 @@ importers:
 
   packages/test-utils:
     devDependencies:
+      '@mastra/core':
+        specifier: 1.71.0
+        version: 1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
+      '@mastra/memory':
+        specifier: 1.32.1
+        version: 1.32.1(patch_hash=f7befcfb44f11beb53a614da33214230578faf7791902115cf7087a666b52532)(@mastra/core@1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5))(supports-color@10.2.2)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.63.0

@@ -113,8 +113,7 @@ globalThis.fetch = async (input, init) => {
     const committed = JSON.parse(
       readFileSync(
         new URL(
-          `../../../../apps/desktop/src/__tests__/fixtures/committed-host-${mode}.json`,
-          import.meta.url
+          import.meta.resolve(`@brainstrike/test-utils/fixtures/committed-host-${mode}.json`)
         ),
         'utf8'
       )

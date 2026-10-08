@@ -40,7 +40,6 @@
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@brainstrike/agent": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@effect/tsgo": "catalog:",
     "@types/better-sqlite3": "catalog:",

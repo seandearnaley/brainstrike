@@ -2,7 +2,7 @@ import {
   InMemoryStore,
   Memory,
   wrapInObservationGroup,
-} from '@brainstrike/agent/test-fixtures/observation-memory';
+} from '@brainstrike/test-utils/fixtures/observation-memory';
 
 /** Capture real native storage shape using public OM operations, without inference.
  * @param {'thread'|'resource'} scope @param {string} resourceId @param {string} threadId

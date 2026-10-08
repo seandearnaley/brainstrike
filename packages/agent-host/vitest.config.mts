@@ -11,10 +11,12 @@ export default defineConfig({
         find: /^@brainstrike\/agent$/,
         replacement: resolve(import.meta.dirname, '../agent/src/index.ts'),
       },
-      ...['provider-request', 'provider-runtime', 'tool-runtime'].map((subpath) => ({
-        find: new RegExp(`^@brainstrike/agent/${subpath}$`),
-        replacement: resolve(import.meta.dirname, `../agent/src/${subpath}.ts`),
-      })),
+      ...['mcp-client', 'hosted-web', 'provider-request', 'provider-runtime', 'tool-runtime'].map(
+        (subpath) => ({
+          find: new RegExp(`^@brainstrike/agent/${subpath}$`),
+          replacement: resolve(import.meta.dirname, `../agent/src/${subpath}.ts`),
+        })
+      ),
       ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
     ],
   },

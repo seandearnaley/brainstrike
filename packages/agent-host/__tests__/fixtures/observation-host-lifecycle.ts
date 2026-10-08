@@ -31,12 +31,24 @@ function checkpoint<Value>() {
   return value;
 }
 
+type ObservationBoundary = 'both' | 'inference' | 'vector' | 'two-inference';
+
+function observationKind(boundary: ObservationBoundary, ordinal: number): string {
+  if (boundary === 'two-inference') {
+    return ordinal > 0 ? 'held inference sibling' : 'held inference';
+  }
+  if (boundary !== 'both' && ordinal > 0) {
+    return 'completed sibling';
+  }
+  return boundary === 'vector' || ordinal > 0 ? 'held vector' : 'held inference';
+}
+
 /** Actual Root/Core/StateStoreHostMemory construction. Only provider responses and
  * independently held concrete capability tails are controlled by the test.
  * The indexer loads Studio's public production producer, never a fixture module.
  */
 export async function observationHostLifecycle(
-  boundary: 'both' | 'inference' | 'vector' = 'both',
+  boundary: ObservationBoundary = 'both',
   traceSelection?: (bucket: {
     messages: readonly MastraDBMessage[];
     threadId: string | undefined;
@@ -63,6 +75,8 @@ export async function observationHostLifecycle(
   const resourceId = randomUUID();
   const enteredInference = checkpoint<AbortSignal | undefined>();
   const inferenceRelease = checkpoint<void>();
+  const inferenceReleases = [checkpoint<void>(), checkpoint<void>()];
+  const inferenceCompleted = [checkpoint<void>(), checkpoint<void>()];
   const enteredVector = checkpoint<void>();
   const vectorRelease = checkpoint<void>();
   const vectorCompleted = checkpoint<void>();
@@ -73,6 +87,12 @@ export async function observationHostLifecycle(
   const prepares: string[] = [];
   const writes: { groupId: string; ids: readonly string[]; afterAbort: boolean }[] = [];
   const embeddingSignals: (AbortSignal | undefined)[] = [];
+  const inferenceCalls: {
+    signal: AbortSignal | undefined;
+    values: readonly string[];
+    retired: boolean;
+    afterAbort: boolean;
+  }[] = [];
   const pending = new Set<Promise<unknown>>();
   const progress = new Set<(cause: unknown) => void>([
     enteredInference.reject,
@@ -80,6 +100,7 @@ export async function observationHostLifecycle(
     vectorCompleted.reject,
     unheldCompleted.reject,
     aborted.reject,
+    ...inferenceCompleted.map(({ reject }) => reject),
   ]);
   const threads: string[] = [];
   let threshold = 1;
@@ -96,6 +117,9 @@ export async function observationHostLifecycle(
   const close = (): Promise<void> =>
     (closing ??= (async () => {
       inferenceRelease.resolve();
+      for (const release of inferenceReleases) {
+        release.resolve();
+      }
       vectorRelease.resolve();
       await host?.close();
       await Promise.allSettled([...pending]);
@@ -193,15 +217,36 @@ export async function observationHostLifecycle(
                   ? {
                       embedder: {
                         doEmbed: async ({ values, abortSignal }) => {
+                          const ordinal = inferenceCalls.length;
+                          const call = {
+                            afterAbort: false,
+                            retired: false,
+                            signal: abortSignal,
+                            values: [...values],
+                          };
+                          inferenceCalls.push(call);
                           embeddingSignals.push(abortSignal);
                           if (!prepares.length) {
                             throw new Error('Native embedding preceded committed preparation');
                           }
                           if (hold && values.some((text) => text.includes('held inference'))) {
-                            enteredInference.resolve(abortSignal);
-                            await inferenceRelease.promise;
+                            if (boundary !== 'two-inference' || inferenceCalls.length === 2) {
+                              enteredInference.resolve(abortSignal);
+                            }
+                            if (boundary === 'two-inference') {
+                              const release = inferenceReleases[ordinal];
+                              if (!release) {
+                                throw new Error('Independent inference release is absent');
+                              }
+                              await release.promise;
+                            } else {
+                              await inferenceRelease.promise;
+                            }
                             inferenceRetired = true;
                           }
+                          call.retired = true;
+                          call.afterAbort = abortSignal?.aborted ?? false;
+                          inferenceCompleted[ordinal]?.resolve();
                           return {
                             embeddings: values.map(deterministicEmbedding),
                             usage: { tokens: values.length },
@@ -324,7 +369,10 @@ export async function observationHostLifecycle(
       enteredVector,
       host,
       indexer,
+      inferenceCalls,
+      inferenceCompleted,
       inferenceRelease,
+      inferenceReleases,
       inferenceRetired: () => inferenceRetired,
       observationThreshold: () => threshold,
       owners,
@@ -358,7 +406,7 @@ export async function observationHostLifecycle(
 
 export function recordedObservationModel(
   threads: readonly string[],
-  boundary: 'both' | 'inference' | 'vector' = 'both'
+  boundary: ObservationBoundary = 'both'
 ): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     doStream: async () => ({
@@ -371,7 +419,7 @@ export function recordedObservationModel(
             delta: `<observations>\n${threads
               .map(
                 (threadId, ordinal) =>
-                  `<thread id="${threadId}">\n- Paris ${boundary !== 'both' && ordinal > 0 ? 'completed sibling' : boundary === 'vector' || ordinal > 0 ? 'held vector' : 'held inference'} observation.\n</thread>`
+                  `<thread id="${threadId}">\n- Paris ${observationKind(boundary, ordinal)} observation.\n</thread>`
               )
               .join('\n')}\n</observations>`,
             id: 'observations',
