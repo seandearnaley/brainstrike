@@ -25,6 +25,7 @@ import { storedHostEvent } from '../src/event-storage.js';
 import { jsonValue } from '../src/json-value.js';
 import { createProductionHostPlatform } from '../src/production-platform.js';
 import type { HostEvent } from '../src/protocol.js';
+import { HOST_THREAD_TITLE_INSTRUCTIONS } from '../src/thread-presentation-state.js';
 
 const candidate = join(import.meta.dirname, '../../..');
 const review = z
@@ -853,7 +854,24 @@ test.for([
     const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
       const request = new Request(input, init);
       expect(request.url).toBe('https://openrouter.ai/api/v1/chat/completions');
-      requests.push(await request.json());
+      const body: unknown = await request.json();
+      requests.push(body);
+      if ((body as { stream?: unknown }).stream !== true) {
+        // The completed first run's thread-title request is not streamed.
+        return Response.json({
+          choices: [
+            {
+              finish_reason: 'stop',
+              index: 0,
+              message: { content: 'README review', role: 'assistant' },
+            },
+          ],
+          created: 1_700_000_000,
+          id: 'cmpl-title',
+          model: modelId,
+          usage: { completion_tokens: 2, prompt_tokens: 3, total_tokens: 5 },
+        });
+      }
       return new Response(
         `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('')}data: [DONE]\n\n`,
         { headers: { 'content-type': 'text/event-stream' } }
@@ -867,7 +885,15 @@ test.for([
     try {
       const result = await host.run('Read README.md');
       expect(result.terminal.outcome).toBe('completed');
-      expect(fetch).toHaveBeenCalledTimes(1);
+      // The run's request, then the untitled thread's one title request.
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(
+        z.object({ messages: z.array(z.json()), model: z.literal(modelId) }).parse(requests[1])
+          .messages
+      ).toEqual([
+        { content: [{ text: HOST_THREAD_TITLE_INSTRUCTIONS, type: 'text' }], role: 'system' },
+        { content: 'Read README.md', role: 'user' },
+      ]);
       const body = z
         .object({ messages: z.array(z.json()), model: z.literal(modelId), stream: z.literal(true) })
         .parse(requests[0]);
