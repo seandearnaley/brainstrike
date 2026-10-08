@@ -536,6 +536,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
+      '@brainstrike/host-capabilities':
+        specifier: workspace:*
+        version: link:../../packages/host-capabilities
       '@brainstrike/host-lease':
         specifier: workspace:*
         version: link:../../packages/host-lease
@@ -2889,6 +2892,49 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.14.0
+      typescript:
+        specifier: 'catalog:'
+        version: '@typescript/typescript6@6.0.2'
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(happy-dom@20.14.0)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@8.3.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/host-capabilities:
+    dependencies:
+      '@brainstrike/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@brainstrike/agent-host':
+        specifier: workspace:*
+        version: link:../agent-host
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
+      '@brainstrike/assistant-data':
+        specifier: workspace:*
+        version: link:../assistant-data
+      '@brainstrike/assistant-service':
+        specifier: workspace:*
+        version: link:../assistant-service
+      '@brainstrike/host-lease':
+        specifier: workspace:*
+        version: link:../host-lease
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.5
+    devDependencies:
+      '@brainstrike/state-store':
+        specifier: workspace:*
+        version: link:../state-store
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.13.3
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'

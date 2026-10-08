@@ -98,6 +98,7 @@
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/host-capabilities": "workspace:*",
     "@brainstrike/host-lease": "workspace:*",
     "@brainstrike/indexer": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
