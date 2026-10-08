@@ -19,6 +19,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { startModelProviderShim } from './utils/model-provider-shim';
 
 const SENTINEL_MESSAGE =
   'Loopback sentinel reached: this provider request was not refused by the E2E egress boundary.';
@@ -113,7 +114,7 @@ async function enableCatalogModel(page: Page, provider: string, model: string): 
   );
 }
 
-async function sendUnscriptedPrompt(page: Page, provider: string, model: string): Promise<void> {
+async function sendPrompt(page: Page, provider: string, model: string): Promise<void> {
   const { mockFileSystemOperations } = await loadElectronHelpers();
   await mockFileSystemOperations(page);
   await configureAssistantProvider(page, { compositeModelKey: `${provider}::${model}`, provider });
@@ -125,9 +126,15 @@ async function sendUnscriptedPrompt(page: Page, provider: string, model: string)
   const assistant = page.getByRole('region', { exact: true, name: 'Assistant' });
   const input = assistant.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: 30_000 });
-  await input.fill('Unscripted provider request for the egress boundary proof.');
+  await input.fill('Provider request for the egress boundary proof.');
   await assistant.getByRole('button', { exact: true, name: 'Send' }).click();
-  await expect(assistant.getByText(RUN_SETTLED).first()).toBeVisible({ timeout: 60_000 });
+}
+
+async function sendUnscriptedPrompt(page: Page, provider: string, model: string): Promise<void> {
+  await sendPrompt(page, provider, model);
+  await expect(
+    page.getByRole('region', { exact: true, name: 'Assistant' }).getByText(RUN_SETTLED).first()
+  ).toBeVisible({ timeout: 60_000 });
 }
 
 // Host and Main read provider credentials from the environment (test-mode
@@ -136,24 +143,27 @@ async function sendUnscriptedPrompt(page: Page, provider: string, model: string)
 const REDIRECTABLE_CASES = [
   {
     credentials: {},
-    expectedRoute: 'POST /responses',
     knob: 'OPENAI_BASE_URL',
     model: 'gpt-5.2',
     provider: 'openai',
+    route: '/responses',
   },
   {
     credentials: { ['BRAINSTRIKE_ANTHROPIC_API_KEY']: 'e2e-fixture-not-a-credential' },
-    expectedRoute: 'POST /messages',
     knob: 'ANTHROPIC_BASE_URL',
     model: 'claude-sonnet-4-6',
     provider: 'anthropic',
+    route: '/messages',
   },
 ] as const;
+
+const REFUSAL_TEXT = /E2E egress boundary refused an unscripted provider request/;
 
 test.describe('Provider egress boundary (desktop)', () => {
   for (const scenario of REDIRECTABLE_CASES) {
     test(`an unscripted ${scenario.provider} request configured through ${scenario.knob} never reaches its destination`, async ({
       electron,
+      modelProvider,
     }, testInfo) => {
       test.setTimeout(180_000);
       const sentinel = await startLoopbackSentinel();
@@ -173,9 +183,17 @@ test.describe('Provider egress boundary (desktop)', () => {
           await expect(
             page
               .getByRole('region', { exact: true, name: 'Assistant' })
-              .getByText(/E2E egress boundary refused an unscripted provider request/)
+              .getByText(REFUSAL_TEXT)
               .first()
           ).toBeVisible();
+          expect(modelProvider.refusals()).toEqual([
+            expect.objectContaining({
+              knob: scenario.knob,
+              method: 'POST',
+              reason: 'unscripted',
+              route: scenario.route,
+            }),
+          ]);
         });
       } finally {
         try {
@@ -186,6 +204,59 @@ test.describe('Provider egress boundary (desktop)', () => {
       }
     });
   }
+
+  test('an unscripted request with no configured destination is refused at the boundary', async ({
+    electron,
+    modelProvider,
+  }) => {
+    test.setTimeout(180_000);
+    try {
+      const page = await electron.ensureWindow();
+      await sendUnscriptedPrompt(page, 'openai', 'gpt-5.2');
+      await expect(
+        page.getByRole('region', { exact: true, name: 'Assistant' }).getByText(REFUSAL_TEXT).first()
+      ).toBeVisible();
+      expect(modelProvider.refusals()).toEqual([
+        expect.objectContaining({
+          knob: 'OPENAI_BASE_URL',
+          method: 'POST',
+          reason: 'unscripted',
+          route: '/responses',
+        }),
+      ]);
+    } finally {
+      await electron.dispose();
+    }
+  });
+
+  test('a live canonical shim supplied by the spec still receives its scripted request', async ({
+    electron,
+    modelProvider,
+  }) => {
+    test.setTimeout(180_000);
+    const reply = 'Scripted reply through a spec-owned canonical shim.';
+    const specShim = await startModelProviderShim({ finalText: reply });
+    try {
+      await withWorkerEnvironment({ ['OPENAI_BASE_URL']: specShim.baseUrl }, async () => {
+        const page = await electron.ensureWindow();
+        await sendPrompt(page, 'openai', 'gpt-5.2');
+        await expect(
+          page
+            .getByRole('region', { exact: true, name: 'Assistant' })
+            .getByText(reply, { exact: true })
+        ).toBeVisible({ timeout: 60_000 });
+      });
+      expect(specShim.requests().map((request) => request.wire)).toContain('responses');
+      expect(specShim.refusals()).toEqual([]);
+      expect(modelProvider.refusals()).toEqual([]);
+    } finally {
+      try {
+        await electron.dispose();
+      } finally {
+        await specShim.close();
+      }
+    }
+  });
 
   test('a credential for a provider with no redirect knob refuses the launch', async ({
     electron,

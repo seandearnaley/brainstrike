@@ -10,6 +10,7 @@ import type { Page, TestInfo } from '@playwright/test';
 import { test as base, expect as baseExpect } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
+import { type ModelProviderShim, startModelProviderShim } from '../utils/model-provider-shim';
 import { ElectronHarness } from './electron-harness';
 
 interface ElectronTestOptions {
@@ -24,11 +25,17 @@ interface ElectronTestFixtures {
   /** Failure artifact collector - automatically captures diagnostics on test failure */
   failureCollector: FailureArtifactCollector;
   homePage: HomePage;
+  /**
+   * This test's provider egress boundary (BST-1931): every provider base URL
+   * of every launch points here unless a spec supplies its own live shim.
+   * Unscripted requests are refused on loopback; script with `setScript`.
+   */
+  modelProvider: ModelProviderShim;
   window: Page;
 }
 
 export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
-  electron: async ({ electronEnv }, use, testInfo) => {
+  electron: async ({ electronEnv, modelProvider }, use, testInfo) => {
     const shardIndex = testInfo.config.shard?.current ?? 0;
     const workerIndex = testInfo.workerIndex;
     const runSalt = getRunSalt();
@@ -40,7 +47,13 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
       testInfo.retry
     );
 
-    const harness = new ElectronHarness(testInfo, undefined, userDataDir, electronEnv);
+    const harness = new ElectronHarness(
+      testInfo,
+      undefined,
+      userDataDir,
+      electronEnv,
+      modelProvider
+    );
     try {
       await use(harness);
     } finally {
@@ -76,6 +89,24 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
   homePage: async ({ window }, use) => {
     const homePage = new HomePage(window);
     await use(homePage);
+  },
+
+  modelProvider: async ({}, use, testInfo) => {
+    const boundary = await startModelProviderShim();
+    try {
+      await use(boundary);
+    } finally {
+      try {
+        if (boundary.refusals().length > 0) {
+          await testInfo.attach('provider-egress-refusals', {
+            body: JSON.stringify(boundary.refusals(), null, 2),
+            contentType: 'application/json',
+          });
+        }
+      } finally {
+        await boundary.close();
+      }
+    }
   },
 
   window: async ({ electron }, use, testInfo: TestInfo) => {

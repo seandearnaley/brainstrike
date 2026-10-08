@@ -1,25 +1,41 @@
 /**
- * A local, throwaway OpenAI/OpenRouter-compatible chat-completions HTTP
- * server for desktop E2E (BST-1392 W5). This is the counterpart to
- * setupAssistantMock for tests that need REAL native-tool execution:
- * setupAssistantMock replaces the app's OWN internal /assistant endpoint
- * (short-circuiting before the real Mastra tool-execution loop ever runs);
- * this shim instead replaces the TRUE external boundary — the model
- * PROVIDER'S API — via OPENROUTER_BASE_URL, a real production config knob:
- * openrouter-strict-content.ts's buildUrl() honors it for qwen/*-routed
- * models specifically, and Mastra's own general provider-registry gateway
- * (ModelsDevGateway.buildUrl, `${PROVIDER}_BASE_URL` by convention) honors it
- * for every other OpenRouter model, which is the path this shim's default
- * model (openai/gpt-5.4, see assistant-mock.ts's DEFAULT_MODELS) actually
- * takes. The real assistant server, real Mastra agent loop, real permission
- * engine, and real native tool execute() functions all run unmodified.
+ * A local, throwaway model-provider HTTP server for desktop E2E (BST-1392 W5),
+ * and the E2E provider egress boundary (BST-1931, #3543 ruling 6052594658).
+ *
+ * This is the counterpart to setupAssistantMock for tests that need REAL
+ * native-tool execution: setupAssistantMock replaces the app's OWN internal
+ * /assistant endpoint, while this shim replaces the TRUE external boundary —
+ * the model PROVIDER'S API — through the base-URL knobs the host's vendor SDKs
+ * read from the environment:
+ *
+ * - `OPENROUTER_BASE_URL`: Mastra's models.dev gateway (`ModelsDevGateway.buildUrl`,
+ *   `${PROVIDER}_BASE_URL`) and openrouter-strict-content.ts's `buildUrl()`
+ *   (`qwen/*`). Served wire: chat completions (`POST /chat/completions`).
+ * - `OPENAI_BASE_URL`: `@ai-sdk/openai`'s `createOpenAI`. Served wire: the
+ *   OpenAI Responses API (`POST /responses`).
+ * - `ANTHROPIC_BASE_URL`: `@ai-sdk/anthropic`'s `createAnthropic`. No Anthropic
+ *   wire is scripted, so every request through it is refused.
+ *
+ * DEFAULT DENY: a shim with no script refuses every request with a
+ * non-retryable 403 naming the request, and records it in `refusals()`. The
+ * desktop launch fixture points every knob at one such boundary unless a spec
+ * supplies a live shim of its own, so an unscripted provider request is refused
+ * on loopback instead of reaching a real provider. The shim never redirects.
  *
  * Precedent: gh-shim.ts fakes `gh` at ITS external boundary via a real
  * executable on PATH; this is the same idea for the model provider via a
  * real local HTTP server. A durable E2E asset — reuse it, don't fork it.
  */
+import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { AWS_CHAIN_ACTIVATION_ENV_NAMES } from '@brainstrike/assistant-contract';
+import {
+  listProviders,
+  providerDeprecatedEnvKeys,
+  providerEnvKeys,
+} from '@brainstrike/assistant-contract/provider-metadata';
+import { TAVILY_ENV_KEYS } from '@brainstrike/assistant-contract/tavily-env-keys';
 
 export interface ScriptedToolCall {
   readonly arguments: Record<string, unknown>;
@@ -68,32 +84,167 @@ export interface ModelProviderTurnRecord {
   readonly toolResultCount: number;
 }
 
+/** The provider wire a scripted request arrived on. */
+export type ModelProviderWire = 'chat-completions' | 'responses';
+
 /** Parsed provider request available to parent/child test script routing. */
 export interface ModelProviderRequest {
+  /** Chat-completions `messages`, or Responses API `input` items. */
   readonly messages: readonly unknown[];
   /** Actual parsed wire payload for generation-setting assertions. */
   readonly requestBody: unknown;
   readonly requestIndex: number;
   readonly toolNames: readonly string[];
+  readonly wire: ModelProviderWire;
 }
 
 export type ModelProviderScriptSelector = (request: ModelProviderRequest) => ModelProviderScript;
 
+/** The host provider base-URL knobs and the provider whose SDK reads each one. */
+const PROVIDER_BASE_URL_KNOBS = {
+  ['ANTHROPIC_BASE_URL']: 'anthropic',
+  ['OPENAI_BASE_URL']: 'openai',
+  ['OPENROUTER_BASE_URL']: 'openrouter',
+} as const;
+
+export type ProviderBaseUrlKnob = keyof typeof PROVIDER_BASE_URL_KNOBS;
+
+const PROVIDER_BASE_URL_KNOB_NAMES = Object.keys(PROVIDER_BASE_URL_KNOBS) as ProviderBaseUrlKnob[];
+
+/** A provider request the shim refused instead of answering. */
+export interface ModelProviderRefusal {
+  /** The knob whose boundary path received it, when it arrived through one. */
+  readonly knob: ProviderBaseUrlKnob | null;
+  readonly method: string;
+  /** `unscripted`: no script is set. `unsupported-route`: no scripted wire serves it. */
+  readonly reason: 'unscripted' | 'unsupported-route';
+  readonly requestIndex: number;
+  readonly route: string;
+}
+
 export interface ModelProviderShim {
   readonly baseUrl: string;
+  /** The base URL the launch fixture assigns to one knob; refusals name the knob. */
+  readonly baseUrlFor: (knob: ProviderBaseUrlKnob) => string;
   readonly close: () => Promise<void>;
+  /** Every refused request, oldest first. */
+  readonly refusals: () => readonly ModelProviderRefusal[];
   readonly requestCount: () => number;
+  /** Every scripted request, oldest first, with its parsed wire payload. */
+  readonly requests: () => readonly ModelProviderRequest[];
   /** Configure what the next tool-call/follow-up cycle returns. */
   readonly setScript: (script: ModelProviderScript | ModelProviderScriptSelector) => void;
   /** Every decided request, oldest first — failure diagnostics only. */
   readonly transcript: () => readonly ModelProviderTurnRecord[];
 }
 
-interface ChatCompletionsRequestBody {
-  readonly messages?: unknown[];
-  readonly requestBody?: unknown;
-  readonly stream?: boolean;
-  readonly tools?: unknown[];
+interface ParsedRequestBody {
+  readonly items: readonly unknown[] | undefined;
+  readonly model: string | undefined;
+  readonly requestBody: unknown;
+  readonly stream: boolean | undefined;
+  readonly tools: readonly unknown[] | undefined;
+}
+
+type ResolvedTurn = { calls: readonly ScriptedToolCall[] } | { finalText: string };
+
+/** Origins of every shim this worker is serving; only these may stand in for a provider. */
+const liveShimOrigins = new Set<string>();
+
+/** True when `value` addresses a live canonical shim in this worker. */
+export function isLiveModelProviderShimUrl(value: string): boolean {
+  return URL.canParse(value) && liveShimOrigins.has(new URL(value).origin);
+}
+
+function providerCredentialEnvNames(provider: ReturnType<typeof listProviders>[number]['id']) {
+  return [...providerEnvKeys(provider), ...providerDeprecatedEnvKeys(provider)];
+}
+
+/**
+ * Every credential env name the desktop resolves: the provider registry's
+ * names (including deprecated ones), Tavily's, the AWS chain activation names,
+ * and the AWS SDK's static secret names. This is the registry derivation
+ * apps/desktop/src/desktop-env.ts uses for its scrub set; E2E cannot import
+ * that module because its bare imports would cross the BST-1217 module-format
+ * boundary.
+ */
+export const E2E_CREDENTIAL_ENV_NAMES: ReadonlySet<string> = new Set([
+  ...listProviders().flatMap((definition) => providerCredentialEnvNames(definition.id)),
+  ...TAVILY_ENV_KEYS,
+  ...AWS_CHAIN_ACTIVATION_ENV_NAMES,
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_SESSION_TOKEN',
+]);
+
+/** Credentials for providers whose requests a knob pins to the boundary. */
+const REDIRECTED_CREDENTIAL_ENV_NAMES: ReadonlySet<string> = new Set(
+  Object.values(PROVIDER_BASE_URL_KNOBS).flatMap(providerCredentialEnvNames)
+);
+
+/**
+ * Environment the launch fixture applies over everything a spec or the worker
+ * supplied (BST-1931 deny design D2):
+ *
+ * - each base-URL knob keeps a supplied value only when it addresses a live
+ *   canonical shim; anything else — unset, inherited, an arbitrary server — is
+ *   replaced by `boundary`, which refuses unscripted requests on loopback;
+ * - `MASTRA_OFFLINE` keeps Mastra's models.dev registry refresh off;
+ * - a credential for a provider with no knob (Google, Bedrock, Cohere, Voyage,
+ *   Tavily, the AWS chain) refuses the launch: its requests could only leave
+ *   loopback.
+ *
+ * `sources` are in precedence order, the highest first.
+ */
+export function resolveProviderEgressEnvironment(
+  boundary: ModelProviderShim,
+  sources: readonly Readonly<Record<string, string | undefined>>[]
+): Record<string, string> {
+  for (const source of sources) {
+    for (const [name, value] of Object.entries(source)) {
+      const canonical = name.toUpperCase();
+      if (
+        value?.trim() &&
+        E2E_CREDENTIAL_ENV_NAMES.has(canonical) &&
+        !REDIRECTED_CREDENTIAL_ENV_NAMES.has(canonical)
+      ) {
+        throw new Error(
+          `E2E egress boundary refused the launch: ${name} is a credential for a provider with no base-URL knob, so a request with it could only leave loopback.`
+        );
+      }
+    }
+  }
+  const environment: Record<string, string> = { ['MASTRA_OFFLINE']: 'true' };
+  for (const knob of PROVIDER_BASE_URL_KNOB_NAMES) {
+    const supplied = sources.map((source) => source[knob]).find((value) => value !== undefined);
+    if (supplied !== undefined && isLiveModelProviderShimUrl(supplied)) {
+      environment[knob] = supplied;
+      continue;
+    }
+    if (supplied !== undefined) {
+      console.warn(
+        `[provider-egress] ${knob}=${supplied} is not a live model-provider shim; the E2E egress boundary replaces it.`
+      );
+    }
+    environment[knob] = boundary.baseUrlFor(knob);
+  }
+  return environment;
+}
+
+/** A launch-owned egress boundary lives exactly as long as its app process. */
+export function closeModelProviderShimWithProcess(
+  boundary: ModelProviderShim,
+  appProcess: ChildProcess
+): void {
+  const close = (): void => {
+    boundary.close().catch((error: unknown) => {
+      console.error('Failed to close the launch-owned provider egress boundary:', error);
+    });
+  };
+  if (appProcess.exitCode !== null || appProcess.signalCode !== null) {
+    close();
+    return;
+  }
+  appProcess.once('exit', close);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -104,24 +255,35 @@ function sseChunk(payload: Record<string, unknown>): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<ChatCompletionsRequestBody> {
+async function readJsonBody(
+  request: IncomingMessage,
+  wire: ModelProviderWire
+): Promise<ParsedRequestBody> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   const raw = Buffer.concat(chunks).toString('utf8');
   if (!raw) {
-    return {};
+    return {
+      items: undefined,
+      model: undefined,
+      requestBody: undefined,
+      stream: undefined,
+      tools: undefined,
+    };
   }
   const parsed: unknown = JSON.parse(raw);
   if (!isRecord(parsed)) {
     throw new Error('Model provider shim expected a JSON object request body.');
   }
+  const items = parsed[wire === 'responses' ? 'input' : 'messages'];
   return {
+    items: Array.isArray(items) ? items : undefined,
+    model: typeof parsed['model'] === 'string' ? parsed['model'] : undefined,
     requestBody: parsed,
-    ...(Array.isArray(parsed['messages']) ? { messages: parsed['messages'] } : {}),
-    ...(Array.isArray(parsed['tools']) ? { tools: parsed['tools'] } : {}),
-    ...(typeof parsed['stream'] === 'boolean' ? { stream: parsed['stream'] } : {}),
+    stream: typeof parsed['stream'] === 'boolean' ? parsed['stream'] : undefined,
+    tools: Array.isArray(parsed['tools']) ? parsed['tools'] : undefined,
   };
 }
 
@@ -129,9 +291,13 @@ async function readJsonBody(request: IncomingMessage): Promise<ChatCompletionsRe
  * Counts messages carrying a tool RESULT (not a tool CALL) since the LAST user
  * message — the turn signal. Scoping to the current turn lets one shim serve a
  * second scripted exchange on the same thread (via `setScript`) without the
- * previous turn's tool results short-circuiting it to `finalText`.
+ * previous turn's tool results short-circuiting it to `finalText`. On the
+ * Responses wire a result is a `function_call_output` input item.
  */
-function countToolResultMessages(messages: unknown[] | undefined): number {
+function countToolResultMessages(
+  messages: readonly unknown[] | undefined,
+  wire: ModelProviderWire
+): number {
   const history = messages ?? [];
   const lastUserIndex = history.reduce<number>(
     (found, message, index) => (isRecord(message) && message['role'] === 'user' ? index : found),
@@ -139,10 +305,11 @@ function countToolResultMessages(messages: unknown[] | undefined): number {
   );
   return history
     .slice(lastUserIndex + 1)
-    .filter(
-      (message) =>
-        isRecord(message) &&
-        (message['role'] === 'tool' || typeof message['tool_call_id'] === 'string')
+    .filter((message) =>
+      wire === 'responses'
+        ? isRecord(message) && message['type'] === 'function_call_output'
+        : isRecord(message) &&
+          (message['role'] === 'tool' || typeof message['tool_call_id'] === 'string')
     ).length;
 }
 
@@ -156,7 +323,7 @@ function resolveStagedTurn(
   stages: readonly (readonly ScriptedToolCall[])[],
   toolResultCount: number,
   finalText: string
-): { calls: readonly ScriptedToolCall[] } | { finalText: string } {
+): ResolvedTurn {
   let completedCalls = 0;
   for (const calls of stages) {
     if (calls.length === 0) {
@@ -173,10 +340,7 @@ function resolveStagedTurn(
   return { finalText };
 }
 
-function resolveTurn(
-  script: ModelProviderScript,
-  toolResultCount: number
-): { calls: readonly ScriptedToolCall[] } | { finalText: string } {
+function resolveTurn(script: ModelProviderScript, toolResultCount: number): ResolvedTurn {
   const observedResults = script.ignorePriorToolResults ? 0 : toolResultCount;
   if ([script.toolCall, script.toolCalls, script.toolCallStages].filter(Boolean).length > 1) {
     throw new Error('Model provider shim scripts must select one tool-call shape.');
@@ -229,6 +393,14 @@ function toolCallMessage(
   };
 }
 
+function writeEventStreamHead(response: ServerResponse): void {
+  response.writeHead(200, {
+    'Cache-Control': 'no-cache',
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    connection: 'keep-alive',
+  });
+}
+
 async function writeStreamingToolCall(
   response: ServerResponse,
   calls: readonly ScriptedToolCall[],
@@ -236,11 +408,7 @@ async function writeStreamingToolCall(
 ): Promise<void> {
   const { created, id } = completionIdentity();
   const toolCallIds = calls.map(() => `call_e2e_${randomUUID()}`);
-  response.writeHead(200, {
-    'Cache-Control': 'no-cache',
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    connection: 'keep-alive',
-  });
+  writeEventStreamHead(response);
   response.write(
     sseChunk({
       choices: [
@@ -283,11 +451,7 @@ async function writeStreamingToolCall(
 
 function writeStreamingFinalText(response: ServerResponse, finalText: string): void {
   const { created, id } = completionIdentity();
-  response.writeHead(200, {
-    'Cache-Control': 'no-cache',
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    connection: 'keep-alive',
-  });
+  writeEventStreamHead(response);
   response.write(
     sseChunk({
       choices: [
@@ -316,10 +480,7 @@ function writeStreamingFinalText(response: ServerResponse, finalText: string): v
   response.end('data: [DONE]\n\n');
 }
 
-function writeJsonCompletion(
-  response: ServerResponse,
-  turn: { calls: readonly ScriptedToolCall[] } | { finalText: string }
-): void {
+function writeJsonCompletion(response: ServerResponse, turn: ResolvedTurn): void {
   const { created, id } = completionIdentity();
   const finalTurn = 'finalText' in turn;
   const message = finalTurn
@@ -351,10 +512,144 @@ function writeJsonCompletion(
   );
 }
 
-function messageRoles(messages: unknown[] | undefined): readonly string[] {
+/**
+ * OpenAI Responses API frames for one scripted turn. The event shapes are the
+ * recorded in-repo SDK 7 fixture shapes: text from
+ * packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts
+ * (`responsesApiStream`), function calls from
+ * packages/agent-host/__tests__/fixtures/standalone-production-http.mjs.
+ * Parallel calls repeat the recorded per-item frames at successive
+ * `output_index` values.
+ */
+function responsesTurn(
+  turn: ResolvedTurn,
+  model: string
+): {
+  readonly completed: Record<string, unknown>;
+  readonly items: readonly Record<string, unknown>[];
+  readonly response: Record<string, unknown>;
+} {
+  const response = {
+    ['created_at']: Math.floor(Date.now() / 1000),
+    id: `resp_e2e_${randomUUID()}`,
+    model,
+    object: 'response',
+    output: [] as unknown[],
+    status: 'in_progress',
+  };
+  if ('finalText' in turn) {
+    const itemId = `msg_e2e_${randomUUID()}`;
+    const part = { annotations: [], text: turn.finalText, type: 'output_text' };
+    const item = {
+      content: [part],
+      id: itemId,
+      role: 'assistant',
+      status: 'completed',
+      type: 'message',
+    };
+    const position = { ['content_index']: 0, ['item_id']: itemId, ['output_index']: 0 };
+    return {
+      completed: {
+        ...response,
+        output: [item],
+        status: 'completed',
+        usage: { ['input_tokens']: 4, ['output_tokens']: 3, ['total_tokens']: 7 },
+      },
+      items: [
+        {
+          item: { ...item, content: [], status: 'in_progress' },
+          ['output_index']: 0,
+          type: 'response.output_item.added',
+        },
+        { ...position, part: { ...part, text: '' }, type: 'response.content_part.added' },
+        { ...position, delta: turn.finalText, type: 'response.output_text.delta' },
+        { ...position, text: turn.finalText, type: 'response.output_text.done' },
+        { ...position, part, type: 'response.content_part.done' },
+        { item, ['output_index']: 0, type: 'response.output_item.done' },
+      ],
+      response,
+    };
+  }
+  const calls = turn.calls.map((call) => ({
+    arguments: JSON.stringify(call.arguments),
+    ['call_id']: `call_e2e_${randomUUID()}`,
+    id: `fc_e2e_${randomUUID()}`,
+    name: call.name,
+    status: 'completed',
+    type: 'function_call',
+  }));
+  return {
+    completed: {
+      ...response,
+      output: calls,
+      status: 'completed',
+      usage: { ['input_tokens']: 4, ['output_tokens']: 0, ['total_tokens']: 4 },
+    },
+    items: calls.flatMap((call, index) => [
+      {
+        item: { ...call, arguments: '', status: 'in_progress' },
+        ['output_index']: index,
+        type: 'response.output_item.added',
+      },
+      {
+        delta: call.arguments,
+        ['item_id']: call.id,
+        ['output_index']: index,
+        type: 'response.function_call_arguments.delta',
+      },
+      {
+        arguments: call.arguments,
+        ['item_id']: call.id,
+        ['output_index']: index,
+        type: 'response.function_call_arguments.done',
+      },
+      { item: call, ['output_index']: index, type: 'response.output_item.done' },
+    ]),
+    response,
+  };
+}
+
+async function writeResponsesTurn(
+  response: ServerResponse,
+  turn: ResolvedTurn,
+  model: string,
+  stream: boolean | undefined,
+  script: ModelProviderScript
+): Promise<void> {
+  if ('finalText' in turn) {
+    await script.beforeFinalText;
+  }
+  const frames = responsesTurn(turn, model);
+  if (stream !== true) {
+    if (!('finalText' in turn)) {
+      await script.beforeToolFinish;
+    }
+    response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    response.end(JSON.stringify(frames.completed));
+    return;
+  }
+  writeEventStreamHead(response);
+  response.write(sseChunk({ response: frames.response, type: 'response.created' }));
+  for (const frame of frames.items) {
+    response.write(sseChunk(frame));
+  }
+  if (!('finalText' in turn)) {
+    await script.beforeToolFinish;
+  }
+  response.end(sseChunk({ response: frames.completed, type: 'response.completed' }));
+}
+
+function messageRoles(
+  messages: readonly unknown[] | undefined,
+  wire: ModelProviderWire
+): readonly string[] {
   return (messages ?? []).map((message) => {
     if (!isRecord(message)) {
       return 'unknown';
+    }
+    if (wire === 'responses' && typeof message['type'] === 'string' && !message['role']) {
+      const name = typeof message['name'] === 'string' ? `(${message['name']})` : '';
+      return `${message['type']}${name}`;
     }
     const role = typeof message['role'] === 'string' ? message['role'] : 'unknown';
     const calls = message['tool_calls'];
@@ -372,41 +667,103 @@ function messageRoles(messages: unknown[] | undefined): readonly string[] {
   });
 }
 
+function toolNames(tools: readonly unknown[] | undefined, wire: ModelProviderWire): string[] {
+  return (tools ?? []).flatMap((tool) => {
+    if (!isRecord(tool)) {
+      return [];
+    }
+    if (wire === 'responses') {
+      return tool['type'] === 'function' && typeof tool['name'] === 'string' ? [tool['name']] : [];
+    }
+    return isRecord(tool['function']) && typeof tool['function']['name'] === 'string'
+      ? [tool['function']['name']]
+      : [];
+  });
+}
+
+/** Splits `/<KNOB>/route` into the knob that assigned the path and the provider route. */
+function parseRequestPath(url: string | undefined): {
+  knob: ProviderBaseUrlKnob | null;
+  route: string;
+} {
+  const segments = new URL(url ?? '/', 'http://127.0.0.1').pathname.split('/').filter(Boolean);
+  const [first, ...rest] = segments;
+  const knob = PROVIDER_BASE_URL_KNOB_NAMES.find((name) => name === first) ?? null;
+  return { knob, route: `/${(knob ? rest : segments).join('/')}` };
+}
+
+function wireForRoute(method: string | undefined, route: string): ModelProviderWire | null {
+  if (method !== 'POST') {
+    return null;
+  }
+  if (route === '/chat/completions') {
+    return 'chat-completions';
+  }
+  return route === '/responses' ? 'responses' : null;
+}
+
+function writeRefusal(response: ServerResponse, refusal: ModelProviderRefusal): void {
+  const request = `${refusal.method} ${refusal.route}${refusal.knob ? ` via ${refusal.knob}` : ''}`;
+  const message =
+    refusal.reason === 'unscripted'
+      ? `E2E egress boundary refused an unscripted provider request: ${request}. Script it through the canonical model-provider shim.`
+      : `E2E egress boundary refused a provider request no scripted wire serves: ${request}.`;
+  // 403 is non-retryable for every provider SDK. The body satisfies each
+  // SDK's error parser: OpenAI/OpenRouter read `error.message`; Anthropic
+  // reads `{ type: 'error', error: { type, message } }`.
+  response.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+  response.end(
+    JSON.stringify({
+      error: { code: 'e2e_egress_refused', message, param: null, type: 'e2e_egress_refused' },
+      type: 'error',
+    })
+  );
+}
+
 export async function startModelProviderShim(
-  initialScript: ModelProviderScript | ModelProviderScriptSelector
+  initialScript?: ModelProviderScript | ModelProviderScriptSelector
 ): Promise<ModelProviderShim> {
   let script = initialScript;
   let requestCount = 0;
   const transcript: ModelProviderTurnRecord[] = [];
+  const refusals: ModelProviderRefusal[] = [];
+  const requests: ModelProviderRequest[] = [];
 
   const server: Server = createServer((request, response) => {
     requestCount += 1;
     // Captured here, not read inside the async body: the body settles later, by
     // which time concurrent requests may have advanced the counter.
     const requestOrdinal = requestCount;
-    if (request.method !== 'POST' || request.url !== '/chat/completions') {
-      response.writeHead(404).end();
+    const { knob, route } = parseRequestPath(request.url);
+    const wire = wireForRoute(request.method, route);
+    const activeScript = script;
+    if (!(wire && activeScript)) {
+      const refusal: ModelProviderRefusal = {
+        knob,
+        method: request.method ?? 'UNKNOWN',
+        reason: activeScript ? 'unsupported-route' : 'unscripted',
+        requestIndex: requestOrdinal,
+        route,
+      };
+      refusals.push(refusal);
+      request.resume();
+      writeRefusal(response, refusal);
       return;
     }
 
-    void readJsonBody(request)
-      .then(async ({ messages, stream, tools, requestBody }) => {
-        const toolResultCount = countToolResultMessages(messages);
+    void readJsonBody(request, wire)
+      .then(async ({ items, model, requestBody, stream, tools }) => {
+        const toolResultCount = countToolResultMessages(items, wire);
+        const decided: ModelProviderRequest = {
+          messages: items ?? [],
+          requestBody,
+          requestIndex: requestOrdinal,
+          toolNames: toolNames(tools, wire),
+          wire,
+        };
+        requests.push(decided);
         const selectedScript =
-          typeof script === 'function'
-            ? script({
-                messages: messages ?? [],
-                requestBody,
-                requestIndex: requestOrdinal,
-                toolNames: (tools ?? []).flatMap((tool) =>
-                  isRecord(tool) &&
-                  isRecord(tool['function']) &&
-                  typeof tool['function']['name'] === 'string'
-                    ? [tool['function']['name']]
-                    : []
-                ),
-              })
-            : script;
+          typeof activeScript === 'function' ? activeScript(decided) : activeScript;
         const turn = resolveTurn(selectedScript, toolResultCount);
         transcript.push({
           decision:
@@ -414,9 +771,19 @@ export async function startModelProviderShim(
               ? 'final-text'
               : `tool:${turn.calls.map((call) => call.name).join('+')}`,
           requestIndex: requestOrdinal,
-          roles: messageRoles(messages),
+          roles: messageRoles(items, wire),
           toolResultCount,
         });
+        if (wire === 'responses') {
+          await writeResponsesTurn(
+            response,
+            turn,
+            model ?? 'e2e-scripted-model',
+            stream,
+            selectedScript
+          );
+          return;
+        }
         if (stream !== true) {
           writeJsonCompletion(response, turn);
           return;
@@ -446,16 +813,22 @@ export async function startModelProviderShim(
   if (!(address && typeof address === 'object')) {
     throw new Error('Expected an assigned model-provider-shim port.');
   }
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  liveShimOrigins.add(baseUrl);
 
   return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
+    baseUrl,
+    baseUrlFor: (knob) => `${baseUrl}/${knob}`,
     async close(): Promise<void> {
+      liveShimOrigins.delete(baseUrl);
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
     },
+    refusals: () => [...refusals],
     requestCount: () => requestCount,
+    requests: () => [...requests],
     setScript: (nextScript) => {
       script = nextScript;
     },

@@ -2,6 +2,11 @@ import { once } from 'node:events';
 import path from 'node:path';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
+import {
+  closeModelProviderShimWithProcess,
+  resolveProviderEgressEnvironment,
+  startModelProviderShim,
+} from './model-provider-shim';
 export const PACKAGED_DESKTOP_INHERITED_ENV_KEYS = Object.freeze([
   'APPDATA',
   'COMSPEC',
@@ -64,7 +69,31 @@ export async function launchPackagedDesktop(options: {
   readonly environment?: Readonly<Record<string, string>>;
   readonly userDataDir: string;
 }): Promise<{ readonly app: ElectronApplication; readonly window: Page }> {
-  const app = await electron.launch({
+  // Every launch has a provider egress boundary (BST-1931), owned by this app.
+  const boundary = await startModelProviderShim();
+  let app: ElectronApplication;
+  try {
+    app = await launchWithEgressBoundary(
+      options,
+      resolveProviderEgressEnvironment(boundary, [options.environment ?? {}])
+    );
+  } catch (error) {
+    await boundary.close();
+    throw error;
+  }
+  closeModelProviderShimWithProcess(boundary, app.process());
+  const window = await app.firstWindow({ timeout: 60_000 });
+  await window.waitForLoadState('domcontentloaded');
+  return { app, window };
+}
+function launchWithEgressBoundary(
+  options: {
+    readonly environment?: Readonly<Record<string, string>>;
+    readonly userDataDir: string;
+  },
+  providerEgressEnv: Readonly<Record<string, string>>
+): Promise<ElectronApplication> {
+  return electron.launch({
     args: [
       ...(process.platform === 'linux' ? ['--password-store=gnome-libsecret'] : []),
       '--test-mode',
@@ -78,6 +107,7 @@ export async function launchPackagedDesktop(options: {
     env: {
       ...inheritedEnvironment(),
       ...options.environment,
+      ...providerEgressEnv,
       ['BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES']: '1',
       ['BRAINSTRIKE_E2E_USER_DATA_DIR']: options.userDataDir,
       ['BRAINSTRIKE_OPENAI_API_KEY']: 'test-api-key-for-e2e-tests',
@@ -87,9 +117,6 @@ export async function launchPackagedDesktop(options: {
     executablePath: packagedDesktopExecutablePath(),
     timeout: 120_000,
   });
-  const window = await app.firstWindow({ timeout: 60_000 });
-  await window.waitForLoadState('domcontentloaded');
-  return { app, window };
 }
 export async function closePackagedDesktop(context: {
   readonly app: ElectronApplication;
