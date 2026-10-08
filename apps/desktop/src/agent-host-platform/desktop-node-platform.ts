@@ -236,6 +236,7 @@ export async function createHostPlatform(
       const shared = desktopHostSharedTools({
         readFileCursorRegistry,
         request,
+        resolveTavilyApiKey: host.resolveTavilyApiKey,
         selected,
         threadId: admission.threadId,
       });

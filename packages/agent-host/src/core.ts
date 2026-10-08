@@ -507,7 +507,7 @@ export class HostCore {
         admission.snapshot,
         controller
       );
-      bindHostRunAdmission(run, admission);
+      await bindHostRunAdmission(this.platform, run, admission);
       if (this.conversationIds.has(run.id) || run.id === params.commandId) {
         throw new Error('Generated run collides with a committed conversation identity');
       }
