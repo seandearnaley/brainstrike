@@ -10,7 +10,7 @@ import {
   DEFAULT_AGENT_MAX_STEPS,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent/tool-runtime';
-import type { HostRunAdmissionRequest, HostToolContext } from '@brainstrike/agent-host';
+import type { HostRunAdmissionRequest, HostTool, HostToolContext } from '@brainstrike/agent-host';
 import {
   CliWorkspaceRootsSchema,
   materializeCliWorkspaceIntent,
@@ -28,6 +28,7 @@ import {
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
   findProviderDefinition,
+  NATIVE_TOOL_ID,
   resolveAutoObservationalMemoryModelTarget,
   resolveToolRiskCategory,
   type SupportedProvider,
@@ -47,6 +48,10 @@ import { deriveAssistantTurnAuthInput } from '../assistant-server/provider-auth-
 import { prepareRequestSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
+import {
+  type DesktopWorktreeServices,
+  desktopWorktreeToolDependencies,
+} from '../assistant-server/worktree-tool-dependencies';
 import { getDatabase } from '../db-main';
 import { readProviderCredential } from '../provider-api-key';
 import { readDesktopHostSystemContext } from './desktop-host-context';
@@ -304,7 +309,7 @@ async function createDesktopNativeTools(
   db: Awaited<ReturnType<typeof getDatabase>>,
   configuration: z.output<typeof PlatformModelConfigurationSchema>,
   intent: z.output<typeof PlatformClientConfigurationSchema>,
-  dependencies: DesktopAssistantToolDependencies,
+  { resolveForgeService, resolveWorktreeService, ...dependencies }: DesktopHostToolServices,
   budget: ReturnType<typeof resolveScaledToolResultBudget>,
   request: HostRunAdmissionRequest,
   workspace?: DesktopWorkspaceBindingBorrow
@@ -420,6 +425,10 @@ async function createDesktopNativeTools(
           },
           {
             ...dependencies,
+            ...desktopWorktreeToolDependencies(
+              { resolveForgeService, resolveWorktreeService },
+              { runId: context?.runId, threadId: context?.threadId }
+            ),
             ...desktopRetrievalScopeFields(
               selection !== undefined || workspace !== undefined,
               currentRoots
@@ -433,7 +442,7 @@ async function createDesktopNativeTools(
     });
   const native = build();
   const tools = Object.fromEntries(
-    Object.entries(native.tools).map(([name, tool]) => [
+    advertisedNativeTools(native.tools, resolveWorktreeService).map(([name, tool]) => [
       name,
       {
         ...tool,
@@ -465,6 +474,26 @@ async function createDesktopNativeTools(
   };
 }
 
+/** Main's tool services for host threads, resolved per run (the worktree services lazily). */
+export type DesktopHostToolServices = DesktopAssistantToolDependencies & DesktopWorktreeServices;
+
+const WORKTREE_TOOL_IDS: ReadonlySet<string> = new Set([
+  NATIVE_TOOL_ID.listWorktrees,
+  NATIVE_TOOL_ID.manageWorktree,
+]);
+
+/** A worktree tool without Main's worktree service cannot run, so it is not advertised. */
+function advertisedNativeTools(
+  tools: Readonly<Record<string, HostTool>>,
+  resolveWorktreeService: DesktopWorktreeServices['resolveWorktreeService']
+): [string, HostTool][] {
+  const entries = Object.entries(tools);
+  if (resolveWorktreeService?.()) {
+    return entries;
+  }
+  return entries.filter(([, tool]) => !WORKTREE_TOOL_IDS.has(tool.permissionToolId ?? ''));
+}
+
 /** What the host's shared native tools need from this admission; roots come back per call. */
 function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['nativeRuntime'] {
   if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
@@ -485,7 +514,7 @@ function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['n
 
 /** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
 export function productionDesktopCapabilities(
-  dependencies: DesktopAssistantToolDependencies,
+  dependencies: DesktopHostToolServices,
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
   workspaceAuthority?: DesktopWorkspaceBindingAuthority
