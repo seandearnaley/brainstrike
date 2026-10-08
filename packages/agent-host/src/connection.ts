@@ -85,6 +85,7 @@ export function bindHostConnection(
       start: record.start,
     };
   });
+  handle('history/search', (params) => core.history.search(params));
   handle('auth/login', async (params) => {
     if (!storeProviderCredential) {
       throw new Error('This host owns no credential store');

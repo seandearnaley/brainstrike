@@ -40,6 +40,7 @@ import {
 } from './core-state.js';
 import { performHostToolEffect } from './core-tool-effect.js';
 import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
+import { HostHistory } from './history-search.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
@@ -102,6 +103,7 @@ export class HostCore {
   private readonly commands = new HostCommandLedger();
   private readonly mcpInputs = new HostMcpInputState();
   private readonly threads = new Set<string>();
+  readonly history = new HostHistory(() => ({ platform: this.platform, threads: this.threads }));
   private readonly presentations = new HostThreadPresentationState({
     admit: (threadId, perform) => this.admit(threadId, perform),
     append: async (threadId, event) => {

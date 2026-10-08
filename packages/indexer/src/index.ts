@@ -26,6 +26,8 @@ import type {
   StateObservationQuery,
   StateObservationUpsert,
   StateProjectionStats,
+  StateSearchHit,
+  StateSearchRequest,
 } from './contracts.js';
 import type { CoverageAuthorityPort } from './coverage-authority.js';
 import {
@@ -85,6 +87,8 @@ export type {
   StateObservationUpsert,
   StateProjectionOptions,
   StateProjectionStats,
+  StateSearchHit,
+  StateSearchRequest,
   TextFileCommit,
   VectorProfile,
 } from './contracts.js';
@@ -149,6 +153,8 @@ export interface StateIndexerPort {
   matchState(threadId: string, query: string): Promise<readonly number[]>;
   rebuildState(threadId: string): Promise<void>;
   reindexState(threadId: string, seq: number): Promise<void>;
+  /** Ranked committed text across the requested threads, caught up to truth first. */
+  searchState(request: StateSearchRequest): Promise<readonly StateSearchHit[]>;
   stateBlobCounts(
     threads: readonly string[],
     hashes: readonly string[]
@@ -160,6 +166,7 @@ export interface StateStoreProjectionPort extends StateStoreIndexerPort {
   health(): Promise<{ readonly indexerErrors: readonly string[] }>;
   match(threadId: string, query: string): Promise<readonly number[]>;
   rebuild(threadId: string): Promise<void>;
+  search(request: StateSearchRequest): Promise<readonly StateSearchHit[]>;
   stats(threadId: string): Promise<StateProjectionStats>;
 }
 export function createStateStoreIndexer(
@@ -174,6 +181,7 @@ export function createStateStoreIndexer(
     rebuild: (threadId) => port.rebuildState(threadId),
     reindex: (threadId, seq) => port.reindexState(threadId, seq),
     reset: () => port.destroy(),
+    search: (request) => port.searchState(request),
     stats: (threadId) => port.stateStats(threadId),
   };
 }

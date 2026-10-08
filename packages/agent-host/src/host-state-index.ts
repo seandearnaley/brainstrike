@@ -2,7 +2,11 @@ import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
-import { createStateStoreIndexer } from '@brainstrike/indexer';
+import {
+  createStateStoreIndexer,
+  type StateSearchHit,
+  type StateSearchRequest,
+} from '@brainstrike/indexer';
 import { createIndexerConnection } from '@brainstrike/indexer/transport';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 
@@ -21,6 +25,7 @@ export interface HostStateIndex {
   close(): Promise<void>;
   /** Factory reset destroys the index files through this port's `reset`. */
   readonly indexer: StateStoreIndexerPort;
+  search(request: StateSearchRequest): Promise<readonly StateSearchHit[]>;
 }
 
 // Worker and producer entry points are emitted JS (BST-1977): resolve them in the
@@ -76,5 +81,9 @@ export async function openHostStateIndex(root: string): Promise<HostStateIndex> 
     }
   );
   const port = await connection.ready;
-  return { close: () => connection.close(), indexer: createStateStoreIndexer(port) };
+  return {
+    close: () => connection.close(),
+    indexer: createStateStoreIndexer(port),
+    search: (request) => port.searchState(request),
+  };
 }

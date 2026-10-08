@@ -14,8 +14,9 @@ import { z } from 'zod';
 // in `thread/list`), withheld observational memory, tool catalog IDs on
 // committed tool events, and image attachments on a user message (`run/start`
 // and `run.started`).
-// 12: child threads (BST-1932): `thread.started` with a delegation `origin`, and
-// the child results a `run.started` delivers.
+// 12 (M4): cross-thread history search (`history/search`), and child threads
+// (BST-1932): `thread.started` with a delegation `origin`, and the child results
+// a `run.started` delivers.
 export const AGENT_HOST_PROTOCOL_VERSION = 12;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -160,6 +161,15 @@ export const HostRunSnapshotSchema = z.strictObject({
   workspaceBinding: ThreadWorkspaceBindingSchema.optional(),
 });
 export type HostRunSnapshot = z.infer<typeof HostRunSnapshotSchema>;
+/** One ranked committed-text hit in this host's derived state index. */
+export const HostHistoryHitSchema = z.strictObject({
+  seq: z.number().int().positive(),
+  snippet: z.string(),
+  threadId: Id,
+  /** The matched row's committed run_events time, like `HostLogRow.ts`. */
+  ts: z.number().int().nonnegative(),
+});
+export type HostHistoryHit = z.infer<typeof HostHistoryHitSchema>;
 /** A key a user supplies directly. Subscription OAuth is never a login payload. */
 export type HostLoginCredential = Exclude<ProviderCredential, { readonly type: 'oauth' }>;
 const LoginCredential = z.custom<HostLoginCredential>(
@@ -169,6 +179,11 @@ const LoginCredential = z.custom<HostLoginCredential>(
 export const HOST_METHOD_SCHEMAS = {
   // Secret-bearing: process-local, never in HostCommandLedger, the log or diagnostics.
   'auth/login': z.strictObject({ credential: LoginCredential, provider: Id }),
+  /** Ranked committed text across this host's threads; each word is a literal term. */
+  'history/search': z.strictObject({
+    limit: z.number().int().positive().max(100),
+    query: z.string().regex(/\S/u),
+  }),
   'host/stop': z.strictObject({}),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -405,6 +420,7 @@ export const HostLogRowSchema = z.strictObject({
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
   'auth/login': z.strictObject({ stored: z.literal(true) }),
+  'history/search': z.strictObject({ hits: z.array(HostHistoryHitSchema) }),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
     hostVersion: Id,

@@ -8,9 +8,13 @@ import {
   decoder,
   IndexerError,
   type StateProjectionStats,
+  type StateSearchHit,
   stateEventIdentitySchema,
   stateGcSchema,
   stateMatchSchema,
+  stateSearchHitSchema,
+  stateSearchRankSchema,
+  stateSearchSchema,
   stateStatsSchema,
   stateThreadsSchema,
 } from './contracts.js';
@@ -20,6 +24,15 @@ import { StateObservationVectors } from './state-observation-vectors.js';
 import type { StateProjection } from './state-projection.js';
 
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+
+/** FTS5 string literals: each word is one quoted term, so user text never becomes query syntax. */
+function literalTerms(query: string): string {
+  return query
+    .split(/\s+/u)
+    .filter((word) => word.length > 0)
+    .map((word) => `"${word.replaceAll('"', '""')}"`)
+    .join(' ');
+}
 const decodeCount = decoder(count);
 const stateSourceColumns =
   'singleton INTEGER PRIMARY KEY CHECK(singleton=1),root TEXT,projection_identity TEXT';
@@ -354,6 +367,38 @@ export class StateEventStore {
         .pluck()
         .all(query, threadId)
     );
+  }
+
+  /** Catches the requested threads up to truth, then ranks their committed text by BM25. */
+  search(input: unknown): readonly StateSearchHit[] {
+    const { limit, query, threads } = decoder(stateSearchSchema)(input);
+    if (threads.length === 0) {
+      return [];
+    }
+    this.catchUp(threads);
+    const ranked = decoder(Schema.Array(stateSearchRankSchema))(
+      this.db
+        .prepare(
+          `SELECT e.thread_id AS threadId,e.seq,snippet(state_events_fts,0,'','','…',16) AS snippet
+             FROM state_events_fts JOIN state_event_rows e ON e.pk=state_events_fts.rowid
+            WHERE state_events_fts MATCH ? AND e.thread_id IN (SELECT value FROM json_each(?))
+            ORDER BY bm25(state_events_fts),e.thread_id,e.seq LIMIT ?`
+        )
+        .all(literalTerms(query), JSON.stringify([...new Set(threads)]), limit)
+    );
+    return decoder(Schema.Array(stateSearchHitSchema))(
+      ranked.map((hit) => ({ ...hit, ts: this.committedAt(hit.threadId, hit.seq) }))
+    );
+  }
+
+  /** The verified truth row's committed time; an indexed event without one is a gap, never 0. */
+  private committedAt(threadId: string, seq: number): number {
+    for (const item of this.truth.read(threadId, seq, seq)) {
+      if (item.kind === 'event' && item.seq === seq) {
+        return item.ts;
+      }
+    }
+    throw new Error('State truth has no verified committed row for an indexed event');
   }
 
   recordFailure(error: unknown): void {
