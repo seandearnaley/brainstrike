@@ -8,6 +8,7 @@ import {
   type HostEvent,
   type HostImageAttachment,
   type HostParams,
+  HostPromptBreakdownSchema,
   type HostRunSnapshot,
 } from './protocol.js';
 
@@ -299,6 +300,7 @@ export function createHostRunContext(
       await publish(run.threadId, [
         {
           accounting: jsonValue(receipt.accounting),
+          breakdown: HostPromptBreakdownSchema.parse(receipt.breakdown),
           modelId: receipt.modelId,
           provider: receipt.provider,
           runId: run.id,
