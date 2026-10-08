@@ -7,7 +7,7 @@ describe('readWorkspaceFile continuation registry lifecycle wiring', () => {
     const source = fs.readFileSync(path.resolve(import.meta.dirname, '../../main.ts'), 'utf8');
 
     expect(source).toContain(
-      "import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';"
+      "import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';"
     );
     expect(source).toMatch(
       /name:\s*'read-workspace-file-cursors',\s*stop:\s*clearReadWorkspaceFileCursorRegistry/

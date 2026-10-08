@@ -42,6 +42,11 @@ export interface CommittedHostConversation {
   readonly mcpInput: CommittedHostMcpInput;
   /** The thread's committed session; this conversation connects and releases it. */
   readonly source: CommittedThreadSession;
+  /**
+   * Steer the active run: Core ends it after its step in flight. Resolves to
+   * the steered run, or undefined when no run was left to steer.
+   */
+  steer(): Promise<string | undefined>;
   readonly store: CommittedAssistantLogStore;
 }
 
@@ -186,6 +191,18 @@ export function createCommittedHostConversation(options: {
     commands,
     mcpInput,
     source,
+    steer: async () => {
+      const runId = store.getCommittedView().activeRunId;
+      if (!runId) {
+        return;
+      }
+      const { outcome } = await client.request('run/steer', {
+        commandId: crypto.randomUUID(),
+        runId,
+        threadId,
+      });
+      return outcome === 'steering' ? runId : undefined;
+    },
     store,
   };
 }

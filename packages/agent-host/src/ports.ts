@@ -9,6 +9,7 @@ import type {
   PermissionToolGateSnapshot,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
+import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type { McpTaskHandle } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import type { ThreadWorkspaceBinding } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
@@ -96,6 +97,7 @@ export interface HostRunContext {
   }): Promise<void>;
   recordProviderRequest?(receipt: {
     readonly accounting: ProviderRequestAccounting;
+    readonly breakdown: AssistantContextBreakdown;
     readonly modelId: string;
     readonly provider: string;
   }): Promise<void>;

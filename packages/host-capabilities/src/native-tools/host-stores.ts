@@ -4,7 +4,11 @@ import type { HostToolState } from '@brainstrike/agent-host';
 import { canvasHtmlWithinByteCeiling, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
 import {
-  CANVAS_CREATED_BY_VALUES,
+  CANVAS_STATE_KEY_PREFIX,
+  canvasStateKey,
+  HostCanvasVersionSchema,
+} from './canvas-state.js';
+import {
   CANVAS_LIST_LIMIT,
   type CanvasMutationResult,
   type CanvasRepositoryFailure,
@@ -19,8 +23,6 @@ import {
  * thread deletion erases them with it; there is no other record.
  */
 const TASK_LIST_KEY = NATIVE_TOOL_ID.manageTaskList;
-const CANVAS_KEY_PREFIX = `${NATIVE_TOOL_ID.manageCanvas}/`;
-
 const TaskItemsSchema = z.array(
   z.strictObject({
     activeForm: z.string(),
@@ -29,15 +31,6 @@ const TaskItemsSchema = z.array(
     status: z.enum(ASSISTANT_TASK_STATUSES),
   })
 );
-const CanvasVersionSchema = z.strictObject({
-  canvasId: z.string().min(1),
-  createdAt: z.iso.datetime(),
-  createdBy: z.enum(CANVAS_CREATED_BY_VALUES),
-  html: z.string(),
-  title: z.string(),
-  version: z.number().int().positive(),
-});
-
 export function hostTaskListStore(state: HostToolState): TaskListStore {
   return {
     replace: async (next) => {
@@ -52,14 +45,16 @@ export function hostTaskListStore(state: HostToolState): TaskListStore {
 }
 
 export function hostCanvasStore(state: HostToolState): CanvasStore {
-  const key = (canvasId: string) => `${CANVAS_KEY_PREFIX}${canvasId}`;
+  const key = (canvasId: string) => canvasStateKey(canvasId);
   const store = async (
     canvasId: string,
     next: (latest: CanvasVersion | undefined) => CanvasVersion | CanvasRepositoryFailure
   ): Promise<CanvasMutationResult> => {
     let result: CanvasMutationResult = { error: 'not_found', ok: false };
     await state.update(key(canvasId), (current) => {
-      const version = next(current === undefined ? undefined : CanvasVersionSchema.parse(current));
+      const version = next(
+        current === undefined ? undefined : HostCanvasVersionSchema.parse(current)
+      );
       if ('ok' in version) {
         result = version;
         return;
@@ -88,8 +83,8 @@ export function hostCanvasStore(state: HostToolState): CanvasStore {
     },
     list: () => {
       const latest = state
-        .entries(CANVAS_KEY_PREFIX)
-        .map(([, value]) => CanvasVersionSchema.parse(value))
+        .entries(CANVAS_STATE_KEY_PREFIX)
+        .map(([, value]) => HostCanvasVersionSchema.parse(value))
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
       return Promise.resolve({
         canvases: latest.slice(0, CANVAS_LIST_LIMIT).map((canvas) => ({
