@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   AssistantConversationPanel,
   type AssistantConversationPanelProps,
 } from './assistant-conversation-panel';
 import type { CommittedAssistantSnapshot } from './committed-assistant-store';
+import { useAssistantThreadRuntimeAdapters } from './use-assistant-thread-runtime-adapters';
 import {
   type CommittedAssistantRuntimeOptions,
   useCommittedAssistantRuntime,
@@ -116,7 +117,22 @@ function CommittedRuntimePanel({
   onCommandError,
   ...panel
 }: CommittedRuntimePanelProps): ReactElement {
-  const runtime = useCommittedAssistantRuntime({ adapters, commands, onCommandError, store });
+  // The composer stages images only while the presentation offers them; the
+  // owner's send command carries them as the user message's attachments.
+  const { adapters: attachmentAdapters } = useAssistantThreadRuntimeAdapters(
+    undefined,
+    panel.attachmentsAvailability !== undefined
+  );
+  const runtimeAdapters = useMemo(
+    () => (adapters || attachmentAdapters ? { ...attachmentAdapters, ...adapters } : undefined),
+    [adapters, attachmentAdapters]
+  );
+  const runtime = useCommittedAssistantRuntime({
+    adapters: runtimeAdapters,
+    commands,
+    onCommandError,
+    store,
+  });
   // This surface owns the thread's commands, so it owns its follow-up queue.
   return (
     <AssistantConversationPanel

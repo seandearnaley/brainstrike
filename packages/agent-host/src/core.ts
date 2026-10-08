@@ -68,6 +68,7 @@ import {
   hostRegeneratePosition,
   hostRunAncestors,
   hostRunContext,
+  hostStartCommandRecord,
   hostStartPosition,
 } from './run-branch.js';
 
@@ -421,9 +422,14 @@ export class HostCore {
   }
 
   startRun(params: HostParams<'run/start'>, origin?: HostClientOrigin): Promise<{ runId: string }> {
-    return this.command('run/start', params, () =>
-      this.admitRun('run/start', params, origin, () =>
-        hostStartPosition(this.runs.values(), params)
+    const record = hostStartCommandRecord(params);
+    return this.command('run/start', record, () =>
+      this.admitRun(
+        'run/start',
+        params,
+        origin,
+        () => hostStartPosition(this.runs.values(), params),
+        record
       )
     );
   }
@@ -445,7 +451,8 @@ export class HostCore {
     method: 'run/start' | 'run/regenerate',
     params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
     origin: HostClientOrigin | undefined,
-    position: () => HostRunPosition
+    position: () => HostRunPosition,
+    record: { readonly commandId: string } = params
   ): Promise<{ runId: string }> {
     assertHostRunAdmissible(this.threads, this.runs.values(), this.conversationIds, params);
     const selected = position();
@@ -473,7 +480,7 @@ export class HostCore {
       }
       run.release = release;
       const result = { runId: run.id };
-      await this.accept(params.threadId, method, params, result, [started]);
+      await this.accept(params.threadId, method, record, result, [started]);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);
