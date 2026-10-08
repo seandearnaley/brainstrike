@@ -27,32 +27,30 @@ import { createProductionHostPlatform } from '../src/production-platform.js';
 import type { HostEvent } from '../src/protocol.js';
 
 const candidate = join(import.meta.dirname, '../../..');
-const review = z
-  .object({ payloads: z.record(z.string(), z.json()) })
-  .parse(
-    JSON.parse(
-      await readFile(
-        join(
-          candidate,
-          'packages/agent/src/__tests__/fixtures/provider-requests/sdk7-review-payloads.json'
-        ),
-        'utf8'
-      )
-    )
-  );
-const recordedRequests = z
-  .object({ payloads: z.record(z.string(), z.json()) })
-  .parse(
-    JSON.parse(
-      await readFile(
-        join(
-          candidate,
-          'packages/agent/src/__tests__/fixtures/provider-requests/sdk7-recorded-payloads.json'
-        ),
-        'utf8'
-      )
-    )
-  );
+async function recordedPayloads(name: string) {
+  const path = join(candidate, 'packages/agent/src/__tests__/fixtures/provider-requests', name);
+  return z
+    .object({ payloads: z.record(z.string(), z.json()) })
+    .parse(JSON.parse(await readFile(path, 'utf8')));
+}
+const review = await recordedPayloads('sdk7-review-payloads.json');
+const recordedRequests = await recordedPayloads('sdk7-recorded-payloads.json');
+
+function serverMessages(answer?: string): ModelMessage[] {
+  return z
+    .array(modelMessageSchema)
+    .parse(review.payloads['anthropic_server_response_messages'])
+    .map((message) =>
+      answer !== undefined && message.role === 'assistant' && Array.isArray(message.content)
+        ? {
+            ...message,
+            content: message.content.map((part) =>
+              part.type === 'text' ? { ...part, text: answer } : part
+            ),
+          }
+        : message
+    );
+}
 
 // The public Node subpath borrows the shipped reader over committed SDK facts.
 const Billing = z.discriminatedUnion('kind', [
@@ -68,11 +66,37 @@ function actualBilledCost(part: unknown) {
 afterEach(() => vi.unstubAllGlobals());
 
 interface RecordedTurn {
+  readonly continuation?: readonly ModelMessage[];
   readonly messages: readonly ModelMessage[];
   readonly modelId: string;
   readonly outcome: 'completed' | 'stopped' | 'interrupted';
   readonly prompt: string;
-  readonly provider: 'openai' | 'anthropic' | 'bedrock';
+  readonly provider?: 'openai' | 'anthropic' | 'bedrock';
+}
+
+function completedTurn(
+  messages: RecordedTurn['messages'],
+  modelId: string,
+  prompt: string,
+  provider?: RecordedTurn['provider']
+): RecordedTurn {
+  return {
+    messages,
+    modelId,
+    outcome: 'completed',
+    prompt,
+    ...(provider === undefined ? {} : { provider }),
+  };
+}
+
+function hasPartType(part: unknown, type: string): boolean {
+  return (
+    part !== null &&
+    typeof part === 'object' &&
+    !Array.isArray(part) &&
+    'type' in part &&
+    part.type === type
+  );
 }
 
 const recordedModelProviders = {
@@ -86,15 +110,17 @@ async function productionReplay(
   turns: readonly RecordedTurn[],
   provider: ProviderRequestContext['provider'],
   modelId: string,
-  requestContext: Pick<ProviderRequestContext, 'abortedItemIds'> = {}
+  requestContext: Pick<ProviderRequestContext, 'abortedItemIds'> = {},
+  options: { readonly lastMessages?: number; readonly reopen?: boolean } = {}
 ) {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-provider-context-'));
-  const store = await StateStore.open(root, {
+  const storeOptions = {
     memoryCalculatorModule: join(
       candidate,
       'packages/agent-host/dist/adapters/memory-storage-calculator.js'
     ),
-  });
+  };
+  let store = await StateStore.open(root, storeOptions);
   let core: HostCore | undefined;
   let closing: Promise<void> | undefined;
   const close = () =>
@@ -131,7 +157,10 @@ async function productionReplay(
         prompt: turn.prompt,
         runId,
         snapshot: {
-          configuration: { model: turn.modelId, provider: turn.provider },
+          configuration: {
+            model: turn.modelId,
+            ...(turn.provider === undefined ? {} : { provider: turn.provider }),
+          },
           maxSteps: 1,
           toolIdentities: {},
         },
@@ -141,13 +170,24 @@ async function productionReplay(
         messages: turn.messages.map(jsonValue),
         model: {
           modelId: turn.modelId,
-          provider: recordedModelProviders[turn.provider],
+          ...(turn.provider === undefined
+            ? {}
+            : { provider: recordedModelProviders[turn.provider] }),
         },
         runId,
         stepNumber: 0,
         type: 'model.step',
         usage: { inputTokens: 11, outputTokens: 12, totalTokens: 23 },
       },
+      ...(turn.continuation
+        ? [
+            {
+              messages: turn.continuation.map(jsonValue),
+              runId,
+              type: 'model.messages' as const,
+            },
+          ]
+        : []),
       { outcome: turn.outcome, runId, type: 'run.finished' },
     ];
     await store.append(
@@ -155,6 +195,11 @@ async function productionReplay(
       undefined,
       'full'
     );
+    if (options.reopen) {
+      await store.close();
+      expect(RootLock.inspect(root)?.owner.released).toBe(true);
+      store = await StateStore.open(root, storeOptions);
+    }
   }
   const configuration: RuntimeData = { model: modelId, provider };
   const prepared: unknown[] = [];
@@ -167,7 +212,7 @@ async function productionReplay(
       memory: {
         native: {
           options: {
-            lastMessages: 50,
+            lastMessages: options.lastMessages ?? 50,
             observationalMemory: false,
             semanticRecall: false,
             workingMemory: { enabled: false },
@@ -278,16 +323,11 @@ async function productionReplay(
 test.for(['model.step', 'model.messages'] as const)(
   'committed projection leaves an unproven %s provider unstamped instead of borrowing another run',
   async (kind, context) => {
-    const recorded = z.array(z.json()).parse(review.payloads['anthropic_server_response_messages']);
     const host = await productionReplay(
       context,
-      ['first', 'unknown'].map((prompt) => ({
-        messages: recorded.map((message) => modelMessageSchema.parse(message)),
-        modelId: 'claude-sonnet-5',
-        outcome: 'completed' as const,
-        prompt,
-        provider: 'anthropic' as const,
-      })),
+      ['first', 'unknown'].map((prompt) =>
+        completedTurn(serverMessages(), 'claude-sonnet-5', prompt, 'anthropic')
+      ),
       'openai',
       'gpt-6-sol'
     );
@@ -344,18 +384,9 @@ test('production Memory strips recorded Anthropic server-executed history on swi
     );
   });
   vi.stubGlobal('fetch', fetch);
-  const recorded = z.array(z.json()).parse(review.payloads['anthropic_server_response_messages']);
   const host = await productionReplay(
     context,
-    [
-      {
-        messages: recorded.map((message) => modelMessageSchema.parse(message)),
-        modelId: 'claude-sonnet-5',
-        outcome: 'completed',
-        prompt: 'search',
-        provider: 'anthropic',
-      },
-    ],
+    [completedTurn(serverMessages(), 'claude-sonnet-5', 'search', 'anthropic')],
     'openai',
     'gpt-6-sol'
   );
@@ -377,9 +408,7 @@ test('production Memory strips recorded Anthropic server-executed history on swi
       .parse(review.payloads['anthropic_to_openai']);
     expect(actual.model).toBe(shipped.model);
     expect(actual.store).toBe(shipped.store);
-    expect((await host.core.read(host.threadId, 0)).slice(0, host.original.length)).toEqual(
-      host.original
-    );
+    await immutableHistory(host);
     expect(actual.input).toEqual(shipped.input);
   } finally {
     await host.close();
@@ -400,6 +429,121 @@ function interceptedSerialization() {
   return { fetch, requests };
 }
 
+test('production selected history keeps provenance for a reused server call after an unknown older turn', async (context) => {
+  const http = interceptedSerialization();
+  const host = await productionReplay(
+    context,
+    [
+      completedTurn(serverMessages('unselected answer'), 'claude-sonnet-5', 'unselected search'),
+      completedTurn(
+        serverMessages('selected answer'),
+        'claude-sonnet-5',
+        'selected search',
+        'anthropic'
+      ),
+    ],
+    'openai',
+    'gpt-6-sol',
+    {},
+    { lastMessages: 3, reopen: true }
+  );
+  try {
+    const steps = host.original.filter((row) => row.event.type === 'model.step');
+    expect(steps).toHaveLength(2);
+    const stamps = z.array(z.object({ ts: z.number() })).parse(steps);
+    expect(stamps[1]?.ts).toBeGreaterThan(stamps[0]?.ts ?? Number.POSITIVE_INFINITY);
+    const native = committedMemoryTranscript(host.original, 'm3-provider-context-fixture');
+    const sources = native.flatMap(({ content }) =>
+      content.parts
+        .filter((part) => part.type === 'tool-invocation')
+        .map(({ toolInvocation }) => [
+          toolInvocation.toolCallId,
+          toolInvocation.toolName,
+          content.metadata?.['provider'],
+        ])
+    );
+    expect(sources).toEqual([
+      ['srvtoolu_recorded', 'web_search', undefined],
+      ['srvtoolu_recorded', 'web_search', 'anthropic.messages'],
+    ]);
+    const result = await host.run('continue');
+    expect(result.terminal.outcome).toBe('failed');
+    expect(http.fetch).toHaveBeenCalledTimes(1);
+    expect(http.requests[0]?.url).toBe('https://api.openai.com/v1/responses');
+    expect(host.prepared).toHaveLength(1);
+    const actual = z.object({ input: z.array(z.json()) }).parse(http.requests[0]?.body);
+    const expected = [
+      { content: [{ text: 'selected search', type: 'input_text' }], role: 'user' },
+      { content: [{ text: 'selected answer', type: 'output_text' }], role: 'assistant' },
+      { content: [{ text: 'continue', type: 'input_text' }], role: 'user' },
+    ];
+    // Prove native Memory selected B and preserved its answer before testing
+    // whether the inherited provenance lookup lost that selected occurrence.
+    expect(
+      actual.input.filter(
+        (part) =>
+          part !== null && typeof part === 'object' && !Array.isArray(part) && 'role' in part
+      )
+    ).toEqual(expected);
+    await immutableHistory(host);
+    expect(actual.input).toEqual(expected);
+  } finally {
+    await host.close();
+  }
+});
+
+test('production reopened model.messages continuation borrows its same-run committed SDK provenance', async (context) => {
+  const http = interceptedSerialization();
+  const assistant = serverMessages()[0];
+  if (!(assistant?.role === 'assistant' && Array.isArray(assistant.content))) {
+    throw new Error('Recorded server response is missing');
+  }
+  const host = await productionReplay(
+    context,
+    [
+      {
+        continuation: [
+          { ...assistant, content: assistant.content.filter((part) => part.type !== 'tool-call') },
+        ],
+        messages: [
+          { ...assistant, content: assistant.content.filter((part) => part.type === 'tool-call') },
+        ],
+        modelId: 'claude-sonnet-5',
+        outcome: 'completed',
+        prompt: 'search',
+        provider: 'anthropic',
+      },
+    ],
+    'openai',
+    'gpt-6-sol',
+    {},
+    { reopen: true }
+  );
+  try {
+    const segments = host.original.filter(
+      (row) => row.event.type === 'model.step' || row.event.type === 'model.messages'
+    );
+    expect(segments.map((row) => row.event.type)).toEqual(['model.step', 'model.messages']);
+    const native = committedMemoryTranscript(host.original, 'm3-provider-context-fixture');
+    for (const row of segments) {
+      expect(
+        native.find((message) => message.id === committedRowAddress(row))?.content.metadata
+      ).toMatchObject({ modelId: 'claude-sonnet-5', provider: 'anthropic.messages' });
+    }
+    const result = await host.run('continue');
+    expect(result.terminal.outcome).toBe('failed');
+    expect(http.fetch).toHaveBeenCalledTimes(1);
+    const actual = z.object({ input: z.array(z.json()) }).parse(http.requests[0]?.body);
+    const shipped = z
+      .object({ input: z.array(z.json()) })
+      .parse(review.payloads['anthropic_to_openai']);
+    await immutableHistory(host);
+    expect(actual.input).toEqual(shipped.input);
+  } finally {
+    await host.close();
+  }
+});
+
 function providerPrompt(value: unknown) {
   return z
     .array(
@@ -419,21 +563,9 @@ async function immutableHistory(host: Awaited<ReturnType<typeof productionReplay
 
 test('production Memory preserves the recorded same-provider Anthropic executed call and result', async (context) => {
   const http = interceptedSerialization();
-  const messages = z
-    .array(z.json())
-    .parse(review.payloads['anthropic_server_response_messages'])
-    .map((message) => modelMessageSchema.parse(message));
   const host = await productionReplay(
     context,
-    [
-      {
-        messages,
-        modelId: 'claude-sonnet-5',
-        outcome: 'completed',
-        prompt: 'search',
-        provider: 'anthropic',
-      },
-    ],
+    [completedTurn(serverMessages(), 'claude-sonnet-5', 'search', 'anthropic')],
     'anthropic',
     'claude-sonnet-5'
   );
@@ -487,13 +619,12 @@ test.for([
     const host = await productionReplay(
       context,
       [
-        {
+        completedTurn(
           messages,
-          modelId: origin === 'bedrock' ? 'anthropic.claude-sonnet-5' : modelId,
-          outcome: 'completed',
-          prompt: 'previous task',
-          provider: origin,
-        },
+          origin === 'bedrock' ? 'anthropic.claude-sonnet-5' : modelId,
+          'previous task',
+          origin
+        ),
       ],
       provider,
       modelId
@@ -507,13 +638,7 @@ test.for([
         .parse(http.requests[0]?.body);
       const parts = body.messages.flatMap((message) => message.content);
       expect(parts).toContainEqual({ text: 'native-signature answer', type: 'text' });
-      const signed = parts.filter(
-        (part) =>
-          part !== null &&
-          typeof part === 'object' &&
-          !Array.isArray(part) &&
-          part['type'] === 'thinking'
-      );
+      const signed = parts.filter((part) => hasPartType(part, 'thinking'));
       await immutableHistory(host);
       expect(signed).toEqual(
         origin === 'anthropic'
@@ -536,20 +661,8 @@ function recordedReadMessages(): ModelMessage[] {
   const body = z
     .object({ input: z.array(z.json()) })
     .parse(recordedRequests.payloads['openai-stored-replay']);
-  const call = body.input.find(
-    (part) =>
-      part !== null &&
-      typeof part === 'object' &&
-      !Array.isArray(part) &&
-      part['type'] === 'function_call'
-  );
-  const result = body.input.find(
-    (part) =>
-      part !== null &&
-      typeof part === 'object' &&
-      !Array.isArray(part) &&
-      part['type'] === 'function_call_output'
-  );
+  const call = body.input.find((part) => hasPartType(part, 'function_call'));
+  const result = body.input.find((part) => hasPartType(part, 'function_call_output'));
   const invocation = z
     .object({ arguments: z.string(), call_id: z.string(), name: z.string() })
     .parse(call);
@@ -599,13 +712,7 @@ test.for(['stopped', 'interrupted'] as const)(
     const host = await productionReplay(
       context,
       [
-        {
-          messages,
-          modelId: 'gpt-6-sol',
-          outcome: 'completed',
-          prompt: 'Read README.md',
-          provider: 'openai',
-        },
+        completedTurn(messages, 'gpt-6-sol', 'Read README.md', 'openai'),
         {
           messages: unfinished,
           modelId: 'gpt-6-sol',
@@ -627,13 +734,7 @@ test.for(['stopped', 'interrupted'] as const)(
         )
       ).toBe(false);
       const actual = z.object({ input: z.array(z.json()) }).parse(http.requests[0]?.body);
-      const outputs = actual.input.filter(
-        (part) =>
-          part !== null &&
-          typeof part === 'object' &&
-          !Array.isArray(part) &&
-          part['type'] === 'function_call_output'
-      );
+      const outputs = actual.input.filter((part) => hasPartType(part, 'function_call_output'));
       const healed = healInterruptedModelMessages(unfinished, new Set(['call_recorded']));
       const repair = z
         .object({
@@ -670,15 +771,7 @@ test('production replay refuses an unpaired completed call instead of inventing 
   const http = interceptedSerialization();
   const host = await productionReplay(
     context,
-    [
-      {
-        messages: recordedReadMessages().slice(0, 1),
-        modelId: 'gpt-6-sol',
-        outcome: 'completed',
-        prompt: 'Read README.md',
-        provider: 'openai',
-      },
-    ],
+    [completedTurn(recordedReadMessages().slice(0, 1), 'gpt-6-sol', 'Read README.md', 'openai')],
     'openai',
     'gpt-6-sol'
   );
@@ -711,13 +804,7 @@ test('production provider middleware removes host-identified aborted items witho
   const host = await productionReplay(
     context,
     [
-      {
-        messages,
-        modelId: 'gpt-6-sol',
-        outcome: 'completed',
-        prompt: 'Read README.md',
-        provider: 'openai',
-      },
+      completedTurn(messages, 'gpt-6-sol', 'Read README.md', 'openai'),
       {
         messages: aborted,
         modelId: 'gpt-6-sol',
@@ -735,20 +822,8 @@ test('production provider middleware removes host-identified aborted items witho
     expect(result.terminal.outcome).toBe('failed');
     expect(http.fetch).toHaveBeenCalledTimes(1);
     const actual = z.object({ input: z.array(z.json()) }).parse(http.requests[0]?.body);
-    const calls = actual.input.filter(
-      (part) =>
-        part !== null &&
-        typeof part === 'object' &&
-        !Array.isArray(part) &&
-        part['type'] === 'function_call'
-    );
-    const outputs = actual.input.filter(
-      (part) =>
-        part !== null &&
-        typeof part === 'object' &&
-        !Array.isArray(part) &&
-        part['type'] === 'function_call_output'
-    );
+    const calls = actual.input.filter((part) => hasPartType(part, 'function_call'));
+    const outputs = actual.input.filter((part) => hasPartType(part, 'function_call_output'));
     expect(calls).toHaveLength(1);
     expect(outputs).toEqual([
       {
