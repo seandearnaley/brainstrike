@@ -16,9 +16,9 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // committed tool events, image attachments on a user message (`run/start`
 // and `run.started`), committed workspace edit attribution,
 // `checkpoint/revert`, per-thread tool state, the prompt breakdown on
-// `provider.request.prepared`, and `mcp.tools.unavailable`, committed with
-// `run.started` for each configured MCP server whose tools the run proceeds
-// without.
+// `provider.request.prepared`, `run/steer` (end the active run at its next
+// step boundary), and `mcp.tools.unavailable`, committed with `run.started` for
+// each configured MCP server whose tools the run proceeds without.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -34,6 +34,9 @@ const ThreadPresentation = {
   title: ThreadTitle.optional(),
 };
 const Run = { ...Thread, runId: Id };
+/** Task Ledger run labels (brainstrike_assistant_run_outcomes verdict/source). */
+const RunVerdict = z.enum(['failed', 'mixed', 'succeeded']);
+const RunVerdictDetail = z.string().max(2000);
 const McpInput = { ...Run, interactionId: Id };
 export const HostMcpInputStatusSchema = z.enum([
   'requested',
@@ -171,6 +174,15 @@ export type HostLoginCredential = Exclude<ProviderCredential, { readonly type: '
 const LoginCredential = z.custom<HostLoginCredential>(
   (value) => isProviderCredential(value) && value.type !== 'oauth'
 );
+/**
+ * The launching desktop's one-time import of its retired encrypted store,
+ * decrypted where only it can decrypt: every entry, or why none could be read.
+ */
+const HostLegacyImportSchema = z.union([
+  z.strictObject({ entries: z.array(z.strictObject({ account: Id, value: z.string() })) }),
+  z.strictObject({ unavailable: z.string().min(1) }),
+]);
+export type HostLegacyImport = z.infer<typeof HostLegacyImportSchema>;
 
 const Provider = { provider: Id };
 
@@ -186,6 +198,7 @@ export const HOST_METHOD_SCHEMAS = {
   'auth/credential/delete': z.strictObject({ account: Id }),
   'auth/credential/set': z.strictObject({ account: Id, credential: LoginCredential }),
   'auth/disconnect': z.strictObject(Provider),
+  'auth/import-legacy': HostLegacyImportSchema,
   'auth/login': z.strictObject({ ...Provider, credential: LoginCredential }),
   'auth/status': z.strictObject(Provider),
   'auth/verify': z.strictObject(Provider),
@@ -247,7 +260,20 @@ export const HOST_METHOD_SCHEMAS = {
     parentMessageId: Id.nullable().optional(),
     prompt: Id,
   }),
+  /**
+   * End the active run gracefully at its next step boundary, after the step in
+   * flight, so the user's steering message can start the next turn (BST-588).
+   */
+  'run/steer': z.strictObject({ ...Command, ...Run }),
   'run/stop': z.strictObject({ ...Command, ...Run }),
+  /** A client verdict is always the user's; hook and revert labels are host-committed. */
+  'run/verdict': z.strictObject({
+    ...Command,
+    ...Run,
+    detail: RunVerdictDetail.optional(),
+    source: z.literal('user'),
+    verdict: RunVerdict,
+  }),
   /** Destructive Root lifecycle; the existing StateStore intent owns recovery. */
   'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
@@ -470,6 +496,14 @@ export const HostEventSchema = z.union([
     commandId: Id,
     outcomes: z.array(HostEditRevertOutcomeSchema),
   }),
+  /** Only the host commits labels; precedence is applied by projectRunVerdicts. */
+  z.strictObject({
+    type: z.literal('run.verdict'),
+    ...RunFields,
+    detail: RunVerdictDetail.optional(),
+    source: z.enum(['edit_revert', 'hook', 'user']),
+    verdict: RunVerdict,
+  }),
 ]);
 export type HostEvent = z.infer<typeof HostEventSchema>;
 export const HostLogRowSchema = z.strictObject({
@@ -487,6 +521,10 @@ export const HOST_RESULT_SCHEMAS = {
   'auth/credential/delete': z.strictObject({ deleted: z.boolean() }),
   'auth/credential/set': z.strictObject({ stored: z.literal(true) }),
   'auth/disconnect': HostAuthStatusSchema,
+  'auth/import-legacy': z.strictObject({
+    alreadyPresent: z.number().int().nonnegative(),
+    migrated: z.number().int().nonnegative(),
+  }),
   'auth/login': z.strictObject({ stored: z.literal(true) }),
   'auth/status': HostAuthStatusSchema,
   'auth/verify': HostAuthVerdictSchema,
@@ -515,7 +553,9 @@ export const HOST_RESULT_SCHEMAS = {
   'mcp/input/stage': z.strictObject({ staged: z.literal(true) }),
   'run/regenerate': z.strictObject({ runId: Id }),
   'run/start': z.strictObject({ runId: Id }),
+  'run/steer': z.strictObject({ outcome: z.enum(['steering', 'already-terminal']) }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
+  'run/verdict': z.strictObject({ accepted: z.literal(true) }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),
   'thread/list': z.strictObject({
     // Presentation fields never committed are absent.

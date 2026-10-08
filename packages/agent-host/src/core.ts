@@ -18,6 +18,7 @@ import {
   queueHostAdmission,
   rejectHostRunAdmission,
   retainHostRunWork,
+  steerHostRun,
 } from './core-run-lifecycle.js';
 import {
   createHostRunContext,
@@ -66,6 +67,7 @@ import {
   createHostApprovalResponses,
   finishApprovedHostResults,
 } from './run-continuation.js';
+import { userRunVerdict } from './run-verdicts.js';
 import { HostThreadPresentationState } from './thread-presentation-state.js';
 import { HostToolRecords } from './tool-records.js';
 import { revertHostRunEdits } from './workspace-edits.js';
@@ -697,6 +699,22 @@ export class HostCore {
         cause instanceof Error ? cause.message : String(cause)
       );
     }
+  }
+
+  recordVerdict(params: HostParams<'run/verdict'>): Promise<{ accepted: true }> {
+    return this.command('run/verdict', params, async () => {
+      const event = userRunVerdict(this.runs.get(params.runId)?.threadId, params);
+      await this.accept(params.threadId, 'run/verdict', params, { accepted: true }, [event]);
+      return { accepted: true } as const;
+    });
+  }
+
+  steer(params: HostParams<'run/steer'>): Promise<{ outcome: 'steering' | 'already-terminal' }> {
+    return this.command('run/steer', params, () =>
+      steerHostRun(this.run(params.threadId, params.runId), (result) =>
+        this.accept(params.threadId, 'run/steer', params, result, [])
+      )
+    );
   }
 
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {

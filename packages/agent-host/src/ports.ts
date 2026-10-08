@@ -27,7 +27,12 @@ import type {
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
 import type { HostAuthVerdict } from './auth-wire.js';
-import type { HostEditOp, HostLoginCredential, HostRunSnapshot } from './protocol.js';
+import type {
+  HostEditOp,
+  HostLegacyImport,
+  HostLoginCredential,
+  HostRunSnapshot,
+} from './protocol.js';
 
 /** Private native authority. Validation never resolves or sends an answer. */
 export interface HostMcpInputCapability {
@@ -172,6 +177,10 @@ export interface HostAuthService {
   ): Promise<ProviderAuthStatus>;
   deleteCredential(account: string): Promise<boolean>;
   disconnect(provider: string): Promise<ProviderAuthStatus>;
+  /** Idempotent; settles every credential use a launch-declared pending import holds. */
+  importLegacy(
+    input: HostLegacyImport
+  ): Promise<{ readonly alreadyPresent: number; readonly migrated: number }>;
   /** A Settings-namespace entry under its existing account (provider, tool or MCP key). */
   setCredential(account: string, credential: HostLoginCredential): Promise<void>;
   status(provider: string): Promise<ProviderAuthStatus>;

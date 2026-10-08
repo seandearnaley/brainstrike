@@ -127,8 +127,10 @@ export async function createHostPlatform(
     port.close();
   });
   // The desktop's one MCP runtime: host-thread MCP tools run here, beside Core.
+  // Its servers connect after readiness, so bearer reads wait for a pending
+  // legacy import like every other credential use.
   const mcpHost = await createDesktopNodeMcpHost(connection, request, startup, () =>
-    host.credentials.secrets()
+    host.auth.secrets()
   );
   await startup.register(() => mcpHost.close());
   return createProductionHostPlatform({
