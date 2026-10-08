@@ -332,7 +332,19 @@ export function serveDesktopPlatform(
             signal,
             threadId: request.threadId,
             toolCallId: request.toolCallId,
-            ...(tool.mcpBinding ? { mcp: mcp.execution(request, signal) } : {}),
+            ...(tool.mcpBinding
+              ? {
+                  mcp: mcp.execution(
+                    {
+                      runId: request.runId,
+                      threadId: request.threadId,
+                      toolCallId: request.toolCallId,
+                      toolId: request.toolId,
+                    },
+                    signal
+                  ),
+                }
+              : {}),
             write: async (chunk) => {
               await connection.sendRequest(
                 'platform/progress',
