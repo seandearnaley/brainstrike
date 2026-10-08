@@ -1928,19 +1928,7 @@ if (singleInstanceLockAcquired) {
       try {
         const { url, stop, authToken } = await startAssistantServer(undefined, {
           deprecatedEnvVars: deprecatedEnvVarReports,
-          embeddingHostManager,
           envFileFailures: desktopEnvLoadResult.failures,
-          llmHostManager,
-          nativeIndexSearch,
-          resolveForgeService: () => forgeService ?? null,
-          resolveWorktreeService: () => worktreeService,
-          // T1 injection point (BST-1164): the run-persistence seam's snapshot
-          // deps — threaded, not yet consumed (T2's turn-boundary triggers
-          // consume them without editing main.ts).
-          snapshots: {
-            createRepository: createSnapshotRepository,
-            service: constructedSnapshotService,
-          },
         });
         assistantUrl = url;
         assistantAuthToken = authToken;

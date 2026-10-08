@@ -29,14 +29,9 @@ import {
   getDesktopMastraMemory,
   resetDesktopMastraMemoryCacheForTests,
 } from '../../assistant-server/mastra-memory';
-import { handleSuspendedRunsRequest } from '../../assistant-server/status-endpoints';
 import { reapOrphanedThreadRuns } from '../../assistant-server/thread-run-startup-reaper';
-import { createRunRequest } from './_harness';
 import { createBudgetedHost } from './fixtures/budgeted-host';
 
-const runDiscoveryRequest = createRunRequest((req, res, options = {}) =>
-  handleSuspendedRunsRequest(req, res, options)
-);
 const cancel = vi.hoisted(() => vi.fn<(id: string) => Promise<void>>(async () => {}));
 vi.mock('@brainstrike/assistant-service/steering', () => ({ cancelSteerableRunAndWait: cancel }));
 const databaseHolder = vi.hoisted(() => ({ current: undefined as PGlite | undefined }));
@@ -634,23 +629,6 @@ it.each(['complete', 'approval'] as const)(
       }
       expect(effect).not.toHaveBeenCalled();
       const callsBeforeDiscovery = modelCalls;
-      const discovery = await runDiscoveryRequest({
-        method: 'GET',
-        url: '/assistant/suspended-runs?resourceId=owner&threadId=root',
-      });
-      expect(discovery.status).toBe(200);
-      expect(JSON.parse(discovery.body)).toMatchObject({
-        approvals: [
-          {
-            continuationId: input.id,
-            runId: pause.nativeRunId,
-            toolCallId: pause.chunk.toolCallId,
-          },
-        ],
-        suspends: [],
-      });
-      expect(modelCalls).toBe(callsBeforeDiscovery);
-      expect(effect).not.toHaveBeenCalled();
 
       const repository = createPgliteAssistantThreadRepository(database as DbHandle);
       await repository.completeThreadRun('wake-host', { status: 'completed' });
@@ -727,12 +705,6 @@ it.each(['complete', 'approval'] as const)(
         maxOutputTokens: 42,
         providerOptions: { openai: { reasoningEffort: 'low' } },
       });
-      const afterResume = await runDiscoveryRequest({
-        method: 'GET',
-        url: '/assistant/suspended-runs?resourceId=owner&threadId=root',
-      });
-      expect(afterResume.status).toBe(200);
-      expect(JSON.parse(afterResume.body)).toEqual({ approvals: [], suspends: [] });
     }
     expect(await graph.getContinuation(scope, input.id)).toMatchObject({
       state: 'completed',

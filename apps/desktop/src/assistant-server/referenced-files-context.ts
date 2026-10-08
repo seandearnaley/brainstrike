@@ -1,6 +1,6 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
 import { parseFileMentionDirectives } from '@brainstrike/agent';
-import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
+import type { WorkspaceFileReader } from '@brainstrike/assistant-service/types';
 import { createLogger } from '@brainstrike/logging';
 import { getWorkspaceRoots } from './workspace-roots';
 

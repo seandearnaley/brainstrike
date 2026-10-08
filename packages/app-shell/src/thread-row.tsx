@@ -76,9 +76,6 @@ export interface ThreadRowProps {
   readonly moveTargets: readonly ThreadMoveTarget[];
   readonly onDeleteThread: (threadId: string) => Promise<void>;
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
-  readonly onRefreshAgentColors?:
-    | ((threadId: string, ownerResourceId: string) => Promise<number>)
-    | undefined;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
   readonly onUpdateThreadMetadata: (
@@ -99,7 +96,6 @@ export function ThreadRow({
   onDeleteThread,
   onMoveThreadToGroup,
   onRenameThread,
-  onRefreshAgentColors,
   onSelectThread,
   onUpdateThreadMetadata,
   pr,
@@ -117,8 +113,6 @@ export function ThreadRow({
   const [draftTitle, setDraftTitle] = useState('');
   const [renameError, setRenameError] = useState<string | null>(null);
   const [savingMetadata, setSavingMetadata] = useState(false);
-  const [refreshingColors, setRefreshingColors] = useState(false);
-  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [savingRename, setSavingRename] = useState(false);
   const handleCustomizeThreadToggle = useCallback(() => {
     setCustomizing((current) => !current);
@@ -183,9 +177,6 @@ export function ThreadRow({
         onMetadataError={setMetadataError}
         onMetadataSavingChange={setSavingMetadata}
         onMoveThreadToGroup={onMoveThreadToGroup}
-        onRefreshAgentColors={onRefreshAgentColors}
-        onRefreshingColorsChange={setRefreshingColors}
-        onRefreshMessage={setRefreshMessage}
         onRenameSavingChange={setSavingRename}
         onRenameThread={onRenameThread}
         onRenameThreadStart={handleRenameThreadStart}
@@ -197,8 +188,6 @@ export function ThreadRow({
         onSelectThread={onSelectThread}
         onUpdateThreadMetadata={onUpdateThreadMetadata}
         pr={pr}
-        refreshingColors={refreshingColors}
-        refreshMessage={refreshMessage}
         renameError={renameError}
         renameSaving={savingRename}
         rowGroupId={groupId}
@@ -270,9 +259,6 @@ function ThreadRowItem({
   onMetadataError,
   onMoveThreadToGroup,
   onRenameThread,
-  onRefreshAgentColors,
-  onRefreshMessage,
-  onRefreshingColorsChange,
   onRenameThreadStart,
   onRenameThreadSubmitted,
   onRenameThreadSubmitError,
@@ -283,8 +269,6 @@ function ThreadRowItem({
   pr,
   renameError,
   renameSaving,
-  refreshMessage,
-  refreshingColors,
   rowGroupId,
   selected,
   status,
@@ -311,11 +295,6 @@ function ThreadRowItem({
   readonly onMetadataError: (message: string | null) => void;
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
-  readonly onRefreshAgentColors?:
-    | ((threadId: string, ownerResourceId: string) => Promise<number>)
-    | undefined;
-  readonly onRefreshMessage: (message: string | null) => void;
-  readonly onRefreshingColorsChange: (refreshing: boolean) => void;
   readonly onRenameThreadStart: () => void;
   readonly onRenameThreadSubmitted: () => void;
   readonly onRenameThreadSubmitError: (message: string) => void;
@@ -329,8 +308,6 @@ function ThreadRowItem({
   readonly pr: ForgePrCacheEntry | null;
   readonly renameError: string | null;
   readonly renameSaving: boolean;
-  readonly refreshMessage: string | null;
-  readonly refreshingColors: boolean;
   readonly rowGroupId: string | null;
   readonly selected: boolean;
   readonly status: ThreadRowStatusState | null;
@@ -536,16 +513,11 @@ function ThreadRowItem({
               onExpandedThreadToggle={onExpandedThreadToggle}
               onMetadataError={onMetadataError}
               onMetadataSavingChange={onMetadataSavingChange}
-              onRefreshAgentColors={onRefreshAgentColors}
-              onRefreshingColorsChange={onRefreshingColorsChange}
-              onRefreshMessage={onRefreshMessage}
               onRenameThreadStart={onRenameThreadStart}
               onSelectThread={onSelectThread}
               onUpdateThreadMetadata={onUpdateThreadMetadata}
               pendingDelete={confirmingDelete}
               pr={pr}
-              refreshingColors={refreshingColors}
-              refreshMessage={refreshMessage}
               selected={selected}
               status={status}
               thread={thread}
@@ -657,15 +629,10 @@ function ThreadRowDisplay({
   onMetadataError,
   onRenameThreadStart,
   onMetadataSavingChange,
-  onRefreshAgentColors,
-  onRefreshMessage,
-  onRefreshingColorsChange,
   onSelectThread,
   onUpdateThreadMetadata,
   pendingDelete,
   pr,
-  refreshMessage,
-  refreshingColors,
   selected,
   status,
   thread,
@@ -685,11 +652,6 @@ function ThreadRowDisplay({
   readonly onMetadataError: (message: string | null) => void;
   readonly onRenameThreadStart: () => void;
   readonly onMetadataSavingChange: (saving: boolean) => void;
-  readonly onRefreshAgentColors?:
-    | ((threadId: string, ownerResourceId: string) => Promise<number>)
-    | undefined;
-  readonly onRefreshMessage: (message: string | null) => void;
-  readonly onRefreshingColorsChange: (refreshing: boolean) => void;
   readonly onSelectThread: (threadId: string) => void;
   readonly onUpdateThreadMetadata: (
     threadId: string,
@@ -697,8 +659,6 @@ function ThreadRowDisplay({
   ) => Promise<void>;
   readonly pendingDelete: boolean;
   readonly pr: ForgePrCacheEntry | null;
-  readonly refreshMessage: string | null;
-  readonly refreshingColors: boolean;
   readonly selected: boolean;
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
@@ -785,12 +745,7 @@ function ThreadRowDisplay({
                   metadataSaving={metadataSaving}
                   onMetadataError={onMetadataError}
                   onMetadataSavingChange={onMetadataSavingChange}
-                  onRefreshAgentColors={onRefreshAgentColors}
-                  onRefreshingColorsChange={onRefreshingColorsChange}
-                  onRefreshMessage={onRefreshMessage}
                   onUpdateThreadMetadata={onUpdateThreadMetadata}
-                  refreshingColors={refreshingColors}
-                  refreshMessage={refreshMessage}
                   thread={thread}
                 />
               ) : (
@@ -877,29 +832,17 @@ function ThreadCustomizationPanel({
   metadataSaving,
   onMetadataError,
   onMetadataSavingChange,
-  onRefreshAgentColors,
-  onRefreshMessage,
-  onRefreshingColorsChange,
   onUpdateThreadMetadata,
-  refreshMessage,
-  refreshingColors,
   thread,
 }: {
   readonly metadataError: string | null;
   readonly metadataSaving: boolean;
   readonly onMetadataError: (message: string | null) => void;
   readonly onMetadataSavingChange: (saving: boolean) => void;
-  readonly onRefreshAgentColors?:
-    | ((threadId: string, ownerResourceId: string) => Promise<number>)
-    | undefined;
-  readonly onRefreshMessage: (message: string | null) => void;
-  readonly onRefreshingColorsChange: (refreshing: boolean) => void;
   readonly onUpdateThreadMetadata: (
     threadId: string,
     metadata: AssistantThreadMetadata
   ) => Promise<void>;
-  readonly refreshMessage: string | null;
-  readonly refreshingColors: boolean;
   readonly thread: AssistantMemoryThread;
 }): ReactElement {
   const saveMetadata = (metadata: AssistantThreadMetadata): void => {
@@ -934,7 +877,7 @@ function ThreadCustomizationPanel({
                   className={
                     selected ? 'bg-accent shadow-inner ring-1 ring-border' : 'text-muted-foreground'
                   }
-                  disabled={metadataSaving || refreshingColors}
+                  disabled={metadataSaving}
                   key={iconId}
                   onClick={() => {
                     saveMetadata({ icon: iconId });
@@ -972,7 +915,7 @@ function ThreadCustomizationPanel({
                         className={
                           selected ? 'bg-accent shadow-inner ring-1 ring-border' : undefined
                         }
-                        disabled={metadataSaving || refreshingColors}
+                        disabled={metadataSaving}
                         key={colorId}
                         onClick={() => saveMetadata({ color: colorId })}
                         size="icon-sm"
@@ -990,40 +933,6 @@ function ThreadCustomizationPanel({
             ))}
           </div>
           <ThreadColorFamilyPreview rootColor={getThreadColorId(thread)} />
-          {onRefreshAgentColors ? (
-            <div className="mt-2 border-t pt-2">
-              <Button
-                className="w-full"
-                disabled={refreshingColors || metadataSaving}
-                onClick={() => {
-                  onRefreshingColorsChange(true);
-                  onRefreshMessage(null);
-                  onRefreshAgentColors(thread.id, thread.resourceId)
-                    .then((changed) => {
-                      onRefreshMessage(
-                        changed === 0
-                          ? 'Saved agent colors are already up to date.'
-                          : `Refreshed ${changed} saved agent ${changed === 1 ? 'color' : 'colors'}.`
-                      );
-                    })
-                    .catch((error: unknown) => {
-                      onRefreshMessage(error instanceof Error ? error.message : String(error));
-                    })
-                    .finally(() => onRefreshingColorsChange(false));
-                }}
-                size="sm"
-                type="button"
-                variant="secondary"
-              >
-                {refreshingColors ? 'Refreshing agent colors…' : 'Refresh agent colors'}
-              </Button>
-              {refreshMessage ? (
-                <p className="mt-1 text-[11px]" role="status">
-                  {refreshMessage}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
         </div>
       </div>
       {metadataError ? <p className="text-[11px] text-destructive">{metadataError}</p> : null}

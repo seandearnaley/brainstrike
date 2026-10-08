@@ -26,9 +26,6 @@
       "@brainstrike/assistant-service/http": [
         "../../packages/assistant-service/dist/http.d.ts"
       ],
-      "@brainstrike/assistant-service/local-provider-runtime": [
-        "../../packages/assistant-service/dist/local-provider-runtime.d.ts"
-      ],
       "@brainstrike/assistant-service/memory-model-targets": [
         "../../packages/assistant-service/dist/memory-model-targets.d.ts"
       ],
@@ -38,17 +35,11 @@
       "@brainstrike/assistant-service/request": [
         "../../packages/assistant-service/dist/request.d.ts"
       ],
-      "@brainstrike/assistant-service/run-turn": [
-        "../../packages/assistant-service/dist/run-turn.d.ts"
-      ],
       "@brainstrike/assistant-service/secret-errors": [
         "../../packages/assistant-service/dist/secret-errors.d.ts"
       ],
       "@brainstrike/assistant-service/steering": [
         "../../packages/assistant-service/dist/steering.d.ts"
-      ],
-      "@brainstrike/assistant-service/stream-init": [
-        "../../packages/assistant-service/dist/stream-init.d.ts"
       ],
       "@brainstrike/assistant-service/types": [
         "../../packages/assistant-service/dist/types.d.ts"

@@ -4,6 +4,14 @@
 > hooks, or plan-mode/suspension. Rules here are true now; the record behind each
 > is in `assistant-runtime/<topic>.md`.
 
+## Desktop Main HTTP surface
+
+- Desktop runs, decisions, steering, cancellation, child input and run-status
+  belong to the agent host protocol. Main's HTTP server serves only provider
+  status, credential verification and OpenRouter model metadata (`routing.ts`);
+  every other path is 404. Sections below that name `/assistant/*` run routes
+  describe the legacy runtime web still uses.
+
 ## Existing-runtime conversation panels
 
 - `AssistantConversationPanel` binds `ChatThreadUI` to a supplied public

@@ -1,7 +1,6 @@
 import type { RuntimeAssistantMemorySettings } from '@brainstrike/agent';
 import { app } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-import { handleAssistantRequest } from '../../assistant-server';
 import {
   getDesktopMastraMemoryForTests,
   resetDesktopMastraMemoryCacheForTests,
@@ -12,21 +11,11 @@ import {
   mockPgliteMastraStorage,
   mockSecretsService,
 } from './_assistant-server-mocks';
-import { createRunRequest } from './_harness';
 
-// Mock dependencies: per-file vi.mock call sites (hoisting is
-// per-importing-module) over the shared factory bodies + fixtures in
-// _assistant-server-mocks.ts (BST-1029). The DYNAMIC import is LOAD-BEARING
-// (both alternatives verified red): a bare imported factory reference is
-// evaluated at hoist time, and even a lazy arrow over the STATIC import
-// breaks because '../../assistant-server' initializes first in import order
-// and triggers these factories before the mocks module's bindings exist. The
-// dynamic import shares the same per-file module instance as the static
-// fixture imports below.
-// vi.hoisted lifts the accessor above the hoisted vi.mock calls; the dynamic
-// import inside stays lazy.
+// Per-file vi.mock call sites over the shared factory bodies in
+// _assistant-server-mocks.ts. The dynamic import keeps each factory lazy, so it
+// shares the per-file module instance with the static fixture imports above.
 const mocks = vi.hoisted(() => () => import('./_assistant-server-mocks'));
-vi.mock('../../assistant-server/http', async () => (await mocks()).makeAssistantServerHttpMock());
 vi.mock('../../mcp-loader', async () => (await mocks()).makeMcpLoaderMock());
 vi.mock('../../agent-client-loader', async () => (await mocks()).makeAgentClientLoaderMock());
 vi.mock('../../secrets', async () => (await mocks()).makeSecretsMock());
@@ -42,8 +31,6 @@ vi.mock('../../assistant-server/workspace-text-file-reader', async () =>
   (await mocks()).makeWorkspaceTextFileReaderMock()
 );
 vi.mock('../../db-main', async () => (await mocks()).makeDbMainMock());
-
-const runRequest = createRunRequest(handleAssistantRequest);
 
 beforeEach(() => {
   mockDesktopDatabase.exec.mockReset();
@@ -67,34 +54,25 @@ afterEach(() => {
 }, 15_000);
 describe('desktop Mastra memory cache', () => {
   it('retries desktop Mastra memory initialization after a transient failure', async () => {
-    const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
     const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
-    const { streamResponse } = await import('../../assistant-server/http');
-    const memoryContext = {
-      memorySettings: {
-        observationalMemory: {
-          enabled: false,
-          messageTokens: 12_000,
-          modelTarget: 'openai/gpt-5.2',
-          observationTokens: 24_000,
-          retrievalMode: 'off',
-          scope: 'thread',
-        },
-        semanticRecall: {
-          embeddingModelTarget: 'openai/text-embedding-3-small',
-          enabled: false,
-          messageRange: 1,
-          scope: 'resource',
-          topK: 3,
-        },
+    mockDesktopDatabase.exec.mockResolvedValue(undefined);
+    const memorySettings = {
+      observationalMemory: {
+        enabled: false,
+        messageTokens: 12_000,
+        modelTarget: 'openai/gpt-5.2',
+        observationTokens: 24_000,
+        retrievalMode: 'off',
+        scope: 'thread',
       },
-      resourceId: 'workspace-retry',
-      threadId: 'thread-retry',
-    };
-
-    (convertAssistantUiMessages as Mock).mockReturnValue([
-      { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
-    ]);
+      semanticRecall: {
+        embeddingModelTarget: 'openai/text-embedding-3-small',
+        enabled: false,
+        messageRange: 1,
+        scope: 'resource',
+        topK: 3,
+      },
+    } satisfies RuntimeAssistantMemorySettings;
     (createPgliteMastraMemory as Mock)
       .mockRejectedValueOnce(new Error('temporary memory init failure'))
       .mockResolvedValueOnce({
@@ -104,37 +82,13 @@ describe('desktop Mastra memory cache', () => {
         vector: {},
         workflows: {},
       });
-    (toAiSdkStyleStream as Mock).mockResolvedValue({
-      async *[Symbol.asyncIterator]() {
-        yield { content: 'Response', type: 'text' };
-      },
-    });
-    (streamResponse as Mock).mockImplementation(async (res: unknown) => {
-      const response = res as { end?: () => void };
-      response.end?.();
-    });
 
-    const failedResponse = await runRequest({
-      body: JSON.stringify({
-        data: { memory: memoryContext, provider: 'openai' },
-        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
-      }),
-      headers: { 'content-type': 'application/json' },
-      method: 'POST',
-      url: '/',
+    await expect(getDesktopMastraMemoryForTests(memorySettings)).rejects.toThrow(
+      'temporary memory init failure'
+    );
+    await expect(getDesktopMastraMemoryForTests(memorySettings)).resolves.toMatchObject({
+      memory: mockPgliteMastraMemory,
     });
-    const retriedResponse = await runRequest({
-      body: JSON.stringify({
-        data: { memory: memoryContext, provider: 'openai' },
-        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
-      }),
-      headers: { 'content-type': 'application/json' },
-      method: 'POST',
-      url: '/',
-    });
-
-    expect(failedResponse.status).toBe(502);
-    expect(retriedResponse.status).toBe(200);
     expect(createPgliteMastraMemory).toHaveBeenCalledTimes(2);
   });
 

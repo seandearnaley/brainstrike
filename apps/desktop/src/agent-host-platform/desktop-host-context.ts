@@ -7,7 +7,7 @@ import {
   formatSkillsCatalog,
 } from '@brainstrike/agent/tool-runtime';
 import type { HostRunAdmissionRequest, HostTool } from '@brainstrike/agent-host';
-import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
+import type { WorkspaceFileReader } from '@brainstrike/assistant-service/types';
 import { z } from 'zod';
 import { injectReferencedFilesContext } from '../assistant-server/referenced-files-context';
 import { injectActivatedSkillsContext } from '../assistant-server/skills-activation-context';

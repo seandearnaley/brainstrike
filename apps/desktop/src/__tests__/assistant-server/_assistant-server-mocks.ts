@@ -2,9 +2,8 @@ import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/assistant-contract/mastra-me
 import { type Mock, vi } from 'vitest';
 
 /**
- * Shared mock factory bodies + fixtures for the four big assistant-server
- * suites (BST-1029): agent-stream-init-and-memory, mastra-memory-cache,
- * run-persistence-http, hooks-run-lifecycle.
+ * Shared mock factory bodies + fixtures for the assistant-server suites that
+ * exercise desktop Mastra memory and the delegated host (BST-1029).
  *
  * Only the `vi.mock(<literal path>)` CALL SITES must stay per-file (hoisting
  * is per-importing-module), and — verified empirically — neither a bare
@@ -68,17 +67,6 @@ export const mockDesktopDatabase: MockDesktopDatabase = {
 export const convertAssistantUiMessages = vi.fn(
   (messages: readonly unknown[]): unknown[] => messages as unknown[]
 );
-
-export async function makeAssistantServerHttpMock() {
-  const actual = await vi.importActual<typeof import('../../assistant-server/http')>(
-    '../../assistant-server/http'
-  );
-  return {
-    ...actual,
-    streamResponse: vi.fn(),
-    writeHeaders: vi.fn(),
-  };
-}
 
 export function makeMcpLoaderMock() {
   return {
