@@ -10,7 +10,7 @@ import type { HostRunState as Run } from './core-state.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { jsonValue } from './json-value.js';
 import type { HostMcpInputState } from './mcp-input-state.js';
-import type { HostPlatform, HostRunOwner } from './ports.js';
+import type { HostPlatform, HostRunOwner, HostTool } from './ports.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 import {
   createAdmittedHostSdkTools,
@@ -51,8 +51,15 @@ export interface HostRunExecutionPorts {
     beforePublish?: (rows: readonly HostLogRow[]) => void,
     referenced?: readonly BlobContent[]
   ): Promise<HostLogRow[]>;
+  /** BST-1932: a child's execution deadline for one leg; none for other runs. */
+  armDeadline(run: Run): ReturnType<typeof setTimeout> | undefined;
   closing(): boolean;
   commitMessages(run: Run, messages: readonly ModelMessage[]): Promise<void>;
+  /**
+   * BST-1932: a persona delegation. Core's child-run manager commits this
+   * effect together with the child thread it starts, and returns its result.
+   */
+  delegate(run: Run, action: HostRunAction, input: unknown): Promise<unknown>;
   dispatch(run: Run, action: HostRunAction, input: unknown): Promise<unknown>;
   finish(
     run: Run,
@@ -91,12 +98,36 @@ export async function executeHostAction(
   }
   run.controller.signal.throwIfAborted();
   await ensureHostRunAdmission(ports.platform, run);
+  const output = registered.delegation
+    ? await ports.delegate(run, action, input)
+    : await executeRegisteredTool(ports, run, action, registered, input, resumeData);
+  await ports.append(run.threadId, [
+    {
+      output: jsonValue(output),
+      runId: run.id,
+      toolCallId: action.toolCallId,
+      type: 'effect.finished',
+    },
+  ]);
+  run.outputs.set(action.toolCallId, jsonValue(output));
+  return output;
+}
+
+/** Commit the effect's start, then run its registered executor under its run's context. */
+async function executeRegisteredTool(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  action: HostRunAction,
+  registered: HostTool,
+  input: unknown,
+  resumeData: unknown
+): Promise<unknown> {
   await ports.append(run.threadId, [action]);
   run.started.add(action.toolCallId);
   run.controller.signal.throwIfAborted();
   // The public SDK already validated/transformed this exact admitted input.
   // Revalidating a canonical value can transform it a second time.
-  const output = await registered.execute(input, {
+  return await registered.execute(input, {
     ...(resumeData === undefined ? {} : { resumeData }),
     ...ports.records.context(
       run,
@@ -131,16 +162,6 @@ export async function executeHostAction(
       ]);
     },
   });
-  await ports.append(run.threadId, [
-    {
-      output: jsonValue(output),
-      runId: run.id,
-      toolCallId: action.toolCallId,
-      type: 'effect.finished',
-    },
-  ]);
-  run.outputs.set(action.toolCallId, jsonValue(output));
-  return output;
 }
 
 /** How one SDK attempt ended; Core decides between a new attempt and the run's finish. */
@@ -167,14 +188,21 @@ export async function runHostSdkLoop(
   // entered the transcript, so only a leg that began with committed steps
   // counts as the model having contributed.
   const resumed = run.steps > 0;
+  // BST-1932: a child's execution deadline bounds each leg, across its attempts.
+  const deadline = ports.armDeadline(run);
   for (let attempt = 1; ; attempt += 1) {
     const ended = await runHostSdkAttempt(ports, run, model, resumed);
     if (ended.checkpointFailure !== undefined) {
+      clearTimeout(deadline);
       throw ended.checkpointFailure;
     }
-    // A stopped, closing or steered run ends here: a steer asked for no further step.
+    // A stopped, closing, steered or timed-out run ends here: none asked for another attempt.
     const record =
-      ended.maxAttempts === undefined || run.stopped || run.steered || ports.closing()
+      ended.maxAttempts === undefined ||
+      run.stopped ||
+      run.steered ||
+      run.deadline !== undefined ||
+      ports.closing()
         ? undefined
         : hostRunAttemptEvent(run, ended.outcome, attempt, ended.maxAttempts);
     if (record) {
@@ -183,6 +211,7 @@ export async function runHostSdkLoop(
         continue;
       }
     }
+    clearTimeout(deadline);
     await finishHostSdkLoop(
       run,
       ports.closing(),
@@ -303,6 +332,8 @@ async function runHostSdkAttempt(
           messages: memory?.messages ?? prepared,
           modelId: run.modelId,
           signal: run.controller.signal,
+          // BST-1932: a child reserves its last step for a tool-free summary.
+          stepNumber: run.steps,
         });
         return prepareHostProviderStep(provider, memory?.system, owner);
       },
