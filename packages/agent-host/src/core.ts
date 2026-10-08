@@ -33,6 +33,7 @@ import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-sto
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
+import { HostProjectionRewrites } from './projection-rewrites.js';
 import {
   type HostEvent,
   type HostLogRow,
@@ -84,6 +85,7 @@ export class HostCore {
   private readonly mcpInputs = new HostMcpInputState();
   private readonly records = new HostToolRecords();
   private readonly compactions = new HostContextCompactions();
+  private readonly rewrites = new HostProjectionRewrites();
   private readonly threads = new Set<string>();
   private readonly presentations = new HostThreadPresentationState({
     admit: (threadId, perform) => this.admit(threadId, perform),
@@ -181,6 +183,7 @@ export class HostCore {
     this.mcpInputs.fold(row);
     this.records.fold(row);
     this.compactions.fold(row);
+    this.rewrites.fold(row);
     this.presentations.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
@@ -391,6 +394,7 @@ export class HostCore {
       this.mcpInputs.forgetThread(params.threadId);
       this.records.forgetThread(params.threadId, this.platform);
       this.compactions.forgetThread(params.threadId);
+      this.rewrites.forgetThread(params.threadId);
       for (const run of runs) {
         this.runs.delete(run.id);
         this.conversationIds.delete(run.id);
@@ -517,6 +521,7 @@ export class HostCore {
       presentations: this.presentations,
       records: this.records,
       retired: (threadId) => this.closing || this.deletions.has(threadId),
+      rewrites: this.rewrites,
       runs: this.runs,
       syncBoundary: (threadId) => this.store.syncBoundary(threadId),
     };

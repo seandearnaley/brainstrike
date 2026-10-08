@@ -23,7 +23,27 @@ import type {
   ToolSet,
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
-import type { HostEditOp, HostLoginCredential, HostRunSnapshot } from './protocol.js';
+import type { HostEditOp, HostEvent, HostLoginCredential, HostRunSnapshot } from './protocol.js';
+
+/** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
+export type HostProjectionRewrite = Extract<
+  HostEvent,
+  { type: 'tool.projection.rewritten' }
+>['rewrites'][number];
+
+/** One committed tool call on a request's branch, with its committed model-facing result. */
+export interface HostToolInvocation {
+  readonly args: unknown;
+  readonly modelOutput: unknown;
+  readonly toolCallId: string;
+  readonly toolName: string;
+}
+
+export interface HostProjectionRewriteRequest {
+  readonly currentTurnToolCallIds: ReadonlySet<string>;
+  /** Branch order, oldest first; calls that already have a committed rewrite are left out. */
+  readonly invocations: readonly HostToolInvocation[];
+}
 
 /** Private native authority. Validation never resolves or sends an answer. */
 export interface HostMcpInputCapability {
@@ -238,6 +258,10 @@ export interface HostPlatform {
     readonly rootId: string;
     readonly signal: AbortSignal;
   }): Promise<string>;
+  /** The native-tool output rewrite policy; Core commits what it selects. */
+  selectProjectionRewrites?(
+    request: HostProjectionRewriteRequest
+  ): readonly HostProjectionRewrite[];
   /** Borrowed existing native writer; startup acquires it before interrupted purge replay. */
   readonly stateIndexer?: StateStoreIndexerPort;
   /** The host's own credential store, its single writer; absent where none is owned. */

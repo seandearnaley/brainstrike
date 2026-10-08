@@ -18,6 +18,7 @@ export * from './repository-root.js';
 export * from './secure-file-write.js';
 export * from './tool-call-loop-guards.js';
 export * from './tool-execute-support.js';
+export * from './tool-projection-prune.js';
 export * from './workspace-file-staleness.js';
 export * from './workspace-file-walk.js';
 export * from './workspace-model-projection-helpers.js';

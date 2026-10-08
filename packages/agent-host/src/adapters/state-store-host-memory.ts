@@ -24,7 +24,8 @@ import {
 } from '../committed-identities.js';
 import { compactedRunIds } from '../context-compaction.js';
 import { readHostRow } from '../event-storage.js';
-import type { HostRunContext, HostRunOwner } from '../ports.js';
+import type { HostProjectionRewrite, HostRunContext, HostRunOwner } from '../ports.js';
+import { committedRewrites } from '../projection-rewrites.js';
 import type { HostLogRow } from '../protocol.js';
 import { committedMemoryTranscript } from './committed-memory-transcript.js';
 import { HostMemory, type HostMemoryCapabilities, type HostMemoryIdentity } from './memory.js';
@@ -95,6 +96,8 @@ export interface StateStoreHostMemoryOptions {
 export class StateStoreHostMemory implements HostRunOwner {
   private closing: Promise<void> | undefined;
   private preparedProviderHistory: readonly MastraDBMessage[] | undefined;
+  /** Committed tool-output rewrites as of this step's history read. */
+  private preparedRewrites: ReadonlyMap<string, HostProjectionRewrite> = new Map();
 
   private constructor(
     readonly memory: HostMemory,
@@ -256,7 +259,7 @@ export class StateStoreHostMemory implements HostRunOwner {
         if (history === undefined) {
           throw new Error('Provider request requires its prepared Memory selection');
         }
-        return { ...selected, history };
+        return { ...selected, history, rewrites: this.preparedRewrites };
       },
       onPrepared: async (prepared) => {
         if (!this.identity.recordProviderRequest) {
@@ -326,6 +329,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     // A committed compaction replaces whole earlier turns: neither the native
     // history window nor a semantic recall hit re-adds one (Core adds the note).
     const compacted = compactedRunIds(rows);
+    this.preparedRewrites = committedRewrites(rows);
     for (const started of rows) {
       if (
         (!this.resourceRecall && started.threadId !== this.identity.threadId) ||

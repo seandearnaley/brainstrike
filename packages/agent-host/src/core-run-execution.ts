@@ -14,7 +14,8 @@ import type { HostRunState as Run } from './core-state.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { jsonValue } from './json-value.js';
 import type { HostMcpInputState } from './mcp-input-state.js';
-import type { HostPlatform, HostRunOwner } from './ports.js';
+import type { HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
+import { type HostProjectionRewrites, prepareProjectionRewrites } from './projection-rewrites.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 import {
   combineHostSystemContext,
@@ -61,6 +62,7 @@ export interface HostRunExecutionPorts {
   readonly records: HostToolRecords;
   /** The host is closing or the run's thread is being deleted. */
   retired(threadId: string): boolean;
+  readonly rewrites: HostProjectionRewrites;
   readonly runs: ReadonlyMap<string, Run>;
   syncBoundary(threadId: string): Promise<void>;
 }
@@ -137,14 +139,44 @@ export async function executeHostAction(
   return output;
 }
 
-type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
-
-async function commitCompaction(
+async function commitContextEvent(
   ports: HostRunExecutionPorts,
   run: Run,
-  event: Compacted
+  event: HostEvent
 ): Promise<void> {
   await ports.append(run.threadId, [event], 'full', (rows) => ports.foldRows(rows));
+}
+
+/**
+ * The run's first request context: heal interrupted history, apply committed
+ * tool-output rewrites (and the policy's new ones), then the compaction
+ * overlay (and a new compaction past the trigger), in the legacy order.
+ */
+async function prepareRunContext(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  ancestors: readonly Run[],
+  admission: HostRunAdmission,
+  messages: readonly ModelMessage[]
+): Promise<{ readonly messages: ModelMessage[]; readonly note?: string }> {
+  const healed = healInterruptedRunHistory(messages, ancestors, run.threadId);
+  const rewritten = await prepareProjectionRewrites({
+    commit: (event) => commitContextEvent(ports, run, event),
+    existing: ports.rewrites.read(run.threadId),
+    messages: healed,
+    runId: run.id,
+    select: ports.platform.selectProjectionRewrites?.bind(ports.platform),
+  });
+  return await prepareCompactedContext({
+    chain: [...ancestors, run],
+    commit: (event) => commitContextEvent(ports, run, event),
+    compactions: ports.compactions.read(run.threadId),
+    inputTokenLimit: admission.inputTokenLimit,
+    messages: rewritten,
+    signal: run.controller.signal,
+    summarize: (transcript) =>
+      summarizeHostContext(admission.model, run.modelId, transcript, run.controller.signal),
+  });
 }
 
 /** One public SDK loop over the run's committed branch; every step commits before it is observed. */
@@ -222,18 +254,7 @@ export async function runHostSdkLoop(
         let prepared = messages;
         if (!historyPrepared) {
           historyPrepared = true;
-          prepared = healInterruptedRunHistory(messages, ancestors, run.threadId);
-          // The committed compaction overlay, plus a new one past the trigger ratio.
-          const overlay = await prepareCompactedContext({
-            chain: [...ancestors, run],
-            commit: (event) => commitCompaction(ports, run, event),
-            compactions: ports.compactions.read(run.threadId),
-            inputTokenLimit: admission.inputTokenLimit,
-            messages: prepared,
-            signal: run.controller.signal,
-            summarize: (transcript) =>
-              summarizeHostContext(admission.model, run.modelId, transcript, run.controller.signal),
-          });
+          const overlay = await prepareRunContext(ports, run, ancestors, admission, messages);
           prepared = overlay.messages;
           compactionNote = overlay.note;
           recordedInputLength = prepared.length;

@@ -32,7 +32,13 @@ import {
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
 } from '@brainstrike/agent';
-import { projectReadWorkspaceFileModelOutput } from '@brainstrike/host-capabilities/native-tools';
+import {
+  buildRecencyPruneMarker,
+  projectReadWorkspaceFileModelOutput,
+  selectRecencyPruneCandidates,
+  TOOL_PROJECTION_PRUNE_MIN_RECLAIM_TOKENS,
+  TOOL_PROJECTION_PRUNE_PROTECT_WINDOW_TOKENS,
+} from '@brainstrike/host-capabilities/native-tools';
 
 // The UNMOCKED projector, for building fixtures: production persists the
 // PROJECTED model output, so fixtures must too (review finding — a raw-JSON
@@ -45,12 +51,6 @@ const { projectReadWorkspaceFileModelOutput: actualProjectRead } = await vi.impo
   '../../../../../packages/host-capabilities/src/native-tools/read-workspace-file-model-projection'
 );
 
-import {
-  buildRecencyPruneMarker,
-  selectRecencyPruneCandidates,
-  TOOL_PROJECTION_PRUNE_MIN_RECLAIM_TOKENS,
-  TOOL_PROJECTION_PRUNE_PROTECT_WINDOW_TOKENS,
-} from '../../assistant-server/tool-projection-prune';
 import {
   applyToolProjectionRewriteRecording,
   recordSuccessfulToolProjection,

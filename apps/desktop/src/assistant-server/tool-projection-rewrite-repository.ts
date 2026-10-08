@@ -7,9 +7,11 @@ import {
 } from '@brainstrike/agent';
 import { isNativeToolId, NATIVE_TOOL_ID, type NativeToolId } from '@brainstrike/assistant-contract';
 import {
+  decodedPersistedModelOutputChars,
   decodedWorkspaceTextModelOutputChars,
   escapeProjectionPathLineBreaks,
   projectReadWorkspaceFileModelOutput,
+  type RecencyPruneInvocation,
   readProjectionHeaderPrefix,
   readStateScope,
   readToolCallId,
@@ -17,6 +19,7 @@ import {
   resetToolCallLoopGuards,
   resolveReadWorkspaceFileRootLabel,
   resolveToolExecuteInputCandidate,
+  selectRecencyPruneCandidates,
   type ToolExecuteRunContext,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
@@ -26,11 +29,6 @@ import {
   grepProjectionHeaderPrefix,
   parseGrepToolResult,
 } from './grep-search-result-contract';
-import {
-  decodedPersistedModelOutputChars,
-  type RecencyPruneInvocation,
-  selectRecencyPruneCandidates,
-} from './tool-projection-prune';
 import {
   commitProjectionRewriteCandidates,
   listPriorInvocations,

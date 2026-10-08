@@ -17,6 +17,7 @@ import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import {
   forgetSharedNativeToolThread,
   ReadWorkspaceFileCursorRegistry,
+  selectHostProjectionRewrites,
 } from '@brainstrike/host-capabilities/native-tools';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
@@ -363,6 +364,7 @@ export async function createHostPlatform(
         .string()
         .min(1)
         .parse(await request('platform/workspace/root', { rootId }, signal)),
+    selectProjectionRewrites: selectHostProjectionRewrites,
     startup,
     storeProviderCredential: host.storeProviderCredential,
     validateWorkspaceBinding: async ({ binding, signal, threadId }) => {

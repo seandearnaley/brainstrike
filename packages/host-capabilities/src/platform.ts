@@ -39,6 +39,7 @@ import {
   createSharedNativeHostTools,
   forgetSharedNativeToolThread,
   ReadWorkspaceFileCursorRegistry,
+  selectHostProjectionRewrites,
 } from './native-tools/index.js';
 import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.js';
 
@@ -245,6 +246,7 @@ export async function createHostPlatform(
       }
       return root.path;
     },
+    selectProjectionRewrites: selectHostProjectionRewrites,
     startup,
     storeProviderCredential: host.storeProviderCredential,
   });
