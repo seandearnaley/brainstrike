@@ -25,7 +25,7 @@ import {
   type UpsertVectorParams,
 } from '@mastra/core/vector';
 import type { MockLanguageModelV4 } from 'ai/test';
-import { expect } from 'vitest';
+import { expect, onTestFinished } from 'vitest';
 import { StateStoreHostMemory } from '../../src/adapters/state-store-host-memory.js';
 import { HostCore } from '../../src/core.js';
 import type { HostPlatform, HostRunContext } from '../../src/ports.js';
@@ -150,6 +150,8 @@ export async function memoryVectorHost(options: {
   let retained = 0;
   const runResources = new Map<string, string>();
   const primaryFailures: unknown[] = [];
+  const cancelledWaits = new Set<(cause: unknown) => void>();
+  const pendingRuns = new Set<Promise<void>>();
   const openingFailures = new Set<(context: HostRunContext, cause: unknown) => void>();
   const workingReads: { readonly threadId: string; readonly value: string | null }[] = [];
   let workingSeed: string | undefined;
@@ -253,8 +255,9 @@ export async function memoryVectorHost(options: {
     };
   };
   let core = await HostCore.open(store, platform, retain);
-  return {
-    async close(): Promise<void> {
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= (async () => {
       const failures: unknown[] = [];
       // Keep original teardown order and attempt every retirement, retaining
       // the primary run assertion alongside independent cleanup failures.
@@ -278,7 +281,26 @@ export async function memoryVectorHost(options: {
         console.error('Memory recall cleanup cause:', JSON.stringify(failureReceipt(error)));
         throw error;
       }
-    },
+    })();
+    return closing;
+  };
+  // The supported test lifecycle receives the original watchdog signal. Its
+  // awaited hook joins physical cleanup even if the timed-out body is suspended.
+  onTestFinished(async ({ signal }) => {
+    if (!signal.aborted) {
+      return;
+    }
+    for (const cancel of cancelledWaits) {
+      cancel(signal.reason);
+    }
+    try {
+      await close();
+    } finally {
+      await Promise.all([...pendingRuns]);
+    }
+  });
+  return {
+    close,
     async closeRejectedAdmission(): Promise<void> {
       // Core retains the failed admission cause. No Memory owner was constructed;
       // the negative test verifies zero SDK, embedding and working-memory calls.
@@ -318,6 +340,14 @@ export async function memoryVectorHost(options: {
       type Terminal = Extract<HostEvent, { type: 'run.finished' }>;
       const completion = Promise.withResolvers<Terminal>();
       completion.promise.catch(() => undefined);
+      const settlement = Promise.withResolvers<void>();
+      pendingRuns.add(settlement.promise);
+      let cancelled = false;
+      const cancel = (cause: unknown): void => {
+        cancelled = true;
+        completion.reject(cause);
+      };
+      cancelledWaits.add(cancel);
       const earlyTerminals: Terminal[] = [];
       const earlyFailures: { runId: string; cause: unknown }[] = [];
       let runId: string | undefined;
@@ -370,7 +400,7 @@ export async function memoryVectorHost(options: {
           'Memory recall first failure:',
           JSON.stringify({
             failure: failureReceipt(error),
-            rows: (await core.read(threadId, 0)).map((row) => ({
+            rows: (cancelled ? [] : await core.read(threadId, 0)).map((row) => ({
               seq: row.seq,
               type: row.event.type,
             })),
@@ -380,8 +410,11 @@ export async function memoryVectorHost(options: {
         );
         throw error;
       } finally {
+        cancelledWaits.delete(cancel);
         openingFailures.delete(rejected);
         unsubscribe();
+        settlement.resolve();
+        pendingRuns.delete(settlement.promise);
       }
     },
     seedWorkingMemory(value: string): void {
