@@ -1,8 +1,9 @@
 import { McpTaskHandleSchema } from '@brainstrike/assistant-contract/mcp-task-presentation';
+import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 
-export const AGENT_HOST_PROTOCOL_VERSION = 9;
+export const AGENT_HOST_PROTOCOL_VERSION = 10;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
@@ -71,6 +72,7 @@ export const HostRunSnapshotSchema = z.strictObject({
   maxSteps: z.number().int().positive(),
   mcpAuthorities: z.record(z.string(), McpToolAuthoritySchema).optional(),
   toolIdentities: z.record(z.string(), Id),
+  workspaceBinding: ThreadWorkspaceBindingSchema.optional(),
 });
 export type HostRunSnapshot = z.infer<typeof HostRunSnapshotSchema>;
 export const HOST_METHOD_SCHEMAS = {
@@ -115,6 +117,12 @@ export const HOST_METHOD_SCHEMAS = {
   'thread/list': z.strictObject({}),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
   'thread/start': z.strictObject(Command),
+  'thread/workspace/binding/read': z.strictObject(Thread),
+  'thread/workspace/binding/update': z.strictObject({
+    ...Command,
+    ...Thread,
+    patch: ThreadWorkspaceBindingSchema,
+  }),
   'thread/workspace/read': z.strictObject(Thread),
   'thread/workspace/set': z.strictObject({
     ...Command,
@@ -162,6 +170,10 @@ export const HostMcpInputRequestSchema = z.strictObject({
   type: z.literal('mcp.input.requested'),
 });
 export const HostEventSchema = z.union([
+  z.strictObject({
+    binding: ThreadWorkspaceBindingSchema,
+    type: z.literal('workspace.binding.updated'),
+  }),
   z.strictObject({ ...McpOrigin, handle: McpTaskHandleSchema, type: z.literal('mcp.task.bound') }),
   HostMcpInputRequestSchema,
   z.strictObject({
@@ -288,6 +300,10 @@ export const HOST_RESULT_SCHEMAS = {
   'thread/list': z.strictObject({ threads: z.array(z.strictObject(Thread)) }),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   'thread/start': z.strictObject(Thread),
+  'thread/workspace/binding/read': z.strictObject({
+    binding: ThreadWorkspaceBindingSchema.nullable(),
+  }),
+  'thread/workspace/binding/update': z.strictObject({ accepted: z.literal(true) }),
   'thread/workspace/read': z.strictObject({ snapshot: WorkspaceSnapshotSchema.nullable() }),
   'thread/workspace/set': z.strictObject({ accepted: z.literal(true) }),
 } as const;

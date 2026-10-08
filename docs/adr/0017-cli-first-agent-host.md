@@ -51,6 +51,26 @@ shells reuse the same serialized credential facade and private native file
 implementation, retaining their existing account names and file shape. Selection
 does not store credential values in the host record or run intent.
 
+### Host thread workspace binding
+
+Host-owned thread bindings use the existing Core thread log and durable command
+identities, through `thread/workspace/binding/read` and
+`thread/workspace/binding/update`. `workspace.binding.updated` stores the merged
+existing operating-root, checkout, secondary-root and Forge metadata keys.
+Legacy thread metadata retains its original writer. No shadow history row,
+new table, identity or backfill is introduced. Checkout transitions borrow the
+existing atomic metadata projection; switching to Local removes prior branch,
+worktree and local-return hints in the same commit.
+
+The live platform validates scope changes before committing them. Each admitted
+run captures the Core-owned binding in its existing run snapshot, and recovery
+revalidates that capture against the current owners. The same capture is checked
+after asynchronous selection, for cached interaction responses, and before effect
+dispatch after the live permission read. Later thread bindings do not replace it. `roots.id` and
+`brainstrike_worktrees.id` are authority; saved paths and workspace view state
+are not. Missing live capabilities refuse. This protocol prerequisite does not
+qualify Desktop catalog/worktree, pinned-mount or GUI acceptance by itself.
+
 ### Persisted MCP authority and explicit host shutdown
 
 Sean approved the persisted-authority proposal on 7 October 2026 after the real

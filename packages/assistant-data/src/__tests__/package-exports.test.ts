@@ -17,6 +17,7 @@ describe('@brainstrike/assistant-data package contract', () => {
         '.',
         './assistant-memory-repository',
         './assistant-memory-resource',
+        './assistant-thread-metadata-merge',
         './assistant-thread-run-reaper',
         './cost-tracking',
       ].sort()
