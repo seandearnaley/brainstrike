@@ -1,13 +1,25 @@
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host';
 import type { HostAttachment } from '@brainstrike/host-lease';
-import { ipcMain } from 'electron';
+import { ipcMain, type MessagePortMain } from 'electron';
 import { z } from 'zod';
-import { type AgentHostPortRelay, openAgentHostPortRelay } from './agent-host-port-relay';
+import {
+  type AgentHostPortRelay,
+  openAgentHostChildRelay,
+  openAgentHostPortRelay,
+} from './agent-host-port-relay';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
-/** Visible clients borrow the profile's existing lease; they never acquire another root. */
-export function registerAgentHostClientIpc(acquireProfile: () => Promise<HostAttachment>) {
+/**
+ * Visible clients borrow the profile's existing lease; they never acquire another root.
+ * A host this app launched receives each client port privately, as the desktop
+ * origin. A host the app only attached to (a CLI `host start`) is reached over its
+ * public socket like any CLI client, so origin-bound capabilities refuse there.
+ */
+export function registerAgentHostClientIpc(
+  acquireProfile: () => Promise<HostAttachment>,
+  openPrivateClientPort: () => MessagePortMain | undefined
+) {
   const registry = createDesktopIpcRegistry({ ipcMain });
   const relays = new Set<AgentHostPortRelay>();
   const pending = new Set<Promise<void>>();
@@ -30,7 +42,10 @@ export function registerAgentHostClientIpc(acquireProfile: () => Promise<HostAtt
         if (attachment.record.protocolVersion !== AGENT_HOST_PROTOCOL_VERSION) {
           throw new Error('The current profile host does not support assistant commands');
         }
-        const relay = await openAgentHostPortRelay(attachment.record);
+        const privatePort = openPrivateClientPort();
+        const relay = privatePort
+          ? openAgentHostChildRelay(privatePort)
+          : await openAgentHostPortRelay(attachment.record);
         relays.add(relay);
         let clientGone = false;
         const retire = (): void => {

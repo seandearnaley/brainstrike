@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { HostRecord } from '@brainstrike/host-lease';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostCore } from './core.js';
+import type { HostClientOrigin } from './ports.js';
 import { type HostLogRow, type HostMethod, type HostParams, parseHostParams } from './protocol.js';
 
 export interface HostConnectionLifecycle {
@@ -16,7 +17,8 @@ export function bindHostConnection(
   core: HostCore,
   record: HostRecord,
   attached: () => void,
-  lifecycle?: HostConnectionLifecycle
+  lifecycle?: HostConnectionLifecycle,
+  origin: HostClientOrigin = 'public-socket'
 ): () => void {
   let initialized = false;
   let disposed = false;
@@ -87,8 +89,8 @@ export function bindHostConnection(
   handle('thread/workspace/set', (params) => core.setWorkspace(params));
   handle('thread/workspace/binding/read', (params) => core.readWorkspaceBinding(params.threadId));
   handle('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
-  handle('run/start', (params) => core.startRun(params));
-  handle('run/regenerate', (params) => core.regenerateRun(params));
+  handle('run/start', (params) => core.startRun(params, origin));
+  handle('run/regenerate', (params) => core.regenerateRun(params, origin));
   handle('run/stop', (params) => core.stop(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));

@@ -5,6 +5,7 @@ import type { HostRunState } from './core-state.js';
 import { canonical, jsonValue } from './json-value.js';
 import { McpAuthorityReconstructionError } from './mcp-authority.js';
 import type {
+  HostClientOrigin,
   HostPlatform,
   HostPreparedModelRequest,
   HostRunAdmission,
@@ -104,6 +105,27 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
       )
     ),
   });
+}
+
+/** A new run command's admission request; only a live client supplies an origin. */
+export function hostRunCommandRequest(
+  params: {
+    readonly configuration?: HostRunAdmissionRequest['configuration'] | undefined;
+    readonly modelId: string;
+    readonly threadId: string;
+  },
+  origin: HostClientOrigin | undefined,
+  prompt: string,
+  signal: AbortSignal
+): Omit<HostRunAdmissionRequest, 'snapshot' | 'workspaceBinding'> {
+  return {
+    ...(params.configuration ? { configuration: params.configuration } : {}),
+    modelId: params.modelId,
+    ...(origin ? { origin } : {}),
+    prompt,
+    signal,
+    threadId: params.threadId,
+  };
 }
 
 export async function acquireHostRunAdmission(

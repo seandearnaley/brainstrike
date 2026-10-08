@@ -117,10 +117,20 @@ export interface HostRunAdmission {
   readonly tools: Readonly<Record<string, HostTool>>;
 }
 
+/**
+ * The transport a run-admitting command arrived on. `desktop-ui` is only a port
+ * the launching desktop handed over its private parent channel; every public
+ * socket client (the CLI included) is `public-socket`. Absent means no live
+ * client admitted it (restart recovery).
+ */
+export type HostClientOrigin = 'desktop-ui' | 'public-socket';
+
 export interface HostRunAdmissionRequest {
   /** Canonical non-secret UI settings/context captured with this input command. */
   readonly configuration?: HostRunSnapshot['configuration'];
   readonly modelId: string;
+  /** The admitting client's transport; capabilities bound to an origin refuse others. */
+  readonly origin?: HostClientOrigin;
   readonly prompt?: string;
   readonly signal: AbortSignal;
   /** Reopen the committed selection, rejecting changed executors rather than substituting. */
