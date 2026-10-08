@@ -2,7 +2,7 @@ import {
   type CollectCombinedToolsResult,
   collectCombinedTools,
 } from '@brainstrike/agent/mcp-client';
-import { createProviderCredentialReader } from '../provider-credential-boundary';
+import { createProviderCredentialReader } from '@brainstrike/host-capabilities/provider-credentials';
 import {
   type AgentHostAdapterCapabilities,
   createAgentHostAdapterServicesFactory,

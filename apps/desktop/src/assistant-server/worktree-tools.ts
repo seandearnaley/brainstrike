@@ -15,6 +15,10 @@
 import type { ListWorktreesInput, ManageWorktreeInput, RuntimeData } from '@brainstrike/agent';
 import { NATIVE_TOOL_INPUT_SCHEMAS, normalizeManageWorktreeInput } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import {
+  parseToolExecuteInput,
+  type ToolExecuteInput,
+} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import type {
   GitResult,
@@ -22,7 +26,6 @@ import type {
   WorktreeCreateResult,
   WorktreeListEntry,
 } from '@brainstrike/types';
-import { parseToolExecuteInput, type ToolExecuteInput } from './tool-execute-support';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('WorktreeTools');

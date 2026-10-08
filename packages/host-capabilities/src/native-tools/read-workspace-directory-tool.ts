@@ -13,15 +13,15 @@ import {
   type ReadWorkspaceDirectoryInput,
   type RuntimeData,
 } from '@brainstrike/agent';
+import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import {
   isHiddenPath,
   joinSegments,
   normalizeWorkspacePath,
   toPathSegments,
-} from './workspace-path';
-import { resolveWorkspaceAbsolutePath } from './workspace-path-resolution';
-import { resolveWorkspaceRoot } from './workspace-roots';
+} from './workspace-path.js';
+import { resolveWorkspaceAbsolutePath } from './workspace-path-resolution.js';
 
 const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
 const DEFAULT_DIRECTORY_DEPTH = 1;

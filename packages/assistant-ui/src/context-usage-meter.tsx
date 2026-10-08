@@ -89,6 +89,8 @@ export type OmMeterState =
   | { readonly kind: 'inactive' }
   /** OM is on (Auto) but no eligible observer model resolved — waiting, not off. */
   | { readonly kind: 'awaiting-observer'; readonly reason: OmAwaitingObserverReason }
+  /** A committed host run received no OM, and why (its observations would mix branches). */
+  | { readonly kind: 'withheld'; readonly reason: 'branched-thread' }
   | { readonly kind: 'loading' }
   | { readonly kind: 'empty' }
   | { readonly kind: 'error'; readonly reason: string }

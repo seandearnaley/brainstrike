@@ -2,11 +2,11 @@ import { Buffer } from 'node:buffer';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import * as workspaceLeases from '@brainstrike/host-capabilities/native-tools';
+import { acquireWorkspaceMutationLease } from '@brainstrike/host-capabilities/native-tools';
 import type { IPty } from 'node-pty';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCommandSessionManager } from '../../assistant-server/command-session-manager';
-import * as workspaceLeases from '../../assistant-server/workspace-mutation-lease';
-import { acquireWorkspaceMutationLease } from '../../assistant-server/workspace-mutation-lease';
 import type { WorkspaceRootResolver } from '../../workspace-root-cwd';
 
 class FakePty {

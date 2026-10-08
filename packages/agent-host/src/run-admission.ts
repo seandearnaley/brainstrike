@@ -1,10 +1,11 @@
 import { resolvePermissionDecision } from '@brainstrike/assistant-contract';
-import type { StepResult, ToolSet } from 'ai';
+import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import type { HostRunState } from './core-state.js';
 import { canonical, jsonValue } from './json-value.js';
 import { McpAuthorityReconstructionError } from './mcp-authority.js';
 import type {
+  HostClientOrigin,
   HostPlatform,
   HostPreparedModelRequest,
   HostRunAdmission,
@@ -104,6 +105,27 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
       )
     ),
   });
+}
+
+/** A new run command's admission request; only a live client supplies an origin. */
+export function hostRunCommandRequest(
+  params: {
+    readonly configuration?: HostRunAdmissionRequest['configuration'] | undefined;
+    readonly modelId: string;
+    readonly threadId: string;
+  },
+  origin: HostClientOrigin | undefined,
+  prompt: string,
+  signal: AbortSignal
+): Omit<HostRunAdmissionRequest, 'snapshot' | 'workspaceBinding'> {
+  return {
+    ...(params.configuration ? { configuration: params.configuration } : {}),
+    modelId: params.modelId,
+    ...(origin ? { origin } : {}),
+    prompt,
+    signal,
+    threadId: params.threadId,
+  };
 }
 
 export async function acquireHostRunAdmission(
@@ -244,6 +266,7 @@ export function hostStepInteractions(
         interactionId: part.approvalId,
         kind: registered.interaction?.kind ?? 'approval',
         runId: run.id,
+        ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
         toolCallId: part.toolCall.toolCallId,
         toolId: part.toolCall.toolName,
         toolIdentity: registered.identity,
@@ -320,6 +343,7 @@ export async function decideHostSdkApproval(
   const action: Extract<HostEvent, { type: 'effect.started' }> = {
     input: jsonValue(call.input),
     runId: run.id,
+    ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
     toolCallId: call.toolCallId,
     toolId: call.toolName,
     toolIdentity: registered.identity,
@@ -350,4 +374,21 @@ export async function decideHostSdkApproval(
   }
   run.permits.set(call.toolCallId, action);
   return 'approved';
+}
+
+/** One model step and its answerable interactions, committed together by Core. */
+export function hostModelStepEvents(run: HostRunState, step: StepResult<ToolSet>): HostEvent[] {
+  return [
+    {
+      messages: step.response.messages.map((message) =>
+        jsonValue(modelMessageSchema.parse(message))
+      ),
+      model: jsonValue(step.model),
+      runId: run.id,
+      stepNumber: run.steps,
+      type: 'model.step',
+      usage: jsonValue(step.usage),
+    },
+    ...hostStepInteractions(run, step.content),
+  ];
 }

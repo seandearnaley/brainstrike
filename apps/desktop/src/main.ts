@@ -8,6 +8,7 @@ import { Worker } from 'node:worker_threads';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
 import { recoverInterruptedDimensionIndexMaintenanceAtStartup } from '@brainstrike/db';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import type { ProfileResetLease } from '@brainstrike/host-lease';
 import {
   addLogListener,
@@ -29,6 +30,7 @@ import {
   platformPermissionPolicy,
 } from './agent-host-platform/platform-wire';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
+import { createAgentHostPrivateClients } from './agent-host-private-clients';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
@@ -40,7 +42,6 @@ import { disposeLiveChildProcesses } from './assistant-server/execute-command-to
 import type { ForgeService } from './assistant-server/forge-service';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
-import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
@@ -211,7 +212,11 @@ import {
   initializeProviderAuthRuntime,
   purgeProviderAuthRuntimeState,
 } from './provider-auth/provider-auth-runtime';
-import { getSecretsService } from './secrets';
+import {
+  desktopCredentialStoreSelection,
+  getSecretsService,
+  migrateDesktopLegacySecrets,
+} from './secrets';
 import { setupSecurity } from './setup-security';
 import { installIndexCallerRead, openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -996,8 +1001,10 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
 function reportNativeIndexActivationError(message: string, error: unknown): void {
   reportNativeIndexFailure(message, error, isDesktopShuttingDown(), logger);
 }
+const agentHostPrivateClients = createAgentHostPrivateClients();
 const nativeIndexActivation = createNativeIndexActivation({
   agentHostPlatform: {
+    onChildReady: agentHostPrivateClients.attach,
     platform: () => {
       const ledger = createWorktreeLedger(getDatabase);
       const workspace = new DesktopWorkspaceBindingAuthority({
@@ -1052,6 +1059,12 @@ const nativeIndexActivation = createNativeIndexActivation({
       'Agent host platform',
       'agent-host-platform-entry.js'
     ),
+    // The host reads the same profile store Main's Settings writes, after the
+    // one-time legacy migration has settled into it.
+    platformOptions: async () => {
+      await migrateDesktopLegacySecrets();
+      return { credentialStore: desktopCredentialStoreSelection() };
+    },
   },
   application: applicationIpcDomain,
   embedding: embeddingHostManager,
@@ -1062,7 +1075,10 @@ const nativeIndexActivation = createNativeIndexActivation({
   storage,
 });
 installIndexCallerRead(createNativeCallerRead(nativeIndexActivation.withRead));
-const agentHostClientIpc = registerAgentHostClientIpc(nativeIndexActivation.acquireProfile);
+const agentHostClientIpc = registerAgentHostClientIpc(
+  nativeIndexActivation.acquireProfile,
+  agentHostPrivateClients.open
+);
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
 const nativeRootDataDeletion = createNativeRootDataDeletion({
   acquire: () => nativeIndexActivation.acquire(),
@@ -1399,6 +1415,21 @@ if (singleInstanceLockAcquired) {
     registerShutdownSignalHandlers();
     try {
       emitBootMeasurementMark('app-ready', app.isPackaged);
+      // One-time move of the retired safeStorage entries into the profile's
+      // credential store. Credential operations and the host fork wait for it;
+      // a failure keeps the legacy copy and every credential read reports it.
+      migrateDesktopLegacySecrets().then(
+        (migrated) => {
+          if (migrated.migrated > 0 || migrated.alreadyPresent > 0) {
+            logger.info('Migrated legacy provider secrets into the credential store', migrated);
+          }
+        },
+        (error: unknown) => {
+          logger.error('Legacy provider secrets could not be migrated; the legacy store is kept', {
+            error: serializeDesktopError(error),
+          });
+        }
+      );
       // Validated up front (before assistant-server startup) so a malformed
       // value fails loudly and clearly here, instead of being caught by the
       // assistant-server try/catch below and mislabeled as an assistant

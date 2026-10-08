@@ -62,9 +62,12 @@ vi.mock('../../assistant-server/assistant-tools', () => ({
   buildDesktopAssistantTools: vi.fn(() => ({})),
 }));
 
-vi.mock('../../assistant-server/workspace-text-file-reader', () => ({
-  readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
-}));
+vi.mock(
+  '../../../../../packages/host-capabilities/src/native-tools/workspace-text-file-reader',
+  () => ({
+    readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
+  })
+);
 
 const mockPgliteMastraMemory = { id: 'desktop-memory' };
 const mockPgliteMastraStorage = { id: 'desktop-storage' };

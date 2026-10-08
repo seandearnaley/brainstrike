@@ -283,6 +283,9 @@ export function createHostRunContext(
   publish: (threadId: string, events: readonly HostEvent[]) => Promise<unknown>
 ): HostRunContext {
   return {
+    recordObservationWithheld: async (reason) => {
+      await publish(run.threadId, [{ reason, runId: run.id, type: 'memory.observation.withheld' }]);
+    },
     recordObserverUsage: async (receipt) => {
       if (run.terminal) {
         throw new Error('Memory receipt arrived after the run lifetime joined');

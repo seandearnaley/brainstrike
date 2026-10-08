@@ -1,4 +1,7 @@
+import { realpath, stat } from 'node:fs/promises';
+import { basename } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { buildModelSettingsOption } from '@brainstrike/agent/provider-request';
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import {
@@ -26,19 +29,38 @@ import {
   findLlmModelDefinition,
   findProviderDefinition,
   isSupportedProvider,
+  NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { z } from 'zod';
 import { createHostCapabilities } from './capabilities.js';
+import {
+  createSharedNativeHostTools,
+  forgetSharedNativeToolThread,
+  ReadWorkspaceFileCursorRegistry,
+} from './native-tools/index.js';
 import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.js';
+
+/** The shared native tools a standalone host runs over its launch roots. */
+const STANDALONE_WORKSPACE_TOOL_IDS = [
+  NATIVE_TOOL_ID.readWorkspaceFile,
+  NATIVE_TOOL_ID.readWorkspaceDirectory,
+  NATIVE_TOOL_ID.writeWorkspaceFile,
+  NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
+  NATIVE_TOOL_ID.deleteWorkspaceFile,
+  NATIVE_TOOL_ID.renameWorkspaceFile,
+  NATIVE_TOOL_ID.manageTaskList,
+  NATIVE_TOOL_ID.manageCanvas,
+] as const;
+const STANDALONE_NATIVE_TOOL_IDS = [...STANDALONE_HUMAN_TOOL_IDS, ...STANDALONE_WORKSPACE_TOOL_IDS];
 
 const capabilities = {
   browserOAuth: 'unavailable',
   configuredMcp: 'unavailable',
   localInference: 'unavailable',
   mcpAppUi: 'text',
-  nativeTools: { available: [...STANDALONE_HUMAN_TOOL_IDS], remaining: 'unavailable' },
+  nativeTools: { available: STANDALONE_NATIVE_TOOL_IDS, remaining: 'unavailable' },
   skills: 'unavailable',
   tasks: 'unavailable',
   vectorMemory: 'unavailable',
@@ -65,6 +87,34 @@ function selection(modelId: string) {
   return { definition, model, provider };
 }
 
+/**
+ * The launch roots this host was started with (`--workspace`, cwd by default).
+ * The launch option owns their identity: a root's id is its canonical path.
+ */
+async function standaloneWorkspaceRoots(
+  paths: readonly string[] | undefined
+): Promise<RuntimeWorkspaceRoot[]> {
+  if (!paths) {
+    throw new Error('A standalone host requires its launch workspace roots');
+  }
+  const roots: RuntimeWorkspaceRoot[] = [];
+  for (const path of paths) {
+    const canonical = await realpath(path);
+    if (!(await stat(canonical)).isDirectory()) {
+      throw new Error('A standalone workspace root must be a directory');
+    }
+    if (roots.some((root) => root.rootId === canonical)) {
+      throw new Error('A standalone workspace root was given twice');
+    }
+    roots.push({
+      displayName: basename(canonical) || canonical,
+      path: canonical,
+      rootId: canonical,
+    });
+  }
+  return roots;
+}
+
 /** Root and its canonical writer have already been acquired by startAgentHost. */
 export async function createHostPlatform(
   options: HostStartOptions,
@@ -74,6 +124,9 @@ export async function createHostPlatform(
   if (options.root !== startup.store.root) {
     throw new Error('Standalone platform must borrow its acquired canonical Root');
   }
+  const workspaceRoots = await standaloneWorkspaceRoots(platformOptions?.workspaceRoots);
+  // One host-lifetime registry; its handles are scoped to their thread.
+  const readFileCursorRegistry = new ReadWorkspaceFileCursorRegistry();
   const host = await createHostCapabilities({
     env: process.env,
     launch: platformOptions,
@@ -81,6 +134,7 @@ export async function createHostPlatform(
   });
   return createProductionHostPlatform({
     close: () => host.close(),
+    forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     readConfiguration: async (request): Promise<ProductionHostRunConfiguration> => {
       request.signal.throwIfAborted();
       if (readCliWorkspaceRunInput(request.configuration)) {
@@ -107,7 +161,7 @@ export async function createHostPlatform(
       // from Main's saved enabled-model preference. Existing hosts keep their owner.
       const intent = z.record(z.string(), z.json()).parse({
         agentLoop: { inputTokenLimit, maxSteps: DEFAULT_AGENT_MAX_STEPS },
-        enabledNativeToolIds: STANDALONE_HUMAN_TOOL_IDS,
+        enabledNativeToolIds: STANDALONE_NATIVE_TOOL_IDS,
         memoryOptions: {
           lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
           workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
@@ -130,13 +184,33 @@ export async function createHostPlatform(
           'Captured run intent requires capabilities unavailable on this standalone host'
         );
       }
+      if (
+        request.snapshot &&
+        !isDeepStrictEqual(request.snapshot.configuration['workspaceRoots'], workspaceRoots)
+      ) {
+        throw new Error("Captured run workspace roots differ from this host's launch roots");
+      }
       const resolvedToolResultBudget = resolveScaledToolResultBudget(
         catalog.definition.contextWindow
       );
       const bindings = createStandaloneHumanTools(resolvedToolResultBudget);
+      const workspaceTools = createSharedNativeHostTools({
+        ids: STANDALONE_WORKSPACE_TOOL_IDS,
+        readFileCursorRegistry,
+        resolvedToolResultBudget,
+        runtime: { ...configuration, workspaceRoots },
+      });
       return {
         configuration,
-        durableConfiguration: { capabilities, intent },
+        durableConfiguration: {
+          capabilities,
+          intent,
+          workspaceRoots: workspaceRoots.map(({ displayName, path, rootId }) => ({
+            displayName,
+            path,
+            rootId,
+          })),
+        },
         maxSteps: DEFAULT_AGENT_MAX_STEPS,
         memory: {
           native: {
@@ -157,14 +231,21 @@ export async function createHostPlatform(
           runtimeData: configuration,
         },
         resolvedToolResultBudget,
-        system:
-          'This standalone host supports the canonical askUser and submitPlan native tools. Other native tools, configured MCP/Tasks, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.',
-        tools: bindings.tools,
+        system: `This standalone host supports the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, the task list and canvases. Its workspace roots: ${workspaceRoots.map((root) => root.path).join(', ')}. Search and shell tools, configured MCP/Tasks, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`,
+        tools: { ...bindings.tools, ...workspaceTools },
         toolTimeoutMs: resolveAssistantResilienceConfig().toolTimeoutMs,
       };
     },
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     resolveProviderAuth: host.resolveProviderAuth,
+    resolveWorkspaceRoot: async ({ rootId }) => {
+      const root = workspaceRoots.find((candidate) => candidate.rootId === rootId);
+      if (!root) {
+        throw new Error("The workspace root is not one of this host's launch roots");
+      }
+      return root.path;
+    },
     startup,
+    storeProviderCredential: host.storeProviderCredential,
   });
 }

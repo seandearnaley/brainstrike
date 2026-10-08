@@ -638,6 +638,7 @@ export {
 } from './tools/embedding-sets-tool';
 export {
   FILE_READ_STATE_MAX_ENTRIES,
+  forgetFileReadScope,
   forgetKnownFile,
   getKnownFileMtime,
   recordKnownFileMtime,

@@ -23,7 +23,7 @@ import type {
   ToolSet,
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
-import type { HostRunSnapshot } from './protocol.js';
+import type { HostEditOp, HostLoginCredential, HostRunSnapshot } from './protocol.js';
 
 /** Private native authority. Validation never resolves or sends an answer. */
 export interface HostMcpInputCapability {
@@ -44,18 +44,50 @@ export interface HostMcpExecution {
   requestInput(input: HostMcpInputCapability): Promise<void>;
 }
 
+/** One file mutation a native tool performs inside an admitted workspace root. */
+export interface HostWorkspaceEdit {
+  /** Absolute path of the edited file (a rename's destination). */
+  readonly absolutePath: string;
+  /** Absolute rename source; required for, and only for, `rename`. */
+  readonly fromAbsolutePath?: string;
+  readonly op: HostEditOp;
+  readonly rootId: string;
+  /** The absolute root the tool admitted; revert revalidates it with the live root owner. */
+  readonly rootPath: string;
+}
+/** Core-owned attribution: baselines are committed with the edit, in the run log. */
+export interface HostWorkspaceEditTracker {
+  /** Observe, run `mutate`, then commit the edit (also when `mutate` failed after changing disk). */
+  track<T>(edit: HostWorkspaceEdit, mutate: () => Promise<T>): Promise<T>;
+}
+
+/** Core-owned per-thread tool state; every write is a committed `tool.state.updated`. */
+export interface HostToolState {
+  /** The latest committed value of every key starting with `prefix`. */
+  entries(prefix: string): readonly (readonly [string, unknown])[];
+  read(key: string): unknown;
+  /** Atomic per (thread, key): `next` sees the latest committed value; `undefined` writes nothing. */
+  update(key: string, next: (current: unknown) => unknown): Promise<void>;
+}
+
 export interface HostToolContext {
+  /** Present for every Core-dispatched execution; file tools must refuse without it. */
+  readonly edits?: HostWorkspaceEditTracker | undefined;
   readonly mcp?: HostMcpExecution | undefined;
   /** Validated committed response to this tool's intrinsic human interaction. */
   readonly resumeData?: unknown;
   readonly runId: string;
   readonly signal: AbortSignal;
+  /** Present for every Core-dispatched execution; stateful tools must refuse without it. */
+  readonly state?: HostToolState | undefined;
   readonly threadId: string;
   readonly toolCallId: string;
   /** Existing native/MCP progress is committed by the run-log owner. */
   readonly write?: (chunk: unknown) => Promise<void>;
 }
 export interface HostRunContext {
+  /** A typed, committed reason this run received no observational memory. */
+  recordObservationWithheld?(reason: 'branched-thread'): Promise<void>;
   /** These receipts append through HostCore, before publication and terminal join. */
   recordObserverUsage?(receipt: {
     readonly kind: 'observation' | 'reflection';
@@ -119,10 +151,20 @@ export interface HostRunAdmission {
   readonly tools: Readonly<Record<string, HostTool>>;
 }
 
+/**
+ * The transport a run-admitting command arrived on. `desktop-ui` is only a port
+ * the launching desktop handed over its private parent channel; every public
+ * socket client (the CLI included) is `public-socket`. Absent means no live
+ * client admitted it (restart recovery).
+ */
+export type HostClientOrigin = 'desktop-ui' | 'public-socket';
+
 export interface HostRunAdmissionRequest {
   /** Canonical non-secret UI settings/context captured with this input command. */
   readonly configuration?: HostRunSnapshot['configuration'];
   readonly modelId: string;
+  /** The admitting client's transport; capabilities bound to an origin refuse others. */
+  readonly origin?: HostClientOrigin;
   readonly prompt?: string;
   readonly signal: AbortSignal;
   /** Reopen the committed selection, rejecting changed executors rather than substituting. */
@@ -174,6 +216,8 @@ export interface HostTool {
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
   close(): Promise<void>;
+  /** Purge process-local caches scoped to a thread Core just deleted. */
+  forgetThread?(threadId: string): void;
   /** The default admission's auto-title capability; `admitRun` sets it per admission. */
   readonly generatesThreadTitles?: boolean | undefined;
   /** Supplied by the existing run configuration, not a second host default. */
@@ -184,8 +228,18 @@ export interface HostPlatform {
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
   resolveModel?(modelId: string): Promise<LanguageModel>;
+  /**
+   * The live absolute path of a mounted workspace root, for revert
+   * revalidation. Rejects an unknown root; absence refuses `checkpoint/revert`.
+   */
+  resolveWorkspaceRoot?(request: {
+    readonly rootId: string;
+    readonly signal: AbortSignal;
+  }): Promise<string>;
   /** Borrowed existing native writer; startup acquires it before interrupted purge replay. */
   readonly stateIndexer?: StateStoreIndexerPort;
+  /** The host's own credential store, its single writer; absent where none is owned. */
+  storeProviderCredential?(provider: string, credential: HostLoginCredential): Promise<void>;
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
   validateWorkspaceBinding?(request: {
     readonly binding: ThreadWorkspaceBinding;

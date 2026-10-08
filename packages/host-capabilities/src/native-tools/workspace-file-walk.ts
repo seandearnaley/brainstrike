@@ -15,8 +15,8 @@ import {
   ancestorDirectoriesBetween,
   findRepositoryRoot,
   relativePosixPrefix,
-} from './repository-root';
-import { isWithinRoot } from './workspace-path';
+} from './repository-root.js';
+import { isWithinRoot } from './workspace-path.js';
 
 const logger = createLogger('AssistantWorkspaceFileWalk');
 const execFileAsync = promisify(execFile);

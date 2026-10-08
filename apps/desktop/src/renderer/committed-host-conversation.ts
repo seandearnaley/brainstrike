@@ -12,6 +12,7 @@ import {
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
+import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
 
 const logger = createLogger('CommittedHostConversation');
@@ -33,6 +34,8 @@ function hostImageAttachment(
 }
 
 export interface CommittedHostConversation {
+  /** The thread's committed edit checkpoints, reverted through the host. */
+  readonly checkpoints: CommittedHostCheckpoints;
   /** Release this view's subscription; the client/root host belongs to its caller. */
   close(): void;
   readonly commands: CommittedAssistantCommands;
@@ -51,7 +54,7 @@ export interface CommittedHostConversation {
 export function createCommittedHostConversation(options: {
   readonly client: HostClient;
   readonly modelId: string;
-  /** Told when a newer committed title (a rename or an auto-title) reaches this view. */
+  /** Told when a newer committed title, colour or icon reaches this view. */
   readonly onTitleCommitted?: () => void;
   readonly readModelId?: () => string;
   readonly readConfiguration?: () => Record<string, unknown>;
@@ -166,7 +169,7 @@ export function createCommittedHostConversation(options: {
   const unsubscribeTitles = source.subscribe(() => {
     const renamed = source
       .getSnapshot()
-      .rows.findLast((row) => row.event.type === 'thread.renamed');
+      .rows.findLast((row) => row.event.type === 'thread.updated');
     if (renamed && renamed.seq > titleSeq) {
       titleSeq = renamed.seq;
       options.onTitleCommitted?.();
@@ -174,6 +177,7 @@ export function createCommittedHostConversation(options: {
   });
   const disconnect = source.connect();
   return {
+    checkpoints: new CommittedHostCheckpoints(client, source, threadId),
     close: () => {
       unsubscribeTitles();
       mcpInput.close();

@@ -24,12 +24,12 @@ import type {
   LocalLlmHostGenerateRequest,
   LocalLlmHostRequestOptions,
 } from '@brainstrike/agent/local-llm';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import {
   EDIT_FAILURE_HINT_MESSAGE,
   resetToolCallLoopGuards,
-} from '../../assistant-server/tool-call-loop-guards';
+} from '@brainstrike/host-capabilities/native-tools';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { requireTool, requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {

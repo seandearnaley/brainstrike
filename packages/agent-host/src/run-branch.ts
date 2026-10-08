@@ -7,7 +7,6 @@
  * restart derive a run's branch through the same fold, and a run's model
  * context is its selected path only: a sibling branch is never on it.
  */
-
 import { createHash } from 'node:crypto';
 import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
@@ -217,29 +216,6 @@ export type HostRunPosition = {
   readonly prompt: string;
 } & ({ readonly parentMessageId: string | null } | { readonly userMessageId: string });
 
-/**
- * The run/start command as its ledger records it. An image is stored once: its
- * bytes are the run's (run.started), and the record names it by digest, which
- * still detects a reused command identity.
- */
-export function hostRunStartRecord(params: HostParams<'run/start'>): Omit<
-  HostParams<'run/start'>,
-  'attachments'
-> & {
-  readonly attachments?: readonly (Omit<HostImageAttachment, 'data'> & { sha256: string })[];
-} {
-  const { attachments, ...command } = params;
-  return attachments
-    ? {
-        ...command,
-        attachments: attachments.map(({ data, ...image }) => ({
-          ...image,
-          sha256: createHash('sha256').update(data).digest('hex'),
-        })),
-      }
-    : command;
-}
-
 /** A start follows its requested parent (omitted: the current tip; null: the root). */
 export function hostStartPosition(
   runs: Iterable<HostRunState>,
@@ -340,4 +316,31 @@ export function assertHostRunAdmissible(
   if (conversationIds.has(params.commandId)) {
     throw new Error('Input command collides with a committed conversation identity');
   }
+}
+
+type HostStartParams = HostParams<'run/start'>;
+type HostStartImage = NonNullable<HostStartParams['attachments']>[number];
+
+/** run/start as recorded: each image named by digest instead of its bytes. */
+export type HostStartCommandRecord = Omit<HostStartParams, 'attachments'> & {
+  readonly attachments?: readonly (Omit<HostStartImage, 'data'> & { readonly sha256: string })[];
+};
+
+/**
+ * The durable record of a run/start command. An image is stored once: its bytes
+ * are the run's (run.started), and the command record names it by digest, which
+ * still detects a reused command with different images.
+ */
+export function hostStartCommandRecord(params: HostStartParams): HostStartCommandRecord {
+  const { attachments, ...command } = params;
+  if (!attachments) {
+    return command;
+  }
+  return {
+    ...command,
+    attachments: attachments.map(({ data, ...image }) => ({
+      ...image,
+      sha256: createHash('sha256').update(data).digest('hex'),
+    })),
+  };
 }

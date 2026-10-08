@@ -1,3 +1,4 @@
+import { isProviderCredential, type ProviderCredential } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
   SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES,
@@ -8,10 +9,13 @@ import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-
 import { z } from 'zod';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
-// and the explicit branch links they commit on `run.started`), and thread
-// titles (`thread/rename`, `thread.renamed`, titles in `thread/list`), image
-// attachments on a user message (`run/start` and `run.started`), and
-// `run/steer` (end the active run at its next step boundary).
+// and the explicit branch links they commit on `run.started`), thread
+// presentation (`thread/update`, `thread.updated`: title, colour and icon, also
+// in `thread/list`), withheld observational memory, tool catalog IDs on
+// committed tool events, image attachments on a user message (`run/start`
+// and `run.started`), committed workspace edit attribution,
+// `checkpoint/revert`, per-thread tool state, and `run/steer` (end the active
+// run at its next step boundary).
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -20,6 +24,12 @@ const Command = { commandId: Id };
 const Thread = { threadId: Id };
 /** A committed thread title: trimmed, never blank. */
 const ThreadTitle = z.string().trim().min(1);
+/** A thread's committed presentation; each field is optional and set independently. */
+const ThreadPresentation = {
+  color: Id.optional(),
+  icon: Id.optional(),
+  title: ThreadTitle.optional(),
+};
 const Run = { ...Thread, runId: Id };
 const McpInput = { ...Run, interactionId: Id };
 export const HostMcpInputStatusSchema = z.enum([
@@ -35,6 +45,57 @@ const McpContent = z.record(
   z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
 );
 const Seq = z.number().int().nonnegative();
+const Sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
+/** Root-relative POSIX path: no leading slash, no empty, `.` or `..` segment. */
+const WorkspaceRelativePath = z
+  .string()
+  .min(1)
+  .refine(
+    (value) =>
+      !value.startsWith('/') &&
+      value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..'),
+    'Expected a normalized root-relative path'
+  );
+export const HOST_WORKSPACE_EDIT_OPS = ['write', 'string_replace', 'delete', 'rename'] as const;
+export const HostWorkspaceEditOpSchema = z.enum(HOST_WORKSPACE_EDIT_OPS);
+export type HostEditOp = (typeof HOST_WORKSPACE_EDIT_OPS)[number];
+/** A file's observed identity; content is never part of the client-visible event. */
+const HostFileIdentitySchema = z.strictObject({
+  existed: z.boolean(),
+  hash: Sha256.nullable(),
+  size: z.number().int().nonnegative().nullable(),
+});
+/**
+ * A path's state before the run first changed it. Content lives in a
+ * content-addressed StateStore blob that this event references (`blobRefs`).
+ */
+export const HostEditBaselineSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('absent'), path: WorkspaceRelativePath }),
+  z.strictObject({
+    blob: Sha256,
+    bytes: z.number().int().nonnegative(),
+    encoding: z.enum(['utf8', 'base64']),
+    hash: Sha256,
+    kind: z.literal('content'),
+    mode: z.number().int().nonnegative(),
+    path: WorkspaceRelativePath,
+  }),
+  z.strictObject({
+    kind: z.literal('unavailable'),
+    path: WorkspaceRelativePath,
+    reason: z.enum(['too_large', 'symlink', 'not_a_file']),
+  }),
+]);
+export type HostEditBaseline = z.infer<typeof HostEditBaselineSchema>;
+export const HostEditRevertOutcomeSchema = z.discriminatedUnion('status', [
+  z.strictObject({ entryId: Id, status: z.literal('reverted') }),
+  z.strictObject({
+    entryId: Id,
+    reason: z.string().min(1),
+    status: z.enum(['conflict', 'not_revertible']),
+  }),
+]);
+export type HostEditRevertOutcome = z.infer<typeof HostEditRevertOutcomeSchema>;
 /**
  * An image on a user message, as the composer encodes it: a base64 data URL.
  * Core admits it against the shared attachment contract's caps.
@@ -102,7 +163,26 @@ export const HostRunSnapshotSchema = z.strictObject({
   workspaceBinding: ThreadWorkspaceBindingSchema.optional(),
 });
 export type HostRunSnapshot = z.infer<typeof HostRunSnapshotSchema>;
+/** A key a user supplies directly. Subscription OAuth is never a login payload. */
+export type HostLoginCredential = Exclude<ProviderCredential, { readonly type: 'oauth' }>;
+const LoginCredential = z.custom<HostLoginCredential>(
+  (value) => isProviderCredential(value) && value.type !== 'oauth'
+);
+
 export const HOST_METHOD_SCHEMAS = {
+  // Secret-bearing: process-local, never in HostCommandLedger, the log or diagnostics.
+  'auth/login': z.strictObject({ credential: LoginCredential, provider: Id }),
+  /**
+   * Restore a finished run's edited paths to their state before the run first
+   * changed them (one entry, or every unreverted entry of the run). Refused
+   * while the thread has an active run; `force` skips the conflict gate.
+   */
+  'checkpoint/revert': z.strictObject({
+    ...Command,
+    ...Run,
+    entryId: Id.optional(),
+    force: z.boolean().optional(),
+  }),
   'host/stop': z.strictObject({}),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -160,8 +240,10 @@ export const HOST_METHOD_SCHEMAS = {
   'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
-  'thread/rename': z.strictObject({ ...Command, ...Thread, title: ThreadTitle }),
   'thread/start': z.strictObject(Command),
+  'thread/update': z
+    .strictObject({ ...Command, ...Thread, ...ThreadPresentation })
+    .refine((params) => Object.keys(params).length > 2, 'A thread update changes no field'),
   'thread/workspace/binding/read': z.strictObject(Thread),
   'thread/workspace/binding/update': z.strictObject({
     ...Command,
@@ -179,7 +261,7 @@ export type HostMethod = keyof typeof HOST_METHOD_SCHEMAS;
 export type HostParams<M extends HostMethod> = z.infer<(typeof HOST_METHOD_SCHEMAS)[M]>;
 /** Private input diagnostics must not quote schema paths or unknown secret-bearing keys. */
 export function parseHostParams<M extends HostMethod>(method: M, input: unknown): HostParams<M> {
-  if (!method.startsWith('mcp/')) {
+  if (!(method.startsWith('mcp/') || method.startsWith('auth/'))) {
     return HOST_METHOD_SCHEMAS[method].parse(input) as HostParams<M>;
   }
   const parsed = HOST_METHOD_SCHEMAS[method].safeParse(input);
@@ -194,6 +276,8 @@ const Action = {
   ...RunFields,
   input: z.json(),
   toolCallId: Id,
+  /** The user-facing catalog ID (`brainstrike.readWorkspaceFile`), not the provider-sanitized name. */
+  toolCatalogId: Id.optional(),
   toolId: Id,
   toolIdentity: Id,
 };
@@ -235,7 +319,7 @@ export const HostEventSchema = z.union([
     type: z.literal('mcp.input.settled'),
   }),
   z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
-  z.strictObject({ title: ThreadTitle, type: z.literal('thread.renamed') }),
+  z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),
   z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
   z.strictObject({
     commandId: Id,
@@ -279,6 +363,12 @@ export const HostEventSchema = z.union([
     modelId: Id,
     usage: z.json(),
   }),
+  /** OM keeps one merged text per thread, so a branched thread's run receives none. */
+  z.strictObject({
+    type: z.literal('memory.observation.withheld'),
+    ...RunFields,
+    reason: z.literal('branched-thread'),
+  }),
   z.strictObject({
     type: z.literal('provider.request.prepared'),
     ...RunFields,
@@ -317,6 +407,39 @@ export const HostEventSchema = z.union([
     detail: z.string().optional(),
     outcome: z.enum(['completed', 'failed', 'stopped', 'interrupted']),
   }),
+  z.strictObject({
+    type: z.literal('workspace.edit.recorded'),
+    ...RunFields,
+    after: HostFileIdentitySchema,
+    /** First-touch baselines this edit captured for its run; later edits reuse them. */
+    baselines: z.array(HostEditBaselineSchema),
+    before: HostFileIdentitySchema,
+    blobRefs: z.array(Sha256).optional(),
+    entryId: Id,
+    /** Rename source; `before` observes it, `after` observes the destination. */
+    fromPath: WorkspaceRelativePath.optional(),
+    op: HostWorkspaceEditOpSchema,
+    path: WorkspaceRelativePath,
+    rootId: Id,
+    /** The admitted absolute root; revert revalidates it with the live root owner. */
+    rootPath: Id,
+    toolCallId: Id,
+    toolId: Id,
+  }),
+  z.strictObject({
+    type: z.literal('tool.state.updated'),
+    ...RunFields,
+    /** Tool-owned key, e.g. the task list or one canvas; the latest value per key wins. */
+    key: Id,
+    toolCallId: Id,
+    value: z.json(),
+  }),
+  z.strictObject({
+    type: z.literal('workspace.edit.reverted'),
+    ...RunFields,
+    commandId: Id,
+    outcomes: z.array(HostEditRevertOutcomeSchema),
+  }),
 ]);
 export type HostEvent = z.infer<typeof HostEventSchema>;
 export const HostLogRowSchema = z.strictObject({
@@ -328,6 +451,8 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  'auth/login': z.strictObject({ stored: z.literal(true) }),
+  'checkpoint/revert': z.strictObject({ outcomes: z.array(HostEditRevertOutcomeSchema) }),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -356,12 +481,12 @@ export const HOST_RESULT_SCHEMAS = {
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),
   'thread/list': z.strictObject({
-    // A thread never renamed has no committed title.
-    threads: z.array(z.strictObject({ ...Thread, title: ThreadTitle.optional() })),
+    // Presentation fields never committed are absent.
+    threads: z.array(z.strictObject({ ...Thread, ...ThreadPresentation })),
   }),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
-  'thread/rename': z.strictObject({ accepted: z.literal(true) }),
   'thread/start': z.strictObject(Thread),
+  'thread/update': z.strictObject({ accepted: z.literal(true) }),
   'thread/workspace/binding/read': z.strictObject({
     binding: ThreadWorkspaceBindingSchema.nullable(),
   }),

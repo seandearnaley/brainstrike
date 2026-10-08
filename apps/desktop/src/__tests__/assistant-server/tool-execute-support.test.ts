@@ -8,13 +8,13 @@
  * `capture-on-edit.integration.test.ts`.
  */
 import { createCanonicalToolContext } from '@brainstrike/agent-host';
-import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
 import {
   parseToolExecuteInput,
   readToolCallId,
   resolveShellOutputStreamer,
-} from '../../assistant-server/tool-execute-support';
+} from '@brainstrike/host-capabilities/native-tools';
+import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 describe('resolveShellOutputStreamer', () => {
   it('writes a canonical ToolStream slice with its actual receiver', async () => {

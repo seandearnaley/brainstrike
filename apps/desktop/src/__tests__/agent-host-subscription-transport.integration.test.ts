@@ -25,9 +25,10 @@ import {
   createProviderFetchTransport,
   serveProviderFetchTransport,
 } from '../agent-host-platform/provider-fetch-transport';
+import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
+import { RemoteMcpRuntime } from '../mcp/remote-runtime';
 import { createCodexFetch } from '../provider-auth/codex-fetch';
 import { CODEX_RESPONSES_ENDPOINT } from '../provider-auth/descriptors/openai-codex';
-import { emptyMainMcpCapabilities } from './fixtures/main-mcp-capabilities';
 
 const candidate = join(import.meta.dirname, '../../../..');
 
@@ -93,6 +94,7 @@ test('production Node host retains the existing subscription fetch over its priv
     configuration: { model: 'codex/gpt-6-sol', provider: 'openai-codex' },
     contextWindow: 32_000,
     durableConfiguration: { model: 'codex/gpt-6-sol', provider: 'openai-codex' },
+    freshWorkspaceRoots: async () => [],
     inputTokenLimit: 24_000,
     maxSteps: 1,
     memory: {
@@ -118,6 +120,7 @@ test('production Node host retains the existing subscription fetch over its priv
         },
       },
     },
+    nativeRuntime: { provider: 'openai-codex', workspaceRoots: [] },
     resourceId: 'subscription-private-port-fixture',
     tools: {},
     toolTimeoutMs: 5000,
@@ -127,7 +130,8 @@ test('production Node host retains the existing subscription fetch over its priv
     return { apiKey: 'sdk-dummy-fixture-key', fetch: selectedFetch, kind: 'custom_fetch' as const };
   });
   const mainOwner = serveDesktopPlatform(server, {
-    mcp: emptyMainMcpCapabilities(),
+    // Production's Main MCP stores; this scenario configures no MCP server.
+    mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
     readConfiguration: async () => selection,
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     resolveProviderAuth: auth,
@@ -158,12 +162,16 @@ test('production Node host retains the existing subscription fetch over its priv
     const { threadId } = await core.startThread({ commandId: randomUUID() });
     // Success here means actual admission, not socket closure or PID liveness.
     await expect(
-      core.startRun({
-        commandId: randomUUID(),
-        modelId: 'openai-codex::codex/gpt-6-sol',
-        prompt: 'Read README.md',
-        threadId,
-      })
+      // Admitted by a visible desktop client's private port, the only subscription origin.
+      core.startRun(
+        {
+          commandId: randomUUID(),
+          modelId: 'openai-codex::codex/gpt-6-sol',
+          prompt: 'Read README.md',
+          threadId,
+        },
+        'desktop-ui'
+      )
     ).resolves.toMatchObject({ runId: expect.any(String) });
     await expect.poll(() => requests.length).toBe(1);
     expect(auth).toHaveBeenCalledTimes(1);

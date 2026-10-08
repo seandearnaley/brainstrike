@@ -27,6 +27,7 @@ import {
   DESKTOP_NATIVE_TOOLS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
+  findProviderDefinition,
   resolveAutoObservationalMemoryModelTarget,
   resolveToolRiskCategory,
   type SupportedProvider,
@@ -35,6 +36,7 @@ import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thr
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-repository';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
+import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import { z } from 'zod';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
 import {
@@ -45,7 +47,6 @@ import { deriveAssistantTurnAuthInput } from '../assistant-server/provider-auth-
 import { prepareRequestSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
-import { readWorkspaceTextFile } from '../assistant-server/workspace-text-file-reader';
 import { getDatabase } from '../db-main';
 import { readProviderCredential } from '../provider-api-key';
 import { readDesktopHostSystemContext } from './desktop-host-context';
@@ -308,6 +309,7 @@ async function createDesktopNativeTools(
   request: HostRunAdmissionRequest,
   workspace?: DesktopWorkspaceBindingBorrow
 ): Promise<{
+  readonly freshRoots: () => Promise<NonNullable<RuntimeData['workspaceRoots']>>;
   readonly readWorkspaceFile: WorkspaceFileReader;
   readonly revalidateWorkspace: () => Promise<void>;
   readonly runtime: RuntimeData;
@@ -454,11 +456,30 @@ async function createDesktopNativeTools(
     ])
   );
   return {
+    freshRoots,
     readWorkspaceFile,
     revalidateWorkspace,
     runtime,
     tools,
     ...(workspaceSkills ? { workspaceSkills } : {}),
+  };
+}
+
+/** What the host's shared native tools need from this admission; roots come back per call. */
+function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['nativeRuntime'] {
+  if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
+    throw new Error('Desktop admission has no native tool runtime');
+  }
+  return {
+    ...(runtime.boundWorkspaceRootId ? { boundWorkspaceRootId: runtime.boundWorkspaceRootId } : {}),
+    provider: runtime.provider,
+    ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
+    ...(runtime.workspaceRootPath ? { workspaceRootPath: runtime.workspaceRootPath } : {}),
+    workspaceRoots: runtime.workspaceRoots.map(({ displayName, path, rootId }) => ({
+      displayName,
+      path,
+      rootId,
+    })),
   };
 }
 
@@ -468,7 +489,7 @@ export function productionDesktopCapabilities(
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
   workspaceAuthority?: DesktopWorkspaceBindingAuthority
-): DesktopPlatformCapabilities {
+): Omit<DesktopPlatformCapabilities, 'mcp'> {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   const readConfiguration = async (
     request: HostRunAdmissionRequest,
@@ -538,9 +559,11 @@ export function productionDesktopCapabilities(
           intent.cliWorkspace ? native.runtime.workspaceRoots : undefined,
           desktopWorkspaceRootObservation(workspace)
         ),
+        freshWorkspaceRoots: native.freshRoots,
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
         memory: { options: intent.memoryOptions, settings: memorySettings },
+        nativeRuntime: desktopNativeRuntime(native.runtime),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         ...desktopSystemFields(system),
         tools,
@@ -636,11 +659,25 @@ export function productionDesktopCapabilities(
           : (captured ?? { policies: DEFAULT_PERMISSION_POLICIES, yolo: false })
       );
     },
+    // The Node host resolves every other provider itself; Main lends only the
+    // interactive subscription OAuth engine it still owns.
     resolveProviderAuth: async (provider) => {
-      if (!isSupportedProvider(provider)) {
-        throw new Error('Unsupported provider credential request');
+      if (
+        !isSupportedProvider(provider) ||
+        findProviderDefinition(provider)?.authType !== 'oauth_subscription'
+      ) {
+        throw new Error('Main lends only subscription OAuth credentials to the host');
       }
       return deriveAssistantTurnAuthInput({ provider }, await readProviderCredential(provider));
+    },
+    resolveWorkspaceRoot: async (rootId) => {
+      const root = (await loadWorkspaceRootsFromDatabase(await getDatabase())).find(
+        (candidate) => candidate.rootId === rootId
+      );
+      if (!root) {
+        throw new Error('The workspace root is no longer mounted');
+      }
+      return root.path;
     },
   };
 }

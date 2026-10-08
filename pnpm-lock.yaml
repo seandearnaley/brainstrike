@@ -2916,9 +2916,24 @@ importers:
       '@brainstrike/assistant-service':
         specifier: workspace:*
         version: link:../assistant-service
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
       '@brainstrike/host-lease':
         specifier: workspace:*
         version: link:../host-lease
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
+      minimatch:
+        specifier: 'catalog:'
+        version: 10.2.6
       zod:
         specifier: 'catalog:'
         version: 4.6.5
