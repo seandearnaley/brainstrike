@@ -1,7 +1,7 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { useAssistantRunNotifications } from '@brainstrike/app-shell';
 import { AssistantThreadHostContext } from '@brainstrike/app-shell/assistant-thread-host-context';
-import { CommittedAssistantConversation } from '@brainstrike/assistant-ui';
+import { CommittedAssistantConversation, EditCheckpointProvider } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
 import {
   type ReactElement,
@@ -10,7 +10,9 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
+import type { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import {
   type CommittedHostConversation,
   createCommittedHostConversation,
@@ -21,6 +23,22 @@ import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
 import type { HostThreadRuns } from './host-thread-runs';
 import { useDesktopHostPresentation } from './use-desktop-host-presentation';
+
+/** The existing checkpoint undo controls, fed from the thread's committed edits. */
+function CommittedCheckpoints({
+  checkpoints,
+  children,
+}: {
+  readonly checkpoints: CommittedHostCheckpoints;
+  readonly children: ReactNode;
+}): ReactElement {
+  const value = useSyncExternalStore(
+    checkpoints.subscribe,
+    checkpoints.getSnapshot,
+    checkpoints.getSnapshot
+  );
+  return <EditCheckpointProvider value={value}>{children}</EditCheckpointProvider>;
+}
 
 function HostThread({
   client,
@@ -66,14 +84,16 @@ function HostThread({
   return conversation ? (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
-        <CommittedAssistantConversation
-          {...presentation}
-          commands={conversation.commands}
-          label="Assistant"
-          onRunningChange={onRunningChange}
-          store={conversation.store}
-          workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
-        />
+        <CommittedCheckpoints checkpoints={conversation.checkpoints}>
+          <CommittedAssistantConversation
+            {...presentation}
+            commands={conversation.commands}
+            label="Assistant"
+            onRunningChange={onRunningChange}
+            store={conversation.store}
+            workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
+          />
+        </CommittedCheckpoints>
       </div>
       {/* Core-owned MCP input: the dialog portals; status and alerts sit under the conversation. */}
       <CommittedHostMcpInputView input={conversation.mcpInput} />

@@ -8,11 +8,14 @@ import {
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
+import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
 
 const logger = createLogger('CommittedHostConversation');
 
 export interface CommittedHostConversation {
+  /** The thread's committed edit checkpoints, reverted through the host. */
+  readonly checkpoints: CommittedHostCheckpoints;
   /** Release this view's subscription; the client/root host belongs to its caller. */
   close(): void;
   readonly commands: CommittedAssistantCommands;
@@ -150,6 +153,7 @@ export function createCommittedHostConversation(options: {
   });
   const disconnect = source.connect();
   return {
+    checkpoints: new CommittedHostCheckpoints(client, source, threadId),
     close: () => {
       unsubscribeTitles();
       mcpInput.close();

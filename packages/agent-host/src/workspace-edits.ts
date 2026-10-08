@@ -13,6 +13,10 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { BLOBS_DIR, type BlobContent, sha256Hex } from '@brainstrike/state-store';
+import {
+  HOST_EDIT_BASELINE_MAX_BYTES,
+  hostEditBaselineUnavailableReason,
+} from './edit-checkpoint-view.js';
 import type { HostPlatform, HostWorkspaceEdit, HostWorkspaceEditTracker } from './ports.js';
 import type {
   HostEditBaseline,
@@ -30,7 +34,6 @@ import type {
  * attribution. Revert restores a run's paths to those baselines. The run log
  * is the only record; thread deletion collects the blobs with the thread.
  */
-export const HOST_EDIT_BASELINE_MAX_BYTES = 2 * 1024 * 1024;
 
 type Recorded = Extract<HostEvent, { type: 'workspace.edit.recorded' }>;
 type Identity = Recorded['before'];
@@ -178,21 +181,6 @@ function matchesExpected(
     return false;
   }
   return !expected.existed || (expected.hash !== null && current.hash === expected.hash);
-}
-
-function unavailableReason(
-  reason: Extract<HostEditBaseline, { kind: 'unavailable' }>['reason']
-): string {
-  switch (reason) {
-    case 'not_a_file':
-      return 'it was not a regular file before this run changed it, so it cannot be restored.';
-    case 'symlink':
-      return 'it was a symbolic link before this run changed it, so it cannot be restored.';
-    case 'too_large':
-      return `it was larger than ${HOST_EDIT_BASELINE_MAX_BYTES} bytes before this run changed it, so its prior content was not kept.`;
-    default:
-      throw new Error('Unknown edit baseline unavailability');
-  }
 }
 
 /** The root-relative paths one edit touches; a rename lists its source first. */
@@ -498,7 +486,10 @@ export class HostWorkspaceEdits {
         return refuse('not_revertible', 'No prior state was recorded for this edit.');
       }
       if (baseline.kind === 'unavailable') {
-        return refuse('not_revertible', `"${relative}": ${unavailableReason(baseline.reason)}`);
+        return refuse(
+          'not_revertible',
+          `"${relative}": ${hostEditBaselineUnavailableReason(baseline.reason)}`
+        );
       }
       baselines.set(relative, baseline);
     }

@@ -19,11 +19,14 @@ import { BLOBS_DIR } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { attachAgentHost, type HostClient } from '../src/client.js';
+import {
+  foldHostEditCheckpoints,
+  HOST_EDIT_BASELINE_MAX_BYTES,
+} from '../src/edit-checkpoint-view.js';
 import type { HostPlatform, HostToolContext } from '../src/ports.js';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
 import { scriptedToolSequence } from '../src/test-fixtures/scripted-model.js';
-import { HOST_EDIT_BASELINE_MAX_BYTES } from '../src/workspace-edits.js';
 
 const ROOT_ID = 'workspace-root';
 const EditInput = z.discriminatedUnion('op', [
@@ -281,6 +284,25 @@ test('a run’s create, overwrite, delete and rename revert, after restart, to e
   expect(await exists(join(state.workspace, 'moved'))).toBe(false);
 
   const after = (await opened.client.request('thread/read', { fromSeq: 0, threadId })).rows;
+  // The client fold presents the same edits in the existing checkpoint-undo DTO.
+  const view = foldHostEditCheckpoints(after);
+  expect(
+    view.entries.map((entry) => [
+      entry.op,
+      entry.path,
+      entry.fromPath,
+      entry.captureStatus,
+      entry.toolCallId,
+      entry.revertedAt === null,
+    ])
+  ).toEqual([
+    ['write', '/new/dir/created.txt', null, 'created', started[0], false],
+    ['write', '/keep.txt', null, 'ok', started[1], false],
+    ['write', '/keep.txt', null, 'ok', started[2], false],
+    ['delete', '/doomed.bin', null, 'ok', started[3], false],
+    ['rename', '/moved/to.txt', '/from.txt', 'rename', started[4], false],
+  ]);
+  expect([...view.availabilityById.values()]).toEqual(edits.map(() => ({ restorable: true })));
   expect(after.filter((row) => row.event.type === 'workspace.edit.reverted')).toEqual([
     expect.objectContaining({
       event: expect.objectContaining({ outcomes: result.outcomes, runId }),
@@ -378,6 +400,12 @@ test('an oversized prior file and a moved root refuse with their reasons, leavin
     { kind: 'unavailable', path: 'large.txt', reason: 'too_large' },
   ]);
   expect(largeEdit.blobRefs).toBeUndefined();
+  const largeReason = `"large.txt": it was larger than ${HOST_EDIT_BASELINE_MAX_BYTES} bytes before this run changed it, so its prior content was not kept.`;
+  // The client shows the refusal before any click, with the same copy the host refuses with.
+  expect(foldHostEditCheckpoints(rows).availabilityById.get(largeEdit.entryId)).toEqual({
+    reason: largeReason,
+    restorable: false,
+  });
 
   state.liveRoot = join(state.workspace, 'elsewhere');
   const moved = await client.request('checkpoint/revert', {
@@ -392,11 +420,7 @@ test('an oversized prior file and a moved root refuse with their reasons, leavin
         'Its workspace folder is no longer connected at the same location. Re-open the folder and try again.',
       status: 'not_revertible',
     },
-    {
-      entryId: largeEdit.entryId,
-      reason: `"large.txt": it was larger than ${HOST_EDIT_BASELINE_MAX_BYTES} bytes before this run changed it, so its prior content was not kept.`,
-      status: 'not_revertible',
-    },
+    { entryId: largeEdit.entryId, reason: largeReason, status: 'not_revertible' },
   ]);
   expect(await readFile(join(state.workspace, 'small.txt'), 'utf8')).toBe('small v1');
 
