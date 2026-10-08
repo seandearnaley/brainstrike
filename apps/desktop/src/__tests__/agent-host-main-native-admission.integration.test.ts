@@ -211,7 +211,7 @@ test('Main reconciles a host command’s worktrees under the host run’s identi
   const shell = productionDesktopCapabilities({
     resolveForgeService: () => null,
     resolveWorktreeService: () => service as never,
-  }).shell;
+  }).hostTools?.shell;
   if (!shell) {
     throw new Error('Main offers no shell correlation');
   }

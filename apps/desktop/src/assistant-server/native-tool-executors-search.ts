@@ -8,7 +8,6 @@ import {
   type BrowserGetPageTextInput,
   type BrowserNavigateInput,
   type BrowserReadPageInput,
-  type GrepSearchInput,
   type HybridSearchInput,
   type ListEmbeddingSetsInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
@@ -19,14 +18,10 @@ import {
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
-  attachGrepSearchTelemetry,
   logToolFailure,
   parseToolExecuteInput,
-  projectGrepSearchModelOutput,
-  readStateScope,
   type ToolExecuteContext,
   type ToolExecuteInput,
-  withRepeatedCallGuard,
 } from '@brainstrike/host-capabilities/native-tools';
 import type { z } from 'zod';
 import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
@@ -35,7 +30,7 @@ import {
   runBrowserNavigate,
   runBrowserReadPage,
 } from './browser-agent-tools';
-import { runGrepSearch } from './grep-search-tool';
+import { pgliteGrepIndex } from './grep-search-tool';
 import { runHybridSearch } from './hybrid-search-tool';
 import { runListEmbeddingSpaces } from './list-embedding-spaces-tool';
 import {
@@ -45,6 +40,7 @@ import {
   NativeQueryEmbeddingSpaceInputSchema,
 } from './native-retrieval-schemas';
 import { executorGroup } from './native-tool-executor-context';
+import { grepSearchExecutor } from './native-tool-executors-grep';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { projectWebExtractModelOutput } from './web-extract-model-projection';
 import { runWebExtract } from './web-extract-tool';
@@ -56,34 +52,8 @@ import {
 } from './workspace-retrieval-model-projections';
 
 export const SEARCH_TOOL_EXECUTORS = executorGroup({
-  [NATIVE_TOOL_ID.grepSearch]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.grepSearch],
-    execute: async (input: ToolExecuteInput<GrepSearchInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.grepSearch],
-        input
-      );
-      try {
-        return await withRepeatedCallGuard({
-          input: resolvedInput,
-          run: async () =>
-            attachGrepSearchTelemetry(
-              resolvedInput,
-              await runGrepSearch(resolvedInput, runtimeData)
-            ),
-          threadScope: readStateScope(runtimeData),
-          toolId: NATIVE_TOOL_ID.grepSearch,
-        });
-      } catch (error) {
-        logToolFailure('grepSearch failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.grepSearch,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.grepSearch],
-    toModelOutput: (output: unknown) =>
-      projectGrepSearchModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
+  // Main's grep reads its own PGlite file-chunk index.
+  [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(pgliteGrepIndex),
   [NATIVE_TOOL_ID.webSearch]: ({ dependencies, resolveActiveDomainCharBudget }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webSearch],
     // The Tavily key is resolved server-side inside runWebSearch and never

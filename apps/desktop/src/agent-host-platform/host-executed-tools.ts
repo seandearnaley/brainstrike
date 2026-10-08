@@ -4,11 +4,13 @@ import {
   type NativeToolExecutor,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import { z } from 'zod';
 import type { ShellCorrelationDependencies } from '../assistant-server/execute-command-correlation';
+import type { GrepIndexSearch } from '../assistant-server/grep-search-core';
 import { CONTEXT_TOOL_EXECUTORS } from '../assistant-server/native-tool-executors-context';
+import { grepSearchExecutor } from '../assistant-server/native-tool-executors-grep';
 import { INSPECTION_TOOL_EXECUTORS } from '../assistant-server/native-tool-executors-inspection';
 import { executeCommandExecutor } from '../assistant-server/native-tool-executors-shell';
+import { GrepIndexResultSchema, WorktreePathsResultSchema } from './host-tool-wire';
 
 const logger = createLogger('DesktopHostTools');
 
@@ -17,6 +19,7 @@ const DESKTOP_HOST_TOOL_IDS: ReadonlySet<string> = new Set([
   ...Object.keys(CONTEXT_TOOL_EXECUTORS),
   ...Object.keys(INSPECTION_TOOL_EXECUTORS),
   NATIVE_TOOL_ID.executeCommand,
+  NATIVE_TOOL_ID.grepSearch,
 ]);
 
 /** Main admits these but never executes them for a host thread. */
@@ -25,8 +28,6 @@ export function isHostExecutedNativeToolId(id: string): boolean {
 }
 
 type MainRequest = (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
-
-const WorktreePathsSchema = z.strictObject({ paths: z.array(z.string()).nullable() });
 
 /**
  * A host command's worktree/forge correlation, through Main's narrow RPCs until
@@ -60,7 +61,7 @@ function hostShellCorrelation(
     },
     worktreeTools: {
       list: async () => {
-        const { paths } = WorktreePathsSchema.parse(
+        const { paths } = WorktreePathsResultSchema.parse(
           await request('platform/worktree/paths', { threadId })
         );
         return paths
@@ -71,6 +72,20 @@ function hostShellCorrelation(
   };
 }
 
+/** grep's indexed half: a typed read of Main's file-chunk index for an admitted thread. */
+function hostGrepIndex(request: MainRequest, threadId: string): GrepIndexSearch {
+  return async (options) =>
+    GrepIndexResultSchema.parse(
+      await request('desktop-read/grep-index', {
+        options: {
+          ...options,
+          ...(options.filePaths ? { filePaths: [...options.filePaths] } : {}),
+        },
+        threadId,
+      })
+    );
+}
+
 /** The desktop host's own executors, bound to its Main connection and thread. */
 export function desktopHostToolExecutors(
   request: MainRequest,
@@ -79,6 +94,7 @@ export function desktopHostToolExecutors(
   return {
     ...CONTEXT_TOOL_EXECUTORS,
     ...INSPECTION_TOOL_EXECUTORS,
+    [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(hostGrepIndex(request, threadId)),
     [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor(({ runtimeData }) =>
       hostShellCorrelation(request, threadId, runtimeData?.memory?.runId)
     ),

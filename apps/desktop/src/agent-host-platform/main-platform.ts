@@ -12,6 +12,7 @@ import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import { isHostExecutedNativeToolId } from './host-executed-tools';
+import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import {
   PlatformPolicySchema,
@@ -30,24 +31,11 @@ export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools
   revalidateWorkspace?(signal: AbortSignal): Promise<void>;
   readonly tools: Readonly<Record<string, HostTool>>;
 }
-/** Main's worktree/forge side of a host command, until the worktree ledger is a host fact. */
-export interface DesktopShellCorrelation {
-  readonly completed: (input: z.output<typeof PlatformShellCompletedSchema>) => void;
-  /** Every known worktree path before the command, or null without a worktree service. */
-  readonly worktreePaths: () => Promise<readonly string[] | null>;
-}
-
-export const PlatformShellCompletedSchema = z.strictObject({
-  command: z.string(),
-  precedingWorktreePaths: z.array(z.string()).nullable(),
-  rootId: z.string().min(1),
-  runId: z.string().min(1).optional(),
-  threadId: z.string().min(1),
-});
-
 export interface DesktopPlatformCapabilities {
   /** Join Main-owned Root borrowers before Core releases its canonical writer. */
   closeRootCapabilities?(): Promise<void>;
+  /** Main-owned stores and services the agent host's own tools read (cap-tools). */
+  readonly hostTools?: HostToolServiceCapabilities;
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
@@ -56,8 +44,6 @@ export interface DesktopPlatformCapabilities {
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
   /** The live path of a mounted profile root; rejects an unknown root. */
   resolveWorkspaceRoot?(rootId: string): Promise<string>;
-  /** Worktree/forge correlation of a host thread's shell commands (BST-1392). */
-  readonly shell?: DesktopShellCorrelation;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
@@ -210,21 +196,7 @@ export function serveDesktopPlatform(
       return await capabilities.resolveWorkspaceRoot(rootId);
     })
   );
-  connection.onRequest('platform/worktree/paths', (input: unknown, token: CancellationToken) =>
-    execute(token, async () => {
-      const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);
-      selection(threadId);
-      return { paths: capabilities.shell ? await capabilities.shell.worktreePaths() : null };
-    })
-  );
-  connection.onRequest('platform/shell/completed', (input: unknown, token: CancellationToken) =>
-    execute(token, async () => {
-      const completed = PlatformShellCompletedSchema.parse(input);
-      selection(completed.threadId);
-      capabilities.shell?.completed(completed);
-      return { accepted: true };
-    })
-  );
+  serveHostToolServices(connection, execute, selection, capabilities.hostTools);
   connection.onRequest('platform/workspace/roots', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);

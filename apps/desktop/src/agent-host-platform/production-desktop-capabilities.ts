@@ -43,6 +43,7 @@ import {
   buildDesktopAssistantTools,
   type DesktopAssistantToolDependencies,
 } from '../assistant-server/assistant-tools';
+import { pgliteGrepIndex } from '../assistant-server/grep-search-tool';
 import { prepareRequestSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
@@ -56,11 +57,8 @@ import type {
   DesktopWorkspaceBindingAuthority,
   DesktopWorkspaceBindingBorrow,
 } from './desktop-workspace-binding';
-import type {
-  DesktopPlatformCapabilities,
-  DesktopPlatformSelection,
-  DesktopShellCorrelation,
-} from './main-platform';
+import type { DesktopShellCorrelation } from './host-tool-services';
+import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
 import {
   PlatformClientConfigurationSchema,
   PlatformModelConfigurationSchema,
@@ -644,6 +642,7 @@ export function productionDesktopCapabilities(
     ...(workspaceAuthority
       ? { validateWorkspaceBinding: workspaceAuthority.validateWorkspaceBinding }
       : {}),
+    hostTools: { grepIndex: pgliteGrepIndex, shell: desktopShellCorrelation(dependencies) },
     readConfiguration: async (request) => {
       let workspace: DesktopWorkspaceBindingBorrow | undefined;
       if (request.workspaceBinding && changesThreadWorkspaceScope(request.workspaceBinding)) {
@@ -729,6 +728,5 @@ export function productionDesktopCapabilities(
       }
       return root.path;
     },
-    shell: desktopShellCorrelation(dependencies),
   };
 }

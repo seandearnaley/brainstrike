@@ -60,6 +60,13 @@ function selection(root: string, native: Record<string, unknown> = {}) {
         permissionToolId: NATIVE_TOOL_ID.executeCommand,
         risk: 'execute',
       },
+      brainstrike_grepSearch: {
+        description: 'Content search',
+        identity: NATIVE_TOOL_ID.grepSearch,
+        inputSchema: { type: 'object' },
+        permissionToolId: NATIVE_TOOL_ID.grepSearch,
+        risk: 'read',
+      },
       brainstrike_lspInspect: {
         description: 'Language-server inspection',
         identity: NATIVE_TOOL_ID.lspInspect,
@@ -223,4 +230,64 @@ test('the desktop host runs executeCommand in its own process and correlates wor
     })
   );
   expect(request.mock.calls.map(([method]) => method)).toContain('platform/worktree/paths');
+});
+
+test('the desktop host greps in its own process, reading only the indexed half from Main', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-grep-')));
+  directories.push(root);
+  await writeFile(join(root, 'notes.txt'), 'alpha\nneedle on disk\n');
+  const indexed = {
+    candidatesTruncated: false,
+    matches: [
+      {
+        after: [],
+        before: [],
+        line: 9,
+        lineText: 'needle only in the index',
+        path: 'stale.txt',
+        rootId: 'root-a',
+        rootName: 'A',
+      },
+    ],
+    scanLimited: false,
+    skippedMissingLineMetadata: 0,
+    totalMatches: 1,
+    truncated: false,
+  };
+  const request = vi.fn(async (method: string, _input: unknown) => {
+    switch (method) {
+      case 'platform/workspace/roots':
+        return [{ displayName: 'A', path: root, rootId: 'root-a' }];
+      case 'desktop-read/grep-index':
+        return indexed;
+      default:
+        throw new Error(`Unexpected Main request ${method}`);
+    }
+  });
+  const tools = desktopHostSharedTools({
+    readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+    request,
+    selected: selection(root),
+    threadId: 'host-thread',
+  });
+  const tool = tools['brainstrike_grepSearch'];
+  if (!tool) {
+    throw new Error('grepSearch was not built for the host');
+  }
+  const output = await tool.execute({ outputMode: 'files', pattern: 'needle' }, execution());
+  // The index's stale file and the live pass's on-disk file are both reported.
+  expect(output).toMatchObject({
+    files: expect.arrayContaining([
+      expect.objectContaining({ path: 'notes.txt', source: 'live' }),
+      expect.objectContaining({ path: 'stale.txt', source: 'index' }),
+    ]),
+    outputMode: 'files',
+  });
+  expect(request).toHaveBeenCalledWith('desktop-read/grep-index', {
+    options: expect.objectContaining({ pattern: 'needle' }),
+    threadId: 'host-thread',
+  });
+  expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
+    new Set(['platform/workspace/roots', 'desktop-read/grep-index'])
+  );
 });

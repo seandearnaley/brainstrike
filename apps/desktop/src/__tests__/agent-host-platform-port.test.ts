@@ -84,7 +84,7 @@ function selected(
 function harness(
   readConfiguration: DesktopPlatformCapabilities['readConfiguration'],
   closeRootCapabilities?: DesktopPlatformCapabilities['closeRootCapabilities'],
-  shell?: DesktopPlatformCapabilities['shell']
+  hostTools?: DesktopPlatformCapabilities['hostTools']
 ) {
   const channel = new MessageChannel();
   const first = new UtilityPort(channel.port1);
@@ -96,7 +96,7 @@ function harness(
     ...(closeRootCapabilities ? { closeRootCapabilities } : {}),
     readConfiguration,
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
-    ...(shell ? { shell } : {}),
+    ...(hostTools ? { hostTools } : {}),
   });
   client.onClose(() => client.dispose());
   client.listen();
@@ -447,8 +447,7 @@ it('failed schema projection releases the selection before an admission error re
 it('serves a host command’s worktree snapshot and completion to Main’s correlation, for an admitted thread only', async () => {
   const completed = vi.fn();
   const h = harness(async () => selected({}), undefined, {
-    completed,
-    worktreePaths: async () => ['/repo/.worktrees/fox'],
+    shell: { completed, worktreePaths: async () => ['/repo/.worktrees/fox'] },
   });
   try {
     await expect(
@@ -469,6 +468,31 @@ it('serves a host command’s worktree snapshot and completion to Main’s corre
       accepted: true,
     });
     expect(completed).toHaveBeenCalledWith(input);
+  } finally {
+    h.destroy();
+  }
+});
+
+it('serves grep’s indexed half to an admitted thread only', async () => {
+  const result = {
+    candidatesTruncated: false,
+    matches: [],
+    scanLimited: false,
+    skippedMissingLineMetadata: 0,
+    totalMatches: 0,
+    truncated: false,
+  };
+  const grepIndex = vi.fn(async () => result);
+  const h = harness(async () => selected({}), undefined, { grepIndex });
+  const request = { options: { maxResults: 5, pattern: 'needle' }, threadId: 'thread' };
+  try {
+    await expect(h.client.sendRequest('desktop-read/grep-index', request)).rejects.toBeInstanceOf(
+      Error
+    );
+    expect(grepIndex).not.toHaveBeenCalled();
+    await admit(h.client);
+    await expect(h.client.sendRequest('desktop-read/grep-index', request)).resolves.toEqual(result);
+    expect(grepIndex).toHaveBeenCalledWith({ maxResults: 5, pattern: 'needle' });
   } finally {
     h.destroy();
   }
