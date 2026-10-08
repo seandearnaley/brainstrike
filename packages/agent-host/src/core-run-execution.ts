@@ -414,8 +414,18 @@ async function runHostSdkAttempt(
           combineHostSystemContext(memory?.system, compactionNote).system,
           notes
         ).system;
+        // Hosted discovery: a deferred tool is offered only after this run committed its load.
+        const activeTools = await admission.discovery?.activeTools({
+          runId: run.id,
+          threadId: run.threadId,
+        });
+        const surface = activeTools ? { activeTools } : {};
         if (!admission.provider) {
-          return { messages: memory?.messages ?? prepared, ...(system ? { system } : {}) };
+          return {
+            ...surface,
+            messages: memory?.messages ?? prepared,
+            ...(system ? { system } : {}),
+          };
         }
         const provider = await admission.provider.prepare({
           configuration: admission.configuration,
@@ -423,7 +433,7 @@ async function runHostSdkAttempt(
           modelId: run.modelId,
           signal: run.controller.signal,
         });
-        return prepareHostProviderStep(provider, system, owner);
+        return { ...prepareHostProviderStep(provider, system, owner), ...surface };
       },
       // A committed run/steer ends the run after the step in flight (BST-588).
       stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],
