@@ -1,12 +1,12 @@
 import { listProviders, type ProviderCredential } from '@brainstrike/assistant-contract';
-import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 import {
   createProviderVerificationService,
   listApiKeyProbeProviderIds,
   MissingProviderCredentialError,
   UnknownVerificationProviderError,
   UnsupportedVerificationCredentialError,
-} from '../../assistant-server/provider-verification';
+} from '@brainstrike/host-capabilities/provider-verification';
+import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 
 const FAKE_KEY = 'sk-super-secret-test-key-000';
 
@@ -889,6 +889,7 @@ describe('ProviderVerificationService subscription sign-in', () => {
     const service = createProviderVerificationService({
       env: {},
       now: () => 1_000_000,
+      readCredential: () => Promise.resolve(undefined),
       verifySubscriptionSession: async () => ({ ok: false, status: 'reconnect_required' }),
     });
 

@@ -186,7 +186,7 @@ describe('one Node adapter composition', () => {
         credentialStore: { kind: 'keyring', service: 'owned-disposable-fixture' },
         mcpConfiguration: { servers: [] },
         openExternal: async () => undefined,
-        openTaskDatabase: async () => {
+        openTaskStorage: async () => {
           throw new Error('No database expected.');
         },
         root,
@@ -216,7 +216,7 @@ describe('one Node adapter composition', () => {
       credentialStore: { kind: 'file', path: join(root, 'explicit-credentials.json') },
       mcpConfiguration: { servers: [] },
       openExternal: async () => undefined,
-      openTaskDatabase: async () => {
+      openTaskStorage: async () => {
         throw new Error('No database expected.');
       },
       root,
@@ -246,7 +246,7 @@ describe('one Node adapter composition', () => {
 
   it('shares the selected file authority with Settings and provider auth without starting desktop defaults', async () => {
     const { root, startup, registered } = await compositionRoot();
-    const openTaskDatabase = async (): Promise<never> => {
+    const openTaskStorage = async (): Promise<never> => {
       throw new Error('No second Tasks writer may be constructed.');
     };
     const services = await createAgentHostAdapterServicesFactory(fixtureCapabilities)({
@@ -256,7 +256,7 @@ describe('one Node adapter composition', () => {
       openExternal: async () => {
         throw new Error('No opener request was expected.');
       },
-      openTaskDatabase,
+      openTaskStorage,
       root,
       startup,
     });
@@ -311,7 +311,7 @@ describe('one Node adapter composition', () => {
         openExternal: async () => {
           throw new Error('No opener request was expected.');
         },
-        openTaskDatabase: async () => {
+        openTaskStorage: async () => {
           throw new Error('No Tasks database was requested by this legacy fixture.');
         },
         root,
@@ -435,7 +435,7 @@ describe('one Node adapter composition', () => {
         ],
       },
       openExternal: async () => undefined,
-      openTaskDatabase: async () => {
+      openTaskStorage: async () => {
         throw new Error('No Tasks database expected.');
       },
       root,
@@ -569,7 +569,7 @@ describe('one Node adapter composition', () => {
       credentialStore: { kind: 'keyring', service: 'owned-disposable-fixture' },
       mcpConfiguration: { servers: [] },
       openExternal: async () => undefined,
-      openTaskDatabase: async () => {
+      openTaskStorage: async () => {
         throw new Error('No database expected.');
       },
       root,

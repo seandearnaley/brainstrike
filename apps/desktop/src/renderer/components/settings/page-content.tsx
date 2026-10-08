@@ -4,7 +4,8 @@ import {
   isNativeTool,
   NATIVE_TOOL_DEFAULTS,
 } from '@brainstrike/agent/tool-metadata';
-import { useAssistantAvailability, verifyProviderCredential } from '@brainstrike/app-shell';
+import { useAssistantAvailability, useHostAssistantStatusFetcher } from '@brainstrike/app-shell';
+import { useAssistantThreadHost } from '@brainstrike/app-shell/assistant-thread-host-context';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking-settings';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { resolvePlatformBridge } from '@brainstrike/app-shell/platform-bridge';
@@ -57,6 +58,9 @@ import { useMemo } from 'react';
 import { DESKTOP_IPC_CHANNELS } from '../../../platform/desktop-ipc-channels';
 import { DesktopLoggingSettings } from './logging-settings';
 import { useWorktreeSettings } from './use-worktree-settings';
+
+const refuseWithoutHost = (): Promise<never> =>
+  Promise.reject(new Error('The agent host provider reads are unavailable.'));
 
 configureModelRuntimeServices({
   downloadEmbeddingModel: async (modelId, options) => {
@@ -120,7 +124,11 @@ async function changeMcpToolPreferences(ids: string[], enabled: boolean): Promis
 }
 
 export default function SettingsPageContent() {
-  const assistantAvailability = useAssistantAvailability();
+  // Desktop reads provider facts only from its host; a missing host is an error, not Main.
+  const hostProviders = useAssistantThreadHost()?.providers;
+  const assistantAvailability = useAssistantAvailability(
+    useHostAssistantStatusFetcher() ?? refuseWithoutHost
+  );
   const worktreeSettings = useWorktreeSettings();
   // Inline fixture state from file explorer store context (shared with FileExplorerLeftPanel)
   const tokenCache = useOptionalTokenCacheContext();
@@ -453,7 +461,8 @@ export default function SettingsPageContent() {
       createProvidersSettingsCategory({
         ...apiKeyStatus,
         ...(revealEnvFile ? { onRevealPath: revealEnvFile } : {}),
-        verifyProvider: verifyProviderCredential,
+        verifyProvider: (providerId: string) =>
+          hostProviders ? hostProviders.verifyProvider(providerId) : refuseWithoutHost(),
       }),
       {
         content: <ModelSelectionPage />,
@@ -511,6 +520,7 @@ export default function SettingsPageContent() {
     assistantProviderKeySources,
     devInlineFixtureEnabled,
     hookReviewRoots,
+    hostProviders,
     revealEnvFile,
     setDevInlineFixtureEnabled,
     toolOperations,

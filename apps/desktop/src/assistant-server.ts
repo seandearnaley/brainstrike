@@ -29,6 +29,7 @@ import {
   initializeAgentStream,
 } from '@brainstrike/assistant-service/stream-init';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
+import type { HookRunVerdict } from '@brainstrike/host-capabilities/hooks';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import {
   handleActiveRunDiscoveryRequest,
@@ -56,7 +57,6 @@ import {
 } from './assistant-server/cors';
 import { handleDecideRequest } from './assistant-server/decide-endpoint';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
-import type { HookRunVerdict } from './assistant-server/hooks/run-verdict';
 import {
   finalizeHookedStream,
   hookRunEventToAssistant,

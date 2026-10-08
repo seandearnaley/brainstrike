@@ -6,9 +6,11 @@ import type {
   McpElicitationSettlement,
   McpHostCloseReport,
   McpHostPort,
+  OpenRouterModelMetadataSnapshot,
   PermissionToolGateSnapshot,
   ProviderAuthStartMethod,
   ProviderAuthStatus,
+  ProviderVerificationSnapshot,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
@@ -51,6 +53,8 @@ export interface HostMcpExecution {
   bindTask(task: HostMcpTaskCapability): Promise<void>;
   /** Joins the safe request commit before any client is notified. */
   requestInput(input: HostMcpInputCapability): Promise<void>;
+  /** The thread whose run admitted this call; its deletion erases the call's task rows. */
+  readonly threadId: string;
 }
 
 /** One file mutation a native tool performs inside an admitted workspace root. */
@@ -147,6 +151,21 @@ export interface HostProviderPort {
   prepare(request: HostProviderRequest): Promise<HostPreparedModelRequest>;
 }
 
+/** A lifecycle hook's verdict on one tool call; hooks refine a permitted decision, never widen it. */
+export type HostPreToolUseVerdict =
+  | { readonly blocked: false }
+  | { readonly blocked: true; readonly reason: string };
+
+/** The run's user-authored lifecycle hooks, from the composition's hooks configuration. */
+export interface HostRunHooks {
+  /** Before a tool the policy would allow or ask about: a hook may block it, with a reason. */
+  preToolUse(call: {
+    readonly input: unknown;
+    /** The tool's catalog ID (`brainstrike.readWorkspaceFile`), which hook matchers name. */
+    readonly toolName: string;
+  }): Promise<HostPreToolUseVerdict>;
+}
+
 /** One immutable selection retained across approval legs, never re-read from Settings. */
 export interface HostRunAdmission {
   /** Join resources selected before the run is committed, including failed admission. */
@@ -154,6 +173,8 @@ export interface HostRunAdmission {
   readonly configuration: Readonly<RuntimeData>;
   /** Title an untitled thread's first completed run through this run's model. */
   readonly generatesThreadTitle?: boolean;
+  /** Present only when the composition loaded at least one hook for this run. */
+  readonly hooks?: HostRunHooks | undefined;
   readonly model: LanguageModel;
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   readonly provider?: HostProviderPort;
@@ -204,6 +225,8 @@ export interface HostRunAdmissionRequest {
   readonly modelId: string;
   /** The admitting client's transport; capabilities bound to an origin refuse others. */
   readonly origin?: HostClientOrigin;
+  /** Plan mode: admit only what reads and proposes a plan, and say so to the model. */
+  readonly planMode?: true;
   readonly prompt?: string;
   readonly signal: AbortSignal;
   /** Reopen the committed selection, rejecting changed executors rather than substituting. */
@@ -259,6 +282,18 @@ export interface HostTool {
   readonly toModelOutput?: Tool<unknown, unknown>['toModelOutput'];
 }
 
+/**
+ * Provider reads a client makes by id: availability, a credential probe and
+ * OpenRouter model metadata. Keys resolve inside the host and never cross.
+ */
+export interface HostProviderService {
+  openRouterModel(modelId: string): Promise<OpenRouterModelMetadataSnapshot>;
+  /** The availability payload Settings and the assistant panel gate on. */
+  status(): Promise<Readonly<Record<string, unknown>>>;
+  /** A subscription probe needs the desktop origin, like a subscription run. */
+  verify(provider: string, origin: HostClientOrigin): Promise<ProviderVerificationSnapshot>;
+}
+
 /** Credentials and process-local capabilities never become protocol payloads. */
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
@@ -273,6 +308,8 @@ export interface HostPlatform {
   readonly maxSteps?: number | undefined;
   /** Run-scoped construction; cached shared memory must not capture a run signal. */
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
+  /** Provider reads from the host's own store; absent where it owns none. */
+  readonly providers?: HostProviderService;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;

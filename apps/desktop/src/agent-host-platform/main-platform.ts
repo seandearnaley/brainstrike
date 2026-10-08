@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
+import type { LocalLlmHostClient, RuntimeData } from '@brainstrike/agent/provider-runtime';
 import {
   canonicalToolInputJsonSchema,
   type HostPlatform,
@@ -9,12 +9,19 @@ import {
 } from '@brainstrike/agent-host';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
+import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
+import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { isHostExecutedNativeToolId } from './host-executed-tools';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
+import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
+  PlatformLocalEmbeddingQuerySchema,
+  PlatformLocalGenerationResultSchema,
+  PlatformLocalGenerationSchema,
+  PlatformLocalWarmupSchema,
   PlatformPolicySchema,
   PlatformProgressSchema,
   PlatformRunRequestSchema,
@@ -28,6 +35,8 @@ export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools
   close(): Promise<void>;
   /** The admitted roots revalidated against their live owners, for the host's shared tools. */
   freshWorkspaceRoots(): Promise<NonNullable<RuntimeData['workspaceRoots']>>;
+  /** Main-only: an admitted local recall embedder's exact plan, never on the wire. */
+  readonly localEmbedding?: DesktopMemoryVectorSelection['local'];
   revalidateWorkspace?(signal: AbortSignal): Promise<void>;
   readonly tools: Readonly<Record<string, HostTool>>;
 }
@@ -36,6 +45,10 @@ export interface DesktopPlatformCapabilities {
   closeRootCapabilities?(): Promise<void>;
   /** Main-owned stores and services the agent host's own tools read (cap-tools). */
   readonly hostTools?: HostToolServiceCapabilities;
+  /** ADR-0007: Main's hidden embedding host, borrowed by a thread's admitted local recall. */
+  readonly localEmbedding?: Pick<EmbeddingHostManager, 'queryEmbedding'>;
+  /** ADR-0007: Main's hidden llm-host, borrowed by a thread's admitted local observer. */
+  readonly localLlm?: LocalLlmHostClient;
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
@@ -76,6 +89,7 @@ async function describePlatformSelection(
   const {
     close: _close,
     freshWorkspaceRoots: _freshWorkspaceRoots,
+    localEmbedding: _localEmbedding,
     revalidateWorkspace: _revalidateWorkspace,
     tools: _tools,
     ...configuration
@@ -114,6 +128,7 @@ function desktopAdmissionRequest(
     ...(request.snapshot ? { snapshot: request.snapshot } : {}),
     ...(request.workspaceBinding ? { workspaceBinding: request.workspaceBinding } : {}),
     modelId: request.modelId,
+    ...(request.planMode ? { planMode: true } : {}),
     ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
     signal,
     threadId: request.threadId,
@@ -162,6 +177,60 @@ export function serveDesktopPlatform(
     }
     return value.selection;
   };
+  // Only the admitted selection's own local observer may borrow the llm-host.
+  const localObserver = (threadId: string, modelId: string): LocalLlmHostClient => {
+    const observation = selection(threadId).memory.settings.observationalMemory;
+    const target = observation.enabled
+      ? parseObservationalMemoryModelTarget(observation.modelTarget)
+      : undefined;
+    if (target?.provider !== 'local' || target.model !== modelId) {
+      throw new Error('Local generation is not part of this admitted thread selection');
+    }
+    if (!capabilities.localLlm) {
+      throw new Error('This desktop has no local LLM host for the admitted local observer');
+    }
+    return capabilities.localLlm;
+  };
+  connection.onRequest('platform/llm/generate', (input: unknown, token: CancellationToken) =>
+    execute(token, async (signal) => {
+      const { threadId, ...generation } = PlatformLocalGenerationSchema.parse(input);
+      return PlatformLocalGenerationResultSchema.parse(
+        await localObserver(threadId, generation.modelId).generate(generation, { signal })
+      );
+    })
+  );
+  connection.onRequest('platform/embedding/query', (input: unknown, token: CancellationToken) =>
+    execute(token, async (signal) => {
+      const { query, threadId } = PlatformLocalEmbeddingQuerySchema.parse(input);
+      const local = selection(threadId).localEmbedding;
+      if (!local) {
+        throw new Error('Local embedding is not part of this admitted thread selection');
+      }
+      if (!capabilities.localEmbedding) {
+        throw new Error('This desktop has no embedding host for the admitted local recall');
+      }
+      const { workerPlan } = local;
+      return {
+        embedding: await capabilities.localEmbedding.queryEmbedding(
+          {
+            dimensions: workerPlan.dimensions,
+            inferencePlan: workerPlan,
+            modelId: workerPlan.modelId,
+            modelKey: local.modelKey,
+            query,
+          },
+          { signal }
+        ),
+      };
+    })
+  );
+  connection.onRequest('platform/llm/warmup', (input: unknown, token: CancellationToken) =>
+    execute(token, async (signal) => {
+      const { modelId, threadId } = PlatformLocalWarmupSchema.parse(input);
+      await localObserver(threadId, modelId).warmup(modelId, { signal });
+      return null;
+    })
+  );
   connection.onRequest('platform/policy', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const { threadId } = z.strictObject({ threadId: z.string().min(1).optional() }).parse(input);

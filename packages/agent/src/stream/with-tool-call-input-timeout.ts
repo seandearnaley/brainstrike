@@ -20,6 +20,26 @@ export class ToolCallInputStreamingTimeoutError extends Error {
   }
 }
 
+/** The visible text: the incomplete call never reached execution. */
+export function describeToolCallInputTimeout(error: ToolCallInputStreamingTimeoutError): string {
+  return `The model did not finish streaming a tool call's arguments within ${error.timeoutMs}ms. The incomplete tool call was cancelled before execution.`;
+}
+
+/**
+ * Streamed tool-input boundaries in both stream vocabularies this deadline
+ * wraps: Mastra's chunk names and the AI SDK 7 `fullStream` part names.
+ */
+const INPUT_START_PARTS: ReadonlySet<string> = new Set([
+  'tool-call-input-streaming-start',
+  'tool-call-delta',
+  'tool-input-start',
+  'tool-input-delta',
+]);
+const INPUT_END_PARTS: ReadonlySet<string> = new Set([
+  'tool-call-input-streaming-end',
+  'tool-input-end',
+]);
+
 function readPart(value: unknown): ToolCallInputPart | undefined {
   if (!(value && typeof value === 'object')) {
     return;
@@ -58,14 +78,9 @@ function observeToolCallInputPart(
     return;
   }
   const partType = part.type;
-  if (
-    partType !== 'tool-call' &&
-    partType !== 'tool-result' &&
-    partType !== 'tool-error' &&
-    partType !== 'tool-call-input-streaming-end' &&
-    partType !== 'tool-call-input-streaming-start' &&
-    partType !== 'tool-call-delta'
-  ) {
+  const settles =
+    partType === 'tool-call' || partType === 'tool-result' || partType === 'tool-error';
+  if (!(settles || INPUT_START_PARTS.has(partType) || INPUT_END_PARTS.has(partType))) {
     return;
   }
   const toolCallId = readToolCallId(part);
@@ -73,23 +88,13 @@ function observeToolCallInputPart(
     return;
   }
 
-  if (partType === 'tool-call' || partType === 'tool-result' || partType === 'tool-error') {
+  if (settles || INPUT_END_PARTS.has(partType)) {
     activeInputs.delete(toolCallId);
     completedCalls.add(toolCallId);
     return;
   }
 
-  if (partType === 'tool-call-input-streaming-end') {
-    activeInputs.delete(toolCallId);
-    completedCalls.add(toolCallId);
-    return;
-  }
-
-  if (
-    (partType === 'tool-call-input-streaming-start' || partType === 'tool-call-delta') &&
-    !completedCalls.has(toolCallId) &&
-    !activeInputs.has(toolCallId)
-  ) {
+  if (!(completedCalls.has(toolCallId) || activeInputs.has(toolCallId))) {
     activeInputs.set(toolCallId, Date.now());
   }
 }
@@ -112,7 +117,7 @@ function findEarliestInput(
  * The ordinary stream inactivity watchdog resets on every delivered part.
  * Provider `tool-call-delta` parts therefore prove transport activity but do
  * not prove that the call will ever become executable. This wrapper keeps the
- * first-delta deadline stable until Mastra emits the matching input end or
+ * first-delta deadline stable until the stream emits the matching input end or
  * complete tool call.
  */
 export async function* withToolCallInputTimeout<T>(

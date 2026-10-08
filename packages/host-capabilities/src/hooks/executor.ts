@@ -10,9 +10,9 @@
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { createCredentialIsolatedChildEnvironment } from '@brainstrike/assistant-contract/credential-child-environment';
 import type { ScopedLogger } from '@brainstrike/logging';
-import { createCredentialIsolatedChildEnvironment } from '../../desktop-env';
-import { type HookRunVerdict, scanStdoutForRunVerdict } from './run-verdict';
+import { type HookRunVerdict, scanStdoutForRunVerdict } from './run-verdict.js';
 import {
   DEFAULT_HOOK_TIMEOUT_MS,
   type HookEventResult,
@@ -20,7 +20,7 @@ import {
   type HookStdin,
   type HookStdout,
   type LoadedHook,
-} from './types';
+} from './types.js';
 
 type HookLogger = Pick<ScopedLogger, 'debug' | 'info' | 'warn' | 'error'>;
 

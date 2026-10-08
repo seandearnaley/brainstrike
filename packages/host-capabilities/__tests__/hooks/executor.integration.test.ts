@@ -2,8 +2,8 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { redactSecrets, runHooksForEvent } from '../../../assistant-server/hooks/executor';
-import type { HookStdin, LoadedHook } from '../../../assistant-server/hooks/types';
+import { redactSecrets, runHooksForEvent } from '../../src/hooks/executor.js';
+import type { HookStdin, LoadedHook } from '../../src/hooks/types.js';
 
 let tmpRoot: string;
 

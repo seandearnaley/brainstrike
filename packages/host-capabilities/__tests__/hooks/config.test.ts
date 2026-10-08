@@ -8,7 +8,7 @@ import {
   getProjectHooksPath,
   loadHooksConfig,
   MAX_HOOKS_CONFIG_BYTES,
-} from '../../../assistant-server/hooks/config';
+} from '../../src/hooks/config.js';
 
 const MAX_HOOK_TIMEOUT_MS = 60_000;
 

@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { HookManager, type HookRunEventInput } from '../../../assistant-server/hooks/manager';
-import type { HooksConfigLoadResult, LoadedHook } from '../../../assistant-server/hooks/types';
+import { HookManager, type HookRunEventInput } from '../../src/hooks/manager.js';
+import type { HooksConfigLoadResult, LoadedHook } from '../../src/hooks/types.js';
 
 let tmpRoot: string;
 

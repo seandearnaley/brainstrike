@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { CEILING_SCALED_TOOL_RESULT_BUDGET, createSanitizedToolNameMap } from '@brainstrike/agent';
 import {
@@ -29,7 +30,7 @@ import {
   parseMcpElicitationSettlement,
   readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
-import { McpTaskRepository, MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
+import { type McpTaskStorage, McpTaskStore } from '@brainstrike/db';
 import {
   type ComposedAgentHostAdapterServices,
   createAgentHostAdapterServicesFactory,
@@ -38,8 +39,8 @@ import type {
   McpElicitationFinalizedEvent,
   McpElicitationPresentation,
 } from '@brainstrike/host-capabilities/mcp/elicitation-presenter';
-import { processStartTime } from '@brainstrike/state-store';
-import type { PGlite } from '@electric-sql/pglite';
+import { stateStoreMcpTaskStorage } from '@brainstrike/host-capabilities/mcp/state-store-task-storage';
+import { processStartTime, STATE_DB } from '@brainstrike/state-store';
 import { expect } from 'vitest';
 import { z } from 'zod';
 import { CommittedHostMcpInput } from '../../renderer/committed-host-mcp-input';
@@ -47,7 +48,7 @@ import { fixtureCapabilities, fixtureToolRequest } from './agent-host-adapter-fi
 
 // BST-1930/BST-1931: the lab in a forked plain-Node child over loopback HTTP (2026-07-28), the
 // shipped collector, MCP runtime, production platform and Core behind the public host/client
-// protocol, and disposable Root SQLite plus PGlite Tasks storage. Only the model is scripted.
+// protocol, and a disposable Root whose StateStore holds the Tasks tables. Only the model is scripted.
 
 const LAB_FIXTURE = fileURLToPath(new URL('./agent-host-mcp-modern-lab.mjs', import.meta.url));
 export const TASKS_SERVER = 'lab.tasks';
@@ -216,23 +217,75 @@ export class Observed<T> {
 }
 
 export interface ModernStorage {
-  readonly db: PGlite | undefined;
   readonly root: string;
+  /** Whether this scenario may open the Root's Tasks tables at all. */
+  readonly tasks: boolean;
 }
 
-/** Disposable Root plus an on-disk PGlite migrated by the production runner. */
+/** A disposable Root; its StateStore holds the Tasks tables across host restarts. */
 async function createStorage(tasks: boolean): Promise<ModernStorage> {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-mcp-modern-'));
   owned.push(() => rm(root, { force: true, recursive: true }));
-  if (!tasks) {
-    return { db: undefined, root };
+  return { root, tasks };
+}
+
+/** A read-only view of the Root's committed Tasks rows, open or closed host alike. */
+function committedTaskRows(storage: ModernStorage): McpTaskStorage {
+  const refused = (): never => {
+    throw new Error('The committed Tasks view is read-only');
+  };
+  return {
+    get: async (identity) => {
+      const db = new DatabaseSync(join(storage.root, STATE_DB), { readOnly: true });
+      try {
+        const row = db
+          .prepare(
+            `SELECT * FROM brainstrike_mcp_tasks
+             WHERE authority_epoch = ? AND server_id = ? AND resource = ? AND principal_id = ?
+               AND task_id = ?`
+          )
+          .get(
+            identity.authorityEpoch,
+            identity.serverId,
+            identity.resource,
+            identity.principalId,
+            identity.taskId
+          );
+        if (!row) {
+          return;
+        }
+        const decoded: Record<string, unknown> = { ...row };
+        for (const column of [
+          'blocked_diagnostic',
+          'history',
+          'input_metadata',
+          'result_metadata',
+        ]) {
+          const text = decoded[column];
+          decoded[column] = typeof text === 'string' ? JSON.parse(text) : text;
+        }
+        return decoded;
+      } finally {
+        db.close();
+      }
+    },
+    insert: refused,
+    listActive: refused,
+    measureMetadata: refused,
+    openAuthority: refused,
+    retireAuthority: refused,
+    update: refused,
+  };
+}
+
+function committedTaskCount(storage: ModernStorage): number {
+  const db = new DatabaseSync(join(storage.root, STATE_DB), { readOnly: true });
+  try {
+    const row = db.prepare('SELECT count(*) AS count FROM brainstrike_mcp_tasks').get();
+    return Number(row?.['count']);
+  } finally {
+    db.close();
   }
-  const db = await wasmLoader.createPGlite(join(root, 'mcp-tasks-pglite'));
-  owned.push(() => db.close());
-  const runner = new MigrationRunner(db);
-  await runner.initialize();
-  await runner.up(migrations);
-  return { db, root };
 }
 
 interface ModernHostOptions {
@@ -315,7 +368,7 @@ export async function openGuiInput(client: HostClient, threadId: string) {
  * file, MCP authority, borrowed Tasks writer) and the production platform behind Core's socket. */
 export async function openModernHost(options: ModernHostOptions) {
   const storage = options.storage ?? (await createStorage(options.serverId === TASKS_SERVER));
-  const { db, root } = storage;
+  const { root } = storage;
   const [toolId] = createSanitizedToolNameMap([`${options.serverId}.${options.toolName}`]).keys();
   if (!toolId) {
     throw new Error('The canonical sanitizer produced no provider tool name');
@@ -359,11 +412,11 @@ export async function openModernHost(options: ModernHostOptions) {
       openExternal: async () => {
         throw new Error('No external opener is expected by the modern lab');
       },
-      openTaskDatabase: async () => {
-        if (!db) {
-          throw new Error('This scenario must not open the Tasks database');
+      openTaskStorage: async () => {
+        if (!storage.tasks) {
+          throw new Error('This scenario must not open the Tasks tables');
         }
-        return db;
+        return stateStoreMcpTaskStorage(startup.store);
       },
       root,
       startup,
@@ -541,7 +594,9 @@ export function answerFor(
 }
 
 export async function durableTask(storage: ModernStorage, handle: McpTaskHandle) {
-  const record = storage.db ? await new McpTaskRepository(storage.db).get(handle) : null;
+  const record = storage.tasks
+    ? await new McpTaskStore(committedTaskRows(storage)).get(handle)
+    : null;
   if (!record) {
     throw new Error('The canonical task handle has no durable record');
   }
@@ -607,10 +662,7 @@ export async function expectCanonicalTask(
       updatedAt: record.updatedAt.toISOString(),
     },
   });
-  const rowCount = await modern.storage.db?.query<{ count: number }>(
-    'SELECT count(*)::int AS count FROM brainstrike_mcp_tasks'
-  );
-  expect(rowCount?.rows).toEqual([{ count: 1 }]);
+  expect(committedTaskCount(modern.storage)).toBe(1);
 }
 
 export const TASK_INPUT_REQUEST = {

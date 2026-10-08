@@ -7,7 +7,7 @@
  * unions, provenance-tagged loaded hooks for multi-root + trust).
  */
 
-import type { HookRunVerdict } from './run-verdict';
+import type { HookRunVerdict } from './run-verdict.js';
 
 export type HookEventName =
   | 'PreToolUse'

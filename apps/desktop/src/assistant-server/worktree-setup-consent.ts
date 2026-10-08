@@ -1,11 +1,11 @@
 import { promises as fsPromises } from 'node:fs';
 import path from 'node:path';
+import { sha256OfBuffer } from '@brainstrike/host-capabilities/hooks';
 import type {
   WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeSettings,
 } from '@brainstrike/types';
-import { sha256OfBuffer } from './hooks/trust';
 import type { RepositorySetupDecisionInput } from './worktree-service';
 import { REPOSITORY_SETUP_SCRIPT } from './worktree-setup';
 

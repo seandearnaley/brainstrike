@@ -159,7 +159,7 @@ test.each([
   { boundary: 'inference', operation: 'deletion' },
   { boundary: 'writer', operation: 'deletion' },
 ] as const)(
-  'actual Core $operation retains independent $boundary failure after cancellation',
+  'actual Core $operation joins an independent $boundary failure after cancellation and releases the run',
   async ({ boundary, operation }) => {
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
@@ -216,42 +216,31 @@ test.each([
       release.resolve();
       const result = await stop.result;
       expect(retired).toBe(true);
-      expect(result.status).toBe('rejected');
-      if (result.status !== 'rejected') {
-        throw new Error('Independent failure was discarded');
-      }
-      const receipt = JSON.stringify(failureReceipt(result.reason));
-      console.error('Independent cancellation failure receipt:', boundary, receipt);
-      expect(receipt).toContain('Host memory cleanup failed');
-      expect(receipt).toContain(
-        boundary === 'inference'
-          ? inferenceFailure.message
-          : operation === 'Stop'
-            ? 'Run stopped by user'
-            : 'Thread deletion is joining its run owners'
-      );
-      expect(host.retained()).toBe(1);
-      if (operation === 'deletion') {
-        expect(await host.store.threads()).toContain(ids.threadId);
-        expect(host.core.listThreads()).toContainEqual({ threadId: ids.threadId });
-        await expect(host.core.deleteThread({ threadId: ids.threadId })).rejects.toBe(
-          result.reason
+      // The independent failure joined physically: it is the run's visible
+      // outcome, and the run, its thread and Root are released.
+      expect(result).toEqual({
+        status: 'fulfilled',
+        value: operation === 'Stop' ? { outcome: 'stopped' } : { deleted: true },
+      });
+      expect(host.retained()).toBe(0);
+      if (operation === 'Stop') {
+        const finished = (await host.core.read(ids.threadId, 0))
+          .map((row) => row.event)
+          .find((event) => event.type === 'run.finished');
+        expect(finished).toMatchObject({ outcome: 'stopped', type: 'run.finished' });
+        const detail = finished?.type === 'run.finished' ? finished.detail : undefined;
+        expect(detail).toContain('Memory save failed');
+        expect(detail).toContain(
+          boundary === 'inference' ? inferenceFailure.message : 'Run stopped by user'
         );
-        await expect(
-          host.core.startRun({
-            commandId: randomUUID(),
-            modelId: 'recorded-sdk-fixture',
-            prompt: 'Deletion must retain its admission fence.',
-            threadId: ids.threadId,
-          })
-        ).rejects.toThrow('Thread deletion has closed command admission');
-        await expect(StateStore.open(host.root)).rejects.toBeInstanceOf(RootLockedError);
+      } else {
+        expect(await host.store.threads()).not.toContain(ids.threadId);
       }
-      await expect(host.core.close()).rejects.toBeInstanceOf(AggregateError);
+      await expect(host.core.close()).resolves.toBeUndefined();
     } finally {
       release.resolve();
       await stop?.result;
-      await expect(host.close()).rejects.toBeInstanceOf(AggregateError);
+      await host.close();
     }
   }
 );

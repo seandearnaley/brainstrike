@@ -1,12 +1,13 @@
 import type http from 'node:http';
 import { isSupportedProvider } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import type { ProviderKeySource } from '@brainstrike/assistant-contract';
+import type { ProviderCredential, ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { ResolvedProviderCredential } from '@brainstrike/assistant-service/ports';
 import { createProviderApiKeyReader } from '@brainstrike/assistant-service/provider-credential-projection';
 import { inspectProviderKeys, readProviderCredential } from '../provider-api-key';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { respondToSecretReadError } from './secret-error-responses';
+import { resolveTavilyApiKeyFromKeychain, TAVILY_SECRET_PROVIDER } from './web-search-tool';
 
 /**
  * Typed credential reader (BST-1352): the desktop implementation of the
@@ -53,6 +54,17 @@ const providerApiKeyReader = createProviderApiKeyReader(resolveProviderCredentia
  */
 export async function resolveProviderApiKey(provider: string): Promise<string | undefined> {
   return await providerApiKeyReader(provider);
+}
+
+/** Main's legacy verification reader: env, then Main's read-only view of the profile store. */
+export async function readMainVerificationCredential(
+  providerId: string
+): Promise<ProviderCredential | undefined> {
+  if (providerId !== TAVILY_SECRET_PROVIDER) {
+    return await resolveProviderCredential(providerId);
+  }
+  const key = await resolveTavilyApiKeyFromKeychain();
+  return key === undefined ? undefined : { key, type: 'api_key' };
 }
 
 export async function collectAvailableProviders(): Promise<{

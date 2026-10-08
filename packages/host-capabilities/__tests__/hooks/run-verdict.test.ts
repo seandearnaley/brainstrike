@@ -15,7 +15,7 @@ import {
   RUN_VERDICT_KEY,
   RUN_VERDICT_STDOUT_SCAN_CHARS,
   scanStdoutForRunVerdict,
-} from '../../../assistant-server/hooks/run-verdict';
+} from '../../src/hooks/run-verdict.js';
 
 function verdictLine(verdict: string, detail?: string): string {
   return JSON.stringify({

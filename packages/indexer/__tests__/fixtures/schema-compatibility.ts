@@ -109,9 +109,7 @@ export async function compatibleFixture(version: 8 | 9) {
     },
     ...(version === 9
       ? {
-          stateResources: [
-            { profile: recorded.memoryProfile, resourceId: 'resource', rootId: 'root' },
-          ],
+          stateResources: [{ resourceId: 'resource', rootId: 'root' }],
         }
       : {}),
     stateRoot: root,
@@ -141,6 +139,13 @@ export async function compatibleFixture(version: 8 | 9) {
       db.prepare(
         'UPDATE state_index_source SET root=?,projection_identity=? WHERE singleton=1'
       ).run(root, projection.identity);
+      if (version === 9) {
+        // Bind the recorded image to this acquisition's Root/resource grants, as
+        // root and producer are bound above; grants no longer carry a profile.
+        db.prepare('UPDATE state_index_source SET resource_grants=? WHERE singleton=1').run(
+          JSON.stringify(options.stateResources)
+        );
+      }
     })();
     truth.transaction(() => {
       for (const object of recorded.truthSchema) {

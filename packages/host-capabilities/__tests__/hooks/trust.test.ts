@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { sha256OfBuffer, sha256OfFile } from '../../../assistant-server/hooks/trust';
+import { sha256OfBuffer, sha256OfFile } from '../../src/hooks/trust.js';
 
 let tmpRoot: string;
 

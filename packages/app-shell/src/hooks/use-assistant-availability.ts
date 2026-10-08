@@ -317,11 +317,24 @@ export async function fetchAssistantStatusState({
     throw new Error(`status ${response.status}`);
   }
 
-  const rawPayload: unknown = await response.json();
+  return parseAssistantStatusObject(await response.json());
+}
+
+function parseAssistantStatusObject(rawPayload: unknown): AssistantAvailabilityStatus {
   if (!(rawPayload && typeof rawPayload === 'object' && !Array.isArray(rawPayload))) {
     throw new Error('Invalid assistant status payload');
   }
   return parseAssistantStatusPayload(rawPayload as Record<string, unknown>);
+}
+
+/** Availability from a host's status read, validated exactly like the HTTP payload. */
+export function createAssistantStatusFetcher(
+  readStatus: () => Promise<unknown>
+): AssistantStatusFetcher {
+  return async (signal) => {
+    signal.throwIfAborted();
+    return parseAssistantStatusObject(await readStatus());
+  };
 }
 
 function parseAssistantStatusPayload(

@@ -13,7 +13,7 @@ import type {
 import { joinCredentialCleanup } from '@brainstrike/agent-host/credential-contract';
 import type { McpExtensionEnablement, McpHostCloseReport } from '@brainstrike/assistant-contract';
 import type { ResolvedMcpConfig } from '@brainstrike/assistant-contract/mcp-config';
-import type { McpTaskDatabase } from '@brainstrike/db';
+import type { McpTaskStorage } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import type { McpBearerCredentialAuthority } from './bearer-credential.js';
 import type { McpElicitationPresenterAuthority } from './elicitation-presenter.js';
@@ -60,8 +60,8 @@ export interface McpHostServicesOptions<Collection extends AgentHostMcpCollectio
   readonly mcpConfiguration: ResolvedMcpConfig;
   readonly oauthStore: McpOAuthStore;
   readonly openExternal: (url: string) => Promise<void>;
-  /** Borrow the existing Tasks writer; this composition never constructs another database. */
-  readonly openTaskDatabase: () => Promise<McpTaskDatabase>;
+  /** Borrow the existing Tasks writer; this composition never constructs another store. */
+  readonly openTaskStorage: () => Promise<McpTaskStorage>;
   readonly startup: Pick<HostStartupContext, 'signal'>;
 }
 
@@ -111,7 +111,7 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
       bearerCredentialAuthority: options.bearerCredentialAuthority,
       oauthStore: options.oauthStore,
       openExternal: options.openExternal,
-      openTaskDatabase: options.openTaskDatabase,
+      openTaskStorage: options.openTaskStorage,
     },
     options.runtimeDependencies
   );

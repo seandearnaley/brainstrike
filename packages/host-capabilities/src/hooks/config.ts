@@ -10,7 +10,7 @@
 import { closeSync, constants, fstatSync, openSync, readFileSync, readSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { sha256OfBuffer } from './trust';
+import { sha256OfBuffer } from './trust.js';
 import {
   DEFAULT_HOOK_TIMEOUT_MS,
   type HookConfigError,
@@ -21,7 +21,7 @@ import {
   type HooksConfigLoadResult,
   type LoadedHook,
   type LoadedHooksByEvent,
-} from './types';
+} from './types.js';
 
 const VALID_EVENTS: readonly HookEventName[] = [
   'PreToolUse',

@@ -26,6 +26,7 @@ export { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picke
 export { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 export { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 export { useEnableModel } from './hooks/use-enable-model';
+export { useHostAssistantStatusFetcher } from './hooks/use-host-assistant-status-fetcher';
 export { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 export * from './navigation';
 export * from './page-wrapper';

@@ -2,9 +2,8 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MAX_HOOKS_CONFIG_BYTES, sha256OfFile } from '@brainstrike/host-capabilities/hooks';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MAX_HOOKS_CONFIG_BYTES } from '../../assistant-server/hooks/config';
-import { sha256OfFile } from '../../assistant-server/hooks/trust';
 import {
   type DbRootLite,
   getProjectHooksForReview,

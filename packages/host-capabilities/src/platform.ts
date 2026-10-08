@@ -35,7 +35,8 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assist
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { z } from 'zod';
 import { createHostCapabilities } from './capabilities.js';
-import { createCliMcpHost } from './mcp/cli-mcp-host.js';
+import { getGlobalHooksPath } from './hooks/config.js';
+import { createHostRunHooks } from './hooks/host-run-hooks.js';
 import {
   createSharedNativeHostTools,
   forgetSharedNativeToolThread,
@@ -69,6 +70,15 @@ const standaloneCapabilities = {
   vectorMemory: 'unavailable',
   workspaceInstructions: 'unavailable',
 };
+
+/** The standalone host has no plan mode; it refuses one rather than run unplanned. */
+function refuseStandalonePlanMode(request: { readonly planMode?: true }): void {
+  if (request.planMode) {
+    throw new Error(
+      'Plan mode is unavailable on the standalone host. Use the desktop host for plan mode.'
+    );
+  }
+}
 
 function selection(modelId: string) {
   const separator = modelId.indexOf('::');
@@ -146,9 +156,15 @@ export async function createHostPlatform(
     startup,
   });
   // Configured MCP servers run in this host's own MCP runtime (Tasks off for now).
+  // The MCP client stack loads only for a configured host: imported eagerly it
+  // added ~200 ms to every CLI host start, pushing cold starts past `host start`.
   const mcpConfig = platformOptions?.mcpConfig;
   const mcp = mcpConfig
-    ? await createCliMcpHost({ configPath: mcpConfig.path, credentials: host.credentials, startup })
+    ? await (await import('./mcp/cli-mcp-host.js')).createCliMcpHost({
+        configPath: mcpConfig.path,
+        credentials: host.credentials,
+        startup,
+      })
     : undefined;
   if (mcp) {
     await startup.register(async () => {
@@ -167,7 +183,11 @@ export async function createHostPlatform(
       await host.close();
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
+    providers: host.providers,
     ...(mcp ? { mcp: mcp.mcp } : {}),
+    // The same memory resource as the desktop host, so one state root keeps one
+    // derived identity whichever host opens it. Vector Memory stays unavailable here.
+    memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
     readConfiguration: async (request): Promise<ProductionHostRunConfiguration> => {
       request.signal.throwIfAborted();
       if (readCliWorkspaceRunInput(request.configuration)) {
@@ -204,6 +224,7 @@ export async function createHostPlatform(
         permissionPolicy: { policies: DEFAULT_PERMISSION_POLICIES, yolo: false },
         workspaceInstructionsPreference: { masterEnabled: false, oversizedOptInByRootId: {} },
       });
+      refuseStandalonePlanMode(request);
       const captured = request.configuration ?? request.snapshot?.configuration['intent'];
       if (
         request.snapshot &&
@@ -233,6 +254,15 @@ export async function createHostPlatform(
         resolvedToolResultBudget,
         runtime: { ...configuration, workspaceRoots },
       });
+      const toolTimeoutMs = resolveAssistantResilienceConfig().toolTimeoutMs;
+      // Global hooks run as configured; a launch root's project file stays
+      // untrusted (and is reported, not run) until the host owns its approval.
+      const hooks = createHostRunHooks({
+        globalPath: getGlobalHooksPath(),
+        maxHookTimeoutMs: toolTimeoutMs,
+        roots: workspaceRoots.map(({ path, rootId }) => ({ absPath: path, rootId })),
+        sessionId: request.threadId,
+      });
       return {
         configuration,
         durableConfiguration: {
@@ -244,6 +274,7 @@ export async function createHostPlatform(
             rootId,
           })),
         },
+        ...(hooks ? { hooks } : {}),
         maxSteps: DEFAULT_AGENT_MAX_STEPS,
         memory: {
           native: {
@@ -266,7 +297,7 @@ export async function createHostPlatform(
         resolvedToolResultBudget,
         system,
         tools: { ...bindings.tools, ...workspaceTools },
-        toolTimeoutMs: resolveAssistantResilienceConfig().toolTimeoutMs,
+        toolTimeoutMs,
       };
     },
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),

@@ -67,8 +67,8 @@ import {
   parseMcpTaskActionRequest,
 } from '@brainstrike/assistant-contract';
 import type { ResolvedMcpServer } from '@brainstrike/assistant-contract/mcp-config';
-import type { McpTaskAuthorityLease, McpTaskDatabase, McpTaskRecord } from '@brainstrike/db';
-import { McpTaskRepository } from '@brainstrike/db';
+import type { McpTaskAuthorityLease, McpTaskRecord, McpTaskStorage } from '@brainstrike/db';
+import { McpTaskStore } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import type { JSONObject } from '@modelcontextprotocol/client';
 import type {
@@ -132,7 +132,8 @@ export interface McpDesktopTaskHostOptions {
   readonly elicitationPresenter: Pick<McpElicitationPresenterAuthority, 'bindTaskPresenter'>;
   readonly lifecycleLimits?: McpTaskLifecycleLimits;
   readonly onInternalError: (code: string, cause: unknown) => void;
-  readonly openDatabase: () => Promise<McpTaskDatabase>;
+  /** The host's one Tasks store; this leaf never constructs another. */
+  readonly openStorage: () => Promise<McpTaskStorage>;
   readonly runtimeId?: string;
 }
 
@@ -153,7 +154,7 @@ interface TaskSession {
   readonly lifecycle: McpTaskLifecycle;
   readonly observationPort: McpTaskObservationPort;
   readonly protocolVersion: string;
-  readonly repository: McpTaskRepository;
+  readonly repository: McpTaskStore;
   readonly tasks: Map<string, TrackedEntry>;
 }
 
@@ -277,7 +278,7 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
       configuredServerId,
       connection.configRef
     );
-    const repository = new McpTaskRepository(await this.options.openDatabase());
+    const repository = new McpTaskStore(await this.options.openStorage());
     const authority = await repository.openAuthority({
       connectionGeneration: definitionGeneration,
       principalId: identity.principalId,
@@ -373,7 +374,11 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
     if (!connection) {
       throw new Error(`MCP Tasks session for "${request.configuredServerId}" is not ready.`);
     }
-    const tracked = await session.lifecycle.track(request.result, signal);
+    const tracked = await session.lifecycle.track(
+      request.result,
+      signal,
+      request.execution?.threadId
+    );
     const entry = this.register(session, tracked, request.toolName, request.execution);
     if (!TERMINAL_STATUSES.has(entry.presentation.status)) {
       await this.ensureInteraction(session, connection, [tracked.record.taskId]);

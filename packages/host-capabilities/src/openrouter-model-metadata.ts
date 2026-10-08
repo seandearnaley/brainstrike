@@ -5,9 +5,8 @@ import {
   type OpenRouterModelMetadataSnapshot,
   parseOpenRouterModelMetadata,
 } from '@brainstrike/assistant-contract';
-import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
-import { Effect } from 'effect';
-import { resolveProviderBaseUrl } from './provider-base-url';
+import { runWithTimeout } from '@brainstrike/effect-kit';
+import { resolveProviderBaseUrl } from './provider-base-url.js';
 
 const DEFAULT_SUCCESS_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
@@ -139,30 +138,28 @@ export function createOpenRouterModelMetadataService(
     cacheKey: string,
     modelUrl: string
   ): Promise<OpenRouterModelMetadataSnapshot> => {
-    const request = Effect.tryPromise({
-      catch: (error: unknown): Error =>
-        error instanceof Error ? error : new OpenRouterMetadataRequestError(error),
-      try: async (signal: AbortSignal): Promise<OpenRouterModelMetadata> => {
-        const response = await fetchImpl(modelUrl, {
-          headers: { accept: 'application/json', authorization: `Bearer ${apiKey}` },
-          signal,
-        });
-        signal.throwIfAborted();
-        if (!response.ok) {
-          throw new OpenRouterMetadataStatusError(response.status);
-        }
-        const body = await response.json();
-        signal.throwIfAborted();
-        return mergeCatalogBudgetCeilings(parseOpenRouterModelMetadata(body, modelId, now()));
-      },
-    });
-    const bounded = Effect.timeoutOrElse(request, {
-      duration: requestTimeoutMs,
-      orElse: (): Effect.Effect<never, OpenRouterMetadataTimeoutError> =>
-        Effect.fail(new OpenRouterMetadataTimeoutError(requestTimeoutMs)),
-    });
     try {
-      const metadata = await runAtPromiseBoundary(bounded);
+      const metadata = await runWithTimeout(
+        async (signal: AbortSignal): Promise<OpenRouterModelMetadata> => {
+          const response = await fetchImpl(modelUrl, {
+            headers: { accept: 'application/json', authorization: `Bearer ${apiKey}` },
+            signal,
+          });
+          signal.throwIfAborted();
+          if (!response.ok) {
+            throw new OpenRouterMetadataStatusError(response.status);
+          }
+          const body = await response.json();
+          signal.throwIfAborted();
+          return mergeCatalogBudgetCeilings(parseOpenRouterModelMetadata(body, modelId, now()));
+        },
+        {
+          onTimeout: () => new OpenRouterMetadataTimeoutError(requestTimeoutMs),
+          timeoutMs: requestTimeoutMs,
+        }
+      ).catch((error: unknown) => {
+        throw error instanceof Error ? error : new OpenRouterMetadataRequestError(error);
+      });
       retain(cacheKey, metadata);
       return { freshness: 'live', metadata };
     } catch (error) {

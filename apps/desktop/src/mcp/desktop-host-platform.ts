@@ -1,4 +1,4 @@
-import type { McpTaskDatabase } from '@brainstrike/db';
+import { type McpTaskStorage, pgliteMcpTaskStorage } from '@brainstrike/db';
 import {
   createSecretsMcpBearerCredentialAuthority,
   type McpBearerCredentialAuthority,
@@ -44,11 +44,12 @@ function createDefaultOAuthStore(): McpOAuthStore {
   });
 }
 
-function createDefaultTaskDatabaseOpener(): () => Promise<McpTaskDatabase> {
+/** The conformance client's own process: the PGlite Tasks tables of its profile. */
+function createDefaultTaskStorageOpener(): () => Promise<McpTaskStorage> {
   return async () => {
     const { getDatabase } = await import('../db-main');
     const database = await getDatabase();
-    return { query: (sql, params) => database.query(sql, params) };
+    return pgliteMcpTaskStorage({ query: (sql, params) => database.query(sql, params) });
   };
 }
 
@@ -62,7 +63,7 @@ export function createDesktopMcpHostPlatform(
       dependencies.bearerCredentialAuthority ?? createDefaultBearerCredentialAuthority(),
     oauthStore: dependencies.oauthStore ?? createDefaultOAuthStore(),
     openExternal: dependencies.openExternal ?? openExternalWithElectron,
-    openTaskDatabase: createDefaultTaskDatabaseOpener(),
+    openTaskStorage: createDefaultTaskStorageOpener(),
   };
 }
 
@@ -70,8 +71,8 @@ let mainOAuthStore: McpOAuthStore | undefined;
 
 /**
  * Main's MCP stores for the Node host's runtime (BST-1930 c1 interim): the
- * safeStorage OAuth records, the PGlite Tasks tables and Electron's external
- * opener. Bearer references live in the profile store the host reads itself. One OAuth store serves every host fork, so the
+ * safeStorage OAuth records and Electron's external opener. Bearer references
+ * live in the profile store the host reads itself, Tasks in its StateStore. One OAuth store serves every host fork, so the
  * "clear all secrets" purge reaches the same registered store.
  */
 export function createDesktopMcpPlatformCapabilities(
@@ -81,11 +82,6 @@ export function createDesktopMcpPlatformCapabilities(
   return {
     oauth: mainOAuthStore,
     openExternal: openExternalWithElectron,
-    queryTasks: async (sql, params) => {
-      const { getDatabase } = await import('../db-main');
-      const result = await (await getDatabase()).query(sql, [...params]);
-      return { rows: [...result.rows] };
-    },
     runtime,
   };
 }

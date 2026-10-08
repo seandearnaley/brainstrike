@@ -100,7 +100,7 @@ test(
         write: unavailable,
       },
       openExternal: unavailable,
-      openTaskDatabase: unavailable,
+      openTaskStorage: unavailable,
     });
     const indexer = await openIndexer(
       {
