@@ -10,9 +10,11 @@ import {
 } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { StateStore } from '@brainstrike/state-store';
+import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, type TestContext, vi } from 'vitest';
 import { decoder, stateObservationMetadataSchema } from '../src/contracts.js';
+import { ObservationLifecycle } from './fixtures/state-observation-lifecycle.js';
 import { captureIndex, captureStorage, groupText } from './fixtures/state-observation-native.mjs';
 import { observationChunks } from './fixtures/state-observation-schema.mjs';
 
@@ -38,13 +40,35 @@ beforeEach(() => {
     })
   );
 });
-afterEach(() => {
+const owners = new WeakMap<TestContext['task'], ObservationLifecycle>();
+function qualification(body: (owner: ObservationLifecycle) => Promise<void>) {
+  return (context: TestContext) => {
+    const owner = new ObservationLifecycle(context);
+    owners.set(context.task, owner);
+    return owner.execute(() => body(owner));
+  };
+}
+afterEach(async (context) => {
+  const failures: unknown[] = [];
+  try {
+    await owners.get(context.task)?.close();
+  } catch (error) {
+    failures.push(error);
+  }
   try {
     expect(fetch).not.toHaveBeenCalled();
+  } catch (error) {
+    failures.push(error);
   } finally {
     vi.unstubAllGlobals();
   }
-});
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Observation ownership and fetch verification failed');
+  }
+}, getAdjustedTimeout('database'));
 const source = (
   groupId = 'native-group',
   threadId = 'one',
@@ -57,8 +81,23 @@ const source = (
   threadId,
 });
 
-async function fixture(nativeScope: 'thread' | 'resource' = 'thread') {
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'state-observation-vectors-')));
+async function fixture(owner: ObservationLifecycle, nativeScope: 'thread' | 'resource' = 'thread') {
+  let cleanupPort: Awaited<ReturnType<typeof openIndexer>> | undefined;
+  const root = realpathSync(
+    await owner.acquire(
+      () => mkdtemp(join(tmpdir(), 'state-observation-vectors-')),
+      async (root) => {
+        await cleanupPort?.destroy();
+        const dbPath = join(root, 'index.sqlite');
+        for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+          expect(existsSync(file)).toBe(false);
+        }
+        await rm(root, { force: true, recursive: true });
+        expect(existsSync(root)).toBe(false);
+      },
+      { removal: true }
+    )
+  );
   const options = {
     dbPath: join(root, 'index.sqlite'),
     embedding: { indexMode: 'text-only' },
@@ -73,86 +112,106 @@ async function fixture(nativeScope: 'thread' | 'resource' = 'thread') {
     ],
     stateRoot: root,
   } as const;
-  let port = await openIndexer(options, deadlines);
-  let store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
-  await store.append(
-    ['one', 'two', 'foreign-thread'].map((threadId) => ({
-      event: { content: 'recorded committed text', type: 'text', v: 2 },
-      threadId,
-    }))
+  const acquirePort = (indexOptions: Parameters<typeof openIndexer>[0]) =>
+    owner.acquire(
+      () => openIndexer(indexOptions, deadlines),
+      (ownedPort) => ownedPort.close(),
+      {
+        beforePublication: async (ownedPort) => {
+          cleanupPort = ownedPort;
+        },
+      }
+    );
+  let port = await acquirePort(options);
+  let store = await owner.acquire(
+    () => StateStore.open(root, { indexer: createStateStoreIndexer(port) }),
+    (ownedStore) => ownedStore.close()
+  );
+  await owner.work(() =>
+    store.append(
+      ['one', 'two', 'foreign-thread'].map((threadId) => ({
+        event: { content: 'recorded committed text', type: 'text', v: 2 },
+        threadId,
+      }))
+    )
   );
   for (const [threadId, resourceId] of [
     ['one', 'resource'],
     ['two', 'resource'],
     ['foreign-thread', 'foreign'],
   ] as const) {
-    const current = await store.memory({ operation: 'read', resourceId });
-    await store.memory({
-      changes: [
-        {
-          entity: {
-            id: threadId,
-            kind: 'thread',
-            payload: { id: threadId, metadata: {}, resourceId },
-            threadId,
+    const current = await owner.work(() => store.memory({ operation: 'read', resourceId }));
+    await owner.work(() =>
+      store.memory({
+        changes: [
+          {
+            entity: {
+              id: threadId,
+              kind: 'thread',
+              payload: { id: threadId, metadata: {}, resourceId },
+              threadId,
+            },
+            operation: 'put',
           },
-          operation: 'put',
-        },
-      ],
-      expectedRevision: current.revision,
-      operation: 'commit',
-      resourceId,
-    });
+        ],
+        expectedRevision: current.revision,
+        operation: 'commit',
+        resourceId,
+      })
+    );
   }
-  const native = await captureStorage(nativeScope, 'resource', 'one');
-  const persist = async () => {
-    const rows = await native.records();
-    const current = await store.memory({ operation: 'read', resourceId: 'resource' });
-    await store.memory({
-      changes: rows.map((entity) => ({ entity, operation: 'put' })),
-      expectedRevision: current.revision,
-      operation: 'commit',
-      resourceId: 'resource',
+  const native = await owner.acquire(
+    () => captureStorage(nativeScope, 'resource', 'one'),
+    (ownedNative) => ownedNative.close()
+  );
+  const persist = () =>
+    owner.work(async () => {
+      const rows = await owner.work(() => native.records());
+      const current = await owner.work(() =>
+        store.memory({ operation: 'read', resourceId: 'resource' })
+      );
+      await owner.work(() =>
+        store.memory({
+          changes: rows.map((entity) => ({ entity, operation: 'put' })),
+          expectedRevision: current.revision,
+          operation: 'commit',
+          resourceId: 'resource',
+        })
+      );
+      return rows;
     });
-    return rows;
-  };
-  await native.active(groupText(source().text, source().groupId, 'one', nativeScope), date);
+  await owner.work(() =>
+    native.active(groupText(source().text, source().groupId, 'one', nativeScope), date)
+  );
   await persist();
   return {
-    close: async () => {
-      try {
-        await native.close();
-        await store.close();
-      } finally {
-        try {
-          await port.destroy();
-          for (const file of [options.dbPath, `${options.dbPath}-wal`, `${options.dbPath}-shm`]) {
-            expect(existsSync(file)).toBe(false);
-          }
-        } finally {
-          await rm(root, { force: true, recursive: true });
-          expect(existsSync(root)).toBe(false);
-        }
-      }
+    get native() {
+      owner.check();
+      return native;
     },
-    native,
     nativeScope,
+    openIndex: () => acquirePort({ ...options, embedding: { indexMode: 'open-existing' } }),
     options,
+    owner,
     persist,
     get port() {
+      owner.check();
       return port;
     },
-    reopen: async () => {
-      await store.close();
-      await port.close();
-      port = await openIndexer(
-        { ...options, embedding: { indexMode: 'open-existing' } },
-        deadlines
-      );
-      store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
-    },
+    reopen: () =>
+      owner.work(async () => {
+        await store.close();
+        await port.close();
+        owner.check();
+        port = await acquirePort({ ...options, embedding: { indexMode: 'open-existing' } });
+        store = await owner.acquire(
+          () => StateStore.open(root, { indexer: createStateStoreIndexer(port) }),
+          (ownedStore) => ownedStore.close()
+        );
+      }),
     root,
     get store() {
+      owner.check();
       return store;
     },
   };
@@ -179,7 +238,9 @@ async function write(
       truth.entities.some((row) => row.kind === 'observation' && row.id === id)
     )
   ).toBe(true);
-  const actual = decoder(nativeUpsertSchema)(await captureIndex(observation, 'resource'));
+  const actual = decoder(nativeUpsertSchema)(
+    await f.owner.work(() => captureIndex(observation, 'resource'))
+  );
   expect(actual.indexName).toBe('memory_observations_8');
   const segments = actual.ids.map((id, ordinal) => {
     const metadata = actual.metadata[ordinal],
@@ -217,9 +278,10 @@ async function byteFiles(f: Fixture): Promise<string[]> {
 }
 
 for (const nativeScope of ['thread', 'resource'] as const) {
-  it(`persists actual native ${nativeScope} observation identities/metadata and reopens SQLite without altering transcript`, async () => {
-    const f = await fixture(nativeScope);
-    try {
+  it(
+    `persists actual native ${nativeScope} observation identities/metadata and reopens SQLite without altering transcript`,
+    qualification(async (owner) => {
+      const f = await fixture(owner, nativeScope);
       const transcript = await f.store.read('one');
       const written = await write(f);
       const hits = await f.port.queryStateObservationVectors(query);
@@ -253,15 +315,15 @@ for (const nativeScope of ['thread', 'resource'] as const) {
       ).rejects.toMatchObject({
         code: 'stale-observation-plan',
       });
-    } finally {
-      await f.close();
-    }
-  });
+    }),
+    getAdjustedTimeout('integration')
+  );
 }
 
-it('binds exact native whitespace/oversized-token chunks and refuses forged ID/text/count/vector batches atomically', async () => {
-  const f = await fixture();
-  try {
+it(
+  'binds exact native whitespace/oversized-token chunks and refuses forged ID/text/count/vector batches atomically',
+  qualification(async (owner) => {
+    const f = await fixture(owner);
     const observation = source(
       'long-group',
       'one',
@@ -300,14 +362,14 @@ it('binds exact native whitespace/oversized-token chunks and refuses forged ID/t
         segments: written.segments,
       })
     ).rejects.toMatchObject({ code: 'stale-observation-plan' });
-  } finally {
-    await f.close();
-  }
-});
+  }),
+  getAdjustedTimeout('integration')
+);
 
-it('authorizes live owner separately from attributed thread and filters dates/scope before ranking', async () => {
-  const f = await fixture('resource');
-  try {
+it(
+  'authorizes live owner separately from attributed thread and filters dates/scope before ranking',
+  qualification(async (owner) => {
+    const f = await fixture(owner, 'resource');
     const neighbor = source('neighbor', 'two', 'Same-resource native group.');
     await f.native.active(
       `${groupText(source().text, source().groupId, 'one', 'resource')}\n${groupText(neighbor.text, neighbor.groupId, 'two', 'resource')}`,
@@ -360,14 +422,14 @@ it('authorizes live owner separately from attributed thread and filters dates/sc
         f.port.prepareStateObservationVectors({ observation, profile, scope })
       ).rejects.toThrow();
     }
-  } finally {
-    await f.close();
-  }
-});
+  }),
+  getAdjustedTimeout('integration')
+);
 
-it('keeps concurrent prepared groups independent through actual native chunks and writes', async () => {
-  const f = await fixture('resource');
-  try {
+it(
+  'keeps concurrent prepared groups independent through actual native chunks and writes',
+  qualification(async (owner) => {
+    const f = await fixture(owner, 'resource');
     const first = source('concurrent-one', 'one', 'First concurrent native group.');
     const second = source('concurrent-two', 'two', 'Second concurrent native group.');
     await f.native.active(
@@ -393,58 +455,64 @@ it('keeps concurrent prepared groups independent through actual native chunks an
     expect(
       (await f.port.queryStateObservationVectors(query)).map((hit) => hit.metadata.group_id).sort()
     ).toEqual(['concurrent-one', 'concurrent-two']);
-  } finally {
-    await f.close();
-  }
-});
+  }),
+  getAdjustedTimeout('integration')
+);
 
-it('joins admitted writer/query tails and refuses actual native embedding that retires after purge', async () => {
-  const f = await fixture();
-  const admitted = Promise.withResolvers<void>(),
-    release = Promise.withResolvers<void>();
-  let inference: Promise<unknown> | undefined;
-  try {
-    const plan = await f.port.prepareStateObservationVectors({
-      observation: source(),
-      profile,
-      scope,
-    });
-    inference = captureIndex(source(), 'resource', {
-      admitted: () => admitted.resolve(),
-      release: release.promise,
-    });
-    await admitted.promise;
-    const queries = [
-      f.port.queryStateObservationVectors(query),
-      f.port.queryStateObservationVectors(query),
-    ];
-    const purge = f.port.purgeStateObservationVectors(scope);
-    await Promise.all([...queries, purge]);
-    release.resolve();
-    const actual = decoder(nativeUpsertSchema)(await inference);
-    const segments = actual.ids.map((id, ordinal) => {
-      const metadata = actual.metadata[ordinal],
-        embedding = actual.vectors[ordinal];
-      if (!(metadata && embedding)) {
-        throw new Error('Native batch required');
-      }
-      return { id, text: metadata.text, vector: embedding };
-    });
-    await expect(f.port.upsertStateObservationVectors({ plan, segments })).rejects.toMatchObject({
-      code: 'stale-observation-plan',
-    });
-    expect(await f.port.queryStateObservationVectors(query)).toEqual([]);
-    expect(await byteFiles(f)).toEqual([]);
-  } finally {
-    release.resolve();
-    await inference;
-    await f.close();
-  }
-});
+it(
+  'joins admitted writer/query tails and refuses actual native embedding that retires after purge',
+  qualification(async (owner) => {
+    const f = await fixture(owner);
+    const admitted = Promise.withResolvers<void>(),
+      release = Promise.withResolvers<void>();
+    owner.releaseOnRetirement(() => release.resolve());
+    let inference: Promise<unknown> | undefined;
+    try {
+      const plan = await f.port.prepareStateObservationVectors({
+        observation: source(),
+        profile,
+        scope,
+      });
+      inference = owner.work(() =>
+        captureIndex(source(), 'resource', {
+          admitted: () => admitted.resolve(),
+          release: release.promise,
+        })
+      );
+      await admitted.promise;
+      const queries = [
+        f.port.queryStateObservationVectors(query),
+        f.port.queryStateObservationVectors(query),
+      ];
+      const purge = f.port.purgeStateObservationVectors(scope);
+      await Promise.all([...queries, purge]);
+      release.resolve();
+      const actual = decoder(nativeUpsertSchema)(await inference);
+      const segments = actual.ids.map((id, ordinal) => {
+        const metadata = actual.metadata[ordinal],
+          embedding = actual.vectors[ordinal];
+        if (!(metadata && embedding)) {
+          throw new Error('Native batch required');
+        }
+        return { id, text: metadata.text, vector: embedding };
+      });
+      await expect(f.port.upsertStateObservationVectors({ plan, segments })).rejects.toMatchObject({
+        code: 'stale-observation-plan',
+      });
+      expect(await f.port.queryStateObservationVectors(query)).toEqual([]);
+      expect(await byteFiles(f)).toEqual([]);
+    } finally {
+      release.resolve();
+      await inference;
+    }
+  }),
+  getAdjustedTimeout('integration')
+);
 
-it('refuses a committed shared native group attributed to a foreign resource thread', async () => {
-  const f = await fixture('resource');
-  try {
+it(
+  'refuses a committed shared native group attributed to a foreign resource thread',
+  qualification(async (owner) => {
+    const f = await fixture(owner, 'resource');
     await f.native.active(
       groupText(source().text, source().groupId, 'foreign-thread', 'resource'),
       date
@@ -456,14 +524,14 @@ it('refuses a committed shared native group attributed to a foreign resource thr
     await expect(f.port.queryStateObservationVectors(query)).rejects.toMatchObject({
       code: 'observation-not-authorized',
     });
-  } finally {
-    await f.close();
-  }
-});
+  }),
+  getAdjustedTimeout('integration')
+);
 
-it('preserves native buffer activation/reflection history and ignores incidental record timestamps', async () => {
-  const f = await fixture();
-  try {
+it(
+  'preserves native buffer activation/reflection history and ignores incidental record timestamps',
+  qualification(async (owner) => {
+    const f = await fixture(owner);
     const buffered = source('buffered-group', 'one', 'Actual buffered group text.');
     await f.native.buffered(groupText(buffered.text, buffered.groupId, 'one', 'thread'), date);
     await f.persist();
@@ -484,14 +552,14 @@ it('preserves native buffer activation/reflection history and ignores incidental
     ).toEqual(['buffered-group', 'reflected-group']);
     await f.reopen();
     expect(await f.port.queryStateObservationVectors(query)).toHaveLength(2);
-  } finally {
-    await f.close();
-  }
-});
+  }),
+  getAdjustedTimeout('integration')
+);
 
-it('rejects relational payload mismatch and conflicting native group witnesses without trusting vendor fields', async () => {
-  const f = await fixture();
-  try {
+it(
+  'rejects relational payload mismatch and conflicting native group witnesses without trusting vendor fields',
+  qualification(async (owner) => {
+    const f = await fixture(owner);
     await write(f);
     const rows = await f.native.records();
     const record = rows[0];
@@ -519,14 +587,14 @@ it('rejects relational payload mismatch and conflicting native group witnesses w
     await expect(f.port.queryStateObservationVectors(query)).rejects.toMatchObject({
       code: 'observation-not-authorized',
     });
-  } finally {
-    await f.close();
-  }
-});
+  }),
+  getAdjustedTimeout('integration')
+);
 
-it('excludes missing committed groups before LIMIT and refuses delayed writes after source removal', async () => {
-  const f = await fixture('resource');
-  try {
+it(
+  'excludes missing committed groups before LIMIT and refuses delayed writes after source removal',
+  qualification(async (owner) => {
+    const f = await fixture(owner, 'resource');
     const neighbor = source('neighbor', 'two', 'Retained native group.');
     await f.native.active(
       `${groupText(source().text, source().groupId, 'one', 'resource')}\n${groupText(neighbor.text, neighbor.groupId, 'two', 'resource')}`,
@@ -550,76 +618,86 @@ it('excludes missing committed groups before LIMIT and refuses delayed writes af
     } finally {
       db.close();
     }
-  } finally {
-    await f.close();
-  }
-});
+  }),
+  getAdjustedTimeout('integration')
+);
 
-it('persists pinned-reader cleanup failures, fences late work across reopen and physically erases on retry/delete/reset', async () => {
-  const f = await fixture('resource');
-  let reader: ReturnType<typeof openConnection> | undefined;
-  try {
-    const neighbor = source('neighbor', 'two', 'Shared native group.');
-    await f.native.active(
-      `${groupText(source().text, source().groupId, 'one', 'resource')}\n${groupText(neighbor.text, neighbor.groupId, 'two', 'resource')}`,
-      date
-    );
-    await f.persist();
-    const late = await write(f);
-    await write(f, neighbor);
-    expect(await byteFiles(f)).not.toEqual([]);
-    reader = openConnection(f.options.dbPath, { readonly: true });
-    reader.exec('BEGIN');
-    reader.prepare('SELECT count(*) FROM state_observation_vectors').get();
-    await expect(f.port.purgeStateObservationVectors(scope)).rejects.toThrow(/checkpoint|pinned/);
-    await expect(f.port.queryStateObservationVectors(query)).rejects.toMatchObject({
-      code: 'message-cleanup-pending',
+it(
+  'persists pinned-reader cleanup failures, fences late work across reopen and physically erases on retry/delete/reset',
+  qualification(async (owner) => {
+    const f = await fixture(owner, 'resource');
+    let reader: ReturnType<typeof openConnection> | undefined;
+    owner.releaseOnRetirement(() => {
+      reader?.close();
+      reader = undefined;
     });
-    reader.exec('COMMIT');
-    reader.close();
-    reader = undefined;
-    await f.reopen();
-    await expect(
-      f.port.prepareStateObservationVectors({ observation: source(), profile, scope })
-    ).rejects.toMatchObject({ code: 'message-cleanup-pending' });
-    await f.port.purgeStateObservationVectors({ resourceId: 'resource', rootId: 'root' });
-    expect(await byteFiles(f)).toEqual([]);
-    await expect(
-      f.port.upsertStateObservationVectors({ plan: late.plan, segments: late.segments })
-    ).rejects.toMatchObject({
-      code: 'stale-observation-plan',
-    });
-    await write(f);
-    await write(f, neighbor);
-    await f.store.deleteThread('one');
-    expect(await byteFiles(f)).toEqual([]);
-    await expect(f.port.queryStateObservationVectors(query)).rejects.toMatchObject({
-      code: 'thread-not-authorized',
-    });
-    expect(
-      await f.port.queryStateObservationVectors({ ...query, scope: { ...scope, threadId: 'two' } })
-    ).toEqual([]);
-    await expect(
-      f.port.upsertStateObservationVectors({ plan: late.plan, segments: late.segments })
-    ).rejects.toThrow();
-    await f.store.reset();
-    for (const file of [
-      f.options.dbPath,
-      `${f.options.dbPath}-wal`,
-      `${f.options.dbPath}-shm`,
-      join(f.root, 'state.db'),
-    ]) {
-      expect(existsSync(file)).toBe(false);
+    try {
+      const neighbor = source('neighbor', 'two', 'Shared native group.');
+      await f.native.active(
+        `${groupText(source().text, source().groupId, 'one', 'resource')}\n${groupText(neighbor.text, neighbor.groupId, 'two', 'resource')}`,
+        date
+      );
+      await f.persist();
+      const late = await write(f);
+      await write(f, neighbor);
+      expect(await byteFiles(f)).not.toEqual([]);
+      reader = openConnection(f.options.dbPath, { readonly: true });
+      reader.exec('BEGIN');
+      reader.prepare('SELECT count(*) FROM state_observation_vectors').get();
+      await expect(f.port.purgeStateObservationVectors(scope)).rejects.toThrow(/checkpoint|pinned/);
+      await expect(f.port.queryStateObservationVectors(query)).rejects.toMatchObject({
+        code: 'message-cleanup-pending',
+      });
+      reader.exec('COMMIT');
+      reader.close();
+      reader = undefined;
+      await f.reopen();
+      await expect(
+        f.port.prepareStateObservationVectors({ observation: source(), profile, scope })
+      ).rejects.toMatchObject({ code: 'message-cleanup-pending' });
+      await f.port.purgeStateObservationVectors({ resourceId: 'resource', rootId: 'root' });
+      expect(await byteFiles(f)).toEqual([]);
+      await expect(
+        f.port.upsertStateObservationVectors({ plan: late.plan, segments: late.segments })
+      ).rejects.toMatchObject({
+        code: 'stale-observation-plan',
+      });
+      await write(f);
+      await write(f, neighbor);
+      await f.store.deleteThread('one');
+      expect(await byteFiles(f)).toEqual([]);
+      await expect(f.port.queryStateObservationVectors(query)).rejects.toMatchObject({
+        code: 'thread-not-authorized',
+      });
+      expect(
+        await f.port.queryStateObservationVectors({
+          ...query,
+          scope: { ...scope, threadId: 'two' },
+        })
+      ).toEqual([]);
+      await expect(
+        f.port.upsertStateObservationVectors({ plan: late.plan, segments: late.segments })
+      ).rejects.toThrow();
+      await f.store.reset();
+      for (const file of [
+        f.options.dbPath,
+        `${f.options.dbPath}-wal`,
+        `${f.options.dbPath}-shm`,
+        join(f.root, 'state.db'),
+      ]) {
+        expect(existsSync(file)).toBe(false);
+      }
+    } finally {
+      reader?.close();
     }
-  } finally {
-    reader?.close();
-    await f.close();
-  }
-});
+  }),
+  getAdjustedTimeout('integration')
+);
 
-it('erases all shared OM attribution on actual committed event purge and refuses its late plans', async () => {
-  const f = await fixture('resource');
-  try {
+it(
+  'erases all shared OM attribution on actual committed event purge and refuses its late plans',
+  qualification(async (owner) => {
+    const f = await fixture(owner, 'resource');
     const neighbor = source('neighbor', 'two', 'Shared observation erased with committed purge.');
     await f.native.active(
       `${groupText(source().text, source().groupId, 'one', 'resource')}\n${groupText(neighbor.text, neighbor.groupId, 'two', 'resource')}`,
@@ -644,14 +722,14 @@ it('erases all shared OM attribution on actual committed event purge and refuses
         (row) => row.kind === 'observation'
       )
     ).toBe(false);
-  } finally {
-    await f.close();
-  }
-});
+  }),
+  getAdjustedTimeout('integration')
+);
 
-it('refuses a counterfeit schema9 label with observation storage while retaining transcript truth and old index bytes', async () => {
-  const f = await fixture();
-  try {
+it(
+  'refuses a counterfeit schema9 label with observation storage while retaining transcript truth and old index bytes',
+  qualification(async (owner) => {
+    const f = await fixture(owner);
     await write(f);
     const transcript = await f.store.read('one');
     await f.store.close();
@@ -660,16 +738,13 @@ it('refuses a counterfeit schema9 label with observation storage while retaining
     db.prepare('UPDATE index_metadata SET schema_version=9').run();
     db.close();
     const before = await readFile(f.options.dbPath);
-    await expect(
-      openIndexer({ ...f.options, embedding: { indexMode: 'open-existing' } }, deadlines)
-    ).rejects.toMatchObject({ code: 'rebuild-required' });
+    await expect(f.openIndex()).rejects.toMatchObject({ code: 'rebuild-required' });
     expect(await readFile(f.options.dbPath)).toEqual(before);
     const restore = openConnection(f.options.dbPath);
     restore.prepare('UPDATE index_metadata SET schema_version=10').run();
     restore.close();
     await f.reopen();
     expect(await f.store.read('one')).toEqual(transcript);
-  } finally {
-    await f.close();
-  }
-});
+  }),
+  getAdjustedTimeout('integration')
+);
