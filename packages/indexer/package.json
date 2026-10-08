@@ -40,10 +40,9 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/agent": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@effect/tsgo": "catalog:",
-    "@mastra/core": "1.71.0",
-    "@mastra/memory": "1.32.1",
     "@types/better-sqlite3": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",

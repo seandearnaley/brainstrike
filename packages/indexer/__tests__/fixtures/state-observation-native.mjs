@@ -1,9 +1,8 @@
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-const { Memory } = require('@mastra/memory');
-const { InMemoryStore } = require('@mastra/core/storage');
-const { wrapInObservationGroup } = require('@mastra/memory/processors');
+import {
+  InMemoryStore,
+  Memory,
+  wrapInObservationGroup,
+} from '@brainstrike/agent/test-fixtures/observation-memory';
 
 /** Capture real native storage shape using public OM operations, without inference.
  * @param {'thread'|'resource'} scope @param {string} resourceId @param {string} threadId

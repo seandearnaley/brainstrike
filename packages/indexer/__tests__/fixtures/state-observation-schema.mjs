@@ -1,12 +1,10 @@
-import { createRequire } from 'node:module';
+import {
+  Memory,
+  parseObservationGroups,
+} from '@brainstrike/agent/test-fixtures/observation-memory';
 
 export { messages, schema, text } from './state-message-schema.mjs';
 
-// Qualification uses this package's pinned test dependencies and public vendor
-// exports. Production indexer dependencies and imports remain unchanged.
-const require = createRequire(import.meta.url);
-const { Memory } = require('@mastra/memory');
-const { parseObservationGroups } = require('@mastra/memory/processors');
 class NativeChunks extends Memory {
   /** @param {string} text */
   chunks(text) {
