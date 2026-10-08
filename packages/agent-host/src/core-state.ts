@@ -1,4 +1,4 @@
-import { type ModelMessage, modelMessageSchema } from 'ai';
+import type { ModelMessage } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
@@ -44,7 +44,7 @@ export class HostCommandLedger {
     const conversationCommands: string[] = [];
     for (const [id, command] of this.accepted) {
       if (command.threadId === threadId) {
-        if (command.method === 'run/start') {
+        if (command.method === 'run/start' || command.method === 'run/regenerate') {
           conversationCommands.push(id);
         }
         this.accepted.delete(id);
@@ -111,10 +111,20 @@ export function hasHostInteractionResponse(pending: PendingInteraction): boolean
     ? pending.decision !== undefined
     : Object.hasOwn(pending, 'resumeData');
 }
+/** A run's committed position in the thread's conversation tree. */
+export interface HostRunBranch {
+  /** The committed run its user message follows; null is the thread root. */
+  readonly parentMessageId: string | null;
+  readonly prompt: string;
+  /** The run/start command that committed the user message (a regeneration reuses it). */
+  readonly userMessageId: string;
+}
+
 export interface HostRunState {
   admission?: HostRunAdmission;
   admissionTask?: Promise<HostRunAdmission>;
   readonly approvals: Map<string, PendingInteraction>;
+  readonly branch: HostRunBranch;
   readonly checkpointedResults: Set<string>;
   completion?: Promise<void>;
   readonly controller: AbortController;
@@ -122,7 +132,10 @@ export interface HostRunState {
   readonly id: string;
   readonly liveInputs: Map<string, { readonly value: unknown }>;
   mcpInputPersistenceFailures?: HostMcpInputPersistenceError[];
+  /** Positions of this run's own messages in its selected-path context. */
   readonly messageIndexes: Set<number>;
+  /** This run's own committed model messages, after its user message. */
+  readonly messages: ModelMessage[];
   readonly modelId: string;
   outcome?: Extract<HostEvent, { type: 'run.finished' }>['outcome'];
   readonly outputs: Map<string, Json>;
@@ -147,17 +160,20 @@ export function createHostRunState(
   threadId: string,
   id: string,
   modelId: string,
+  branch: HostRunBranch,
   snapshot?: HostRunSnapshot,
   controller = new AbortController()
 ): HostRunState {
   return {
     approvals: new Map(),
+    branch,
     checkpointedResults: new Set(),
     controller,
     effects: new Set(),
     id,
     liveInputs: new Map(),
     messageIndexes: new Set(),
+    messages: [],
     modelId,
     ...(snapshot ? { snapshot } : {}),
     outputs: new Map(),
@@ -262,23 +278,6 @@ export function createHostRunContext(
     signal: run.controller.signal,
     threadId: run.threadId,
   };
-}
-
-/** Pure transcript fold; the supplied maps remain owned by HostCore. */
-export function foldHostConversationMessages(
-  messagesByThread: Map<string, ModelMessage[]>,
-  runs: ReadonlyMap<string, HostRunState>,
-  threadId: string,
-  event: Extract<HostEvent, { type: 'model.step' | 'model.messages' }>
-): void {
-  const messages = event.messages.map((message) => modelMessageSchema.parse(message));
-  const previous = messagesByThread.get(threadId) ?? [];
-  messagesByThread.set(threadId, [...previous, ...messages]);
-  const run = runs.get(event.runId);
-  if (!run) {
-    return;
-  }
-  foldHostRunMessages(run, event, messages, previous.length);
 }
 
 /** The workspace read is a clone of the existing host-owned committed projection. */

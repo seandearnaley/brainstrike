@@ -3,7 +3,9 @@ import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/th
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 
-export const AGENT_HOST_PROTOCOL_VERSION = 10;
+// 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
+// and the explicit branch links they commit on `run.started`).
+export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
@@ -104,11 +106,21 @@ export const HOST_METHOD_SCHEMAS = {
   }),
   // Values are process-local and never enter HostCommandLedger.
   'mcp/input/stage': z.strictObject({ ...McpInput, content: McpContent.optional() }),
+  'run/regenerate': z.strictObject({
+    ...Command,
+    ...Thread,
+    configuration: z.record(z.string(), z.json()).optional(),
+    modelId: Id,
+    /** The original committed user message: its run/start command ID. */
+    userMessageId: Id,
+  }),
   'run/start': z.strictObject({
     ...Command,
     ...Thread,
     configuration: z.record(z.string(), z.json()).optional(),
     modelId: Id,
+    /** A committed run ID to follow, null for the thread root; omitted is the current tip. */
+    parentMessageId: Id.nullable().optional(),
     prompt: Id,
   }),
   'run/stop': z.strictObject({ ...Command, ...Run }),
@@ -202,9 +214,17 @@ export const HostEventSchema = z.union([
     type: z.literal('run.started'),
     ...RunFields,
     modelId: Id,
+    /**
+     * The committed message this run's new user message follows (a run ID;
+     * null is the thread root). Rows committed before branch history omit
+     * it: their parent is the previous run.
+     */
+    parentMessageId: Id.nullable().optional(),
     parentRunId: Id.optional(),
     prompt: Id,
     snapshot: HostRunSnapshotSchema.optional(),
+    /** Regenerate only: the existing committed user message this run answers again. */
+    userMessageId: Id.optional(),
   }),
   z.strictObject({ type: z.literal('stream.chunk'), ...RunFields, chunk: z.json() }),
   z.strictObject({
@@ -294,6 +314,7 @@ export const HOST_RESULT_SCHEMAS = {
     status: HostMcpInputStatusSchema,
   }),
   'mcp/input/stage': z.strictObject({ staged: z.literal(true) }),
+  'run/regenerate': z.strictObject({ runId: Id }),
   'run/start': z.strictObject({ runId: Id }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),

@@ -1,3 +1,4 @@
+import type { AppendMessage } from '@assistant-ui/react';
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { committedRunIdentity } from '@brainstrike/agent-host/committed-identities';
 import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
@@ -41,6 +42,36 @@ export function createCommittedHostConversation(options: {
     source,
     threadId,
   });
+  const runSettings = () => ({
+    ...(options.readConfiguration
+      ? {
+          configuration: z
+            .record(z.string(), z.json())
+            .parse(JSON.parse(JSON.stringify(options.readConfiguration()))),
+        }
+      : {}),
+    modelId: options.readModelId?.() ?? modelId,
+  });
+  // A send, a send from a selected branch, and an edit all start a new user
+  // message after the vendor's explicit parent (null: the thread root).
+  const startTurn = async (message: AppendMessage): Promise<void> => {
+    if (
+      (message.attachments?.length ?? 0) > 0 ||
+      message.content.some((part) => part.type !== 'text')
+    ) {
+      throw new Error('This host command requires text input');
+    }
+    const prompt = message.content
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('\n');
+    await client.request('run/start', {
+      commandId: crypto.randomUUID(),
+      ...runSettings(),
+      parentMessageId: message.parentId,
+      prompt,
+      threadId,
+    });
+  };
   const commands: CommittedAssistantCommands = {
     onCancel: async () => {
       const runId = store.getCommittedView().activeRunId;
@@ -49,28 +80,23 @@ export function createCommittedHostConversation(options: {
       }
       await client.request('run/stop', { commandId: crypto.randomUUID(), runId, threadId });
     },
-    onNew: async (message) => {
-      if (
-        (message.attachments?.length ?? 0) > 0 ||
-        message.content.some((part) => part.type !== 'text')
-      ) {
-        throw new Error('This host command requires text input');
+    // Committed messages are immutable; the installed vendor would otherwise
+    // evict a "deleted" message locally through the branch-selection port.
+    onDelete: () => {
+      throw new Error('Committed conversation messages cannot be deleted');
+    },
+    onEdit: (message) => startTurn(message),
+    onNew: (message) => startTurn(message),
+    // The vendor passes the user message being answered again.
+    onReload: async (parentId) => {
+      if (parentId === null) {
+        throw new Error('Regenerate has no committed user message');
       }
-      const prompt = message.content
-        .map((part) => (part.type === 'text' ? part.text : ''))
-        .join('\n');
-      await client.request('run/start', {
+      await client.request('run/regenerate', {
         commandId: crypto.randomUUID(),
-        ...(options.readConfiguration
-          ? {
-              configuration: z
-                .record(z.string(), z.json())
-                .parse(JSON.parse(JSON.stringify(options.readConfiguration()))),
-            }
-          : {}),
-        modelId: options.readModelId?.() ?? modelId,
-        prompt,
+        ...runSettings(),
         threadId,
+        userMessageId: parentId,
       });
     },
     onRespondToToolApproval: async (response) => {
@@ -104,6 +130,9 @@ export function createCommittedHostConversation(options: {
         threadId,
       });
     },
+    // Branch selection is client view state: the vendor already moved its own
+    // head over the committed tree, and nothing is written to the host.
+    setMessages: () => undefined,
   };
   const disconnect = source.connect();
   return {

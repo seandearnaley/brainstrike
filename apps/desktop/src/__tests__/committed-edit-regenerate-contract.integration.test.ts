@@ -4,19 +4,15 @@
  * Public-client contract for committed Edit and Regenerate (BST-1929, #3543
  * 6054394054 item 2).
  *
- * The installed host cannot express either action: `run/start` takes no
- * branch point, and Core folds one linear history per thread, so re-sending a
- * prompt would add a new turn that still carries the old answer. These tests
- * state, through the public client and a real host, what the committed client
- * needs from Studio's Core. They are `test.fails` until that contract lands:
- * then they fail, and become plain tests as the client binding is completed.
- *
- * Requested shapes (Studio owns the final names):
+ * Frozen contract (#3543 6054972701), through the public client and a real host:
  * - `run/start` with `parentMessageId: string | null`: the new user message
- *   follows that committed message (null: the thread root). This is Edit, and
- *   a send from a selected branch.
+ *   follows that committed message (null: the thread root; omitted: the
+ *   current tip). This is Edit, and a send from a selected branch.
  * - `run/regenerate` with `userMessageId`: a new answer to an existing
- *   committed user message, without a new user message.
+ *   committed user message (its original run/start command ID), without a
+ *   new user message.
+ *
+ * Both admit a new run whose model history is the selected path only.
  */
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -46,12 +42,6 @@ afterEach(async () => {
   await Promise.all(hosts.splice(0).map((host) => host.close()));
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
-
-/** A request the installed protocol does not define yet; Studio owns its final shape. */
-type ProposedRequest = (
-  method: string,
-  params: Readonly<Record<string, unknown>>
-) => Promise<unknown>;
 
 interface Answered {
   readonly client: HostClient;
@@ -116,9 +106,9 @@ function promptOf(model: RecordingModel, call: number) {
   };
 }
 
-// Control for the measurement: today's run/start continues one linear history,
-// so a follow-up carries the previous answer. Re-sending a prompt is therefore
-// not a regeneration, and the history assertions below can tell the two apart.
+// Control for the measurement: an omitted parent continues the current tip, so
+// a follow-up carries the previous answer. Re-sending a prompt is therefore not
+// a regeneration, and the history assertions below can tell the two apart.
 test('a follow-up run/start continues the single committed history, previous answer included', async () => {
   const first = await answeredThread();
   expect(promptOf(first.model, 0)).toEqual({ assistantMessages: 0, userText: ['First question'] });
@@ -136,19 +126,18 @@ test('a follow-up run/start continues the single committed history, previous ans
   });
 });
 
-test.fails('Regenerate answers the same committed user message on a sibling branch, without re-running the first run', async () => {
+test('Regenerate answers the same committed user message on a sibling branch, without re-running the first run', async () => {
   const first = await answeredThread();
   const original = committedRunIdentity(first.rows, first.runId);
   const firstRunRows = first.rows.filter(
     ({ event }) => 'runId' in event && event.runId === first.runId
   );
-  const request = first.client.request.bind(first.client) as unknown as ProposedRequest;
-  const { runId } = (await request('run/regenerate', {
+  const { runId } = await first.client.request('run/regenerate', {
     commandId: randomUUID(),
     modelId: 'scripted',
     threadId: first.threadId,
     userMessageId: original.userMessageId,
-  })) as { runId: string };
+  });
   const rows = await finishedRows(first.client, first.threadId, runId);
   expect(committedRunIdentity(rows, runId)).toMatchObject({
     assistantMessageId: runId,
@@ -163,17 +152,16 @@ test.fails('Regenerate answers the same committed user message on a sibling bran
   );
 });
 
-test.fails('Edit starts a sibling user message at the edited message’s parent, with only that branch in context', async () => {
+test('Edit starts a sibling user message at the edited message’s parent, with only that branch in context', async () => {
   const first = await answeredThread();
   const original = committedRunIdentity(first.rows, first.runId);
-  const request = first.client.request.bind(first.client) as unknown as ProposedRequest;
-  const { runId } = (await request('run/start', {
+  const { runId } = await first.client.request('run/start', {
     commandId: randomUUID(),
     modelId: 'scripted',
     parentMessageId: original.parentMessageId,
     prompt: 'Edited question',
     threadId: first.threadId,
-  })) as { runId: string };
+  });
   const rows = await finishedRows(first.client, first.threadId, runId);
   expect(committedRunIdentity(rows, runId).parentMessageId).toBe(original.parentMessageId);
   expect(promptOf(first.model, 1)).toEqual({
@@ -182,7 +170,7 @@ test.fails('Edit starts a sibling user message at the edited message’s parent,
   });
 });
 
-test.fails('the desktop committed conversation offers Regenerate and Edit through the host, so the shipped controls render', async () => {
+test('the desktop committed conversation offers Regenerate and Edit through the host, so the shipped controls render', async () => {
   const first = await answeredThread();
   const conversation = createCommittedHostConversation({
     client: first.client,

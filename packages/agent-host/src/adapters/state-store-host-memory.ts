@@ -15,7 +15,11 @@ import {
   modelMessageSchema,
   wrapLanguageModel,
 } from 'ai';
-import { committedRowAddress, committedRunIdentity } from '../committed-identities.js';
+import {
+  committedRowAddress,
+  committedRunAncestors,
+  committedRunIdentity,
+} from '../committed-identities.js';
 import { readHostRow } from '../event-storage.js';
 import type { HostRunContext, HostRunOwner } from '../ports.js';
 import type { HostLogRow } from '../protocol.js';
@@ -273,11 +277,15 @@ export class StateStoreHostMemory implements HostRunOwner {
     const rows = await this.readRows();
     const historical: ModelMessage[] = [];
     const historicalIds = new Set<string>();
+    // In this thread only the selected branch is history: a sibling branch's
+    // turns never enter the request, even when native Memory selects them.
+    const path = new Set(committedRunAncestors(rows, this.identity.runId));
     for (const started of rows) {
       if (
         (!this.resourceRecall && started.threadId !== this.identity.threadId) ||
         started.event.type !== 'run.started' ||
-        started.event.runId === this.identity.runId
+        started.event.runId === this.identity.runId ||
+        (started.threadId === this.identity.threadId && !path.has(started.event.runId))
       ) {
         continue;
       }
@@ -437,7 +445,8 @@ function committedVectorIdentities(
 ): { messageId: string; seq: number }[] {
   const sources = new Map(rows.map((row) => [committedRowAddress(row), row]));
   for (const row of rows) {
-    if (row.event.type === 'run.started') {
+    // The run/start that committed a user message is its source; a regeneration is not.
+    if (row.event.type === 'run.started' && row.event.userMessageId === undefined) {
       sources.set(committedRunIdentity(rows, row.event.runId).userMessageId, row);
     }
   }
