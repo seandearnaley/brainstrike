@@ -8,17 +8,17 @@
  * `isAppActive()` (`@brainstrike/hooks`), the same signal the unseen-badge rule
  * reads (BST-1864), so a completion is either seen or alerted, never both.
  *
- * Mounted ONLY from `AssistantUiPanelWrapper` (the visible assistant
- * surface). Desktop's hidden embedding/llm hosts never render that wrapper —
- * they mount `EmbeddingHostApp`/`LlmHostApp`, which never import
- * `AssistantUiPanel` — so this hook can never run there and can never
- * notify on their behalf.
+ * Mounted ONLY by visible assistant surfaces: `AssistantUiPanelWrapper` and
+ * desktop's committed agent-host thread view. Desktop's hidden embedding/llm
+ * hosts render neither — they mount `EmbeddingHostApp`/`LlmHostApp` — so this
+ * hook can never run there and can never notify on their behalf.
  */
 
 import { getNotificationPermissionState } from '@brainstrike/app-state/notifications/notification-permission';
 import {
   createRunNotificationDispatcher,
   type ForgeNotificationEvent,
+  type RunNotificationEvent,
 } from '@brainstrike/app-state/notifications/run-notification-dispatcher';
 import { useNotificationPreferencesStore } from '@brainstrike/app-state/stores/notification-preferences-store';
 import {
@@ -33,6 +33,8 @@ export interface AssistantRunNotificationCallbacks {
   readonly onForgeEvent: (event: ForgeNotificationEvent) => void;
   readonly onRunFailed: (event: AssistantRunEvent) => void;
   readonly onRunFinished: (event: AssistantRunEvent) => void;
+  /** An agent-host thread's committed run event, already in dispatcher terms. */
+  readonly onRunNotification: (event: RunNotificationEvent) => void;
   readonly onToolApprovalRequired: (request: AssistantToolApprovalRequest) => void;
 }
 
@@ -67,6 +69,9 @@ export function useAssistantRunNotifications(): AssistantRunNotificationCallback
       },
       onRunFinished: (event) => {
         dispatcher.dispatch({ kind: 'runFinished', runId: event.runId ?? event.id });
+      },
+      onRunNotification: (event) => {
+        dispatcher.dispatch(event);
       },
       onToolApprovalRequired: (request) => {
         dispatcher.dispatch({

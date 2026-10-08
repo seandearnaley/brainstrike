@@ -541,7 +541,11 @@ function ThreadPanels({
           >
             {/* No resetKey: inside key={threadId} it could never change; "Reload tab" resets. */}
             <TabPanelBoundary label={threadById.get(threadId)?.title ?? threadId}>
-              {host?.renderThread(threadId, isOpen && threadId === activeThreadId) ?? (
+              {host?.renderThread(
+                threadId,
+                isOpen && threadId === activeThreadId,
+                onRunningChange
+              ) ?? (
                 <AssistantUiPanelWrapper
                   isVisible={isOpen && threadId === activeThreadId}
                   {...(fixedProviderModels ? { fixedProviderModels } : {})}

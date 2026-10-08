@@ -23,6 +23,7 @@ import { z } from 'zod';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
+import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
 import {
   PlatformPolicySchema,
   platformPermissionPolicy,
@@ -44,6 +45,7 @@ import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
+import { createWorktreeLedger } from './assistant-server/worktree-ledger';
 import { isPathWithin } from './assistant-server/worktree-paths';
 import type { createWorktreeService } from './assistant-server/worktree-service';
 import { readWorktreeSettings, writeWorktreeSettings } from './assistant-server/worktree-settings';
@@ -995,24 +997,54 @@ function reportNativeIndexActivationError(message: string, error: unknown): void
 }
 const nativeIndexActivation = createNativeIndexActivation({
   agentHostPlatform: {
-    platform: () =>
-      createDesktopPlatformPort({
-        ...productionDesktopCapabilities({ embeddingHostManager, nativeIndexSearch }, async () => {
-          const stored = await storage.getItem('permission-policy.v1');
-          if (!stored) {
-            return;
-          }
-          const envelope = z
-            .object({ state: PlatformPolicySchema.extend({ enforce: z.boolean() }) })
-            .parse(JSON.parse(stored));
-          const { enforce, ...input } = envelope.state;
-          const policy = platformPermissionPolicy(input);
-          return { ...policy, yolo: policy.yolo || !enforce };
-        }),
+    platform: () => {
+      const ledger = createWorktreeLedger(getDatabase);
+      const workspace = new DesktopWorkspaceBindingAuthority({
+        borrowRoot: (root) =>
+          applicationIpcDomain.roots.borrowSourceRootForPath(
+            root.path,
+            applicationIpcDomain.watches.subscribe.bind(applicationIpcDomain.watches)
+          ),
+        readRoots: async () => loadWorkspaceRootsFromDatabase(await getDatabase()),
+        readWorktree: (id) => ledger.get(id),
+      });
+      return createDesktopPlatformPort({
+        ...productionDesktopCapabilities(
+          { embeddingHostManager, nativeIndexSearch },
+          async () => {
+            const stored = await storage.getItem('permission-policy.v1');
+            if (!stored) {
+              return;
+            }
+            const envelope = z
+              .object({ state: PlatformPolicySchema.extend({ enforce: z.boolean() }) })
+              .parse(JSON.parse(stored));
+            const { enforce, ...input } = envelope.state;
+            const policy = platformPermissionPolicy(input);
+            return { ...policy, yolo: policy.yolo || !enforce };
+          },
+          undefined,
+          workspace
+        ),
         // BST-1977: app-owned host/stop released Root with the native writer live.
         // Retiring the profile here would wait on this same Core close request.
-        closeRootCapabilities: () => nativeIndexActivation.closeRootCapabilities(),
-      }),
+        closeRootCapabilities: async () => {
+          const results = await Promise.allSettled([
+            workspace.close(),
+            nativeIndexActivation.closeRootCapabilities(),
+          ]);
+          const failures = results.flatMap((result) =>
+            result.status === 'rejected' ? [result.reason] : []
+          );
+          if (failures.length > 0) {
+            throw new AggregateError(
+              failures,
+              'Desktop workspace and native Root retirement failed'
+            );
+          }
+        },
+      });
+    },
     platformModule: resolveBundledSiblingPath(
       'Agent host platform',
       'agent-host-platform-entry.js'

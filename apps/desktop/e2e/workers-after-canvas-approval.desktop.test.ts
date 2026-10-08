@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 
@@ -342,6 +342,7 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
       compositeModelKey: 'openrouter::openai/gpt-5.4',
       provider: 'openrouter',
     });
+    await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
     await new HomePage(window).openSettings();
     await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
     await window
@@ -349,7 +350,7 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
       .selectOption('ask');
     await window.getByTestId('permission-policy-edit').selectOption('ask');
     await ensureAssistantShellVisible(window);
-    const root = window.getByTestId('chat-panel');
+    const root = window.getByRole('region', { exact: true, name: 'Assistant' });
     await root
       .getByRole('textbox', { name: 'Message input' })
       .fill(

@@ -2,9 +2,23 @@ import type {
   AssistantMemoryThread,
   AssistantThreadMetadata,
   AssistantThreadRepository,
+  AssistantThreadRunStatus,
   ThreadWorkspaceRepository,
 } from '@brainstrike/assistant-data';
-import { createContext, type ReactNode, useContext } from 'react';
+import { createContext, type ReactNode, useContext, useSyncExternalStore } from 'react';
+
+/** A host thread's latest committed root run, read as the thread badges read a run row. */
+export interface AssistantThreadHostRun {
+  /** The committed finish time; null while running or when the host recorded none. */
+  readonly completedAt: Date | null;
+  readonly status: Exclude<AssistantThreadRunStatus, 'cancelling'>;
+}
+
+/** The host's committed run state per thread it owns, as this window observes it. */
+export interface AssistantThreadHostRuns {
+  readonly getSnapshot: () => ReadonlyMap<string, AssistantThreadHostRun>;
+  readonly subscribe: (listener: () => void) => () => void;
+}
 
 /** A host app supplies committed thread identity and its connected presentation. */
 export interface AssistantThreadHostCapability {
@@ -16,7 +30,17 @@ export interface AssistantThreadHostCapability {
   ownsThread(threadId: string): Promise<boolean>;
   /** Commits an owned thread's title through the host; it never reaches history. */
   renameThread(threadId: string, title: string): Promise<void>;
-  renderThread(threadId: string, isVisible: boolean): ReactNode | undefined;
+  /**
+   * `onRunningChange` reports the rendered view's own run state, so a tab
+   * closed mid-run keeps its view mounted and observing (BST-1844).
+   */
+  renderThread(
+    threadId: string,
+    isVisible: boolean,
+    onRunningChange?: (threadId: string, running: boolean) => void
+  ): ReactNode | undefined;
+  /** Omitted by a host that reports no run state; its threads then show none. */
+  readonly runs?: AssistantThreadHostRuns;
   /** Called when a host thread's committed title changes; a host without live titles omits it. */
   subscribeTitleChanges?(listener: () => void): () => void;
   /**
@@ -31,6 +55,17 @@ export const AssistantThreadHostContext = createContext<AssistantThreadHostCapab
 );
 export function useAssistantThreadHost(): AssistantThreadHostCapability | undefined {
   return useContext(AssistantThreadHostContext);
+}
+
+const NO_HOST_RUNS: ReadonlyMap<string, AssistantThreadHostRun> = new Map();
+const readNoHostRuns = (): ReadonlyMap<string, AssistantThreadHostRun> => NO_HOST_RUNS;
+const subscribeNoHostRuns = (): (() => void) => () => undefined;
+
+/** The host's run state for its threads; empty where no host reports one (web). */
+export function useAssistantThreadHostRuns(): ReadonlyMap<string, AssistantThreadHostRun> {
+  const runs = useAssistantThreadHost()?.runs;
+  const read = runs?.getSnapshot ?? readNoHostRuns;
+  return useSyncExternalStore(runs?.subscribe ?? subscribeNoHostRuns, read, read);
 }
 
 /** Keep old history in its existing repository and read new roots from their actual owner. */

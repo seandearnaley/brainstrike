@@ -147,6 +147,34 @@ function checkoutStateOf(checkoutSettled: boolean): 'pending' | 'resolved' {
  * backstop (e.g. a call this component didn't render the disabled state for
  * in time) — this only prevents the common, avoidable case.
  */
+/** A path-tagged MAIN-root row lookup; `rootId: null` settled unresolved. */
+interface MainRootRow {
+  readonly path: string;
+  readonly rootId: string | null;
+}
+
+/**
+ * The primary's durable id, and whether the thread's folder set is still
+ * resolving: its binding metadata, or (unbound) the MAIN-root row lookup for
+ * the current MAIN path. Pure, so the hook stays under the complexity cap.
+ */
+function primaryRootState(args: {
+  readonly bindingRootId: string | undefined;
+  readonly canResolveMainRoot: boolean;
+  readonly mainRootPath: string | undefined;
+  readonly mainRootRow: MainRootRow | null;
+  readonly metadataPending: boolean;
+}): { readonly foldersPending: boolean; readonly primaryRootId: string | undefined } {
+  if (args.bindingRootId) {
+    return { foldersPending: args.metadataPending, primaryRootId: args.bindingRootId };
+  }
+  const settled = args.mainRootRow !== null && args.mainRootRow.path === args.mainRootPath;
+  return {
+    foldersPending: args.metadataPending || (args.canResolveMainRoot && !settled),
+    primaryRootId: settled ? (args.mainRootRow?.rootId ?? undefined) : undefined,
+  };
+}
+
 function addFolderDisabledReasonFor(selectedThreadMetadataPending: boolean): string | null {
   return selectedThreadMetadataPending ? "This thread hasn't finished loading yet" : null;
 }
@@ -385,10 +413,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const bindingRootId = threadRootBinding?.rootId;
   const mainRootPath = currentMainRoot?.path;
   const mainRootDisplayName = currentMainRoot?.displayName;
-  const [mainRootRow, setMainRootRow] = useState<{
-    readonly path: string;
-    readonly rootId: string;
-  } | null>(null);
+  const [mainRootRow, setMainRootRow] = useState<MainRootRow | null>(null);
   const warnedMainRootPathsRef = useRef<Set<string> | null>(null);
   // Exhausting the retry budget must not be terminal for the session: the same
   // reconciliation signal the checkout chip refetches on re-triggers the
@@ -414,7 +439,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         return;
       }
       if (lookup.kind === 'unresolved') {
-        setMainRootRow(null);
+        setMainRootRow({ path: mainRootPath, rootId: null });
         warnedMainRootPathsRef.current ??= new Set<string>();
         const warnedPaths = warnedMainRootPathsRef.current;
         if (!warnedPaths.has(mainRootPath)) {
@@ -436,10 +461,13 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       cancelled = true;
     };
   }, [bindingRootId, database, invalidationNonce, mainRootDisplayName, mainRootPath]);
-  // Optional chain on BOTH sides: with no MAIN root at all the two paths are
-  // both `undefined` and would trivially "match" — `?.` keeps that undefined.
-  const primaryRootId =
-    bindingRootId ?? (mainRootRow?.path === mainRootPath ? mainRootRow?.rootId : undefined);
+  const { foldersPending, primaryRootId } = primaryRootState({
+    bindingRootId,
+    canResolveMainRoot: Boolean(database && mainRootPath && mainRootDisplayName),
+    mainRootPath,
+    mainRootRow,
+    metadataPending: selectedThreadMetadataPending,
+  });
   const primaryRoot: WorkspaceBarRoot | undefined =
     operatingRoot && primaryRootId
       ? {
@@ -1025,6 +1053,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   });
   const { branchSwitcher, mode } = useWorkspaceBarMode({
     checkout,
+    foldersPending,
     onHandOffToLocal,
     onSelectWorktree,
     primaryRootId,

@@ -64,6 +64,7 @@ import {
 import { resolveEnvAwsRegion } from '@brainstrike/assistant-service/provider-credential-projection';
 import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { Effect } from 'effect';
+import { resolveProviderBaseUrl } from './provider-base-url';
 import { resolveProviderCredential } from './provider-credentials';
 import { resolveTavilyApiKeyFromKeychain, TAVILY_SECRET_PROVIDER } from './web-search-tool';
 
@@ -256,42 +257,45 @@ type ApiKeyProbeProviderId =
  * a minimal one-token embeddings POST (the documented minimal call — note it
  * is METERED, unlike the GET probes).
  */
-const API_KEY_PROBES: Record<ApiKeyProbeProviderId, (key: string) => ProbeRequest> = {
-  anthropic: (key) => ({
-    headers: {
-      accept: 'application/json',
-      'anthropic-version': '2023-06-01',
-      'x-api-key': key,
-    },
-    method: 'GET',
-    url: 'https://api.anthropic.com/v1/models',
-  }),
-  cohere: (key) => bearerProbe('https://api.cohere.com/v1/models', key),
-  google: (key) => ({
-    classifyHttp: classifyGoogleHttp,
-    // Header auth on purpose: the documented `?key=` query param would put the
-    // credential in URLs (and any log that records them).
-    headers: { accept: 'application/json', 'x-goog-api-key': key },
-    method: 'GET',
-    url: 'https://generativelanguage.googleapis.com/v1beta/models',
-  }),
-  openai: (key) => bearerProbe('https://api.openai.com/v1/models', key),
-  openrouter: (key) => ({
-    ...bearerProbe('https://openrouter.ai/api/v1/key', key),
-    describeSuccess: describeOpenRouterKeyUsage,
-  }),
-  [TAVILY_SECRET_PROVIDER]: (key) => bearerProbe('https://api.tavily.com/usage', key),
-  voyage: (key) => ({
-    body: JSON.stringify({ input: ['ping'], model: 'voyage-3' }),
-    headers: {
-      accept: 'application/json',
-      authorization: `Bearer ${key}`,
-      'content-type': 'application/json',
-    },
-    method: 'POST',
-    url: 'https://api.voyageai.com/v1/embeddings',
-  }),
-};
+type ProbeEnv = Readonly<Record<string, string | undefined>>;
+
+const API_KEY_PROBES: Record<ApiKeyProbeProviderId, (key: string, env: ProbeEnv) => ProbeRequest> =
+  {
+    anthropic: (key, env) => ({
+      headers: {
+        accept: 'application/json',
+        'anthropic-version': '2023-06-01',
+        'x-api-key': key,
+      },
+      method: 'GET',
+      url: `${resolveProviderBaseUrl('anthropic', env)}/models`,
+    }),
+    cohere: (key) => bearerProbe('https://api.cohere.com/v1/models', key),
+    google: (key) => ({
+      classifyHttp: classifyGoogleHttp,
+      // Header auth on purpose: the documented `?key=` query param would put the
+      // credential in URLs (and any log that records them).
+      headers: { accept: 'application/json', 'x-goog-api-key': key },
+      method: 'GET',
+      url: 'https://generativelanguage.googleapis.com/v1beta/models',
+    }),
+    openai: (key, env) => bearerProbe(`${resolveProviderBaseUrl('openai', env)}/models`, key),
+    openrouter: (key, env) => ({
+      ...bearerProbe(`${resolveProviderBaseUrl('openrouter', env)}/key`, key),
+      describeSuccess: describeOpenRouterKeyUsage,
+    }),
+    [TAVILY_SECRET_PROVIDER]: (key) => bearerProbe('https://api.tavily.com/usage', key),
+    voyage: (key) => ({
+      body: JSON.stringify({ input: ['ping'], model: 'voyage-3' }),
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${key}`,
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+      url: 'https://api.voyageai.com/v1/embeddings',
+    }),
+  };
 
 function buildAwsBearerProbe(bearerKey: string, region: string): ProbeRequest {
   if (region.length === 0) {
@@ -313,10 +317,12 @@ export function listApiKeyProbeProviderIds(): readonly string[] {
   return Object.keys(API_KEY_PROBES);
 }
 
-function findApiKeyProbe(providerId: string): ((key: string) => ProbeRequest) | undefined {
-  return (API_KEY_PROBES as Record<string, ((key: string) => ProbeRequest) | undefined>)[
-    providerId
-  ];
+function findApiKeyProbe(
+  providerId: string
+): ((key: string, env: ProbeEnv) => ProbeRequest) | undefined {
+  return (
+    API_KEY_PROBES as Record<string, ((key: string, env: ProbeEnv) => ProbeRequest) | undefined>
+  )[providerId];
 }
 
 /** A profile-chain verification: resolve the chain itself (BST-1353). */
@@ -401,7 +407,7 @@ function resolveProbe(
       'no verification probe is declared for this provider'
     );
   }
-  return buildProbe(credential.key);
+  return buildProbe(credential.key, env);
 }
 
 function requirePositiveInteger(value: number, field: string): number {

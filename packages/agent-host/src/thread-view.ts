@@ -105,6 +105,13 @@ export class CommittedThreadView {
 export interface HostThreadSnapshot {
   readonly connected: boolean;
   readonly error: string | undefined;
+  /** True until the subscription's replay arrives or is refused. */
+  readonly isLoading: boolean;
+  /**
+   * The last seq the subscription's replay returned (0 for an empty log). A row
+   * past it was committed after the replay's read, so it is live, never history.
+   */
+  readonly replayedThrough: number | undefined;
   readonly rows: readonly HostLogRow[];
 }
 
@@ -112,9 +119,15 @@ export interface HostThreadSnapshot {
 export class CommittedThreadSession {
   private readonly view: CommittedThreadView;
   private readonly listeners = new Set<() => void>();
-  private snapshot: HostThreadSnapshot = { connected: true, error: undefined, rows: [] };
+  private snapshot: HostThreadSnapshot = {
+    connected: true,
+    error: undefined,
+    isLoading: true,
+    replayedThrough: undefined,
+    rows: [],
+  };
   constructor(
-    private readonly client: HostClient,
+    private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'request'>,
     private readonly threadId: string
   ) {
     this.view = new CommittedThreadView(threadId);
@@ -151,12 +164,27 @@ export class CommittedThreadSession {
     this.client.request('log/subscribe', { fromSeq: 0, threadId: this.threadId }).then(
       (result) => {
         if (active) {
+          // The boundary is set before the replay publishes, so no listener sees
+          // replayed rows without it. An empty replay publishes no rows, so it
+          // announces the end of loading itself.
+          const before = this.view.getSnapshot();
+          this.snapshot = {
+            ...this.snapshot,
+            isLoading: false,
+            replayedThrough: result.rows.reduce((last, row) => Math.max(last, row.seq), 0),
+          };
           this.view.accept(result.rows);
+          if (this.view.getSnapshot() === before) {
+            this.update({});
+          }
         }
       },
       (cause: unknown) => {
         if (active) {
-          this.update({ error: cause instanceof Error ? cause.message : String(cause) });
+          this.update({
+            error: cause instanceof Error ? cause.message : String(cause),
+            isLoading: false,
+          });
         }
       }
     );
