@@ -381,14 +381,13 @@ export function foldHostStartedRun(
   threadId: string,
   event: Started,
   grants: HostThreadGrants,
-  /** Absent only until Core folds child threads (made required once it does). */
-  isChildThread?: (threadId: string) => boolean
+  isChildThread: (threadId: string) => boolean
 ): HostRunState {
   recordHostConversationId(conversationIds, event.runId);
   let admission = admitted.get(event.runId);
   if (
     !admission &&
-    isChildThread?.(threadId) &&
+    isChildThread(threadId) &&
     ![...runs.values()].some((run) => run.threadId === threadId)
   ) {
     admission = delegatedHostRunAdmission(threadId);
