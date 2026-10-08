@@ -11,7 +11,7 @@ import {
   isRecord,
   makeWorkspaceTextModelOutput,
   type WorkspaceTextModelOutput,
-} from './workspace-model-projection-helpers';
+} from './workspace-model-projection-helpers.js';
 
 export type ReadWorkspaceFileTextModelOutput = WorkspaceTextModelOutput;
 

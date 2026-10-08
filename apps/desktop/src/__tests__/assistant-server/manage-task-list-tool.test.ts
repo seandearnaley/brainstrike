@@ -9,12 +9,24 @@
  * self-bounded oversized-list output (truncated + hint, still ok).
  */
 import type { ManageTaskListResult, RuntimeData } from '@brainstrike/agent';
+import { runManageTaskList } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
 import {
-  runManageTaskList,
+  createDesktopTaskListStore,
+  readThreadTaskList,
   type TaskListDatabase,
-} from '../../assistant-server/manage-task-list-tool';
-import { readThreadTaskList } from '../../assistant-server/task-list-repository';
+} from '../../assistant-server/task-list-repository';
+
+/** The legacy store for a runtime's memory thread; absent without one, as in production. */
+function legacyStore(runtimeData: RuntimeData | undefined, database: TaskListDatabase) {
+  const memory = runtimeData?.memory;
+  return memory?.threadId && memory.resourceId
+    ? createDesktopTaskListStore(
+        { resourceId: memory.resourceId, threadId: memory.threadId },
+        database
+      )
+    : undefined;
+}
 
 function createFakeDb(): TaskListDatabase & {
   store: Map<string, { resource_id: string; tasks: unknown }>;
@@ -64,8 +76,7 @@ describe('runManageTaskList', () => {
           { activeForm: 'Testing', content: 'Test', status: 'pending' },
         ],
       },
-      runtimeWithThread('thread-1', 'workspace-a'),
-      { database: db }
+      legacyStore(runtimeWithThread('thread-1', 'workspace-a'), db)
     );
 
     expect(isTaskListResult(result)).toBe(true);
@@ -87,8 +98,7 @@ describe('runManageTaskList', () => {
     const db = createFakeDb();
     const first = await runManageTaskList(
       { tasks: [{ activeForm: 'Implementing', content: 'Implement', status: 'in_progress' }] },
-      runtimeWithThread('thread-1', 'workspace-a'),
-      { database: db }
+      legacyStore(runtimeWithThread('thread-1', 'workspace-a'), db)
     );
     if (!isTaskListResult(first)) {
       throw new Error('expected task-list result');
@@ -97,8 +107,7 @@ describe('runManageTaskList', () => {
 
     const second = await runManageTaskList(
       { tasks: [{ activeForm: 'Implementing', content: 'Implement', status: 'completed' }] },
-      runtimeWithThread('thread-1', 'workspace-a'),
-      { database: db }
+      legacyStore(runtimeWithThread('thread-1', 'workspace-a'), db)
     );
     if (!isTaskListResult(second)) {
       throw new Error('expected task-list result');
@@ -112,8 +121,7 @@ describe('runManageTaskList', () => {
     const db = createFakeDb();
     const result = await runManageTaskList(
       { tasks: [{ activeForm: 'Doing', content: 'Do', status: 'pending' }] },
-      {} as RuntimeData,
-      { database: db }
+      legacyStore({} as RuntimeData, db)
     );
     expect(isTaskListResult(result)).toBe(false);
     expect(result).toEqual({ error: expect.stringContaining('thread'), ok: false });
@@ -133,8 +141,7 @@ describe('runManageTaskList', () => {
           status: 'pending' as const,
         })),
       },
-      runtimeWithThread('thread-1', 'workspace-a'),
-      { database: db }
+      legacyStore(runtimeWithThread('thread-1', 'workspace-a'), db)
     );
     if (!isTaskListResult(result)) {
       throw new Error('expected task-list result');

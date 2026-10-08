@@ -2,6 +2,7 @@ import { registerToolGuardDeadlineSignal } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { type QueryProcess, SqliteQueryClient } from '@brainstrike/sqlite-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { legacyNativeToolPorts } from '../../assistant-server/legacy-native-tool-ports';
 import { EXECUTION_TOOL_EXECUTORS } from '../../assistant-server/native-tool-executors-execution';
 
 const { getDatabase, openIndexQuery } = vi.hoisted(() => ({
@@ -42,6 +43,7 @@ function executor() {
   const entry = EXECUTION_TOOL_EXECUTORS[NATIVE_TOOL_ID.querySelf]({
     dependencies: {},
     isLocalProvider: false,
+    ports: legacyNativeToolPorts(undefined),
     readFileCursorRegistry: {} as never,
     resolveActiveDomainCharBudget: () => 6000,
     resolvedDomainCharBudget: 6000,

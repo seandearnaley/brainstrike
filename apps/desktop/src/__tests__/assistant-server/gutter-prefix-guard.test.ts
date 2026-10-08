@@ -1,5 +1,5 @@
+import { looksLikeReadWorkspaceFileGutterOutput } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
-import { looksLikeReadWorkspaceFileGutterOutput } from '../../assistant-server/gutter-prefix-guard';
 
 describe('looksLikeReadWorkspaceFileGutterOutput', () => {
   describe('negatives — must stay writable', () => {

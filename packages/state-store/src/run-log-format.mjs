@@ -37,18 +37,28 @@ export function withSeq(seq, body) {
 /** What a purge leaves in place of the purged event: the seq stays, every byte of the old body goes. */
 export const TOMBSTONE_BODY = '{"type":"purged"}';
 
+/** @param {unknown} hash @returns {string} */
+function blobHash(hash) {
+  if (typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash)) {
+    throw new Error('event has an invalid blob hash');
+  }
+  return hash;
+}
+
 /**
- * Blob hashes an event references: by convention the event's top-level `blob` field (M0-A2 src/host.ts blobsOf).
+ * Blob hashes an event references: by convention the event's top-level `blob` field (M0-A2 src/host.ts blobsOf),
+ * plus the top-level `blobRefs` array of blobs the event references without spooling its own body into them.
  * @param {string} raw
  * @returns {string[]}
  */
 export function blobsOf(raw) {
-  const o = /** @type {{ blob?: unknown }} */ (JSON.parse(raw));
-  if (o.blob === undefined) {
-    return [];
+  const o = /** @type {{ blob?: unknown, blobRefs?: unknown }} */ (JSON.parse(raw));
+  const hashes = o.blob === undefined ? [] : [blobHash(o.blob)];
+  if (o.blobRefs !== undefined) {
+    if (!Array.isArray(o.blobRefs)) {
+      throw new Error('event has an invalid blob hash list');
+    }
+    hashes.push(...o.blobRefs.map(blobHash));
   }
-  if (typeof o.blob !== 'string' || !/^[a-f0-9]{64}$/.test(o.blob)) {
-    throw new Error('event has an invalid blob hash');
-  }
-  return [o.blob];
+  return [...new Set(hashes)];
 }

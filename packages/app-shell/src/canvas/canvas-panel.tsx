@@ -3,12 +3,13 @@ import { usePGliteDatabase } from '@brainstrike/db/react';
 import { Button, CanvasFrame, useResolvedTheme } from '@brainstrike/ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { type ReactElement, useEffect, useMemo, useState } from 'react';
+import { useAssistantThreadHost } from '../assistant-thread-host-context';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import {
   type CanvasPanelSummary,
   type CanvasPanelVersion,
-  getCanvasVersion,
-  listThreadCanvasSummaries,
+  readThreadCanvasSummaries,
+  readThreadCanvasVersion,
 } from './canvas-read-repository';
 
 export interface CanvasPanelProps {
@@ -40,6 +41,7 @@ type VersionSelection = number | 'latest';
  */
 export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
   const database = usePGliteDatabase();
+  const host = useAssistantThreadHost();
   const theme = useResolvedTheme();
   // BST-1268 unification: the ACTIVE thread comes from the thread store —
   // never from the wrapper-published identity (which was last-mount-wins
@@ -68,7 +70,7 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
       return;
     }
     let cancelled = false;
-    listThreadCanvasSummaries(database, threadId)
+    readThreadCanvasSummaries(database, host, threadId)
       .then((rows) => {
         if (!cancelled) {
           setQueryError(null);
@@ -85,7 +87,7 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [database, refreshNonce, threadId]);
+  }, [database, host, refreshNonce, threadId]);
 
   const activeSummary = useMemo(() => {
     if (summaries.length === 0) {
@@ -108,11 +110,11 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
     // Clear synchronously so a canvas/version switch never shows the previous
     // document under the new header while the read is in flight.
     setLoadedVersion(null);
-    if (!(database && activeCanvasId && shownVersion)) {
+    if (!(database && threadId && activeCanvasId && shownVersion)) {
       return;
     }
     let cancelled = false;
-    getCanvasVersion(database, activeCanvasId, shownVersion)
+    readThreadCanvasVersion(database, host, threadId, activeCanvasId, shownVersion)
       .then((row) => {
         if (cancelled) {
           return;
@@ -134,7 +136,7 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [activeCanvasId, database, shownVersion]);
+  }, [activeCanvasId, database, host, shownVersion, threadId]);
 
   if (!threadId) {
     return (

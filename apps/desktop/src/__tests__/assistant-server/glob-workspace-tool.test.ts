@@ -7,8 +7,8 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
+import { runGlobWorkspace } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { runGlobWorkspace } from '../../assistant-server/glob-workspace-tool';
 import { singleRootRuntime } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {

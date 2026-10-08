@@ -2922,12 +2922,18 @@ importers:
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
       '@brainstrike/host-lease':
         specifier: workspace:*
         version: link:../host-lease
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
@@ -2937,6 +2943,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.118
+      minimatch:
+        specifier: 'catalog:'
+        version: 10.2.6
       strip-ansi:
         specifier: 7.2.0
         version: 7.2.0

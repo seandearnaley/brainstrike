@@ -15,7 +15,7 @@ import {
   isRecord,
   makeWorkspaceTextModelOutput as makeOutput,
   type WorkspaceTextModelOutput,
-} from './workspace-model-projection-helpers';
+} from '@brainstrike/host-capabilities/native-tools';
 
 export type WorkspaceContextTextModelOutput = WorkspaceTextModelOutput;
 

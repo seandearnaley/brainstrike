@@ -3,6 +3,7 @@ import { useDailySpend } from '@brainstrike/assistant-data/cost-tracking';
 import type { BudgetGuardrailContextValue } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAssistantThreadHostLedger } from '../assistant-thread-host-context';
 
 const budgetGuardrailLogger = createLogger('BudgetGuardrail');
 
@@ -27,7 +28,9 @@ export function useBudgetGuardrailBinding(
   resourceIdOverride?: string | null
 ): BudgetGuardrailContextValue | null {
   const dailyCapUsd = useAssistantBudgetPreferencesStore((state) => state.dailyCapUsd);
-  const spendState = useDailySpend(resourceIdOverride);
+  // Agent-host threads' committed provider calls count toward the same cap.
+  const { usage: hostUsage } = useAssistantThreadHostLedger();
+  const spendState = useDailySpend(resourceIdOverride, hostUsage);
   const [overridden, setOverridden] = useState(false);
   const override = useCallback(() => setOverridden(true), []);
 

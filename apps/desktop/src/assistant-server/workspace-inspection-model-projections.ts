@@ -4,11 +4,8 @@ import {
 } from '@brainstrike/agent';
 import type {
   EditDiagnostic,
-  InspectLocation,
-  LspInspectionResult,
-  LspQueryFailure,
   LspUnavailableReason,
-} from './lsp-diagnostics';
+} from '@brainstrike/host-capabilities/native-tools';
 import {
   clipProjectionEnd as clipEnd,
   clipProjectionMiddle,
@@ -19,7 +16,8 @@ import {
   makeWorkspaceTextModelOutput as makeTextModelOutput,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
-} from './workspace-model-projection-helpers';
+} from '@brainstrike/host-capabilities/native-tools';
+import type { InspectLocation, LspInspectionResult, LspQueryFailure } from './lsp-diagnostics';
 
 export type WorkspaceInspectionTextModelOutput = WorkspaceTextModelOutput;
 

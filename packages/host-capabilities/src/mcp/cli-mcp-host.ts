@@ -9,11 +9,7 @@ import {
 import type { HostCredentials } from '../credentials.js';
 import { createSecretsMcpBearerCredentialAuthority } from './bearer-credential.js';
 import { createCredentialMcpOAuthStore } from './credential-oauth-store.js';
-import {
-  createMcpHostServices,
-  McpDiscoveryAdmissionError,
-  type McpHostServices,
-} from './mcp-host-services.js';
+import { createMcpHostServices, type McpHostServices } from './mcp-host-services.js';
 import {
   createLazySafeStorageMcpOAuthStore,
   identityKey,
@@ -77,11 +73,6 @@ export async function createCliMcpHost(options: {
         parseRecords,
       })
     ),
-    onMcpDiscoverySkips: async (skips) => {
-      if (skips.length > 0) {
-        throw new McpDiscoveryAdmissionError();
-      }
-    },
     openExternal: async () => {
       throw new CliMcpCapabilityUnavailableError(
         'Browser authorization is unavailable on a standalone host'

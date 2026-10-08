@@ -18,6 +18,7 @@ import {
   resolveGuardedToolSignal,
 } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
+import type { ShellOutputStreamPart } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import {
@@ -27,7 +28,6 @@ import {
   fitHeadAndTailToCharBudget,
   resolveShellInvocation,
   runExecuteCommand,
-  type ShellOutputStreamPart,
 } from '../../assistant-server/execute-command-tool';
 import {
   readPidWhenWritten,

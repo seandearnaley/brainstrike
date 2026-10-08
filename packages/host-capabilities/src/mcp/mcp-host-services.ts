@@ -1,33 +1,33 @@
-import { createMcpRuntimeClient, type McpRuntimeClient } from '@brainstrike/agent/mcp-client';
+import {
+  createMcpRuntimeClient,
+  type McpDiscoverySkip,
+  type McpRuntimeClient,
+} from '@brainstrike/agent/mcp-client';
 import type {
   HostMcpRuntime,
   HostMcpToolRequest,
   HostMcpToolSelection,
+  HostMcpUnavailableServer,
   HostStartupContext,
 } from '@brainstrike/agent-host';
 import { joinCredentialCleanup } from '@brainstrike/agent-host/credential-contract';
 import type { McpExtensionEnablement, McpHostCloseReport } from '@brainstrike/assistant-contract';
 import type { ResolvedMcpConfig } from '@brainstrike/assistant-contract/mcp-config';
 import type { McpTaskDatabase } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import type { McpBearerCredentialAuthority } from './bearer-credential.js';
 import type { McpElicitationPresenterAuthority } from './elicitation-presenter.js';
 import { type AgentHostMcpCollection, bindMcpTool } from './mcp-tool-binding.js';
 import { McpHostRuntime, type McpHostRuntimeDependencies } from './node-host-runtime.js';
 import type { McpOAuthStore } from './oauth-client-provider.js';
 
+const logger = createLogger('McpHostServices');
+
 export class AgentHostAdapterClosedError extends Error {
   readonly code = 'agent_host_adapter_closed';
   constructor() {
     super('Agent host adapter services are closing.');
     this.name = 'AgentHostAdapterClosedError';
-  }
-}
-
-export class McpDiscoveryAdmissionError extends Error {
-  readonly code = 'mcp-discovery-admission-failed';
-  constructor() {
-    super('Configured MCP tools could not be admitted');
-    this.name = 'McpDiscoveryAdmissionError';
   }
 }
 
@@ -45,8 +45,6 @@ export interface McpHostCollector<Collection extends AgentHostMcpCollection> {
     readonly timeoutOverrideMs: undefined;
     readonly toolNameMap: Map<string, string>;
   }) => Promise<Collection>;
-  /** Publish through the owning host dispatcher, before admission returns. */
-  readonly onMcpDiscoverySkips: (skips: Collection['mcpDiscoverySkips']) => Promise<void>;
   readonly runtimeDependencies?: McpHostRuntimeDependencies;
 }
 
@@ -72,6 +70,20 @@ export interface McpHostServices {
   close(): Promise<McpHostCloseReport>;
   readonly mcp: HostMcpRuntime;
   readonly runtime: McpHostRuntime;
+}
+
+/**
+ * A run proceeds without each server whose discovery failed. A client-wide
+ * failure names every server it covered, with the one shared reason.
+ */
+function unavailableServers(
+  skips: readonly McpDiscoverySkip[]
+): readonly HostMcpUnavailableServer[] {
+  return skips.flatMap((skip) =>
+    skip.scope === 'server'
+      ? [{ reason: skip.reason, serverId: skip.serverName }]
+      : skip.serverNames.map((serverId) => ({ reason: skip.reason, serverId }))
+  );
 }
 
 /**
@@ -144,9 +156,14 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
       await runtime.setMcpExtensionPreferences(options.extensionPreferences);
       ensureOpen();
     }
-    configuration = runtime.replaceResolvedConfig(options.mcpConfiguration);
-    await configuration;
-    ensureOpen();
+    // Host readiness never waits for server startup: auth projection reads
+    // credentials, which can wait for work that starts only after the host is
+    // ready (the legacy credential import). Each run's discovery joins it.
+    const initial = runtime.replaceResolvedConfig(options.mcpConfiguration);
+    configuration = initial;
+    initial.catch((cause: unknown) => {
+      logger.error('Initial MCP configuration failed', { cause });
+    });
   } catch (cause) {
     try {
       await close();
@@ -175,6 +192,9 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
     const work = Promise.resolve()
       .then(async () => {
         ensureOpen();
+        // A failed initial configuration refuses each run with its own cause.
+        await configuration;
+        ensureOpen();
         const before = runtime.host.snapshot();
         const client = await createMcpRuntimeClient({
           config: undefined,
@@ -198,8 +218,6 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
           toolNameMap,
         });
         ensureOpen();
-        await options.onMcpDiscoverySkips(collected.mcpDiscoverySkips);
-        ensureOpen();
         const after = runtime.host.snapshot();
         const bindings: Record<string, HostMcpToolSelection['bindings'][string]> = {};
         for (const [name, source] of Object.entries(collected.tools)) {
@@ -215,7 +233,11 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
             toolTimeoutMs,
           });
         }
-        return Object.freeze({ bindings: Object.freeze(bindings), close: closeBorrow });
+        return Object.freeze({
+          bindings: Object.freeze(bindings),
+          close: closeBorrow,
+          unavailable: unavailableServers(collected.mcpDiscoverySkips),
+        });
       })
       .catch(async (cause: unknown) => {
         if (borrowedClient) {

@@ -5,6 +5,14 @@ import {
   type ThreadAssistantMessage,
   type ThreadMessage,
 } from '@assistant-ui/react';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  type AssistantRunEvent,
+} from '@brainstrike/assistant-contract';
+import {
+  type AssistantContextBreakdownState,
+  parseAssistantContextBreakdown,
+} from '@brainstrike/assistant-contract/context-breakdown';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
 import type { ThreadTokenUsage } from './context-usage-store';
 
@@ -41,9 +49,13 @@ export interface CommittedAssistantPendingInteraction {
 
 export interface CommittedAssistantLogView {
   readonly activeRunId: string | undefined;
+  /** Latest prepared provider prompt's composition, for the context popover. */
+  readonly contextBreakdown?: AssistantContextBreakdownState | undefined;
   /** Latest chat provider step, never aggregate billing or observer usage. */
   readonly contextUsage?: ThreadTokenUsage | undefined;
   readonly isRunning: boolean;
+  /** The latest run received no observational memory, and why. */
+  readonly observationWithheld?: 'branched-thread' | undefined;
   readonly pendingInteractions: readonly CommittedAssistantPendingInteraction[];
   readonly repository: ExportedMessageRepository;
 }
@@ -81,6 +93,30 @@ function requiredString(value: Readonly<Record<string, unknown>>, key: string): 
     throw new Error(`Committed host event is missing ${key}.`);
   }
   return field;
+}
+
+/**
+ * A committed `mcp.tools.unavailable` as the run timeline's always-visible
+ * notice. Its key is the committed row's address, never a new identity.
+ */
+function mcpToolsUnavailableNotice(
+  event: Readonly<Record<string, unknown>>,
+  row: CommittedAssistantLogRow,
+  runId: string,
+  timestamp: string
+): AssistantRunEvent {
+  const serverName = requiredString(event, 'serverId');
+  const reason = requiredString(event, 'reason');
+  return {
+    detail: `${serverName} skipped for this request — ${reason}`,
+    id: `run-event-${row.threadId}-${row.seq}`,
+    kind: 'mcp.tools.unavailable',
+    label: 'MCP server tools unavailable',
+    metadata: { reason, scope: 'server', serverName },
+    runId,
+    status: 'failed',
+    timestamp,
+  };
 }
 
 /** A committed user message's images, as sent-message attachments. */
@@ -403,8 +439,42 @@ export class CommittedAssistantLogProjection {
       ...this.view,
       activeRunId: runId,
       isRunning: true,
+      // A withheld reason belongs to the run that committed it.
+      observationWithheld: undefined,
       repository: { ...this.view.repository, headId: message.id },
     };
+  }
+
+  /**
+   * A host event with no message part of its own: a withheld memory reason
+   * becomes thread view state, anything else stays as host-event data.
+   */
+  private other(run: ProjectedRun, row: CommittedAssistantLogRow): void {
+    const event = row.event;
+    if (event['type'] === 'mcp.tools.unavailable') {
+      const notice = mcpToolsUnavailableNotice(
+        event,
+        row,
+        requiredString(event, 'runId'),
+        this.message(run).createdAt.toISOString()
+      );
+      this.data(run, row, notice, ASSISTANT_RUN_EVENT_DATA_NAME);
+      return;
+    }
+    if (event['type'] === 'provider.request.prepared' && event['breakdown'] !== undefined) {
+      this.view = {
+        ...this.view,
+        contextBreakdown: parseAssistantContextBreakdown(event['breakdown']),
+      };
+    }
+    if (event['type'] !== 'memory.observation.withheld') {
+      this.data(run, row, event, 'brainstrike.host-event');
+      return;
+    }
+    if (event['reason'] !== 'branched-thread') {
+      throw new Error('Committed withheld memory has an unsupported reason.');
+    }
+    this.view = { ...this.view, observationWithheld: event['reason'] };
   }
 
   private stream(run: ProjectedRun, row: CommittedAssistantLogRow): void {
@@ -636,7 +706,7 @@ export class CommittedAssistantLogProjection {
     } else if (event['type'] === 'run.finished') {
       this.finish(run, event);
     } else {
-      this.data(run, row, event, 'brainstrike.host-event');
+      this.other(run, row);
     }
   }
 }

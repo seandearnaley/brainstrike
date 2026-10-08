@@ -2,9 +2,9 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent';
+import { decodedWorkspaceTextModelOutputChars as decodedChars } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
 import { NativeQueryEmbeddingSpaceInputSchema } from '../../assistant-server/native-retrieval-schemas';
-import { decodedWorkspaceTextModelOutputChars as decodedChars } from '../../assistant-server/workspace-model-projection-helpers';
 import {
   projectHybridSearchModelOutput,
   projectQueryEmbeddingSpaceModelOutput,

@@ -227,7 +227,18 @@ test('real bin runs the explicit canonical model through production HTTP, commit
         capabilities: {
           configuredMcp: 'unavailable',
           nativeTools: {
-            available: ['brainstrike.askUser', 'brainstrike.submitPlan'],
+            available: [
+              'brainstrike.askUser',
+              'brainstrike.submitPlan',
+              'brainstrike.readWorkspaceFile',
+              'brainstrike.readWorkspaceDirectory',
+              'brainstrike.writeWorkspaceFile',
+              'brainstrike.stringReplaceWorkspaceFile',
+              'brainstrike.deleteWorkspaceFile',
+              'brainstrike.renameWorkspaceFile',
+              'brainstrike.manageTaskList',
+              'brainstrike.manageCanvas',
+            ],
             remaining: 'unavailable',
           },
           vectorMemory: 'unavailable',

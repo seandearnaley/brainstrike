@@ -161,6 +161,11 @@ function omNote(state: OmMeterState): { text: string; tone: 'muted' | 'error' } 
       return { text: 'No observations yet', tone: 'muted' };
     case 'error':
       return { text: 'Observations unavailable', tone: 'error' };
+    case 'withheld':
+      return {
+        text: 'Observations paused — this thread has branches, and its observations would mix them',
+        tone: 'muted',
+      };
     default:
       // 'loading' and 'stats' are handled by OmMeterSection, not as a note.
       return null;

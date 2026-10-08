@@ -41,9 +41,12 @@ vi.mock('../../agent-client-loader', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../agent-client-loader')>()),
   getAgentProviderEnvKeys: vi.fn(() => []),
 }));
-vi.mock('../../assistant-server/workspace-text-file-reader', () => ({
-  readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
-}));
+vi.mock(
+  '../../../../../packages/host-capabilities/src/native-tools/workspace-text-file-reader',
+  () => ({
+    readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
+  })
+);
 
 const runRequest = createRunRequest(handleAssistantRequest);
 const SERVER_ID = parseConfiguredMcpServerId('linear.production');

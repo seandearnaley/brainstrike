@@ -1,7 +1,11 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
-import { useAssistantRunNotifications } from '@brainstrike/app-shell';
+import { useAssistantRunNotifications, useBudgetGuardrailBinding } from '@brainstrike/app-shell';
 import { AssistantThreadHostContext } from '@brainstrike/app-shell/assistant-thread-host-context';
-import { CommittedAssistantConversation } from '@brainstrike/assistant-ui';
+import {
+  BudgetGuardrailProvider,
+  CommittedAssistantConversation,
+  EditCheckpointProvider,
+} from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
 import {
   type ReactElement,
@@ -10,7 +14,9 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
+import type { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import {
   type CommittedHostConversation,
   createCommittedHostConversation,
@@ -19,17 +25,36 @@ import { CommittedHostMcpInputView } from './committed-host-mcp-input-view';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
+import type { HostThreadLedger } from './host-thread-ledger';
 import type { HostThreadRuns } from './host-thread-runs';
 import { useDesktopHostPresentation } from './use-desktop-host-presentation';
 
+/** The existing checkpoint undo controls, fed from the thread's committed edits. */
+function CommittedCheckpoints({
+  checkpoints,
+  children,
+}: {
+  readonly checkpoints: CommittedHostCheckpoints;
+  readonly children: ReactNode;
+}): ReactElement {
+  const value = useSyncExternalStore(
+    checkpoints.subscribe,
+    checkpoints.getSnapshot,
+    checkpoints.getSnapshot
+  );
+  return <EditCheckpointProvider value={value}>{children}</EditCheckpointProvider>;
+}
+
 function HostThread({
   client,
+  ledger,
   onRunningChange,
   onTitleCommitted,
   runs,
   threadId,
 }: {
   readonly client: HostClient;
+  readonly ledger: HostThreadLedger;
   readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
   readonly onTitleCommitted: () => void;
   readonly runs: HostThreadRuns;
@@ -63,17 +88,28 @@ function HostThread({
       conversation ? runs.observe(threadId, conversation.source, onRunNotification) : undefined,
     [conversation, onRunNotification, runs, threadId]
   );
+  // Cost views and the daily cap count this view's committed provider calls.
+  useEffect(
+    () => (conversation ? ledger.observe(threadId, conversation.source) : undefined),
+    [conversation, ledger, threadId]
+  );
+  // The composer's last-24h budget burn-down and send gate, host usage included.
+  const budgetGuardrail = useBudgetGuardrailBinding();
   return conversation ? (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
-        <CommittedAssistantConversation
-          {...presentation}
-          commands={conversation.commands}
-          label="Assistant"
-          onRunningChange={onRunningChange}
-          store={conversation.store}
-          workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
-        />
+        <CommittedCheckpoints checkpoints={conversation.checkpoints}>
+          <BudgetGuardrailProvider value={budgetGuardrail}>
+            <CommittedAssistantConversation
+              {...presentation}
+              commands={conversation.commands}
+              label="Assistant"
+              onRunningChange={onRunningChange}
+              store={conversation.store}
+              workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
+            />
+          </BudgetGuardrailProvider>
+        </CommittedCheckpoints>
       </div>
       {/* Core-owned MCP input: the dialog portals; status and alerts sit under the conversation. */}
       <CommittedHostMcpInputView input={conversation.mcpInput} />
@@ -85,7 +121,7 @@ function HostThread({
 
 // One lazy client capability per actual renderer frame, independent of React replay.
 const windowThreadCapability = createWindowThreadCapability(
-  ({ catalogLoaded, host, onRunningChange, onTitleCommitted, runs, threadId }) => {
+  ({ catalogLoaded, host, ledger, onRunningChange, onTitleCommitted, runs, threadId }) => {
     // Persisted tabs render before catalog hydration. The observed legacy
     // Mastra initialization for these SQLite-owned IDs must not claim them.
     if (!(host || catalogLoaded)) {
@@ -94,6 +130,7 @@ const windowThreadCapability = createWindowThreadCapability(
     return host ? (
       <HostThread
         client={host}
+        ledger={ledger}
         onRunningChange={onRunningChange}
         onTitleCommitted={onTitleCommitted}
         runs={runs}

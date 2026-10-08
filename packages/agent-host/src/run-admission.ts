@@ -1,5 +1,5 @@
 import { resolvePermissionDecision } from '@brainstrike/assistant-contract';
-import type { StepResult, ToolSet } from 'ai';
+import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import type { HostRunState } from './core-state.js';
 import { canonical, jsonValue } from './json-value.js';
@@ -90,6 +90,15 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
         }
       : {}),
     configuration: immutableData(selected.configuration),
+    ...(selected.unavailableMcpServers
+      ? {
+          unavailableMcpServers: Object.freeze(
+            selected.unavailableMcpServers.map(({ reason, serverId }) =>
+              Object.freeze({ reason, serverId })
+            )
+          ),
+        }
+      : {}),
     ...(selected.provider
       ? { provider: Object.freeze({ prepare: selected.provider.prepare.bind(selected.provider) }) }
       : {}),
@@ -105,6 +114,19 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
       )
     ),
   });
+}
+
+/** The run proceeds without each unavailable MCP server; its log names each one. */
+export function hostMcpUnavailableEvents(
+  admission: HostRunAdmission,
+  runId: string
+): Extract<HostEvent, { type: 'mcp.tools.unavailable' }>[] {
+  return (admission.unavailableMcpServers ?? []).map(({ reason, serverId }) => ({
+    reason,
+    runId,
+    serverId,
+    type: 'mcp.tools.unavailable',
+  }));
 }
 
 /** A new run command's admission request; only a live client supplies an origin. */
@@ -374,4 +396,21 @@ export async function decideHostSdkApproval(
   }
   run.permits.set(call.toolCallId, action);
   return 'approved';
+}
+
+/** One model step and its answerable interactions, committed together by Core. */
+export function hostModelStepEvents(run: HostRunState, step: StepResult<ToolSet>): HostEvent[] {
+  return [
+    {
+      messages: step.response.messages.map((message) =>
+        jsonValue(modelMessageSchema.parse(message))
+      ),
+      model: jsonValue(step.model),
+      runId: run.id,
+      stepNumber: run.steps,
+      type: 'model.step',
+      usage: jsonValue(step.usage),
+    },
+    ...hostStepInteractions(run, step.content),
+  ];
 }
