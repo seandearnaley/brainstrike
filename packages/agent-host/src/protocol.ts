@@ -14,7 +14,8 @@ import { z } from 'zod';
 // in `thread/list`), withheld observational memory, tool catalog IDs on
 // committed tool events, image attachments on a user message (`run/start`
 // and `run.started`), committed workspace edit attribution,
-// `checkpoint/revert` and per-thread tool state.
+// `checkpoint/revert`, per-thread tool state, and the prompt breakdown on
+// `provider.request.prepared`.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -292,6 +293,15 @@ export const HostMcpInputRequestSchema = z.strictObject({
   taskId: Id.optional(),
   type: z.literal('mcp.input.requested'),
 });
+/** A prepared provider prompt's composition (the context popover's breakdown). */
+export const HostPromptBreakdownSchema = z.strictObject({
+  attachmentsCount: z.number().int().nonnegative(),
+  historyMessagesTokens: z.number().int().nonnegative(),
+  provenance: z.literal('heuristic'),
+  systemInstructionsTokens: z.number().int().nonnegative(),
+  toolDefinitionsProvenance: z.enum(['heuristic', 'measured']),
+  toolDefinitionsTokens: z.number().int().nonnegative(),
+});
 export const HostEventSchema = z.union([
   z.strictObject({
     binding: ThreadWorkspaceBindingSchema,
@@ -367,6 +377,8 @@ export const HostEventSchema = z.union([
     type: z.literal('provider.request.prepared'),
     ...RunFields,
     accounting: z.json(),
+    /** The prepared prompt's composition, for the context popover. */
+    breakdown: HostPromptBreakdownSchema.optional(),
     modelId: Id,
     provider: Id,
   }),
