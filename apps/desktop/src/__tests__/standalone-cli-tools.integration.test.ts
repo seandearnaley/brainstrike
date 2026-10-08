@@ -106,7 +106,10 @@ async function until(
   return latest;
 }
 
-test('the standalone CLI runs a native write and an MCP task, answering its input, with no Electron', async () => {
+// Several CLI processes and one host, each recording its module loads.
+test('the standalone CLI runs a native write and an MCP task, answering its input, with no Electron', {
+  timeout: 120_000,
+}, async () => {
   const dataRoot = await mkdtemp(join(tmpdir(), 'bs-m3-cli-tools-data-'));
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-cli-tools-ws-')));
   const moduleLog = join(dataRoot, 'module-loads.log');

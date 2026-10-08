@@ -1,3 +1,4 @@
+import type { PgliteMcpTaskRows } from '@brainstrike/db';
 import {
   MCP_STORE_METHODS,
   McpOAuthIdentitySchema,
@@ -13,6 +14,8 @@ import type { RemoteMcpRuntime } from '../mcp/remote-runtime';
 export interface DesktopMcpPlatformCapabilities {
   readonly oauth: McpOAuthStore;
   openExternal(url: string): Promise<void>;
+  /** Main's PGlite Tasks rows, read once for the host's import (`readPgliteMcpTaskRows`). */
+  readLegacyTasks(): Promise<PgliteMcpTaskRows>;
   readonly runtime: RemoteMcpRuntime;
 }
 
@@ -31,7 +34,8 @@ function tokenSignal(token: CancellationToken): AbortSignal {
  * Serve the Node MCP runtime's store adapters and bind Main's runtime proxy to
  * this host connection. Each adapter is removed when its store moves to Node:
  * OAuth records with the shared credential store, config with host-owned
- * config; the opener stays a narrow adapter. The host owns the Tasks tables.
+ * config; the opener stays a narrow adapter. The host owns the Tasks tables
+ * and reads Main's legacy PGlite rows once to import them.
  */
 export function serveMainMcpStores(
   connection: MessageConnection,
@@ -51,6 +55,12 @@ export function serveMainMcpStores(
     ),
     connection.onRequest(MCP_STORE_METHODS.openExternal, (input: unknown) =>
       respond(() => capabilities.openExternal(z.strictObject({ url: z.url() }).parse(input).url))
+    ),
+    connection.onRequest(MCP_STORE_METHODS.tasksLegacy, (input: unknown) =>
+      respond(() => {
+        z.strictObject({}).parse(input);
+        return capabilities.readLegacyTasks();
+      })
     ),
     connection.onRequest(MCP_STORE_METHODS.oauthRead, (input: unknown, token: CancellationToken) =>
       respond(() =>
