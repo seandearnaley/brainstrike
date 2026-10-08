@@ -40,11 +40,6 @@
       "import": "./dist/http.mjs",
       "require": "./dist/http.js"
     },
-    "./local-provider-runtime": {
-      "types": "./dist/local-provider-runtime.d.ts",
-      "import": "./dist/local-provider-runtime.mjs",
-      "require": "./dist/local-provider-runtime.js"
-    },
     "./mcp-content-application-port": {
       "types": "./dist/mcp-content-application-port.d.ts",
       "import": "./dist/mcp-content-application-port.mjs",
@@ -80,11 +75,6 @@
       "import": "./dist/request.mjs",
       "require": "./dist/request.js"
     },
-    "./run-turn": {
-      "types": "./dist/run-turn.d.ts",
-      "import": "./dist/run-turn.mjs",
-      "require": "./dist/run-turn.js"
-    },
     "./secret-errors": {
       "types": "./dist/secret-errors.d.ts",
       "import": "./dist/secret-errors.mjs",
@@ -94,11 +84,6 @@
       "types": "./dist/steering.d.ts",
       "import": "./dist/steering.mjs",
       "require": "./dist/steering.js"
-    },
-    "./stream-init": {
-      "types": "./dist/stream-init.d.ts",
-      "import": "./dist/stream-init.mjs",
-      "require": "./dist/stream-init.js"
     },
     "./types": {
       "types": "./dist/types.d.ts",

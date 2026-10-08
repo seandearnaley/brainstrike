@@ -101,12 +101,7 @@ export type NativeToolExecutorMap = {
   readonly [Tool in DesktopNativeTool as Tool['id']]: NativeToolExecutor;
 };
 
-/**
- * True when the request targets the built-in on-device provider. Mirrors
- * `isLocalChatProvider` in @brainstrike/assistant-service/local-provider-runtime (kept separate: that module
- * pulls in Electron IPC imports this file must stay free of for its own
- * unit-test surface).
- */
+/** True when the request targets the built-in on-device provider. */
 export function isLocalProviderRuntime(runtimeData: RuntimeData | undefined): boolean {
   const provider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
   return provider.toLowerCase() === 'local';

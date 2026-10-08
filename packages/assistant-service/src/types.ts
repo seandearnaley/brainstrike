@@ -10,22 +10,8 @@ import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire
 
 export type AssistantUiMessage = AssistantUiMessageStrict;
 
-export type AssistantRoute =
-  | 'status'
-  | 'active-run'
-  | 'assistant'
-  | 'cancel'
-  | 'cancel-child'
-  | 'child-input'
-  | 'decide'
-  | 'openrouter-model'
-  | 'resume'
-  | 'refresh-agent-colors'
-  | 'run-status'
-  | 'steer'
-  | 'suspended-runs'
-  | 'verify-provider'
-  | 'not-found';
+/** The desktop Main HTTP routes that remain; runs and run control belong to the host. */
+export type AssistantRoute = 'status' | 'openrouter-model' | 'verify-provider' | 'not-found';
 export interface AssistantRequestPayload {
   assistantMessageId?: string;
   childFollowupAction?: AssistantChildFollowupAction;
@@ -67,3 +53,12 @@ export interface AgentStreamFailure {
 }
 export type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 export type DesktopMemoryFeature = 'observational_memory' | 'semantic_recall';
+
+/**
+ * A workspace text-file reader with the same containment/size/binary guards as
+ * the read tools (implemented host-side; context injectors only route it).
+ */
+export type WorkspaceFileReader = (args: {
+  rootPath: string;
+  requestedPath: string;
+}) => Promise<{ content: string; path: string; size: number }>;

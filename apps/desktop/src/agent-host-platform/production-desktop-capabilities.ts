@@ -35,7 +35,7 @@ import {
 import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-repository';
-import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
+import type { WorkspaceFileReader } from '@brainstrike/assistant-service/types';
 import { z } from 'zod';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
 import {

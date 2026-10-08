@@ -15,11 +15,15 @@ import {
   createEmbeddingProvider,
   createLanguageModelProvider,
   createLocalHostEmbeddingModel,
+  type DelegatedConversationBinding,
   type RuntimeAssistantMemorySettings,
   type RuntimeData,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import type { BackgroundTaskOwnership } from '@brainstrike/agent/pglite-mastra-memory';
+import type {
+  BackgroundTaskOwnership,
+  PgliteMastraMemoryResult,
+} from '@brainstrike/agent/pglite-mastra-memory';
 import {
   parseRuntimeSubagentSettings,
   resolveChildTaskTimeoutMs,
@@ -48,8 +52,10 @@ import { resolveProviderApiKey } from './provider-credentials';
 import { createRunCriticalDatabase } from './run-critical-database';
 import type { TurnBoundarySnapshotDeps } from './snapshot-turn-boundaries';
 
-export type DesktopMastraMemoryResult =
-  import('@brainstrike/assistant-service/stream-init').AgentStreamMemoryResult;
+/** The Mastra memory/storage pair for a delegated run. */
+export type DesktopMastraMemoryResult = PgliteMastraMemoryResult & {
+  readonly conversationBinding?: DelegatedConversationBinding;
+};
 type DesktopMastraMemoryPromise = Promise<DesktopMastraMemoryResult>;
 
 const DESKTOP_MEMORY_CACHE_LIMIT = 16;
