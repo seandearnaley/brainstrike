@@ -807,7 +807,7 @@ export async function measurePublication(
     deferredTasks: tasks.length,
     end,
     publishSyncMs: publishEnd - start,
-    reactMs: publishEnd - start + sum('react-scheduler') + sum('assistant-ui/tap'),
+    reactMs: publishEnd - start + sum('react-scheduler') + sum('assistant-ui/tap') + sum('other'),
     rendersByOwner,
     start,
   };
