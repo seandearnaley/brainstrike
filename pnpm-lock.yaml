@@ -1286,6 +1286,12 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/assistant-data':
+        specifier: workspace:*
+        version: link:../assistant-data
+      '@brainstrike/assistant-service':
+        specifier: workspace:*
+        version: link:../assistant-service
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit
@@ -1298,6 +1304,9 @@ importers:
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
+      '@brainstrike/secure-fs-native':
+        specifier: workspace:*
+        version: link:../secure-fs-native
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../state-store

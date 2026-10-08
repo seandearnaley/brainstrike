@@ -35,6 +35,22 @@ the named peers. Doing it from M3 costs about two to three more weeks.
   when the desktop indexer already built them for that root and a query embedder is
   available.
 
+### Standalone model and credential selection
+
+The M3 owner approved explicit stateless `--model` selection against the existing
+canonical model registry for a newly started headless host on 8 October 2026.
+Core captures the immutable run intent in its existing log. This client policy
+does not infer Desktop Main's persisted enabled-model setting or create another
+settings writer. An attached CLI retains the existing host's admission authority;
+unsupported selections refuse without substitution.
+
+An explicit credential backend selection travels only through trusted process
+startup arguments to the platform factory. The keyring service or absolute file
+path must be supplied explicitly; no namespace or fallback is inferred. Both
+shells reuse the same serialized credential facade and private native file
+implementation, retaining their existing account names and file shape. Selection
+does not store credential values in the host record or run intent.
+
 ### Persisted MCP authority and explicit host shutdown
 
 Sean approved the persisted-authority proposal on 7 October 2026 after the real

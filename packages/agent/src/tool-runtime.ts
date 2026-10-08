@@ -2,6 +2,7 @@
 
 export { formatSkillsCatalog } from '@mastra/core/processors';
 export { DEFAULT_AGENT_MAX_STEPS } from './agent-loop-defaults';
+export { resolveAssistantResilienceConfig } from './config/resilience-config';
 export {
   buildContextBudgetNote,
   buildCurrentDateNote,

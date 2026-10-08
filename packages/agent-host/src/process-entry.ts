@@ -14,13 +14,18 @@ import {
   RootLockedError,
 } from '@brainstrike/state-store';
 import { z } from 'zod';
+import {
+  type HostPlatformLaunchOptions,
+  HostPlatformLaunchOptionsSchema,
+} from './platform-launch-options.js';
 import type { HostPlatform } from './ports.js';
 import { isProcessEntrypoint } from './process-entrypoint.js';
 import { type AgentHost, type HostStartupContext, startAgentHost } from './runtime.js';
 
 export type HostPlatformFactory = (
   options: HostStartOptions,
-  context: HostStartupContext
+  context: HostStartupContext,
+  platformOptions?: HostPlatformLaunchOptions
 ) => HostPlatform | Promise<HostPlatform>;
 
 /** Launcher control only; client commands still use the authenticated JSON-RPC schema. */
@@ -56,14 +61,15 @@ const Platform = z.custom<HostPlatform>((value: unknown) => {
 export async function loadHostPlatform(
   modulePath: string,
   options: HostStartOptions,
-  context: HostStartupContext
+  context: HostStartupContext,
+  platformOptions?: HostPlatformLaunchOptions
 ): Promise<HostPlatform> {
   const module: unknown = await import(pathToFileURL(resolve(modulePath)).href);
   if (!(module && typeof module === 'object' && 'createHostPlatform' in module)) {
     throw new Error('Configured host module must export createHostPlatform');
   }
   const factory = Factory.parse(module.createHostPlatform);
-  return Platform.parse(await factory(options, context));
+  return Platform.parse(await factory(options, context, platformOptions));
 }
 
 async function report(message: StartupMessage): Promise<void> {
@@ -160,16 +166,25 @@ export async function runAgentHostProcess(
     if (!modulePath) {
       throw new Error('A configured host platform module is required');
     }
-    if (args[2] !== undefined && args[2] !== 'stdio') {
+    const stdio = args[2] === 'stdio';
+    const privateArgs = args.slice(stdio ? 3 : 2);
+    if (
+      privateArgs.length > 0 &&
+      !(privateArgs.length === 2 && privateArgs[0] === '--platform-options')
+    ) {
       throw new Error('Unknown host transport');
     }
+    const platformOptions =
+      privateArgs.length === 0
+        ? undefined
+        : HostPlatformLaunchOptionsSchema.parse(JSON.parse(privateArgs[1] ?? 'null'));
     host = await startAgentHost(
       options,
-      (context) => loadHostPlatform(modulePath, options, context),
+      (context) => loadHostPlatform(modulePath, options, context, platformOptions),
       controller.signal
     );
     const acquired = host;
-    if (args[2] === 'stdio') {
+    if (stdio) {
       bridge = new Socket();
       const socket = bridge;
       socket.on('error', stop);

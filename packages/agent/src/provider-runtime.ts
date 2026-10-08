@@ -12,6 +12,7 @@ export {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
 } from './mastra/runtime-configuration';
+export { createAwsCredentialChain } from './providers/aws-credential-chain';
 export type { LocalLlmHostClient } from './providers/local/llm-host-client';
 export {
   apiKeyAuthInput,

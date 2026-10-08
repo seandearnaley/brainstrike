@@ -38,6 +38,10 @@
     "./assistant-memory-repository": {
       "types": "./dist/assistant-memory-repository.d.ts",
       "import": "./dist/assistant-memory-repository.js"
+    },
+    "./assistant-memory-resource": {
+      "types": "./dist/assistant-memory-resource.d.ts",
+      "import": "./dist/assistant-memory-resource.js"
     }
   },
   "files": [

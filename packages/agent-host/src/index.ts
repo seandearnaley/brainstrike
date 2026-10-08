@@ -39,6 +39,10 @@ export {
   McpAuthorityReconstructionError,
 } from './mcp-authority.js';
 export { materializeHostProviderModel } from './model-router-sdk.js';
+export {
+  type HostPlatformLaunchOptions,
+  HostPlatformLaunchOptionsSchema,
+} from './platform-launch-options.js';
 export * from './ports.js';
 export {
   type HostPlatformFactory,
