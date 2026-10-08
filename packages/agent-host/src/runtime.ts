@@ -108,6 +108,9 @@ export async function startAgentHost(
       : {};
   const ownedPlatform: HostPlatform = {
     close: closePlatform,
+    get delegation(): HostPlatform['delegation'] {
+      return currentPlatform().delegation;
+    },
     get generatesThreadTitles(): boolean | undefined {
       return currentPlatform().generatesThreadTitles;
     },

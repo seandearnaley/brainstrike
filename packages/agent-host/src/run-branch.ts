@@ -14,6 +14,7 @@ import {
   validateImageAttachmentPart,
 } from '@brainstrike/assistant-contract/assistant-attachments';
 import { type ModelMessage, modelMessageSchema } from 'ai';
+import { overlayHostChildOutcomes } from './child-delivery.js';
 import {
   createHostRunState,
   foldHostRunMessages,
@@ -23,6 +24,7 @@ import {
 } from './core-state.js';
 import {
   HOST_RESULT_SCHEMAS,
+  type HostChildDelivery,
   type HostEvent,
   type HostImageAttachment,
   type HostParams,
@@ -32,7 +34,11 @@ import { assertHostRunStartAvailable } from './run-admission.js';
 
 type Started = Extract<HostEvent, { type: 'run.started' }>;
 
-/** The run/start or run/regenerate command whose acceptance admitted a run. */
+/**
+ * The run/start or run/regenerate command whose acceptance admitted a run, or
+ * (BST-1932) the delegation that created a child thread, identified by the
+ * child threadId: its task is that thread's first user message.
+ */
 export interface HostRunAdmissionCommand {
   readonly commandId: string;
   readonly method: string;
@@ -53,6 +59,7 @@ export function foldHostRunBranch(
   admission: HostRunAdmissionCommand
 ): HostRunBranch {
   const prior = [...runs].filter((run) => run.threadId === threadId);
+  const delivery = event.delivery ? { delivery: event.delivery } : {};
   if (event.userMessageId !== undefined) {
     const original = prior.find((run) => run.branch.userMessageId === event.userMessageId);
     if (admission.method !== 'run/regenerate' || !original) {
@@ -61,7 +68,17 @@ export function foldHostRunBranch(
     if (original.branch.prompt !== event.prompt) {
       throw new Error('Regenerated run does not repeat its committed user message');
     }
-    return original.branch;
+    return { ...original.branch, ...delivery };
+  }
+  if (admission.method === 'wake') {
+    return wakeHostRunBranch(prior, event, admission);
+  }
+  if (admission.method === 'delegation') {
+    // BST-1932: a child thread's first run answers its delegation task.
+    if (event.parentMessageId !== null || prior.length > 0) {
+      throw new Error('A delegated child run must start its child thread');
+    }
+    return { parentMessageId: null, prompt: event.prompt, userMessageId: admission.commandId };
   }
   if (admission.method !== 'run/start') {
     throw new Error('A new user message requires its committed run/start command');
@@ -73,7 +90,28 @@ export function foldHostRunBranch(
   }
   return {
     ...(event.attachments ? { attachments: event.attachments } : {}),
+    ...delivery,
     parentMessageId,
+    prompt: event.prompt,
+    userMessageId: admission.commandId,
+  };
+}
+
+/** BST-1932: an automated wake follows the committed tip it was admitted after. */
+function wakeHostRunBranch(
+  prior: readonly HostRunState[],
+  event: Started,
+  admission: HostRunAdmissionCommand
+): HostRunBranch {
+  if (event.delivery?.via !== 'wake' || !event.parentMessageId) {
+    throw new Error('A wake run must deliver child results after a committed run');
+  }
+  if (!prior.some((run) => run.id === event.parentMessageId)) {
+    throw new Error('Committed branch parent is not an earlier run of this thread');
+  }
+  return {
+    delivery: event.delivery,
+    parentMessageId: event.parentMessageId,
     prompt: event.prompt,
     userMessageId: admission.commandId,
   };
@@ -119,9 +157,15 @@ export function hostRunContext(
   runs: ReadonlyMap<string, HostRunState>,
   run: HostRunState
 ): ModelMessage[] {
-  return [...hostRunAncestors(runs, run), run].flatMap((turn) => [
+  const path = [...hostRunAncestors(runs, run), run];
+  // BST-1932: delivered child outcomes replace their acknowledgements from then on.
+  const delivered = path.flatMap((turn) => turn.branch.delivery?.entries ?? []);
+  return path.flatMap((turn) => [
+    ...(turn.branch.delivery?.via === 'next-turn'
+      ? [{ content: turn.branch.delivery.ledger, role: 'user' } satisfies ModelMessage]
+      : []),
     hostUserMessage(turn.branch),
-    ...turn.messages,
+    ...overlayHostChildOutcomes(turn.id, turn.messages, delivered),
   ]);
 }
 
@@ -213,6 +257,7 @@ export function foldHostConversationMessages(
 /** Where a new run's user message goes. */
 export type HostRunPosition = {
   readonly attachments?: HostImageAttachment[];
+  readonly delivery?: HostChildDelivery;
   readonly prompt: string;
 } & ({ readonly parentMessageId: string | null } | { readonly userMessageId: string });
 
@@ -285,21 +330,41 @@ export function foldHostRunAdmission(
   admitted.set(runId, { commandId: event.commandId, method: event.method });
 }
 
+/** The admission of a child thread's first run: its delegation, keyed by the child threadId. */
+export function delegatedHostRunAdmission(threadId: string): HostRunAdmissionCommand {
+  return { commandId: threadId, method: 'delegation' };
+}
+
 /** Folds a committed run.started into `runs`, consuming its admission command. */
 export function foldHostStartedRun(
   admitted: Map<string, HostRunAdmissionCommand>,
   conversationIds: Set<string>,
   runs: Map<string, HostRunState>,
   threadId: string,
-  event: Started
-): void {
+  event: Started,
+  isChildThread: (threadId: string) => boolean
+): HostRunState {
   recordHostConversationId(conversationIds, event.runId);
-  const admission = admitted.get(event.runId);
+  let admission = admitted.get(event.runId);
+  if (
+    !admission &&
+    isChildThread(threadId) &&
+    ![...runs.values()].some((run) => run.threadId === threadId)
+  ) {
+    admission = delegatedHostRunAdmission(threadId);
+    recordHostConversationId(conversationIds, threadId);
+  }
+  if (!admission && event.delivery?.via === 'wake') {
+    admission = { commandId: event.delivery.messageId, method: 'wake' };
+    recordHostConversationId(conversationIds, event.delivery.messageId);
+  }
   if (!admission) {
     throw new Error('Committed run start has no committed admission command');
   }
   admitted.delete(event.runId);
-  runs.set(event.runId, startedHostRun(runs.values(), threadId, event, admission, event.snapshot));
+  const run = startedHostRun(runs.values(), threadId, event, admission, event.snapshot);
+  runs.set(event.runId, run);
+  return run;
 }
 
 /** A new run needs its thread, no active run there, and an unused command identity. */
