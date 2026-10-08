@@ -19,6 +19,12 @@ import type {
   StateMessageQuery,
   StateMessageUpsert,
   StateMessageUpsertResult,
+  StateObservationHit,
+  StateObservationPlan,
+  StateObservationPrepare,
+  StateObservationPurge,
+  StateObservationQuery,
+  StateObservationUpsert,
   StateProjectionStats,
 } from './contracts.js';
 import type { CoverageAuthorityPort } from './coverage-authority.js';
@@ -68,6 +74,15 @@ export type {
   StateMessageScope,
   StateMessageUpsert,
   StateMessageUpsertResult,
+  StateObservationGroup,
+  StateObservationHit,
+  StateObservationPlan,
+  StateObservationPrepare,
+  StateObservationPurge,
+  StateObservationQuery,
+  StateObservationScope,
+  StateObservationSource,
+  StateObservationUpsert,
   StateProjectionOptions,
   StateProjectionStats,
   TextFileCommit,
@@ -119,6 +134,15 @@ export interface StateMessageVectorPort {
   queryStateMessageVectors(request: StateMessageQuery): Promise<readonly StateMessageHit[]>;
   upsertStateMessageVectors(request: StateMessageUpsert): Promise<StateMessageUpsertResult>;
 }
+/** Borrowed native OM route, sharing the existing writer and lifecycle fence. */
+export interface StateObservationVectorPort {
+  prepareStateObservationVectors(request: StateObservationPrepare): Promise<StateObservationPlan>;
+  purgeStateObservationVectors(request: StateObservationPurge): Promise<boolean>;
+  queryStateObservationVectors(
+    request: StateObservationQuery
+  ): Promise<readonly StateObservationHit[]>;
+  upsertStateObservationVectors(request: StateObservationUpsert): Promise<readonly string[]>;
+}
 export interface StateIndexerPort {
   catchUpState(threads: readonly string[]): Promise<void>;
   dropStateThread(threadId: string): Promise<readonly string[]>;
@@ -162,6 +186,7 @@ export async function openIndexer(
     ScopedIndexerPort &
     StateIndexerPort &
     StateMessageVectorPort &
+    StateObservationVectorPort &
     CoverageAuthorityPort
 > {
   if (process.versions['electron']) {

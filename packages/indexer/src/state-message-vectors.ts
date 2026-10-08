@@ -40,7 +40,7 @@ const rowSchema = Schema.Struct({
 const columns =
   'pk,thread_id AS threadId,message_id AS messageId,seq,segment_ordinal AS segmentOrdinal,source_hash AS sourceHash,dimensions,emb';
 
-function profileHash(profile: VectorProfile): string {
+export function profileHash(profile: VectorProfile): string {
   if (
     profile.distance !== 'cosine' ||
     ('provider' in profile &&
@@ -54,7 +54,7 @@ function profileHash(profile: VectorProfile): string {
   }
   return vectorProfileHash(profile);
 }
-function vectorBytes(vector: readonly number[], dimensions: number): Buffer {
+export function vectorBytes(vector: readonly number[], dimensions: number): Buffer {
   if (vector.length !== dimensions) {
     throw new TypeError('Message vector dimensions disagree with the complete profile.');
   }
@@ -126,7 +126,7 @@ export class StateMessageVectors {
     }
   }
 
-  private grant(scope: Pick<StateMessageScope, 'rootId' | 'resourceId'>): void {
+  grant(scope: Pick<StateMessageScope, 'rootId' | 'resourceId'>): void {
     authorize(new Set(this.options.rootIds), [scope.rootId]);
     if (
       !this.options.stateResources?.some(
@@ -139,7 +139,7 @@ export class StateMessageVectors {
       );
     }
   }
-  private selectedProfile(scope: StateMessageScope, profile: VectorProfile): void {
+  selectedProfile(scope: StateMessageScope, profile: VectorProfile): void {
     this.grant(scope);
     const grant = this.options.stateResources?.find(
       (current) => current.resourceId === scope.resourceId && current.rootId === scope.rootId
@@ -151,7 +151,7 @@ export class StateMessageVectors {
       );
     }
   }
-  private members(scope: StateMessageScope): readonly string[] {
+  members(scope: StateMessageScope): readonly string[] {
     this.grant(scope);
     const threads = this.truth.memoryThreads(scope.resourceId).map((binding) => binding.threadId);
     if (!threads.includes(scope.threadId)) {
@@ -209,7 +209,7 @@ export class StateMessageVectors {
     return { messages, raws };
   }
 
-  private generation(): number {
+  generation(): number {
     return decoder(
       Schema.Int.check(
         Schema.isGreaterThanOrEqualTo(0),
@@ -234,7 +234,7 @@ export class StateMessageVectors {
   beginOwnerGeneration(): void {
     this.advance(false);
   }
-  private advance(cleanup = true): void {
+  advance(cleanup = true): void {
     const generation = this.generation();
     if (generation === Number.MAX_SAFE_INTEGER) {
       throw new IndexerError('rebuild-required', 'Message vector generation exhausted.');
@@ -245,7 +245,7 @@ export class StateMessageVectors {
       )
       .run(generation + 1, cleanup ? 1 : 0);
   }
-  private assertReady(): void {
+  assertReady(): void {
     if (
       this.db
         .prepare('SELECT pending_cleanup FROM state_message_generation WHERE singleton=1')
