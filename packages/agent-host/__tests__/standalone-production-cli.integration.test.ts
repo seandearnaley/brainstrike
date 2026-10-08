@@ -227,7 +227,10 @@ test('real bin runs the explicit canonical model through production HTTP, commit
       configuration: {
         capabilities: {
           configuredMcp: 'unavailable',
-          nativeTools: 'unavailable',
+          nativeTools: {
+            available: ['brainstrike.askUser', 'brainstrike.submitPlan'],
+            remaining: 'unavailable',
+          },
           vectorMemory: 'unavailable',
         },
         intent: {
@@ -235,7 +238,10 @@ test('real bin runs the explicit canonical model through production HTTP, commit
           modelConfiguration: { model: 'gpt-6-sol', provider: 'openai' },
         },
       },
-      toolIdentities: {},
+      toolIdentities: {
+        brainstrike_askUser: 'brainstrike.askUser',
+        brainstrike_submitPlan: 'brainstrike.submitPlan',
+      },
     },
   });
   expect(rows).toContainEqual(

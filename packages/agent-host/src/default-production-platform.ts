@@ -40,18 +40,19 @@ import {
   type ProductionHostRunConfiguration,
 } from './production-platform.js';
 import type { HostStartupContext } from './runtime.js';
+import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.js';
 
 const capabilities = {
   browserOAuth: 'unavailable',
   configuredMcp: 'unavailable',
   localInference: 'unavailable',
   mcpAppUi: 'text',
-  nativeTools: 'unavailable',
+  nativeTools: { available: [...STANDALONE_HUMAN_TOOL_IDS], remaining: 'unavailable' },
   skills: 'unavailable',
   tasks: 'unavailable',
   vectorMemory: 'unavailable',
   workspaceInstructions: 'unavailable',
-} as const;
+};
 
 function selection(modelId: string) {
   const separator = modelId.indexOf('::');
@@ -161,7 +162,7 @@ export function createHostPlatform(
       // from Main's saved enabled-model preference. Existing hosts keep their owner.
       const intent = z.record(z.string(), z.json()).parse({
         agentLoop: { inputTokenLimit, maxSteps: DEFAULT_AGENT_MAX_STEPS },
-        enabledNativeToolIds: [],
+        enabledNativeToolIds: STANDALONE_HUMAN_TOOL_IDS,
         memoryOptions: {
           lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
           workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
@@ -184,6 +185,10 @@ export function createHostPlatform(
           'Captured run intent requires capabilities unavailable on this standalone host'
         );
       }
+      const resolvedToolResultBudget = resolveScaledToolResultBudget(
+        catalog.definition.contextWindow
+      );
+      const bindings = createStandaloneHumanTools(resolvedToolResultBudget);
       return {
         configuration,
         durableConfiguration: { capabilities, intent },
@@ -206,10 +211,10 @@ export function createHostPlatform(
           provider: catalog.provider,
           runtimeData: configuration,
         },
-        resolvedToolResultBudget: resolveScaledToolResultBudget(catalog.definition.contextWindow),
+        resolvedToolResultBudget,
         system:
-          'This standalone host has no native tools, configured MCP/Tasks, Skills/workspace instructions, browser OAuth, local inference or vector Memory capabilities. Use an existing desktop host for those capabilities.',
-        tools: {},
+          'This standalone host supports the canonical askUser and submitPlan native tools. Other native tools, configured MCP/Tasks, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.',
+        tools: bindings.tools,
         toolTimeoutMs: resolveAssistantResilienceConfig().toolTimeoutMs,
       };
     },

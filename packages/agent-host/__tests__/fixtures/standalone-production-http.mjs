@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { isMainThread, threadId } from 'node:worker_threads';
 
@@ -21,7 +21,7 @@ record('process-start', {
 process.once('exit', (code) => record('process-exit', { code }));
 const keyringFixtureUrl = `data:text/javascript,${encodeURIComponent(`
 import assert from 'node:assert/strict';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { isMainThread, threadId } from 'node:worker_threads';
 function record(phase, fields) {
   appendFileSync(process.env.BRAINSTRIKE_M3_STANDALONE_RECEIPT,
@@ -94,7 +94,7 @@ globalThis.fetch = async (input, init) => {
     usage: { input_tokens: 42, output_tokens: 9, total_tokens: 51 },
   };
   const position = { content_index: 0, item_id: itemId, output_index: 0 };
-  const frames = [
+  let frames = [
     { response: { ...response, output: [], status: 'in_progress' }, type: 'response.created' },
     {
       item: { ...item, content: [], status: 'in_progress' },
@@ -108,6 +108,60 @@ globalThis.fetch = async (input, init) => {
     { item, output_index: 0, type: 'response.output_item.done' },
     { response, type: 'response.completed' },
   ];
+  const mode = process.env.BRAINSTRIKE_M3_STANDALONE_HTTP;
+  if (mode === 'question' || mode === 'plan') {
+    const committed = JSON.parse(
+      readFileSync(
+        new URL(
+          `../../../../apps/desktop/src/__tests__/fixtures/committed-host-${mode}.json`,
+          import.meta.url
+        ),
+        'utf8'
+      )
+    );
+    const request = committed.find(({ event }) => event.type === 'interaction.requested')?.event;
+    assert.equal(request?.kind, mode);
+    const name = request.toolId;
+    assert.ok(body.tools.some((tool) => tool.type === 'function' && tool.name === name));
+    const results = body.input.filter((item) => item.type === 'function_call_output');
+    if (results.length === 0) {
+      const args = JSON.stringify(request.input);
+      const call = {
+        arguments: args,
+        call_id: 'call_standalone_human_1',
+        id: 'fc_standalone_human_1',
+        name,
+        status: 'completed',
+        type: 'function_call',
+      };
+      const completed = { ...response, output: [call] };
+      frames = [
+        { response: { ...completed, output: [], status: 'in_progress' }, type: 'response.created' },
+        {
+          item: { ...call, arguments: '', status: 'in_progress' },
+          output_index: 0,
+          type: 'response.output_item.added',
+        },
+        {
+          delta: args,
+          item_id: call.id,
+          output_index: 0,
+          type: 'response.function_call_arguments.delta',
+        },
+        {
+          arguments: args,
+          item_id: call.id,
+          output_index: 0,
+          type: 'response.function_call_arguments.done',
+        },
+        { item: call, output_index: 0, type: 'response.output_item.done' },
+        { response: completed, type: 'response.completed' },
+      ];
+    } else {
+      assert.equal(results.length, 1);
+      assert.equal(results[0].call_id, 'call_standalone_human_1');
+    }
+  }
   const encoder = new TextEncoder();
   const held = process.env.BRAINSTRIKE_M3_STANDALONE_HTTP === 'hold';
   let abort;
