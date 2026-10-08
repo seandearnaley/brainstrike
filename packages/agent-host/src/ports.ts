@@ -194,11 +194,22 @@ export interface HostRunHooks {
   }): Promise<HostPreToolUseVerdict>;
 }
 
+/**
+ * Hosted tool discovery (the legacy Mastra catalog search): a deferred tool
+ * stays off the model's surface until the run commits a `load_tool` for it.
+ */
+export interface HostToolDiscovery {
+  /** The tools the run's next step offers: eager, discovery and loaded, from its committed steps. */
+  activeTools(run: { readonly runId: string; readonly threadId: string }): Promise<string[]>;
+}
+
 /** One immutable selection retained across approval legs, never re-read from Settings. */
 export interface HostRunAdmission {
   /** Join resources selected before the run is committed, including failed admission. */
   close?(): Promise<void>;
   readonly configuration: Readonly<RuntimeData>;
+  /** Present when the run defers tools behind discovery; its tools include the discovery tools. */
+  readonly discovery?: HostToolDiscovery | undefined;
   /** Title an untitled thread's first completed run through this run's model. */
   readonly generatesThreadTitle?: boolean;
   /** Present only when the composition loaded at least one hook for this run. */
