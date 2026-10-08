@@ -4,6 +4,7 @@
  * Credentials remain direct parameters, outside durable runtime configuration.
  */
 
+export { resolveProviderError } from './mastra/mastra-chunk-decoding';
 export {
   type BilledCostReading,
   readOpenRouterBilledCost,
@@ -25,4 +26,9 @@ export {
   type ProviderModelConfiguration,
 } from './providers/provider-factory';
 export type { SupportedProvider } from './providers/types';
+export {
+  describeEmptyModelResponse,
+  getAbnormalFinishMessage,
+  outputLimitContextFor,
+} from './stream/abnormal-finish';
 export type { RuntimeData } from './types';

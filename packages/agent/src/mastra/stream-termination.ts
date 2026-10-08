@@ -23,6 +23,7 @@ import {
   providerRunErrorToEventMetadata,
 } from '../provider-error-metadata';
 import type { AssistantRunEventMetadata } from '../run-events';
+import { describeEmptyModelResponse } from '../stream/abnormal-finish';
 import { StreamStalledError } from '../stream/with-inactivity-timeout';
 import { ToolCallInputStreamingTimeoutError } from '../stream/with-tool-call-input-timeout';
 import type { RuntimeData, StreamChunk } from '../types';
@@ -363,10 +364,7 @@ function makeEmptyModelResponseTermination(
     { code: 'mastra_agent_empty_model_response', ...diagnosticContext },
     'mastra stream finished without any model output'
   );
-  const visibleMessage =
-    `The model${model ? ` "${model}"` : ''} returned an empty response — no text, reasoning, ` +
-    `or tool calls (finish reason "${error.finishReason}"). The provider route may be ` +
-    'degraded; retry, or switch models.';
+  const visibleMessage = describeEmptyModelResponse(model, error.finishReason);
   return [
     ...makeCancelledDelegationRunEventChunks(lifecycleState),
     ...makePendingToolOutputRunEventChunks(lifecycleState),

@@ -22,6 +22,7 @@ import {
 } from './run-admission.js';
 import { hostRunAncestors, hostRunContext } from './run-branch.js';
 import { resolveHostApprovalInput } from './run-continuation.js';
+import { HostRunOutcome } from './run-outcome.js';
 import type { HostThreadPresentationState } from './thread-presentation-state.js';
 import type { HostToolRecords } from './tool-records.js';
 
@@ -136,7 +137,7 @@ export async function runHostSdkLoop(
   run: Run,
   model: LanguageModel
 ): Promise<void> {
-  let failed: string | undefined;
+  const outcome = new HostRunOutcome(run.admission?.configuration, run.modelId, run.steps > 0);
   let interrupted = false;
   let checkpointFailure: unknown;
   run.paused = false;
@@ -228,9 +229,7 @@ export async function runHostSdkLoop(
       tools: createAdmittedHostSdkTools(run, (action, input) => ports.dispatch(run, action, input)),
     });
     for await (const chunk of result.fullStream) {
-      if (chunk.type === 'error') {
-        failed = chunk.error instanceof Error ? chunk.error.message : String(chunk.error);
-      }
+      outcome.observe(chunk);
       await ports.append(run.threadId, [
         { chunk: jsonValue(chunk), runId: run.id, type: 'stream.chunk' },
       ]);
@@ -240,12 +239,12 @@ export async function runHostSdkLoop(
     }
   } catch (cause) {
     interrupted = cause instanceof ApprovalInputReconstructionError;
-    failed = cause instanceof Error ? cause.message : String(cause);
+    outcome.fail(cause);
   }
   if (checkpointFailure !== undefined) {
     throw checkpointFailure;
   }
-  await finishHostSdkLoop(run, ports.closing(), failed, interrupted, (outcome, detail) =>
-    ports.finish(run, outcome, detail)
+  await finishHostSdkLoop(run, ports.closing(), outcome.detail(), interrupted, (joined, detail) =>
+    ports.finish(run, joined, detail)
   );
 }
