@@ -14,8 +14,9 @@ import { z } from 'zod';
 // in `thread/list`), withheld observational memory, tool catalog IDs on
 // committed tool events, image attachments on a user message (`run/start`
 // and `run.started`), committed workspace edit attribution,
-// `checkpoint/revert`, per-thread tool state, and the prompt breakdown on
-// `provider.request.prepared`.
+// `checkpoint/revert`, per-thread tool state, the prompt breakdown on
+// `provider.request.prepared`, and `run/steer` (end the active run at its next
+// step boundary).
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -233,6 +234,11 @@ export const HOST_METHOD_SCHEMAS = {
     parentMessageId: Id.nullable().optional(),
     prompt: Id,
   }),
+  /**
+   * End the active run gracefully at its next step boundary, after the step in
+   * flight, so the user's steering message can start the next turn (BST-588).
+   */
+  'run/steer': z.strictObject({ ...Command, ...Run }),
   'run/stop': z.strictObject({ ...Command, ...Run }),
   /** A client verdict is always the user's; hook and revert labels are host-committed. */
   'run/verdict': z.strictObject({
@@ -502,6 +508,7 @@ export const HOST_RESULT_SCHEMAS = {
   'mcp/input/stage': z.strictObject({ staged: z.literal(true) }),
   'run/regenerate': z.strictObject({ runId: Id }),
   'run/start': z.strictObject({ runId: Id }),
+  'run/steer': z.strictObject({ outcome: z.enum(['steering', 'already-terminal']) }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
   'run/verdict': z.strictObject({ accepted: z.literal(true) }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),

@@ -105,6 +105,7 @@ export function bindHostConnection(
   handle('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
   handle('run/start', (params) => core.startRun(params, origin));
   handle('run/regenerate', (params) => core.regenerateRun(params, origin));
+  handle('run/steer', (params) => core.steer(params));
   handle('run/stop', (params) => core.stop(params));
   handle('checkpoint/revert', (params) => core.revertCheckpoint(params));
   handle('run/verdict', (params) => core.recordVerdict(params));

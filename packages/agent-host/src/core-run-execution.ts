@@ -220,7 +220,8 @@ export async function runHostSdkLoop(
         });
         return prepareHostProviderStep(provider, memory?.system, owner);
       },
-      stopWhen: stepCountIs(admission.snapshot.maxSteps - run.steps),
+      // A committed run/steer ends the run after the step in flight (BST-588).
+      stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],
       toolApproval: ({ toolCall }) => decideHostSdkApproval(run, ports.platform, toolCall),
       tools: createAdmittedHostSdkTools(run, (action, input) => ports.dispatch(run, action, input)),
     });

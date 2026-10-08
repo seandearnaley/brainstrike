@@ -18,6 +18,7 @@ import {
   queueHostAdmission,
   rejectHostRunAdmission,
   retainHostRunWork,
+  steerHostRun,
 } from './core-run-lifecycle.js';
 import {
   createHostRunContext,
@@ -704,6 +705,14 @@ export class HostCore {
       await this.accept(params.threadId, 'run/verdict', params, { accepted: true }, [event]);
       return { accepted: true } as const;
     });
+  }
+
+  steer(params: HostParams<'run/steer'>): Promise<{ outcome: 'steering' | 'already-terminal' }> {
+    return this.command('run/steer', params, () =>
+      steerHostRun(this.run(params.threadId, params.runId), (result) =>
+        this.accept(params.threadId, 'run/steer', params, result, [])
+      )
+    );
   }
 
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
