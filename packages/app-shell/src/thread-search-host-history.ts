@@ -6,9 +6,9 @@ const HOST_MATCHES_PER_THREAD = 3;
 
 /**
  * Host history hits as thread search results: one result per thread in the
- * order of its best hit. The host ranks by order and reports no score, and its
- * log records no per-event time, so scores are 0 and a match carries no date
- * rather than invented ones.
+ * order of its best hit. The host ranks by order and reports no score, and
+ * neither its thread catalog nor its history index carries a time for a hit,
+ * so scores are 0 and a match carries no date rather than invented ones.
  */
 export function hostHistoryResults(
   hits: readonly AssistantThreadHistoryHit[]
