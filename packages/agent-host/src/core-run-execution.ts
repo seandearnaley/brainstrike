@@ -5,14 +5,21 @@ import {
   ApprovalInputReconstructionError,
   rebuildApprovedRuntimeMessages,
 } from './approval-input.js';
+import {
+  type HostContextCompactions,
+  prepareCompactedContext,
+  summarizeHostContext,
+} from './context-compaction.js';
 import { finishHostSdkLoop, retainHostRunWork } from './core-run-lifecycle.js';
 import type { HostRunState as Run } from './core-state.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { jsonValue } from './json-value.js';
 import type { HostMcpInputState } from './mcp-input-state.js';
-import type { HostPlatform, HostRunOwner } from './ports.js';
+import type { HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
+import { type HostProjectionRewrites, prepareProjectionRewrites } from './projection-rewrites.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 import {
+  combineHostSystemContext,
   createAdmittedHostSdkTools,
   decideHostSdkApproval,
   ensureHostRunAdmission,
@@ -53,6 +60,7 @@ export interface HostRunExecutionPorts {
   ): Promise<HostLogRow[]>;
   closing(): boolean;
   commitMessages(run: Run, messages: readonly ModelMessage[]): Promise<void>;
+  readonly compactions: HostContextCompactions;
   dispatch(run: Run, action: HostRunAction, input: unknown): Promise<unknown>;
   finish(
     run: Run,
@@ -67,6 +75,7 @@ export interface HostRunExecutionPorts {
   readonly records: HostToolRecords;
   /** The host is closing or the run's thread is being deleted. */
   retired(threadId: string): boolean;
+  readonly rewrites: HostProjectionRewrites;
   readonly runs: ReadonlyMap<string, Run>;
   syncBoundary(threadId: string): Promise<void>;
 }
@@ -143,6 +152,57 @@ export async function executeHostAction(
   return output;
 }
 
+async function commitContextEvent(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  event: HostEvent
+): Promise<void> {
+  await ports.append(run.threadId, [event], 'full', (rows) => ports.foldRows(rows));
+}
+
+/** Committed tool-output rewrites, plus the policy's new ones, on this step's messages. */
+function rewriteRunContext(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  ancestors: readonly Run[],
+  messages: readonly ModelMessage[]
+): Promise<ModelMessage[]> {
+  return prepareProjectionRewrites({
+    commit: (event) => commitContextEvent(ports, run, event),
+    existing: ports.rewrites.read(run.threadId),
+    messages,
+    outputs: new Map([...ancestors, run].flatMap((turn) => [...turn.outputs])),
+    runId: run.id,
+    select: ports.platform.selectProjectionRewrites?.bind(ports.platform),
+  });
+}
+
+/**
+ * The run's first request context: heal interrupted history, apply committed
+ * tool-output rewrites (and the policy's new ones), then the compaction
+ * overlay (and a new compaction past the trigger), in the legacy order.
+ */
+async function prepareRunContext(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  ancestors: readonly Run[],
+  admission: HostRunAdmission,
+  messages: readonly ModelMessage[]
+): Promise<{ readonly messages: ModelMessage[]; readonly note?: string }> {
+  const healed = healInterruptedRunHistory(messages, ancestors, run.threadId);
+  const rewritten = await rewriteRunContext(ports, run, ancestors, healed);
+  return await prepareCompactedContext({
+    chain: [...ancestors, run],
+    commit: (event) => commitContextEvent(ports, run, event),
+    compactions: ports.compactions.read(run.threadId),
+    inputTokenLimit: admission.inputTokenLimit,
+    messages: rewritten,
+    signal: run.controller.signal,
+    summarize: (transcript) =>
+      summarizeHostContext(admission.model, run.modelId, transcript, run.controller.signal),
+  });
+}
+
 /** How one SDK attempt ended; Core decides between a new attempt and the run's finish. */
 interface HostSdkAttempt {
   readonly checkpointFailure: unknown;
@@ -209,6 +269,7 @@ async function runHostSdkAttempt(
   const ancestors = hostRunAncestors(ports.runs, run);
   let recordedInputLength = initialMessages.length;
   let historyPrepared = false;
+  let compactionNote: string | undefined;
   try {
     // Strict: a malformed resilience setting fails this run visibly.
     const resilience = resolveAssistantResilienceConfig();
@@ -273,9 +334,15 @@ async function runHostSdkAttempt(
           recordedInputLength = messages.length;
         }
         let prepared = messages;
-        if (!historyPrepared) {
+        if (historyPrepared) {
+          // Stale reads and old outputs are rewritten within the run, as legacy
+          // rewrote them after each tracked tool.
+          prepared = await rewriteRunContext(ports, run, ancestors, messages);
+        } else {
           historyPrepared = true;
-          prepared = healInterruptedRunHistory(messages, ancestors, run.threadId);
+          const overlay = await prepareRunContext(ports, run, ancestors, admission, messages);
+          prepared = overlay.messages;
+          compactionNote = overlay.note;
           recordedInputLength = prepared.length;
         }
         const memory = await owner?.prepareHostStep?.({
@@ -283,8 +350,9 @@ async function runHostSdkAttempt(
           stepNumber: run.steps,
         });
         recordedInputLength = memory?.messages.length ?? prepared.length;
+        const system = combineHostSystemContext(memory?.system, compactionNote).system;
         if (!admission.provider) {
-          return memory ?? { messages: prepared };
+          return { messages: memory?.messages ?? prepared, ...(system ? { system } : {}) };
         }
         const provider = await admission.provider.prepare({
           configuration: admission.configuration,
@@ -292,7 +360,7 @@ async function runHostSdkAttempt(
           modelId: run.modelId,
           signal: run.controller.signal,
         });
-        return prepareHostProviderStep(provider, memory?.system, owner);
+        return prepareHostProviderStep(provider, system, owner);
       },
       stopWhen: stepCountIs(admission.snapshot.maxSteps - run.steps),
       toolApproval: ({ toolCall }) => decideHostSdkApproval(run, ports.platform, toolCall),

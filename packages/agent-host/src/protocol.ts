@@ -425,6 +425,48 @@ export const HostEventSchema = z.union([
       })
       .optional(),
   }),
+  /**
+   * Host-committed tool-output overlay (the legacy ToolProjectionRewriteEntry):
+   * a later request replaces each call's result with its marker. A supersession
+   * applies only while its superseding call is in the same request.
+   */
+  z.strictObject({
+    type: z.literal('tool.projection.rewritten'),
+    ...RunFields,
+    rewrites: z
+      .array(
+        z.union([
+          z.strictObject({
+            kind: z.literal('prune'),
+            markerText: z.string().regex(/\S/),
+            supersededByToolCallId: z.null(),
+            toolCallId: Id,
+          }),
+          z.strictObject({
+            kind: z.literal('supersession'),
+            markerText: z.string().regex(/\S/),
+            supersededByToolCallId: Id,
+            toolCallId: Id,
+          }),
+        ])
+      )
+      .min(1),
+  }),
+  /**
+   * Host-committed overlay from the run that made it: later requests replace
+   * these turns with `summary`. When a summarizer model ran, `modelId` and
+   * `usage` are its side-call receipt, in `memory.usage`'s shape.
+   */
+  z.strictObject({
+    type: z.literal('context.compacted'),
+    ...RunFields,
+    compactedRunIds: z.array(Id).min(1),
+    kind: z.enum(['agentic', 'deterministic']),
+    modelId: Id.optional(),
+    reason: z.literal('pre-request'),
+    summary: z.string().min(1),
+    usage: z.json().optional(),
+  }),
   z.strictObject({
     type: z.literal('workspace.edit.recorded'),
     ...RunFields,

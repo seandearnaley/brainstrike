@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { BlobContent, StateStore } from '@brainstrike/state-store';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { ApprovalInputReconstructionError } from './approval-input.js';
+import { HostContextCompactions } from './context-compaction.js';
 import { hostRunClosingOutcomes, reportRetiredHostOutcomes } from './core-retirement.js';
 import {
   type HostRunAction as Action,
@@ -32,6 +33,7 @@ import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-sto
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
+import { HostProjectionRewrites } from './projection-rewrites.js';
 import {
   type HostEvent,
   type HostLogRow,
@@ -82,6 +84,8 @@ export class HostCore {
   private readonly commands = new HostCommandLedger();
   private readonly mcpInputs = new HostMcpInputState();
   private readonly records = new HostToolRecords();
+  private readonly compactions = new HostContextCompactions();
+  private readonly rewrites = new HostProjectionRewrites();
   private readonly threads = new Set<string>();
   private readonly presentations = new HostThreadPresentationState({
     admit: (threadId, perform) => this.admit(threadId, perform),
@@ -178,6 +182,8 @@ export class HostCore {
   private fold(row: HostLogRow): void {
     this.mcpInputs.fold(row);
     this.records.fold(row);
+    this.compactions.fold(row);
+    this.rewrites.fold(row);
     this.presentations.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
@@ -387,6 +393,8 @@ export class HostCore {
       this.workspaces.forget(params.threadId);
       this.mcpInputs.forgetThread(params.threadId);
       this.records.forgetThread(params.threadId, this.platform);
+      this.compactions.forgetThread(params.threadId);
+      this.rewrites.forgetThread(params.threadId);
       for (const run of runs) {
         this.runs.delete(run.id);
         this.conversationIds.delete(run.id);
@@ -502,6 +510,7 @@ export class HostCore {
         this.append(threadId, events, durability, beforePublish, referenced),
       closing: () => this.closing,
       commitMessages: (run, messages) => this.commitMessages(run, messages),
+      compactions: this.compactions,
       dispatch: (run, action, input) => this.dispatch(run, action, input),
       finish: (run, outcome, detail) => this.finish(run, outcome, detail),
       fold: (row) => this.fold(row),
@@ -511,6 +520,7 @@ export class HostCore {
       platform: this.platform,
       records: this.records,
       retired: (threadId) => this.closing || this.deletions.has(threadId),
+      rewrites: this.rewrites,
       runs: this.runs,
       syncBoundary: (threadId) => this.store.syncBoundary(threadId),
     };

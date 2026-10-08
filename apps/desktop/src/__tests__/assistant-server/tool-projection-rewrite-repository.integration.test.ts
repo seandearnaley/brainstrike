@@ -4,17 +4,17 @@ import {
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import {
+  buildGrepSupersededMarker,
+  grepProjectionHeaderPrefix,
   projectReadWorkspaceFileModelOutput,
   readProjectionHeaderPrefix,
+  TOOL_PROJECTION_REWRITE_BATCH_THRESHOLD_CHARS,
 } from '@brainstrike/host-capabilities/native-tools';
 import { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { grepProjectionHeaderPrefix } from '../../assistant-server/grep-search-result-contract';
 import {
-  buildGrepSupersededMarker,
   createToolProjectionRewriteLookup,
   recordSuccessfulToolProjection,
-  TOOL_PROJECTION_REWRITE_BATCH_THRESHOLD_CHARS,
 } from '../../assistant-server/tool-projection-rewrite-repository';
 
 // apps/desktop does not (and must not) depend on @mastra/core directly — the
