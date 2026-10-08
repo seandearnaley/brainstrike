@@ -10,6 +10,7 @@
 import { closeSync, constants, fstatSync, openSync, readFileSync, readSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { hostProjectHooksPath } from '@brainstrike/agent-host';
 import { sha256OfBuffer } from './trust.js';
 import {
   DEFAULT_HOOK_TIMEOUT_MS,
@@ -102,8 +103,9 @@ export function getGlobalHooksPath(): string {
   return join(homedir(), '.brainstrike', 'hooks.json');
 }
 
+/** The host owns this path: its trust pins the same file the loader reads. */
 export function getProjectHooksPath(rootAbsPath: string): string {
-  return join(rootAbsPath, '.brainstrike', 'hooks.json');
+  return hostProjectHooksPath(rootAbsPath);
 }
 
 interface ValidatedFile {

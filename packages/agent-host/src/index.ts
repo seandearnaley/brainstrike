@@ -53,6 +53,8 @@ export {
   hostProjectHooksPath,
   readHostHookApproval,
   readHostHookTrust,
+  trustHostHooks,
+  untrustHostHooks,
 } from './hook-trust.js';
 export { createAgentHostSpawner } from './launcher.js';
 export {
