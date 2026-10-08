@@ -1,13 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   healInterruptedModelMessages,
   type ProviderRequestContext,
 } from '@brainstrike/agent/provider-request';
-import { apiKeyAuthInput, type RuntimeData } from '@brainstrike/agent/provider-runtime';
+import {
+  apiKeyAuthInput,
+  type RuntimeData,
+  readOpenRouterBilledCost,
+} from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
@@ -15,6 +18,8 @@ import { RootLock, StateStore } from '@brainstrike/state-store';
 import { type ModelMessage, modelMessageSchema } from 'ai';
 import { afterEach, expect, onTestFinished, type TestContext, test, vi } from 'vitest';
 import { z } from 'zod';
+import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
+import { committedRowAddress } from '../src/committed-identities.js';
 import { HostCore } from '../src/core.js';
 import { storedHostEvent } from '../src/event-storage.js';
 import { jsonValue } from '../src/json-value.js';
@@ -49,27 +54,15 @@ const recordedRequests = z
     )
   );
 
-// The existing metering helper has no package export. Node 26's native TS
-// loader reads that exact repo module; this is a test oracle over real
-// committed SDK metadata, not a copied billing algorithm or production bridge.
-const metering: unknown = createRequire(import.meta.url)(
-  '../../agent/src/mastra/runtime-assembly/usage-metering.ts'
-);
+// The public Node subpath borrows the shipped reader over committed SDK facts.
 const Billing = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('absent') }),
   z.object({ kind: z.literal('reported'), usd: z.number().nonnegative() }),
   z.object({ kind: z.literal('malformed'), reason: z.string() }),
 ]);
 function actualBilledCost(part: unknown) {
-  if (
-    !metering ||
-    typeof metering !== 'object' ||
-    !('readOpenRouterBilledCost' in metering) ||
-    typeof metering.readOpenRouterBilledCost !== 'function'
-  ) {
-    throw new Error('Shipped billing helper is missing');
-  }
-  return Billing.parse(metering.readOpenRouterBilledCost(part));
+  const metadata = z.object({ providerMetadata: z.unknown().optional() }).parse(part);
+  return Billing.parse(readOpenRouterBilledCost(metadata));
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -281,6 +274,63 @@ async function productionReplay(
     threadId,
   };
 }
+
+test.for(['model.step', 'model.messages'] as const)(
+  'committed projection leaves an unproven %s provider unstamped instead of borrowing another run',
+  async (kind, context) => {
+    const recorded = z.array(z.json()).parse(review.payloads['anthropic_server_response_messages']);
+    const host = await productionReplay(
+      context,
+      ['first', 'unknown'].map((prompt) => ({
+        messages: recorded.map((message) => modelMessageSchema.parse(message)),
+        modelId: 'claude-sonnet-5',
+        outcome: 'completed' as const,
+        prompt,
+        provider: 'anthropic' as const,
+      })),
+      'openai',
+      'gpt-6-sol'
+    );
+    try {
+      const steps = host.original.filter((row) => row.event.type === 'model.step');
+      const [proven, unknown] = steps;
+      if (!(proven && unknown)) {
+        throw new Error('Committed provenance controls are missing');
+      }
+      const view = host.original.map((row) => {
+        if (row !== unknown || row.event.type !== 'model.step') {
+          return row;
+        }
+        return {
+          ...row,
+          event:
+            kind === 'model.step'
+              ? { ...row.event, model: { modelId: 'claude-sonnet-5' } }
+              : {
+                  messages: row.event.messages,
+                  runId: row.event.runId,
+                  type: 'model.messages' as const,
+                },
+        };
+      });
+      const before = structuredClone(view);
+      const native = committedMemoryTranscript(view, 'm3-provider-context-fixture');
+      const provenSegment = native.find((message) => message.id === committedRowAddress(proven));
+      const unknownSegment = native.find((message) => message.id === committedRowAddress(unknown));
+      expect(provenSegment?.content.metadata).toMatchObject({
+        modelId: 'claude-sonnet-5',
+        provider: 'anthropic.messages',
+      });
+      expect(unknownSegment).toBeDefined();
+      expect(unknownSegment?.content.parts).toEqual(provenSegment?.content.parts);
+      expect(unknownSegment?.content.metadata?.['provider']).toBeUndefined();
+      expect(view).toEqual(before);
+      await immutableHistory(host);
+    } finally {
+      await host.close();
+    }
+  }
+);
 
 test('production Memory strips recorded Anthropic server-executed history on switch to OpenAI without rewriting SQLite', async (context) => {
   const requests: unknown[] = [];

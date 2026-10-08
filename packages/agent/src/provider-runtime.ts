@@ -3,6 +3,11 @@
  * Unlike the root entry, this entry never registers browser-local inference.
  * Credentials remain direct parameters, outside durable runtime configuration.
  */
+
+export {
+  type BilledCostReading,
+  readOpenRouterBilledCost,
+} from './mastra/runtime-assembly/usage-metering';
 export {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
