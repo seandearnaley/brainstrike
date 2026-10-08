@@ -22,6 +22,13 @@ export interface AssistantThreadHostRuns {
   readonly subscribe: (listener: () => void) => () => void;
 }
 
+/** One ranked committed-text hit from the host's own history index. */
+export interface AssistantThreadHistoryHit {
+  readonly seq: number;
+  readonly snippet: string;
+  readonly threadId: string;
+}
+
 /** A host app supplies committed thread identity and its connected presentation. */
 export interface AssistantThreadHostCapability {
   createThread(resourceId: string): Promise<AssistantMemoryThread>;
@@ -43,6 +50,8 @@ export interface AssistantThreadHostCapability {
   ): ReactNode | undefined;
   /** Omitted by a host that reports no run state; its threads then show none. */
   readonly runs?: AssistantThreadHostRuns;
+  /** Ranked committed text across the host's current threads; omitted by a host without one. */
+  searchHistory?(query: string, limit: number): Promise<readonly AssistantThreadHistoryHit[]>;
   /** Called when a host thread's committed title changes; a host without live titles omits it. */
   subscribeTitleChanges?(listener: () => void): () => void;
   /**

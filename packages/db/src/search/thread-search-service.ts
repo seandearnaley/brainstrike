@@ -77,7 +77,8 @@ export type ThreadMessageMatchSource = 'fts' | 'vector';
 export interface ThreadMessageMatchResult {
   /** `<mark>`-highlighted FTS headline, or the plain vector snippet. */
   headline: string | null;
-  messageCreatedAt: Date;
+  /** Null when the owner records no time for the match (agent-host history). */
+  messageCreatedAt: Date | null;
   messageId: string;
   role: string;
   rrfScore: number;

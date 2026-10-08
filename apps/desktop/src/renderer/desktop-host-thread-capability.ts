@@ -192,6 +192,10 @@ export function createWindowThreadCapability(
         threadId,
       }),
     runs,
+    searchHistory: async (query, limit) => {
+      const host = await client();
+      return (await host.request('history/search', { limit, query })).hits;
+    },
     subscribeTitleChanges: (listener) => {
       titleListeners.add(listener);
       return () => titleListeners.delete(listener);
