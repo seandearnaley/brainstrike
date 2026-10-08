@@ -1,6 +1,6 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { Button, Checkbox, Input } from '@brainstrike/ui';
-import { type ComponentProps, type ReactElement, useId, useState } from 'react';
+import { type ComponentProps, type ReactElement, type Ref, useId, useState } from 'react';
 
 type ToolProps = ComponentProps<ToolCallMessagePartComponent>;
 function record(value: unknown): Record<string, unknown> {
@@ -12,10 +12,16 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-/** The committed request supplies the form; only its committed response resolves it. */
+/**
+ * The committed request supplies the form; only its committed response resolves it.
+ * `decisionRef` is the owning card's focus handoff: when the committed response
+ * removes this form while one of its controls holds focus, focus moves to the card.
+ */
 export function CommittedHumanInteraction({
+  decisionRef,
   tool,
 }: {
+  readonly decisionRef: Ref<HTMLFieldSetElement>;
   readonly tool: ToolProps;
 }): ReactElement | null {
   const kind = tool.providerMetadata?.['brainstrike']?.['interactionKind'];
@@ -35,6 +41,10 @@ export function CommittedHumanInteraction({
   const options = Array.isArray(input['options']) ? input['options'].map(record) : [];
   const multi = input['selectionMode'] === 'multi_select';
   const send = (payload: unknown): void => {
+    // The pressed control stays focusable (aria-disabled) while pending; refuse a repeat.
+    if (sending) {
+      return;
+    }
     setSending(true);
     setError(undefined);
     void Promise.resolve()
@@ -48,7 +58,7 @@ export function CommittedHumanInteraction({
     <fieldset
       aria-label={kind === 'question' ? 'Question for you' : 'Plan decision'}
       className="flex flex-col gap-2 px-3 pb-3"
-      disabled={sending}
+      ref={decisionRef}
     >
       {kind === 'question' ? (
         <>
@@ -63,6 +73,7 @@ export function CommittedHumanInteraction({
               >
                 <Checkbox
                   checked={selected.includes(label)}
+                  disabled={sending}
                   id={`${optionId}-${index}`}
                   onCheckedChange={(checked) => {
                     setSelected(
@@ -83,11 +94,14 @@ export function CommittedHumanInteraction({
           })}
           <Input
             aria-label="Your answer"
+            disabled={sending}
             onChange={(event) => setAnswer(event.target.value)}
             value={answer}
           />
           <Button
-            disabled={sending || (!answer.trim() && selected.length === 0)}
+            aria-disabled={sending || undefined}
+            className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+            disabled={!answer.trim() && selected.length === 0}
             onClick={() => send({ answer: answer.trim() || (multi ? selected : selected[0]) })}
           >
             Send answer
@@ -110,12 +124,15 @@ export function CommittedHumanInteraction({
           <textarea
             aria-label="Plan feedback"
             className="rounded-md border bg-transparent p-2"
+            disabled={sending}
             onChange={(event) => setAnswer(event.target.value)}
             value={answer}
           />
           <div className="flex gap-2">
             {(['approved', 'rejected'] as const).map((action) => (
               <Button
+                aria-disabled={sending || undefined}
+                className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                 key={action}
                 onClick={() =>
                   send({ action, ...(answer.trim() ? { feedback: answer.trim() } : {}) })
