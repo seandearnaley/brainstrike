@@ -4,6 +4,7 @@ import { access, chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writePrivateCredentialFile } from '@brainstrike/agent-host/file-credentials';
 import { decodeHostRecord, type HostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
@@ -14,9 +15,7 @@ import { removeFixtureRoot } from './fixtures/cooperative-host-fixture.js';
 
 const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const roots: string[] = [];
-const httpFixture = fileURLToPath(
-  new URL('./fixtures/standalone-production-http.mjs', import.meta.url)
-);
+const httpFixture = new URL('./fixtures/standalone-production-http.mjs', import.meta.url).href;
 
 interface CliResult {
   readonly code: number;
@@ -322,7 +321,7 @@ test('real bin normalizes an explicitly selected private file through the existi
     secrets: { openai: JSON.stringify({ key: 'offline-standalone-fixture', type: 'api_key' }) },
     version: 1,
   });
-  await writeFile(credentialFile, content, { mode: 0o600 });
+  await writePrivateCredentialFile(credentialFile, content);
   const selectedPath = `${dataRoot}/unused-subdirectory/../synthetic-credentials.json`;
   const http: OfflineHttp = {
     credential: 'file',
@@ -372,9 +371,10 @@ test('real bin normalizes an explicitly selected private file through the existi
 test('concurrent real bins retain the winning credential authority after a cold Root acquisition race', async () => {
   const dataRoot = await root();
   const credentialFile = join(dataRoot, 'synthetic-credentials.json');
-  await writeFile(credentialFile, JSON.stringify({ records: {}, secrets: {}, version: 1 }), {
-    mode: 0o600,
-  });
+  await writePrivateCredentialFile(
+    credentialFile,
+    JSON.stringify({ records: {}, secrets: {}, version: 1 })
+  );
   const http: OfflineHttp = {
     credential: 'file',
     mode: 'complete',

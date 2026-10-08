@@ -13,9 +13,7 @@ import { HOST_RESULT_SCHEMAS, HostLogRowSchema } from '../src/protocol.js';
 import { removeFixtureRoot } from './fixtures/cooperative-host-fixture.js';
 
 const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
-const httpFixture = fileURLToPath(
-  new URL('./fixtures/standalone-production-http.mjs', import.meta.url)
-);
+const httpFixture = new URL('./fixtures/standalone-production-http.mjs', import.meta.url).href;
 const roots: string[] = [];
 
 interface OfflineInteraction {
