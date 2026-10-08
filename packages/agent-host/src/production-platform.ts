@@ -11,7 +11,6 @@ import {
 } from '@brainstrike/agent/provider-runtime';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
-import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import type { LanguageModel } from 'ai';
 import { z } from 'zod';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
@@ -19,6 +18,7 @@ import {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
 } from './adapters/state-store-host-memory.js';
+import { type HostStateIndex, openHostStateIndex } from './host-state-index.js';
 import { materializeHostProviderModel } from './model-router-sdk.js';
 import type {
   HostMcpRuntime,
@@ -65,7 +65,6 @@ export interface ProductionHostPlatformOptions {
   ) => Promise<Exclude<LanguageModel, string>>;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   readonly startup: HostStartupContext;
-  readonly stateIndexer?: StateStoreIndexerPort;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
@@ -111,11 +110,21 @@ export async function createProductionHostPlatform(
 ): Promise<HostPlatform> {
   const selections = new Set<() => Promise<void>>();
   let closing: Promise<void> | undefined;
+  let stateIndex: Promise<HostStateIndex> | undefined;
   const close = (): Promise<void> => {
     closing ??= (async () => {
       const joined = await Promise.allSettled([...selections].map((release) => release()));
       // Capability transports remain available until their borrowed selections join.
       joined.push(...(await Promise.allSettled([options.close()])));
+      // A failed open already failed startup; only an opened index has a close to join.
+      joined.push(
+        ...(await Promise.allSettled([
+          stateIndex?.then(
+            (index) => index.close(),
+            () => undefined
+          ),
+        ]))
+      );
       const failures = joined.filter((result) => result.status === 'rejected');
       if (failures.length > 0) {
         throw new AggregateError(
@@ -163,13 +172,15 @@ export async function createProductionHostPlatform(
       throw cause;
     }
   };
-  // Register ownership before the first provider, Memory or MCP side effect.
+  // Register ownership before the first provider, Memory, MCP or index side effect.
   await options.startup.register(close);
+  // The host owns its derived state index: thread deletion, purge and blob GC need it.
+  stateIndex = openHostStateIndex(options.startup.store.root);
+  const { indexer } = await stateIndex;
   return {
     ...(options.validateWorkspaceBinding
       ? { validateWorkspaceBinding: options.validateWorkspaceBinding }
       : {}),
-    ...(options.stateIndexer ? { stateIndexer: options.stateIndexer } : {}),
     admitRun: async (request) => {
       if (closing) {
         throw new Error('Production host is closing');
@@ -281,5 +292,6 @@ export async function createProductionHostPlatform(
     },
     close,
     readPermissionPolicy: options.readPermissionPolicy,
+    stateIndexer: indexer,
   };
 }
