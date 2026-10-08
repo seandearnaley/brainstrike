@@ -76,6 +76,8 @@ export interface ProductionHostPlatformOptions {
   readonly mcp?: HostMcpRuntime;
   /** Memory resources whose recall/observation vectors the host's state index stores. */
   readonly memoryResourceIds?: readonly string[];
+  /** Provider reads from the same credential store. */
+  readonly providers?: HostPlatform['providers'];
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
   readPermissionPolicy(
     threadId?: string
@@ -382,5 +384,6 @@ export async function createProductionHostPlatform(
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
     stateIndexer: index.indexer,
     ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.providers ? { providers: options.providers } : {}),
   };
 }

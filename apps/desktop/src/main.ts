@@ -11,6 +11,7 @@ import { recoverInterruptedDimensionIndexMaintenanceAtStartup } from '@brainstri
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { purgeMcpOAuthRuntimeState } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
+import { createProviderVerificationService } from '@brainstrike/host-capabilities/provider-verification';
 import type { ProfileResetLease } from '@brainstrike/host-lease';
 import {
   addLogListener,
@@ -45,7 +46,7 @@ import { disposeLiveChildProcesses } from './assistant-server/execute-command-to
 import type { ForgeService } from './assistant-server/forge-service';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
-import { createProviderVerificationService } from './assistant-server/provider-verification';
+import { readMainVerificationCredential } from './assistant-server/provider-credentials';
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
@@ -1096,6 +1097,10 @@ const nativeIndexActivation = createNativeIndexActivation({
         : undefined;
       return {
         credentialStore: desktopCredentialStoreSelection(),
+        // Main loaded the env files; the host gates provider status on rejections.
+        ...(desktopEnvLoadResult.failures.length > 0
+          ? { envFileFailures: [...desktopEnvLoadResult.failures] }
+          : {}),
         ...(legacyImportPending ? { legacyImportPending: true as const } : {}),
         ...(e2eCodexIssuer ? { openAiCodexIssuer: e2eCodexIssuer } : {}),
       };
@@ -1961,6 +1966,7 @@ if (singleInstanceLockAcquired) {
           nativeIndexSearch,
           // Subscription freshness through the host's one refresher; no token returns.
           providerVerificationService: createProviderVerificationService({
+            readCredential: readMainVerificationCredential,
             verifySubscriptionSession: (provider) =>
               agentHostMainClient.request('auth/verify', { provider }),
           }),

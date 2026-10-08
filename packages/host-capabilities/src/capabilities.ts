@@ -1,7 +1,12 @@
-import type { HostPlatformLaunchOptions, HostStartupContext } from '@brainstrike/agent-host';
+import type {
+  HostPlatformLaunchOptions,
+  HostProviderService,
+  HostStartupContext,
+} from '@brainstrike/agent-host';
 import type { KeyringCredentialBackend } from '@brainstrike/agent-host/credential-contract';
 import { createHostCredentials, type HostCredentials } from './credentials.js';
 import { createHostAuthority, type HostAuthority } from './provider-auth/host-authority.js';
+import { createHostProviderServices } from './provider-services.js';
 
 /**
  * The Node capabilities every host composes, desktop and CLI alike. A shell
@@ -13,6 +18,8 @@ export interface HostCapabilities {
   readonly auth: HostAuthority;
   close(): Promise<void>;
   readonly credentials: HostCredentials;
+  /** Provider availability, probes and model metadata, read from this store. */
+  readonly providers: HostProviderService;
 }
 
 export interface HostCapabilitiesOptions {
@@ -42,17 +49,23 @@ export async function createHostCapabilities(
   };
   // Own the credential lane before any capability can start native work.
   await options.startup.register(close);
+  const auth = createHostAuthority({
+    ...(options.launch?.openAiCodexIssuer === undefined
+      ? {}
+      : { codexIssuer: options.launch.openAiCodexIssuer }),
+    credentials,
+    env: options.env,
+    ...(options.launch?.legacyImportPending ? { legacyImportPending: true } : {}),
+    ...(options.openExternal ? { openExternal: options.openExternal } : {}),
+  });
   return {
-    auth: createHostAuthority({
-      ...(options.launch?.openAiCodexIssuer === undefined
-        ? {}
-        : { codexIssuer: options.launch.openAiCodexIssuer }),
-      credentials,
-      env: options.env,
-      ...(options.launch?.legacyImportPending ? { legacyImportPending: true } : {}),
-      ...(options.openExternal ? { openExternal: options.openExternal } : {}),
-    }),
+    auth,
     close,
     credentials,
+    providers: createHostProviderServices({
+      auth,
+      env: options.env,
+      envFileFailures: options.launch?.envFileFailures ?? [],
+    }),
   };
 }

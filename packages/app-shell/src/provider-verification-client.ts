@@ -29,8 +29,8 @@ function resolveServerErrorMessage(payload: unknown, status: number): string {
 }
 
 /**
- * BST-1357 renderer client for GET /assistant/verify-provider, mirroring
- * {@link fetchOpenRouterModelMetadata}'s shape. Sends ONLY the provider id —
+ * BST-1357 renderer client for GET /assistant/verify-provider, for a shell
+ * with no host provider reads (desktop asks its host). Sends ONLY the provider id —
  * credentials resolve inside desktop main — and validates the typed snapshot
  * before returning it. Consumed by the Provider Hub "Test connection" UI
  * (BST-1362/BST-1358).

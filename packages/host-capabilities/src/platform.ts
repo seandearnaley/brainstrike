@@ -181,6 +181,7 @@ export async function createHostPlatform(
       await host.close();
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
+    providers: host.providers,
     ...(mcp ? { mcp: mcp.mcp } : {}),
     // The same memory resource as the desktop host, so one state root keeps one
     // derived identity whichever host opens it. Vector Memory stays unavailable here.

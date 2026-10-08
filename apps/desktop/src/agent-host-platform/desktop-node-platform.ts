@@ -179,6 +179,7 @@ export async function createHostPlatform(
     mcp: mcpHost.services.mcp,
     // Main admits every desktop run under the workspace memory resource.
     memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
+    providers: host.providers,
     readConfiguration: async (admission) => {
       const response = await request(
         'platform/admit',

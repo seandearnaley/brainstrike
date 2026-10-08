@@ -1,6 +1,10 @@
 import {
   isProviderCredential,
+  type OpenRouterModelMetadataSnapshot,
   type ProviderCredential,
+  type ProviderVerificationSnapshot,
+  parseOpenRouterModelMetadataSnapshot,
+  parseProviderVerificationSnapshot,
   TOOL_RISK_CATEGORIES,
 } from '@brainstrike/assistant-contract';
 import {
@@ -236,6 +240,8 @@ export const HOST_METHOD_SCHEMAS = {
     entryId: Id.optional(),
     force: z.boolean().optional(),
   }),
+  /** Provider availability: the host's configured keys, unreadable entries and env-file failures. */
+  'host/status': z.strictObject({}),
   'host/stop': z.strictObject({}),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -265,6 +271,10 @@ export const HOST_METHOD_SCHEMAS = {
   }),
   // Values are process-local and never enter HostCommandLedger.
   'mcp/input/stage': z.strictObject({ ...McpInput, content: McpContent.optional() }),
+  /** Model metadata through the host's OpenRouter key; the client sends only the model id. */
+  'providers/openrouter-model': z.strictObject({ model: Id }),
+  /** The cheapest authenticated probe of one provider's stored or env credential. */
+  'providers/verify': z.strictObject(Provider),
   'run/regenerate': z.strictObject({
     ...Command,
     ...Thread,
@@ -584,6 +594,8 @@ export const HOST_RESULT_SCHEMAS = {
   'auth/status': HostAuthStatusSchema,
   'auth/verify': HostAuthVerdictSchema,
   'checkpoint/revert': z.strictObject({ outcomes: z.array(HostEditRevertOutcomeSchema) }),
+  // The renderer validates the availability payload strictly (use-assistant-availability).
+  'host/status': z.record(z.string(), z.json()),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -606,6 +618,14 @@ export const HOST_RESULT_SCHEMAS = {
     status: HostMcpInputStatusSchema,
   }),
   'mcp/input/stage': z.strictObject({ staged: z.literal(true) }),
+  'providers/openrouter-model': z
+    .unknown()
+    .transform(
+      (value): OpenRouterModelMetadataSnapshot => parseOpenRouterModelMetadataSnapshot(value)
+    ),
+  'providers/verify': z
+    .unknown()
+    .transform((value): ProviderVerificationSnapshot => parseProviderVerificationSnapshot(value)),
   'run/regenerate': z.strictObject({ runId: Id }),
   'run/start': z.strictObject({ runId: Id }),
   'run/steer': z.strictObject({ outcome: z.enum(['steering', 'already-terminal']) }),
