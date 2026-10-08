@@ -64,6 +64,18 @@ export class HostRunAdmissionCleanupError extends AggregateError {
   }
 }
 
+/**
+ * A run owner joined all of its work, and these failures are the run's outcome.
+ * Only this releases a run whose owner close rejected; any other rejection is
+ * opaque and keeps the run, its writer and Root owned.
+ */
+export class HostRunOwnerFailure extends AggregateError {
+  constructor(failures: readonly unknown[], message: string) {
+    super(failures, message);
+    this.name = 'HostRunOwnerFailure';
+  }
+}
+
 /** A run owner's open acquired resources and then failed to join them. */
 export class HostRunOwnerCleanupError extends AggregateError {
   constructor(cause: unknown, cleanup: unknown, message = 'Run owner open and cleanup failed') {
@@ -292,9 +304,9 @@ export async function closeHostRunResources(run: HostRunState): Promise<void> {
         try {
           await owner?.close();
         } catch (cause) {
-          // Only work the owner could not join keeps the run owned. A joined
-          // failure (a failed memory step) is the run's outcome; release it.
-          if (cause instanceof HostRunOwnerCleanupError) {
+          // A joined failure (a failed memory step) is the run's outcome and
+          // releases it; any other rejection keeps the run owned.
+          if (!(cause instanceof HostRunOwnerFailure)) {
             throw cause;
           }
           run.ownerFailure ??= cause;

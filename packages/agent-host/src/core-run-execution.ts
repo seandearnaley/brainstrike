@@ -406,12 +406,18 @@ async function runHostSdkAttempt(
         try {
           await owner?.commitHostStep?.();
         } catch (cause) {
+          run.controller.abort(cause);
+          // While the host closes, the run cannot commit its own failure, so the
+          // lost checkpoint must reject close with its original cause.
+          if (ports.closing()) {
+            checkpointFailure = cause;
+            return;
+          }
           // The step is committed; its owner (Memory) failed to take it. That
-          // ends the run as failed with the owner's detail, not a lost
-          // checkpoint, and a non-provider failure is never re-attempted.
+          // ends the run as failed with the owner's detail, and a non-provider
+          // failure is never re-attempted.
           ownerStepFailure = cause;
           outcome.fail(cause);
-          run.controller.abort(cause);
         }
       },
       prepareStep: async ({ messages }) => {
