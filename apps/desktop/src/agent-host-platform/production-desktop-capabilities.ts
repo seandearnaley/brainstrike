@@ -27,7 +27,6 @@ import {
   DESKTOP_NATIVE_TOOLS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
-  findProviderDefinition,
   resolveAutoObservationalMemoryModelTarget,
   resolveToolRiskCategory,
   type SupportedProvider,
@@ -43,12 +42,10 @@ import {
   buildDesktopAssistantTools,
   type DesktopAssistantToolDependencies,
 } from '../assistant-server/assistant-tools';
-import { deriveAssistantTurnAuthInput } from '../assistant-server/provider-auth-input';
 import { prepareRequestSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
 import { getDatabase } from '../db-main';
-import { readProviderCredential } from '../provider-api-key';
 import { readDesktopHostSystemContext } from './desktop-host-context';
 import type {
   DesktopWorkspaceBindingAuthority,
@@ -656,17 +653,6 @@ export function productionDesktopCapabilities(
         persisted ?? captured ?? { policies: DEFAULT_PERMISSION_POLICIES, yolo: false }
       );
       return policy;
-    },
-    // The Node host resolves every other provider itself; Main lends only the
-    // interactive subscription OAuth engine it still owns.
-    resolveProviderAuth: async (provider) => {
-      if (
-        !isSupportedProvider(provider) ||
-        findProviderDefinition(provider)?.authType !== 'oauth_subscription'
-      ) {
-        throw new Error('Main lends only subscription OAuth credentials to the host');
-      }
-      return deriveAssistantTurnAuthInput({ provider }, await readProviderCredential(provider));
     },
     resolveWorkspaceRoot: async (rootId) => {
       const root = (await loadWorkspaceRootsFromDatabase(await getDatabase())).find(

@@ -11,6 +11,7 @@ import { McpTaskHandleSchema } from '@brainstrike/assistant-contract/mcp-task-pr
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
+import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), thread
@@ -20,8 +21,10 @@ import { z } from 'zod';
 // and `run.started`), committed workspace edit attribution,
 // `checkpoint/revert`, per-thread tool state, the prompt breakdown on
 // `provider.request.prepared`, `run/steer` (end the active run at its next
-// step boundary), and permission grants answered with an approval
-// (`interaction/respond` grant, `permission.granted`, the request's risk).
+// step boundary), `mcp.tools.unavailable`, committed with `run.started` for
+// each configured MCP server whose tools the run proceeds without, and
+// permission grants answered with an approval (`interaction/respond` grant,
+// `permission.granted`, the request's risk).
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -188,10 +191,34 @@ export type HostLoginCredential = Exclude<ProviderCredential, { readonly type: '
 const LoginCredential = z.custom<HostLoginCredential>(
   (value) => isProviderCredential(value) && value.type !== 'oauth'
 );
+/**
+ * The launching desktop's one-time import of its retired encrypted store,
+ * decrypted where only it can decrypt: every entry, or why none could be read.
+ */
+const HostLegacyImportSchema = z.union([
+  z.strictObject({ entries: z.array(z.strictObject({ account: Id, value: z.string() })) }),
+  z.strictObject({ unavailable: z.string().min(1) }),
+]);
+export type HostLegacyImport = z.infer<typeof HostLegacyImportSchema>;
+
+const Provider = { provider: Id };
 
 export const HOST_METHOD_SCHEMAS = {
-  // Secret-bearing: process-local, never in HostCommandLedger, the log or diagnostics.
-  'auth/login': z.strictObject({ credential: LoginCredential, provider: Id }),
+  // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
+  // or diagnostics. The host is the single writer and token holder.
+  'auth/cancel': z.strictObject(Provider),
+  'auth/clear': z.strictObject({}),
+  'auth/connect': z.strictObject({
+    ...Provider,
+    method: z.enum(['device', 'loopback']).optional(),
+  }),
+  'auth/credential/delete': z.strictObject({ account: Id }),
+  'auth/credential/set': z.strictObject({ account: Id, credential: LoginCredential }),
+  'auth/disconnect': z.strictObject(Provider),
+  'auth/import-legacy': HostLegacyImportSchema,
+  'auth/login': z.strictObject({ ...Provider, credential: LoginCredential }),
+  'auth/status': z.strictObject(Provider),
+  'auth/verify': z.strictObject(Provider),
   /**
    * Restore a finished run's edited paths to their state before the run first
    * changed them (one entry, or every unreverted entry of the run). Refused
@@ -356,6 +383,13 @@ export const HostEventSchema = z.union([
     status: z.enum(['local-finalized', 'remote-acknowledged', 'unknown', 'retired']),
     type: z.literal('mcp.input.settled'),
   }),
+  z.strictObject({
+    ...RunFields,
+    // Already redacted and bounded by the MCP discovery diagnostics.
+    reason: z.string().min(1),
+    serverId: Id,
+    type: z.literal('mcp.tools.unavailable'),
+  }),
   z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
   z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),
   z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
@@ -503,7 +537,19 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  'auth/cancel': HostAuthStatusSchema,
+  'auth/clear': z.strictObject({ cleared: z.boolean() }),
+  'auth/connect': HostAuthStatusSchema,
+  'auth/credential/delete': z.strictObject({ deleted: z.boolean() }),
+  'auth/credential/set': z.strictObject({ stored: z.literal(true) }),
+  'auth/disconnect': HostAuthStatusSchema,
+  'auth/import-legacy': z.strictObject({
+    alreadyPresent: z.number().int().nonnegative(),
+    migrated: z.number().int().nonnegative(),
+  }),
   'auth/login': z.strictObject({ stored: z.literal(true) }),
+  'auth/status': HostAuthStatusSchema,
+  'auth/verify': HostAuthVerdictSchema,
   'checkpoint/revert': z.strictObject({ outcomes: z.array(HostEditRevertOutcomeSchema) }),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({

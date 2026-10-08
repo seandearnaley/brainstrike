@@ -6,6 +6,10 @@ import {
   type ThreadMessage,
 } from '@assistant-ui/react';
 import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  type AssistantRunEvent,
+} from '@brainstrike/assistant-contract';
+import {
   type AssistantContextBreakdownState,
   parseAssistantContextBreakdown,
 } from '@brainstrike/assistant-contract/context-breakdown';
@@ -105,6 +109,30 @@ function requiredString(value: Readonly<Record<string, unknown>>, key: string): 
     throw new Error(`Committed host event is missing ${key}.`);
   }
   return field;
+}
+
+/**
+ * A committed `mcp.tools.unavailable` as the run timeline's always-visible
+ * notice. Its key is the committed row's address, never a new identity.
+ */
+function mcpToolsUnavailableNotice(
+  event: Readonly<Record<string, unknown>>,
+  row: CommittedAssistantLogRow,
+  runId: string,
+  timestamp: string
+): AssistantRunEvent {
+  const serverName = requiredString(event, 'serverId');
+  const reason = requiredString(event, 'reason');
+  return {
+    detail: `${serverName} skipped for this request — ${reason}`,
+    id: `run-event-${row.threadId}-${row.seq}`,
+    kind: 'mcp.tools.unavailable',
+    label: 'MCP server tools unavailable',
+    metadata: { reason, scope: 'server', serverName },
+    runId,
+    status: 'failed',
+    timestamp,
+  };
 }
 
 /** A committed user message's images, as sent-message attachments. */
@@ -512,6 +540,16 @@ export class CommittedAssistantLogProjection {
    */
   private other(run: ProjectedRun, row: CommittedAssistantLogRow): void {
     const event = row.event;
+    if (event['type'] === 'mcp.tools.unavailable') {
+      const notice = mcpToolsUnavailableNotice(
+        event,
+        row,
+        requiredString(event, 'runId'),
+        this.message(run).createdAt.toISOString()
+      );
+      this.data(run, row, notice, ASSISTANT_RUN_EVENT_DATA_NAME);
+      return;
+    }
     if (event['type'] === 'provider.request.prepared' && event['breakdown'] !== undefined) {
       this.view = {
         ...this.view,

@@ -7,6 +7,7 @@ export {
   ElicitRequestFormParamsSchema,
   ElicitRequestURLParamsSchema,
 } from '@modelcontextprotocol/core';
+export type { McpDiscoverySkip } from './mastra/mcp-discovery-diagnostics';
 export {
   type CreateMcpRuntimeClientOptions,
   createMcpRuntimeClient,

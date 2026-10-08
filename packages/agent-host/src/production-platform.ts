@@ -54,6 +54,8 @@ export interface ProductionHostRunConfiguration {
 }
 
 export interface ProductionHostPlatformOptions {
+  /** The host's credential authority, where this host owns a credential store. */
+  readonly auth?: HostPlatform['auth'];
   close(): Promise<void>;
   /** Purge process-local caches of a deleted thread. */
   readonly forgetThread?: HostPlatform['forgetThread'];
@@ -72,7 +74,6 @@ export interface ProductionHostPlatformOptions {
   /** The live root owner checkpoint revert revalidates against. */
   readonly resolveWorkspaceRoot?: HostPlatform['resolveWorkspaceRoot'];
   readonly startup: HostStartupContext;
-  readonly storeProviderCredential?: HostPlatform['storeProviderCredential'];
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
@@ -88,6 +89,12 @@ function rootModel(
     selected.runtime
   );
   return materializeHostProviderModel(model);
+}
+
+function unavailableMcpServers(
+  borrowed: HostMcpToolSelection | undefined
+): Pick<HostRunAdmission, 'unavailableMcpServers'> {
+  return borrowed?.unavailable.length ? { unavailableMcpServers: borrowed.unavailable } : {};
 }
 
 async function closeMcpAdmission(
@@ -283,6 +290,7 @@ export async function createProductionHostPlatform(
             toolIdentities: {},
           },
           tools,
+          ...unavailableMcpServers(acquired?.borrowed),
         };
         Object.assign(
           selection.snapshot.toolIdentities,
@@ -304,8 +312,6 @@ export async function createProductionHostPlatform(
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
     stateIndexer: indexer,
-    ...(options.storeProviderCredential
-      ? { storeProviderCredential: options.storeProviderCredential }
-      : {}),
+    ...(options.auth ? { auth: options.auth } : {}),
   };
 }

@@ -8,20 +8,13 @@ import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import { createSecretsMcpBearerCredentialAuthority } from './bearer-credential.js';
 import { createMcpHostServices, type McpHostServices } from './mcp-host-services.js';
+
 import { applyMcpToolRegistryState, serveMcpRuntimeToMain } from './mcp-runtime-server.js';
 import { MCP_STORE_METHODS, McpDesiredStateSchema } from './mcp-runtime-wire.js';
 import type { McpOAuthRecords, McpOAuthStore } from './oauth-client-provider.js';
 import { parseRecords } from './oauth-client-provider.js';
 
 type Request = (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
-
-export class McpDiscoveryAdmissionError extends Error {
-  readonly code = 'mcp-discovery-admission-failed';
-  constructor() {
-    super('Configured MCP tools could not be admitted');
-    this.name = 'McpDiscoveryAdmissionError';
-  }
-}
 
 /** The safeStorage OAuth store, still owned by Main until the keyring migration. */
 function remoteOAuthStore(request: Request): McpOAuthStore {
@@ -78,11 +71,6 @@ export async function createDesktopNodeMcpHost(
     extensionPreferences: parseMcpExtensionEnablement(state.extensionPreferences),
     mcpConfiguration: parseMcpConfigValue(state.config).config,
     oauthStore: remoteOAuthStore(request),
-    onMcpDiscoverySkips: async (skips) => {
-      if (skips.length > 0) {
-        throw new McpDiscoveryAdmissionError();
-      }
-    },
     openExternal: async (url) => {
       await request(MCP_STORE_METHODS.openExternal, { url });
     },
