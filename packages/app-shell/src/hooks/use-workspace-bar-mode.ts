@@ -6,6 +6,7 @@ import type {
   WorkspaceBarMode,
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
+import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useRef } from 'react';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 import { useBranchSwitcher } from './use-branch-switcher';
@@ -73,9 +74,17 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
           worktreeId: intent.worktreeId,
         })
       : onHandOffToLocal();
+    const failureTitle = intent.worktreeId
+      ? "The thread didn't move into the worktree"
+      : "The thread didn't hand off to Local";
     void applied
       .catch((error: unknown) => {
         logger.error('worktree map checkout intent failed', { error, threadId });
+        toast({
+          description: error instanceof Error ? error.message : String(error),
+          title: failureTitle,
+          variant: 'destructive',
+        });
       })
       .finally(() => {
         applyingRef.current = false;

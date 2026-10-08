@@ -1,5 +1,7 @@
 import { createMcpElicitationCapability } from '@brainstrike/agent/mcp-client';
 import {
+  type McpHostExecution,
+  type McpHostInputCapability,
   type McpHostServerSnapshot,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
@@ -519,5 +521,189 @@ describe('McpElicitationPresenterAuthority task-scoped binding (BST-1566)', () =
     ).rejects.toMatchObject({ code: 'mcp-elicitation-authority-retired' });
     authority.close();
     stale.close();
+  });
+});
+
+describe('McpElicitationPresenterAuthority host-owned input (BST-1930 part B)', () => {
+  const taskHandle = {
+    authorityEpoch: '00000000-0000-4000-8000-000000000001',
+    principalId: 'fixture-principal',
+    resource: 'https://tasks.example.test/',
+    serverId: SERVER_ID,
+    taskId: 'task-1',
+  };
+  /** A recording Core owner: it keeps each capability exactly as the leaf issued it. */
+  function recordingCore(refuse = false) {
+    const inputs: McpHostInputCapability[] = [];
+    const execution: McpHostExecution = {
+      bindTask: vi.fn(async () => undefined),
+      requestInput: vi.fn(async (input: McpHostInputCapability) => {
+        if (refuse) {
+          throw new Error('MCP input authority is unavailable, stale or incompatible');
+        }
+        inputs.push(input);
+      }),
+    };
+    return { execution, inputs };
+  }
+  const accept = (id: string, requestId: string) => ({
+    action: 'accept' as const,
+    configuredServerId: SERVER_ID,
+    content: { workspace: 'Engineering' },
+    generation: 7,
+    id,
+    requestId,
+  });
+
+  it('presents to Core only, validates purely, and settles once with a local receipt', async () => {
+    const listener = vi.fn();
+    const authority = new McpElicitationPresenterAuthority({
+      createPresentationId: () => 'host-1',
+      openExternal: vi.fn(),
+      resolveServer: () => connectedServer(),
+    });
+    authority.attach(listener);
+    const core = recordingCore();
+    const operation = {
+      configuredServerId: SERVER_ID,
+      toolName: 'pick',
+      type: 'tools/call',
+    } as const;
+    const result = authority.runWithOperation(
+      operation,
+      () => authority.presenter.presentForm(formRequest, context('request-1')),
+      core.execution
+    );
+    await vi.waitFor(() => expect(core.inputs).toHaveLength(1));
+    const [input] = core.inputs;
+    expect(listener).not.toHaveBeenCalled();
+    expect(input?.presentation).toMatchObject({ id: 'host-1', mode: 'form' });
+    await expect(input?.assertCurrent()).resolves.toBeUndefined();
+    // Validation is pure: an invalid answer is refused, a valid one consumes nothing.
+    await expect(
+      input?.validate({ ...accept('host-1', 'request-1'), content: { workspace: 1 } })
+    ).rejects.toMatchObject({ code: 'mcp-elicitation-settlement-invalid' });
+    await expect(input?.validate(accept('host-1', 'request-1'))).resolves.toBeUndefined();
+    await expect(input?.validate(accept('host-1', 'request-1'))).resolves.toBeUndefined();
+    // Only Core's capability settles host-owned input; the direct GUI path is refused.
+    expect(() => authority.settle(accept('host-1', 'request-1'))).toThrowError(
+      expect.objectContaining({ code: 'mcp-elicitation-host-owned' })
+    );
+    await expect(input?.settle(accept('host-1', 'request-1'))).resolves.toBe('local-finalized');
+    await expect(result).resolves.toEqual({
+      action: 'accept',
+      content: { workspace: 'Engineering' },
+    });
+    await expect(input?.settle(accept('host-1', 'request-1'))).rejects.toMatchObject({
+      code: 'mcp-elicitation-already-settled',
+    });
+    await expect(input?.assertCurrent()).rejects.toMatchObject({
+      code: 'mcp-elicitation-stale-authority',
+    });
+    authority.close();
+  });
+
+  it('fails closed when Core refuses the request commit', async () => {
+    const authority = new McpElicitationPresenterAuthority({
+      openExternal: vi.fn(),
+      resolveServer: () => connectedServer(),
+    });
+    const core = recordingCore(true);
+    const operation = { configuredServerId: SERVER_ID, type: 'tools/list' } as const;
+    await expect(
+      authority.runWithOperation(
+        operation,
+        () => authority.presenter.presentForm(formRequest, context('request-2')),
+        core.execution
+      )
+    ).rejects.toMatchObject({
+      cause: { message: 'MCP input authority is unavailable, stale or incompatible' },
+      code: 'mcp-elicitation-origin-unbound',
+    });
+    authority.close();
+  });
+
+  it('waits for the task binding commit and reports the server ack as the receipt', async () => {
+    const authority = new McpElicitationPresenterAuthority({
+      createPresentationId: () => 'task-input-1',
+      openExternal: vi.fn(),
+      resolveServer: () => connectedServer(),
+    });
+    const core = recordingCore();
+    const bound = Promise.withResolvers<void>();
+    const acked = Promise.withResolvers<void>();
+    const acknowledged = vi.fn(() => acked.promise);
+    const binding = authority.bindTaskPresenter({
+      configuredServerId: SERVER_ID,
+      generation: 7,
+      host: { acknowledged, bound: () => bound.promise, execution: core.execution },
+      operation: { target: 'long_running_tool', type: 'tools/call' },
+      taskHandle,
+    });
+    const decision = binding.presenter.presentForm(formRequest, context('approval'));
+    await Promise.resolve();
+    expect(core.execution.requestInput).not.toHaveBeenCalled();
+    bound.resolve();
+    await vi.waitFor(() => expect(core.inputs).toHaveLength(1));
+    const receipt = core.inputs[0]?.settle(accept('task-input-1', 'approval'));
+    await expect(decision).resolves.toEqual({
+      action: 'accept',
+      content: { workspace: 'Engineering' },
+    });
+    expect(acknowledged).toHaveBeenCalledWith('approval');
+    acked.resolve();
+    await expect(receipt).resolves.toBe('remote-acknowledged');
+    binding.release();
+    authority.close();
+  });
+
+  it('rejects the receipt when the task update outcome is unknown', async () => {
+    const authority = new McpElicitationPresenterAuthority({
+      createPresentationId: () => 'task-input-2',
+      openExternal: vi.fn(),
+      resolveServer: () => connectedServer(),
+    });
+    const core = recordingCore();
+    const unknown = new Error('MCP task "task-1" input "approval" has an unknown delivery outcome');
+    const binding = authority.bindTaskPresenter({
+      configuredServerId: SERVER_ID,
+      generation: 7,
+      host: {
+        acknowledged: () => Promise.reject(unknown),
+        bound: async () => undefined,
+        execution: core.execution,
+      },
+      operation: { type: 'tools/call' },
+      taskHandle,
+    });
+    const decision = binding.presenter.presentForm(formRequest, context('approval'));
+    await vi.waitFor(() => expect(core.inputs).toHaveLength(1));
+    await expect(core.inputs[0]?.settle(accept('task-input-2', 'approval'))).rejects.toBe(unknown);
+    await expect(decision).resolves.toMatchObject({ action: 'accept' });
+    binding.release();
+    authority.close();
+  });
+
+  it('refuses task input when Core refuses the task binding', async () => {
+    const authority = new McpElicitationPresenterAuthority({
+      openExternal: vi.fn(),
+      resolveServer: () => connectedServer(),
+    });
+    const core = recordingCore();
+    const refusal = new Error('Private MCP execution authority is unavailable or stale');
+    const binding = authority.bindTaskPresenter({
+      configuredServerId: SERVER_ID,
+      generation: 7,
+      host: { bound: () => Promise.reject(refusal), execution: core.execution },
+      operation: { type: 'tools/call' },
+      taskHandle,
+    });
+    // The refusal stays the cause: a mounted-app run diagnosed the Main origin defect from it.
+    await expect(
+      binding.presenter.presentForm(formRequest, context('approval'))
+    ).rejects.toMatchObject({ cause: refusal, code: 'mcp-elicitation-origin-unbound' });
+    expect(core.execution.requestInput).not.toHaveBeenCalled();
+    binding.release();
+    authority.close();
   });
 });

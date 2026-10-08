@@ -65,7 +65,9 @@ try {
   await Promise.all([finished.promise, responded.promise]);
   const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
   await writeFile(
-    new URL('./approved-run-log.json', import.meta.url),
+    new URL(
+      import.meta.resolve('@brainstrike/test-utils/fixtures/committed-approved-host-run.json')
+    ),
     `${JSON.stringify(rows, null, 2)}\n`
   );
   process.stdout.write(`Recorded ${rows.length} committed rows\n`);

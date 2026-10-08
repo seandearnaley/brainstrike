@@ -27,6 +27,15 @@ and Root in the startup error; discovery is never published for that startup.
 This seam qualifies Core startup ordering; the Main bootstrap borrow and production
 Memory vector/local-inference capability remain separate integration gates.
 
+Host close distinguishes a reported run/checkpoint outcome from physical retirement.
+Admission is fenced; SDK/effect work, run owners, terminal writes, platform and indexer
+owners must join before Runtime closes the canonical StateStore writer. Joined outcome
+failures still reject close with their original causes. Opaque or rejected retirement
+keeps the writer and Root owned, even when its cause is the same run abort object.
+StateStore close callers share its original promise; failed writer termination retains
+Root and every independent database/termination failure. Crash-lifetime containment
+and recovery require their separately qualified production authority.
+
 Authenticated `thread/delete {threadId}` is a Root lifecycle operation. Core
 fences that thread's commands, aborts its pending admission and run signals, and
 joins SDK effects, Memory/provider work and run owners before StateStore's existing

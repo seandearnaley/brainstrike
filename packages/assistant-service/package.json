@@ -5,10 +5,25 @@
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-wire": "workspace:*",
-    "@brainstrike/logging": "workspace:*"
+    "@brainstrike/canonical-ingestion": "workspace:*",
+    "@brainstrike/db": "workspace:*",
+    "@brainstrike/effect-kit": "workspace:*",
+    "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/host-lease": "workspace:*",
+    "@brainstrike/indexer": "workspace:*",
+    "@brainstrike/indexing-contract": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
+    "@brainstrike/secure-fs-native": "workspace:*",
+    "@brainstrike/sqlite-query": "workspace:*",
+    "@brainstrike/state-store": "workspace:*",
+    "@brainstrike/storage": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
+    "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "concurrently": "catalog:",
@@ -39,6 +54,16 @@
       "types": "./dist/memory-model-targets.d.ts",
       "import": "./dist/memory-model-targets.mjs",
       "require": "./dist/memory-model-targets.js"
+    },
+    "./node-native-text-services": {
+      "types": "./dist/node-native-text-services.d.ts",
+      "import": "./dist/node-native-text-services.mjs",
+      "require": "./dist/node-native-text-services.js"
+    },
+    "./node-workspace-services": {
+      "types": "./dist/node-workspace-services.d.ts",
+      "import": "./dist/node-workspace-services.mjs",
+      "require": "./dist/node-workspace-services.js"
     },
     "./ports": {
       "types": "./dist/ports.d.ts",
@@ -94,7 +119,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
   "sideEffects": false
 }

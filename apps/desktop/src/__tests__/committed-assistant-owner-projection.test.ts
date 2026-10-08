@@ -1,9 +1,9 @@
 import { HostLogRowSchema } from '@brainstrike/agent-host/protocol';
 import { CommittedThreadView } from '@brainstrike/agent-host/thread-view';
 import { CommittedAssistantLogProjection } from '@brainstrike/assistant-ui';
-import { expect, it } from 'vitest';
 // Actual HostCore, native SQLite and public SDK approved-run capture, unchanged.
-import recording from './fixtures/committed-approved-host-run.json';
+import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
+import { expect, it } from 'vitest';
 
 const rows = recording.map((row) => HostLogRowSchema.parse(row));
 const start = rows.find(({ event }) => event.type === 'run.started');

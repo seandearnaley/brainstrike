@@ -33,6 +33,7 @@
     "./vitest-provided-context": "./src/vitest-provided-context.ts",
     "./async-util-timeout-proof": "./src/async-util-timeout-proof.ts",
     "./test-timeouts": "./src/test-timeouts.ts",
+    "./fixtures/committed-approved-host-run.json": "./fixtures/committed-approved-host-run.json",
     "./fixtures/committed-host-plan.json": "./fixtures/committed-host-plan.json",
     "./fixtures/committed-host-question.json": "./fixtures/committed-host-question.json",
     "./fixtures/committed-rich-host-runs.json": "./fixtures/committed-rich-host-runs.json",
@@ -58,6 +59,7 @@
   },
   "files": [
     "dist/**",
+    "fixtures/*.json",
     "fixtures/observation-memory.mjs"
   ],
   "license": "MIT",

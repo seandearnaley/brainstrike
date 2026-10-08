@@ -450,14 +450,16 @@ export class McpTaskLifecycle {
       if (signal.aborted) {
         throw abortReason(signal);
       }
+      // The persisted state reaches the task authority before the interaction
+      // consumer, which parks this observation on the user's answer: while the
+      // server waits for input, the authority must already project it.
+      await raceAbort(Promise.resolve(this.onUpdate(persisted)), signal);
       if (persisted.blockedDiagnostic !== null) {
-        await raceAbort(Promise.resolve(this.onUpdate(persisted)), signal);
         return persisted;
       }
       if (this.observationPort) {
         await raceAbort(this.observationPort.publish(result), signal);
       }
-      await raceAbort(Promise.resolve(this.onUpdate(persisted)), signal);
       if (TERMINAL_TASK_STATUSES.has(persisted.status)) {
         return persisted;
       }
