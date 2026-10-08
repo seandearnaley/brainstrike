@@ -1,6 +1,7 @@
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { type DbHandle, makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { useMemo } from 'react';
+import { useAssistantThreadHostRuns } from './assistant-thread-host-context';
 import { useWebStartupReap } from './web-startup-reap';
 
 const ACTIVE_ASSISTANT_THREAD_IDS_SQL = `
@@ -72,10 +73,19 @@ export function useActiveAssistantThreadIds({
   const projection = useMemo(() => projectActiveThreadIds(liveQuery.rows), [liveQuery.rows]);
   const startupError = webStartupReap.status === 'error' ? webStartupReap.error : null;
   const error = startupError ?? liveQuery.error ?? projection.error;
+  // Agent-host threads have no run rows: their committed log is the source.
+  const hostRuns = useAssistantThreadHostRuns();
+  const threadIds = useMemo(() => {
+    const historyIds = error ? EMPTY_ACTIVE_THREAD_IDS : projection.threadIds;
+    const hostIds = [...hostRuns].flatMap(([threadId, run]) =>
+      run.status === 'running' ? [threadId] : []
+    );
+    return hostIds.length === 0 ? historyIds : new Set([...historyIds, ...hostIds]);
+  }, [error, hostRuns, projection.threadIds]);
 
   return {
     error,
     loading: liveQuery.loading || (!desktopOwnsRunLifecycle && webStartupReap.status === 'pending'),
-    threadIds: error ? EMPTY_ACTIVE_THREAD_IDS : projection.threadIds,
+    threadIds,
   };
 }

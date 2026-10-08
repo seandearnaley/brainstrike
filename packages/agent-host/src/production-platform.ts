@@ -65,6 +65,7 @@ export interface ProductionHostPlatformOptions {
   ) => Promise<Exclude<LanguageModel, string>>;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   readonly startup: HostStartupContext;
+  readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
 function rootModel(
@@ -177,6 +178,9 @@ export async function createProductionHostPlatform(
   stateIndex = openHostStateIndex(options.startup.store.root);
   const index = await stateIndex;
   return {
+    ...(options.validateWorkspaceBinding
+      ? { validateWorkspaceBinding: options.validateWorkspaceBinding }
+      : {}),
     admitRun: async (request) => {
       if (closing) {
         throw new Error('Production host is closing');
@@ -235,6 +239,8 @@ export async function createProductionHostPlatform(
         const selection: HostRunAdmission = {
           close: release,
           configuration: selected.configuration,
+          // Like the legacy Memory default (`generateTitle: true`).
+          generatesThreadTitle: true,
           model,
           openRun: (context) =>
             StateStoreHostMemory.open(context, {

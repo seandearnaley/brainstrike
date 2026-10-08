@@ -54,6 +54,7 @@ import {
   ensureHostRunAdmission,
   hostRunToolDecision,
   hostRunTools,
+  hostStepInteractions,
   prepareHostProviderStep,
 } from './run-admission.js';
 import {
@@ -83,7 +84,6 @@ import { HostThreadWorkspaceState } from './workspace-state.js';
 export { jsonValue } from './json-value.js';
 
 type Action = Extract<HostEvent, { type: 'effect.started' }>;
-type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
 export type HostEventStore = Pick<
   StateStore,
   'append' | 'read' | 'root' | 'syncBoundary' | 'threads'
@@ -95,16 +95,21 @@ export class HostCore {
   private readonly mcpInputs = new HostMcpInputState();
   private readonly threads = new Set<string>();
   readonly history = new HostHistory(() => ({ platform: this.platform, threads: this.threads }));
-  private readonly titles = new HostThreadTitleState((params, event) =>
-    this.accept(
-      params.threadId,
-      'thread/rename',
-      params,
-      { accepted: true },
-      [event],
-      this.foldRows
-    )
-  );
+  private readonly titles = new HostThreadTitleState({
+    admit: (threadId, perform) => this.admit(threadId, perform),
+    append: async (threadId, event) => {
+      await this.append(threadId, [event], 'normal', this.foldRows);
+    },
+    rename: (params, event) =>
+      this.accept(
+        params.threadId,
+        'thread/rename',
+        params,
+        { accepted: true },
+        [event],
+        this.foldRows
+      ),
+  });
   private readonly workspaces = new HostThreadWorkspaceState((method, params, event, durability) =>
     this.accept(
       params.threadId,
@@ -581,6 +586,7 @@ export class HostCore {
     try {
       const owner = await this.openRun(run);
       const admission = await ensureHostRunAdmission(this.platform, run);
+      this.titles.request(run, admission, this.runs.values());
       const result = streamText({
         abortSignal: run.controller.signal,
         maxRetries: 0,
@@ -614,27 +620,7 @@ export class HostCore {
               type: 'model.step',
               usage: jsonValue(step.usage),
             };
-            const interactions: Interaction[] = step.content.flatMap((part) => {
-              if (part.type !== 'tool-approval-request' || part.isAutomatic === true) {
-                return [];
-              }
-              const registered = hostRunTools(run)[part.toolCall.toolName];
-              if (!registered) {
-                throw new Error('Approval references an unknown tool');
-              }
-              return [
-                {
-                  input: jsonValue(part.toolCall.input),
-                  interactionId: part.approvalId,
-                  kind: registered.interaction?.kind ?? 'approval',
-                  runId: run.id,
-                  toolCallId: part.toolCall.toolCallId,
-                  toolId: part.toolCall.toolName,
-                  toolIdentity: registered.identity,
-                  type: 'interaction.requested',
-                },
-              ];
-            });
+            const interactions = hostStepInteractions(run, step.content);
             // The complete public SDK context and its answerable interactions
             // share one SQLite commit, including when the provider stream is interrupted.
             const rows = await this.append(
@@ -948,7 +934,7 @@ export class HostCore {
             this.fold(row);
           }
         })
-    );
+    ).then(() => this.titles.settle(run));
   }
 
   close(): Promise<void> {

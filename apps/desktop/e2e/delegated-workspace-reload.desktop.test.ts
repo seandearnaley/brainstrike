@@ -1,15 +1,14 @@
+import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { expect, test } from './fixtures/electron-fixture';
-import {
-  configureAssistantProvider,
-  readAssistantMockRequests,
-  setupAssistantMock,
-} from './utils/assistant-mock';
+import { readCommittedRuns } from './utils/agent-host-log';
+import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 /** Real Electron shell, native DB and workspace hydration; inference is mocked. */
 test('restores distinct child tabs and native transcripts without executing a run @smoke', async ({
+  electron,
   modelProvider,
   window,
 }, testInfo) => {
@@ -36,19 +35,24 @@ test('restores distinct child tabs and native transcripts without executing a ru
     rootPanel.getByRole('button', { includeHidden: true, name: 'Edit message' })
   ).toHaveCount(1);
 
-  const requests = (await readAssistantMockRequests(window)) as Array<{
-    data: { memory: { resourceId: string; runId: string; threadId: string } };
-  }>;
-  expect(requests).toHaveLength(1);
-  const memory = requests[0]?.data.memory;
-  expect(memory).toMatchObject({
-    resourceId: expect.any(String),
-    runId: expect.any(String),
-    threadId: expect.any(String),
-  });
-  if (!memory) {
-    throw new Error('The root request has no native memory identity');
+  // Exactly one root turn reached the provider, carrying the prompt.
+  const rootTurns = modelProvider.requests().filter(({ toolNames }) => toolNames.length > 0);
+  expect(rootTurns).toHaveLength(1);
+  expect(JSON.stringify(rootTurns[0]?.messages)).toContain('Prepare the child workspace fixture');
+  // The root's committed identity: its open tab and the host's run for it.
+  const threadId = (
+    await window
+      .getByRole('tablist', { name: 'Open assistant threads' })
+      .getByRole('tab', { selected: true })
+      .getAttribute('id')
+  )?.replace('assistant-thread-tab-', '');
+  const runId = threadId
+    ? (await readCommittedRuns(electron.getUserDataDir(), threadId)).at(-1)?.runId
+    : undefined;
+  if (!(threadId && runId)) {
+    throw new Error('The root has no committed thread and run identity');
   }
+  const memory = { resourceId: WORKSPACE_MEMORY_RESOURCE_ID, runId, threadId };
   await window.evaluate(async (memory) => {
     const api = (globalThis as typeof globalThis & { electronAPI?: unknown }).electronAPI;
     const query = (
@@ -198,15 +202,10 @@ test('restores distinct child tabs and native transcripts without executing a ru
     );
   }, memory);
 
-  const unexpectedModelRequests: string[] = [];
-  window.on('request', (request) => {
-    if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/assistant')) {
-      unexpectedModelRequests.push(request.url());
-    }
-  });
+  // Every provider request from here on would be a child or root executing.
+  const settledProviderRequests = modelProvider.requests().length;
   await window.reload();
   await mockFileSystemOperations(window);
-  await setupAssistantMock(window, { message: 'Opening a child must not request this.' });
   await ensureAssistantShellVisible(window);
   await window
     .getByTestId('thread-row')
@@ -368,10 +367,8 @@ test('restores distinct child tabs and native transcripts without executing a ru
   // Observe the outgoing write, not the empty seed before it has persisted.
   await expect.poll(async () => (await readOtherWorkspace())?.persisted).toBe(true);
   expect((await readOtherWorkspace())?.payload.apps.openAppIds).toEqual([]);
-  // The page-side mock observes the post-reload view; the network listener above
-  // also covers the interval before the mock is reinstalled after navigation.
-  expect(await readAssistantMockRequests(window)).toHaveLength(0);
-  expect(unexpectedModelRequests).toHaveLength(0);
+  // Opening the restored children executed nothing at the provider boundary.
+  expect(modelProvider.requests()).toHaveLength(settledProviderRequests);
   await window.screenshot({
     animations: 'disabled',
     path: testInfo.outputPath('restored-child-workspace.png'),
@@ -431,13 +428,12 @@ test('restores distinct child tabs and native transcripts without executing a ru
 
   await window.reload();
   await mockFileSystemOperations(window);
-  await setupAssistantMock(window, { message: 'Deleted children must never execute.' });
   await ensureAssistantShellVisible(window);
   await expect(
     window.getByRole('button', { exact: true, name: 'Other root navigation' })
   ).toBeVisible();
   await expect(window.getByRole('tab', { exact: true, name: 'Cedar' })).toHaveCount(0);
   await expect(window.getByRole('button', { exact: true, name: 'Cedar Child' })).toHaveCount(0);
-  expect(await readAssistantMockRequests(window)).toHaveLength(0);
-  expect(unexpectedModelRequests).toHaveLength(0);
+  // Deleted children never execute.
+  expect(modelProvider.requests()).toHaveLength(settledProviderRequests);
 });

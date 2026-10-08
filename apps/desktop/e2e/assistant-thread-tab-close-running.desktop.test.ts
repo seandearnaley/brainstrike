@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { readCommittedRunStatus } from './utils/agent-host-log';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 
@@ -32,25 +33,6 @@ async function openThreadsPanel(page: Page): Promise<void> {
   }
   await page.getByTestId('threads-tab-trigger').click();
   await expect(page.getByTestId('threads-panel')).toBeVisible({ timeout: 30_000 });
-}
-
-async function readLatestRunStatus(page: Page, threadId: string): Promise<string | null> {
-  return await page.evaluate(async (id) => {
-    const { query } = (
-      window as unknown as {
-        electronAPI: {
-          db: {
-            query: (sql: string, params: unknown[]) => Promise<{ rows: Array<{ status: string }> }>;
-          };
-        };
-      }
-    ).electronAPI.db;
-    const result = await query(
-      'SELECT status FROM brainstrike_assistant_thread_runs WHERE thread_id = $1 ORDER BY started_at DESC LIMIT 1',
-      [id]
-    );
-    return result.rows[0]?.status ?? null;
-  }, threadId);
 }
 
 test('closing a running second turn of a titled thread hides it: no cancel, the run completes, reopening shows the response', async ({
@@ -92,6 +74,7 @@ test('closing a running second turn of a titled thread hides it: no cancel, the 
     });
     await ensureMockWorkspaceOpen(window);
     await configureAssistantProvider(window, { compositeModelKey: MODEL, provider: 'openrouter' });
+    await enableAssistantCatalogModel(window, MODEL);
     await ensureAssistantShellVisible(window);
     await openThreadsPanel(window);
 
@@ -109,7 +92,7 @@ test('closing a running second turn of a titled thread hides it: no cancel, the 
     await panel.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(panel.getByText(FIRST_TEXT, { exact: true })).toBeVisible({ timeout: 60_000 });
     await expect
-      .poll(() => readLatestRunStatus(window, threadId), { timeout: 60_000 })
+      .poll(() => readCommittedRunStatus(electron.getUserDataDir(), threadId), { timeout: 60_000 })
       .toBe('completed');
     await expect(strip.getByRole('tab', { name: THREAD_TITLE })).toHaveCount(1, {
       timeout: 30_000,
@@ -131,7 +114,7 @@ test('closing a running second turn of a titled thread hides it: no cancel, the 
 
     release.resolve();
     await expect
-      .poll(() => readLatestRunStatus(window, threadId), { timeout: 60_000 })
+      .poll(() => readCommittedRunStatus(electron.getUserDataDir(), threadId), { timeout: 60_000 })
       .toBe('completed');
     await expect(spinners).toHaveCount(0);
     await expect(threadsPanel.getByTestId('thread-unseen-glyph')).toHaveCount(1);
