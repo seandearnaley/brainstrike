@@ -85,7 +85,7 @@ interface LabExit {
 }
 
 /** Owned resources close in reverse acquisition order; every failure is kept. */
-const owned: (() => Promise<void>)[] = [];
+const owned: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   const failures: unknown[] = [];
   for (const release of owned.splice(0).reverse()) {
@@ -101,12 +101,23 @@ afterEach(async () => {
 });
 
 /** Fork the lab owner with an empty environment and record its OS start identity. */
-async function startLab(scenario: LabScenario) {
+async function startLab(scenario: LabScenario, testSignal: AbortSignal) {
   const child = fork(LAB_FIXTURE, [], {
     env: {},
     execArgv: [],
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
+  const exit = Promise.withResolvers<LabExit>();
+  child.once('exit', (code, signal) => exit.resolve({ code, signal }));
+  // A broken fixture is still physically joined (kill is a no-op after exit); the failure is kept.
+  const abandon = async (cause: unknown): Promise<never> => {
+    child.kill('SIGKILL');
+    await exit.promise;
+    throw cause;
+  };
+  // Owned from the fork, and the test's signal cancels every wait, so a timeout leaves no child.
+  let close = (): Promise<unknown> => abandon(undefined).catch(() => undefined);
+  owned.push(() => close());
   let output = '';
   const capture = (chunk: Buffer): void => {
     output = `${output}${chunk.toString('utf8')}`.slice(-4096);
@@ -114,13 +125,10 @@ async function startLab(scenario: LabScenario) {
   child.stdout?.on('data', capture);
   child.stderr?.on('data', capture);
   const inbox = new Observed<unknown>();
-  const exit = Promise.withResolvers<LabExit>();
-  let exited = false;
   child.on('message', (message) => inbox.push(message));
-  child.once('exit', (code, signal) => {
-    exited = true;
-    exit.resolve({ code, signal });
-  });
+  const cancelled = Promise.withResolvers<never>();
+  cancelled.promise.catch(() => undefined);
+  testSignal.addEventListener('abort', () => cancelled.reject(testSignal.reason), { once: true });
   let read = 0;
   const next = async () => {
     const message = await Promise.race([
@@ -130,17 +138,10 @@ async function startLab(scenario: LabScenario) {
           `MCP lab child exited ${JSON.stringify(status)} before replying: ${output}`
         );
       }),
+      cancelled.promise,
     ]);
     read += 1;
     return LabMessageSchema.parse(message.value);
-  };
-  // A broken fixture is still physically joined; the original failure is kept.
-  const abandon = async (cause: unknown): Promise<never> => {
-    if (!exited) {
-      child.kill('SIGKILL');
-    }
-    await exit.promise;
-    throw cause;
   };
   child.send({ scenario, type: 'start' });
   const ready = await next().catch(abandon);
@@ -170,11 +171,9 @@ async function startLab(scenario: LabScenario) {
     return receipt;
   };
   let closing: ReturnType<typeof join> | undefined;
-  const close = (): ReturnType<typeof join> => (closing ??= join().catch(abandon));
-  owned.push(async () => {
-    await close();
-  });
-  return { close, ready, start };
+  const closeLab = (): ReturnType<typeof join> => (closing ??= join().catch(abandon));
+  close = closeLab;
+  return { close: closeLab, ready, start };
 }
 
 /** Event-driven observation; a missing fact fails at the unchanged test timeout. */
@@ -562,8 +561,8 @@ async function reopenAndRecover(previous: ModernHost, lab: LabProcess) {
 }
 
 describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', () => {
-  it('settles a modern Task input through the admitted executor, the canonical task authority and the Tasks database', async () => {
-    const lab = await startLab('tasks-reference');
+  it('settles a modern Task input through the admitted executor, the canonical task authority and the Tasks database', async (context) => {
+    const lab = await startLab('tasks-reference', context.signal);
     const modern = await openTasksHost(lab, { policy: 'ask' });
     const { log, runId, threadId } = await startThreadRun(modern.client, 'Start the task');
     const approval = await log.until((rows) => eventOf(rows, 'interaction.requested'));
@@ -651,8 +650,8 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     expect(diagnostics(modern)).toEqual([LEASE_UNAVAILABLE]);
   });
 
-  it('withdraws pending server input when the task authority cancels the task and fences the late answer', async () => {
-    const lab = await startLab('tasks-reference');
+  it('withdraws pending server input when the task authority cancels the task and fences the late answer', async (context) => {
+    const lab = await startLab('tasks-reference', context.signal);
     const modern = await openTasksHost(lab);
     const { log, runId } = await startThreadRun(modern.client, 'Start, then cancel the task');
     const presentation = await modern.presentations.until((items) => items[0]);
@@ -680,8 +679,8 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     expect(diagnostics(modern)).toEqual([LEASE_UNAVAILABLE]);
   });
 
-  it('delivers a refused server input over the transport without completing the task or asking again', async () => {
-    const lab = await startLab('tasks-reference');
+  it('delivers a refused server input over the transport without completing the task or asking again', async (context) => {
+    const lab = await startLab('tasks-reference', context.signal);
     const modern = await openTasksHost(lab);
     const { log, runId } = await startThreadRun(modern.client, 'Start, then refuse the task');
     const presentation = await modern.presentations.until((items) => items[0]);
@@ -725,8 +724,8 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     );
   });
 
-  it('runs one App tool with rich and text composition and keeps UI metadata away from the model', async () => {
-    const lab = await startLab('apps-reference');
+  it('runs one App tool with rich and text composition and keeps UI metadata away from the model', async (context) => {
+    const lab = await startLab('apps-reference', context.signal);
     for (const appUi of ['rich', 'text'] as const) {
       const modern = await openModernHost({
         appUi,
@@ -804,8 +803,8 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     }
   });
 
-  it('joins the admitted request, task activity, transport and lab process on Root shutdown, fences late events, and recovers the durable input after restart', async () => {
-    const lab = await startLab('tasks-reference');
+  it('joins the admitted request, task activity, transport and lab process on Root shutdown, fences late events, and recovers the durable input after restart', async (context) => {
+    const lab = await startLab('tasks-reference', context.signal);
     const first = await openTasksHost(lab);
     const { log, runId, threadId } = await startThreadRun(first.client, 'Start, then shut down');
     const presentation = await first.presentations.until((items) => items[0]);
@@ -906,8 +905,8 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
 
   // RED (PR #3543 correction): the public host/client protocol commits no answerable record of
   // server-originated MCP input; only the process-local presenter capability receives it.
-  it('commits server-originated task input where an attached public host client can answer it', async () => {
-    const lab = await startLab('tasks-reference');
+  it('commits server-originated task input where an attached public host client can answer it', async (context) => {
+    const lab = await startLab('tasks-reference', context.signal);
     const modern = await openTasksHost(lab);
     const { log, runId } = await startThreadRun(modern.client, 'Start the task');
     const presentation = await modern.presentations.until((items) => items[0]);
@@ -942,8 +941,8 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
   // RED (PR #3543 correction): run/stop aborts the task poller (it borrows the tool call's
   // signal) and releases the binding, but the presented input stays pending. A late answer is
   // accepted and delivered; the server completes a task this host no longer observes.
-  it('fences task-bound server input when the run that admitted it stops', async () => {
-    const lab = await startLab('tasks-reference');
+  it('fences task-bound server input when the run that admitted it stops', async (context) => {
+    const lab = await startLab('tasks-reference', context.signal);
     const first = await openTasksHost(lab);
     const { log, runId, threadId } = await startThreadRun(first.client, 'Start, then stop');
     const presentation = await first.presentations.until((items) => items[0]);
@@ -974,8 +973,8 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
 
   // RED (PR #3543 correction): the lifecycle persists `input_required`, then awaits the parked
   // interaction consumer before publishing, so the task authority projects a stale `working`.
-  it('projects pending server input through the task authority while the server waits for it', async () => {
-    const lab = await startLab('tasks-reference');
+  it('projects pending server input through the task authority while the server waits for it', async (context) => {
+    const lab = await startLab('tasks-reference', context.signal);
     const modern = await openTasksHost(lab);
     const { log } = await startThreadRun(modern.client, 'Start the task');
     const presentation = await modern.presentations.until((items) => items[0]);
