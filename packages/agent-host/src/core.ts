@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { StateStore } from '@brainstrike/state-store';
 import {
   type LanguageModel,
@@ -417,8 +417,24 @@ export class HostCore {
   }
 
   startRun(params: HostParams<'run/start'>): Promise<{ runId: string }> {
-    return this.command('run/start', params, () =>
-      this.admitRun('run/start', params, () => hostStartPosition(this.runs.values(), params))
+    // An image is stored once: its bytes are the run's (run.started), and the
+    // command record names it by digest, which still detects a reused command.
+    const record = params.attachments
+      ? {
+          ...params,
+          attachments: params.attachments.map(({ data, ...image }) => ({
+            ...image,
+            sha256: createHash('sha256').update(data).digest('hex'),
+          })),
+        }
+      : params;
+    return this.command('run/start', record, () =>
+      this.admitRun(
+        'run/start',
+        params,
+        () => hostStartPosition(this.runs.values(), params),
+        record
+      )
     );
   }
 
@@ -435,7 +451,8 @@ export class HostCore {
   private async admitRun(
     method: 'run/start' | 'run/regenerate',
     params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
-    position: () => HostRunPosition
+    position: () => HostRunPosition,
+    record: { readonly commandId: string } = params
   ): Promise<{ runId: string }> {
     assertHostRunAdmissible(this.threads, this.runs.values(), this.conversationIds, params);
     const selected = position();
@@ -467,7 +484,7 @@ export class HostCore {
       }
       run.release = release;
       const result = { runId: run.id };
-      await this.accept(params.threadId, method, params, result, [started]);
+      await this.accept(params.threadId, method, record, result, [started]);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);

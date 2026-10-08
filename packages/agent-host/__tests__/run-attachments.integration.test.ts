@@ -5,10 +5,11 @@
  * refused at admission when they break the shared attachment contract.
  */
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { attachAgentHost, type HostClient } from '../src/client.js';
@@ -54,8 +55,9 @@ function userParts(prompt: Prompt): string[][] {
   );
 }
 
-async function setup() {
-  const root = await mkdtemp(join(tmpdir(), 'bs-m3-run-attachments-'));
+/** `indexed`: with the derived state index, which thread deletion's blob GC requires. */
+async function setup(options: { readonly indexed?: boolean } = {}) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-run-attachments-')));
   roots.push(root);
   let calls = 0;
   const model = new MockLanguageModelV4({
@@ -83,7 +85,27 @@ async function setup() {
     resolveModel: async () => model,
     tools: {},
   };
-  let host = await startAgentHost({ lifetime: 'persistent', root }, platform);
+  const start = (): Promise<AgentHost> =>
+    options.indexed
+      ? startAgentHost({ lifetime: 'persistent', root }, async (context) => {
+          const native = await openIndexer(
+            {
+              dbPath: join(root, 'index.sqlite'),
+              embedding: { indexMode: 'text-only' },
+              rootIds: [root],
+              stateProjection: {
+                mode: 'dev',
+                module: new URL('../dist/state-projection.js', import.meta.url).href,
+              },
+              stateRoot: root,
+            },
+            { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+          );
+          await context.register(async () => native.close());
+          return { ...platform, stateIndexer: createStateStoreIndexer(native) };
+        })
+      : startAgentHost({ lifetime: 'persistent', root }, platform);
+  let host = await start();
   hosts.push(host);
   let client = await attachAgentHost(host.record);
   clients.push(client);
@@ -94,11 +116,12 @@ async function setup() {
     restart: async () => {
       await client.close();
       await host.close();
-      host = await startAgentHost({ lifetime: 'persistent', root }, platform);
+      host = await start();
       hosts.push(host);
       client = await attachAgentHost(host.record);
       clients.push(client);
     },
+    root,
     threadId,
   };
 }
@@ -157,4 +180,73 @@ test('an attachment outside the shared contract is refused before any run starts
     .request('thread/read', { fromSeq: 0, threadId: harness.threadId });
   expect(rows.some((row) => row.event.type === 'run.started')).toBe(false);
   expect(harness.model.doStreamCalls).toHaveLength(0);
+});
+
+/** Files under the host's data root whose bytes contain `needle`, relative to the root. */
+async function filesContaining(root: string, needle: string): Promise<string[]> {
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  const matches: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue;
+    }
+    const path = join(entry.parentPath, entry.name);
+    if ((await readFile(path)).includes(needle)) {
+      matches.push(path.slice(root.length + 1));
+    }
+  }
+  return matches.sort();
+}
+
+test('an attached image is stored once, in one blob, and thread deletion drops it', async () => {
+  const harness = await setup({ indexed: true });
+  // Large enough that its run.started spools to a blob (>= 12 KB), as a real photo does.
+  const bytes = Buffer.concat([
+    Buffer.from(PNG.split(',')[1] ?? '', 'base64'),
+    Buffer.alloc(16_384, 7),
+  ]);
+  const base64 = bytes.toString('base64');
+  const image: HostImageAttachment = {
+    data: `data:image/png;base64,${base64}`,
+    mediaType: 'image/png',
+    name: 'photo.png',
+    type: 'image',
+  };
+  const { runId } = await start(harness, 'Describe the photo.', [image]);
+  const rows = await settle(harness, runId);
+  // The command record names the image by digest; its bytes are the run's.
+  const accepted = rows.find(
+    (row) => row.event.type === 'command.accepted' && row.event.method === 'run/start'
+  )?.event;
+  expect(JSON.stringify(accepted)).not.toContain(base64);
+  expect(accepted).toMatchObject({
+    payload: { attachments: [{ mediaType: 'image/png', name: 'photo.png', type: 'image' }] },
+  });
+  const stored = await filesContaining(harness.root, base64);
+  expect(stored).toHaveLength(1);
+  expect(stored[0]).toMatch(/^blobs\//);
+
+  await harness.client().request('thread/delete', { threadId: harness.threadId });
+  await expect.poll(() => filesContaining(harness.root, base64)).toEqual([]);
+});
+
+test('a repeated start command is recognised by its images, and different images are refused', async () => {
+  const harness = await setup();
+  const commandId = randomUUID();
+  const params = {
+    attachments: [IMAGE],
+    commandId,
+    modelId: 'scripted',
+    prompt: 'Describe it',
+    threadId: harness.threadId,
+  };
+  const first = await harness.client().request('run/start', params);
+  await settle(harness, first.runId);
+  expect(await harness.client().request('run/start', params)).toEqual(first);
+  await expect(
+    harness.client().request('run/start', {
+      ...params,
+      attachments: [{ ...IMAGE, data: `${PNG.slice(0, -4)}AAA=` }],
+    })
+  ).rejects.toThrow(/Command identity was reused with different input/);
 });
