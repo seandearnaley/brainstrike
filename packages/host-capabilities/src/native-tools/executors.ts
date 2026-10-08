@@ -13,6 +13,7 @@ import {
   type ManageTaskListInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   normalizeManageCanvasInput,
+  type ReadToolOutputArtifactCursorInput,
   type ReadWorkspaceDirectoryInput,
   type ReadWorkspaceFileInput,
   type RenameWorkspaceFileInput,
@@ -21,7 +22,12 @@ import {
   type StringReplaceWorkspaceFileInput,
   type WriteWorkspaceFileInput,
 } from '@brainstrike/agent';
+import {
+  readToolOutputArtifact,
+  type ScopedToolOutputArtifactReader,
+} from '@brainstrike/agent/tool-runtime';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import { createArtifactReaderModelProjection } from './artifact-reader-model-projection.js';
 import { SEARCH_NATIVE_TOOL_EXECUTORS } from './executors-search.js';
 import {
   runDeleteWorkspaceFile,
@@ -50,6 +56,11 @@ export type MastraTool = MastraTools[string];
 
 /** The thread-scoped stores and edit owner one request's shared tools write through. */
 export interface NativeToolPorts {
+  /**
+   * This request's durable tool-output artifacts; absent when it settles none,
+   * and the artifact reader then omits itself.
+   */
+  readonly artifactReader: ScopedToolOutputArtifactReader | undefined;
   /** Absent without an active thread; the tool then reports `no_active_thread`. */
   readonly canvas: CanvasStore | undefined;
   readonly fileMutations: FileMutationPorts;
@@ -80,6 +91,7 @@ export const SHARED_NATIVE_TOOL_IDS = [
   NATIVE_TOOL_ID.globWorkspace,
   NATIVE_TOOL_ID.manageCanvas,
   NATIVE_TOOL_ID.manageTaskList,
+  NATIVE_TOOL_ID.readToolOutputArtifact,
   NATIVE_TOOL_ID.readWorkspaceDirectory,
   NATIVE_TOOL_ID.readWorkspaceFile,
   NATIVE_TOOL_ID.renameWorkspaceFile,
@@ -135,6 +147,30 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
     toModelOutput: (output: unknown) =>
       projectReadWorkspaceFileModelOutput(output, resolveActiveDomainCharBudget()),
   }),
+  [NATIVE_TOOL_ID.readToolOutputArtifact]: ({ ports, resolveActiveDomainCharBudget }) => {
+    const reader = ports.artifactReader;
+    if (!reader) {
+      return;
+    }
+    return {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readToolOutputArtifact],
+      execute: async (input: ToolExecuteInput<ReadToolOutputArtifactCursorInput>) => {
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readToolOutputArtifact],
+          input
+        );
+        try {
+          return await readToolOutputArtifact({ ...resolvedInput, mode: 'cursor' }, { reader });
+        } catch (error) {
+          logToolFailure('readToolOutputArtifact failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: NATIVE_TOOL_ID.readToolOutputArtifact,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readToolOutputArtifact],
+      toModelOutput: createArtifactReaderModelProjection(resolveActiveDomainCharBudget),
+    };
+  },
   [NATIVE_TOOL_ID.readWorkspaceDirectory]: ({ runtimeData }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceDirectory],
     execute: async (input: ToolExecuteInput<ReadWorkspaceDirectoryInput>) => {

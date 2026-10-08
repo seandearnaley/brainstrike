@@ -83,6 +83,7 @@ function executionPorts(
     throw new Error('Core supplied no edit or state capability to a shared native tool');
   }
   return {
+    artifactReader: context.artifacts,
     canvas: hostCanvasStore(state),
     fileMutations: { ...(diagnostics ? { diagnostics } : {}), edits: () => edits },
     taskList: hostTaskListStore(state),
@@ -138,6 +139,8 @@ export function createSharedNativeHostTools(
     });
   };
   const admitted = bind(options.runtime, {
+    // The reader is admitted; Core supplies the thread's reader to each call.
+    artifactReader: { readRange: unavailableAtAdmission },
     canvas: undefined,
     fileMutations: { edits: unavailableAtAdmission },
     taskList: undefined,

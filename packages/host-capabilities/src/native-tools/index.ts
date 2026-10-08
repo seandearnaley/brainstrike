@@ -1,4 +1,5 @@
 export * from './agent-ignore-guard.js';
+export * from './artifact-reader-model-projection.js';
 export * from './canvas-document-content.js';
 export * from './canvas-state.js';
 export * from './executors.js';
