@@ -71,6 +71,37 @@ it('retains the assistant profile through index settings replacement and rebuild
   expect(mocks.closeProfile).toHaveBeenCalledOnce();
 });
 
+it('retries a failed host start once that host has released Root; Main retirement stays terminal', async () => {
+  const { activation } = fixture();
+  try {
+    // The failed start's rollback closes its platform, which releases Root capabilities.
+    mocks.acquireProfile.mockImplementationOnce(async () => {
+      await activation.closeRootCapabilities();
+      throw new Error('Host startup timed out');
+    });
+    await expect(activation.acquireProfile()).resolves.toBeUndefined();
+    expect(mocks.createProfileOwner).toHaveBeenCalledTimes(2);
+    expect(mocks.closeProfile).toHaveBeenCalledOnce();
+  } finally {
+    await activation.close();
+  }
+  await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
+});
+
+it('shows a failure that persists after the retry, and a later admission starts again', async () => {
+  const { activation } = fixture();
+  try {
+    mocks.acquireProfile
+      .mockRejectedValueOnce(new Error('first start failed'))
+      .mockRejectedValueOnce(new Error('retry failed'));
+    await expect(activation.acquireProfile()).rejects.toThrow('retry failed');
+    await expect(activation.acquireProfile()).resolves.toBeUndefined();
+    expect(mocks.createProfileOwner).toHaveBeenCalledTimes(3);
+  } finally {
+    await activation.close();
+  }
+});
+
 it('acquires the workspace index.sqlite with no state truth root or projection', async () => {
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)

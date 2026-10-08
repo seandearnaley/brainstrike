@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { HostAttachment, HostLaunchOptions, HostStartOptions } from '@brainstrike/host-lease';
+import type { MessagePortMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const launch = vi.hoisted(() => vi.fn());
@@ -158,6 +159,37 @@ describe('desktop host lease ownership', () => {
     child.exit(7);
     await expect(closing).rejects.toThrow('7');
     await expect(owner.acquire()).rejects.toThrow('closing');
+  });
+  it('keeps the platform port open while a timed-out host is still cleaning up, and closes it once that host exits', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    // Slow startup: the launcher's startup deadline fires before the host is ready.
+    launch.mockImplementation(async (_root: string, options: HostLaunchOptions) => {
+      const deadline = new AbortController();
+      setTimeout(() => deadline.abort(new Error('Host startup timed out')), 10);
+      await options.spawn(start, deadline.signal);
+      return attachment;
+    });
+    // Slow cleanup: the cancelled host outlives the close deadline, still using its platform.
+    const child = new Child();
+    child.exitOnClose = false;
+    const platformClose = vi.fn(async () => undefined);
+    const owner = createDesktopHostLease({
+      closeTimeoutMs: 20,
+      fork: () => child,
+      platform: () => ({ close: platformClose, port: {} as MessagePortMain }),
+      root,
+    });
+    await expect(owner.acquire()).rejects.toThrow('Host acquisition and cleanup failed');
+    expect(child.posts).toContainEqual({ method: 'close' });
+    expect(child.pid).toBe(123);
+    expect(platformClose).not.toHaveBeenCalled();
+    await expect(owner.close()).rejects.toThrow('did not exit');
+
+    child.exit(0);
+    await vi.waitFor(() => expect(platformClose).toHaveBeenCalledOnce());
+    // Once that host has exited, its release is complete rather than a stale deadline failure.
+    await expect(owner.close()).resolves.toBeUndefined();
+    expect(child.kill).not.toHaveBeenCalled();
   });
   it('surfaces a cleanup timeout without killing its child or claiming the lease is released', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');

@@ -51,6 +51,8 @@ export interface NativeIndexRuntime<Attachment = unknown> {
   destroyIndex(): Promise<void>;
   mutateAuthority<T>(expected: NativePort, work: () => Promise<T>): Promise<T>;
   resume(): Promise<void>;
+  /** Joins a failed acquisition's release (its host exited, port closed); false when none failed. */
+  retireFailedProfile(): Promise<boolean>;
   retireProfile(): Promise<void>;
   retireReads(): Promise<void>;
   retireWorkspaceCollectionFiles(embeddingSetId: string): Promise<void>;
@@ -142,6 +144,7 @@ export function createNativeIndexRuntime<Attachment>(
   let profileOwner: ProfileOwner<Attachment> | undefined;
   let profileAcquisition: Promise<Attachment> | undefined;
   let profileRetirement: Promise<void> | undefined;
+  let failedProfileOwner: ProfileOwner<Attachment> | undefined;
   let indexOwner: IndexOwner | undefined;
   let scopes = '';
   let bindings = '';
@@ -174,8 +177,22 @@ export function createNativeIndexRuntime<Attachment>(
       throw new NativeAuthorityTransitionError('Native index admission is closed.');
     }
     profileOwner ??= dependencies.createProfileOwner();
-    profileAcquisition ??= profileOwner.acquire();
-    const attachment = await profileAcquisition;
+    const owner = profileOwner;
+    profileAcquisition ??= owner.acquire();
+    const acquiring = profileAcquisition;
+    let attachment: Attachment;
+    try {
+      attachment = await acquiring;
+    } catch (cause) {
+      // A failed acquisition already rolled back. The next admission starts a new
+      // owner whose launcher waits for this one's Root; its release is still joined.
+      if (profileAcquisition === acquiring) {
+        failedProfileOwner = owner;
+        profileOwner = undefined;
+        profileAcquisition = undefined;
+      }
+      throw cause;
+    }
     if ((closed && !options?.indexIndependent) || profileRetirement) {
       throw new NativeAuthorityTransitionError('Native profile ownership closed during startup.');
     }
@@ -485,9 +502,22 @@ export function createNativeIndexRuntime<Attachment>(
       readsClosed = false;
       await acquireProfile();
     },
+    retireFailedProfile: async (): Promise<boolean> => {
+      const failed = failedProfileOwner;
+      if (!failed) {
+        return false;
+      }
+      await failed.close();
+      if (failedProfileOwner === failed) {
+        failedProfileOwner = undefined;
+      }
+      return true;
+    },
     retireProfile: async (): Promise<void> => {
       const retirement = (async (): Promise<void> => {
         await closeIndex();
+        await failedProfileOwner?.close();
+        failedProfileOwner = undefined;
         await profileAcquisition?.catch(() => undefined);
         await profileOwner?.close();
         profileOwner = undefined;
