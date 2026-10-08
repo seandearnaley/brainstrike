@@ -1,6 +1,10 @@
-import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { Effect } from 'effect';
-import { ProviderAuthFlowCancelledError, type ProviderAuthFlowError } from './errors.js';
+import {
+  ProviderAuthFlowCancelledError,
+  type ProviderAuthFlowError,
+  runProviderAuthEffect,
+  toProviderAuthEffectError,
+} from './errors.js';
 
 /**
  * One deadline covers response headers and body for every OAuth request.
@@ -51,14 +55,15 @@ export async function guardedFetchText(
   }
 
   let requestSignal: AbortSignal | undefined;
-  // Non-abort failures pass through to the Promise caller unchanged.
-  // @effect-diagnostics-next-line unknownInEffectCatch:off
   const request = Effect.tryPromise({
     // An abort this effect's own interruption caused (the deadline or the
     // caller) is discarded with the fiber; only `orElse` builds the timeout
     // error. In Node, DOMException is an Error, so it would otherwise build two.
-    catch: (error: unknown): unknown =>
-      isAbortShaped(error) && !requestSignal?.aborted ? options.onTimeout() : error,
+    // Any other failure reaches the caller unchanged at the Promise boundary.
+    catch: (error: unknown) =>
+      isAbortShaped(error) && !requestSignal?.aborted
+        ? options.onTimeout()
+        : toProviderAuthEffectError(error),
     try: async (signal): Promise<GuardedFetchTextResult> => {
       requestSignal = signal;
       // A bare call preserves native browser fetch's required receiver.
@@ -72,7 +77,7 @@ export async function guardedFetchText(
     orElse: () => Effect.fail(options.onTimeout()),
   });
   try {
-    return await runAtPromiseBoundary(bounded, { signal: cancellation.signal });
+    return await runProviderAuthEffect(bounded, { signal: cancellation.signal });
   } finally {
     options.cancelSignal?.removeEventListener('abort', onCancel);
   }

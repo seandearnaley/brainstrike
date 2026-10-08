@@ -7,9 +7,13 @@ import type {
   OAuthProviderDescriptor,
   OAuthTokenGrant,
 } from '@brainstrike/assistant-contract';
-import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { Clock, Effect } from 'effect';
-import { ProviderAuthFlowCancelledError, ProviderAuthFlowError } from './errors.js';
+import {
+  ProviderAuthFlowCancelledError,
+  ProviderAuthFlowError,
+  runProviderAuthEffect,
+  toProviderAuthEffectError,
+} from './errors.js';
 import { guardedFetchText } from './fetch-guards.js';
 
 /**
@@ -275,19 +279,15 @@ export async function pollDeviceFlow(
   const injectedSleep = deps.sleep;
   const wait = (ms: number) =>
     injectedSleep
-      ? // An injected test sleep's rejection passes through to the flow's Promise caller unchanged.
-        // @effect-diagnostics-next-line unknownInEffectCatch:off
-        Effect.tryPromise({ catch: (error) => error, try: () => injectedSleep(ms) })
+      ? Effect.tryPromise({ catch: toProviderAuthEffectError, try: () => injectedSleep(ms) })
       : Effect.sleep(ms);
   const poll = Effect.gen(function* () {
     const deadline = (yield* readNow) + start.expiresInMs;
     let intervalMs = Math.max(start.intervalMs, DEVICE_FLOW_MIN_INTERVAL_MS);
 
     while ((yield* readNow) < deadline) {
-      // A poll's typed ProviderAuthFlowError passes through to the engine unchanged.
-      // @effect-diagnostics-next-line unknownInEffectCatch:off
       const response = yield* Effect.tryPromise({
-        catch: (error: unknown): unknown => error,
+        catch: toProviderAuthEffectError,
         try: (signal) =>
           performRequest(
             { ...deps, cancelSignal: signal },
@@ -359,7 +359,7 @@ export async function pollDeviceFlow(
     onCancel();
   }
   try {
-    return await runAtPromiseBoundary(poll, { signal: cancellation.signal });
+    return await runProviderAuthEffect(poll, { signal: cancellation.signal });
   } finally {
     deps.cancelSignal?.removeEventListener('abort', onCancel);
   }
