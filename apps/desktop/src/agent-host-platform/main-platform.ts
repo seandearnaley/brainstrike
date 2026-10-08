@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { LocalLlmHostClient, RuntimeData } from '@brainstrike/agent/provider-runtime';
 import {
   canonicalToolInputJsonSchema,
+  type HostDelegation,
   type HostPlatform,
   type HostRunAdmissionRequest,
   type HostTool,
@@ -31,8 +32,10 @@ import {
   PlatformWorkspaceBindingRequestSchema,
 } from './platform-wire';
 
-export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools'> {
+export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'delegation' | 'tools'> {
   close(): Promise<void>;
+  /** BST-1932: the personas and subagent limits this run may delegate with. */
+  readonly delegation?: HostDelegation | undefined;
   /** The admitted roots revalidated against their live owners, for the host's shared tools. */
   freshWorkspaceRoots(): Promise<NonNullable<RuntimeData['workspaceRoots']>>;
   /** Main-only: an admitted local recall embedder's exact plan, never on the wire. */

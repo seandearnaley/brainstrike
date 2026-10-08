@@ -16,7 +16,10 @@ import {
   type ProductionHostRunConfiguration,
   platformToolInputSchema,
 } from '@brainstrike/agent-host';
-import type { SupportedProvider } from '@brainstrike/assistant-contract';
+import type {
+  AssistantPersonaDefinition,
+  SupportedProvider,
+} from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
@@ -114,6 +117,30 @@ function borrowedLocalInference(
       },
     },
   };
+}
+
+type PlatformDelegation = NonNullable<z.output<typeof PlatformSelectionSchema>['delegation']>;
+
+/** A persona from Main's wire, without the absent optional fields zod reports as undefined. */
+function platformPersona(
+  persona: PlatformDelegation['personas'][number]
+): AssistantPersonaDefinition {
+  const { mode, model, source, ...required } = persona;
+  return {
+    ...required,
+    ...(mode ? { mode } : {}),
+    ...(model ? { model } : {}),
+    ...(source ? { source } : {}),
+  };
+}
+
+/** BST-1932: the delegation Main resolved for this run, if it may delegate. */
+function platformDelegation(
+  delegation: PlatformDelegation | undefined
+): ProductionHostRunConfiguration['delegation'] {
+  return delegation
+    ? { personas: delegation.personas.map(platformPersona), settings: delegation.settings }
+    : undefined;
 }
 
 /** Electron-free production entry: Node owns the model loop, Memory and committed log. */
@@ -348,8 +375,10 @@ export async function createHostPlatform(
         sessionId: admission.threadId,
       });
       return {
+        childSystem: selected.childSystem,
         close: closeSelection,
         configuration,
+        delegation: platformDelegation(selected.delegation),
         durableConfiguration: selected.durableConfiguration,
         ...(hooks ? { hooks } : {}),
         ...(selected.system === undefined ? {} : { system: selected.system }),
