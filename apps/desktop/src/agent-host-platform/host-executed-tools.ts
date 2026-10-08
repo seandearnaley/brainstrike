@@ -26,6 +26,7 @@ import {
 } from '../assistant-server/native-tool-executors-python';
 import { retrievalToolExecutors } from '../assistant-server/native-tool-executors-retrieval';
 import { selfInspectionExecutors } from '../assistant-server/native-tool-executors-self';
+import { commandSessionExecutors } from '../assistant-server/native-tool-executors-sessions';
 import { executeCommandExecutor } from '../assistant-server/native-tool-executors-shell';
 import { worktreeToolExecutors } from '../assistant-server/native-tool-executors-worktree';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
@@ -40,6 +41,7 @@ import { resolvePythonBinary } from '../python-runtime/resolve-python-binary';
 import { resolveDesktopPythonRuntimeResourcesDir } from '../python-runtime/resources-dir';
 import { resolveDesktopSeccompApplyPath } from '../sandbox-runtime-path';
 import { hostIndexSearch, hostQueryEmbedding, hostRetrievalStore } from './host-retrieval-clients';
+import { hostCommandSessionManager } from './host-tool-process';
 import {
   BrowserNavigateResultSchema,
   BrowserPageTextResultSchema,
@@ -76,6 +78,8 @@ const DESKTOP_HOST_TOOL_IDS: ReadonlySet<string> = new Set([
   NATIVE_TOOL_ID.browserNavigate,
   NATIVE_TOOL_ID.browserReadPage,
   NATIVE_TOOL_ID.runPython,
+  NATIVE_TOOL_ID.inspectCommandSessions,
+  NATIVE_TOOL_ID.manageCommandSession,
 ]);
 
 /** Main admits these but never executes them for a host thread. */
@@ -280,6 +284,10 @@ export function desktopHostToolExecutors(
     ...INSPECTION_TOOL_EXECUTORS,
     [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(hostGrepIndex(request, threadId)),
     ...browserToolExecutors(hostBrowserTools(request, threadId)),
+    ...commandSessionExecutors(() => ({
+      manager: hostCommandSessionManager(),
+      rootsFromRuntime: true,
+    })),
     ...selfInspectionExecutors(
       hostQuerySelfRead(request, threadId),
       hostDiagnosticsReader(request, threadId)

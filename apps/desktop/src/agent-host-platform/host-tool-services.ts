@@ -19,6 +19,7 @@ import {
   WORKTREE_TOOLS_UNAVAILABLE,
   type WorktreeToolCapability,
 } from '../assistant-server/worktree-tools';
+import { attachHostCommandSessions } from './host-command-session-client';
 import {
   BrowserNavigateRequestSchema,
   BrowserPageTextRequestSchema,
@@ -123,6 +124,8 @@ export function serveHostToolServices(
       return await required(services?.grepIndex, 'grep index')(options);
     })
   );
+  // The Terminal panel reaches this host's command sessions over the same connection.
+  attachHostCommandSessions(connection);
   serveIndexReads(connection, execute, admitted, services);
   serveWorktreeCalls(connection, execute, admitted, services);
   serveBrowserCalls(connection, execute, admitted, services);

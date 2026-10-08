@@ -5,11 +5,8 @@
  * exhaustive map.
  */
 import {
-  type InspectCommandSessionsInput,
-  type ManageCommandSessionInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   type RunSkillScriptInput,
-  readToolExecutionThreadId,
   resolveGuardedToolSignal,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
@@ -22,15 +19,10 @@ import {
 } from '@brainstrike/host-capabilities/native-tools';
 import { resolveDesktopPythonExecutable } from '../python-runtime';
 import { resolveDesktopSandboxHelperPath } from '../sandbox-runtime';
-import {
-  INSPECT_COMMAND_SESSIONS_TRANSFORM,
-  MANAGE_COMMAND_SESSION_TRANSFORM,
-  runInspectCommandSessions,
-  runManageCommandSession,
-} from './command-session-tools';
-import { executorGroup } from './native-tool-executor-context';
+import { type DesktopToolBuildContext, executorGroup } from './native-tool-executor-context';
 import { runPythonExecutor } from './native-tool-executors-python';
 import { selfInspectionExecutors } from './native-tool-executors-self';
+import { commandSessionExecutors } from './native-tool-executors-sessions';
 import { executeCommandExecutor } from './native-tool-executors-shell';
 import { mainDiagnosticsReader } from './query-diagnostics-tool';
 import { mainQuerySelfRead } from './query-self-tool';
@@ -85,63 +77,9 @@ export const EXECUTION_TOOL_EXECUTORS = executorGroup({
       resolveSeccompApplyPath:
         context.dependencies.resolveSeccompApplyPath ?? resolveDesktopSandboxHelperPath,
     })(context),
-  // Session tools are omitted for the built-in local provider: both ids are
-  // absent from LOCAL_DESKTOP_NATIVE_TOOL_IDS and this gate makes that real
-  // at runtime rather than only in the catalog.
-  [NATIVE_TOOL_ID.inspectCommandSessions]: ({ dependencies, isLocalProvider, runtimeData }) =>
-    isLocalProvider
-      ? undefined
-      : {
-          description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.inspectCommandSessions],
-          execute: (input: ToolExecuteInput<InspectCommandSessionsInput>) => {
-            const resolvedInput = parseToolExecuteInput(
-              NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.inspectCommandSessions],
-              input
-            );
-            try {
-              return runInspectCommandSessions(resolvedInput, runtimeData, {
-                ...(dependencies.commandSessionManager
-                  ? { manager: dependencies.commandSessionManager }
-                  : {}),
-              });
-            } catch (error) {
-              logToolFailure('inspectCommandSessions failed', error, resolvedInput);
-              throw error;
-            }
-          },
-          id: NATIVE_TOOL_ID.inspectCommandSessions,
-          inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.inspectCommandSessions],
-          transform: INSPECT_COMMAND_SESSIONS_TRANSFORM,
-        },
-  [NATIVE_TOOL_ID.manageCommandSession]: ({ dependencies, isLocalProvider, runtimeData }) =>
-    isLocalProvider
-      ? undefined
-      : {
-          description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageCommandSession],
-          execute: async (
-            input: ToolExecuteInput<ManageCommandSessionInput>,
-            options?: ToolExecuteContext
-          ) => {
-            const resolvedInput = parseToolExecuteInput(
-              NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCommandSession],
-              input
-            );
-            try {
-              return await runManageCommandSession(resolvedInput, runtimeData, {
-                executionThreadId: readToolExecutionThreadId([input, options]),
-                ...(dependencies.commandSessionManager
-                  ? { manager: dependencies.commandSessionManager }
-                  : {}),
-                ...(options?.abortSignal ? { signal: options.abortSignal } : {}),
-              });
-            } catch (error) {
-              logToolFailure('manageCommandSession failed', error, resolvedInput);
-              throw error;
-            }
-          },
-          id: NATIVE_TOOL_ID.manageCommandSession,
-          inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCommandSession],
-          transform: MANAGE_COMMAND_SESSION_TRANSFORM,
-        },
+  // Main's legacy threads read its own process-wide session manager.
+  ...commandSessionExecutors(({ dependencies }: DesktopToolBuildContext) =>
+    dependencies.commandSessionManager ? { manager: dependencies.commandSessionManager } : {}
+  ),
   ...selfInspectionExecutors(mainQuerySelfRead(), mainDiagnosticsReader),
 });
