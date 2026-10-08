@@ -8,12 +8,14 @@ import type { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer
 import type { QueueAdapter } from '@brainstrike/queue';
 import type { EmbeddingSetModelInfo } from '@brainstrike/vector-management';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import type { AssistantThreadHostCapability } from './assistant-thread-host-context';
 import { resolveSingletonProfileModelInfo } from './prompt-embedding-model-info';
 import {
   embedPendingThreadMessages,
   type ThreadSearchEmbedder,
   type ThreadSearchEmbeddingRepository,
 } from './thread-search-embedding';
+import { hostHistoryResults } from './thread-search-host-history';
 import { type ThreadSearchSemanticState, useThreadSearchStore } from './thread-search-store';
 
 /**
@@ -48,6 +50,8 @@ const MAX_EMBEDDING_PASSES_PER_DRAIN = 50;
  * finished downloading, document became visible) is retried automatically.
  */
 export const THREAD_SEARCH_SEMANTIC_RETRY_MS = 60_000;
+/** Host history hits requested per search (the host index caps a request at 100). */
+export const THREAD_SEARCH_HOST_HISTORY_LIMIT = 50;
 
 export interface UseThreadSearchControllerOptions {
   readonly embedder: ThreadSearchEmbedder;
@@ -55,6 +59,8 @@ export interface UseThreadSearchControllerOptions {
   readonly localModelConfigMap: ReturnType<typeof buildLocalEmbeddingModelConfigMap>;
   readonly repository: ThreadSearchControllerRepository | null;
   readonly resourceId: string;
+  /** The agent host's own history index; its threads have no history rows. */
+  readonly searchHistory?: AssistantThreadHostCapability['searchHistory'];
 }
 
 export interface ThreadSearchController {
@@ -85,6 +91,7 @@ export function useThreadSearchController({
   localModelConfigMap,
   repository,
   resourceId,
+  searchHistory,
 }: UseThreadSearchControllerOptions): ThreadSearchController {
   const service = useMemo<ThreadSearchService | null>(
     () => (repository ? createThreadSearchService(repository) : null),
@@ -228,17 +235,23 @@ export function useThreadSearchController({
           }
           drainEmbeddingBacklog();
           const { embedding, semantic } = await resolveQueryEmbedding(trimmed);
-          const response = await service.searchThreads(trimmed, {
-            queryEmbedding: embedding,
-            resourceId,
-          });
-          useThreadSearchStore.getState().resolveResults(response.results, semantic, generation);
+          const [response, hits] = await Promise.all([
+            service.searchThreads(trimmed, { queryEmbedding: embedding, resourceId }),
+            searchHistory ? searchHistory(trimmed, THREAD_SEARCH_HOST_HISTORY_LIMIT) : [],
+          ]);
+          useThreadSearchStore
+            .getState()
+            .resolveResults(
+              [...hostHistoryResults(hits), ...response.results],
+              semantic,
+              generation
+            );
         } catch (error) {
           useThreadSearchStore.getState().failSearch(toThreadSearchErrorMessage(error), generation);
         }
       })();
     },
-    [drainEmbeddingBacklog, repository, resolveQueryEmbedding, resourceId, service]
+    [drainEmbeddingBacklog, repository, resolveQueryEmbedding, resourceId, searchHistory, service]
   );
 
   // Debounced auto-search on query changes; a shrunken query clears results

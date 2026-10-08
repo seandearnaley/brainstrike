@@ -1,9 +1,11 @@
 import { renderHook } from '@testing-library/react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AssistantThreadHostCapability } from '../assistant-thread-host-context';
 import { resetThreadSearchStore, useThreadSearchStore } from '../thread-search-store';
 import {
   THREAD_SEARCH_DEBOUNCE_MS,
+  THREAD_SEARCH_HOST_HISTORY_LIMIT,
   type ThreadSearchControllerRepository,
   useThreadSearchController,
 } from '../use-thread-search-controller';
@@ -89,7 +91,8 @@ describe('useThreadSearchController', () => {
   function renderController(
     repository: ThreadSearchControllerRepository | null,
     embedder = createEmbedder(),
-    loadEmbeddingQueue: (() => Promise<never>) | null = null
+    loadEmbeddingQueue: (() => Promise<never>) | null = null,
+    searchHistory?: AssistantThreadHostCapability['searchHistory']
   ) {
     return renderHook(() =>
       useThreadSearchController({
@@ -98,9 +101,69 @@ describe('useThreadSearchController', () => {
         localModelConfigMap: new Map() as never,
         repository,
         resourceId: 'workspace-memory',
+        ...(searchHistory ? { searchHistory } : {}),
       })
     );
   }
+
+  it('adds host history hits as their own thread results, best thread first', async () => {
+    const searchHistory = vi.fn(async () => [
+      {
+        seq: 4,
+        snippet: 'plan the hnsw rebuild',
+        threadId: 'host-thread-b',
+        ts: 1_791_458_453_960,
+      },
+      {
+        seq: 9,
+        snippet: 'hnsw rebuild finished',
+        threadId: 'host-thread-a',
+        ts: 1_791_458_460_000,
+      },
+      { seq: 2, snippet: 'why hnsw', threadId: 'host-thread-b', ts: 1_791_458_400_000 },
+    ]);
+    renderController(createRepository(), createEmbedder(), null, searchHistory);
+
+    act(() => {
+      useThreadSearchStore.getState().setQuery('hnsw');
+    });
+    await flushAsync();
+
+    expect(searchHistory).toHaveBeenCalledExactlyOnceWith('hnsw', THREAD_SEARCH_HOST_HISTORY_LIMIT);
+    const state = useThreadSearchStore.getState();
+    expect(state.status).toBe('results');
+    const hostResults = state.results?.filter((result) => result.threadId.startsWith('host-'));
+    expect(hostResults?.map((result) => result.threadId)).toEqual([
+      'host-thread-b',
+      'host-thread-a',
+    ]);
+    expect(hostResults?.[0]?.matches).toEqual([
+      expect.objectContaining({
+        headline: 'plan the hnsw rebuild',
+        messageCreatedAt: new Date(1_791_458_453_960),
+        messageId: 'host-thread-b:4',
+        role: 'history',
+      }),
+      expect.objectContaining({ messageId: 'host-thread-b:2' }),
+    ]);
+    expect(state.results?.map((result) => result.threadId)).toContain('thread-1');
+  });
+
+  it('fails the search visibly when host history search rejects', async () => {
+    const searchHistory = vi.fn(async () => {
+      throw new Error('host history index unavailable');
+    });
+    renderController(createRepository(), createEmbedder(), null, searchHistory);
+
+    act(() => {
+      useThreadSearchStore.getState().setQuery('hnsw');
+    });
+    await flushAsync();
+
+    const state = useThreadSearchStore.getState();
+    expect(state.status).toBe('error');
+    expect(state.error).toBe('host history index unavailable');
+  });
 
   it('debounces the query and resolves hybrid results', async () => {
     const repository = createRepository();

@@ -18,9 +18,11 @@ import {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
 } from './adapters/state-store-host-memory.js';
+import { withHostDelegationTools } from './child-runs.js';
 import { type HostStateIndex, openHostStateIndex } from './host-state-index.js';
 import { materializeHostProviderModel } from './model-router-sdk.js';
 import type {
+  HostDelegation,
   HostMcpRuntime,
   HostMcpToolSelection,
   HostPlatform,
@@ -37,6 +39,8 @@ export interface ProductionHostRunConfiguration {
   /** Borrowed platform capabilities remain owned until every run tail joins. */
   readonly close?: () => Promise<void>;
   readonly configuration: RuntimeData;
+  /** BST-1932: the personas and subagent limits this admission may delegate with. */
+  readonly delegation?: HostDelegation | undefined;
   readonly durableConfiguration: HostRunSnapshot['configuration'];
   readonly maxSteps: number;
   readonly memory: Omit<StateStoreHostMemoryOptions, 'store' | 'providerRequestContext'>;
@@ -177,7 +181,7 @@ export async function createProductionHostPlatform(
   await options.startup.register(close);
   // The host owns its derived state index: thread deletion, purge and blob GC need it.
   stateIndex = openHostStateIndex(options.startup.store.root);
-  const { indexer } = await stateIndex;
+  const index = await stateIndex;
   return {
     ...(options.validateWorkspaceBinding
       ? { validateWorkspaceBinding: options.validateWorkspaceBinding }
@@ -235,11 +239,15 @@ export async function createProductionHostPlatform(
         }
         // One run-bound registry supplies SDK declarations and approval/restart
         // validation against the concrete resolved model, including MCP opt-out.
-        const tools = await prepareHostProviderTools(model, authoredTools);
+        const tools = await prepareHostProviderTools(
+          model,
+          withHostDelegationTools(authoredTools, selected.delegation)
+        );
         request.signal.throwIfAborted();
         const selection: HostRunAdmission = {
           close: release,
           configuration: selected.configuration,
+          delegation: selected.delegation,
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
           model,
@@ -293,7 +301,8 @@ export async function createProductionHostPlatform(
     },
     close,
     readPermissionPolicy: options.readPermissionPolicy,
-    stateIndexer: indexer,
+    searchHistory: (request) => index.search(request),
+    stateIndexer: index.indexer,
     ...(options.storeProviderCredential
       ? { storeProviderCredential: options.storeProviderCredential }
       : {}),

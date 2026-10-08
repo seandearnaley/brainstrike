@@ -108,6 +108,9 @@ export async function startAgentHost(
       : {};
   const ownedPlatform: HostPlatform = {
     close: closePlatform,
+    get delegation(): HostPlatform['delegation'] {
+      return currentPlatform().delegation;
+    },
     get generatesThreadTitles(): boolean | undefined {
       return currentPlatform().generatesThreadTitles;
     },
@@ -121,6 +124,13 @@ export async function startAgentHost(
         throw new Error('Production model selection requires run admission');
       }
       return platform.resolveModel(modelId);
+    },
+    searchHistory: (request) => {
+      const platform = currentPlatform();
+      if (!platform.searchHistory) {
+        throw new Error('This host platform owns no history search index');
+      }
+      return platform.searchHistory(request);
     },
     get tools(): HostPlatform['tools'] {
       return currentPlatform().tools;

@@ -2,9 +2,11 @@ import type { ModelMessage } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
-import type { HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
+import type { HostClientOrigin, HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
 import {
   HOST_METHOD_SCHEMAS,
+  type HostChildDelivery,
+  type HostChildOrigin,
   type HostEvent,
   type HostImageAttachment,
   type HostParams,
@@ -138,10 +140,30 @@ export function foldHostInteraction(
     approval.resumeData = event.resumeData;
   }
 }
+/** Folds a committed effect or terminal into its run; other events are not run effects. */
+export function foldHostRunEffect(runs: ReadonlyMap<string, HostRunState>, event: HostEvent): void {
+  if (event.type === 'effect.started') {
+    runs.get(event.runId)?.started.add(event.toolCallId);
+  } else if (event.type === 'effect.finished') {
+    runs.get(event.runId)?.outputs.set(event.toolCallId, event.output);
+  } else if (event.type === 'run.finished') {
+    const run = runs.get(event.runId);
+    if (run) {
+      run.terminal = true;
+      run.outcome = event.outcome;
+      if (event.detail !== undefined) {
+        run.detail = event.detail;
+      }
+    }
+  }
+}
+
 /** A run's committed position in the thread's conversation tree. */
 export interface HostRunBranch {
   /** Images on the user message, beside its prompt. */
   readonly attachments?: readonly HostImageAttachment[];
+  /** BST-1932: background child results delivered with this run's user message. */
+  readonly delivery?: HostChildDelivery;
   /** The committed run its user message follows; null is the thread root. */
   readonly parentMessageId: string | null;
   readonly prompt: string;
@@ -155,8 +177,14 @@ export interface HostRunState {
   readonly approvals: Map<string, PendingInteraction>;
   readonly branch: HostRunBranch;
   readonly checkpointedResults: Set<string>;
+  /** The live client transport that admitted this run's turn; children inherit it. */
+  clientOrigin?: HostClientOrigin | undefined;
   completion?: Promise<void>;
   readonly controller: AbortController;
+  /** Set when a child's execution deadline expired; it ends failed, not stopped. */
+  deadline?: string;
+  /** The committed run.finished detail, once terminal. */
+  detail?: string;
   readonly effects: Set<Promise<unknown>>;
   readonly id: string;
   readonly liveInputs: Map<string, { readonly value: unknown }>;
@@ -166,6 +194,8 @@ export interface HostRunState {
   /** This run's own committed model messages, after its user message. */
   readonly messages: ModelMessage[];
   readonly modelId: string;
+  /** BST-1932: present on every run of a child thread. */
+  origin?: HostChildOrigin;
   outcome?: Extract<HostEvent, { type: 'run.finished' }>['outcome'];
   readonly outputs: Map<string, Json>;
   owner?: Promise<HostRunOwner | undefined>;

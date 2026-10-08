@@ -61,6 +61,9 @@ try {
         case 'state-match':
           value = writer.requireState().match(request.payload);
           break;
+        case 'state-search':
+          value = writer.requireState().search(request.payload);
+          break;
         case 'state-rebuild':
           value = writer.requireState().rebuild(request.payload);
           break;

@@ -14,7 +14,10 @@ import { z } from 'zod';
 // in `thread/list`), withheld observational memory, tool catalog IDs on
 // committed tool events, and image attachments on a user message (`run/start`
 // and `run.started`).
-export const AGENT_HOST_PROTOCOL_VERSION = 11;
+// 12 (M4): cross-thread history search (`history/search`), and child threads
+// (BST-1932): `thread.started` with a delegation `origin`, and the child results
+// a `run.started` delivers.
+export const AGENT_HOST_PROTOCOL_VERSION = 12;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
@@ -101,6 +104,54 @@ export const McpToolAuthoritySchema = z.discriminatedUnion('kind', [
   }),
 ]);
 export type McpToolAuthority = z.infer<typeof McpToolAuthoritySchema>;
+/**
+ * BST-1932: a child thread's durable invocation identity, ancestry and owner.
+ * The child threadId is the invocation ID; this origin commits in the same
+ * transaction as the parent's delegation effect. `turnId` is the root run
+ * whose user turn admitted the whole subtree.
+ */
+export const HostChildOriginSchema = z.strictObject({
+  background: z.boolean(),
+  depth: z.number().int().positive(),
+  parentRunId: Id,
+  parentThreadId: Id,
+  persona: Id,
+  toolCallId: Id,
+  turnId: Id,
+});
+export type HostChildOrigin = z.infer<typeof HostChildOriginSchema>;
+/** One settled background invocation delivered to its parent (BST-1932). */
+export const HostChildDeliveryEntrySchema = z.strictObject({
+  childRunId: Id,
+  childThreadId: Id,
+  /** What the parent's model reads in place of the dispatch acknowledgement. */
+  outcome: z.string(),
+  parentRunId: Id,
+  state: z.enum(['returned', 'failed', 'cancelled']),
+  toolCallId: Id,
+});
+export type HostChildDeliveryEntry = z.infer<typeof HostChildDeliveryEntrySchema>;
+/**
+ * The durable delivery watermark: these entries reached the parent's model
+ * input on the run that records them, as an automated message that the user
+ * did not write. A wake run's prompt is that message; a user turn carries it
+ * ahead of its own message.
+ */
+export const HostChildDeliverySchema = z.discriminatedUnion('via', [
+  z.strictObject({
+    entries: z.array(HostChildDeliveryEntrySchema).min(1),
+    messageId: Id,
+    turnId: Id,
+    via: z.literal('wake'),
+  }),
+  z.strictObject({
+    entries: z.array(HostChildDeliveryEntrySchema).min(1),
+    ledger: Id,
+    messageId: Id,
+    via: z.literal('next-turn'),
+  }),
+]);
+export type HostChildDelivery = z.infer<typeof HostChildDeliverySchema>;
 /** Credentials and executable capabilities remain process-local. */
 export const HostRunSnapshotSchema = z.strictObject({
   configuration: z.record(z.string(), z.json()),
@@ -110,6 +161,15 @@ export const HostRunSnapshotSchema = z.strictObject({
   workspaceBinding: ThreadWorkspaceBindingSchema.optional(),
 });
 export type HostRunSnapshot = z.infer<typeof HostRunSnapshotSchema>;
+/** One ranked committed-text hit in this host's derived state index. */
+export const HostHistoryHitSchema = z.strictObject({
+  seq: z.number().int().positive(),
+  snippet: z.string(),
+  threadId: Id,
+  /** The matched row's committed run_events time, like `HostLogRow.ts`. */
+  ts: z.number().int().nonnegative(),
+});
+export type HostHistoryHit = z.infer<typeof HostHistoryHitSchema>;
 /** A key a user supplies directly. Subscription OAuth is never a login payload. */
 export type HostLoginCredential = Exclude<ProviderCredential, { readonly type: 'oauth' }>;
 const LoginCredential = z.custom<HostLoginCredential>(
@@ -119,6 +179,11 @@ const LoginCredential = z.custom<HostLoginCredential>(
 export const HOST_METHOD_SCHEMAS = {
   // Secret-bearing: process-local, never in HostCommandLedger, the log or diagnostics.
   'auth/login': z.strictObject({ credential: LoginCredential, provider: Id }),
+  /** Ranked committed text across this host's threads; each word is a literal term. */
+  'history/search': z.strictObject({
+    limit: z.number().int().positive().max(100),
+    query: z.string().regex(/\S/u),
+  }),
   'host/stop': z.strictObject({}),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -250,6 +315,7 @@ export const HostEventSchema = z.union([
     type: z.literal('mcp.input.settled'),
   }),
   z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
+  z.strictObject({ origin: HostChildOriginSchema, type: z.literal('thread.started') }),
   z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),
   z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
   z.strictObject({
@@ -264,6 +330,8 @@ export const HostEventSchema = z.union([
     ...RunFields,
     /** The user message's images; a regeneration repeats its message's. */
     attachments: Attachments.optional(),
+    /** BST-1932: background child results this run delivers to its model. */
+    delivery: HostChildDeliverySchema.optional(),
     modelId: Id,
     /**
      * The committed message this run's new user message follows (a run ID;
@@ -350,6 +418,7 @@ export const HostLogRowSchema = z.strictObject({
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
   'auth/login': z.strictObject({ stored: z.literal(true) }),
+  'history/search': z.strictObject({ hits: z.array(HostHistoryHitSchema) }),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
     hostVersion: Id,
