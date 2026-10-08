@@ -53,6 +53,7 @@ export {
   DEFAULT_PERMISSION_POLICIES,
   InvalidPermissionPolicyError,
   isPermissionDecision,
+  isPermissionDenied,
   PERMISSION_DECISIONS,
   type PermissionDecision,
   type PermissionDecisionInput,
