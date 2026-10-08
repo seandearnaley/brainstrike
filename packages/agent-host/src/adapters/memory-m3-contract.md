@@ -97,9 +97,12 @@ call-recording cases, plus unchanged native ESM/CJS lifecycle controls. Core's
 trusted producer exports observation groups and native chunks together on the
 existing state projection; the derived writer verifies every group against its
 same-transaction native record and relational thread/resource owners. Native
-records/history remain outside the transcript. Component evidence does not
-establish the production HostMemory factory, Main borrowed capability, physical
-Stop/delete retirement, populated old-schema upgrade, or the full M3 regression.
-Those composed acceptance checks remain open until separately demonstrated.
+records/history remain outside the transcript. The production host composes
+Memory's own `listTools()` tools and stores recall/observation vectors in its
+state index under the state root, acquired per memory resource; Main lends its
+hidden llm-host and embedding host to a thread's admitted local observer and
+recall embedder (ADR-0007). Component evidence does not establish physical
+Stop/delete retirement under load, populated old-schema upgrade, or the full M3
+regression. Those composed acceptance checks remain open until demonstrated.
 
 CI is disabled due to cost; validation must run locally.

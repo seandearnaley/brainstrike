@@ -5,7 +5,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import {
   createStateStoreIndexer,
-  IndexerError,
   type StateMessageVectorPort,
   type StateObservationVectorPort,
 } from '@brainstrike/indexer';
@@ -67,7 +66,7 @@ export async function openHostStateIndex(
   try {
     return await connectHostStateIndex(options);
   } catch (cause) {
-    if (!(cause instanceof IndexerError && cause.code === 'rebuild-required')) {
+    if (!isRebuildRequired(cause)) {
       throw cause;
     }
     // The index is derived from the state log, so the host rebuilds a store whose
@@ -82,6 +81,19 @@ export async function openHostStateIndex(
     );
     return await connectHostStateIndex(options);
   }
+}
+
+/**
+ * A startup failure carries the writer's remote error code. Match that code, not
+ * a class identity, which differs between the root and transport entries'
+ * module instances wherever they load separately.
+ */
+function isRebuildRequired(cause: unknown): cause is Error {
+  return (
+    cause instanceof Error &&
+    cause.name === 'IndexerError' &&
+    Reflect.get(cause, 'code') === 'rebuild-required'
+  );
 }
 
 async function connectHostStateIndex(options: {

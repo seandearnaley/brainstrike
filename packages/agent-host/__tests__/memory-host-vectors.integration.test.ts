@@ -9,11 +9,12 @@ import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { acquireProfileResetLease } from '@brainstrike/host-lease';
 import type { VectorProfile } from '@brainstrike/indexer';
+import { StateStore } from '@brainstrike/state-store';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { attachAgentHost, type HostClient } from '../dist/client.js';
-import { HOST_STATE_INDEX_FILE } from '../dist/host-state-index.js';
+import { HOST_STATE_INDEX_FILE, openHostStateIndex } from '../dist/host-state-index.js';
 import {
   createProductionHostPlatform,
   type ProductionHostRunConfiguration,
@@ -265,6 +266,40 @@ test('vector observational retrieval indexes observations in the host state inde
     expect(host.storedVectors('state_observation_vectors')).toBeGreaterThan(0);
   } finally {
     await host.close();
+  }
+});
+
+test('a host state index opened before memory grants is rebuilt once from the state log', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-host-index-rebuild-')));
+  const store = await StateStore.open(root, {
+    memoryCalculatorModule: join(
+      import.meta.dirname,
+      '../dist/adapters/memory-storage-calculator.js'
+    ),
+  });
+  try {
+    // The identity every existing host index has: no memory resource grants.
+    await (await openHostStateIndex(root)).close();
+    const granted = await openHostStateIndex(root, [resourceId]);
+    try {
+      expect(granted.rootId).toBe(root);
+      // The rebuilt index authorizes the granted resource (an empty, valid query).
+      await expect(
+        granted.vectors.queryStateMessageVectors({
+          limit: 1,
+          profile,
+          scope: { resourceId, rootId: root, threadId: 'absent-thread' },
+          vector: embedding('Paris'),
+        })
+      ).rejects.toMatchObject({ code: 'thread-not-authorized' });
+    } finally {
+      await granted.close();
+    }
+    // The same grants reopen without another rebuild.
+    await (await openHostStateIndex(root, [resourceId])).close();
+  } finally {
+    await store.close();
+    await rm(root, { force: true, recursive: true });
   }
 });
 
