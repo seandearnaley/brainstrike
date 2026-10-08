@@ -1,4 +1,7 @@
-import { isRevertibleCaptureStatus } from '@brainstrike/assistant-contract';
+import {
+  denormalizeNativeToolName,
+  isRevertibleCaptureStatus,
+} from '@brainstrike/assistant-contract';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { Undo2 } from 'lucide-react';
 import { type ReactElement, type ReactNode, useState } from 'react';
@@ -180,7 +183,7 @@ function CheckpointRevertButton({
   const checkpoint = useCheckpointForToolCall(toolCallId);
   const [phase, setPhase] = useState<'idle' | 'confirm' | 'reverting' | 'conflict'>('idle');
 
-  if (!(checkpoint && REVERTIBLE_MUTATION_TOOL_NAMES.has(toolName))) {
+  if (!(checkpoint && REVERTIBLE_MUTATION_TOOL_NAMES.has(denormalizeNativeToolName(toolName)))) {
     return null;
   }
   const { availability, entry, revert } = checkpoint;

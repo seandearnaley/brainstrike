@@ -21,6 +21,15 @@ import {
   type WebSearchInput,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import {
+  logToolFailure,
+  parseToolExecuteInput,
+  readStateScope,
+  runGlobWorkspace,
+  type ToolExecuteContext,
+  type ToolExecuteInput,
+  withRepeatedCallGuard,
+} from '@brainstrike/host-capabilities/native-tools';
 import type { z } from 'zod';
 import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
 import {
@@ -28,7 +37,6 @@ import {
   runBrowserNavigate,
   runBrowserReadPage,
 } from './browser-agent-tools';
-import { runGlobWorkspace } from './glob-workspace-tool';
 import { runGrepSearch } from './grep-search-tool';
 import { runHybridSearch } from './hybrid-search-tool';
 import { runListEmbeddingSpaces } from './list-embedding-spaces-tool';
@@ -41,19 +49,11 @@ import {
 } from './native-retrieval-schemas';
 import { executorGroup } from './native-tool-executor-context';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
-import { withRepeatedCallGuard } from './tool-call-loop-guards';
 import { attachGlobWorkspaceTelemetry, attachGrepSearchTelemetry } from './tool-call-telemetry';
-import {
-  logToolFailure,
-  parseToolExecuteInput,
-  type ToolExecuteContext,
-  type ToolExecuteInput,
-} from './tool-execute-support';
 import { projectWebExtractModelOutput } from './web-extract-model-projection';
 import { runWebExtract } from './web-extract-tool';
 import { projectWebSearchModelOutput } from './web-search-model-projection';
 import { runWebSearch } from './web-search-tool';
-import { readStateScope } from './workspace-file-staleness';
 import {
   projectFindWorkspaceSymbolModelOutput,
   projectLspInspectModelOutput,

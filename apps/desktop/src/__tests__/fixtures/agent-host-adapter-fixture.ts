@@ -35,9 +35,6 @@ export const fixtureCapabilities: AgentHostAdapterCapabilities<AgentHostMcpColle
     const credential = await secrets.getCredential(provider);
     return credential ? { ...credential, source: 'stored' } : undefined;
   },
-  onMcpDiscoverySkips: async (skips) => {
-    expect(skips).toEqual([]);
-  },
 };
 
 export const fixtureToolRequest = {

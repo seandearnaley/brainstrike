@@ -504,12 +504,14 @@ test('provider auth owns fetch and body deadlines at one Effect boundary', () =>
     /Provider auth and assistant provider probes bound fetch and body reading together/u
   );
   for (const name of ['device-flow', 'oauth-flow', 'refresh']) {
-    const source = readRepoFile(`apps/desktop/src/provider-auth/${name}.ts`);
+    const source = readRepoFile(`packages/host-capabilities/src/provider-auth/${name}.ts`);
     assert.match(source, /guardedFetchText\(/u, `${name} uses the complete response boundary`);
     assert.doesNotMatch(source, /response\.text\(/u, `${name} cannot read outside the deadline`);
   }
-  const guard = readRepoFile('apps/desktop/src/provider-auth/fetch-guards.ts');
-  assert.match(guard, /runAtPromiseBoundary\(/u);
+  const guard = readRepoFile('packages/host-capabilities/src/provider-auth/fetch-guards.ts');
+  assert.match(guard, /runProviderAuthEffect\(/u);
+  const boundary = readRepoFile('packages/host-capabilities/src/provider-auth/errors.ts');
+  assert.match(boundary, /runAtPromiseBoundary\(/u);
 });
 
 test('assistant provider probes own complete response deadlines at one Effect boundary', () => {
@@ -648,7 +650,7 @@ test('renderer startup adopts Effect retry and always finalizes readiness waits'
 
 test('provider OAuth loopback scope owns the listener and one callback wait', () => {
   const contract = readRepoFile('docs/agents/effect-boundary.md');
-  const source = readRepoFile('apps/desktop/src/provider-auth/loopback-server.ts');
+  const source = readRepoFile('packages/host-capabilities/src/provider-auth/loopback-server.ts');
   assert.match(contract, /Provider OAuth loopback Scope owns listener cleanup/u);
   assert.match(contract, /effect-boundary\/provider-loopback-scope\.md/u);
   assert.match(source, /Deferred\.makeUnsafe<LoopbackCallbackResult, Error>/u);

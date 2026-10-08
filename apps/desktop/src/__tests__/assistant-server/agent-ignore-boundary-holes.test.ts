@@ -13,9 +13,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { RuntimeData } from '@brainstrike/agent';
+import {
+  createAgentIgnoreGuard,
+  runGlobWorkspace,
+} from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createAgentIgnoreGuard } from '../../assistant-server/agent-ignore-guard';
-import { runGlobWorkspace } from '../../assistant-server/glob-workspace-tool';
 import { singleRootRuntime as singleRoot } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -121,7 +123,7 @@ describe('HOLE 2 — a .llmignore added AFTER the first query must take effect',
 
   it('sees the rule through the shared entry point the read tools use', async () => {
     const root = await makeWorkspace({ 'secrets/key.ts': '' });
-    const { assertNotAgentIgnored } = await import('../../assistant-server/agent-ignore-guard');
+    const { assertNotAgentIgnored } = await import('@brainstrike/host-capabilities/native-tools');
     await expect(
       assertNotAgentIgnored({ canonicalRootPath: root, relativePath: 'secrets/key.ts' })
     ).resolves.toBeUndefined();

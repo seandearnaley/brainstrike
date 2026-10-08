@@ -32,8 +32,7 @@ describe('host provider services', () => {
   it('reports a key from the host credential store as a stored, configured provider', async () => {
     const { credentials } = credentialsWith({ openrouter: { key: 'stored-key', type: 'api_key' } });
     const services = createHostProviderServices({
-      auth: { verify: vi.fn() },
-      credentials,
+      auth: { secrets: credentials.secrets, verify: vi.fn() },
       env: {},
       envFileFailures: [],
     });
@@ -55,8 +54,7 @@ describe('host provider services', () => {
       message: 'Desktop environment file ".env" is invalid at line 2: expected "=".',
     };
     const services = createHostProviderServices({
-      auth: { verify: vi.fn() },
-      credentials,
+      auth: { secrets: credentials.secrets, verify: vi.fn() },
       env: {},
       envFileFailures: [failure],
     });
@@ -78,8 +76,7 @@ describe('host provider services', () => {
     }));
     const { credentials } = credentialsWith({});
     const services = createHostProviderServices({
-      auth: { verify },
-      credentials,
+      auth: { secrets: credentials.secrets, verify },
       env: {},
       envFileFailures: [],
     });
@@ -105,8 +102,7 @@ describe('host provider services', () => {
     });
     const { credentials } = credentialsWith({ openrouter: { key: 'stored-key', type: 'api_key' } });
     const services = createHostProviderServices({
-      auth: { verify: vi.fn() },
-      credentials,
+      auth: { secrets: credentials.secrets, verify: vi.fn() },
       env: {},
       envFileFailures: [],
       fetchImpl: fetchImpl as typeof fetch,

@@ -47,12 +47,17 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
     this.threadId = options.threadId;
     this.projection = new CommittedAssistantLogProjection(options);
     let displayedContext: ThreadTokenUsage | undefined;
+    let displayedBreakdown: CommittedAssistantLogView['contextBreakdown'];
     const read = (): CommittedAssistantSnapshot => {
       const source = options.source.getSnapshot();
       const view = this.projection.acceptCommitted(source.rows);
       if (view.contextUsage && view.contextUsage !== displayedContext) {
         displayedContext = view.contextUsage;
         useContextUsageStore.getState().recordUsage(this.threadId, displayedContext);
+      }
+      if (view.contextBreakdown && view.contextBreakdown !== displayedBreakdown) {
+        displayedBreakdown = view.contextBreakdown;
+        useContextUsageStore.getState().recordBreakdown(this.threadId, displayedBreakdown);
       }
       return {
         connection:
@@ -63,6 +68,7 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
         isDisabled: source.isDisabled,
         isLoading: source.isLoading ?? false,
         isRunning: view.isRunning,
+        observationWithheld: view.observationWithheld,
         repository: view.repository,
         state: source.state,
       };
@@ -80,7 +86,8 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
         next.state === previous.state &&
         next.isDisabled === previous.isDisabled &&
         next.isLoading === previous.isLoading &&
-        next.isRunning === previous.isRunning
+        next.isRunning === previous.isRunning &&
+        next.observationWithheld === previous.observationWithheld
       ) {
         return;
       }

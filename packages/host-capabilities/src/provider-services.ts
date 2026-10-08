@@ -1,8 +1,4 @@
-import type {
-  HostAuthService,
-  HostEnvFileFailure,
-  HostProviderService,
-} from '@brainstrike/agent-host';
+import type { HostEnvFileFailure, HostProviderService } from '@brainstrike/agent-host';
 import type { SecretsService } from '@brainstrike/agent-host/credential-contract';
 import {
   findProviderDefinition,
@@ -12,11 +8,11 @@ import {
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { TAVILY_ENV_KEYS } from '@brainstrike/assistant-contract/tavily-env-keys';
-import type { HostCredentials } from './credentials.js';
 import {
   createOpenRouterModelMetadataService,
   requireOpenRouterModelId,
 } from './openrouter-model-metadata.js';
+import type { HostAuthority } from './provider-auth/host-authority.js';
 import { createProviderCredentialReader, normalizeSecretValue } from './provider-credentials.js';
 import { readProviderStatus } from './provider-status.js';
 import {
@@ -25,9 +21,11 @@ import {
 } from './provider-verification.js';
 
 export interface HostProviderServicesOptions {
-  /** The host's one refresher answers subscription freshness; never a token. */
-  readonly auth: Pick<HostAuthService, 'verify'>;
-  readonly credentials: HostCredentials;
+  /**
+   * The host's one refresher answers subscription freshness, never a token;
+   * its secrets wait for a pending legacy import like every credential read.
+   */
+  readonly auth: Pick<HostAuthority, 'secrets' | 'verify'>;
   readonly env: Readonly<NodeJS.ProcessEnv>;
   /** Env files the launching shell rejected. */
   readonly envFileFailures: readonly HostEnvFileFailure[];
@@ -42,7 +40,7 @@ export interface HostProviderServicesOptions {
 export function createHostProviderServices(
   options: HostProviderServicesOptions
 ): HostProviderService {
-  const secrets = (): SecretsService => options.credentials.secrets();
+  const secrets = (): SecretsService => options.auth.secrets();
   const readCredential = createProviderCredentialReader(
     { getCredential: (provider) => secrets().getCredential(provider) },
     options.env

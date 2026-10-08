@@ -3,8 +3,8 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent';
+import { decodedWorkspaceTextModelOutputChars as decodedChars } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
-import { decodedWorkspaceTextModelOutputChars as decodedChars } from '../../assistant-server/workspace-model-projection-helpers';
 import { projectGrepSearchModelOutput } from '../../assistant-server/workspace-search-model-projections';
 
 it('fits nearly twice as many newline-dense grep rows with the decoded ruler', () => {

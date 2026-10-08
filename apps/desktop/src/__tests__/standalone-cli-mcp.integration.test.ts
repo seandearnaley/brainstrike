@@ -8,6 +8,7 @@
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -30,7 +31,7 @@ const bin = join(
 );
 const lab: {
   startMcpLabScenario(
-    id: 'modern-reference',
+    id: 'legacy-reference' | 'modern-reference',
     options: { readonly execution: 'loopback' }
   ): Promise<McpLabSession>;
 } = await import(
@@ -88,12 +89,32 @@ async function rows(run: Cli, threadId: string): Promise<HostLogRow[]> {
   return HOST_RESULT_SCHEMAS['thread/read'].parse(JSON.parse(shown.stdout)).rows;
 }
 
-test('a standalone host composes --mcp-config servers and runs their tools', async () => {
-  const dataRoot = await mkdtemp(join(tmpdir(), 'bs-c2-cli-mcp-'));
-  const server = await lab.startMcpLabScenario('modern-reference', { execution: 'loopback' });
-  if (server.endpoint.kind !== 'loopback-http') {
-    throw new Error('The modern reference scenario has no loopback HTTP endpoint');
+async function labUrl(id: 'legacy-reference' | 'modern-reference'): Promise<string> {
+  const session = await lab.startMcpLabScenario(id, { execution: 'loopback' });
+  cleanup.push(async () => {
+    await session.close();
+  });
+  if (session.endpoint.kind !== 'loopback-http') {
+    throw new Error(`The ${id} scenario has no loopback HTTP endpoint`);
   }
+  return session.endpoint.url.href;
+}
+
+/** A loopback port nothing listens on: every connection is refused. */
+async function refusedUrl(): Promise<string> {
+  const probe = createServer();
+  await new Promise<void>((listening) => probe.listen(0, '127.0.0.1', listening));
+  const address = probe.address();
+  await new Promise<void>((closed) => probe.close(() => closed()));
+  if (!address || typeof address === 'string') {
+    throw new Error('The loopback probe has no port');
+  }
+  return `http://127.0.0.1:${address.port}/mcp`;
+}
+
+/** A started standalone host over `servers`, whose model calls the reachable reference tool. */
+async function startHost(servers: readonly Record<string, string>[]) {
+  const dataRoot = await mkdtemp(join(tmpdir(), 'bs-c2-cli-mcp-'));
   // The model calls the configured MCP tool, then answers. A turn without the
   // tool (the title request) ends with a reply naming what was offered.
   const shim: ModelProviderShim = await startModelProviderShim((request) =>
@@ -106,7 +127,6 @@ test('a standalone host composes --mcp-config servers and runs their tools', asy
     BRAINSTRIKE_OPENAI_API_KEY: 'offline-standalone-fixture',
   });
   cleanup.push(async () => {
-    await server.close();
     await shim.close();
     await rm(dataRoot, { force: true, recursive: true });
   });
@@ -124,26 +144,22 @@ test('a standalone host composes --mcp-config servers and runs their tools', asy
   await writeFile(
     mcpConfig,
     JSON.stringify({
-      servers: [
-        {
-          name: SERVER,
-          protocol: '2026-07-28',
-          transport: 'streamable-http',
-          url: server.endpoint.url.href,
-        },
-      ],
+      servers: servers.map((server) => ({
+        protocol: '2026-07-28',
+        transport: 'streamable-http',
+        ...server,
+      })),
     })
   );
-
   expect(await run(['host', 'start', '--mcp-config', mcpConfig])).toMatchObject({
     code: 0,
     stderr: '',
   });
-  // An attached host keeps the MCP configuration it started with.
-  const attached = await run(['host', 'start', '--mcp-config', mcpConfig]);
-  expect(attached.code).toBe(1);
-  expect(attached.stderr).toContain('--mcp-config requires a new host');
+  return { mcpConfig, run, shim };
+}
 
+/** One completed `run --json` over the reference tool; its committed events. */
+async function runReferenceTool(run: Cli) {
   const finished = await run([
     'run',
     'Call the reference server.',
@@ -157,12 +173,6 @@ test('a standalone host composes --mcp-config servers and runs their tools', asy
     .object({ runId: z.string(), threadId: z.string() })
     .parse(JSON.parse(finished.stdout.split('\n')[0] ?? ''));
   const events = (await rows(run, threadId)).map((row) => row.event);
-  expect(events.find((event) => event.type === 'run.started')).toMatchObject({
-    runId,
-    snapshot: {
-      configuration: { capabilities: { configuredMcp: 'available', tasks: 'unavailable' } },
-    },
-  });
   expect(events.find((event) => event.type === 'effect.started')).toMatchObject({
     toolCatalogId: `${SERVER}.test_simple_text`,
     toolId: TOOL,
@@ -172,6 +182,26 @@ test('a standalone host composes --mcp-config servers and runs their tools', asy
   expect(events.find((event) => event.type === 'run.finished')).toMatchObject({
     outcome: 'completed',
   });
+  return { events, runId, threadId };
+}
+
+test('a standalone host composes --mcp-config servers and runs their tools', async () => {
+  const { mcpConfig, run, shim } = await startHost([
+    { name: SERVER, url: await labUrl('modern-reference') },
+  ]);
+  // An attached host keeps the MCP configuration it started with.
+  const attached = await run(['host', 'start', '--mcp-config', mcpConfig]);
+  expect(attached.code).toBe(1);
+  expect(attached.stderr).toContain('--mcp-config requires a new host');
+
+  const { events, runId, threadId } = await runReferenceTool(run);
+  expect(events.find((event) => event.type === 'run.started')).toMatchObject({
+    runId,
+    snapshot: {
+      configuration: { capabilities: { configuredMcp: 'available', tasks: 'unavailable' } },
+    },
+  });
+  expect(events.some((event) => event.type === 'mcp.tools.unavailable')).toBe(false);
   expect(shim.refusals()).toEqual([]);
 
   // `mcp input settle` refuses content on anything but an accept before reaching the host.
@@ -192,4 +222,29 @@ test('a standalone host composes --mcp-config servers and runs their tools', asy
   ]);
   expect(refused.code).toBe(1);
   expect(refused.stderr).toContain('--content applies only to --action accept');
+});
+
+test('a run skips each unavailable MCP server visibly and keeps the reachable ones', async () => {
+  const { run, shim } = await startHost([
+    { name: SERVER, url: await labUrl('modern-reference') },
+    { name: 'down', url: await refusedUrl() },
+    // A legacy-era server configured as modern: its protocol does not match.
+    { name: 'mismatched', url: await labUrl('legacy-reference') },
+  ]);
+
+  const { events, runId, threadId } = await runReferenceTool(run);
+  const unavailable = events.filter((event) => event.type === 'mcp.tools.unavailable');
+  expect(
+    unavailable.map((event) => ('serverId' in event ? event.serverId : undefined)).sort()
+  ).toEqual(['down', 'mismatched']);
+  for (const event of unavailable) {
+    expect(event).toMatchObject({ reason: expect.any(String), runId });
+  }
+  expect(shim.refusals()).toEqual([]);
+
+  // The CLI names each skipped server when it shows the run.
+  const shown = await run(['attach', '--thread', threadId, '--run', runId, '--non-interactive']);
+  expect(shown.code, shown.stderr).toBe(0);
+  expect(shown.stderr).toContain('MCP server down unavailable:');
+  expect(shown.stderr).toContain('MCP server mismatched unavailable:');
 });

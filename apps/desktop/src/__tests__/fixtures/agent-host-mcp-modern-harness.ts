@@ -339,7 +339,6 @@ export async function openModernHost(options: ModernHostOptions) {
       },
       collectCombinedTools,
       createProviderCredentialReader: fixtureCapabilities.createProviderCredentialReader,
-      onMcpDiscoverySkips: fixtureCapabilities.onMcpDiscoverySkips,
       runtimeDependencies: {
         onInternalError: (code, cause) => internalErrors.push({ cause, code }),
       },

@@ -9,6 +9,7 @@ import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract
 import { recoverInterruptedDimensionIndexMaintenanceAtStartup } from '@brainstrike/db';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { purgeMcpOAuthRuntimeState } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import { createProviderVerificationService } from '@brainstrike/host-capabilities/provider-verification';
 import type { ProfileResetLease } from '@brainstrike/host-lease';
 import {
@@ -45,7 +46,6 @@ import type { ForgeService } from './assistant-server/forge-service';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { readMainVerificationCredential } from './assistant-server/provider-credentials';
-import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
@@ -213,7 +213,9 @@ import { registerPrivilegedSchemes } from './privileged-schemes';
 import {
   createDesktopSettingsSecrets,
   desktopCredentialStoreSelection,
-  migrateDesktopLegacySecrets,
+  desktopLegacySecretsPending,
+  importDesktopLegacySecrets,
+  installDesktopLegacyImporter,
 } from './secrets';
 import { setupSecurity } from './setup-security';
 import { installIndexCallerRead, openIndexQuery } from './sqlite-query-host-manager';
@@ -997,13 +999,31 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
     }
   },
 });
+function reportDesktopLegacyImport(attempt: ReturnType<typeof importDesktopLegacySecrets>): void {
+  attempt.then(
+    (imported) => {
+      if (imported.migrated > 0 || imported.alreadyPresent > 0) {
+        logger.info('Imported legacy provider secrets into the credential store', imported);
+      }
+    },
+    (error: unknown) => {
+      logger.error('Legacy provider secrets could not be imported; the legacy store is kept', {
+        error: serializeDesktopError(error),
+      });
+    }
+  );
+}
 function reportNativeIndexActivationError(message: string, error: unknown): void {
   reportNativeIndexFailure(message, error, isDesktopShuttingDown(), logger);
 }
 const agentHostPrivateClients = createAgentHostPrivateClients();
 const nativeIndexActivation = createNativeIndexActivation({
   agentHostPlatform: {
-    onChildReady: agentHostPrivateClients.attach,
+    onChildReady: (child) => {
+      agentHostPrivateClients.attach(child);
+      // A host launched while retired entries remained waits to hear about them.
+      reportDesktopLegacyImport(importDesktopLegacySecrets({ afterHostLaunch: true }));
+    },
     platform: () => {
       const ledger = createWorktreeLedger(getDatabase);
       const workspace = new DesktopWorkspaceBindingAuthority({
@@ -1058,10 +1078,11 @@ const nativeIndexActivation = createNativeIndexActivation({
       'Agent host platform',
       'agent-host-platform-entry.js'
     ),
-    // The host reads the same profile store Main's Settings writes, after the
-    // one-time legacy migration has settled into it.
+    // The host owns the profile store Main reads. While the retired safeStorage
+    // store still holds entries, the host holds credential use until Main's
+    // import over the private client settles.
     platformOptions: async () => {
-      await migrateDesktopLegacySecrets();
+      const legacyImportPending = await desktopLegacySecretsPending();
       // An isolated E2E launch's egress boundary may stand in for the Codex
       // sign-in issuer on loopback; the host refuses any other origin.
       const e2eCodexIssuer = isElectronE2ETestMode()
@@ -1073,6 +1094,7 @@ const nativeIndexActivation = createNativeIndexActivation({
         ...(desktopEnvLoadResult.failures.length > 0
           ? { envFileFailures: [...desktopEnvLoadResult.failures] }
           : {}),
+        ...(legacyImportPending ? { legacyImportPending: true as const } : {}),
         ...(e2eCodexIssuer ? { openAiCodexIssuer: e2eCodexIssuer } : {}),
       };
     },
@@ -1097,6 +1119,8 @@ const agentHostMainClient = createAgentHostMainClient(
   nativeIndexActivation.acquireProfile,
   agentHostPrivateClients.open
 );
+// Only Main can decrypt the retired safeStorage store; the host writes it.
+installDesktopLegacyImporter((input) => agentHostMainClient.request('auth/import-legacy', input));
 const nativeRootDataDeletion = createNativeRootDataDeletion({
   acquire: () => nativeIndexActivation.acquire(),
   captureOwner: async () => {
@@ -1432,21 +1456,10 @@ if (singleInstanceLockAcquired) {
     registerShutdownSignalHandlers();
     try {
       emitBootMeasurementMark('app-ready', app.isPackaged);
-      // One-time move of the retired safeStorage entries into the profile's
-      // credential store. Credential operations and the host fork wait for it;
-      // a failure keeps the legacy copy and every credential read reports it.
-      migrateDesktopLegacySecrets().then(
-        (migrated) => {
-          if (migrated.migrated > 0 || migrated.alreadyPresent > 0) {
-            logger.info('Migrated legacy provider secrets into the credential store', migrated);
-          }
-        },
-        (error: unknown) => {
-          logger.error('Legacy provider secrets could not be migrated; the legacy store is kept', {
-            error: serializeDesktopError(error),
-          });
-        }
-      );
+      // One-time import of the retired safeStorage entries, decrypted here and
+      // written by the host once it is ready. Credential use in Main and the
+      // host waits for it; a failure keeps the legacy copy and reports itself.
+      reportDesktopLegacyImport(importDesktopLegacySecrets());
       // Validated up front (before assistant-server startup) so a malformed
       // value fails loudly and clearly here, instead of being caught by the
       // assistant-server try/catch below and mislabeled as an assistant

@@ -13,6 +13,7 @@
  * verify-mastra-schema-init-order).
  */
 import { CANVAS_VERSIONS_TABLE } from '@brainstrike/assistant-contract';
+import type { AssistantThreadHostCapability } from '../assistant-thread-host-context';
 
 export interface CanvasReadDatabase {
   query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }>;
@@ -72,4 +73,54 @@ export async function getCanvasVersion(
     [canvasId, version]
   );
   return result.rows[0] ?? null;
+}
+
+/** Latest version per canvas, newest first, from the thread's owner: its host, else history. */
+export async function readThreadCanvasSummaries(
+  db: CanvasReadDatabase,
+  host: Pick<AssistantThreadHostCapability, 'readCanvases'> | undefined,
+  threadId: string
+): Promise<readonly CanvasPanelSummary[]> {
+  const owned = await host?.readCanvases?.(threadId);
+  if (!owned) {
+    return await listThreadCanvasSummaries(db, threadId);
+  }
+  return [...owned.values()]
+    .flatMap((versions) => {
+      const latest = versions.at(-1);
+      return latest
+        ? [
+            {
+              canvasId: latest.canvasId,
+              createdAt: latest.createdAt,
+              latestVersion: latest.version,
+              title: latest.title,
+            },
+          ]
+        : [];
+    })
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+/** One version's content from the thread's owner, or null when it does not exist. */
+export async function readThreadCanvasVersion(
+  db: CanvasReadDatabase,
+  host: Pick<AssistantThreadHostCapability, 'readCanvases'> | undefined,
+  threadId: string,
+  canvasId: string,
+  version: number
+): Promise<CanvasPanelVersion | null> {
+  const owned = await host?.readCanvases?.(threadId);
+  if (!owned) {
+    return await getCanvasVersion(db, canvasId, version);
+  }
+  const found = owned.get(canvasId)?.find((candidate) => candidate.version === version);
+  return found
+    ? {
+        createdAt: found.createdAt,
+        createdBy: found.createdBy,
+        html: found.html,
+        version: found.version,
+      }
+    : null;
 }

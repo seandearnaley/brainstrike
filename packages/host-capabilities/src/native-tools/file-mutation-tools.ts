@@ -6,9 +6,9 @@
  * out-of-lock post-edit LSP diagnostics. Security-sensitive: every path goes
  * through the audited `secure-file-write` containment helpers.
  *
- * Leaf module: depends on the staleness, reindex-side-effect,
- * path-resolution, and checkpoint leaves — never on `assistant-tools.ts`, so
- * no import cycle is possible.
+ * Edit attribution, Workspace Index maintenance and LSP diagnostics are the
+ * shell's ports (`FileMutationPorts`): the agent host passes Core's edit
+ * tracker; Desktop's legacy server passes its journal, reindex and LSP.
  */
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
@@ -27,47 +27,39 @@ import {
   withFileLock,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
+import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import { createLogger } from '@brainstrike/logging';
+import { looksLikeReadWorkspaceFileGutterOutput } from './gutter-prefix-guard.js';
+import type { EditDiagnosticsResult, FileMutationPorts } from './ports.js';
 import {
   ensureContainedDirectory,
   resolveWorkspaceWritePath,
   writeContainedFileBytes,
-} from '../secure-file-write';
-import {
-  beforeStateToCapture,
-  captureBeforeState,
-  recordEditCheckpointForTool,
-} from './edit-checkpoint-capture';
-import { sha256Hex } from './edit-checkpoint-journal';
-import { looksLikeReadWorkspaceFileGutterOutput } from './gutter-prefix-guard';
-import { type EditDiagnosticsResult, getEditDiagnostics } from './lsp-diagnostics';
-import {
-  triggerEditedFileReindex,
-  triggerFileDeletionInvalidation,
-  triggerRenamedDestinationReindex,
-} from './reindex-side-effects';
+} from './secure-file-write.js';
 import {
   EDIT_FAILURE_HINT_MESSAGE,
   editFailureHintApplies,
   recordEditFailure,
   resetEditFailureStreak,
-} from './tool-call-loop-guards';
-import { REDACTED_PATH_LOG_VALUE, redactToolErrorForLog } from './tool-execute-support';
+} from './tool-call-loop-guards.js';
+import { REDACTED_PATH_LOG_VALUE, redactToolErrorForLog } from './tool-execute-support.js';
 import {
   assertNoExternalEditSinceObserved,
   assertRenameSourceUnchangedSinceObserved,
   buildStaleFileError,
   readStateScope,
   recordOwnWriteObservation,
-} from './workspace-file-staleness';
-import { withWorkspaceMutationLease } from './workspace-mutation-lease';
-import { resolveWorkspaceLeafMutationPath } from './workspace-path-resolution';
-import { resolveWorkspaceRoot } from './workspace-roots';
-import { readWorkspaceTextFile } from './workspace-text-file-reader';
+} from './workspace-file-staleness.js';
+import { withWorkspaceMutationLease } from './workspace-mutation-lease.js';
+import { resolveWorkspaceLeafMutationPath } from './workspace-path-resolution.js';
+import { readWorkspaceTextFile } from './workspace-text-file-reader.js';
 
 const logger = createLogger('DesktopAssistantTools');
 
 export const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
+
+/** Without an index port there is no index row to invalidate. */
+const NO_INDEX_INVALIDATION = { invalidated: false } as const;
 
 const GUTTER_PREFIX_REFUSAL_MESSAGE =
   'This looks like readWorkspaceFile display output (line-number gutters). Strip the `N: ` prefixes or reconstruct the intended file content before writing.';
@@ -121,12 +113,16 @@ function applyStringReplaceWithLoopGuard(args: {
  * timed out) for the tool to attach to its result.
  */
 async function collectEditDiagnostics(args: {
+  ports: FileMutationPorts;
   root: RuntimeWorkspaceRoot;
   absolutePath: string;
   content: string;
 }): Promise<EditDiagnosticsResult | undefined> {
+  if (!args.ports.diagnostics) {
+    return;
+  }
   try {
-    const result = await getEditDiagnostics({
+    const result = await args.ports.diagnostics({
       absolutePath: args.absolutePath,
       content: args.content,
       rootId: args.root.rootId,
@@ -171,6 +167,7 @@ function workspaceRenameLock(
 export async function runWriteWorkspaceFile(
   input: WriteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
+  ports: FileMutationPorts,
   toolCallId?: string,
   executionThreadId?: string,
   signal?: AbortSignal
@@ -224,16 +221,22 @@ export async function runWriteWorkspaceFile(
       requestedPath: input.path,
       scope,
     });
-    // Capture the before-identity (existence + hash) for the attribution
-    // ledger INSIDE the lock so no concurrent same-file edit can slip newer
-    // bytes between capture and write.
-    const beforeState = await captureBeforeState(resolved.absolutePath);
-    assertFileMutationActive(runtimeData, signal);
-    const writeResult = await writeContainedFileBytes({
-      buffer,
-      requestedPath: input.path,
-      resolved,
-    });
+    // The attribution owner observes the before-state INSIDE the lock so no
+    // concurrent same-file edit can slip newer bytes between capture and write.
+    const writeResult = await ports
+      .edits({ executionThreadId, toolCallId, toolName: NATIVE_TOOL_ID.writeWorkspaceFile })
+      .track(
+        {
+          absolutePath: resolved.absolutePath,
+          op: 'write',
+          rootId: root.rootId,
+          rootPath: resolved.canonicalRootPath,
+        },
+        () => {
+          assertFileMutationActive(runtimeData, signal);
+          return writeContainedFileBytes({ buffer, requestedPath: input.path, resolved });
+        }
+      );
     // A full-rewrite is the recovery path the edit-failure hint itself
     // recommends (BST-1188) — it must clear the path's stringReplace failure
     // streak too, or the NEXT unrelated stringReplace miss on this path still
@@ -243,25 +246,12 @@ export async function runWriteWorkspaceFile(
     // Our own write is the scope's freshest observation — consecutive writes
     // must never trip the guard on themselves.
     await recordOwnWriteObservation(scope, resolved.absolutePath);
-    await triggerEditedFileReindex({
+    await ports.index?.edited({
       absolutePath: resolved.absolutePath,
       content: input.content,
       rootId: root.rootId,
-      runtimeData,
       size: buffer.byteLength,
       workspacePath: resolved.workspacePath,
-    });
-    await recordEditCheckpointForTool({
-      afterExisted: true,
-      afterHash: sha256Hex(buffer),
-      before: beforeStateToCapture(beforeState),
-      executionThreadId,
-      op: 'write',
-      path: resolved.workspacePath,
-      rootId: root.rootId,
-      runtimeData,
-      toolCallId,
-      toolName: NATIVE_TOOL_ID.writeWorkspaceFile,
     });
     return writeResult;
   });
@@ -271,6 +261,7 @@ export async function runWriteWorkspaceFile(
   const lsp = await collectEditDiagnostics({
     absolutePath: resolved.absolutePath,
     content: input.content,
+    ports,
     root,
   });
 
@@ -287,6 +278,7 @@ export async function runWriteWorkspaceFile(
 export async function runStringReplaceWorkspaceFile(
   input: StringReplaceWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
+  ports: FileMutationPorts,
   toolCallId?: string,
   executionThreadId?: string,
   signal?: AbortSignal
@@ -364,34 +356,28 @@ export async function runStringReplaceWorkspaceFile(
       );
     }
 
-    assertFileMutationActive(runtimeData, signal);
-    await writeContainedFileBytes({ buffer, requestedPath: input.path, resolved });
+    await ports
+      .edits({
+        executionThreadId,
+        toolCallId,
+        toolName: NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
+      })
+      .track(
+        {
+          absolutePath: resolved.absolutePath,
+          op: 'string_replace',
+          rootId: root.rootId,
+          rootPath: resolved.canonicalRootPath,
+        },
+        () => {
+          assertFileMutationActive(runtimeData, signal);
+          return writeContainedFileBytes({ buffer, requestedPath: input.path, resolved });
+        }
+      );
     resetEditFailureStreak(scope, root.rootId, resolved.workspacePath);
     // Our own write is the scope's freshest observation — a follow-up edit in
     // the same thread must never trip the guard on it.
     await recordOwnWriteObservation(scope, resolved.absolutePath);
-
-    // Journal the attribution row: the file existed (the checked reader just
-    // read it), so this is an `ok` identity capture — hash + size, no content
-    // (restores come from the turn-start snapshot).
-    const beforeBuffer = Buffer.from(file.content, 'utf8');
-    await recordEditCheckpointForTool({
-      afterExisted: true,
-      afterHash: sha256Hex(buffer),
-      before: {
-        beforeExisted: true,
-        beforeHash: sha256Hex(beforeBuffer),
-        beforeSize: beforeBuffer.byteLength,
-        captureStatus: 'ok',
-      },
-      executionThreadId,
-      op: 'string_replace',
-      path: resolved.workspacePath,
-      rootId: root.rootId,
-      runtimeData,
-      toolCallId,
-      toolName: NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
-    });
 
     // Keep the RAG index coherent: re-index the edited file INSIDE the same
     // per-file critical section as the read-modify-write. Running it after the
@@ -402,11 +388,10 @@ export async function runStringReplaceWorkspaceFile(
     // when the file isn't part of the Workspace Index; already non-fatal (it
     // catches+logs internally), so it never undoes a successful edit nor
     // extends the lock's failure surface.
-    await triggerEditedFileReindex({
+    await ports.index?.edited({
       absolutePath: resolved.absolutePath,
       content: replacement.newContent,
       rootId: root.rootId,
-      runtimeData,
       size: buffer.byteLength,
       workspacePath: resolved.workspacePath,
     });
@@ -422,6 +407,7 @@ export async function runStringReplaceWorkspaceFile(
   const lsp = await collectEditDiagnostics({
     absolutePath: resolved.absolutePath,
     content: result.newContent,
+    ports,
     root,
   });
 
@@ -458,6 +444,7 @@ export function withTwoFileLocks<T>(
 export async function runDeleteWorkspaceFile(
   input: DeleteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
+  ports: FileMutationPorts,
   toolCallId?: string,
   executionThreadId?: string,
   signal?: AbortSignal
@@ -509,34 +496,32 @@ export async function runDeleteWorkspaceFile(
       );
     }
 
-    // Capture the before-identity for the attribution ledger BEFORE
-    // unlinking; the undo recreates the file from the turn-start snapshot.
-    const beforeState = await captureBeforeState(mutationPath);
-    assertFileMutationActive(runtimeData, signal);
-    await fsPromises.unlink(mutationPath);
+    // The attribution owner observes the before-identity BEFORE unlinking.
+    await ports
+      .edits({ executionThreadId, toolCallId, toolName: NATIVE_TOOL_ID.deleteWorkspaceFile })
+      .track(
+        {
+          absolutePath: mutationPath,
+          op: 'delete',
+          rootId: root.rootId,
+          rootPath: resolved.canonicalRootPath,
+        },
+        () => {
+          assertFileMutationActive(runtimeData, signal);
+          return fsPromises.unlink(mutationPath);
+        }
+      );
     // Drop the staleness observation with the file so a later re-creation at
     // this path is treated as new, not compared against a ghost.
     forgetKnownFile(threadScope, mutationPath);
-    const { invalidated } = await triggerFileDeletionInvalidation({
-      rootId: root.rootId,
-      runtimeData,
-      workspacePath: resolved.workspacePath,
-    });
-    await recordEditCheckpointForTool({
-      afterExisted: false,
-      afterHash: null,
-      before: beforeStateToCapture(beforeState),
-      executionThreadId,
-      op: 'delete',
-      path: resolved.workspacePath,
-      rootId: root.rootId,
-      runtimeData,
-      toolCallId,
-      toolName: NATIVE_TOOL_ID.deleteWorkspaceFile,
-    });
+    const invalidated =
+      (await ports.index?.deleted({
+        rootId: root.rootId,
+        workspacePath: resolved.workspacePath,
+      })) ?? NO_INDEX_INVALIDATION;
 
     return {
-      indexInvalidated: invalidated,
+      indexInvalidated: invalidated.invalidated,
       ok: true,
       path: resolved.workspacePath,
       rootName: root.displayName,
@@ -547,6 +532,7 @@ export async function runDeleteWorkspaceFile(
 export async function runRenameWorkspaceFile(
   input: RenameWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
+  ports: FileMutationPorts,
   toolCallId?: string,
   executionThreadId?: string,
   signal?: AbortSignal
@@ -641,17 +627,29 @@ export async function runRenameWorkspaceFile(
       );
     }
 
-    // Directory creation is also a workspace effect: honor Stop before it starts.
-    assertFileMutationActive(runtimeData, signal);
-    // Create any missing destination parent directories one component at a time,
-    // rejecting symlinked intermediates (a plain mkdir -p would traverse them).
-    await ensureContainedDirectory(
-      toResolved.canonicalRootPath,
-      path.dirname(toResolved.absolutePath)
-    );
-
-    assertFileMutationActive(runtimeData, signal);
-    await fsPromises.rename(fromMutationPath, toResolved.absolutePath);
+    await ports
+      .edits({ executionThreadId, toolCallId, toolName: NATIVE_TOOL_ID.renameWorkspaceFile })
+      .track(
+        {
+          absolutePath: toResolved.absolutePath,
+          fromAbsolutePath: fromMutationPath,
+          op: 'rename',
+          rootId: root.rootId,
+          rootPath: toResolved.canonicalRootPath,
+        },
+        async () => {
+          // Directory creation is also a workspace effect: honor Stop before it starts.
+          assertFileMutationActive(runtimeData, signal);
+          // Create any missing destination parent directories one component at a time,
+          // rejecting symlinked intermediates (a plain mkdir -p would traverse them).
+          await ensureContainedDirectory(
+            toResolved.canonicalRootPath,
+            path.dirname(toResolved.absolutePath)
+          );
+          assertFileMutationActive(runtimeData, signal);
+          await fsPromises.rename(fromMutationPath, toResolved.absolutePath);
+        }
+      );
 
     // Move the observation with the file. Regular file: the source path is
     // gone; the destination (content unchanged — rename preserves mtime) is
@@ -671,51 +669,21 @@ export async function runRenameWorkspaceFile(
     // the background workspace sync (the documented staleness window: the moved
     // file is searchable via the live grep pass immediately, and via the semantic
     // index once the next sync imports it).
-    const { invalidated } = await triggerFileDeletionInvalidation({
-      rootId: root.rootId,
-      runtimeData,
-      workspacePath: fromResolved.workspacePath,
-    });
-    await triggerRenamedDestinationReindex({
+    const invalidated =
+      (await ports.index?.deleted({
+        rootId: root.rootId,
+        workspacePath: fromResolved.workspacePath,
+      })) ?? NO_INDEX_INVALIDATION;
+    await ports.index?.renamed({
       absolutePath: toResolved.absolutePath,
       rootId: root.rootId,
       rootPath: root.path,
-      runtimeData,
       workspacePath: toResolved.workspacePath,
-    });
-
-    // Journal the attribution row: a rename has no content change; the undo
-    // restores the source and deletes the destination from the turn-start
-    // snapshot. fromPath = original source. The DESTINATION's content hash IS
-    // recorded (same bytes the rename moved): the undo's conflict gate needs
-    // it to detect post-rename user edits before deleting the destination —
-    // a null hash on a present path reads as unverifiable ⇒ conflict there.
-    // For a symlink source, `captureBeforeState` stats THROUGH the link, the
-    // same way the gate's own disk read follows it (consistent identity); a
-    // dangling link hashes as absent ⇒ null ⇒ the gate stays fail-safe.
-    const afterState = await captureBeforeState(toResolved.absolutePath);
-    await recordEditCheckpointForTool({
-      afterExisted: true,
-      afterHash: afterState.kind === 'present' ? afterState.hash : null,
-      before: {
-        beforeExisted: true,
-        beforeHash: null,
-        beforeSize: null,
-        captureStatus: 'rename',
-      },
-      executionThreadId,
-      fromPath: fromResolved.workspacePath,
-      op: 'rename',
-      path: toResolved.workspacePath,
-      rootId: root.rootId,
-      runtimeData,
-      toolCallId,
-      toolName: NATIVE_TOOL_ID.renameWorkspaceFile,
     });
 
     return {
       fromPath: fromResolved.workspacePath,
-      indexInvalidated: invalidated,
+      indexInvalidated: invalidated.invalidated,
       ok: true,
       rootName: root.displayName,
       toPath: toResolved.workspacePath,

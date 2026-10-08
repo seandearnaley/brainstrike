@@ -26,7 +26,7 @@
  */
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { isWithinRoot } from './workspace-path';
+import { isWithinRoot } from '@brainstrike/host-capabilities/native-tools';
 
 /** Typed failure for plan parsing/computation — callers surface the message. */
 export class RestorePlanError extends Error {

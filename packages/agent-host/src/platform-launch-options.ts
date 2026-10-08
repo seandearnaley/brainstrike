@@ -31,6 +31,12 @@ export const HostPlatformLaunchOptionsSchema = z.strictObject({
       })
     )
     .optional(),
+  /**
+   * The launching desktop still holds a retired encrypted store it will import
+   * over `auth/import-legacy` once this host is ready; credential use waits
+   * for that import to settle.
+   */
+  legacyImportPending: z.literal(true).optional(),
   /** The MCP server configuration this host composes, as the desktop's config JSON. */
   mcpConfig: z
     .strictObject({
@@ -42,6 +48,14 @@ export const HostPlatformLaunchOptionsSchema = z.strictObject({
    * inside its provider egress boundary. A shipped launch never sets it.
    */
   openAiCodexIssuer: LoopbackIssuer.optional(),
+  /**
+   * A standalone host's workspace roots (`--workspace`, cwd when omitted). The
+   * launch option owns their identity; a profile-backed host never takes them.
+   */
+  workspaceRoots: z
+    .array(z.string().refine(isAbsolute, 'Workspace roots must be absolute paths'))
+    .min(1)
+    .optional(),
 });
 export type HostPlatformLaunchOptions = z.infer<typeof HostPlatformLaunchOptionsSchema>;
 export type HostEnvFileFailure = NonNullable<HostPlatformLaunchOptions['envFileFailures']>[number];

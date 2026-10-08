@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { ensureContainedDirectory } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ensureContainedDirectory } from '../secure-file-write';
 
 describe('secure-file-write: ensureContainedDirectory', () => {
   let rootDir: string;

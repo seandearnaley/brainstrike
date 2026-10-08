@@ -55,6 +55,7 @@ export async function createHostCapabilities(
       : { codexIssuer: options.launch.openAiCodexIssuer }),
     credentials,
     env: options.env,
+    ...(options.launch?.legacyImportPending ? { legacyImportPending: true } : {}),
     ...(options.openExternal ? { openExternal: options.openExternal } : {}),
   });
   return {
@@ -63,7 +64,6 @@ export async function createHostCapabilities(
     credentials,
     providers: createHostProviderServices({
       auth,
-      credentials,
       env: options.env,
       envFileFailures: options.launch?.envFileFailures ?? [],
     }),

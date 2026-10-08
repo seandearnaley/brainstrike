@@ -13,6 +13,7 @@ import type {
   ProviderVerificationSnapshot,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
+import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type { McpTaskHandle } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import type { ThreadWorkspaceBinding } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
@@ -28,7 +29,12 @@ import type {
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
 import type { HostAuthVerdict } from './auth-wire.js';
-import type { HostLoginCredential, HostRunSnapshot } from './protocol.js';
+import type {
+  HostEditOp,
+  HostLegacyImport,
+  HostLoginCredential,
+  HostRunSnapshot,
+} from './protocol.js';
 
 /** Private native authority. Validation never resolves or sends an answer. */
 export interface HostMcpInputCapability {
@@ -49,12 +55,42 @@ export interface HostMcpExecution {
   requestInput(input: HostMcpInputCapability): Promise<void>;
 }
 
+/** One file mutation a native tool performs inside an admitted workspace root. */
+export interface HostWorkspaceEdit {
+  /** Absolute path of the edited file (a rename's destination). */
+  readonly absolutePath: string;
+  /** Absolute rename source; required for, and only for, `rename`. */
+  readonly fromAbsolutePath?: string;
+  readonly op: HostEditOp;
+  readonly rootId: string;
+  /** The absolute root the tool admitted; revert revalidates it with the live root owner. */
+  readonly rootPath: string;
+}
+/** Core-owned attribution: baselines are committed with the edit, in the run log. */
+export interface HostWorkspaceEditTracker {
+  /** Observe, run `mutate`, then commit the edit (also when `mutate` failed after changing disk). */
+  track<T>(edit: HostWorkspaceEdit, mutate: () => Promise<T>): Promise<T>;
+}
+
+/** Core-owned per-thread tool state; every write is a committed `tool.state.updated`. */
+export interface HostToolState {
+  /** The latest committed value of every key starting with `prefix`. */
+  entries(prefix: string): readonly (readonly [string, unknown])[];
+  read(key: string): unknown;
+  /** Atomic per (thread, key): `next` sees the latest committed value; `undefined` writes nothing. */
+  update(key: string, next: (current: unknown) => unknown): Promise<void>;
+}
+
 export interface HostToolContext {
+  /** Present for every Core-dispatched execution; file tools must refuse without it. */
+  readonly edits?: HostWorkspaceEditTracker | undefined;
   readonly mcp?: HostMcpExecution | undefined;
   /** Validated committed response to this tool's intrinsic human interaction. */
   readonly resumeData?: unknown;
   readonly runId: string;
   readonly signal: AbortSignal;
+  /** Present for every Core-dispatched execution; stateful tools must refuse without it. */
+  readonly state?: HostToolState | undefined;
   readonly threadId: string;
   readonly toolCallId: string;
   /** Existing native/MCP progress is committed by the run-log owner. */
@@ -71,6 +107,7 @@ export interface HostRunContext {
   }): Promise<void>;
   recordProviderRequest?(receipt: {
     readonly accounting: ProviderRequestAccounting;
+    readonly breakdown: AssistantContextBreakdown;
     readonly modelId: string;
     readonly provider: string;
   }): Promise<void>;
@@ -124,6 +161,8 @@ export interface HostRunAdmission {
   readonly provider?: HostProviderPort;
   readonly snapshot: HostRunSnapshot;
   readonly tools: Readonly<Record<string, HostTool>>;
+  /** Configured MCP servers this run proceeds without; committed with `run.started`. */
+  readonly unavailableMcpServers?: readonly HostMcpUnavailableServer[];
 }
 
 /**
@@ -140,6 +179,10 @@ export interface HostAuthService {
   ): Promise<ProviderAuthStatus>;
   deleteCredential(account: string): Promise<boolean>;
   disconnect(provider: string): Promise<ProviderAuthStatus>;
+  /** Idempotent; settles every credential use a launch-declared pending import holds. */
+  importLegacy(
+    input: HostLegacyImport
+  ): Promise<{ readonly alreadyPresent: number; readonly migrated: number }>;
   /** A Settings-namespace entry under its existing account (provider, tool or MCP key). */
   setCredential(account: string, credential: HostLoginCredential): Promise<void>;
   status(provider: string): Promise<ProviderAuthStatus>;
@@ -172,11 +215,19 @@ export interface HostRunAdmissionRequest {
   readonly workspaceBinding?: ThreadWorkspaceBinding;
 }
 
+/** A configured MCP server whose tools a run proceeds without, and why. */
+export interface HostMcpUnavailableServer {
+  readonly reason: string;
+  readonly serverId: string;
+}
+
 /** The existing configured authority and its generation-qualified executors. */
 export interface HostMcpToolSelection {
   readonly bindings: Readonly<Record<string, McpHostToolBinding>>;
   /** Release this run's borrowed client after its executions and watches join. */
   close(): Promise<void>;
+  /** Servers whose discovery failed; Core commits each with the run's start. */
+  readonly unavailable: readonly HostMcpUnavailableServer[];
 }
 export interface HostMcpToolRequest {
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
@@ -228,6 +279,8 @@ export interface HostPlatform {
   /** The host's credential authority; absent where the host owns no credential store. */
   readonly auth?: HostAuthService;
   close(): Promise<void>;
+  /** Purge process-local caches scoped to a thread Core just deleted. */
+  forgetThread?(threadId: string): void;
   /** The default admission's auto-title capability; `admitRun` sets it per admission. */
   readonly generatesThreadTitles?: boolean | undefined;
   /** Supplied by the existing run configuration, not a second host default. */
@@ -240,6 +293,14 @@ export interface HostPlatform {
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
   resolveModel?(modelId: string): Promise<LanguageModel>;
+  /**
+   * The live absolute path of a mounted workspace root, for revert
+   * revalidation. Rejects an unknown root; absence refuses `checkpoint/revert`.
+   */
+  resolveWorkspaceRoot?(request: {
+    readonly rootId: string;
+    readonly signal: AbortSignal;
+  }): Promise<string>;
   /** Borrowed existing native writer; startup acquires it before interrupted purge replay. */
   readonly stateIndexer?: StateStoreIndexerPort;
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
