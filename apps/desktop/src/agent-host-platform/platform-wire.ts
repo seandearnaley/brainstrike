@@ -1,5 +1,6 @@
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import { HostRunSnapshotSchema, McpToolAuthoritySchema } from '@brainstrike/agent-host/protocol';
+import { CliWorkspaceSelectionSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { PERMISSION_DECISIONS, TOOL_RISK_CATEGORIES } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
@@ -124,6 +125,7 @@ export const PlatformClientConfigurationSchema = z.strictObject({
       maxSteps: z.number().int().positive().optional(),
     })
     .optional(),
+  cliWorkspace: CliWorkspaceSelectionSchema.optional(),
   enabledNativeToolIds: z.array(Id),
   memoryOptions: PlatformMemoryOptionsSchema,
   memorySettings: PlatformMemorySettingsSchema,

@@ -10,6 +10,10 @@ import { createAgentHostSpawner } from './launcher.js';
 import type { HostPlatformLaunchOptions } from './platform-launch-options.js';
 import { isProcessEntrypoint } from './process-entrypoint.js';
 import { HOST_METHOD_SCHEMAS } from './protocol.js';
+import {
+  type CliWorkspaceRunInput,
+  CliWorkspaceRunInputSchema,
+} from './standalone-workspace-input.js';
 
 export interface HostCliOutput {
   write(value: string): void;
@@ -36,13 +40,19 @@ type CliStringOption =
   | 'resume-data'
   | 'root'
   | 'run'
+  | 'skills'
+  | 'workspace-instructions'
   | 'thread';
 type CliBooleanOption = 'help' | 'interactive' | 'json' | 'non-interactive';
 interface HostCliArguments {
   readonly command: string;
   readonly interactive: boolean;
   readonly positionals: readonly string[];
-  readonly values: Partial<Record<CliStringOption, string> & Record<CliBooleanOption, boolean>>;
+  readonly values: Partial<
+    Record<CliStringOption, string> &
+      Record<CliBooleanOption, boolean> & { 'workspace-root': string[] }
+  >;
+  readonly workspaceInput?: CliWorkspaceRunInput;
 }
 
 function parseHostCliArgs(args: string[]): HostCliArguments {
@@ -68,7 +78,10 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'resume-data': { type: 'string' },
       root: { type: 'string' },
       run: { type: 'string' },
+      skills: { type: 'string' },
       thread: { type: 'string' },
+      'workspace-instructions': { type: 'string' },
+      'workspace-root': { multiple: true, type: 'string' },
     },
     strict: true,
   });
@@ -101,11 +114,30 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
   if (values.interactive && values['non-interactive']) {
     throw new Error('Choose interactive or non-interactive input');
   }
+  const hasWorkspaceInput =
+    values['workspace-root'] !== undefined ||
+    values.skills !== undefined ||
+    values['workspace-instructions'] !== undefined;
+  if (hasWorkspaceInput && command !== 'run' && command !== 'run start') {
+    throw new Error('Workspace selectors and preferences apply only to run or run start');
+  }
+  const workspaceInput = hasWorkspaceInput
+    ? CliWorkspaceRunInputSchema.parse({
+        kind: 'cli-workspace',
+        version: 1,
+        workspace: {
+          instructions: values['workspace-instructions'] ?? 'inherit',
+          rootIds: values['workspace-root'] ?? [],
+          skills: values.skills ?? 'off',
+        },
+      })
+    : undefined;
   return {
     command,
     interactive: !values['non-interactive'] && (values.interactive ?? Boolean(process.stdin.isTTY)),
     positionals,
     values,
+    ...(workspaceInput ? { workspaceInput } : {}),
   };
 }
 
@@ -140,12 +172,19 @@ function assertCredentialAuthority(spawned: boolean, values: HostCliArguments['v
   }
 }
 
+function cliWorkspaceConfiguration(input: CliWorkspaceRunInput | undefined): {
+  configuration?: CliWorkspaceRunInput;
+} {
+  return input ? { configuration: input } : {};
+}
+
 /** CLI is a client of the root owner; it never runs a second model/tool loop. */
 export async function runHostCli(
   args: string[],
   output: HostCliOutput = process.stdout
 ): Promise<void> {
-  const { command, interactive, positionals, values } = parseHostCliArgs(args);
+  const { command, interactive, positionals, values, workspaceInput } = parseHostCliArgs(args);
+  const workspaceConfiguration = cliWorkspaceConfiguration(workspaceInput);
   if (command === 'help') {
     output.write(`brainstrike --data-root <path> [--platform <module>] <command>
 
@@ -165,6 +204,10 @@ Question answers use {"answer":"text"} or {"answer":["choice 1","choice 2"]}.
 Plan decisions use {"action":"approved"} or {"action":"rejected","feedback":"reason"}.
 Standalone hosts use an explicit --model provider::model from the canonical catalog.
 This selection does not change desktop model enablement or saved settings.
+Per-run workspace input: repeat --workspace-root <existing canonical id>,
+--workspace-instructions inherit|off, and --skills inherit|off (default off).
+Selectors narrow live owner grants; paths and the current directory grant no access.
+An empty selection grants no workspace; Skills also require the owner's home-tier capability.
 Native tools, configured MCP/Tasks, Skills/workspace instructions, vector Memory,
 local inference and browser OAuth require platform capabilities.
 An existing host keeps its own platform and admission policy.
@@ -251,6 +294,7 @@ Run signals stop and join its execution; attach signals detach.
           startRun: () =>
             client.request('run/start', {
               commandId,
+              ...workspaceConfiguration,
               modelId,
               prompt,
               threadId: selected,
@@ -273,6 +317,7 @@ Run signals stop and join its execution; attach signals detach.
         print(
           await client.request('run/start', {
             commandId,
+            ...workspaceConfiguration,
             modelId: required(values.model, 'model'),
             prompt: required(values.prompt, 'prompt'),
             threadId: threadId(),

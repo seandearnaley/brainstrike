@@ -9,6 +9,9 @@
  * here, and loaded by `import()` inside the helpers that need them.
  */
 import type { ExportedMessageRepository, ThreadMessage } from '@assistant-ui/react';
+// Actual HostCore + native StateStore + pinned AI SDK approved-run capture
+// (see committed-assistant-log-projection.test.ts). Payloads and IDs unchanged.
+import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
 import { expect, onTestFinished, vi } from 'vitest';
 import { commands, page, userEvent } from 'vitest/browser';
 import type { CommittedAssistantLogRow } from '../committed-assistant-log-projection';
@@ -21,9 +24,6 @@ import type { CommittedAssistantCommands } from '../committed-assistant-store';
 // Actual production desktop child continuation wire, the same capture
 // recordedMessage() decodes. Its own child thread identity is "child".
 import childRecording from './fixtures/child-continuation-native-wire.json';
-// Actual HostCore + native StateStore + pinned AI SDK approved-run capture
-// (see committed-assistant-log-projection.test.ts). Payloads and IDs unchanged.
-import recording from './fixtures/committed-approved-host-run.json';
 
 // ---- React instrumentation (spike s-ui, aisdk-b4-ui report "How it was measured") ----
 

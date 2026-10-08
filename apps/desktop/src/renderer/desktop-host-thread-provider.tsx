@@ -14,6 +14,7 @@ import {
   type CommittedHostConversation,
   createCommittedHostConversation,
 } from './committed-host-conversation';
+import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
 import { useDesktopHostPresentation } from './use-desktop-host-presentation';
@@ -51,6 +52,7 @@ function HostThread({
       commands={conversation.commands}
       label="Assistant"
       store={conversation.store}
+      workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
     />
   ) : (
     <div role="status">Connecting to the agent host…</div>
