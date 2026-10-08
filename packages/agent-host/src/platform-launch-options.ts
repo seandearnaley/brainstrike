@@ -12,5 +12,11 @@ export const HostPlatformLaunchOptionsSchema = z.strictObject({
       }),
     ])
     .optional(),
+  /** The MCP server configuration this host composes, as the desktop's config JSON. */
+  mcpConfig: z
+    .strictObject({
+      path: z.string().refine(isAbsolute, 'An explicit absolute MCP config file is required'),
+    })
+    .optional(),
 });
 export type HostPlatformLaunchOptions = z.infer<typeof HostPlatformLaunchOptionsSchema>;
