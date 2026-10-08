@@ -17,7 +17,7 @@ import { modelMessageSchema } from 'ai';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { attachAgentHost, type HostClient } from '../src/client.js';
-import type { HostEvent } from '../src/protocol.js';
+import { type HostEvent, HostLogRowSchema } from '../src/protocol.js';
 
 const Identity = z.strictObject({
   executable: z.string(),
@@ -398,6 +398,37 @@ windowsTest(
     await closeHost(first.host);
     await client.closed;
     expect(RootLock.inspect(root)?.owner.released).toBe(true);
+    // The answerable approval commits before the SDK consumer necessarily drains.
+    // This first owner's platform.close snapshot follows Core's joined run tasks,
+    // while its same StateStore is still open; no second writer captures history.
+    const drained = z
+      .array(HostLogRowSchema)
+      .parse(
+        JSON.parse(
+          await readFile(
+            join(root, `drained-history-${first.host.identity.pid}-${threadId}.json`),
+            'utf8'
+          )
+        )
+      );
+    expect(drained.slice(0, before.length)).toEqual(before);
+    expect(
+      drained.flatMap((row) => (row.event.type === 'interaction.requested' ? [row.event] : []))
+    ).toEqual([pending]);
+    expect(
+      drained.filter((row) =>
+        ['interaction.responded', 'effect.started', 'effect.finished', 'run.finished'].includes(
+          row.event.type
+        )
+      )
+    ).toHaveLength(0);
+    await audit('replay-owner-drained-history', {
+      identity: first.host.identity,
+      liveRows: before.length,
+      rows: drained.length,
+      tail: drained.slice(before.length),
+      threadId,
+    });
     const second = await startHost(root);
     expect(second.record.token).not.toBe(first.record.token);
     await expect(attachAgentHost({ ...second.record, token: first.record.token })).rejects.toThrow(
@@ -405,7 +436,12 @@ windowsTest(
     );
     await expect(attachAgentHost(first.record)).rejects.toThrow();
     const resumed = await attach(second.record);
-    expect((await resumed.request('thread/read', { fromSeq: 0, threadId })).rows).toEqual(before);
+    expect((await resumed.request('thread/read', { fromSeq: 0, threadId })).rows).toEqual(drained);
+    await audit('replay-drained-history-equal', {
+      identity: second.host.identity,
+      rows: drained.length,
+      threadId,
+    });
     const answer = {
       commandId: randomUUID(),
       decision: 'approve' as const,
