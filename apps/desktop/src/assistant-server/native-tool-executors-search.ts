@@ -11,7 +11,6 @@ import {
   type GrepSearchInput,
   type HybridSearchInput,
   type ListEmbeddingSetsInput,
-  type LspInspectInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   type QueryEmbeddingSpaceInput,
   resolveGuardedToolSignal,
@@ -24,7 +23,6 @@ import {
   logToolFailure,
   parseToolExecuteInput,
   projectGrepSearchModelOutput,
-  projectLspInspectModelOutput,
   readStateScope,
   type ToolExecuteContext,
   type ToolExecuteInput,
@@ -40,7 +38,6 @@ import {
 import { runGrepSearch } from './grep-search-tool';
 import { runHybridSearch } from './hybrid-search-tool';
 import { runListEmbeddingSpaces } from './list-embedding-spaces-tool';
-import { runLspInspect } from './lsp-inspection-tools';
 import {
   NATIVE_HYBRID_RETRIEVAL_DESCRIPTION,
   NATIVE_SEMANTIC_RETRIEVAL_DESCRIPTION,
@@ -59,25 +56,6 @@ import {
 } from './workspace-retrieval-model-projections';
 
 export const SEARCH_TOOL_EXECUTORS = executorGroup({
-  [NATIVE_TOOL_ID.lspInspect]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.lspInspect],
-    execute: async (input: ToolExecuteInput<LspInspectInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.lspInspect],
-        input
-      );
-      try {
-        return await runLspInspect(resolvedInput, runtimeData);
-      } catch (error) {
-        logToolFailure('lspInspect failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.lspInspect,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.lspInspect],
-    toModelOutput: (output: unknown) =>
-      projectLspInspectModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
   [NATIVE_TOOL_ID.grepSearch]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.grepSearch],
     execute: async (input: ToolExecuteInput<GrepSearchInput>) => {

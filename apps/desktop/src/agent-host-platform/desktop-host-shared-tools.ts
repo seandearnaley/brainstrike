@@ -4,10 +4,10 @@ import type { HostTool } from '@brainstrike/agent-host';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import {
   createSharedNativeHostTools,
-  isSharedNativeToolId,
   type ReadWorkspaceFileCursorRegistry,
 } from '@brainstrike/host-capabilities/native-tools';
 import { getEditDiagnostics } from '../assistant-server/lsp-diagnostics';
+import { DESKTOP_HOST_TOOL_EXECUTORS, isHostExecutedNativeToolId } from './host-executed-tools';
 import type { PlatformSelection } from './platform-wire';
 
 /**
@@ -25,7 +25,7 @@ export function desktopHostSharedTools(options: {
   const { selected } = options;
   const ids = Object.values(selected.tools)
     .map((descriptor) => descriptor.permissionToolId)
-    .filter(isSharedNativeToolId);
+    .filter(isHostExecutedNativeToolId);
   if (ids.length === 0) {
     return {};
   }
@@ -40,6 +40,7 @@ export function desktopHostSharedTools(options: {
   };
   const local = createSharedNativeHostTools({
     diagnostics: (args) => getEditDiagnostics(args),
+    executors: DESKTOP_HOST_TOOL_EXECUTORS,
     freshRoots: async (signal) =>
       CliWorkspaceRootsSchema.parse(
         await options.request('platform/workspace/roots', { threadId: options.threadId }, signal)
@@ -54,12 +55,12 @@ export function desktopHostSharedTools(options: {
   );
   return Object.fromEntries(
     Object.entries(selected.tools).flatMap(([name, descriptor]) => {
-      if (!isSharedNativeToolId(descriptor.permissionToolId)) {
+      if (!isHostExecutedNativeToolId(descriptor.permissionToolId)) {
         return [];
       }
       const tool = byCatalogId.get(descriptor.permissionToolId);
       if (!tool || tool.identity !== descriptor.identity || tool.risk !== descriptor.risk) {
-        throw new Error('A host shared native tool differs from its admitted descriptor');
+        throw new Error('A host-executed native tool differs from its admitted descriptor');
       }
       return [[name, tool]];
     })

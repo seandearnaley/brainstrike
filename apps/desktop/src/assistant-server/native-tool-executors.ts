@@ -10,11 +10,13 @@
 import { SHARED_NATIVE_TOOL_EXECUTORS } from '@brainstrike/host-capabilities/native-tools';
 import type { NativeToolExecutorMap } from './native-tool-executor-context';
 import { EXECUTION_TOOL_EXECUTORS } from './native-tool-executors-execution';
+import { INSPECTION_TOOL_EXECUTORS } from './native-tool-executors-inspection';
 import { SEARCH_TOOL_EXECUTORS } from './native-tool-executors-search';
 import { WORKSPACE_TOOL_EXECUTORS } from './native-tool-executors-workspace';
 
 export const NATIVE_TOOL_EXECUTORS: NativeToolExecutorMap = {
   ...EXECUTION_TOOL_EXECUTORS,
+  ...INSPECTION_TOOL_EXECUTORS,
   ...SEARCH_TOOL_EXECUTORS,
   ...SHARED_NATIVE_TOOL_EXECUTORS,
   ...WORKSPACE_TOOL_EXECUTORS,
