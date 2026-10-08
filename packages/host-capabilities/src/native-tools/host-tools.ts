@@ -1,4 +1,5 @@
 import {
+  forgetFileReadScope,
   getActiveToolResultBudget,
   type RuntimeData,
   type RuntimeWorkspaceRoot,
@@ -23,6 +24,20 @@ import {
 import { hostCanvasStore, hostTaskListStore } from './host-stores.js';
 import type { FileMutationPorts } from './ports.js';
 import type { ReadWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry.js';
+import { resetToolCallLoopGuards } from './tool-call-loop-guards.js';
+
+/**
+ * Purge a deleted thread's process-local tool state: its read cursors, its
+ * read-before-write observations and its loop-guard streaks.
+ */
+export function forgetSharedNativeToolThread(
+  threadId: string,
+  readFileCursorRegistry: ReadWorkspaceFileCursorRegistry
+): void {
+  readFileCursorRegistry.forgetThread(threadId);
+  forgetFileReadScope(threadId);
+  resetToolCallLoopGuards(threadId);
+}
 
 export function isSharedNativeToolId(id: string): id is SharedNativeToolId {
   return (SHARED_NATIVE_TOOL_IDS as readonly string[]).includes(id);

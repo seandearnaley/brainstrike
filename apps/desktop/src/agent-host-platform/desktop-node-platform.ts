@@ -12,7 +12,10 @@ import {
 } from '@brainstrike/agent-host';
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
+import {
+  forgetSharedNativeToolThread,
+  ReadWorkspaceFileCursorRegistry,
+} from '@brainstrike/host-capabilities/native-tools';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
@@ -122,6 +125,7 @@ export async function createHostPlatform(
     close: async () => {
       await request('platform/close', {});
     },
+    forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     readConfiguration: async (admission) => {
       const response = await request(
         'platform/admit',

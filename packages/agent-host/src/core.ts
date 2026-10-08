@@ -394,6 +394,7 @@ export class HostCore {
       this.workspaces.forget(params.threadId);
       this.mcpInputs.forgetThread(params.threadId);
       this.records.forgetThread(params.threadId);
+      this.platform.forgetThread?.(params.threadId);
       for (const run of runs) {
         this.runs.delete(run.id);
         this.conversationIds.delete(run.id);

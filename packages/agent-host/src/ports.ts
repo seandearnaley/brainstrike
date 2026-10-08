@@ -204,6 +204,8 @@ export interface HostTool {
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
   close(): Promise<void>;
+  /** Purge process-local caches scoped to a thread Core just deleted. */
+  forgetThread?(threadId: string): void;
   /** The default admission's auto-title capability; `admitRun` sets it per admission. */
   readonly generatesThreadTitles?: boolean | undefined;
   /** Supplied by the existing run configuration, not a second host default. */

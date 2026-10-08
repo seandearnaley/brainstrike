@@ -49,6 +49,9 @@ function bindOptionalPlatform(owned: HostPlatform, acquired: HostPlatform): void
   if (acquired.admitRun) {
     owned.admitRun = acquired.admitRun.bind(acquired);
   }
+  if (acquired.forgetThread) {
+    owned.forgetThread = acquired.forgetThread.bind(acquired);
+  }
   if (acquired.resolveWorkspaceRoot) {
     owned.resolveWorkspaceRoot = acquired.resolveWorkspaceRoot.bind(acquired);
   }

@@ -37,6 +37,7 @@ import { z } from 'zod';
 import { createHostCapabilities } from './capabilities.js';
 import {
   createSharedNativeHostTools,
+  forgetSharedNativeToolThread,
   ReadWorkspaceFileCursorRegistry,
 } from './native-tools/index.js';
 import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.js';
@@ -133,6 +134,7 @@ export async function createHostPlatform(
   });
   return createProductionHostPlatform({
     close: () => host.close(),
+    forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     readConfiguration: async (request): Promise<ProductionHostRunConfiguration> => {
       request.signal.throwIfAborted();
       if (readCliWorkspaceRunInput(request.configuration)) {

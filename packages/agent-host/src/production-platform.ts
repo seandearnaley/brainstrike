@@ -52,6 +52,8 @@ export interface ProductionHostRunConfiguration {
 
 export interface ProductionHostPlatformOptions {
   close(): Promise<void>;
+  /** Purge process-local caches of a deleted thread. */
+  readonly forgetThread?: HostPlatform['forgetThread'];
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
@@ -283,6 +285,7 @@ export async function createProductionHostPlatform(
     },
     close,
     readPermissionPolicy: options.readPermissionPolicy,
+    ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
   };
 }

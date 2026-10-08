@@ -483,9 +483,10 @@ test('revert is refused while any run of the thread is active, then allowed once
   expect(await readFile(join(state.workspace, 'a.txt'), 'utf8')).toBe('a v0');
 });
 
-test('thread deletion collects the baselines its edits referenced', async () => {
+test('thread deletion collects the baselines its edits referenced and purges platform caches', async () => {
   const state = await fixture();
   await writeFile(join(state.workspace, 'a.txt'), 'baseline only this thread keeps');
+  const forgotten: string[] = [];
   let native: Awaited<ReturnType<typeof openIndexer>> | undefined;
   cleanup.push(async () => native?.close());
   const host = await startAgentHost(
@@ -505,7 +506,13 @@ test('thread deletion collects the baselines its edits referenced', async () => 
         },
         { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
       );
-      return { ...platform(state), stateIndexer: createStateStoreIndexer(native) };
+      return {
+        ...platform(state),
+        forgetThread: (threadId: string) => {
+          forgotten.push(threadId);
+        },
+        stateIndexer: createStateStoreIndexer(native),
+      };
     }
   );
   const client = await attachAgentHost(host.record);
@@ -526,4 +533,6 @@ test('thread deletion collects the baselines its edits referenced', async () => 
   expect(await readFile(blob, 'utf8')).toBe('baseline only this thread keeps');
   expect(await client.request('thread/delete', { threadId })).toEqual({ deleted: true });
   expect(await exists(blob)).toBe(false);
+  // The platform purges the deleted thread's process-local tool caches.
+  expect(forgotten).toEqual([threadId]);
 });
