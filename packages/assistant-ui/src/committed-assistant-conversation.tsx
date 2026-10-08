@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { memo, useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   AssistantConversationPanel,
   type AssistantConversationPanelProps,
@@ -22,7 +22,6 @@ export type CommittedAssistantConversationProps = Omit<
 const UNAVAILABLE = 'The agent host is unavailable.';
 const selectConnection = (snapshot: CommittedAssistantSnapshot) => snapshot.connection;
 const selectError = (snapshot: CommittedAssistantSnapshot) => snapshot.error;
-const MemoizedConversationPanel = memo(AssistantConversationPanel);
 
 /** The shipped desktop conversation surface; connection changes never key/remount its transcript. */
 export function CommittedAssistantConversation(
@@ -102,9 +101,10 @@ type CommittedRuntimePanelProps = Omit<AssistantConversationPanelProps, 'runtime
 
 /**
  * Hosts the vendor runtime, whose adapter must see every committed publication,
- * so this component re-renders once per publication. The panel's own props do
- * not change with a token, so the memoized panel skips that render and the
- * vendor runtime delivers the token to its own subscribers only.
+ * so only this subtree re-renders per publication; the wrapper above it reads
+ * connection and error state alone. The panel is deliberately not memoized:
+ * measured in Chromium (BST-1929), memoizing it moved the vendor's per-token
+ * work into Scheduler tasks and widened the per-token tail.
  */
 function CommittedRuntimePanel({
   store,
@@ -114,5 +114,5 @@ function CommittedRuntimePanel({
   ...panel
 }: CommittedRuntimePanelProps): ReactElement {
   const runtime = useCommittedAssistantRuntime({ adapters, commands, onCommandError, store });
-  return <MemoizedConversationPanel {...panel} runtime={runtime} threadKey={store.threadId} />;
+  return <AssistantConversationPanel {...panel} runtime={runtime} threadKey={store.threadId} />;
 }

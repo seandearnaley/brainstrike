@@ -23,19 +23,12 @@ import '../overrides.css';
 import './assistant-conversation-panel.browser.css';
 
 /**
- * BST-1929 correction 8's cause, pinned by the React DevTools did-render rule:
- * the committed wrapper subscribes only to connection and error state, and the
- * vendor runtime's host passes no token-dependent prop to the panel, so a
- * recorded token re-renders neither the wrapper nor the panel shell.
+ * BST-1929 correction 8, pinned by the React DevTools did-render rule: the
+ * committed wrapper subscribes only to connection and error state, so a
+ * recorded token does not re-render it. Only the vendor runtime's host below
+ * it observes every publication.
  */
-const PANEL_SHELL = [
-  'BoundCommittedAssistantConversation',
-  'AssistantConversationPanel',
-  'ChatThreadUI',
-  'ComposerInputRow',
-] as const;
-
-test('a recorded token re-renders neither the committed wrapper nor the panel shell', async () => {
+test('a recorded token does not re-render the committed wrapper', async () => {
   const { baseline } = await recordedBaseline();
   const source = new RecordedCommittedSource();
   source.publishPrefix(TEXT_ROW['text-start'] + 1);
@@ -66,8 +59,10 @@ test('a recorded token re-renders neither the committed wrapper nor the panel sh
     true
   );
 
-  // Non-vacuous: the walk saw the token render its own streaming row.
+  // Non-vacuous: the walk saw the token render its own streaming row and
+  // components outside any row.
   expect(Object.keys(token.rendersByOwner[recordedRunId] ?? {})).not.toEqual([]);
   const outside = token.rendersByOwner['outside'] ?? {};
-  expect(PANEL_SHELL.filter((name) => name in outside)).toEqual([]);
+  expect(Object.keys(outside)).not.toEqual([]);
+  expect(outside['BoundCommittedAssistantConversation']).toBeUndefined();
 });
