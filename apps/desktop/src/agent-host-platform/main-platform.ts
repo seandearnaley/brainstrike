@@ -1,6 +1,8 @@
+import { isDeepStrictEqual } from 'node:util';
 import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import {
   canonicalToolInputJsonSchema,
+  type HostPlatform,
   type HostRunAdmissionRequest,
   type HostTool,
   validateCanonicalToolInput,
@@ -9,7 +11,7 @@ import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
-import { serveMainMcpPlatformTransport } from './mcp-platform-transport';
+import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import { encodePlatformAuth } from './platform-auth';
 import {
   PlatformPolicySchema,
@@ -18,21 +20,26 @@ import {
   type PlatformSelection,
   PlatformSelectionSchema,
   PlatformToolRequestSchema,
+  PlatformWorkspaceBindingRequestSchema,
 } from './platform-wire';
 import { serveProviderFetchTransport } from './provider-fetch-transport';
 
 export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools'> {
   close(): Promise<void>;
+  revalidateWorkspace?(signal: AbortSignal): Promise<void>;
   readonly tools: Readonly<Record<string, HostTool>>;
 }
 export interface DesktopPlatformCapabilities {
   /** Join Main-owned Root borrowers before Core releases its canonical writer. */
   closeRootCapabilities?(): Promise<void>;
+  /** The Node host's MCP runtime reaches Main's remaining MCP stores through these. */
+  readonly mcp?: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
+  readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
 async function describePlatformSelection(
@@ -45,8 +52,6 @@ async function describePlatformSelection(
         {
           description: tool.description,
           identity: tool.identity,
-          ...(tool.mcpAuthority ? { mcpAuthority: tool.mcpAuthority } : {}),
-          ...(tool.mcpBinding ? { mcpBinding: tool.mcpBinding } : {}),
           inputSchema: await canonicalToolInputJsonSchema(tool.inputSchema),
           ...(tool.interaction
             ? {
@@ -63,7 +68,12 @@ async function describePlatformSelection(
       ])
     )
   );
-  const { close: _close, tools: _tools, ...configuration } = captured;
+  const {
+    close: _close,
+    revalidateWorkspace: _revalidateWorkspace,
+    tools: _tools,
+    ...configuration
+  } = captured;
   return PlatformSelectionSchema.parse({ ...configuration, tools });
 }
 
@@ -86,6 +96,22 @@ async function rejectPlatformSelection(
 interface DesktopSelectionOwner {
   closing?: Promise<void>;
   readonly selection: DesktopPlatformSelection;
+  readonly workspaceBinding?: HostRunAdmissionRequest['workspaceBinding'];
+}
+
+function desktopAdmissionRequest(
+  request: ReturnType<typeof PlatformRunRequestSchema.parse>,
+  signal: AbortSignal
+): HostRunAdmissionRequest {
+  return {
+    ...(request.configuration ? { configuration: request.configuration } : {}),
+    ...(request.snapshot ? { snapshot: request.snapshot } : {}),
+    ...(request.workspaceBinding ? { workspaceBinding: request.workspaceBinding } : {}),
+    modelId: request.modelId,
+    ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
+    signal,
+    threadId: request.threadId,
+  };
 }
 
 async function closeDesktopProviderSelection(
@@ -130,13 +156,7 @@ export function serveDesktopPlatform(
   const admissions = new Set<string>();
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
-  const mcp = serveMainMcpPlatformTransport(connection, (work) => {
-    pending.add(work);
-    const done = (): void => {
-      pending.delete(work);
-    };
-    work.then(done, done);
-  });
+  const mcpStores = capabilities.mcp ? serveMainMcpStores(connection, capabilities.mcp) : undefined;
   let closing: Promise<void> | undefined;
   const execute = <T>(
     token: CancellationToken,
@@ -222,6 +242,25 @@ export function serveDesktopPlatform(
       return PlatformPolicySchema.parse(await capabilities.readPermissionPolicy(threadId));
     })
   );
+  connection.onRequest('platform/workspace/validate', (input: unknown, token: CancellationToken) =>
+    execute(token, async (signal) => {
+      const request = PlatformWorkspaceBindingRequestSchema.parse(input);
+      if (!capabilities.validateWorkspaceBinding) {
+        throw new Error('Desktop has no live workspace binding owner');
+      }
+      const captured = selections.get(request.threadId);
+      if (
+        captured?.selection.revalidateWorkspace &&
+        isDeepStrictEqual(captured.workspaceBinding, request.binding)
+      ) {
+        await captured.selection.revalidateWorkspace(signal);
+      } else {
+        await capabilities.validateWorkspaceBinding({ ...request, signal });
+      }
+      signal.throwIfAborted();
+      return { accepted: true };
+    })
+  );
   connection.onRequest('platform/admit', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
       const request = PlatformRunRequestSchema.parse(input);
@@ -231,15 +270,11 @@ export function serveDesktopPlatform(
       admissions.add(request.threadId);
       let captured: DesktopPlatformSelection | undefined;
       try {
-        const borrowed = await capabilities.readConfiguration({
-          ...(request.configuration ? { configuration: request.configuration } : {}),
-          ...(request.snapshot ? { snapshot: request.snapshot } : {}),
-          modelId: request.modelId,
-          ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
-          signal,
-          threadId: request.threadId,
-        });
+        const borrowed = await capabilities.readConfiguration(
+          desktopAdmissionRequest(request, signal)
+        );
         const owner: DesktopSelectionOwner = {
+          ...(request.workspaceBinding ? { workspaceBinding: request.workspaceBinding } : {}),
           selection: {
             ...borrowed,
             close: () =>
@@ -325,42 +360,25 @@ export function serveDesktopPlatform(
         if (!tool) {
           throw new Error('Platform executor is not admitted');
         }
-        try {
-          const output = await tool.execute(request.input, {
-            ...(request.resumeData === undefined ? {} : { resumeData: request.resumeData }),
-            runId: request.runId,
-            signal,
-            threadId: request.threadId,
-            toolCallId: request.toolCallId,
-            ...(tool.mcpBinding
-              ? {
-                  mcp: mcp.execution(
-                    {
-                      runId: request.runId,
-                      threadId: request.threadId,
-                      toolCallId: request.toolCallId,
-                      toolId: request.toolId,
-                    },
-                    signal
-                  ),
-                }
-              : {}),
-            write: async (chunk) => {
-              await connection.sendRequest(
-                'platform/progress',
-                PlatformProgressSchema.parse({
-                  chunk,
-                  runId: request.runId,
-                  threadId: request.threadId,
-                  toolCallId: request.toolCallId,
-                })
-              );
-            },
-          });
-          return z.json().parse(output);
-        } finally {
-          mcp.release(request);
-        }
+        const output = await tool.execute(request.input, {
+          ...(request.resumeData === undefined ? {} : { resumeData: request.resumeData }),
+          runId: request.runId,
+          signal,
+          threadId: request.threadId,
+          toolCallId: request.toolCallId,
+          write: async (chunk) => {
+            await connection.sendRequest(
+              'platform/progress',
+              PlatformProgressSchema.parse({
+                chunk,
+                runId: request.runId,
+                threadId: request.threadId,
+                toolCallId: request.toolCallId,
+              })
+            );
+          },
+        });
+        return z.json().parse(output);
       })
   );
   connection.onRequest('platform/project', (input: unknown, token: CancellationToken) =>
@@ -395,7 +413,7 @@ export function serveDesktopPlatform(
       while (pending.size > 0) {
         await Promise.allSettled([...pending]);
       }
-      mcp.close();
+      mcpStores?.close();
       const results = await Promise.allSettled(
         [...selections.values()].map((value) => value.selection.close())
       );

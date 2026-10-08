@@ -7,6 +7,9 @@ import {
   mcpReducer,
 } from '../assistant-ui-panel-wrapper-runtime';
 
+/** Shown wherever the legacy composer lists MCP tools it can no longer run. */
+export const MCP_LEGACY_THREAD_NOTICE = 'MCP tools are available in new threads';
+
 interface UseAssistantMcpMenuStateArgs {
   readonly nativeToolItems: readonly AssistantToolMenuItem[];
   readonly onOpenToolSettings: () => void;
@@ -73,8 +76,17 @@ export function useAssistantMcpMenuState({
     [nativeToolItems]
   );
 
+  // This composer runs legacy threads, which no longer carry MCP (BST-1930): the
+  // tools stay listed, visibly unavailable here, because new threads run them.
   const toolMenuItems = useMemo(
-    () => [...nativeToolItems, ...mcpState.tools],
+    () => [
+      ...nativeToolItems,
+      ...mcpState.tools.map((tool) => ({
+        ...tool,
+        description: MCP_LEGACY_THREAD_NOTICE,
+        disabled: true,
+      })),
+    ],
     [nativeToolItems, mcpState.tools]
   );
 
@@ -108,9 +120,13 @@ export function useAssistantMcpMenuState({
     typeof window !== 'undefined' && typeof window.mcp?.listTools === 'function';
 
   const toolMenu = useMemo<AssistantToolMenuConfig>(() => {
-    const summary = toolMenuItems.length
-      ? `${toolMenuItems.filter((tool) => tool.enabled).length} of ${toolMenuItems.length} enabled`
+    const counts = nativeToolItems.length
+      ? `${nativeToolItems.filter((tool) => tool.enabled).length} of ${nativeToolItems.length} enabled`
       : undefined;
+    const summary =
+      mcpState.tools.length > 0
+        ? [counts, MCP_LEGACY_THREAD_NOTICE].filter(Boolean).join(' · ')
+        : counts;
 
     return {
       isLoading: mcpState.loading,
@@ -125,6 +141,8 @@ export function useAssistantMcpMenuState({
     handleToggleTool,
     loadMcpTools,
     mcpState.loading,
+    mcpState.tools.length,
+    nativeToolItems,
     onOpenToolSettings,
     toolMenuItems,
   ]);

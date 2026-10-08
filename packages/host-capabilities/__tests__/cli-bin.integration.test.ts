@@ -9,20 +9,22 @@ import {
   realpath,
   writeFile,
 } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { type AgentHost, loadHostPlatform, startAgentHost } from '@brainstrike/agent-host';
+import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
 import { RootLock } from '@brainstrike/state-store';
 import { afterEach, expect, test, vi } from 'vitest';
-import { loadHostPlatform } from '../src/process-entry.js';
-import { type AgentHost, startAgentHost } from '../src/runtime.js';
-import { removeFixtureRoot } from './fixtures/cooperative-host-fixture.js';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const workspaceRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const shim = join(packageRoot, 'bin/brainstrike.mjs');
-const compiled = join(packageRoot, 'dist/cli.js');
-const platform = fileURLToPath(new URL('./fixtures/process-platform.mjs', import.meta.url));
+const require = createRequire(import.meta.url);
+// The tracked executable composes this package's platform with the Core CLI entry.
+const compiled = require.resolve('@brainstrike/agent-host/cli');
+const platform = require.resolve('@brainstrike/agent-host/test-fixtures/process-platform');
 const roots: string[] = [];
 const hosts: AgentHost[] = [];
 

@@ -1,8 +1,12 @@
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
-import { HostRunSnapshotSchema, McpToolAuthoritySchema } from '@brainstrike/agent-host/protocol';
-import { CliWorkspaceSelectionSchema } from '@brainstrike/agent-host/standalone-workspace-input';
+import { HostRunSnapshotSchema } from '@brainstrike/agent-host/protocol';
+import {
+  CliWorkspaceRootsSchema,
+  CliWorkspaceSelectionSchema,
+} from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { PERMISSION_DECISIONS, TOOL_RISK_CATEGORIES } from '@brainstrike/assistant-contract';
+import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { z } from 'zod';
 
 const Id = z.string().min(1);
@@ -12,6 +16,11 @@ export const PlatformRunRequestSchema = z.strictObject({
   modelId: Id,
   prompt: z.string().optional(),
   snapshot: HostRunSnapshotSchema.optional(),
+  threadId: Id,
+  workspaceBinding: ThreadWorkspaceBindingSchema.optional(),
+});
+export const PlatformWorkspaceBindingRequestSchema = z.strictObject({
+  binding: ThreadWorkspaceBindingSchema,
   threadId: Id,
 });
 export const PlatformToolRequestSchema = z.strictObject({
@@ -168,16 +177,18 @@ export const PlatformSelectionSchema = z.strictObject({
           resumeSchema: z.record(z.string(), z.json()),
         })
         .optional(),
-      mcpAuthority: McpToolAuthoritySchema.optional(),
-      mcpBinding: z
-        .strictObject({ configuredServerId: Id, generation: z.number().int().positive().safe() })
-        .optional(),
       permissionToolId: Id,
       risk: z.enum(TOOL_RISK_CATEGORIES),
       strict: z.boolean().optional(),
     })
   ),
   toolTimeoutMs: z.number().positive(),
+  workspace: z
+    .strictObject({
+      boundWorkspaceRootId: Id,
+      roots: CliWorkspaceRootsSchema,
+    })
+    .optional(),
 });
 export const PlatformProgressSchema = z.strictObject({
   chunk: z.json(),

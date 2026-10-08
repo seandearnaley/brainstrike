@@ -394,7 +394,6 @@ describe('registerAgentIpcHandlers', () => {
       await chatHandler({} as IpcMainInvokeEvent, messages, runtime);
 
       expect(mockStreamMastraAgent).toHaveBeenCalledWith(messages, {
-        mcpHost: expect.any(Object),
         runtime: {
           apiKey: 'secret-key',
           mcpEnabled: false,
@@ -405,7 +404,8 @@ describe('registerAgentIpcHandlers', () => {
       });
     });
 
-    it('passes the desktop MCP host through to the agent runtime', async () => {
+    // BST-1930: legacy chat carries no MCP; the one MCP runtime serves agent-host threads.
+    it('runs legacy chat without an MCP host', async () => {
       const mockStreamMastraAgent = vi.fn().mockReturnValue({
         [Symbol.asyncIterator]: () => ({
           async next() {
@@ -437,16 +437,16 @@ describe('registerAgentIpcHandlers', () => {
 
       await chatHandler({} as IpcMainInvokeEvent, messages, { provider: 'openai' });
 
-      expect(mockStreamMastraAgent).toHaveBeenCalledWith(
-        messages,
-        expect.objectContaining({
-          mcpHost: expect.any(Object),
-          runtime: expect.not.objectContaining({ mcpConfig: expect.anything() }),
-        })
-      );
+      expect(mockStreamMastraAgent).toHaveBeenCalledTimes(1);
+      const [, options] = mockStreamMastraAgent.mock.calls[0] as [
+        unknown,
+        { mcpHost?: unknown; runtime: Record<string, unknown> },
+      ];
+      expect(options).not.toHaveProperty('mcpHost');
+      expect(options.runtime).not.toHaveProperty('mcpConfig');
     });
 
-    it('ignores runtime-supplied MCP config and uses the desktop host', async () => {
+    it('ignores runtime-supplied MCP config and passes no MCP host', async () => {
       const mockStreamMastraAgent = vi.fn().mockReturnValue({
         [Symbol.asyncIterator]: () => ({
           async next() {
@@ -488,7 +488,7 @@ describe('registerAgentIpcHandlers', () => {
       ];
       expect(options.runtime['provider']).toBe('openai');
       expect(options.runtime['mcpConfig']).toBeUndefined();
-      expect(options.mcpHost).toEqual(expect.any(Object));
+      expect(options).not.toHaveProperty('mcpHost');
     });
 
     it('throws when provider is missing or unsupported', async () => {

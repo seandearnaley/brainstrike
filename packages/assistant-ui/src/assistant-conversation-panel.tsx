@@ -26,6 +26,12 @@ export type AssistantConversationPanelProps = Partial<
     'openRouterModelMetadataLookup' | 'onProviderSettingsValidationChange'
   > & {
     readonly allowIdleInput?: boolean;
+    /**
+     * True when this surface owns its thread's commands (a root conversation),
+     * so it offers and dispatches the thread's follow-up queue. A delegated
+     * child's view never does: its runtime belongs to another owner.
+     */
+    readonly ownsFollowUpQueue?: boolean;
     readonly onSendActiveInput?: SendActiveConversationInput | undefined;
     readonly prepareActiveInput?: ((input: AssistantChildInput) => AssistantChildInput) | undefined;
     readonly className?: string;
@@ -51,6 +57,7 @@ export function AssistantConversationPanel({
   agentColor,
   decisionRoute,
   allowIdleInput = false,
+  ownsFollowUpQueue = false,
   onSendActiveInput,
   prepareActiveInput,
   label,
@@ -89,7 +96,7 @@ export function AssistantConversationPanel({
             <PlanModeExitProvider onExit={props.planMode?.onExit}>
               <RewindProvider value={null}>
                 <DecisionRouteContext value={decisionRoute ?? null}>
-                  <FollowUpQueueOwnershipContext value={false}>
+                  <FollowUpQueueOwnershipContext value={ownsFollowUpQueue}>
                     <AssistantPanelErrorBoundary>
                       <ApprovalOwnerThreadContext value={ownerThread ?? null}>
                         <ChatThreadUI

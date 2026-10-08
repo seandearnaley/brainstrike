@@ -235,6 +235,9 @@
       ],
       "@brainstrike/agent-host/*": [
         "./packages/agent-host/src/*"
+      ],
+      "@brainstrike/host-capabilities": [
+        "./packages/host-capabilities/src/index.ts"
       ]
     },
     "types": [

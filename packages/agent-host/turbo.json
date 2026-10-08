@@ -3,7 +3,8 @@
   "tasks": {
     "test:integration": {
       // Spawned CLI and restart proofs resolve emitted public entries in Node.
-      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+      // The installed `brainstrike` executables are the composed product bin.
+      "dependsOn": ["$TURBO_EXTENDS$", "build", "@brainstrike/host-capabilities#build"]
     },
     "test:coverage": {
       // The full coverage lane includes those same native process proofs.

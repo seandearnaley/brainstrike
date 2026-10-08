@@ -8,6 +8,9 @@ import { crc32 } from 'node:zlib';
 import { createStateStoreIndexer, openIndexer, type StateMessagePlan } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { StateStore, type StateStoreHooks } from '@brainstrike/state-store';
+import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json' with {
+  type: 'json',
+};
 import { Schema } from 'effect';
 import { expect, it } from 'vitest';
 import { decoder } from '../src/contracts.js';
@@ -595,12 +598,7 @@ it('requires the exact acquired selected profile and detects corrupt stored Floa
 
 it('accepts null text from real Core metadata across SQLite/vector reopen without rewriting unversioned truth', async () => {
   const root = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'core-message-vectors-')));
-  const captured: unknown = JSON.parse(
-    await readFile(
-      new URL('../../agent-host/__tests__/fixtures/approved-run-log.json', import.meta.url),
-      'utf8'
-    )
-  );
+  const captured: unknown = recording;
   const rows = decoder(
     Schema.Array(
       Schema.Struct({
